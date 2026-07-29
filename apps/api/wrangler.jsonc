@@ -1,0 +1,64 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "keel-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-28",
+  "vars": {
+    "ENVIRONMENT": "production",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "keel-production",
+      "database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID",
+      "migrations_dir": "../../packages/database/migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "DOCUMENTS",
+      "bucket_name": "keel-private-documents",
+    },
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "INGESTION_QUEUE",
+        "queue": "keel-ingestion",
+      },
+    ],
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "env": {
+    "local": {
+      "name": "keel-api-local",
+      "vars": {
+        "ENVIRONMENT": "local",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "keel-local",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "../../packages/database/migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "DOCUMENTS",
+          "bucket_name": "keel-local-private-documents",
+        },
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "INGESTION_QUEUE",
+            "queue": "keel-local-ingestion",
+          },
+        ],
+      },
+    },
+  },
+}

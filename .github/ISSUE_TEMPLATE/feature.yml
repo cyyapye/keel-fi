@@ -1,0 +1,48 @@
+name: Feature proposal
+description: Propose a product, evidence, or infrastructure capability.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use synthetic examples only. Explain how the proposal preserves Keel's
+        evidence, audit, calculation, and value-versus-liquidity boundaries.
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision or workflow
+      description: What decision becomes safer or easier?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and provenance
+      description:
+        Which facts, dates, sources, confidence, and review state are needed?
+    validations:
+      required: true
+  - type: textarea
+    id: model
+    attributes:
+      label: Deterministic model
+      description: Describe calculations, precision, and versioning.
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and privacy
+      description:
+        Identify new data, trust boundaries, retention, and failure modes.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Data safety
+      options:
+        - label: I confirm this proposal contains synthetic examples only.
+          required: true
