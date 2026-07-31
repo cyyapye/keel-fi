@@ -2,6 +2,9 @@
 node_modules/
 .pnpm-store/
 
+# Keep the repository's Node pin even when a global ignore file hides it.
+!.nvmrc
+
 # Builds and tests
 dist/
 coverage/
