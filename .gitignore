@@ -1,0 +1,48 @@
+# Dependencies and package-manager state
+node_modules/
+.pnpm-store/
+
+# Builds and tests
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Cloudflare local state and secrets
+.dev.vars
+.wrangler/
+worker-configuration.d.ts
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs and temporary files
+*.log
+*.tmp
+tmp/
+
+# Financial and source-document file types are never repository inputs
+*.csv
+*.ofx
+*.qfx
+*.qif
+*.xlsx
+*.xls
+*.pdf
+*.eml
+*.msg
+*.p12
+*.pem
+*.key
+backups/
+exports/
+uploads/

@@ -1,0 +1,24 @@
+{
+  "name": "@keel/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --env='' --outdir dist",
+    "dev": "wrangler dev --env local --port 8789",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@keel/database": "workspace:*",
+    "@keel/domain": "workspace:*",
+    "@keel/evidence": "workspace:*",
+    "hono": "^4.8.10",
+    "jose": "^6.0.12",
+    "zod": "^4.0.10"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260722.1",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.26.1"
+  }
+}

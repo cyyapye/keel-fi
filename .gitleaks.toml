@@ -1,0 +1,4 @@
+title = "Keel public-repository secret policy"
+
+[extend]
+useDefault = true
