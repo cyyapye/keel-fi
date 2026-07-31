@@ -2,6 +2,7 @@
   "name": "keel",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Evidence-backed operating system for private holdings and liquidity planning.",
   "license": "MPL-2.0",
   "packageManager": "pnpm@11.9.0",
@@ -16,12 +17,13 @@
     "db:migrate:local": "wrangler d1 migrations apply keel-local --env local --local --config apps/api/wrangler.jsonc",
     "db:reset:local": "pnpm db:migrate:local && pnpm db:seed:local",
     "db:seed:local": "wrangler d1 execute keel-local --env local --local --config apps/api/wrangler.jsonc --file packages/database/seed/synthetic.sql",
-    "dev": "pnpm --parallel --filter @keel/api --filter @keel/web run dev",
+    "dev": "tsx scripts/dev.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "toolchain:check": "node scripts/check-toolchain.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --filter './apps/**' --filter './packages/**' run typecheck"
   },
   "devDependencies": {

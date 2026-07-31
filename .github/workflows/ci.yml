@@ -1,75 +1,50 @@
-name: CI
+name: PR Checks
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
+  merge_group:
 
 permissions:
   contents: read
   pull-requests: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   quality:
-    name: Lint, typecheck, unit tests, build
+    name: Quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-          version: 11.9.0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22.13.0
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm data:scan
-      - run: pnpm format:check
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - uses: ./.github/actions/setup-node-pnpm
+      - run: make check
 
   migrations:
     name: D1 migration and synthetic seed
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-          version: 11.9.0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22.13.0
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm db:migrate:local
-      - run: pnpm db:seed:local
-      - run: pnpm db:check:local
+      - uses: ./.github/actions/setup-node-pnpm
+      - run: make db-verify
 
   browser:
-    name: Critical browser flow
+    name: Critical browser flows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-          version: 11.9.0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22.13.0
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-node-pnpm
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm exec playwright test --project=chromium
+      - run: make e2e
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-browser-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   secret-scan:
     name: Secret scan

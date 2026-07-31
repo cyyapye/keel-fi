@@ -20,11 +20,8 @@
 
 <!-- List exact commands and outcomes. -->
 
-- [ ] `pnpm check`
-- [ ] `pnpm db:migrate:local`
-- [ ] `pnpm db:seed:local`
-- [ ] `pnpm db:check:local`
-- [ ] Relevant browser tests
+- [ ] `make verify`
+- [ ] Any narrower or additional checks are listed above
 
 ## Deployment and recovery
 

@@ -70,24 +70,36 @@ Prerequisites:
 
 - Node.js 22.13 or newer
 - Corepack
+- GNU Make
 
 From a fresh clone:
 
 ```sh
-corepack enable
-pnpm install --frozen-lockfile
-pnpm db:reset:local
+make bootstrap
 ```
 
-The documented local-development command is:
+This installs the pinned pnpm dependencies, prepares the synthetic local D1
+database, and installs Playwright's Chromium browser. Codex runs the same
+bootstrap automatically when it creates a worktree through the checked-in local
+environment configuration.
+
+Start the frontend and backend together with one command:
 
 ```sh
-pnpm dev
+make dev
 ```
 
-Open `http://127.0.0.1:4177`. Vite proxies `/api` to the local Worker on
-port 8789. Local authentication bypass is enabled only by Wrangler's explicit
-`local` environment; production defaults to fail-closed Access validation.
+The command prints both URLs. The primary checkout uses web port 4177 and API
+port 8789. Linked worktrees derive stable alternate ports from their paths so
+several Codex worktrees can run concurrently. Override either port when needed:
+
+```sh
+KEEL_WEB_PORT=4300 KEEL_API_PORT=8900 make dev
+```
+
+Vite proxies `/api` to the matching local Worker. Local authentication bypass is
+enabled only by Wrangler's explicit `local` environment; production defaults to
+fail-closed Access validation.
 
 Local database commands:
 
@@ -97,14 +109,26 @@ pnpm db:seed:local
 pnpm db:check:local
 ```
 
-The documented test command is:
+Run the complete local PR-equivalent verification with:
 
 ```sh
-pnpm check
+make verify
 ```
 
-Critical browser coverage can be run separately with `pnpm test:e2e`; the first
-run may require `pnpm exec playwright install chromium`.
+Focused targets are available while iterating:
+
+| Command          | Scope                                                      |
+| ---------------- | ---------------------------------------------------------- |
+| `make check`     | Data scan, formatting, lint, types, unit tests, and builds |
+| `make lint`      | ESLint only                                                |
+| `make typecheck` | TypeScript only                                            |
+| `make test`      | Unit and API tests only                                    |
+| `make db-verify` | Migrations, synthetic seed, and D1 invariants              |
+| `make e2e`       | Desktop and mobile Chromium flows                          |
+
+Use `TEST_ARGS` or `E2E_ARGS` for narrower runs, for example
+`make test TEST_ARGS=packages/domain` or
+`make e2e E2E_ARGS='--project=chromium'`.
 
 ## Deployment
 

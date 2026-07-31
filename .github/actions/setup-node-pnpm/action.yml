@@ -1,0 +1,17 @@
+name: Set up Node and pnpm
+description: Install Keel's pinned Node.js, pnpm, and frozen dependencies.
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        run_install: false
+        version: 11.9.0
+    - uses: actions/setup-node@v5
+      with:
+        node-version: 22.13.0
+        cache: pnpm
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

@@ -12,6 +12,15 @@
 - Forecast snapshots and accepted review decisions are append-only.
 - Validate every external boundary with Zod and keep production authentication
   fail-closed.
-- Run `pnpm check`, `pnpm db:migrate:local`, `pnpm db:seed:local`, and
-  `pnpm db:check:local` before publishing a change that affects runtime code or
-  migrations.
+
+## Codex and local workflow
+
+- A fresh Codex worktree is prepared by `.codex/environments/environment.toml`.
+  Run `make bootstrap` manually if setup needs to be repaired or repeated.
+- Start the frontend and backend together with `make dev`. Use the URLs it
+  prints because linked worktrees receive deterministic, isolated ports.
+- Run `make verify` before publishing runtime or migration changes. Use focused
+  targets such as `make lint`, `make typecheck`, `make test`, `make db-verify`,
+  or `make e2e` while iterating.
+- Do not copy `.env` files, credentials, or private financial inputs into
+  worktrees. Local development uses only the checked-in synthetic seed.

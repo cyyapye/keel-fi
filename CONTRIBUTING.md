@@ -19,12 +19,16 @@ a later commit is not sufficient.
 ## Development workflow
 
 1. Create a focused branch.
-2. Run `corepack enable` and `pnpm install --frozen-lockfile`.
-3. Apply and seed local D1 with `pnpm db:reset:local`.
+2. Run `make bootstrap` in a fresh clone or worktree.
+3. Start both local services with `make dev` and use the printed URLs.
 4. Make the smallest cohesive change.
-5. Run `pnpm check` and relevant Playwright tests.
+5. Run `make verify`, or focused Make targets while iterating.
 6. Explain calculation, migration, security, and data-provenance effects in the
    pull request.
+
+Repository rules for `main` should require the four PR Checks jobs documented in
+`.github/workflows/README.md`. The post-merge workflow verifies the exact merged
+commit; it does not deploy it.
 
 ## Design constraints
 
