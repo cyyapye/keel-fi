@@ -12,7 +12,7 @@
     "build": "pnpm -r build",
     "check": "pnpm data:scan && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "data:scan": "node scripts/check-public-data.mjs",
-    "db:check:local": "wrangler d1 execute keel-local --env local --local --config apps/api/wrangler.jsonc --command \"SELECT COUNT(*) AS households FROM households; SELECT COUNT(*) AS snapshots FROM forecast_snapshots;\"",
+    "db:check:local": "wrangler d1 execute keel-local --env local --local --config apps/api/wrangler.jsonc --command \"SELECT COUNT(*) AS households FROM households; SELECT COUNT(*) AS snapshots FROM forecast_snapshots; SELECT COUNT(*) AS goals FROM goals; SELECT COUNT(*) AS primary_goals FROM goals WHERE is_primary = 1 AND archived_at IS NULL; SELECT COUNT(*) AS goal_versions_without_snapshot FROM goal_versions version LEFT JOIN goal_forecast_snapshots snapshot ON snapshot.goal_version_id = version.id WHERE snapshot.id IS NULL;\"",
     "db:migrate:local": "wrangler d1 migrations apply keel-local --env local --local --config apps/api/wrangler.jsonc",
     "db:reset:local": "pnpm db:migrate:local && pnpm db:seed:local",
     "db:seed:local": "wrangler d1 execute keel-local --env local --local --config apps/api/wrangler.jsonc --file packages/database/seed/synthetic.sql",

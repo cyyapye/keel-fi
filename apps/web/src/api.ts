@@ -1,4 +1,9 @@
-import { AlphaDataSchema, type AlphaData } from "@keel/domain";
+import {
+  AlphaDataSchema,
+  GoalDraftInputSchema,
+  type AlphaData,
+  type GoalDraftInput,
+} from "@keel/domain";
 
 export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
   const response = await fetch("/api/alpha", {
@@ -39,5 +44,25 @@ export async function submitEvidenceReview(
 
   if (!response.ok) {
     throw new Error(`Evidence review returned ${response.status}.`);
+  }
+}
+
+export async function saveGoalVersion(input: GoalDraftInput): Promise<void> {
+  const body = GoalDraftInputSchema.parse(input);
+  const response = await fetch("/api/goals", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(result?.error ?? `Goal save returned ${response.status}.`);
   }
 }

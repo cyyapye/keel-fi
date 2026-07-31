@@ -65,23 +65,49 @@ export function Panel({
 }
 
 type MetricCardProps = {
+  actionLabel?: string;
   label: string;
+  onClick?: () => void;
   value: string;
   detail?: string;
   tone?: "default" | "accent" | "dark";
 };
 
 export function MetricCard({
+  actionLabel,
   detail,
   label,
+  onClick,
   tone = "default",
   value,
 }: MetricCardProps) {
-  return (
-    <article className={`metric-card metric-card--${tone}`}>
+  const content = (
+    <>
       <p>{label}</p>
       <strong>{value}</strong>
-      {detail !== undefined && <span>{detail}</span>}
-    </article>
+      {detail !== undefined && (
+        <span className="metric-card__detail">{detail}</span>
+      )}
+      {actionLabel !== undefined && (
+        <span className="metric-card__action">{actionLabel} →</span>
+      )}
+    </>
+  );
+
+  if (onClick !== undefined) {
+    return (
+      <button
+        aria-label={`${label}: ${value}. ${actionLabel ?? "View details"}`}
+        className={`metric-card metric-card--${tone} metric-card--interactive`}
+        onClick={onClick}
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <article className={`metric-card metric-card--${tone}`}>{content}</article>
   );
 }

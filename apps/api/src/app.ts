@@ -1,4 +1,5 @@
 import { D1AlphaRepository, type AlphaRepository } from "@keel/database";
+import { GoalDraftInputSchema } from "@keel/domain";
 import { ReviewInputSchema } from "@keel/evidence";
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -171,6 +172,51 @@ export function createApp(options: AppOptions = {}) {
         { error: "Evidence review could not be recorded." },
         500,
       );
+    }
+  });
+
+  app.post("/api/goals", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+
+    const result = GoalDraftInputSchema.safeParse(rawInput);
+    if (!result.success) {
+      return context.json(
+        {
+          error: "Goal input is invalid.",
+          issues: result.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+      );
+    }
+
+    try {
+      await repositoryFor(context.env).saveGoal(
+        context.get("identity").subject,
+        result.data,
+      );
+      return context.body(null, 204, {
+        "Cache-Control": "no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message.includes("not found")) {
+        return context.json({ error: "Goal not found." }, 404);
+      }
+      if (message.includes("template")) {
+        return context.json(
+          { error: "A saved goal cannot change templates." },
+          409,
+        );
+      }
+      return context.json({ error: "Goal version could not be saved." }, 500);
     }
   });
 

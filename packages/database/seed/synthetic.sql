@@ -549,6 +549,7 @@ VALUES
   ('out_fi_v2_p50', 'hh_demo', 'snap_fi_v2', 'cumulative_liquidity', '2031-12-31', 50, 186000000, NULL, '2026-07-10T14:20:00-07:00'),
   ('out_fi_v3_p25', 'hh_demo', 'snap_fi_v3', 'cumulative_liquidity', '2031-12-31', 25, 94000000, NULL, '2026-07-22T08:00:00-07:00'),
   ('out_fi_v3_p50', 'hh_demo', 'snap_fi_v3', 'cumulative_liquidity', '2031-12-31', 50, 210000000, NULL, '2026-07-22T08:00:00-07:00'),
+  ('out_fi_v3_p75', 'hh_demo', 'snap_fi_v3', 'cumulative_liquidity', '2031-12-31', 75, 354000000, NULL, '2026-07-22T08:00:00-07:00'),
   ('out_fi_v3_cross', 'hh_demo', 'snap_fi_v3', 'probability_crossing_fi', '2031-12-31', NULL, NULL, 640000, '2026-07-22T08:00:00-07:00'),
   ('out_runway_p50', 'hh_demo', 'snap_runway_v1', 'cumulative_liquidity', '2031-12-31', 50, 0, NULL, '2026-07-22T08:01:00-07:00'),
   ('out_thesis_p50', 'hh_demo', 'snap_thesis_v1', 'cumulative_liquidity', '2031-12-31', 50, 352000000, NULL, '2026-07-22T08:02:00-07:00'),
@@ -630,4 +631,178 @@ VALUES
     1,
     1,
     NULL
+  );
+
+INSERT OR IGNORE INTO goals
+  (id, household_id, template_key, is_primary, archived_at, created_at)
+VALUES
+  (
+    'goal_fi',
+    'hh_demo',
+    'financial_independence',
+    1,
+    NULL,
+    '2026-07-01T09:00:00-07:00'
+  ),
+  (
+    'goal_runway',
+    'hh_demo',
+    'cash_runway',
+    0,
+    NULL,
+    '2026-07-01T09:01:00-07:00'
+  ),
+  (
+    'goal_purchase',
+    'hh_demo',
+    'major_purchase',
+    0,
+    NULL,
+    '2026-07-01T09:02:00-07:00'
+  );
+
+INSERT OR IGNORE INTO goal_versions
+  (
+    id,
+    household_id,
+    goal_id,
+    version,
+    name,
+    metric_key,
+    metric_label,
+    target_value_integer,
+    target_unit,
+    target_date,
+    current_value_integer,
+    current_value_source,
+    change_note,
+    created_at,
+    created_by,
+    immutable
+  )
+VALUES
+  (
+    'goalv_fi_1',
+    'hh_demo',
+    'goal_fi',
+    1,
+    'Financial independence',
+    'fi_eligible_liquid',
+    'FI-eligible liquid assets',
+    325000000,
+    'minor_units',
+    NULL,
+    182500000,
+    'Synthetic FI planning inputs',
+    'Initial synthetic FI goal',
+    '2026-07-01T09:00:00-07:00',
+    'Demo Operator',
+    1
+  ),
+  (
+    'goalv_runway_1',
+    'hh_demo',
+    'goal_runway',
+    1,
+    'Keep a three-year cash runway',
+    'protected_runway_months',
+    'Months of protected runway',
+    36,
+    'months',
+    NULL,
+    42,
+    'Synthetic cash-flow plan',
+    'Initial synthetic runway guardrail',
+    '2026-07-01T09:01:00-07:00',
+    'Demo Operator',
+    1
+  ),
+  (
+    'goalv_purchase_1',
+    'hh_demo',
+    'goal_purchase',
+    1,
+    'Future home purchase',
+    'purchase_fund',
+    'Purchase fund',
+    120000000,
+    'minor_units',
+    '2030-06-30',
+    25000000,
+    'Synthetic goal input',
+    'Initial synthetic purchase goal',
+    '2026-07-01T09:02:00-07:00',
+    'Demo Operator',
+    1
+  );
+
+INSERT OR IGNORE INTO goal_forecast_snapshots
+  (
+    id,
+    household_id,
+    goal_version_id,
+    version,
+    model_status,
+    lower_value_integer,
+    middle_value_integer,
+    higher_value_integer,
+    success_probability_ppm,
+    unit,
+    horizon_date,
+    methodology,
+    created_at,
+    created_by,
+    immutable
+  )
+VALUES
+  (
+    'goalsnap_fi_1',
+    'hh_demo',
+    'goalv_fi_1',
+    1,
+    'modeled',
+    276500000,
+    392500000,
+    536500000,
+    640000,
+    'minor_units',
+    '2031-12-31',
+    'Five-year total available value combines the current baseline with the saved lower, middle, and higher liquidity outcomes.',
+    '2026-07-01T09:00:00-07:00',
+    'Demo Operator',
+    1
+  ),
+  (
+    'goalsnap_runway_1',
+    'hh_demo',
+    'goalv_runway_1',
+    1,
+    'not_configured',
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    'months',
+    NULL,
+    'Current progress is saved. Add scenario inputs before treating this goal as a forecast.',
+    '2026-07-01T09:01:00-07:00',
+    'Demo Operator',
+    1
+  ),
+  (
+    'goalsnap_purchase_1',
+    'hh_demo',
+    'goalv_purchase_1',
+    1,
+    'not_configured',
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    'minor_units',
+    NULL,
+    'Current progress is saved. Add scenario inputs before treating this goal as a forecast.',
+    '2026-07-01T09:02:00-07:00',
+    'Demo Operator',
+    1
   );

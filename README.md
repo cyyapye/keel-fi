@@ -8,6 +8,11 @@ workspace with a React decision surface, a Hono API, deterministic financial
 logic, and a normalized Cloudflare D1 record. All included people, companies,
 documents, accounts, and financial values are fabricated.
 
+The current interface includes versioned financial-independence, cash-runway,
+major-purchase, and custom goals. One goal is primary on the Overview; every
+save preserves the prior goal version and creates its matching forecast
+snapshot.
+
 > [!IMPORTANT] Keel is not financial, investment, legal, or tax advice.
 > Private-company marks are estimates and do not imply liquidity. The app
 > distinguishes paper value from realizable liquidity.
@@ -26,8 +31,8 @@ documents, accounts, and financial values are fabricated.
 
 ## What is included
 
-- A responsive private-alpha product shell with Decision Dashboard, Holdings,
-  Evidence Inbox, Scenarios, and immutable Forecast History views.
+- A responsive private-alpha product shell with Overview, Goals, Holdings,
+  Evidence Inbox, Scenarios, and append-only Forecast History views.
 - Separate administrator NAV, latest external mark, FI-underwriting value,
   thesis-weighted expected value, timing-adjusted liquidity, and actual
   distribution records.

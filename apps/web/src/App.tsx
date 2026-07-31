@@ -1,17 +1,26 @@
-import type { AlphaData, EvidenceInboxItem, Scenario } from "@keel/domain";
+import {
+  createGoalPreview,
+  type AlphaData,
+  type EvidenceInboxItem,
+  type Goal,
+  type GoalDraftInput,
+  type Scenario,
+} from "@keel/domain";
 import { Badge, Button, MetricCard, Panel } from "@keel/ui";
 import {
   type CSSProperties,
+  type FormEvent,
   type ReactNode,
   useEffect,
   useMemo,
   useState,
 } from "react";
 
-import { loadAlphaData, submitEvidenceReview } from "./api";
+import { loadAlphaData, saveGoalVersion, submitEvidenceReview } from "./api";
 import { formatCompactMoney, formatDate, formatProbability } from "./format";
 
-type Screen = "dashboard" | "holdings" | "evidence" | "scenarios" | "history";
+type Screen =
+  "dashboard" | "goals" | "holdings" | "evidence" | "scenarios" | "history";
 
 const navigation: readonly {
   id: Screen;
@@ -21,28 +30,38 @@ const navigation: readonly {
 }[] = [
   {
     id: "dashboard",
-    label: "Decision Dashboard",
-    shortLabel: "Decide",
-    icon: "⌁",
+    label: "Overview",
+    shortLabel: "Overview",
+    icon: "01",
   },
-  { id: "holdings", label: "Holdings", shortLabel: "Holdings", icon: "◇" },
+  { id: "goals", label: "Goals", shortLabel: "Goals", icon: "02" },
+  { id: "holdings", label: "Holdings", shortLabel: "Holdings", icon: "03" },
   {
     id: "evidence",
     label: "Evidence Inbox",
     shortLabel: "Evidence",
-    icon: "≡",
+    icon: "04",
   },
-  { id: "scenarios", label: "Scenarios", shortLabel: "Scenarios", icon: "∿" },
+  { id: "scenarios", label: "Scenarios", shortLabel: "Scenarios", icon: "05" },
   {
     id: "history",
     label: "Forecast History",
     shortLabel: "History",
-    icon: "↺",
+    icon: "06",
   },
 ];
 
 function pageHeading(screen: Screen) {
   return navigation.find((item) => item.id === screen)?.label ?? "Keel";
+}
+
+function KeelMark() {
+  return (
+    <svg aria-hidden="true" className="brand-mark" viewBox="0 0 32 32">
+      <path d="M10 2h12l8 8v12l-8 8H10l-8-8V10Z" />
+      <path d="M16 6v19M7 12h18M8 18l8 7 8-7" />
+    </svg>
+  );
 }
 
 function SourceBadge({
@@ -75,6 +94,66 @@ function EmptyState({
   );
 }
 
+type GoalUnit = GoalDraftInput["targetUnit"];
+
+function latestGoalVersion(goal: Goal) {
+  const version = goal.versions[0];
+  if (version === undefined) {
+    throw new Error("A goal must have at least one saved version.");
+  }
+  return version;
+}
+
+function formatGoalValue(value: number, unit: GoalUnit): string {
+  if (unit === "minor_units") {
+    return formatCompactMoney(value);
+  }
+  if (unit === "ppm") {
+    return formatProbability(value);
+  }
+  return `${new Intl.NumberFormat("en-US").format(value)} ${
+    unit === "months" ? "months" : ""
+  }`.trim();
+}
+
+function moneyInputValue(minorUnits: number | null): string {
+  if (minorUnits === null) {
+    return "";
+  }
+  const dollars = BigInt(minorUnits) / 100n;
+  const cents = BigInt(minorUnits) % 100n;
+  return cents === 0n
+    ? dollars.toString()
+    : `${dollars}.${cents.toString().padStart(2, "0")}`;
+}
+
+function parseMoneyInput(value: string): number | null {
+  const normalized = value.trim().replaceAll(",", "");
+  if (!/^\d+(?:\.\d{0,2})?$/.test(normalized)) {
+    return null;
+  }
+  const [whole = "0", decimal = ""] = normalized.split(".");
+  const minor = BigInt(whole) * 100n + BigInt(decimal.padEnd(2, "0"));
+  if (minor > BigInt(Number.MAX_SAFE_INTEGER)) {
+    return null;
+  }
+  return Number(minor);
+}
+
+function parseGoalInteger(value: string, unit: GoalUnit): number | null {
+  if (value.trim() === "") {
+    return null;
+  }
+  if (unit === "minor_units") {
+    return parseMoneyInput(value);
+  }
+  if (!/^\d+$/.test(value.trim())) {
+    return null;
+  }
+  const result = Number(value);
+  return Number.isSafeInteger(result) ? result : null;
+}
+
 function LiquidityChart({
   compact = false,
   scenario,
@@ -82,9 +161,10 @@ function LiquidityChart({
   compact?: boolean;
   scenario: Scenario;
 }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const width = 680;
-  const height = compact ? 210 : 280;
-  const padding = { top: 24, right: 22, bottom: 42, left: 24 };
+  const height = compact ? 230 : 300;
+  const padding = { top: 34, right: 18, bottom: 44, left: 62 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const maximum =
@@ -115,26 +195,51 @@ function LiquidityChart({
         )}`,
     )
     .join(" ");
+  const activePoint =
+    activeIndex === null ? undefined : scenario.liquidityCurve[activeIndex];
+  const activeX = activeIndex === null ? 0 : xAt(activeIndex);
+  const tooltipWidth = 164;
+  const tooltipHeight = 76;
+  const tooltipX = Math.min(
+    Math.max(activeX - tooltipWidth / 2, padding.left),
+    width - padding.right - tooltipWidth,
+  );
+  const tooltipY =
+    activePoint === undefined
+      ? 0
+      : Math.max(2, yAt(activePoint.p75Minor) - tooltipHeight - 10);
 
   return (
     <div className="chart-wrap">
       <svg
         aria-label={`${scenario.name} cumulative liquidity curve`}
         className="liquidity-chart"
-        role="img"
+        role="group"
         viewBox={`0 0 ${width} ${height}`}
       >
         {[0, 1, 2, 3].map((tick) => {
           const y = padding.top + Math.floor((tick * plotHeight) / 3);
+          const value = Number(
+            (BigInt(maximum) * BigInt(3 - tick)) / BigInt(3),
+          );
           return (
-            <line
-              className="chart-grid"
-              key={tick}
-              x1={padding.left}
-              x2={width - padding.right}
-              y1={y}
-              y2={y}
-            />
+            <g key={tick}>
+              <line
+                className="chart-grid"
+                x1={padding.left}
+                x2={width - padding.right}
+                y1={y}
+                y2={y}
+              />
+              <text
+                className="chart-axis-label"
+                textAnchor="end"
+                x={padding.left - 10}
+                y={y + 3}
+              >
+                {formatCompactMoney(value)}
+              </text>
+            </g>
           );
         })}
         <polygon className="chart-range" points={`${areaTop} ${areaBottom}`} />
@@ -153,6 +258,27 @@ function LiquidityChart({
         {scenario.liquidityCurve.map((point, index) => (
           <g key={point.year}>
             <circle
+              aria-label={`${point.year} liquidity range: Lower, 25th percentile, ${formatCompactMoney(
+                point.p25Minor,
+              )}; Middle, 50th percentile, ${formatCompactMoney(
+                point.p50Minor,
+              )}; Higher, 75th percentile, ${formatCompactMoney(
+                point.p75Minor,
+              )}`}
+              aria-pressed={activeIndex === index}
+              className="chart-hit chart-point"
+              cx={xAt(index)}
+              cy={yAt(point.p50Minor)}
+              onBlur={() => setActiveIndex(null)}
+              onClick={() => setActiveIndex(index)}
+              onFocus={() => setActiveIndex(index)}
+              onMouseEnter={() => setActiveIndex(index)}
+              onMouseLeave={() => setActiveIndex(null)}
+              r="13"
+              role="button"
+              tabIndex={0}
+            />
+            <circle
               className="chart-dot"
               cx={xAt(index)}
               cy={yAt(point.p50Minor)}
@@ -168,16 +294,40 @@ function LiquidityChart({
             </text>
           </g>
         ))}
+        {activePoint !== undefined && (
+          <g
+            aria-hidden="true"
+            className="chart-tooltip"
+            transform={`translate(${tooltipX} ${tooltipY})`}
+          >
+            <rect height={tooltipHeight} width={tooltipWidth} />
+            <text className="chart-tooltip__year" x="12" y="17">
+              {activePoint.year}
+            </text>
+            <text x="12" y="35">
+              Lower {formatCompactMoney(activePoint.p25Minor)}
+            </text>
+            <text x="12" y="51">
+              Middle {formatCompactMoney(activePoint.p50Minor)}
+            </text>
+            <text x="12" y="67">
+              Higher {formatCompactMoney(activePoint.p75Minor)}
+            </text>
+          </g>
+        )}
       </svg>
+      <p className="chart-instruction">
+        Hover, tap, or focus a year to inspect its range.
+      </p>
       <div className="chart-legend" aria-hidden="true">
         <span>
-          <i className="legend-line legend-line--p25" /> P25
+          <i className="legend-line legend-line--p25" /> Lower
         </span>
         <span>
-          <i className="legend-line legend-line--p50" /> P50
+          <i className="legend-line legend-line--p50" /> Middle
         </span>
         <span>
-          <i className="legend-line legend-line--p75" /> P75
+          <i className="legend-line legend-line--p75" /> Higher
         </span>
         <span>
           <i className="legend-range" /> Range
@@ -187,83 +337,187 @@ function LiquidityChart({
   );
 }
 
-function Dashboard({ data }: { data: AlphaData }) {
+function Dashboard({
+  data,
+  onNavigate,
+}: {
+  data: AlphaData;
+  onNavigate: (screen: Screen) => void;
+}) {
   const scenario =
     data.scenarios.find((item) => item.name === "FI Underwriting") ??
     data.scenarios[0];
   const dashboard = data.dashboard;
-  const fiProgressPpm =
-    dashboard.fiTargetMinor === 0
+  const primaryGoal =
+    data.goals.find((goal) => goal.isPrimary) ?? data.goals[0];
+  if (primaryGoal === undefined) {
+    return (
+      <EmptyState title="No planning goal">
+        Create a goal before using the overview.
+      </EmptyState>
+    );
+  }
+  const primaryVersion = latestGoalVersion(primaryGoal);
+  const primaryForecast = primaryVersion.forecast;
+  const target = primaryVersion.targetValueInteger;
+  const progressPpm =
+    target === null
       ? 0
-      : Number(
-          (BigInt(dashboard.fiEligibleLiquidMinor) * 1_000_000n) /
-            BigInt(dashboard.fiTargetMinor),
-        );
+      : target === 0
+        ? 1_000_000
+        : Math.min(
+            Number(
+              (BigInt(primaryVersion.currentValueInteger) * 1_000_000n) /
+                BigInt(target),
+            ),
+            1_000_000,
+          );
+  const signalPpm = primaryForecast.successProbabilityPpm ?? progressPpm;
   const ringStyle = {
-    "--probability": `${Math.floor(
-      dashboard.probabilityCrossingFiPpm / 10_000,
-    )}%`,
+    "--probability": `${Math.floor(signalPpm / 10_000)}%`,
   } as CSSProperties;
+  const secondaryGoals = data.goals.filter((goal) => !goal.isPrimary);
+  const targetMet =
+    target !== null && primaryVersion.currentValueInteger >= target;
+  const pendingEvidence = data.evidenceInbox.filter(
+    (item) => item.status === "pending_review",
+  ).length;
 
   return (
     <div className="screen-stack">
       <section className="hero">
         <div>
-          <p className="eyebrow">Decision posture · {dashboard.asOfDate}</p>
-          <h1>
-            Keep optionality.
-            <br />
-            Underwrite the real.
-          </h1>
-          <p className="hero__copy">
-            Private value is tracked. Only timing-adjusted liquidity earns a
-            place in this plan.
+          <p className="eyebrow">
+            Primary goal · saved plan v{primaryVersion.version}
           </p>
+          <h1>{primaryVersion.name}</h1>
+          <p className="hero__copy">
+            {primaryVersion.metricLabel}:{" "}
+            {formatGoalValue(
+              primaryVersion.currentValueInteger,
+              primaryVersion.targetUnit,
+            )}
+            {target === null
+              ? ". Add a target when it becomes useful."
+              : ` of ${formatGoalValue(target, primaryVersion.targetUnit)}${
+                  primaryVersion.targetDate === null
+                    ? "."
+                    : ` by ${formatDate(primaryVersion.targetDate)}.`
+                }`}
+          </p>
+          <Button
+            className="hero__action"
+            onClick={() => onNavigate("goals")}
+            tone="quiet"
+          >
+            Edit this goal →
+          </Button>
         </div>
         <div className="hero__runway">
-          <span>Protected runway</span>
-          <strong>{dashboard.protectedRunwayMonths}</strong>
-          <small>months at current burn</small>
-          <div className="runway-ticks" aria-hidden="true">
-            {Array.from({ length: 12 }, (_, index) => (
-              <i className={index < 9 ? "active" : ""} key={index} />
-            ))}
-          </div>
+          <span>Current measure</span>
+          <strong>
+            {formatGoalValue(
+              primaryVersion.currentValueInteger,
+              primaryVersion.targetUnit,
+            )}
+          </strong>
+          <small>
+            {target === null
+              ? "No target set"
+              : `${formatProbability(progressPpm)} of target`}
+          </small>
         </div>
       </section>
 
       <div className="metrics-grid">
         <MetricCard
-          detail="Eligible today"
-          label="FI-eligible liquid"
+          actionLabel="Edit goal"
+          detail={primaryVersion.metricLabel}
+          label="Primary goal now"
+          onClick={() => onNavigate("goals")}
           tone="dark"
-          value={formatCompactMoney(dashboard.fiEligibleLiquidMinor)}
+          value={formatGoalValue(
+            primaryVersion.currentValueInteger,
+            primaryVersion.targetUnit,
+          )}
         />
         <MetricCard
-          detail="Personal operating cost"
-          label="Household burn"
-          value={`${formatCompactMoney(
-            dashboard.householdBurnMonthlyMinor,
-          )} / mo`}
+          actionLabel="Edit goal"
+          detail={
+            primaryVersion.targetDate === null
+              ? "No target date"
+              : `By ${formatDate(primaryVersion.targetDate)}`
+          }
+          label="Goal target"
+          onClick={() => onNavigate("goals")}
+          value={
+            target === null
+              ? "Not set"
+              : formatGoalValue(target, primaryVersion.targetUnit)
+          }
         />
         <MetricCard
-          detail="Protected separately"
-          label="Business burn"
-          value={`${formatCompactMoney(
-            dashboard.businessBurnMonthlyMinor,
-          )} / mo`}
+          actionLabel="View plan inputs"
+          detail="Guardrail, not the goal"
+          label="Protected runway"
+          onClick={() => onNavigate("scenarios")}
+          value={`${dashboard.protectedRunwayMonths} months`}
         />
         <MetricCard
-          detail={`${formatProbability(fiProgressPpm)} funded`}
-          label="FI target"
+          actionLabel="View holdings"
+          detail="Decision-usable today"
+          label="FI-eligible liquid"
+          onClick={() => onNavigate("holdings")}
           tone="accent"
-          value={formatCompactMoney(dashboard.fiTargetMinor)}
+          value={formatCompactMoney(dashboard.fiEligibleLiquidMinor)}
         />
       </div>
 
+      {secondaryGoals.length > 0 && (
+        <section className="secondary-goals">
+          <header>
+            <div>
+              <p className="eyebrow">Other goals</p>
+              <h2>Tracked alongside the primary goal</h2>
+            </div>
+            <Button onClick={() => onNavigate("goals")} tone="quiet">
+              Manage goals →
+            </Button>
+          </header>
+          <div>
+            {secondaryGoals.map((goal) => {
+              const version = latestGoalVersion(goal);
+              return (
+                <button
+                  key={goal.id}
+                  onClick={() => onNavigate("goals")}
+                  type="button"
+                >
+                  <span>{version.name}</span>
+                  <strong>
+                    {formatGoalValue(
+                      version.currentValueInteger,
+                      version.targetUnit,
+                    )}
+                  </strong>
+                  <small>
+                    {version.targetValueInteger === null
+                      ? "No target set"
+                      : `of ${formatGoalValue(
+                          version.targetValueInteger,
+                          version.targetUnit,
+                        )}`}
+                  </small>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <div className="dashboard-grid">
         <Panel
-          action={<Badge tone="neutral">FI Underwriting</Badge>}
+          action={<Badge tone="neutral">Portfolio outlook</Badge>}
           className="liquidity-panel"
           eyebrow="Five-year outlook"
           title="Cumulative usable liquidity"
@@ -276,13 +530,13 @@ function Dashboard({ data }: { data: AlphaData }) {
             <>
               <div className="chart-kpis">
                 <div>
-                  <span>P25</span>
+                  <span title="25th percentile">Lower</span>
                   <strong>
                     {formatCompactMoney(dashboard.p25FiveYearLiquidityMinor)}
                   </strong>
                 </div>
                 <div>
-                  <span>P50</span>
+                  <span title="50th percentile">Middle</span>
                   <strong>
                     {formatCompactMoney(dashboard.p50FiveYearLiquidityMinor)}
                   </strong>
@@ -295,73 +549,666 @@ function Dashboard({ data }: { data: AlphaData }) {
 
         <Panel
           className="fi-panel"
-          eyebrow="Decision signal"
-          title="Financial independence"
+          eyebrow="Goal signal"
+          title={primaryVersion.name}
         >
           <div className="probability-ring" style={ringStyle}>
             <div>
-              <strong>
-                {formatProbability(dashboard.probabilityCrossingFiPpm)}
-              </strong>
-              <span>crossing probability</span>
+              <strong>{formatProbability(signalPpm)}</strong>
+              <span>
+                {primaryForecast.successProbabilityPpm === null
+                  ? "current progress"
+                  : "estimated success"}
+              </span>
             </div>
           </div>
           <div className="fi-gap">
-            <span>Current gap</span>
-            <strong>{formatCompactMoney(dashboard.fiGapMinor)}</strong>
+            <span>{targetMet ? "Target status" : "Current gap"}</span>
+            <strong>
+              {target === null
+                ? "No target"
+                : targetMet
+                  ? "Met"
+                  : formatGoalValue(
+                      target - primaryVersion.currentValueInteger,
+                      primaryVersion.targetUnit,
+                    )}
+            </strong>
           </div>
           <p className="panel-note">
-            Probability uses the immutable FI snapshot. Paper marks are excluded
-            until a timing path is underwritten.
+            {primaryForecast.modelStatus === "modeled"
+              ? `This estimate is tied to saved plan v${primaryVersion.version}. Private-paper values stay excluded until their timing is modeled.`
+              : "Current progress is saved. Add scenario inputs before treating this goal as a forecast."}
           </p>
         </Panel>
       </div>
 
       <Panel
-        action={<span className="panel-link">Review inputs →</span>}
-        eyebrow="Operating posture"
-        title="What the model says now"
+        action={
+          <Button onClick={() => onNavigate("goals")} tone="quiet">
+            Review goal →
+          </Button>
+        }
+        eyebrow="Current readout"
+        title="What the saved plan says"
       >
         <div className="decision-list">
           <article>
             <span className="decision-index">01</span>
             <div>
-              <h3>Runway is protected</h3>
+              <h3>
+                {target === null
+                  ? "This goal needs a target"
+                  : targetMet
+                    ? "The current target is met"
+                    : "The goal is still in progress"}
+              </h3>
               <p>
-                Current liquid assets fund more than three years of combined
-                household and business burn after the protected floor.
+                {target === null
+                  ? "Add an amount or threshold when one would make the goal easier to evaluate."
+                  : `${formatProbability(progressPpm)} of the current target is covered by the saved baseline.`}
               </p>
             </div>
-            <Badge tone="positive">Healthy</Badge>
+            <Badge tone={targetMet ? "positive" : "warning"}>
+              {targetMet ? "Met" : "Track"}
+            </Badge>
           </article>
           <article>
             <span className="decision-index">02</span>
             <div>
-              <h3>FI is not yet funded</h3>
+              <h3>Runway remains a separate guardrail</h3>
               <p>
-                The gap remains material without private-company distributions.
-                Avoid treating conditional value as spendable capital.
+                The accepted cash-flow plan protects{" "}
+                {dashboard.protectedRunwayMonths} months after the cash floor.
+                It supports the goal; it does not define every goal.
               </p>
             </div>
-            <Badge tone="warning">Watch</Badge>
+            <Badge tone="positive">Healthy</Badge>
           </article>
           <article>
             <span className="decision-index">03</span>
             <div>
               <h3>Evidence needs review</h3>
               <p>
-                {
-                  data.evidenceInbox.filter(
-                    (item) => item.status === "pending_review",
-                  ).length
-                }{" "}
-                proposed events can change the next forecast snapshot.
+                {pendingEvidence} proposed events can change the next saved
+                forecast.
               </p>
             </div>
             <Badge tone="accent">Action</Badge>
           </article>
         </div>
       </Panel>
+    </div>
+  );
+}
+
+type GoalFormState = {
+  templateKey: GoalDraftInput["templateKey"];
+  name: string;
+  metricKey: string;
+  metricLabel: string;
+  targetValue: string;
+  targetUnit: GoalUnit;
+  targetDate: string;
+  currentValue: string;
+  makePrimary: boolean;
+  changeNote: string;
+};
+
+const templateLabels: Record<GoalDraftInput["templateKey"], string> = {
+  financial_independence: "Financial independence",
+  cash_runway: "Cash runway",
+  major_purchase: "Major purchase",
+  custom: "Custom",
+};
+
+function goalFormFromTemplate(
+  data: AlphaData,
+  templateKey: GoalDraftInput["templateKey"],
+): GoalFormState {
+  if (templateKey === "financial_independence") {
+    return {
+      templateKey,
+      name: "Financial independence",
+      metricKey: "fi_eligible_liquid",
+      metricLabel: "FI-eligible liquid assets",
+      targetValue: moneyInputValue(data.dashboard.fiTargetMinor),
+      targetUnit: "minor_units",
+      targetDate: "",
+      currentValue: moneyInputValue(data.dashboard.fiEligibleLiquidMinor),
+      makePrimary: false,
+      changeNote: "Created from the financial independence template",
+    };
+  }
+  if (templateKey === "cash_runway") {
+    return {
+      templateKey,
+      name: "Protect cash runway",
+      metricKey: "protected_runway_months",
+      metricLabel: "Months of protected runway",
+      targetValue: "36",
+      targetUnit: "months",
+      targetDate: "",
+      currentValue: String(data.dashboard.protectedRunwayMonths),
+      makePrimary: false,
+      changeNote: "Created from the cash runway template",
+    };
+  }
+  if (templateKey === "major_purchase") {
+    return {
+      templateKey,
+      name: "Major purchase",
+      metricKey: "purchase_fund",
+      metricLabel: "Amount set aside",
+      targetValue: "",
+      targetUnit: "minor_units",
+      targetDate: "",
+      currentValue: "0",
+      makePrimary: false,
+      changeNote: "Created from the major purchase template",
+    };
+  }
+  return {
+    templateKey,
+    name: "Custom goal",
+    metricKey: "custom_measure",
+    metricLabel: "Progress measure",
+    targetValue: "",
+    targetUnit: "count",
+    targetDate: "",
+    currentValue: "0",
+    makePrimary: false,
+    changeNote: "Created as a custom goal",
+  };
+}
+
+function goalFormFromGoal(goal: Goal): GoalFormState {
+  const version = latestGoalVersion(goal);
+  return {
+    templateKey: goal.templateKey,
+    name: version.name,
+    metricKey: version.metricKey,
+    metricLabel: version.metricLabel,
+    targetValue:
+      version.targetUnit === "minor_units"
+        ? moneyInputValue(version.targetValueInteger)
+        : (version.targetValueInteger?.toString() ?? ""),
+    targetUnit: version.targetUnit,
+    targetDate: version.targetDate ?? "",
+    currentValue:
+      version.targetUnit === "minor_units"
+        ? moneyInputValue(version.currentValueInteger)
+        : String(version.currentValueInteger),
+    makePrimary: goal.isPrimary,
+    changeNote: "Updated goal inputs",
+  };
+}
+
+function Goals({
+  data,
+  onSave,
+}: {
+  data: AlphaData;
+  onSave: (input: GoalDraftInput) => Promise<void>;
+}) {
+  const initialGoal =
+    data.goals.find((goal) => goal.isPrimary) ?? data.goals[0];
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(
+    initialGoal?.id ?? null,
+  );
+  const [form, setForm] = useState<GoalFormState>(() =>
+    initialGoal === undefined
+      ? goalFormFromTemplate(data, "financial_independence")
+      : goalFormFromGoal(initialGoal),
+  );
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const selectedGoal =
+    data.goals.find((goal) => goal.id === selectedGoalId) ?? null;
+  const parsedCurrent = parseGoalInteger(form.currentValue, form.targetUnit);
+  const parsedTarget =
+    form.targetValue.trim() === ""
+      ? null
+      : parseGoalInteger(form.targetValue, form.targetUnit);
+  const previewInput = useMemo<GoalDraftInput | null>(
+    () =>
+      parsedCurrent === null ||
+      (form.targetValue.trim() !== "" && parsedTarget === null)
+        ? null
+        : {
+            goalId: selectedGoalId ?? undefined,
+            templateKey: form.templateKey,
+            name: form.name,
+            metricKey: form.metricKey,
+            metricLabel: form.metricLabel,
+            targetValueInteger: parsedTarget,
+            targetUnit: form.targetUnit,
+            targetDate: form.targetDate === "" ? null : form.targetDate,
+            currentValueInteger: parsedCurrent,
+            makePrimary: form.makePrimary,
+            changeNote: form.changeNote.trim() || "Live preview",
+          },
+    [
+      form.changeNote,
+      form.makePrimary,
+      form.metricKey,
+      form.metricLabel,
+      form.name,
+      form.targetDate,
+      form.targetUnit,
+      form.targetValue,
+      form.templateKey,
+      parsedCurrent,
+      parsedTarget,
+      selectedGoalId,
+    ],
+  );
+  const preview = useMemo(() => {
+    if (previewInput === null) {
+      return null;
+    }
+    try {
+      return createGoalPreview(previewInput, {
+        p25FiveYearLiquidityMinor: data.dashboard.p25FiveYearLiquidityMinor,
+        p50FiveYearLiquidityMinor: data.dashboard.p50FiveYearLiquidityMinor,
+        p75FiveYearLiquidityMinor: data.dashboard.p75FiveYearLiquidityMinor,
+        horizonDate: data.dashboard.forecastHorizonDate,
+      });
+    } catch {
+      return null;
+    }
+  }, [
+    data.dashboard.forecastHorizonDate,
+    data.dashboard.p25FiveYearLiquidityMinor,
+    data.dashboard.p50FiveYearLiquidityMinor,
+    data.dashboard.p75FiveYearLiquidityMinor,
+    previewInput,
+  ]);
+
+  const updateForm = <Key extends keyof GoalFormState>(
+    key: Key,
+    value: GoalFormState[Key],
+  ) => {
+    setSaveState("idle");
+    setSaveMessage(null);
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const chooseGoal = (goal: Goal) => {
+    setSelectedGoalId(goal.id);
+    setForm(goalFormFromGoal(goal));
+    setSaveState("idle");
+    setSaveMessage(null);
+  };
+
+  const chooseTemplate = (templateKey: GoalDraftInput["templateKey"]) => {
+    setSelectedGoalId(null);
+    setForm(goalFormFromTemplate(data, templateKey));
+    setSaveState("idle");
+    setSaveMessage(null);
+  };
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (previewInput === null || preview === null) {
+      setSaveState("error");
+      setSaveMessage("Check the goal values and required fields.");
+      return;
+    }
+    if (form.changeNote.trim() === "") {
+      setSaveState("error");
+      setSaveMessage("Describe what changed before saving.");
+      return;
+    }
+    const versionBeforeSave =
+      selectedGoal === null ? 0 : latestGoalVersion(selectedGoal).version;
+    setSaveState("saving");
+    setSaveMessage(null);
+    void onSave({ ...previewInput, changeNote: form.changeNote.trim() })
+      .then(() => {
+        setSaveState("saved");
+        setSaveMessage(
+          `Saved as version ${versionBeforeSave + 1} with a matching forecast snapshot.`,
+        );
+      })
+      .catch((error: unknown) => {
+        setSaveState("error");
+        setSaveMessage(
+          error instanceof Error
+            ? error.message
+            : "The goal could not be saved.",
+        );
+      });
+  };
+
+  return (
+    <div className="screen-stack">
+      <div className="page-intro">
+        <div>
+          <p className="eyebrow">Editable planning record</p>
+          <h1>Goals</h1>
+          <p>
+            Keep several goals, choose one primary goal, and save changes as new
+            versions. Prior versions stay available.
+          </p>
+        </div>
+        <Badge tone="neutral">{data.goals.length} active goals</Badge>
+      </div>
+
+      <div className="goal-workspace">
+        <aside className="goal-list" aria-label="Saved goals">
+          <div className="goal-list__header">
+            <p className="eyebrow">Saved goals</p>
+            <Button onClick={() => chooseTemplate("custom")} tone="quiet">
+              New goal +
+            </Button>
+          </div>
+          {data.goals.map((goal) => {
+            const version = latestGoalVersion(goal);
+            return (
+              <button
+                aria-current={selectedGoalId === goal.id ? "true" : undefined}
+                className={selectedGoalId === goal.id ? "active" : ""}
+                key={goal.id}
+                onClick={() => chooseGoal(goal)}
+                type="button"
+              >
+                <span>
+                  {goal.isPrimary
+                    ? "Primary"
+                    : templateLabels[goal.templateKey]}
+                </span>
+                <strong>{version.name}</strong>
+                <small>
+                  v{version.version} ·{" "}
+                  {formatGoalValue(
+                    version.currentValueInteger,
+                    version.targetUnit,
+                  )}
+                </small>
+              </button>
+            );
+          })}
+        </aside>
+
+        <div className="goal-main">
+          <section className="goal-templates">
+            <p className="eyebrow">
+              {selectedGoal === null
+                ? "Start from a template"
+                : "Goal template"}
+            </p>
+            <div>
+              {(
+                Object.keys(templateLabels) as GoalDraftInput["templateKey"][]
+              ).map((templateKey) => (
+                <button
+                  aria-pressed={form.templateKey === templateKey}
+                  className={form.templateKey === templateKey ? "active" : ""}
+                  disabled={selectedGoal !== null}
+                  key={templateKey}
+                  onClick={() => chooseTemplate(templateKey)}
+                  type="button"
+                >
+                  {templateLabels[templateKey]}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div className="goal-edit-grid">
+            <form className="goal-form" onSubmit={submit}>
+              <div className="goal-form__heading">
+                <div>
+                  <p className="eyebrow">
+                    {selectedGoal === null
+                      ? "New draft"
+                      : `Editing v${latestGoalVersion(selectedGoal).version}`}
+                  </p>
+                  <h2>
+                    {selectedGoal === null
+                      ? "Define the goal"
+                      : "Create a new version"}
+                  </h2>
+                </div>
+                {selectedGoal?.isPrimary === true && (
+                  <Badge tone="positive">Primary</Badge>
+                )}
+              </div>
+
+              <div className="goal-form__fields">
+                <label className="field field--wide">
+                  <span>Goal name</span>
+                  <input
+                    maxLength={120}
+                    onChange={(event) => updateForm("name", event.target.value)}
+                    required
+                    value={form.name}
+                  />
+                </label>
+                <label className="field field--wide">
+                  <span>How success is measured</span>
+                  <input
+                    maxLength={120}
+                    onChange={(event) =>
+                      updateForm("metricLabel", event.target.value)
+                    }
+                    required
+                    value={form.metricLabel}
+                  />
+                </label>
+                <label className="field">
+                  <span>Unit</span>
+                  <select
+                    disabled={form.templateKey !== "custom"}
+                    onChange={(event) =>
+                      updateForm("targetUnit", event.target.value as GoalUnit)
+                    }
+                    value={form.targetUnit}
+                  >
+                    <option value="minor_units">USD</option>
+                    <option value="months">Months</option>
+                    <option value="count">Count</option>
+                    <option value="ppm">Percentage</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Current value</span>
+                  <div className="field__value">
+                    {form.targetUnit === "minor_units" && <i>$</i>}
+                    <input
+                      inputMode="decimal"
+                      onChange={(event) =>
+                        updateForm("currentValue", event.target.value)
+                      }
+                      required
+                      value={form.currentValue}
+                    />
+                  </div>
+                </label>
+                <label className="field">
+                  <span>Target value · optional</span>
+                  <div className="field__value">
+                    {form.targetUnit === "minor_units" && <i>$</i>}
+                    <input
+                      inputMode="decimal"
+                      onChange={(event) =>
+                        updateForm("targetValue", event.target.value)
+                      }
+                      value={form.targetValue}
+                    />
+                  </div>
+                </label>
+                <label className="field">
+                  <span>Target date · optional</span>
+                  <input
+                    onChange={(event) =>
+                      updateForm("targetDate", event.target.value)
+                    }
+                    type="date"
+                    value={form.targetDate}
+                  />
+                </label>
+                <label className="field field--wide">
+                  <span>What changed</span>
+                  <input
+                    maxLength={500}
+                    onChange={(event) =>
+                      updateForm("changeNote", event.target.value)
+                    }
+                    required
+                    value={form.changeNote}
+                  />
+                </label>
+              </div>
+
+              <label className="primary-toggle">
+                <input
+                  checked={form.makePrimary}
+                  disabled={selectedGoal?.isPrimary === true}
+                  onChange={(event) =>
+                    updateForm("makePrimary", event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <strong>Make this the primary goal</strong>
+                  <small>The Overview will lead with this goal.</small>
+                </span>
+              </label>
+
+              {saveMessage !== null && (
+                <p
+                  className={
+                    saveState === "error"
+                      ? "form-message error"
+                      : "form-message"
+                  }
+                  role={saveState === "error" ? "alert" : "status"}
+                >
+                  {saveMessage}
+                </p>
+              )}
+              <div className="goal-form__actions">
+                <Button
+                  disabled={saveState === "saving"}
+                  tone="primary"
+                  type="submit"
+                >
+                  {saveState === "saving"
+                    ? "Saving…"
+                    : selectedGoal === null
+                      ? "Save new goal"
+                      : "Save new version"}
+                </Button>
+                <span>Goal version and forecast snapshot save together.</span>
+              </div>
+            </form>
+
+            <aside className="goal-preview" aria-live="polite">
+              <p className="eyebrow">Live preview</p>
+              {preview === null ? (
+                <EmptyState title="Preview unavailable">
+                  Enter a valid current value and complete the required fields.
+                </EmptyState>
+              ) : (
+                <>
+                  <h2>{form.name || "Untitled goal"}</h2>
+                  <div className="goal-preview__measure">
+                    <span>{form.metricLabel || "Progress measure"}</span>
+                    <strong>
+                      {formatGoalValue(
+                        preview.currentValueInteger,
+                        form.targetUnit,
+                      )}
+                    </strong>
+                    <small>
+                      {preview.targetValueInteger === null
+                        ? "No target set"
+                        : `${formatProbability(
+                            preview.progressPpm ?? 0,
+                          )} of ${formatGoalValue(
+                            preview.targetValueInteger,
+                            form.targetUnit,
+                          )}`}
+                    </small>
+                  </div>
+                  {preview.modelStatus === "modeled" ? (
+                    <>
+                      <div className="goal-preview__outcomes">
+                        {[
+                          ["Lower", preview.lowerValueInteger],
+                          ["Middle", preview.middleValueInteger],
+                          ["Higher", preview.higherValueInteger],
+                        ].map(([label, value]) => (
+                          <span key={label}>
+                            {label}
+                            <b>
+                              {typeof value === "number"
+                                ? formatGoalValue(value, form.targetUnit)
+                                : "—"}
+                            </b>
+                          </span>
+                        ))}
+                      </div>
+                      <div className="goal-preview__signal">
+                        <span>Estimated success</span>
+                        <strong>
+                          {preview.successProbabilityPpm === null
+                            ? "Target needed"
+                            : formatProbability(preview.successProbabilityPpm)}
+                        </strong>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="goal-preview__notice">
+                      <strong>Forecast not configured</strong>
+                      <span>
+                        Progress can be saved now. A projected range needs
+                        scenario inputs for this goal.
+                      </span>
+                    </div>
+                  )}
+                  <p className="panel-note">{preview.methodology}</p>
+                </>
+              )}
+            </aside>
+          </div>
+
+          {selectedGoal !== null && (
+            <section className="goal-version-history">
+              <p className="eyebrow">Version history</p>
+              <h2>Prior decisions stay visible</h2>
+              <div>
+                {selectedGoal.versions.map((version) => (
+                  <article key={version.id}>
+                    <span>v{version.version}</span>
+                    <div>
+                      <strong>{version.changeNote}</strong>
+                      <small>
+                        {formatDate(version.createdAt)} · {version.createdBy}
+                      </small>
+                    </div>
+                    <Badge
+                      tone={
+                        version.forecast.modelStatus === "modeled"
+                          ? "positive"
+                          : "neutral"
+                      }
+                    >
+                      {version.forecast.modelStatus === "modeled"
+                        ? "Modeled"
+                        : "Progress only"}
+                    </Badge>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -510,7 +1357,9 @@ function EvidenceCard({
           </small>
         </div>
         <div className="forecast-impact">
-          <span>Estimated P50 impact</span>
+          <span title="50th-percentile estimate">
+            Estimated middle-outcome impact
+          </span>
           <strong>
             {item.forecastImpactMinor >= 0 ? "+" : ""}
             {formatCompactMoney(item.forecastImpactMinor)}
@@ -617,17 +1466,56 @@ function Scenarios({ data }: { data: AlphaData }) {
     <div className="screen-stack">
       <div className="page-intro">
         <div>
-          <p className="eyebrow">Versioned assumptions</p>
+          <p className="eyebrow">Forecast assumptions</p>
           <h1>Scenarios</h1>
           <p>
-            Conditional economic value stays separate from timing-adjusted,
-            decision-usable liquidity.
+            Scenarios change projected outcomes. Goals define what success
+            means. Edit the goal itself in Goals.
           </p>
         </div>
         <Badge tone={selected.isSandbox ? "accent" : "neutral"}>
-          {selected.isSandbox ? "Editable sandbox" : "Saved snapshot"}
+          {selected.isSandbox ? "Editable sandbox" : "Saved scenario"}
         </Badge>
       </div>
+
+      <Panel
+        action={<Badge tone="neutral">Accepted inputs</Badge>}
+        className="plan-inputs"
+        eyebrow="Current planning goal"
+        title="Financial independence"
+      >
+        <p className="plan-inputs__copy">
+          These are the latest accepted cash-flow inputs used by the FI model.
+          The scenario controls below create working drafts; they do not change
+          this accepted plan.
+        </p>
+        <div className="plan-inputs__grid">
+          <MetricCard
+            detail="Decision-usable today"
+            label="FI-eligible liquid"
+            value={formatCompactMoney(data.dashboard.fiEligibleLiquidMinor)}
+          />
+          <MetricCard
+            detail="Personal operating cost"
+            label="Household burn"
+            value={`${formatCompactMoney(
+              data.dashboard.householdBurnMonthlyMinor,
+            )} / mo`}
+          />
+          <MetricCard
+            detail="Protected separately"
+            label="Business burn"
+            value={`${formatCompactMoney(
+              data.dashboard.businessBurnMonthlyMinor,
+            )} / mo`}
+          />
+          <MetricCard
+            detail="Threshold for this template"
+            label="FI target"
+            value={formatCompactMoney(data.dashboard.fiTargetMinor)}
+          />
+        </div>
+      </Panel>
 
       <div className="scenario-tabs" role="tablist">
         {data.scenarios.map((scenario) => (
@@ -647,7 +1535,7 @@ function Scenarios({ data }: { data: AlphaData }) {
       <div className="scenario-summary">
         <div>
           <p>{selected.description}</p>
-          <span>Current immutable forecast output</span>
+          <span>Current saved forecast output</span>
         </div>
         <article>
           <span>Conditional value</span>
@@ -716,7 +1604,7 @@ function Scenarios({ data }: { data: AlphaData }) {
           <div className="draft-note">
             <span>◇</span>
             Editing creates a working draft only. Saving must create a new
-            immutable forecast snapshot.
+            forecast snapshot and preserve the prior one.
           </div>
         </Panel>
       </div>
@@ -736,7 +1624,7 @@ function ForecastHistory({ data }: { data: AlphaData }) {
             change.
           </p>
         </div>
-        <Badge tone="positive">Immutable</Badge>
+        <Badge tone="positive">Read-only record</Badge>
       </div>
 
       <Panel className="history-panel">
@@ -764,8 +1652,8 @@ function ForecastHistory({ data }: { data: AlphaData }) {
                   </header>
                   <p>{item.attributedChange}</p>
                   <div className="history-comparison">
-                    <span>
-                      Prior P50
+                    <span title="50th-percentile outcome">
+                      Prior middle
                       <b>
                         {item.priorP50Minor === null
                           ? "Baseline"
@@ -773,8 +1661,8 @@ function ForecastHistory({ data }: { data: AlphaData }) {
                       </b>
                     </span>
                     <span className="arrow">→</span>
-                    <span>
-                      New P50
+                    <span title="50th-percentile outcome">
+                      New middle
                       <b>{formatCompactMoney(item.p50Minor)}</b>
                     </span>
                     {delta !== null && (
@@ -814,11 +1702,7 @@ function Shell({
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">
-            <span />
-            <span />
-            <span />
-          </div>
+          <KeelMark />
           <div>
             <strong>Keel</strong>
             <small>Private alpha</small>
@@ -851,16 +1735,9 @@ function Shell({
 
       <main>
         <header className="topbar">
-          <div>
+          <div className="topbar__title">
+            <KeelMark />
             <span>Keel /</span> {pageHeading(activeScreen)}
-          </div>
-          <div className="topbar__right">
-            <span className="secure-status">
-              <i /> Private · Access protected
-            </span>
-            <button aria-label="Notifications" type="button">
-              ◌{pending > 0 && <i />}
-            </button>
           </div>
         </header>
         <div className="content">{children}</div>
@@ -920,13 +1797,27 @@ export function App() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    window.scrollTo({ behavior: "auto", top: 0 });
+  }, [activeScreen]);
+
   const content = useMemo(() => {
     if (data === null) {
       return null;
     }
     switch (activeScreen) {
       case "dashboard":
-        return <Dashboard data={data} />;
+        return <Dashboard data={data} onNavigate={setActiveScreen} />;
+      case "goals":
+        return (
+          <Goals
+            data={data}
+            onSave={async (input) => {
+              await saveGoalVersion(input);
+              setData(await loadAlphaData());
+            }}
+          />
+        );
       case "holdings":
         return <Holdings data={data} />;
       case "evidence":
@@ -979,11 +1870,7 @@ export function App() {
     return (
       <div className="fatal-error">
         <div className="brand">
-          <div className="brand-mark">
-            <span />
-            <span />
-            <span />
-          </div>
+          <KeelMark />
           <strong>Keel</strong>
         </div>
         <EmptyState title="The decision record is unavailable">

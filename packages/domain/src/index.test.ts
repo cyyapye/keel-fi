@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createGoalPreview,
+  estimateThresholdProbabilityPpm,
   multiplyMinorByPpm,
   probabilityMeetingThresholdPpm,
   summarizeLiquidityPaths,
@@ -41,5 +43,77 @@ describe("deterministic financial calculations", () => {
         3_000_00,
       ),
     ).toBe(500_000);
+  });
+
+  it("estimates a threshold probability from ordered outcome bands", () => {
+    expect(
+      estimateThresholdProbabilityPpm(
+        325_000_000,
+        276_500_000,
+        392_500_000,
+        536_500_000,
+      ),
+    ).toBe(645_475);
+  });
+
+  it("builds FI goal forecasts from current value plus saved liquidity", () => {
+    expect(
+      createGoalPreview(
+        {
+          templateKey: "financial_independence",
+          name: "Financial independence",
+          metricKey: "fi_eligible_liquid",
+          metricLabel: "FI-eligible liquid assets",
+          targetValueInteger: 325_000_000,
+          targetUnit: "minor_units",
+          targetDate: null,
+          currentValueInteger: 182_500_000,
+          makePrimary: true,
+          changeNote: "Preview synthetic goal",
+        },
+        {
+          p25FiveYearLiquidityMinor: 94_000_000,
+          p50FiveYearLiquidityMinor: 210_000_000,
+          p75FiveYearLiquidityMinor: 354_000_000,
+          horizonDate: "2031-12-31",
+        },
+      ),
+    ).toMatchObject({
+      modelStatus: "modeled",
+      lowerValueInteger: 276_500_000,
+      middleValueInteger: 392_500_000,
+      higherValueInteger: 536_500_000,
+      successProbabilityPpm: 645_475,
+    });
+  });
+
+  it("does not invent a forecast for an unconfigured goal template", () => {
+    expect(
+      createGoalPreview(
+        {
+          templateKey: "cash_runway",
+          name: "Protect runway",
+          metricKey: "protected_runway_months",
+          metricLabel: "Months of protected runway",
+          targetValueInteger: 36,
+          targetUnit: "months",
+          targetDate: null,
+          currentValueInteger: 42,
+          makePrimary: false,
+          changeNote: "Preview synthetic goal",
+        },
+        {
+          p25FiveYearLiquidityMinor: 94_000_000,
+          p50FiveYearLiquidityMinor: 210_000_000,
+          p75FiveYearLiquidityMinor: 354_000_000,
+          horizonDate: "2031-12-31",
+        },
+      ),
+    ).toMatchObject({
+      modelStatus: "not_configured",
+      progressPpm: 1_000_000,
+      lowerValueInteger: null,
+      successProbabilityPpm: null,
+    });
   });
 });

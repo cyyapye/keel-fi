@@ -50,6 +50,128 @@ export const households = sqliteTable(
   ],
 );
 
+export const goals = sqliteTable(
+  "goals",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    templateKey: text("template_key").notNull(),
+    isPrimary: integer("is_primary", { mode: "boolean" }).notNull(),
+    archivedAt: text("archived_at"),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("goals_household_idx").on(table.householdId),
+    uniqueIndex("goals_household_primary_unique")
+      .on(table.householdId)
+      .where(sql`${table.isPrimary} = 1`),
+    check(
+      "goals_template_key_check",
+      sql`${table.templateKey} IN ('financial_independence', 'cash_runway', 'major_purchase', 'custom')`,
+    ),
+    check("goals_primary_check", sql`${table.isPrimary} IN (0, 1)`),
+  ],
+);
+
+export const goalVersions = sqliteTable(
+  "goal_versions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    goalId: text("goal_id")
+      .notNull()
+      .references(() => goals.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    name: text("name").notNull(),
+    metricKey: text("metric_key").notNull(),
+    metricLabel: text("metric_label").notNull(),
+    targetValueInteger: integer("target_value_integer"),
+    targetUnit: text("target_unit").notNull(),
+    targetDate: text("target_date"),
+    currentValueInteger: integer("current_value_integer").notNull(),
+    currentValueSource: text("current_value_source").notNull(),
+    changeNote: text("change_note").notNull(),
+    createdAt: timestamp("created_at"),
+    createdBy: text("created_by").notNull(),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("goal_versions_household_goal_idx").on(
+      table.householdId,
+      table.goalId,
+    ),
+    uniqueIndex("goal_versions_goal_version_unique").on(
+      table.goalId,
+      table.version,
+    ),
+    check("goal_versions_version_check", sql`${table.version} > 0`),
+    check(
+      "goal_versions_values_check",
+      sql`${table.currentValueInteger} >= 0 AND (${table.targetValueInteger} IS NULL OR ${table.targetValueInteger} >= 0)`,
+    ),
+    check(
+      "goal_versions_unit_check",
+      sql`${table.targetUnit} IN ('minor_units', 'months', 'ppm', 'count')`,
+    ),
+    check("goal_versions_immutable_check", sql`${table.immutable} = 1`),
+  ],
+);
+
+export const goalForecastSnapshots = sqliteTable(
+  "goal_forecast_snapshots",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    goalVersionId: text("goal_version_id")
+      .notNull()
+      .references(() => goalVersions.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    modelStatus: text("model_status").notNull(),
+    lowerValueInteger: integer("lower_value_integer"),
+    middleValueInteger: integer("middle_value_integer"),
+    higherValueInteger: integer("higher_value_integer"),
+    successProbabilityPpm: integer("success_probability_ppm"),
+    unit: text("unit").notNull(),
+    horizonDate: text("horizon_date"),
+    methodology: text("methodology").notNull(),
+    createdAt: timestamp("created_at"),
+    createdBy: text("created_by").notNull(),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("goal_forecast_snapshots_household_idx").on(table.householdId),
+    uniqueIndex("goal_forecast_snapshots_goal_version_unique").on(
+      table.goalVersionId,
+    ),
+    check("goal_forecast_snapshots_version_check", sql`${table.version} > 0`),
+    check(
+      "goal_forecast_snapshots_status_check",
+      sql`${table.modelStatus} IN ('modeled', 'not_configured')`,
+    ),
+    check(
+      "goal_forecast_snapshots_values_check",
+      sql`(${table.lowerValueInteger} IS NULL OR ${table.lowerValueInteger} >= 0)
+        AND (${table.middleValueInteger} IS NULL OR ${table.middleValueInteger} >= 0)
+        AND (${table.higherValueInteger} IS NULL OR ${table.higherValueInteger} >= 0)
+        AND (${table.successProbabilityPpm} IS NULL OR ${table.successProbabilityPpm} BETWEEN 0 AND 1000000)`,
+    ),
+    check(
+      "goal_forecast_snapshots_order_check",
+      sql`${table.modelStatus} = 'not_configured'
+        OR (${table.lowerValueInteger} <= ${table.middleValueInteger}
+          AND ${table.middleValueInteger} <= ${table.higherValueInteger})`,
+    ),
+    check(
+      "goal_forecast_snapshots_unit_check",
+      sql`${table.unit} IN ('minor_units', 'months', 'ppm', 'count')`,
+    ),
+    check(
+      "goal_forecast_snapshots_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
 export const companies = sqliteTable(
   "companies",
   {

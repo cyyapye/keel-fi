@@ -8,6 +8,7 @@ import type { Env } from "./types";
 const alphaData: AlphaData = {
   dashboard: {
     asOfDate: "2026-07-01",
+    forecastHorizonDate: "2031-12-31",
     householdName: "Demo Household",
     fiEligibleLiquidMinor: 182_500_000,
     protectedRunwayMonths: 42,
@@ -17,8 +18,49 @@ const alphaData: AlphaData = {
     fiGapMinor: 142_500_000,
     p25FiveYearLiquidityMinor: 94_000_000,
     p50FiveYearLiquidityMinor: 210_000_000,
+    p75FiveYearLiquidityMinor: 354_000_000,
     probabilityCrossingFiPpm: 640_000,
   },
+  goals: [
+    {
+      id: "goal_fi",
+      templateKey: "financial_independence",
+      isPrimary: true,
+      archivedAt: null,
+      createdAt: "2026-07-01T09:00:00-07:00",
+      versions: [
+        {
+          id: "goalv_fi_1",
+          version: 1,
+          name: "Financial independence",
+          metricKey: "fi_eligible_liquid",
+          metricLabel: "FI-eligible liquid assets",
+          targetValueInteger: 325_000_000,
+          targetUnit: "minor_units",
+          targetDate: null,
+          currentValueInteger: 182_500_000,
+          currentValueSource: "Synthetic FI planning inputs",
+          changeNote: "Initial synthetic FI goal",
+          createdAt: "2026-07-01T09:00:00-07:00",
+          createdBy: "Demo Operator",
+          forecast: {
+            id: "goalsnap_fi_1",
+            version: 1,
+            modelStatus: "modeled",
+            lowerValueInteger: 276_500_000,
+            middleValueInteger: 392_500_000,
+            higherValueInteger: 536_500_000,
+            successProbabilityPpm: 640_000,
+            unit: "minor_units",
+            horizonDate: "2031-12-31",
+            methodology: "Synthetic method",
+            createdAt: "2026-07-01T09:00:00-07:00",
+            createdBy: "Demo Operator",
+          },
+        },
+      ],
+    },
+  ],
   holdings: [],
   evidenceInbox: [],
   scenarios: [],
@@ -39,6 +81,7 @@ describe("Keel API", () => {
     const getAlphaData = vi.fn<AlphaRepository["getAlphaData"]>();
     const repository: AlphaRepository = {
       getAlphaData,
+      saveGoal: vi.fn(),
       reviewEvidence: vi.fn(),
     };
     const response = await createApp({ repository }).request(
@@ -57,6 +100,7 @@ describe("Keel API", () => {
       .mockResolvedValue(alphaData);
     const repository: AlphaRepository = {
       getAlphaData,
+      saveGoal: vi.fn(),
       reviewEvidence: vi.fn(),
     };
     const response = await createApp({ repository }).request(
@@ -80,6 +124,7 @@ describe("Keel API", () => {
       getAlphaData: vi
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
+      saveGoal: vi.fn(),
       reviewEvidence,
     };
     const response = await createApp({ repository }).request(
@@ -104,5 +149,44 @@ describe("Keel API", () => {
         rationale: "Use only in the synthetic upside case.",
       },
     );
+  });
+
+  it("validates and records a new immutable goal version", async () => {
+    const saveGoal = vi
+      .fn<AlphaRepository["saveGoal"]>()
+      .mockResolvedValue(undefined);
+    const repository: AlphaRepository = {
+      getAlphaData: vi
+        .fn<AlphaRepository["getAlphaData"]>()
+        .mockResolvedValue(alphaData),
+      saveGoal,
+      reviewEvidence: vi.fn(),
+    };
+    const input = {
+      goalId: "goal_fi",
+      templateKey: "financial_independence" as const,
+      name: "Financial independence",
+      metricKey: "fi_eligible_liquid",
+      metricLabel: "FI-eligible liquid assets",
+      targetValueInteger: 350_000_000,
+      targetUnit: "minor_units" as const,
+      targetDate: null,
+      currentValueInteger: 190_000_000,
+      makePrimary: true,
+      changeNote: "Raised the target.",
+    };
+
+    const response = await createApp({ repository }).request(
+      "/api/goals",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(204);
+    expect(saveGoal).toHaveBeenCalledWith("synthetic-access-subject", input);
   });
 });

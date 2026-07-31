@@ -1,7 +1,10 @@
 import {
   AlphaDataSchema,
+  createGoalPreview,
+  GoalDraftInputSchema,
   type AlphaData,
   type ForecastHistoryItemSchema,
+  type GoalDraftInput,
 } from "@keel/domain";
 import {
   assertReviewTransition,
@@ -12,6 +15,7 @@ import type { z } from "zod";
 
 type DashboardRow = {
   as_of_date: string;
+  forecast_horizon_date: string;
   household_name: string;
   fi_eligible_liquid_minor: number;
   protected_runway_months: number;
@@ -21,7 +25,48 @@ type DashboardRow = {
   fi_gap_minor: number;
   p25_five_year_liquidity_minor: number;
   p50_five_year_liquidity_minor: number;
+  p75_five_year_liquidity_minor: number;
   probability_crossing_fi_ppm: number;
+};
+
+type GoalRow = {
+  id: string;
+  template_key:
+    "financial_independence" | "cash_runway" | "major_purchase" | "custom";
+  is_primary: number;
+  archived_at: string | null;
+  goal_created_at: string;
+  goal_version_id: string;
+  version: number;
+  name: string;
+  metric_key: string;
+  metric_label: string;
+  target_value_integer: number | null;
+  target_unit: "minor_units" | "months" | "ppm" | "count";
+  target_date: string | null;
+  current_value_integer: number;
+  current_value_source: string;
+  change_note: string;
+  version_created_at: string;
+  version_created_by: string;
+  forecast_id: string;
+  model_status: "modeled" | "not_configured";
+  lower_value_integer: number | null;
+  middle_value_integer: number | null;
+  higher_value_integer: number | null;
+  success_probability_ppm: number | null;
+  forecast_unit: "minor_units" | "months" | "ppm" | "count";
+  horizon_date: string | null;
+  methodology: string;
+  forecast_created_at: string;
+  forecast_created_by: string;
+};
+
+type GoalIdentityRow = {
+  id: string;
+  template_key: GoalRow["template_key"];
+  latest_version: number;
+  is_primary: number;
 };
 
 type HoldingRow = {
@@ -99,6 +144,7 @@ type HistoryRow = {
 type HouseholdIdentity = {
   household_id: string;
   user_id: string;
+  display_name: string;
 };
 
 type ReviewEventRow = HouseholdIdentity & {
@@ -109,6 +155,7 @@ type ReviewEventRow = HouseholdIdentity & {
 
 export interface AlphaRepository {
   getAlphaData(accessSubject: string): Promise<AlphaData>;
+  saveGoal(accessSubject: string, input: GoalDraftInput): Promise<void>;
   reviewEvidence(
     accessSubject: string,
     eventId: string,
@@ -153,13 +200,21 @@ export class D1AlphaRepository implements AlphaRepository {
     const identity = await this.findIdentity(accessSubject);
     const householdId = identity.household_id;
 
-    const [dashboard, holdings, evidence, scenarioRows, assumptions, curves] =
-      await Promise.all([
-        this.getDashboard(householdId),
-        all<HoldingRow>(
-          this.db
-            .prepare(
-              `SELECT
+    const [
+      dashboard,
+      goals,
+      holdings,
+      evidence,
+      scenarioRows,
+      assumptions,
+      curves,
+    ] = await Promise.all([
+      this.getDashboard(householdId),
+      this.getGoals(householdId),
+      all<HoldingRow>(
+        this.db
+          .prepare(
+            `SELECT
                 lot.id,
                 company.legal_name AS company_name,
                 account.name AS account_name,
@@ -189,13 +244,13 @@ export class D1AlphaRepository implements AlphaRepository {
               WHERE lot.household_id = ?
               GROUP BY lot.id
               ORDER BY company.legal_name`,
-            )
-            .bind(householdId),
-        ),
-        all<EvidenceRow>(
-          this.db
-            .prepare(
-              `SELECT
+          )
+          .bind(householdId),
+      ),
+      all<EvidenceRow>(
+        this.db
+          .prepare(
+            `SELECT
                 event.id,
                 company.legal_name AS company_name,
                 event.event_type,
@@ -215,13 +270,13 @@ export class D1AlphaRepository implements AlphaRepository {
               ORDER BY
                 CASE event.status WHEN 'pending_review' THEN 0 ELSE 1 END,
                 event.detected_at DESC`,
-            )
-            .bind(householdId),
-        ),
-        all<ScenarioRow>(
-          this.db
-            .prepare(
-              `SELECT
+          )
+          .bind(householdId),
+      ),
+      all<ScenarioRow>(
+        this.db
+          .prepare(
+            `SELECT
                 scenario.id,
                 scenario.name,
                 scenario.description,
@@ -247,13 +302,13 @@ export class D1AlphaRepository implements AlphaRepository {
                 WHEN 'Upside' THEN 4
                 ELSE 5
               END`,
-            )
-            .bind(householdId),
-        ),
-        all<AssumptionRow>(
-          this.db
-            .prepare(
-              `SELECT
+          )
+          .bind(householdId),
+      ),
+      all<AssumptionRow>(
+        this.db
+          .prepare(
+            `SELECT
                 id,
                 scenario_id,
                 label,
@@ -263,13 +318,13 @@ export class D1AlphaRepository implements AlphaRepository {
               FROM scenario_assumptions
               WHERE household_id = ?
               ORDER BY label`,
-            )
-            .bind(householdId),
-        ),
-        all<CurveRow>(
-          this.db
-            .prepare(
-              `SELECT
+          )
+          .bind(householdId),
+      ),
+      all<CurveRow>(
+        this.db
+          .prepare(
+            `SELECT
                 curve.scenario_id,
                 curve.year,
                 curve.p25_minor,
@@ -287,15 +342,16 @@ export class D1AlphaRepository implements AlphaRepository {
                 )
               WHERE curve.household_id = ?
               ORDER BY curve.scenario_id, curve.year`,
-            )
-            .bind(householdId),
-        ),
-      ]);
+          )
+          .bind(householdId),
+      ),
+    ]);
 
     const history = await this.getHistory(householdId);
 
     return AlphaDataSchema.parse({
       dashboard,
+      goals,
       holdings: holdings.map((row) => ({
         id: row.id,
         companyName: row.company_name,
@@ -355,6 +411,195 @@ export class D1AlphaRepository implements AlphaRepository {
       })),
       forecastHistory: history,
     });
+  }
+
+  public async saveGoal(
+    accessSubject: string,
+    rawInput: GoalDraftInput,
+  ): Promise<void> {
+    const input = GoalDraftInputSchema.parse(rawInput);
+    const identity = await this.findIdentity(accessSubject);
+    const dashboard = await this.getDashboard(identity.household_id);
+    const preview = createGoalPreview(input, {
+      p25FiveYearLiquidityMinor: dashboard.p25FiveYearLiquidityMinor,
+      p50FiveYearLiquidityMinor: dashboard.p50FiveYearLiquidityMinor,
+      p75FiveYearLiquidityMinor: dashboard.p75FiveYearLiquidityMinor,
+      horizonDate: dashboard.forecastHorizonDate,
+    });
+
+    const existing =
+      input.goalId === undefined
+        ? null
+        : await this.db
+            .prepare(
+              `SELECT
+                goal.id,
+                goal.template_key,
+                goal.is_primary,
+                COALESCE(MAX(version.version), 0) AS latest_version
+              FROM goals goal
+              LEFT JOIN goal_versions version ON version.goal_id = goal.id
+              WHERE goal.id = ?
+                AND goal.household_id = ?
+                AND goal.archived_at IS NULL
+              GROUP BY goal.id`,
+            )
+            .bind(input.goalId, identity.household_id)
+            .first<GoalIdentityRow>();
+
+    if (input.goalId !== undefined && existing === null) {
+      throw new Error("Goal not found.");
+    }
+    if (existing !== null && existing.template_key !== input.templateKey) {
+      throw new Error("A goal template cannot change between versions.");
+    }
+
+    const goalId = existing?.id ?? crypto.randomUUID();
+    const version = (existing?.latest_version ?? 0) + 1;
+    const versionId = crypto.randomUUID();
+    const snapshotId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const hasPrimary =
+      (
+        await this.db
+          .prepare(
+            `SELECT COUNT(*) AS count
+            FROM goals
+            WHERE household_id = ?
+              AND archived_at IS NULL
+              AND is_primary = 1`,
+          )
+          .bind(identity.household_id)
+          .first<{ count: number }>()
+      )?.count === 1;
+    const makePrimary = input.makePrimary || !hasPrimary;
+    const statements: D1PreparedStatement[] = [];
+
+    if (makePrimary) {
+      statements.push(
+        this.db
+          .prepare(
+            `UPDATE goals
+            SET is_primary = 0
+            WHERE household_id = ? AND is_primary = 1`,
+          )
+          .bind(identity.household_id),
+      );
+    }
+
+    if (existing === null) {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO goals (
+              id,
+              household_id,
+              template_key,
+              is_primary,
+              archived_at,
+              created_at
+            ) VALUES (?, ?, ?, ?, NULL, ?)`,
+          )
+          .bind(
+            goalId,
+            identity.household_id,
+            input.templateKey,
+            makePrimary ? 1 : 0,
+            createdAt,
+          ),
+      );
+    } else if (makePrimary && existing.is_primary === 0) {
+      statements.push(
+        this.db
+          .prepare("UPDATE goals SET is_primary = 1 WHERE id = ?")
+          .bind(goalId),
+      );
+    } else if (makePrimary) {
+      statements.push(
+        this.db
+          .prepare("UPDATE goals SET is_primary = 1 WHERE id = ?")
+          .bind(goalId),
+      );
+    }
+
+    statements.push(
+      this.db
+        .prepare(
+          `INSERT INTO goal_versions (
+            id,
+            household_id,
+            goal_id,
+            version,
+            name,
+            metric_key,
+            metric_label,
+            target_value_integer,
+            target_unit,
+            target_date,
+            current_value_integer,
+            current_value_source,
+            change_note,
+            created_at,
+            created_by,
+            immutable
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        )
+        .bind(
+          versionId,
+          identity.household_id,
+          goalId,
+          version,
+          input.name,
+          input.metricKey,
+          input.metricLabel,
+          input.targetValueInteger,
+          input.targetUnit,
+          input.targetDate,
+          input.currentValueInteger,
+          "Goal editor input",
+          input.changeNote,
+          createdAt,
+          identity.display_name,
+        ),
+      this.db
+        .prepare(
+          `INSERT INTO goal_forecast_snapshots (
+            id,
+            household_id,
+            goal_version_id,
+            version,
+            model_status,
+            lower_value_integer,
+            middle_value_integer,
+            higher_value_integer,
+            success_probability_ppm,
+            unit,
+            horizon_date,
+            methodology,
+            created_at,
+            created_by,
+            immutable
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        )
+        .bind(
+          snapshotId,
+          identity.household_id,
+          versionId,
+          version,
+          preview.modelStatus,
+          preview.lowerValueInteger,
+          preview.middleValueInteger,
+          preview.higherValueInteger,
+          preview.successProbabilityPpm,
+          input.targetUnit,
+          preview.horizonDate,
+          preview.methodology,
+          createdAt,
+          identity.display_name,
+        ),
+    );
+
+    await this.db.batch(statements);
   }
 
   public async reviewEvidence(
@@ -431,7 +676,10 @@ export class D1AlphaRepository implements AlphaRepository {
   ): Promise<HouseholdIdentity> {
     const identity = await this.db
       .prepare(
-        `SELECT household.id AS household_id, user.id AS user_id
+        `SELECT
+          household.id AS household_id,
+          user.id AS user_id,
+          user.display_name
         FROM households household
         JOIN users user ON user.id = household.owner_user_id
         WHERE user.access_subject = ?
@@ -452,6 +700,7 @@ export class D1AlphaRepository implements AlphaRepository {
       .prepare(
         `SELECT
           plan.effective_date AS as_of_date,
+          p50.horizon_date AS forecast_horizon_date,
           household.name AS household_name,
           plan.fi_eligible_liquid_minor,
           CAST(
@@ -465,6 +714,7 @@ export class D1AlphaRepository implements AlphaRepository {
           MAX(plan.fi_target_minor - plan.fi_eligible_liquid_minor, 0) AS fi_gap_minor,
           p25.value_minor AS p25_five_year_liquidity_minor,
           p50.value_minor AS p50_five_year_liquidity_minor,
+          p75.value_minor AS p75_five_year_liquidity_minor,
           crossing.probability_ppm AS probability_crossing_fi_ppm
         FROM households household
         JOIN scenarios scenario
@@ -492,6 +742,10 @@ export class D1AlphaRepository implements AlphaRepository {
           ON p50.forecast_snapshot_id = snapshot.id
           AND p50.metric_key = 'cumulative_liquidity'
           AND p50.percentile = 50
+        JOIN forecast_outputs p75
+          ON p75.forecast_snapshot_id = snapshot.id
+          AND p75.metric_key = 'cumulative_liquidity'
+          AND p75.percentile = 75
         JOIN forecast_outputs crossing
           ON crossing.forecast_snapshot_id = snapshot.id
           AND crossing.metric_key = 'probability_crossing_fi'
@@ -506,6 +760,7 @@ export class D1AlphaRepository implements AlphaRepository {
 
     return {
       asOfDate: row.as_of_date,
+      forecastHorizonDate: row.forecast_horizon_date,
       householdName: row.household_name,
       fiEligibleLiquidMinor: row.fi_eligible_liquid_minor,
       protectedRunwayMonths: row.protected_runway_months,
@@ -515,8 +770,137 @@ export class D1AlphaRepository implements AlphaRepository {
       fiGapMinor: row.fi_gap_minor,
       p25FiveYearLiquidityMinor: row.p25_five_year_liquidity_minor,
       p50FiveYearLiquidityMinor: row.p50_five_year_liquidity_minor,
+      p75FiveYearLiquidityMinor: row.p75_five_year_liquidity_minor,
       probabilityCrossingFiPpm: row.probability_crossing_fi_ppm,
     };
+  }
+
+  private async getGoals(householdId: string) {
+    const rows = await all<GoalRow>(
+      this.db
+        .prepare(
+          `SELECT
+            goal.id,
+            goal.template_key,
+            goal.is_primary,
+            goal.archived_at,
+            goal.created_at AS goal_created_at,
+            version.id AS goal_version_id,
+            version.version,
+            version.name,
+            version.metric_key,
+            version.metric_label,
+            version.target_value_integer,
+            version.target_unit,
+            version.target_date,
+            version.current_value_integer,
+            version.current_value_source,
+            version.change_note,
+            version.created_at AS version_created_at,
+            version.created_by AS version_created_by,
+            forecast.id AS forecast_id,
+            forecast.model_status,
+            forecast.lower_value_integer,
+            forecast.middle_value_integer,
+            forecast.higher_value_integer,
+            forecast.success_probability_ppm,
+            forecast.unit AS forecast_unit,
+            forecast.horizon_date,
+            forecast.methodology,
+            forecast.created_at AS forecast_created_at,
+            forecast.created_by AS forecast_created_by
+          FROM goals goal
+          JOIN goal_versions version ON version.goal_id = goal.id
+          JOIN goal_forecast_snapshots forecast
+            ON forecast.goal_version_id = version.id
+          WHERE goal.household_id = ? AND goal.archived_at IS NULL
+          ORDER BY goal.is_primary DESC, goal.created_at, version.version DESC`,
+        )
+        .bind(householdId),
+    );
+
+    const goalsById = new Map<
+      string,
+      {
+        id: string;
+        templateKey: GoalRow["template_key"];
+        isPrimary: boolean;
+        archivedAt: string | null;
+        createdAt: string;
+        versions: {
+          id: string;
+          version: number;
+          name: string;
+          metricKey: string;
+          metricLabel: string;
+          targetValueInteger: number | null;
+          targetUnit: GoalRow["target_unit"];
+          targetDate: string | null;
+          currentValueInteger: number;
+          currentValueSource: string;
+          changeNote: string;
+          createdAt: string;
+          createdBy: string;
+          forecast: {
+            id: string;
+            version: number;
+            modelStatus: GoalRow["model_status"];
+            lowerValueInteger: number | null;
+            middleValueInteger: number | null;
+            higherValueInteger: number | null;
+            successProbabilityPpm: number | null;
+            unit: GoalRow["forecast_unit"];
+            horizonDate: string | null;
+            methodology: string;
+            createdAt: string;
+            createdBy: string;
+          };
+        }[];
+      }
+    >();
+
+    rows.forEach((row) => {
+      const goal = goalsById.get(row.id) ?? {
+        id: row.id,
+        templateKey: row.template_key,
+        isPrimary: Boolean(row.is_primary),
+        archivedAt: row.archived_at,
+        createdAt: row.goal_created_at,
+        versions: [],
+      };
+      goal.versions.push({
+        id: row.goal_version_id,
+        version: row.version,
+        name: row.name,
+        metricKey: row.metric_key,
+        metricLabel: row.metric_label,
+        targetValueInteger: row.target_value_integer,
+        targetUnit: row.target_unit,
+        targetDate: row.target_date,
+        currentValueInteger: row.current_value_integer,
+        currentValueSource: row.current_value_source,
+        changeNote: row.change_note,
+        createdAt: row.version_created_at,
+        createdBy: row.version_created_by,
+        forecast: {
+          id: row.forecast_id,
+          version: row.version,
+          modelStatus: row.model_status,
+          lowerValueInteger: row.lower_value_integer,
+          middleValueInteger: row.middle_value_integer,
+          higherValueInteger: row.higher_value_integer,
+          successProbabilityPpm: row.success_probability_ppm,
+          unit: row.forecast_unit,
+          horizonDate: row.horizon_date,
+          methodology: row.methodology,
+          createdAt: row.forecast_created_at,
+          createdBy: row.forecast_created_by,
+        },
+      });
+      goalsById.set(row.id, goal);
+    });
+
+    return [...goalsById.values()];
   }
 
   private async getHistory(
