@@ -1332,6 +1332,12 @@ export class D1AlphaRepository implements AlphaRepository {
     ) {
       throw new Error("Accepted evidence is missing its review decision.");
     }
+    if (
+      event.current_status === "pending_review" &&
+      event.review_decision_id !== null
+    ) {
+      throw new Error("Pending evidence already has a review decision.");
+    }
     if (event.company_id === null) {
       throw new Error("Evidence event is not linked to a company record.");
     }
