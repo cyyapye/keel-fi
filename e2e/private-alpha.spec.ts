@@ -59,6 +59,20 @@ test("loads the database-backed dashboard and primary views", async ({
     page.getByText("New preferred financing terms detected"),
   ).toBeVisible();
 
+  await page.route("**/api/evidence/*/review", async (route) => {
+    await route.fulfill({ status: 204 });
+  });
+  const scenarioOnlyButton = page
+    .getByRole("button", { name: "Scenario only" })
+    .first();
+  if (await scenarioOnlyButton.isVisible()) {
+    await scenarioOnlyButton.click();
+    await expect(
+      page.getByRole("heading", { name: "Scenarios" }),
+    ).toBeVisible();
+    await expect(page.getByText("Scenario-only evidence")).toBeVisible();
+  }
+
   await navigation.getByRole("button", { name: /Scenarios/ }).click();
   await expect(page.getByRole("heading", { name: "Scenarios" })).toBeVisible();
   await expect(
