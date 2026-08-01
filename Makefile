@@ -1,12 +1,15 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-PNPM ?= pnpm
+npm_config_cache ?= $(CURDIR)/.npm-cache
+npm_config_prefer_offline ?= true
+npm_config_update_notifier ?= false
+PNPM ?= npx --yes pnpm@11.9.0
 TEST_ARGS ?=
 E2E_ARGS ?=
 WRANGLER_LOG_PATH ?= $(CURDIR)/.wrangler/logs/wrangler.log
 
-export WRANGLER_LOG_PATH
+export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
 .PHONY: help bootstrap dev data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify e2e verify
 
