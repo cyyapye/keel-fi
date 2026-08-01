@@ -4,6 +4,7 @@ import {
   createGoalPreview,
   estimateThresholdProbabilityPpm,
   multiplyMinorByPpm,
+  projectScenario,
   probabilityMeetingThresholdPpm,
   summarizeLiquidityPaths,
 } from "./index";
@@ -115,5 +116,76 @@ describe("deterministic financial calculations", () => {
       lowerValueInteger: null,
       successProbabilityPpm: null,
     });
+  });
+
+  it("projects scenario drafts with integer sensitivity and preserves no-op values", () => {
+    const base = {
+      id: "scn_fi",
+      name: "FI Underwriting",
+      description: "Synthetic FI scenario",
+      isSandbox: false,
+      conditionalValueMinor: 168_000_000,
+      timingAdjustedLiquidityMinor: 92_500_000,
+      assumptions: [
+        {
+          id: "asm_probability",
+          key: "liquidity_probability",
+          label: "Liquidity probability",
+          value: 430_000,
+          unit: "ppm" as const,
+          provenance: "Synthetic policy",
+        },
+        {
+          id: "asm_delay",
+          key: "timing_delay_months",
+          label: "Timing delay",
+          value: 18,
+          unit: "months" as const,
+          provenance: "Synthetic policy",
+        },
+      ],
+      liquidityCurve: [
+        {
+          year: 2031,
+          p25Minor: 94_000_000,
+          p50Minor: 210_000_000,
+          p75Minor: 354_000_000,
+          expectedMinor: 246_000_000,
+          probabilityZeroPpm: 70_000,
+        },
+      ],
+    };
+    const unchanged = projectScenario(base, {
+      scenarioId: "scn_fi",
+      assumptions: [
+        {
+          id: "asm_probability",
+          key: "liquidity_probability",
+          value: 430_000,
+        },
+        { id: "asm_delay", key: "timing_delay_months", value: 18 },
+      ],
+      changeNote: "No-op preview",
+    });
+    expect(unchanged.timingAdjustedLiquidityMinor).toBe(92_500_000);
+    expect(unchanged.liquidityCurve[0]?.p50Minor).toBe(210_000_000);
+
+    const upside = projectScenario(base, {
+      scenarioId: "scn_fi",
+      assumptions: [
+        {
+          id: "asm_probability",
+          key: "liquidity_probability",
+          value: 800_000,
+        },
+        { id: "asm_delay", key: "timing_delay_months", value: 6 },
+      ],
+      changeNote: "Test upside sensitivity",
+    });
+    expect(upside.liquidityScalePpm).toBeGreaterThan(1_000_000);
+    expect(upside.timingAdjustedLiquidityMinor).toBeGreaterThan(
+      unchanged.timingAdjustedLiquidityMinor,
+    );
+    expect(upside.liquidityCurve[0]?.p50Minor).toBeGreaterThan(210_000_000);
   });
 });

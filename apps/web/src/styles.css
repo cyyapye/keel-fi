@@ -1648,12 +1648,18 @@ h1,
   display: block;
   margin: 7px 0;
   color: var(--ink);
-  font-size: 28px;
+  font-size: 36px;
 }
 
 .scenario-summary article small {
   color: var(--faint);
   font-size: 8px;
+}
+
+.scenario-summary article small.scenario-summary__assumptions {
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 700;
 }
 
 .scenario-summary > i {
@@ -1665,10 +1671,6 @@ h1,
 
 .scenario-summary article.usable {
   background: transparent;
-}
-
-.scenario-summary article.usable strong {
-  font-size: 36px;
 }
 
 .scenario-grid {
@@ -1737,22 +1739,15 @@ h1,
   line-height: 1.4;
 }
 
-.draft-note {
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  gap: 8px;
+.scenario-grid .field {
   margin-top: 28px;
-  padding: 13px;
-  color: var(--muted);
-  font-size: 8px;
-  line-height: 1.5;
-  background: transparent;
-  border: 1px dashed var(--ink);
 }
 
-.draft-note span {
-  color: var(--ink);
-  font-size: 14px;
+.scenario-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
 }
 
 .history-panel {

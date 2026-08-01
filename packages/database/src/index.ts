@@ -2,9 +2,18 @@ import {
   AlphaDataSchema,
   createGoalPreview,
   GoalDraftInputSchema,
+  multiplyMinorByScalePpm,
+  projectScenario,
+  projectScenarioProbabilityPpm,
+  projectScenarioValue,
+  projectScenarioZeroProbabilityPpm,
+  scenarioLiquidityFactorPpm,
+  ScenarioDraftInputSchema,
   type AlphaData,
   type ForecastHistoryItemSchema,
   type GoalDraftInput,
+  type Scenario,
+  type ScenarioDraftInput,
 } from "@keel/domain";
 import {
   assertReviewTransition,
@@ -113,8 +122,10 @@ type ScenarioRow = {
 type AssumptionRow = {
   id: string;
   scenario_id: string;
+  assumption_key: string;
   label: string;
   value_integer: number;
+  value_scale: number;
   unit: "ppm" | "months" | "minor_units";
   provenance: string;
 };
@@ -141,6 +152,31 @@ type HistoryRow = {
   p50_minor: number | null;
 };
 
+type ScenarioIdentityRow = {
+  id: string;
+  name: string;
+  description: string;
+  is_sandbox: number;
+  latest_version: number;
+  latest_snapshot_id: string | null;
+};
+
+type ScenarioCompanyForecastRow = {
+  company_id: string;
+  conditional_value_minor: number;
+  timing_adjusted_liquidity_minor: number;
+  probability_zero_ppm: number;
+  effective_date: string;
+};
+
+type ScenarioOutputRow = {
+  metric_key: string;
+  horizon_date: string;
+  percentile: number | null;
+  value_minor: number | null;
+  probability_ppm: number | null;
+};
+
 type HouseholdIdentity = {
   household_id: string;
   user_id: string;
@@ -156,6 +192,7 @@ type ReviewEventRow = HouseholdIdentity & {
 export interface AlphaRepository {
   getAlphaData(accessSubject: string): Promise<AlphaData>;
   saveGoal(accessSubject: string, input: GoalDraftInput): Promise<void>;
+  saveScenario(accessSubject: string, input: ScenarioDraftInput): Promise<void>;
   reviewEvidence(
     accessSubject: string,
     eventId: string,
@@ -166,6 +203,16 @@ export interface AlphaRepository {
 async function all<T>(statement: D1PreparedStatement): Promise<readonly T[]> {
   const result = await statement.all<T>();
   return result.results;
+}
+
+async function hashInput(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function displayJsonValue(serialized: string): string {
@@ -309,15 +356,23 @@ export class D1AlphaRepository implements AlphaRepository {
         this.db
           .prepare(
             `SELECT
-                id,
-                scenario_id,
-                label,
-                value_integer,
-                unit,
-                provenance
-              FROM scenario_assumptions
-              WHERE household_id = ?
-              ORDER BY label`,
+                assumption.id,
+                assumption.scenario_id,
+                assumption.assumption_key,
+                assumption.label,
+                assumption.value_integer,
+                assumption.value_scale,
+                assumption.unit,
+                assumption.provenance
+              FROM scenario_assumptions assumption
+              WHERE assumption.household_id = ?
+                AND assumption.created_at = (
+                  SELECT MAX(newest.created_at)
+                  FROM scenario_assumptions newest
+                  WHERE newest.scenario_id = assumption.scenario_id
+                    AND newest.assumption_key = assumption.assumption_key
+                )
+              ORDER BY assumption.label`,
           )
           .bind(householdId),
       ),
@@ -393,6 +448,7 @@ export class D1AlphaRepository implements AlphaRepository {
           .filter((assumption) => assumption.scenario_id === row.id)
           .map((assumption) => ({
             id: assumption.id,
+            key: assumption.assumption_key,
             label: assumption.label,
             value: assumption.value_integer,
             unit: assumption.unit,
@@ -598,6 +654,404 @@ export class D1AlphaRepository implements AlphaRepository {
           identity.display_name,
         ),
     );
+
+    await this.db.batch(statements);
+  }
+
+  public async saveScenario(
+    accessSubject: string,
+    rawInput: ScenarioDraftInput,
+  ): Promise<void> {
+    const input = ScenarioDraftInputSchema.parse(rawInput);
+    const identity = await this.findIdentity(accessSubject);
+    const scenario = await this.db
+      .prepare(
+        `SELECT
+          scenario.id,
+          scenario.name,
+          scenario.description,
+          scenario.is_sandbox,
+          COALESCE(MAX(snapshot.version), 0) AS latest_version,
+          (
+            SELECT newest.id
+            FROM forecast_snapshots newest
+            WHERE newest.scenario_id = scenario.id
+            ORDER BY newest.version DESC
+            LIMIT 1
+          ) AS latest_snapshot_id
+        FROM scenarios scenario
+        LEFT JOIN forecast_snapshots snapshot
+          ON snapshot.scenario_id = scenario.id
+        WHERE scenario.id = ?
+          AND scenario.household_id = ?
+          AND scenario.archived_at IS NULL
+        GROUP BY scenario.id`,
+      )
+      .bind(input.scenarioId, identity.household_id)
+      .first<ScenarioIdentityRow>();
+
+    if (scenario === null) {
+      throw new Error("Scenario not found.");
+    }
+    if (scenario.latest_snapshot_id === null) {
+      throw new Error("Scenario does not have a forecast snapshot.");
+    }
+
+    const assumptions = await all<AssumptionRow>(
+      this.db
+        .prepare(
+          `SELECT
+              assumption.id,
+              assumption.scenario_id,
+              assumption.assumption_key,
+              assumption.label,
+              assumption.value_integer,
+              assumption.value_scale,
+              assumption.unit,
+              assumption.provenance
+            FROM scenario_assumptions assumption
+            WHERE assumption.household_id = ?
+              AND assumption.scenario_id = ?
+              AND assumption.created_at = (
+                SELECT MAX(newest.created_at)
+                FROM scenario_assumptions newest
+                WHERE newest.scenario_id = assumption.scenario_id
+                  AND newest.assumption_key = assumption.assumption_key
+              )
+            ORDER BY assumption.assumption_key`,
+        )
+        .bind(identity.household_id, scenario.id),
+    );
+    const draftValuesByKey = new Map(
+      input.assumptions.map((assumption) => [assumption.key, assumption.value]),
+    );
+    if (
+      input.assumptions.length !== assumptions.length ||
+      new Set(input.assumptions.map((assumption) => assumption.key)).size !==
+        input.assumptions.length
+    ) {
+      throw new Error("Scenario assumptions are stale.");
+    }
+    const draftValues = new Map<string, number>();
+    assumptions.forEach((assumption) => {
+      const value = draftValuesByKey.get(assumption.assumption_key);
+      if (value === undefined) {
+        throw new Error("Scenario assumptions are stale.");
+      }
+      if (assumption.unit === "ppm" && value > 1_000_000) {
+        throw new Error(
+          "Probability assumptions must be between 0 and 1000000.",
+        );
+      }
+      draftValues.set(assumption.id, value);
+    });
+
+    const [companyForecasts, curveRows, outputRows] = await Promise.all([
+      all<ScenarioCompanyForecastRow>(
+        this.db
+          .prepare(
+            `SELECT
+                company_id,
+                conditional_value_minor,
+                timing_adjusted_liquidity_minor,
+                probability_zero_ppm,
+                effective_date
+              FROM company_forecasts
+              WHERE household_id = ? AND forecast_snapshot_id = ?
+              ORDER BY company_id`,
+          )
+          .bind(identity.household_id, scenario.latest_snapshot_id),
+      ),
+      all<CurveRow>(
+        this.db
+          .prepare(
+            `SELECT
+                scenario_id,
+                year,
+                p25_minor,
+                p50_minor,
+                p75_minor,
+                expected_minor,
+                probability_zero_ppm
+              FROM liquidity_curves
+              WHERE household_id = ? AND forecast_snapshot_id = ?
+              ORDER BY year`,
+          )
+          .bind(identity.household_id, scenario.latest_snapshot_id),
+      ),
+      all<ScenarioOutputRow>(
+        this.db
+          .prepare(
+            `SELECT
+                metric_key,
+                horizon_date,
+                percentile,
+                value_minor,
+                probability_ppm
+              FROM forecast_outputs
+              WHERE household_id = ? AND forecast_snapshot_id = ?
+              ORDER BY metric_key, percentile`,
+          )
+          .bind(identity.household_id, scenario.latest_snapshot_id),
+      ),
+    ]);
+
+    const base: Scenario = {
+      id: scenario.id,
+      name: scenario.name,
+      description: scenario.description,
+      isSandbox: Boolean(scenario.is_sandbox),
+      conditionalValueMinor: companyForecasts.reduce(
+        (total, row) => total + row.conditional_value_minor,
+        0,
+      ),
+      timingAdjustedLiquidityMinor: companyForecasts.reduce(
+        (total, row) => total + row.timing_adjusted_liquidity_minor,
+        0,
+      ),
+      assumptions: assumptions.map((assumption) => ({
+        id: assumption.id,
+        key: assumption.assumption_key,
+        label: assumption.label,
+        value: assumption.value_integer,
+        unit: assumption.unit,
+        provenance: assumption.provenance,
+      })),
+      liquidityCurve: curveRows.map((row) => ({
+        year: row.year,
+        p25Minor: row.p25_minor,
+        p50Minor: row.p50_minor,
+        p75Minor: row.p75_minor,
+        expectedMinor: row.expected_minor,
+        probabilityZeroPpm: row.probability_zero_ppm,
+      })),
+    };
+    const projection = projectScenario(base, {
+      ...input,
+      assumptions: assumptions.map((assumption) => ({
+        id: assumption.id,
+        key: assumption.assumption_key,
+        value: draftValues.get(assumption.id) ?? assumption.value_integer,
+      })),
+    });
+    const baseProbability = assumptions.find(
+      (assumption) => assumption.assumption_key === "liquidity_probability",
+    );
+    const baseDelay = assumptions.find(
+      (assumption) => assumption.assumption_key === "timing_delay_months",
+    );
+    if (baseProbability === undefined || baseDelay === undefined) {
+      throw new Error(
+        "Scenario requires liquidity probability and timing delay assumptions.",
+      );
+    }
+    const draftProbability = draftValues.get(baseProbability.id);
+    const draftDelay = draftValues.get(baseDelay.id);
+    if (draftProbability === undefined || draftDelay === undefined) {
+      throw new Error("Scenario assumptions are stale.");
+    }
+    const baseFactorPpm = scenarioLiquidityFactorPpm(
+      baseProbability.value_integer,
+      baseDelay.value_integer,
+    );
+    const draftFactorPpm = scenarioLiquidityFactorPpm(
+      draftProbability,
+      draftDelay,
+    );
+    const createdAt = new Date().toISOString();
+    const version = scenario.latest_version + 1;
+    const inputHash = await hashInput(
+      [
+        scenario.id,
+        version,
+        ...[...draftValues.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([id, value]) => `${id}:${value}`),
+      ].join("|"),
+    );
+    const effectiveDate = createdAt;
+    const snapshotUuid = crypto.randomUUID();
+    const statements: D1PreparedStatement[] = [
+      this.db
+        .prepare(
+          `INSERT INTO forecast_snapshots (
+            id,
+            household_id,
+            scenario_id,
+            version,
+            input_hash,
+            created_at,
+            created_by,
+            trigger,
+            attributed_change,
+            immutable
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        )
+        .bind(
+          snapshotUuid,
+          identity.household_id,
+          scenario.id,
+          version,
+          inputHash,
+          createdAt,
+          identity.display_name,
+          "Scenario editor",
+          input.changeNote,
+        ),
+    ];
+
+    assumptions.forEach((assumption) => {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO scenario_assumptions (
+              id,
+              household_id,
+              scenario_id,
+              assumption_key,
+              label,
+              value_integer,
+              value_scale,
+              unit,
+              provenance,
+              effective_date,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            scenario.id,
+            assumption.assumption_key,
+            assumption.label,
+            draftValues.get(assumption.id),
+            assumption.value_scale,
+            assumption.unit,
+            "Scenario editor input",
+            effectiveDate,
+            createdAt,
+          ),
+      );
+    });
+
+    companyForecasts.forEach((row) => {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO company_forecasts (
+              id,
+              household_id,
+              forecast_snapshot_id,
+              scenario_id,
+              company_id,
+              conditional_value_minor,
+              timing_adjusted_liquidity_minor,
+              probability_zero_ppm,
+              effective_date,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            snapshotUuid,
+            scenario.id,
+            row.company_id,
+            row.conditional_value_minor,
+            projectScenarioValue(
+              row.conditional_value_minor,
+              row.timing_adjusted_liquidity_minor,
+              baseFactorPpm,
+              draftFactorPpm,
+              projection.liquidityScalePpm,
+            ),
+            projectScenarioZeroProbabilityPpm(
+              row.probability_zero_ppm,
+              projection.liquidityScalePpm,
+            ),
+            row.effective_date,
+            createdAt,
+          ),
+      );
+    });
+
+    projection.liquidityCurve.forEach((point) => {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO liquidity_curves (
+              id,
+              household_id,
+              forecast_snapshot_id,
+              scenario_id,
+              year,
+              p25_minor,
+              p50_minor,
+              p75_minor,
+              expected_minor,
+              probability_zero_ppm,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            snapshotUuid,
+            scenario.id,
+            point.year,
+            point.p25Minor,
+            point.p50Minor,
+            point.p75Minor,
+            point.expectedMinor,
+            point.probabilityZeroPpm,
+            createdAt,
+          ),
+      );
+    });
+
+    outputRows.forEach((row) => {
+      const valueMinor =
+        row.value_minor === null
+          ? null
+          : multiplyMinorByScalePpm(
+              row.value_minor,
+              projection.liquidityScalePpm,
+            );
+      const probabilityPpm =
+        row.probability_ppm === null
+          ? null
+          : projectScenarioProbabilityPpm(
+              row.probability_ppm,
+              projection.liquidityScalePpm,
+            );
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO forecast_outputs (
+              id,
+              household_id,
+              forecast_snapshot_id,
+              metric_key,
+              horizon_date,
+              percentile,
+              value_minor,
+              probability_ppm,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            snapshotUuid,
+            row.metric_key,
+            row.horizon_date,
+            row.percentile,
+            valueMinor,
+            probabilityPpm,
+            createdAt,
+          ),
+      );
+    });
 
     await this.db.batch(statements);
   }
@@ -926,7 +1380,7 @@ export class D1AlphaRepository implements AlphaRepository {
             AND output.metric_key = 'cumulative_liquidity'
             AND output.percentile = 50
           WHERE snapshot.household_id = ?
-          ORDER BY snapshot.created_at`,
+          ORDER BY snapshot.created_at, snapshot.version`,
         )
         .bind(householdId),
     );

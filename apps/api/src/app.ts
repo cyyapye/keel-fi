@@ -1,5 +1,5 @@
 import { D1AlphaRepository, type AlphaRepository } from "@keel/database";
-import { GoalDraftInputSchema } from "@keel/domain";
+import { GoalDraftInputSchema, ScenarioDraftInputSchema } from "@keel/domain";
 import { ReviewInputSchema } from "@keel/evidence";
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -217,6 +217,60 @@ export function createApp(options: AppOptions = {}) {
         );
       }
       return context.json({ error: "Goal version could not be saved." }, 500);
+    }
+  });
+
+  app.post("/api/scenarios", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+
+    const result = ScenarioDraftInputSchema.safeParse(rawInput);
+    if (!result.success) {
+      return context.json(
+        {
+          error: "Scenario input is invalid.",
+          issues: result.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+      );
+    }
+
+    try {
+      await repositoryFor(context.env).saveScenario(
+        context.get("identity").subject,
+        result.data,
+      );
+      return context.body(null, 204, {
+        "Cache-Control": "no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message.includes("not found")) {
+        return context.json({ error: "Scenario not found." }, 404);
+      }
+      if (message.includes("stale") || message.includes("between")) {
+        return context.json(
+          {
+            error:
+              "Scenario inputs changed elsewhere. Your draft is still local.",
+          },
+          409,
+        );
+      }
+      if (message.includes("Probability assumptions")) {
+        return context.json({ error: message }, 400);
+      }
+      return context.json(
+        { error: "Scenario version could not be saved." },
+        500,
+      );
     }
   });
 

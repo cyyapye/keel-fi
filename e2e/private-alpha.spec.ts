@@ -64,6 +64,37 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(
     page.getByRole("tab", { name: "FI Underwriting" }),
   ).toHaveAttribute("aria-selected", "true");
+  const saveScenarioButton = page.getByRole("button", {
+    name: "Save scenario",
+  });
+  await expect(saveScenarioButton).toBeDisabled();
+  const scenarioSliders = page.locator('input[type="range"]');
+  await expect(scenarioSliders).toHaveCount(2);
+  const probabilitySlider = scenarioSliders.nth(0);
+  const delaySlider = scenarioSliders.nth(1);
+  await probabilitySlider.focus();
+  await probabilitySlider.press("ArrowRight");
+  await delaySlider.focus();
+  await delaySlider.press("ArrowRight");
+  await expect(page.getByText("Working draft preview")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "What changed" })).toHaveValue(
+    /Liquidity probability: .*→.*; Timing delay: .*→.*/,
+  );
+  await expect(page.getByText(/probability · \d+-month delay/)).toBeVisible();
+  await expect(
+    page.getByText(
+      "Editing previews the impact. Save when the assumptions look right.",
+    ),
+  ).toHaveCount(0);
+  await expect(saveScenarioButton).toBeEnabled();
+  if (!mobile) {
+    await saveScenarioButton.click();
+    await expect(page.getByText("Scenario saved.")).toBeVisible();
+    await navigation.getByRole("button", { name: /History/ }).click();
+    await expect(page.locator(".history-list")).toContainText(
+      "Scenario editor",
+    );
+  }
 
   await navigation.getByRole("button", { name: /Overview/ }).click();
   await page.getByRole("button", { name: "Review goal →" }).click();

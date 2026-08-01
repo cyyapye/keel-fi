@@ -1,8 +1,10 @@
 import {
   AlphaDataSchema,
   GoalDraftInputSchema,
+  ScenarioDraftInputSchema,
   type AlphaData,
   type GoalDraftInput,
+  type ScenarioDraftInput,
 } from "@keel/domain";
 
 export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
@@ -64,5 +66,29 @@ export async function saveGoalVersion(input: GoalDraftInput): Promise<void> {
       error?: string;
     } | null;
     throw new Error(result?.error ?? `Goal save returned ${response.status}.`);
+  }
+}
+
+export async function saveScenarioVersion(
+  input: ScenarioDraftInput,
+): Promise<void> {
+  const body = ScenarioDraftInputSchema.parse(input);
+  const response = await fetch("/api/scenarios", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      result?.error ?? `Scenario save returned ${response.status}.`,
+    );
   }
 }
