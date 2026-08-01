@@ -183,6 +183,32 @@ describe("Keel API", () => {
     );
   });
 
+  it("returns a conflict when evidence has an inconsistent review state", async () => {
+    const repository: AlphaRepository = {
+      getAlphaData: vi
+        .fn<AlphaRepository["getAlphaData"]>()
+        .mockResolvedValue(alphaData),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi
+        .fn<AlphaRepository["applyEvidence"]>()
+        .mockRejectedValue(
+          new Error("Pending evidence already has a review decision."),
+        ),
+    };
+    const response = await createApp({ repository }).request(
+      "/api/evidence/evt_demo/apply",
+      { method: "POST" },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Evidence cannot be applied automatically.",
+    });
+  });
+
   it("validates and records a new immutable goal version", async () => {
     const saveGoal = vi
       .fn<AlphaRepository["saveGoal"]>()
