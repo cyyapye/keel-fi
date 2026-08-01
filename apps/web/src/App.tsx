@@ -1471,9 +1471,13 @@ function EvidenceInbox({
 function Scenarios({
   data,
   onSave,
+  scenarioContext,
+  onClearScenarioContext,
 }: {
   data: AlphaData;
   onSave: (input: ScenarioDraftInput) => Promise<void>;
+  scenarioContext: EvidenceInboxItem | null;
+  onClearScenarioContext: () => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftValues, setDraftValues] = useState<Record<string, number>>({});
@@ -1517,7 +1521,15 @@ function Scenarios({
               )} → ${formatScenarioAssumptionValue(assumption, nextValue)}`,
           )
           .join("; ");
-  const effectiveChangeNote = changeNote.trim() || autoChangeNote;
+  const effectiveChangeNote = [
+    scenarioContext === null
+      ? null
+      : `Scenario-only evidence: ${scenarioContext.headline}`,
+    changeNote.trim() || autoChangeNote,
+  ]
+    .filter((note): note is string => note !== null && note.length > 0)
+    .join(" — ")
+    .slice(0, 500);
   const draftInput = useMemo<ScenarioDraftInput | null>(
     () =>
       selected === undefined
@@ -1607,6 +1619,7 @@ function Scenarios({
         setChangeNote("");
         setSaveState("saved");
         setSaveMessage("Scenario saved.");
+        onClearScenarioContext();
       })
       .catch((error: unknown) => {
         setSaveState("error");
@@ -1695,6 +1708,24 @@ function Scenarios({
           </button>
         ))}
       </div>
+
+      {scenarioContext !== null ? (
+        <div className="scenario-context" role="status">
+          <div>
+            <p className="eyebrow">Scenario-only evidence</p>
+            <strong>{scenarioContext.headline}</strong>
+            <small>
+              {scenarioContext.priorValue} → {scenarioContext.replacementValue}{" "}
+              · estimated impact{" "}
+              {scenarioContext.forecastImpactMinor >= 0 ? "+" : ""}
+              {formatCompactMoney(scenarioContext.forecastImpactMinor)}
+            </small>
+          </div>
+          <Button tone="quiet" onClick={onClearScenarioContext}>
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
 
       <div className="scenario-summary">
         <div>
@@ -1989,6 +2020,8 @@ export function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [busyEvent, setBusyEvent] = useState<string | null>(null);
+  const [scenarioContext, setScenarioContext] =
+    useState<EvidenceInboxItem | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2036,10 +2069,13 @@ export function App() {
             data={data}
             error={reviewError}
             onReview={(eventId, decision) => {
+              const reviewedItem = data.evidenceInbox.find(
+                (item) => item.id === eventId,
+              );
               setBusyEvent(eventId);
               setReviewError(null);
               void submitEvidenceReview(eventId, decision)
-                .then(() =>
+                .then(() => {
                   setData((current) =>
                     current === null
                       ? current
@@ -2051,8 +2087,15 @@ export function App() {
                               : item,
                           ),
                         },
-                  ),
-                )
+                  );
+                  if (
+                    decision === "scenario_only" &&
+                    reviewedItem !== undefined
+                  ) {
+                    setScenarioContext(reviewedItem);
+                    setActiveScreen("scenarios");
+                  }
+                })
                 .catch((error: unknown) =>
                   setReviewError(
                     error instanceof Error
@@ -2072,12 +2115,14 @@ export function App() {
               await saveScenarioVersion(input);
               setData(await loadAlphaData());
             }}
+            onClearScenarioContext={() => setScenarioContext(null)}
+            scenarioContext={scenarioContext}
           />
         );
       case "history":
         return <ForecastHistory data={data} />;
     }
-  }, [activeScreen, busyEvent, data, reviewError]);
+  }, [activeScreen, busyEvent, data, reviewError, scenarioContext]);
 
   if (data === null && loadError === null) {
     return <LoadingShell />;
