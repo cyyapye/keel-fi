@@ -1,10 +1,12 @@
 import {
   createGoalPreview,
+  projectScenario,
   type AlphaData,
   type EvidenceInboxItem,
   type Goal,
   type GoalDraftInput,
   type Scenario,
+  type ScenarioDraftInput,
 } from "@keel/domain";
 import { Badge, Button, MetricCard, Panel } from "@keel/ui";
 import {
@@ -16,7 +18,12 @@ import {
   useState,
 } from "react";
 
-import { loadAlphaData, saveGoalVersion, submitEvidenceReview } from "./api";
+import {
+  loadAlphaData,
+  saveGoalVersion,
+  saveScenarioVersion,
+  submitEvidenceReview,
+} from "./api";
 import { formatCompactMoney, formatDate, formatProbability } from "./format";
 
 type Screen =
@@ -114,6 +121,19 @@ function formatGoalValue(value: number, unit: GoalUnit): string {
   return `${new Intl.NumberFormat("en-US").format(value)} ${
     unit === "months" ? "months" : ""
   }`.trim();
+}
+
+function formatScenarioAssumptionValue(
+  assumption: Scenario["assumptions"][number],
+  value: number,
+): string {
+  if (assumption.unit === "ppm") {
+    return formatProbability(value);
+  }
+  if (assumption.unit === "minor_units") {
+    return formatCompactMoney(value);
+  }
+  return `${value} ${assumption.unit}`;
 }
 
 function moneyInputValue(minorUnits: number | null): string {
@@ -1448,19 +1468,155 @@ function EvidenceInbox({
   );
 }
 
-function Scenarios({ data }: { data: AlphaData }) {
+function Scenarios({
+  data,
+  onSave,
+}: {
+  data: AlphaData;
+  onSave: (input: ScenarioDraftInput) => Promise<void>;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftValues, setDraftValues] = useState<Record<string, number>>({});
+  const [changeNote, setChangeNote] = useState("");
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const selected =
     data.scenarios.find((scenario) => scenario.id === selectedId) ??
     data.scenarios.find((scenario) => scenario.name === "FI Underwriting") ??
     data.scenarios[0];
+
+  const hasDraftChanges =
+    selected?.assumptions.some(
+      (assumption) =>
+        (draftValues[assumption.id] ?? assumption.value) !== assumption.value,
+    ) ?? false;
+  const workingAssumptions =
+    selected?.assumptions.map((assumption) => ({
+      ...assumption,
+      value: draftValues[assumption.id] ?? assumption.value,
+    })) ?? [];
+  const changedAssumptions =
+    selected?.assumptions
+      .map((assumption) => ({
+        assumption,
+        nextValue: draftValues[assumption.id] ?? assumption.value,
+      }))
+      .filter(({ assumption, nextValue }) => nextValue !== assumption.value) ??
+    [];
+  const autoChangeNote =
+    changedAssumptions.length === 0
+      ? "Scenario assumption revision"
+      : changedAssumptions
+          .map(
+            ({ assumption, nextValue }) =>
+              `${assumption.label}: ${formatScenarioAssumptionValue(
+                assumption,
+                assumption.value,
+              )} → ${formatScenarioAssumptionValue(assumption, nextValue)}`,
+          )
+          .join("; ");
+  const effectiveChangeNote = changeNote.trim() || autoChangeNote;
+  const draftInput = useMemo<ScenarioDraftInput | null>(
+    () =>
+      selected === undefined
+        ? null
+        : {
+            scenarioId: selected.id,
+            assumptions: selected.assumptions.map((assumption) => ({
+              id: assumption.id,
+              key: assumption.key,
+              value: draftValues[assumption.id] ?? assumption.value,
+            })),
+            changeNote: effectiveChangeNote,
+          },
+    [draftValues, effectiveChangeNote, selected],
+  );
+  const projection = useMemo(() => {
+    if (selected === undefined || draftInput === null) {
+      return null;
+    }
+    try {
+      return projectScenario(selected, draftInput);
+    } catch {
+      return null;
+    }
+  }, [draftInput, selected]);
 
   if (selected === undefined) {
     return (
       <EmptyState title="No scenarios">Seed the synthetic database.</EmptyState>
     );
   }
+
+  const displayedScenario: Scenario =
+    projection === null
+      ? selected
+      : {
+          ...selected,
+          conditionalValueMinor: projection.conditionalValueMinor,
+          timingAdjustedLiquidityMinor: projection.timingAdjustedLiquidityMinor,
+          liquidityCurve: projection.liquidityCurve,
+        };
+  const liquidityProbability = workingAssumptions.find(
+    (assumption) => assumption.key === "liquidity_probability",
+  )?.value;
+  const timingDelay = workingAssumptions.find(
+    (assumption) => assumption.key === "timing_delay_months",
+  )?.value;
+  const scenarioConditions =
+    liquidityProbability === undefined || timingDelay === undefined
+      ? "Scenario assumptions applied"
+      : `${formatProbability(liquidityProbability)} probability · ${timingDelay}-month delay`;
+
+  const selectScenario = (scenarioId: string) => {
+    setSelectedId(scenarioId);
+    setDraftValues({});
+    setChangeNote("");
+    setSaveState("idle");
+    setSaveMessage(null);
+  };
+
+  const resetDraft = () => {
+    setDraftValues({});
+    setChangeNote("");
+    setSaveState("idle");
+    setSaveMessage(null);
+  };
+
+  const submit = () => {
+    if (!hasDraftChanges) {
+      setSaveState("error");
+      setSaveMessage("Change an assumption before saving.");
+      return;
+    }
+    if (projection === null) {
+      setSaveState("error");
+      setSaveMessage("The scenario preview is not available yet.");
+      return;
+    }
+    setSaveState("saving");
+    setSaveMessage(null);
+    if (draftInput === null) {
+      return;
+    }
+    void onSave({ ...draftInput, changeNote: effectiveChangeNote })
+      .then(() => {
+        setDraftValues({});
+        setChangeNote("");
+        setSaveState("saved");
+        setSaveMessage("Scenario saved.");
+      })
+      .catch((error: unknown) => {
+        setSaveState("error");
+        setSaveMessage(
+          error instanceof Error
+            ? error.message
+            : "The scenario could not be saved.",
+        );
+      });
+  };
 
   return (
     <div className="screen-stack">
@@ -1473,8 +1629,16 @@ function Scenarios({ data }: { data: AlphaData }) {
             means. Edit the goal itself in Goals.
           </p>
         </div>
-        <Badge tone={selected.isSandbox ? "accent" : "neutral"}>
-          {selected.isSandbox ? "Editable sandbox" : "Saved scenario"}
+        <Badge
+          tone={
+            saveState === "error"
+              ? "negative"
+              : hasDraftChanges
+                ? "warning"
+                : "neutral"
+          }
+        >
+          {hasDraftChanges ? "Unsaved draft" : "Saved scenario"}
         </Badge>
       </div>
 
@@ -1523,7 +1687,7 @@ function Scenarios({ data }: { data: AlphaData }) {
             aria-selected={scenario.id === selected.id}
             className={scenario.id === selected.id ? "active" : ""}
             key={scenario.id}
-            onClick={() => setSelectedId(scenario.id)}
+            onClick={() => selectScenario(scenario.id)}
             role="tab"
             type="button"
           >
@@ -1535,28 +1699,36 @@ function Scenarios({ data }: { data: AlphaData }) {
       <div className="scenario-summary">
         <div>
           <p>{selected.description}</p>
-          <span>Current saved forecast output</span>
+          <span>
+            {hasDraftChanges
+              ? "Working draft preview"
+              : "Current saved forecast output"}
+          </span>
         </div>
         <article>
           <span>Conditional value</span>
-          <strong>{formatCompactMoney(selected.conditionalValueMinor)}</strong>
-          <small>Economic outcome if conditions resolve</small>
+          <strong>
+            {formatCompactMoney(displayedScenario.conditionalValueMinor)}
+          </strong>
+          <small>Value if the modeled liquidity events occur</small>
         </article>
         <i aria-hidden="true">≠</i>
         <article className="usable">
           <span>Timing-adjusted liquidity</span>
           <strong>
-            {formatCompactMoney(selected.timingAdjustedLiquidityMinor)}
+            {formatCompactMoney(displayedScenario.timingAdjustedLiquidityMinor)}
           </strong>
-          <small>Probability and timing adjusted</small>
+          <small className="scenario-summary__assumptions">
+            {scenarioConditions}
+          </small>
         </article>
       </div>
 
       <div className="scenario-grid">
         <Panel eyebrow="Annual distribution" title="Cumulative liquidity curve">
-          <LiquidityChart scenario={selected} />
+          <LiquidityChart scenario={displayedScenario} />
           <div className="zero-probabilities">
-            {selected.liquidityCurve.map((point) => (
+            {displayedScenario.liquidityCurve.map((point) => (
               <span key={point.year}>
                 <b>{point.year}</b>
                 {formatProbability(point.probabilityZeroPpm)} chance of zero
@@ -1565,7 +1737,11 @@ function Scenarios({ data }: { data: AlphaData }) {
           </div>
         </Panel>
         <Panel
-          action={<Badge tone="warning">Draft only</Badge>}
+          action={
+            <Badge tone={hasDraftChanges ? "warning" : "neutral"}>
+              {hasDraftChanges ? "Draft" : "Saved"}
+            </Badge>
+          }
           eyebrow="Assumption editor"
           title="Working values"
         >
@@ -1601,10 +1777,43 @@ function Scenarios({ data }: { data: AlphaData }) {
               );
             })}
           </div>
-          <div className="draft-note">
-            <span>◇</span>
-            Editing creates a working draft only. Saving must create a new
-            forecast snapshot and preserve the prior one.
+          <label className="field field--wide">
+            <span>What changed</span>
+            <input
+              maxLength={500}
+              onChange={(event) => {
+                setChangeNote(event.target.value);
+                setSaveState("idle");
+                setSaveMessage(null);
+              }}
+              value={changeNote || autoChangeNote}
+            />
+          </label>
+          {saveMessage !== null && (
+            <p
+              className={
+                saveState === "error" ? "form-message error" : "form-message"
+              }
+              role={saveState === "error" ? "alert" : "status"}
+            >
+              {saveMessage}
+            </p>
+          )}
+          <div className="scenario-actions">
+            <Button
+              disabled={!hasDraftChanges || saveState === "saving"}
+              onClick={resetDraft}
+              tone="quiet"
+            >
+              Reset
+            </Button>
+            <Button
+              disabled={!hasDraftChanges || saveState === "saving"}
+              onClick={submit}
+              tone="primary"
+            >
+              {saveState === "saving" ? "Saving…" : "Save scenario"}
+            </Button>
           </div>
         </Panel>
       </div>
@@ -1856,7 +2065,15 @@ export function App() {
           />
         );
       case "scenarios":
-        return <Scenarios data={data} />;
+        return (
+          <Scenarios
+            data={data}
+            onSave={async (input) => {
+              await saveScenarioVersion(input);
+              setData(await loadAlphaData());
+            }}
+          />
+        );
       case "history":
         return <ForecastHistory data={data} />;
     }

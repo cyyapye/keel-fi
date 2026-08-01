@@ -410,6 +410,7 @@ export const EvidenceInboxItemSchema = z.object({
 
 export const ScenarioAssumptionSchema = z.object({
   id: z.string().min(1),
+  key: z.string().min(1),
   label: z.string().min(1),
   value: z.number().int().safe(),
   unit: z.enum(["ppm", "months", "minor_units"]),
@@ -435,6 +436,218 @@ export const ScenarioSchema = z.object({
   assumptions: z.array(ScenarioAssumptionSchema),
   liquidityCurve: z.array(LiquidityPointSchema).min(1),
 });
+
+export const ScenarioDraftAssumptionSchema = z.object({
+  id: z.string().min(1),
+  key: z.string().min(1),
+  value: z.number().int().safe().nonnegative(),
+});
+
+export const ScenarioDraftInputSchema = z.object({
+  scenarioId: z.string().min(1),
+  assumptions: z.array(ScenarioDraftAssumptionSchema).min(1),
+  changeNote: z.string().trim().min(1).max(500),
+});
+
+export const ScenarioProjectionSchema = z.object({
+  conditionalValueMinor: NonNegativeMoneyMinorSchema,
+  timingAdjustedLiquidityMinor: NonNegativeMoneyMinorSchema,
+  liquidityScalePpm: z.number().int().safe().nonnegative(),
+  liquidityCurve: z.array(LiquidityPointSchema).min(1),
+});
+
+function multiplyIntegerByPpm(value: number, ppm: number): number {
+  z.number().int().safe().nonnegative().parse(value);
+  z.number().int().safe().nonnegative().parse(ppm);
+  const result = (BigInt(value) * BigInt(ppm)) / BigInt(PARTS_PER_MILLION);
+  return z.number().int().safe().nonnegative().parse(Number(result));
+}
+
+function delayWindowPpm(delayMonths: number): number {
+  const boundedDelay = Math.min(Math.max(delayMonths, 0), 60);
+  return Math.floor(((60 - boundedDelay) * PARTS_PER_MILLION) / 60);
+}
+
+export function scenarioLiquidityFactorPpm(
+  probabilityPpm: number,
+  delayMonths: number,
+): number {
+  ProbabilityPpmSchema.parse(probabilityPpm);
+  z.number().int().safe().nonnegative().parse(delayMonths);
+  return multiplyIntegerByPpm(probabilityPpm, delayWindowPpm(delayMonths));
+}
+
+export function scenarioSensitivityScalePpm(
+  baseProbabilityPpm: number,
+  baseDelayMonths: number,
+  draftProbabilityPpm: number,
+  draftDelayMonths: number,
+): number {
+  ProbabilityPpmSchema.parse(baseProbabilityPpm);
+  ProbabilityPpmSchema.parse(draftProbabilityPpm);
+  z.number().int().safe().nonnegative().parse(baseDelayMonths);
+  z.number().int().safe().nonnegative().parse(draftDelayMonths);
+
+  const baseFactor = scenarioLiquidityFactorPpm(
+    baseProbabilityPpm,
+    baseDelayMonths,
+  );
+  const draftFactor = scenarioLiquidityFactorPpm(
+    draftProbabilityPpm,
+    draftDelayMonths,
+  );
+
+  if (baseFactor === 0) {
+    return draftFactor === 0 ? PARTS_PER_MILLION : draftFactor;
+  }
+
+  const scale = Number(
+    (BigInt(draftFactor) * BigInt(PARTS_PER_MILLION)) / BigInt(baseFactor),
+  );
+  return Math.min(scale, 10 * PARTS_PER_MILLION);
+}
+
+export function multiplyMinorByScalePpm(
+  minorUnits: number,
+  scalePpm: number,
+): number {
+  NonNegativeMoneyMinorSchema.parse(minorUnits);
+  z.number().int().safe().nonnegative().parse(scalePpm);
+  const result =
+    (BigInt(minorUnits) * BigInt(scalePpm)) / BigInt(PARTS_PER_MILLION);
+  return NonNegativeMoneyMinorSchema.parse(Number(result));
+}
+
+export function projectScenarioValue(
+  conditionalValueMinor: number,
+  timingAdjustedLiquidityMinor: number,
+  baseFactorPpm: number,
+  draftFactorPpm: number,
+  scalePpm: number,
+): number {
+  NonNegativeMoneyMinorSchema.parse(conditionalValueMinor);
+  NonNegativeMoneyMinorSchema.parse(timingAdjustedLiquidityMinor);
+  z.number().int().safe().nonnegative().parse(baseFactorPpm);
+  z.number().int().safe().nonnegative().parse(draftFactorPpm);
+  z.number().int().safe().nonnegative().parse(scalePpm);
+
+  if (baseFactorPpm === 0 && draftFactorPpm > 0) {
+    return multiplyMinorByPpm(conditionalValueMinor, draftFactorPpm);
+  }
+  return multiplyMinorByScalePpm(timingAdjustedLiquidityMinor, scalePpm);
+}
+
+export function projectScenarioProbabilityPpm(
+  probabilityPpm: number,
+  scalePpm: number,
+): number {
+  ProbabilityPpmSchema.parse(probabilityPpm);
+  z.number().int().safe().nonnegative().parse(scalePpm);
+  return Math.min(
+    PARTS_PER_MILLION,
+    multiplyIntegerByPpm(probabilityPpm, scalePpm),
+  );
+}
+
+export function projectScenarioZeroProbabilityPpm(
+  probabilityZeroPpm: number,
+  scalePpm: number,
+): number {
+  ProbabilityPpmSchema.parse(probabilityZeroPpm);
+  return (
+    PARTS_PER_MILLION -
+    projectScenarioProbabilityPpm(
+      PARTS_PER_MILLION - probabilityZeroPpm,
+      scalePpm,
+    )
+  );
+}
+
+export function projectScenario(
+  rawBase: z.input<typeof ScenarioSchema>,
+  rawInput: z.input<typeof ScenarioDraftInputSchema>,
+): z.infer<typeof ScenarioProjectionSchema> {
+  const base = ScenarioSchema.parse(rawBase);
+  const input = ScenarioDraftInputSchema.parse(rawInput);
+  if (base.id !== input.scenarioId) {
+    throw new Error("Scenario draft does not match the selected scenario.");
+  }
+
+  const draftById = new Map(
+    input.assumptions.map((assumption) => [assumption.id, assumption.value]),
+  );
+  const draftByKey = new Map(
+    input.assumptions.map((assumption) => [assumption.key, assumption.value]),
+  );
+  const assumptions = base.assumptions.map((assumption) => ({
+    ...assumption,
+    value:
+      draftById.get(assumption.id) ??
+      draftByKey.get(assumption.key) ??
+      assumption.value,
+  }));
+  const probability = assumptions.find(
+    (assumption) => assumption.key === "liquidity_probability",
+  );
+  const delay = assumptions.find(
+    (assumption) => assumption.key === "timing_delay_months",
+  );
+  const baseProbability = base.assumptions.find(
+    (assumption) => assumption.key === "liquidity_probability",
+  );
+  const baseDelay = base.assumptions.find(
+    (assumption) => assumption.key === "timing_delay_months",
+  );
+
+  if (
+    probability === undefined ||
+    delay === undefined ||
+    baseProbability === undefined ||
+    baseDelay === undefined
+  ) {
+    throw new Error(
+      "Scenario requires liquidity probability and timing delay assumptions.",
+    );
+  }
+
+  const scalePpm = scenarioSensitivityScalePpm(
+    baseProbability.value,
+    baseDelay.value,
+    probability.value,
+    delay.value,
+  );
+  const baseFactorPpm = scenarioLiquidityFactorPpm(
+    baseProbability.value,
+    baseDelay.value,
+  );
+  const draftFactorPpm = scenarioLiquidityFactorPpm(
+    probability.value,
+    delay.value,
+  );
+
+  return ScenarioProjectionSchema.parse({
+    conditionalValueMinor: base.conditionalValueMinor,
+    timingAdjustedLiquidityMinor: projectScenarioValue(
+      base.conditionalValueMinor,
+      base.timingAdjustedLiquidityMinor,
+      baseFactorPpm,
+      draftFactorPpm,
+      scalePpm,
+    ),
+    liquidityScalePpm: scalePpm,
+    liquidityCurve: base.liquidityCurve.map((point) => ({
+      ...point,
+      p25Minor: multiplyMinorByScalePpm(point.p25Minor, scalePpm),
+      p50Minor: multiplyMinorByScalePpm(point.p50Minor, scalePpm),
+      p75Minor: multiplyMinorByScalePpm(point.p75Minor, scalePpm),
+      expectedMinor: multiplyMinorByScalePpm(point.expectedMinor, scalePpm),
+      probabilityZeroPpm: projectScenarioZeroProbabilityPpm(
+        point.probabilityZeroPpm,
+        scalePpm,
+      ),
+    })),
+  });
+}
 
 export const ForecastHistoryItemSchema = z.object({
   id: z.string().min(1),
@@ -464,3 +677,5 @@ export type Goal = z.infer<typeof GoalSchema>;
 export type GoalDraftInput = z.infer<typeof GoalDraftInputSchema>;
 export type GoalPreview = z.infer<typeof GoalPreviewSchema>;
 export type Scenario = z.infer<typeof ScenarioSchema>;
+export type ScenarioDraftInput = z.infer<typeof ScenarioDraftInputSchema>;
+export type ScenarioProjection = z.infer<typeof ScenarioProjectionSchema>;

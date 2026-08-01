@@ -82,6 +82,7 @@ describe("Keel API", () => {
     const repository: AlphaRepository = {
       getAlphaData,
       saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
     };
     const response = await createApp({ repository }).request(
@@ -101,6 +102,7 @@ describe("Keel API", () => {
     const repository: AlphaRepository = {
       getAlphaData,
       saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
     };
     const response = await createApp({ repository }).request(
@@ -125,6 +127,7 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
       reviewEvidence,
     };
     const response = await createApp({ repository }).request(
@@ -160,6 +163,7 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       saveGoal,
+      saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
     };
     const input = {
@@ -188,5 +192,76 @@ describe("Keel API", () => {
 
     expect(response.status).toBe(204);
     expect(saveGoal).toHaveBeenCalledWith("synthetic-access-subject", input);
+  });
+
+  it("validates and records a new scenario version", async () => {
+    const saveScenario = vi
+      .fn<AlphaRepository["saveScenario"]>()
+      .mockResolvedValue(undefined);
+    const repository: AlphaRepository = {
+      getAlphaData: vi
+        .fn<AlphaRepository["getAlphaData"]>()
+        .mockResolvedValue(alphaData),
+      saveGoal: vi.fn(),
+      saveScenario,
+      reviewEvidence: vi.fn(),
+    };
+    const input = {
+      scenarioId: "scn_fi",
+      assumptions: [
+        {
+          id: "asm_probability",
+          key: "liquidity_probability",
+          value: 500_000,
+        },
+        { id: "asm_delay", key: "timing_delay_months", value: 12 },
+      ],
+      changeNote: "Test scenario sensitivity",
+    };
+
+    const response = await createApp({ repository }).request(
+      "/api/scenarios",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(204);
+    expect(saveScenario).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      input,
+    );
+  });
+
+  it("rejects invalid scenario input before reaching the repository", async () => {
+    const saveScenario = vi.fn<AlphaRepository["saveScenario"]>();
+    const repository: AlphaRepository = {
+      getAlphaData: vi
+        .fn<AlphaRepository["getAlphaData"]>()
+        .mockResolvedValue(alphaData),
+      saveGoal: vi.fn(),
+      saveScenario,
+      reviewEvidence: vi.fn(),
+    };
+
+    const response = await createApp({ repository }).request(
+      "/api/scenarios",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scenarioId: "scn_fi",
+          assumptions: [],
+          changeNote: "",
+        }),
+      },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(saveScenario).not.toHaveBeenCalled();
   });
 });
