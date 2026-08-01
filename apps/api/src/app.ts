@@ -175,6 +175,41 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.post("/api/evidence/:eventId/apply", async (context) => {
+    try {
+      await repositoryFor(context.env).applyEvidence(
+        context.get("identity").subject,
+        context.req.param("eventId"),
+      );
+      return context.body(null, 204, {
+        "Cache-Control": "no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message.includes("not found")) {
+        return context.json({ error: "Evidence event not found." }, 404);
+      }
+      if (
+        message.includes("transition") ||
+        message.includes("direct") ||
+        message.includes("already") ||
+        message.includes("target") ||
+        message.includes("financial value") ||
+        message.includes("complete proposed") ||
+        message.includes("review decision")
+      ) {
+        return context.json(
+          { error: "Evidence cannot be applied automatically." },
+          409,
+        );
+      }
+      return context.json(
+        { error: "Evidence application could not be recorded." },
+        500,
+      );
+    }
+  });
+
   app.post("/api/goals", async (context) => {
     let rawInput: unknown;
     try {

@@ -406,6 +406,13 @@ export const EvidenceInboxItemSchema = z.object({
   priorValue: z.string().min(1),
   replacementValue: z.string().min(1),
   forecastImpactMinor: MoneyMinorSchema,
+  application: z
+    .object({
+      target: z.enum(["external_mark", "usable_liquidity"]),
+      label: z.string().min(1),
+      applied: z.boolean(),
+    })
+    .nullable(),
 });
 
 export const ScenarioAssumptionSchema = z.object({

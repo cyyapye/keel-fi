@@ -1516,6 +1516,53 @@ h1,
   gap: 7px;
 }
 
+.evidence-card > footer .evidence-apply-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  width: 100%;
+  padding: 15px 17px;
+  background: var(--wash);
+  border: 1px solid var(--line);
+}
+
+.evidence-apply-preview > div:first-child > span,
+.evidence-apply-preview > div:first-child > p,
+.evidence-apply-preview > div:first-child > small {
+  display: block;
+}
+
+.evidence-apply-preview > div:first-child > span {
+  margin-bottom: 6px;
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.evidence-apply-preview > div:first-child > p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.evidence-apply-preview > div:first-child > small {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.evidence-apply-preview > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
 .button {
   min-height: 34px;
   padding: 0 14px;
@@ -2356,6 +2403,16 @@ h1,
     display: grid;
     grid-template-columns: 1fr 1fr;
     margin-top: 14px;
+  }
+
+  .evidence-card > footer .evidence-apply-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .evidence-apply-preview > div:last-child {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    justify-content: stretch;
   }
 
   .evidence-card > footer .button--primary {

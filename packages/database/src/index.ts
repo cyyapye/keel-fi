@@ -17,6 +17,7 @@ import {
 } from "@keel/domain";
 import {
   assertReviewTransition,
+  getDirectEvidenceApplication,
   ReviewInputSchema,
   type ReviewInput,
 } from "@keel/evidence";
@@ -108,6 +109,33 @@ type EvidenceRow = {
   prior_value_json: string;
   replacement_value_json: string;
   estimated_forecast_impact_minor: number;
+  claim_field_path: string | null;
+  application_applied_at: string | null;
+};
+
+type EvidenceApplyEventRow = HouseholdIdentity & {
+  current_status: "pending_review" | "accepted" | "rejected" | "scenario_only";
+  company_id: string | null;
+  effective_date: string;
+  retrieved_at: string;
+  detected_at: string;
+  confidence_ppm: number;
+  source_label: string;
+  prior_value_json: string | null;
+  replacement_value_json: string | null;
+  claim_field_path: string | null;
+  review_decision_id: string | null;
+};
+
+type MarkTargetRow = {
+  lot_id: string;
+  currency: string;
+};
+
+type ExistingMarkRow = {
+  id: string;
+  value_minor: number;
+  review_status: "accepted" | "proposed" | "rejected";
 };
 
 type ScenarioRow = {
@@ -198,6 +226,7 @@ export interface AlphaRepository {
     eventId: string,
     input: ReviewInput,
   ): Promise<void>;
+  applyEvidence(accessSubject: string, eventId: string): Promise<void>;
 }
 
 async function all<T>(statement: D1PreparedStatement): Promise<readonly T[]> {
@@ -240,6 +269,36 @@ function displayJsonValue(serialized: string): string {
   return JSON.stringify(first);
 }
 
+function parseMinorValue(serialized: string, key: string): number {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new Error("Evidence event does not contain a valid financial value.");
+  }
+
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    typeof (parsed as Record<string, unknown>)[key] !== "number" ||
+    !Number.isSafeInteger((parsed as Record<string, unknown>)[key]) ||
+    ((parsed as Record<string, unknown>)[key] as number) < 0
+  ) {
+    throw new Error(
+      "Evidence event does not contain a deterministic minor-unit value.",
+    );
+  }
+
+  const value = (parsed as Record<string, unknown>)[key];
+  if (typeof value !== "number") {
+    throw new Error(
+      "Evidence event does not contain a deterministic minor-unit value.",
+    );
+  }
+  return value;
+}
+
 export class D1AlphaRepository implements AlphaRepository {
   public constructor(private readonly db: D1Database) {}
 
@@ -266,11 +325,39 @@ export class D1AlphaRepository implements AlphaRepository {
                 company.legal_name AS company_name,
                 account.name AS account_name,
                 lot.lot_label,
-                MAX(CASE WHEN mark.mark_kind = 'administrator_nav' THEN mark.value_minor END) AS administrator_nav_minor,
-                MAX(CASE WHEN mark.mark_kind = 'external_mark' THEN mark.value_minor END) AS external_mark_minor,
-                MAX(CASE WHEN mark.mark_kind = 'fi_underwriting' THEN mark.value_minor END) AS underwriting_value_minor,
-                MAX(CASE WHEN mark.mark_kind = 'thesis_weighted' THEN mark.value_minor END) AS scenario_value_minor,
-                MAX(CASE WHEN mark.mark_kind = 'usable_liquidity' THEN mark.value_minor END) AS usable_liquidity_minor,
+                (
+                  SELECT mark.value_minor
+                  FROM marks mark
+                  WHERE mark.asset_lot_id = lot.id
+                    AND mark.mark_kind = 'administrator_nav'
+                  ORDER BY mark.effective_at DESC, mark.created_at DESC
+                  LIMIT 1
+                ) AS administrator_nav_minor,
+                external.value_minor AS external_mark_minor,
+                (
+                  SELECT mark.value_minor
+                  FROM marks mark
+                  WHERE mark.asset_lot_id = lot.id
+                    AND mark.mark_kind = 'fi_underwriting'
+                  ORDER BY mark.effective_at DESC, mark.created_at DESC
+                  LIMIT 1
+                ) AS underwriting_value_minor,
+                (
+                  SELECT mark.value_minor
+                  FROM marks mark
+                  WHERE mark.asset_lot_id = lot.id
+                    AND mark.mark_kind = 'thesis_weighted'
+                  ORDER BY mark.effective_at DESC, mark.created_at DESC
+                  LIMIT 1
+                ) AS scenario_value_minor,
+                (
+                  SELECT mark.value_minor
+                  FROM marks mark
+                  WHERE mark.asset_lot_id = lot.id
+                    AND mark.mark_kind = 'usable_liquidity'
+                  ORDER BY mark.effective_at DESC, mark.created_at DESC
+                  LIMIT 1
+                ) AS usable_liquidity_minor,
                 CASE
                   WHEN external.review_status = 'proposed' THEN 'proposed'
                   WHEN julianday('now') - julianday(external.retrieved_at) > 90 THEN 'review_due'
@@ -283,13 +370,17 @@ export class D1AlphaRepository implements AlphaRepository {
               FROM asset_lots lot
               JOIN companies company ON company.id = lot.company_id
               JOIN asset_accounts account ON account.id = lot.asset_account_id
-              JOIN marks mark ON mark.asset_lot_id = lot.id
               JOIN marks external
-                ON external.asset_lot_id = lot.id
-                AND external.mark_kind = 'external_mark'
+                ON external.id = (
+                  SELECT latest.id
+                  FROM marks latest
+                  WHERE latest.asset_lot_id = lot.id
+                    AND latest.mark_kind = 'external_mark'
+                  ORDER BY latest.effective_at DESC, latest.created_at DESC
+                  LIMIT 1
+                )
               JOIN mark_sources source ON source.id = external.mark_source_id
               WHERE lot.household_id = ?
-              GROUP BY lot.id
               ORDER BY company.legal_name`,
           )
           .bind(householdId),
@@ -309,7 +400,20 @@ export class D1AlphaRepository implements AlphaRepository {
                 document.source_label,
                 event.prior_value_json,
                 event.replacement_value_json,
-                event.estimated_forecast_impact_minor
+                event.estimated_forecast_impact_minor,
+                (
+                  SELECT claim.field_path
+                  FROM evidence_claims claim
+                  WHERE claim.evidence_event_id = event.id
+                  ORDER BY claim.created_at
+                  LIMIT 1
+                ) AS claim_field_path,
+                (
+                  SELECT application.applied_at
+                  FROM evidence_applications application
+                  WHERE application.evidence_event_id = event.id
+                  LIMIT 1
+                ) AS application_applied_at
               FROM evidence_events event
               JOIN companies company ON company.id = event.company_id
               JOIN source_documents document ON document.id = event.source_document_id
@@ -423,20 +527,30 @@ export class D1AlphaRepository implements AlphaRepository {
         retrievedAt: row.retrieved_at,
         confidencePpm: row.confidence_ppm,
       })),
-      evidenceInbox: evidence.map((row) => ({
-        id: row.id,
-        companyName: row.company_name,
-        eventType: row.event_type,
-        headline: row.headline,
-        detectedAt: row.detected_at,
-        effectiveDate: row.effective_date,
-        status: row.status,
-        confidencePpm: row.confidence_ppm,
-        sources: [row.source_label],
-        priorValue: displayJsonValue(row.prior_value_json),
-        replacementValue: displayJsonValue(row.replacement_value_json),
-        forecastImpactMinor: row.estimated_forecast_impact_minor,
-      })),
+      evidenceInbox: evidence.map((row) => {
+        const application = getDirectEvidenceApplication(row.claim_field_path);
+        return {
+          id: row.id,
+          companyName: row.company_name,
+          eventType: row.event_type,
+          headline: row.headline,
+          detectedAt: row.detected_at,
+          effectiveDate: row.effective_date,
+          status: row.status,
+          confidencePpm: row.confidence_ppm,
+          sources: [row.source_label],
+          priorValue: displayJsonValue(row.prior_value_json),
+          replacementValue: displayJsonValue(row.replacement_value_json),
+          forecastImpactMinor: row.estimated_forecast_impact_minor,
+          application:
+            application === null
+              ? null
+              : {
+                  ...application,
+                  applied: row.application_applied_at !== null,
+                },
+        };
+      }),
       scenarios: scenarioRows.map((row) => ({
         id: row.id,
         name: row.name,
@@ -1123,6 +1237,291 @@ export class D1AlphaRepository implements AlphaRepository {
         .prepare("UPDATE evidence_events SET status = ? WHERE id = ?")
         .bind(input.decision, eventId),
     ]);
+  }
+
+  public async applyEvidence(
+    accessSubject: string,
+    eventId: string,
+  ): Promise<void> {
+    const event = await this.db
+      .prepare(
+        `SELECT
+          event.status AS current_status,
+          event.company_id,
+          event.effective_date,
+          event.retrieved_at,
+          event.detected_at,
+          event.confidence_ppm,
+          event.prior_value_json,
+          event.replacement_value_json,
+          document.source_label,
+          (
+            SELECT claim.field_path
+            FROM evidence_claims claim
+            WHERE claim.evidence_event_id = event.id
+            ORDER BY claim.created_at
+            LIMIT 1
+          ) AS claim_field_path,
+          decision.id AS review_decision_id,
+          household.id AS household_id,
+          user.id AS user_id,
+          user.display_name
+        FROM evidence_events event
+        JOIN households household ON household.id = event.household_id
+        JOIN users user ON user.id = household.owner_user_id
+        JOIN source_documents document ON document.id = event.source_document_id
+        LEFT JOIN review_decisions decision
+          ON decision.evidence_event_id = event.id
+        WHERE event.id = ? AND user.access_subject = ?`,
+      )
+      .bind(eventId, accessSubject)
+      .first<EvidenceApplyEventRow>();
+
+    if (event === null) {
+      throw new Error("Evidence event not found.");
+    }
+
+    const application = getDirectEvidenceApplication(event.claim_field_path);
+    if (application === null) {
+      throw new Error(
+        "Evidence event has no deterministic direct application.",
+      );
+    }
+    if (
+      event.prior_value_json === null ||
+      event.replacement_value_json === null
+    ) {
+      throw new Error(
+        "Evidence event does not contain a complete proposed change.",
+      );
+    }
+
+    const valueKey =
+      application.target === "external_mark"
+        ? "externalMarkMinor"
+        : "usableLiquidityMinor";
+    const priorValue = parseMinorValue(event.prior_value_json, valueKey);
+    const replacementValue = parseMinorValue(
+      event.replacement_value_json,
+      valueKey,
+    );
+
+    const existingApplication = await this.db
+      .prepare(
+        `SELECT id
+         FROM evidence_applications
+         WHERE evidence_event_id = ?`,
+      )
+      .bind(eventId)
+      .first<{ id: string }>();
+    if (existingApplication !== null) {
+      throw new Error("Evidence event has already been applied.");
+    }
+
+    if (
+      event.current_status !== "pending_review" &&
+      event.current_status !== "accepted"
+    ) {
+      throw new Error(
+        `Evidence event cannot be directly applied from ${event.current_status}.`,
+      );
+    }
+    if (
+      event.current_status === "accepted" &&
+      event.review_decision_id === null
+    ) {
+      throw new Error("Accepted evidence is missing its review decision.");
+    }
+    if (event.company_id === null) {
+      throw new Error("Evidence event is not linked to a company record.");
+    }
+
+    const target = await this.db
+      .prepare(
+        `SELECT
+          lot.id AS lot_id,
+          lot.currency
+        FROM asset_lots lot
+        WHERE lot.household_id = ? AND lot.company_id = ?
+        ORDER BY lot.created_at
+        LIMIT 1`,
+      )
+      .bind(event.household_id, event.company_id)
+      .first<MarkTargetRow>();
+    if (target === null) {
+      throw new Error("Evidence event has no financial record target.");
+    }
+
+    const markKind = application.target;
+    let effectiveAt = `${event.effective_date}T00:00:00.000Z`;
+    let existingMark = await this.db
+      .prepare(
+        `SELECT id, value_minor, review_status
+         FROM marks
+         WHERE asset_lot_id = ? AND mark_kind = ? AND effective_at = ?`,
+      )
+      .bind(target.lot_id, markKind, effectiveAt)
+      .first<ExistingMarkRow>();
+
+    if (
+      existingMark !== null &&
+      (existingMark.value_minor !== replacementValue ||
+        existingMark.review_status !== "accepted")
+    ) {
+      effectiveAt = event.retrieved_at;
+      existingMark = await this.db
+        .prepare(
+          `SELECT id, value_minor, review_status
+           FROM marks
+           WHERE asset_lot_id = ? AND mark_kind = ? AND effective_at = ?`,
+        )
+        .bind(target.lot_id, markKind, effectiveAt)
+        .first<ExistingMarkRow>();
+    }
+
+    const createdAt = new Date().toISOString();
+    const markId =
+      existingMark?.value_minor === replacementValue &&
+      existingMark.review_status === "accepted"
+        ? existingMark.id
+        : crypto.randomUUID();
+    const source = await this.db
+      .prepare(
+        `SELECT id
+         FROM mark_sources
+         WHERE household_id = ? AND source_name = ?
+         ORDER BY created_at
+         LIMIT 1`,
+      )
+      .bind(event.household_id, event.source_label)
+      .first<{ id: string }>();
+    const sourceId = source?.id ?? crypto.randomUUID();
+    const reviewDecisionId = event.review_decision_id ?? crypto.randomUUID();
+    const statements: D1PreparedStatement[] = [];
+
+    if (source === null) {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO mark_sources (
+              id,
+              household_id,
+              source_type,
+              source_name,
+              confidence_ppm,
+              created_at
+            ) VALUES (?, ?, 'company_announcement', ?, ?, ?)`,
+          )
+          .bind(
+            sourceId,
+            event.household_id,
+            event.source_label,
+            event.confidence_ppm,
+            createdAt,
+          ),
+      );
+    }
+
+    if (event.current_status === "pending_review") {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO review_decisions (
+              id,
+              household_id,
+              evidence_event_id,
+              reviewer_user_id,
+              decision,
+              rationale,
+              prior_value_json,
+              replacement_value_json,
+              decided_at
+            ) VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?, ?)`,
+          )
+          .bind(
+            reviewDecisionId,
+            event.household_id,
+            eventId,
+            event.user_id,
+            `Accepted and applied to ${application.label}.`,
+            event.prior_value_json,
+            event.replacement_value_json,
+            createdAt,
+          ),
+        this.db
+          .prepare(
+            "UPDATE evidence_events SET status = 'accepted' WHERE id = ?",
+          )
+          .bind(eventId),
+      );
+    }
+
+    if (markId !== existingMark?.id) {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO marks (
+              id,
+              household_id,
+              company_id,
+              asset_lot_id,
+              mark_source_id,
+              mark_kind,
+              value_minor,
+              currency,
+              effective_at,
+              retrieved_at,
+              review_status,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'accepted', ?)`,
+          )
+          .bind(
+            markId,
+            event.household_id,
+            event.company_id,
+            target.lot_id,
+            sourceId,
+            markKind,
+            replacementValue,
+            target.currency,
+            effectiveAt,
+            event.retrieved_at,
+            createdAt,
+          ),
+      );
+    }
+
+    statements.push(
+      this.db
+        .prepare(
+          `INSERT INTO evidence_applications (
+            id,
+            household_id,
+            evidence_event_id,
+            review_decision_id,
+            target_kind,
+            target_record_id,
+            prior_value_json,
+            replacement_value_json,
+            applied_at,
+            applied_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          event.household_id,
+          eventId,
+          reviewDecisionId,
+          markKind,
+          markId,
+          JSON.stringify({ [valueKey]: priorValue }),
+          JSON.stringify({ [valueKey]: replacementValue }),
+          createdAt,
+          event.user_id,
+        ),
+    );
+
+    await this.db.batch(statements);
   }
 
   private async findIdentity(

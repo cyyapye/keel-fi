@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { assertReviewTransition, ReviewInputSchema } from "./index";
+import {
+  assertReviewTransition,
+  getDirectEvidenceApplication,
+  ReviewInputSchema,
+} from "./index";
 
 describe("evidence review", () => {
   it("accepts explicit reviewer outcomes", () => {
@@ -16,5 +20,16 @@ describe("evidence review", () => {
     expect(() => assertReviewTransition("accepted", "rejected")).toThrow(
       "cannot transition",
     );
+  });
+
+  it("only maps explicit financial claim paths to direct applications", () => {
+    expect(
+      getDirectEvidenceApplication("marks.usable_liquidity.value_minor"),
+    ).toEqual({ target: "usable_liquidity", label: "Usable liquidity" });
+    expect(
+      getDirectEvidenceApplication(
+        "scenario_assumptions.earliest_liquidity_year",
+      ),
+    ).toBeNull();
   });
 });
