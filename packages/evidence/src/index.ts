@@ -19,6 +19,28 @@ export const ProposedChangeSchema = z.object({
   replacementValueJson: z.string(),
 });
 
+export const DirectEvidenceApplicationSchema = z.object({
+  target: z.enum(["external_mark", "usable_liquidity"]),
+  label: z.string().min(1),
+});
+
+export type DirectEvidenceApplication = z.infer<
+  typeof DirectEvidenceApplicationSchema
+>;
+
+export function getDirectEvidenceApplication(
+  fieldPath: string | null,
+): DirectEvidenceApplication | null {
+  switch (fieldPath) {
+    case "marks.external_mark.value_minor":
+      return { target: "external_mark", label: "External mark" };
+    case "marks.usable_liquidity.value_minor":
+      return { target: "usable_liquidity", label: "Usable liquidity" };
+    default:
+      return null;
+  }
+}
+
 export const EvidenceEventSchema = z.object({
   id: z.string().min(1),
   householdId: z.string().min(1),

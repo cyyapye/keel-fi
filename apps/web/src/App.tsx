@@ -19,6 +19,7 @@ import {
 } from "react";
 
 import {
+  applyAcceptedEvidence,
   loadAlphaData,
   saveGoalVersion,
   saveScenarioVersion,
@@ -1330,16 +1331,26 @@ function Holdings({ data }: { data: AlphaData }) {
 function EvidenceCard({
   busy,
   item,
+  onApply,
   onReview,
 }: {
   busy: boolean;
   item: EvidenceInboxItem;
+  onApply: (eventId: string) => void;
   onReview: (
     eventId: string,
     decision: "accepted" | "rejected" | "scenario_only",
   ) => void;
 }) {
   const pending = item.status === "pending_review";
+  const canApply =
+    item.status === "accepted" &&
+    item.application !== null &&
+    !item.application.applied;
+  const [showAcceptPreview, setShowAcceptPreview] = useState(false);
+  const statusLabel = item.application?.applied
+    ? "accepted & applied"
+    : item.status.replaceAll("_", " ");
   return (
     <article className="evidence-card">
       <header>
@@ -1350,9 +1361,7 @@ function EvidenceCard({
           </p>
           <h2>{item.headline}</h2>
         </div>
-        <Badge tone={pending ? "accent" : "neutral"}>
-          {item.status.replaceAll("_", " ")}
-        </Badge>
+        <Badge tone={pending ? "accent" : "neutral"}>{statusLabel}</Badge>
       </header>
       <div className="evidence-body">
         <div className="evidence-sources">
@@ -1389,31 +1398,103 @@ function EvidenceCard({
       </div>
       <footer>
         <p>
-          A review records the decision and preserves both values. It does not
-          silently rewrite a holding.
+          {item.application?.applied
+            ? `Accepted and applied to ${item.application.label}.`
+            : "A review preserves both values. Applying updates only the mapped accepted record; scenario-only keeps the proposal out of it."}
         </p>
-        <div>
-          <Button
-            disabled={!pending || busy}
-            onClick={() => onReview(item.id, "rejected")}
-            tone="quiet"
-          >
-            Reject
-          </Button>
-          <Button
-            disabled={!pending || busy}
-            onClick={() => onReview(item.id, "scenario_only")}
-          >
-            Scenario only
-          </Button>
-          <Button
-            disabled={!pending || busy}
-            onClick={() => onReview(item.id, "accepted")}
-            tone="primary"
-          >
-            Accept evidence
-          </Button>
-        </div>
+        {showAcceptPreview && (pending || canApply) ? (
+          <div className="evidence-apply-preview">
+            <div>
+              <span>
+                {item.application === null
+                  ? "Accept as reviewed evidence"
+                  : "Apply to accepted record"}
+              </span>
+              {item.application === null ? (
+                <p>
+                  This proposal has no deterministic financial record target
+                  yet. Accepting will record the evidence without applying a
+                  value.
+                </p>
+              ) : (
+                <p>
+                  Update {item.application.label}: {item.priorValue} →{" "}
+                  {item.replacementValue}
+                </p>
+              )}
+              <small>
+                {item.application === null
+                  ? "Use Scenario only to model its impact."
+                  : "Creates an accepted mark on the effective date; forecast impact still requires a new snapshot."}
+              </small>
+            </div>
+            <div>
+              {item.application !== null && (
+                <Button
+                  disabled={busy}
+                  onClick={() => onApply(item.id)}
+                  tone="primary"
+                >
+                  Confirm & apply
+                </Button>
+              )}
+              {pending && (
+                <Button
+                  disabled={busy}
+                  onClick={() => {
+                    setShowAcceptPreview(false);
+                    onReview(item.id, "accepted");
+                  }}
+                  tone={item.application === null ? "primary" : "quiet"}
+                >
+                  {item.application === null
+                    ? "Accept evidence"
+                    : "Accept without applying"}
+                </Button>
+              )}
+              <Button
+                disabled={busy}
+                onClick={() => setShowAcceptPreview(false)}
+                tone="quiet"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : canApply ? (
+          <div>
+            <Button
+              disabled={busy}
+              onClick={() => setShowAcceptPreview(true)}
+              tone="primary"
+            >
+              Apply accepted evidence
+            </Button>
+          </div>
+        ) : (
+          <div>
+            <Button
+              disabled={!pending || busy}
+              onClick={() => onReview(item.id, "rejected")}
+              tone="quiet"
+            >
+              Reject
+            </Button>
+            <Button
+              disabled={!pending || busy}
+              onClick={() => onReview(item.id, "scenario_only")}
+            >
+              Scenario only
+            </Button>
+            <Button
+              disabled={!pending || busy}
+              onClick={() => setShowAcceptPreview(true)}
+              tone="primary"
+            >
+              Accept evidence
+            </Button>
+          </div>
+        )}
       </footer>
     </article>
   );
@@ -1423,11 +1504,13 @@ function EvidenceInbox({
   busyEvent,
   data,
   error,
+  onApply,
   onReview,
 }: {
   busyEvent: string | null;
   data: AlphaData;
   error: string | null;
+  onApply: (eventId: string) => void;
   onReview: (
     eventId: string,
     decision: "accepted" | "rejected" | "scenario_only",
@@ -1460,6 +1543,7 @@ function EvidenceInbox({
             busy={busyEvent === item.id}
             item={item}
             key={item.id}
+            onApply={onApply}
             onReview={onReview}
           />
         ))}
@@ -2068,6 +2152,20 @@ export function App() {
             busyEvent={busyEvent}
             data={data}
             error={reviewError}
+            onApply={(eventId) => {
+              setBusyEvent(eventId);
+              setReviewError(null);
+              void applyAcceptedEvidence(eventId)
+                .then(async () => setData(await loadAlphaData()))
+                .catch((error: unknown) =>
+                  setReviewError(
+                    error instanceof Error
+                      ? error.message
+                      : "The evidence application could not be recorded.",
+                  ),
+                )
+                .finally(() => setBusyEvent(null));
+            }}
             onReview={(eventId, decision) => {
               const reviewedItem = data.evidenceInbox.find(
                 (item) => item.id === eventId,

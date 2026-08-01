@@ -84,6 +84,7 @@ describe("Keel API", () => {
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
     };
     const response = await createApp({ repository }).request(
       "/api/alpha",
@@ -104,6 +105,7 @@ describe("Keel API", () => {
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
     };
     const response = await createApp({ repository }).request(
       "/api/alpha",
@@ -129,6 +131,7 @@ describe("Keel API", () => {
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence,
+      applyEvidence: vi.fn(),
     };
     const response = await createApp({ repository }).request(
       "/api/evidence/evt_demo/review",
@@ -154,6 +157,32 @@ describe("Keel API", () => {
     );
   });
 
+  it("applies a deterministic accepted evidence change through its explicit endpoint", async () => {
+    const applyEvidence = vi
+      .fn<AlphaRepository["applyEvidence"]>()
+      .mockResolvedValue(undefined);
+    const repository: AlphaRepository = {
+      getAlphaData: vi
+        .fn<AlphaRepository["getAlphaData"]>()
+        .mockResolvedValue(alphaData),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence,
+    };
+    const response = await createApp({ repository }).request(
+      "/api/evidence/evt_demo/apply",
+      { method: "POST" },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(204);
+    expect(applyEvidence).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "evt_demo",
+    );
+  });
+
   it("validates and records a new immutable goal version", async () => {
     const saveGoal = vi
       .fn<AlphaRepository["saveGoal"]>()
@@ -165,6 +194,7 @@ describe("Keel API", () => {
       saveGoal,
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
     };
     const input = {
       goalId: "goal_fi",
@@ -205,6 +235,7 @@ describe("Keel API", () => {
       saveGoal: vi.fn(),
       saveScenario,
       reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
     };
     const input = {
       scenarioId: "scn_fi",
@@ -245,6 +276,7 @@ describe("Keel API", () => {
       saveGoal: vi.fn(),
       saveScenario,
       reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
     };
 
     const response = await createApp({ repository }).request(

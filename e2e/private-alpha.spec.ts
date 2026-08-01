@@ -63,14 +63,32 @@ test("loads the database-backed dashboard and primary views", async ({
     await route.fulfill({ status: 204 });
   });
   const scenarioOnlyButton = page
-    .getByRole("button", { name: "Scenario only" })
-    .first();
+    .locator(".evidence-card")
+    .filter({ hasText: "Commercial launch timing moved" })
+    .getByRole("button", { name: "Scenario only" });
   if (await scenarioOnlyButton.isVisible()) {
     await scenarioOnlyButton.click();
     await expect(
       page.getByRole("heading", { name: "Scenarios" }),
     ).toBeVisible();
     await expect(page.getByText("Scenario-only evidence")).toBeVisible();
+    await navigation.getByRole("button", { name: /Evidence/ }).click();
+    await expect(
+      page.getByRole("heading", { name: "Evidence Inbox" }),
+    ).toBeVisible();
+  }
+
+  const directAcceptButton = page
+    .locator(".evidence-card")
+    .filter({ hasText: "New preferred financing terms detected" })
+    .getByRole("button", { name: "Accept evidence" });
+  if (await directAcceptButton.isVisible()) {
+    await directAcceptButton.click();
+    await expect(
+      page.getByRole("button", { name: "Confirm & apply" }),
+    ).toBeVisible();
+    await expect(page.getByText(/Update External mark:/)).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
   }
 
   await navigation.getByRole("button", { name: /Scenarios/ }).click();

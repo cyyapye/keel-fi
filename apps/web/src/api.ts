@@ -49,6 +49,26 @@ export async function submitEvidenceReview(
   }
 }
 
+export async function applyAcceptedEvidence(eventId: string): Promise<void> {
+  const response = await fetch(
+    `/api/evidence/${encodeURIComponent(eventId)}/apply`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      result?.error ?? `Evidence application returned ${response.status}.`,
+    );
+  }
+}
+
 export async function saveGoalVersion(input: GoalDraftInput): Promise<void> {
   const body = GoalDraftInputSchema.parse(input);
   const response = await fetch("/api/goals", {
