@@ -19,24 +19,24 @@ if (!nodeIsSupported) {
   process.exit(1);
 }
 
-const corepack = spawnSync("corepack", ["--version"], {
+const npm = spawnSync("npm", ["--version"], {
   encoding: "utf8",
 });
 
-if (corepack.error || corepack.status !== 0) {
+if (npm.error || npm.status !== 0) {
   console.error(
-    "Keel requires Corepack. Install or enable it before running make bootstrap.",
+    "Keel requires npm, which is bundled with Node.js, to prepare its pinned pnpm version.",
   );
   process.exit(1);
 }
 
-const pnpm = spawnSync("pnpm", ["--version"], {
+const pnpm = spawnSync("npx", ["--yes", "pnpm@11.9.0", "--version"], {
   encoding: "utf8",
 });
 
 if (pnpm.error || pnpm.status !== 0) {
   console.error(
-    "Keel requires pnpm 11.9.0. Run corepack enable before make bootstrap.",
+    "npm could not prepare Keel's pinned pnpm 11.9.0. Check network access and retry make bootstrap.",
   );
   process.exit(1);
 }
@@ -49,5 +49,5 @@ if (pnpm.stdout.trim() !== "11.9.0") {
 }
 
 console.log(
-  `Toolchain ready: Node.js ${process.versions.node}, Corepack ${corepack.stdout.trim()}, pnpm ${pnpm.stdout.trim()}.`,
+  `Toolchain ready: Node.js ${process.versions.node}, npm ${npm.stdout.trim()}, pnpm ${pnpm.stdout.trim()}.`,
 );

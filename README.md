@@ -69,7 +69,6 @@ See [the architecture overview](docs/architecture/overview.md) and
 Prerequisites:
 
 - Node.js 22.13 or newer
-- Corepack
 - GNU Make
 
 From a fresh clone:
@@ -81,7 +80,8 @@ make bootstrap
 This installs the pinned pnpm dependencies, prepares the synthetic local D1
 database, and installs Playwright's Chromium browser. Codex runs the same
 bootstrap automatically when it creates a worktree through the checked-in local
-environment configuration.
+environment configuration. Make invokes the repository-pinned pnpm through npm,
+so a global pnpm shim and `corepack enable` are not required.
 
 Start the frontend and backend together with one command:
 
@@ -104,9 +104,9 @@ fail-closed Access validation.
 Local database commands:
 
 ```sh
-pnpm db:migrate:local
-pnpm db:seed:local
-pnpm db:check:local
+make db-migrate
+make db-seed
+make db-check
 ```
 
 Run the complete local PR-equivalent verification with:
