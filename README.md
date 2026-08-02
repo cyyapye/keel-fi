@@ -101,6 +101,48 @@ Vite proxies `/api` to the matching local Worker. Local authentication bypass is
 enabled only by Wrangler's explicit `local` environment; production defaults to
 fail-closed Access validation.
 
+### Persistent Docker development
+
+Docker Compose is the convenient option when the app should keep running after
+the terminal or Codex session that started it closes. It requires a
+Docker-compatible engine such as Docker Desktop or Colima to be installed and
+running.
+
+```sh
+make dev-up
+```
+
+The Docker development stack uses stable local URLs:
+
+- Web: <http://127.0.0.1:13247>
+- API: <http://127.0.0.1:13246>
+
+The services run in the background and restart unless explicitly stopped. Run
+the stack from a stable checkout or permanent Codex worktree because the source
+directories are mounted into the containers. Dependencies are built into the
+development images, while the synthetic local D1 database lives in a
+Docker-managed volume. Inspect the stack or follow its logs with:
+
+```sh
+make dev-status
+make dev-logs
+```
+
+Stop it with `make dev-down`. This preserves the Docker volumes, including the
+local database, so the next `make dev-up` resumes the same synthetic state. To
+rebuild the development images explicitly, run `make dev-build`.
+
+> [!CAUTION] `docker compose down --volumes` deletes the Docker-managed local D1
+> data. Use it only when you intentionally want a clean synthetic environment;
+> `make dev-down` never removes volumes.
+
+The native `make db-*` commands operate on the host-side local D1, not the
+Docker-managed database. The Compose API applies migrations and the idempotent
+synthetic seed automatically when it starts.
+
+The native `make dev` workflow remains available for isolated worktrees and
+custom `KEEL_WEB_PORT` or `KEEL_API_PORT` overrides.
+
 Local database commands:
 
 ```sh
