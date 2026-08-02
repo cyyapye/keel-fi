@@ -63,6 +63,7 @@ const alphaData: AlphaData = {
   ],
   holdings: [],
   evidenceInbox: [],
+  portfolioWatch: { targets: [], observations: [] },
   scenarios: [],
   forecastHistory: [],
 };
@@ -81,6 +82,7 @@ describe("Keel API", () => {
     const getAlphaData = vi.fn<AlphaRepository["getAlphaData"]>();
     const repository: AlphaRepository = {
       getAlphaData,
+      scanPortfolioWatch: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -102,6 +104,7 @@ describe("Keel API", () => {
       .mockResolvedValue(alphaData);
     const repository: AlphaRepository = {
       getAlphaData,
+      scanPortfolioWatch: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -120,6 +123,39 @@ describe("Keel API", () => {
     expect(getAlphaData).toHaveBeenCalledWith("synthetic-access-subject");
   });
 
+  it("runs a household-scoped public-source scan", async () => {
+    const scanPortfolioWatch = vi
+      .fn<AlphaRepository["scanPortfolioWatch"]>()
+      .mockResolvedValue({
+        checkedAt: "2026-08-01T12:00:00-07:00",
+        discoveredCount: 1,
+        proposedCount: 1,
+      });
+    const repository: AlphaRepository = {
+      getAlphaData: vi
+        .fn<AlphaRepository["getAlphaData"]>()
+        .mockResolvedValue(alphaData),
+      scanPortfolioWatch,
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    };
+
+    const response = await createApp({ repository }).request(
+      "/api/watch/scan",
+      { method: "POST" },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      discoveredCount: 1,
+      proposedCount: 1,
+    });
+    expect(scanPortfolioWatch).toHaveBeenCalledWith("synthetic-access-subject");
+  });
+
   it("records a validated review without applying the proposed fact", async () => {
     const reviewEvidence = vi
       .fn<AlphaRepository["reviewEvidence"]>()
@@ -128,6 +164,7 @@ describe("Keel API", () => {
       getAlphaData: vi
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
+      scanPortfolioWatch: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence,
@@ -165,6 +202,7 @@ describe("Keel API", () => {
       getAlphaData: vi
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
+      scanPortfolioWatch: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -188,6 +226,7 @@ describe("Keel API", () => {
       getAlphaData: vi
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
+      scanPortfolioWatch: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -217,6 +256,7 @@ describe("Keel API", () => {
       getAlphaData: vi
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
+      scanPortfolioWatch: vi.fn(),
       saveGoal,
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -258,6 +298,7 @@ describe("Keel API", () => {
       getAlphaData: vi
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
+      scanPortfolioWatch: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario,
       reviewEvidence: vi.fn(),
@@ -299,6 +340,7 @@ describe("Keel API", () => {
       getAlphaData: vi
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
+      scanPortfolioWatch: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario,
       reviewEvidence: vi.fn(),

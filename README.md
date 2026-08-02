@@ -40,6 +40,9 @@ snapshot.
   curves.
 - Evidence provenance, confidence, effective/retrieval dates, and explicit
   review decisions that preserve prior and replacement values.
+- Synthetic Portfolio Watch monitoring that retains public observations,
+  separates directly reported facts from valuation inference, and sends every
+  proposal through the existing review boundary.
 - Cloudflare Access JWT validation that fails closed outside explicit local
   mode.
 - D1 migrations, private R2/Queues interfaces, synthetic seed data, CI,

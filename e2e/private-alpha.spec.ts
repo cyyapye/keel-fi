@@ -34,6 +34,33 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(page.getByRole("heading", { name: "Holdings" })).toBeVisible();
   await expect(page.getByText("Northstar Robotics")).toBeVisible();
 
+  await navigation.getByRole("button", { name: /Watch/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Portfolio Watch" }),
+  ).toBeVisible();
+  await expect(page.getByText("Public only · no inbox access")).toBeVisible();
+  if (!mobile) {
+    await page
+      .getByRole("button", { name: "Scan synthetic public sources" })
+      .click();
+    await expect(
+      page.getByRole("heading", {
+        name: "Synthetic Series C financing announcement",
+      }),
+    ).toBeVisible();
+    await expect(page.getByText("Directly observed")).toBeVisible();
+    await expect(page.getByText("Keel inference")).toBeVisible();
+    await page.getByRole("button", { name: "Review proposal" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Evidence Inbox" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Public financing announcement suggests a new valuation range",
+      ),
+    ).toBeVisible();
+  }
+
   await navigation.getByRole("button", { name: /Overview/ }).click();
   await page
     .getByRole("button", { name: /Protected runway.*View plan inputs/ })

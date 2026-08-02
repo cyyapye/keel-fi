@@ -3,6 +3,7 @@ import {
   createGoalPreview,
   GoalDraftInputSchema,
   multiplyMinorByScalePpm,
+  PortfolioWatchScanResultSchema,
   projectScenario,
   projectScenarioProbabilityPpm,
   projectScenarioValue,
@@ -12,6 +13,7 @@ import {
   type AlphaData,
   type ForecastHistoryItemSchema,
   type GoalDraftInput,
+  type PortfolioWatchScanResult,
   type Scenario,
   type ScenarioDraftInput,
 } from "@keel/domain";
@@ -105,12 +107,48 @@ type EvidenceRow = {
   effective_date: string;
   status: "pending_review" | "accepted" | "rejected" | "scenario_only";
   confidence_ppm: number;
+  model_confidence_ppm: number | null;
   source_label: string;
   prior_value_json: string;
   replacement_value_json: string;
   estimated_forecast_impact_minor: number;
   claim_field_path: string | null;
   application_applied_at: string | null;
+};
+
+type PortfolioWatchTargetRow = {
+  id: string;
+  company_id: string;
+  company_name: string;
+  official_host: string;
+  status: "active" | "paused";
+  last_checked_at: string | null;
+  latest_observation_at: string | null;
+};
+
+type PublicSourceObservationRow = {
+  id: string;
+  company_id: string;
+  company_name: string;
+  evidence_event_id: string;
+  evidence_status: "pending_review" | "accepted" | "rejected" | "scenario_only";
+  source_class:
+    | "official_company"
+    | "regulatory_filing"
+    | "reputable_reporting"
+    | "secondary_source";
+  source_url: string;
+  source_title: string;
+  published_at: string;
+  retrieved_at: string;
+  observed_fact: string;
+  inference: string;
+  source_reliability_ppm: number;
+  model_confidence_ppm: number;
+  valuation_low_minor: number | null;
+  valuation_middle_minor: number | null;
+  valuation_high_minor: number | null;
+  limitations: string;
 };
 
 type EvidenceApplyEventRow = HouseholdIdentity & {
@@ -219,6 +257,7 @@ type ReviewEventRow = HouseholdIdentity & {
 
 export interface AlphaRepository {
   getAlphaData(accessSubject: string): Promise<AlphaData>;
+  scanPortfolioWatch(accessSubject: string): Promise<PortfolioWatchScanResult>;
   saveGoal(accessSubject: string, input: GoalDraftInput): Promise<void>;
   saveScenario(accessSubject: string, input: ScenarioDraftInput): Promise<void>;
   reviewEvidence(
@@ -311,6 +350,8 @@ export class D1AlphaRepository implements AlphaRepository {
       goals,
       holdings,
       evidence,
+      watchTargets,
+      publicObservations,
       scenarioRows,
       assumptions,
       curves,
@@ -397,6 +438,12 @@ export class D1AlphaRepository implements AlphaRepository {
                 event.effective_date,
                 event.status,
                 event.confidence_ppm,
+                (
+                  SELECT observation.model_confidence_ppm
+                  FROM public_source_observations observation
+                  WHERE observation.evidence_event_id = event.id
+                  LIMIT 1
+                ) AS model_confidence_ppm,
                 document.source_label,
                 event.prior_value_json,
                 event.replacement_value_json,
@@ -421,6 +468,58 @@ export class D1AlphaRepository implements AlphaRepository {
               ORDER BY
                 CASE event.status WHEN 'pending_review' THEN 0 ELSE 1 END,
                 event.detected_at DESC`,
+          )
+          .bind(householdId),
+      ),
+      all<PortfolioWatchTargetRow>(
+        this.db
+          .prepare(
+            `SELECT
+                target.id,
+                company.id AS company_id,
+                company.legal_name AS company_name,
+                company.website_host AS official_host,
+                target.status,
+                target.last_checked_at,
+                (
+                  SELECT MAX(observation.retrieved_at)
+                  FROM public_source_observations observation
+                  WHERE observation.company_id = company.id
+                ) AS latest_observation_at
+              FROM portfolio_watch_targets target
+              JOIN companies company ON company.id = target.company_id
+              WHERE target.household_id = ?
+              ORDER BY company.legal_name`,
+          )
+          .bind(householdId),
+      ),
+      all<PublicSourceObservationRow>(
+        this.db
+          .prepare(
+            `SELECT
+                observation.id,
+                company.id AS company_id,
+                company.legal_name AS company_name,
+                observation.evidence_event_id,
+                event.status AS evidence_status,
+                observation.source_class,
+                observation.source_url,
+                observation.source_title,
+                observation.published_at,
+                observation.retrieved_at,
+                observation.observed_fact,
+                observation.inference,
+                observation.source_reliability_ppm,
+                observation.model_confidence_ppm,
+                observation.valuation_low_minor,
+                observation.valuation_middle_minor,
+                observation.valuation_high_minor,
+                observation.limitations
+              FROM public_source_observations observation
+              JOIN companies company ON company.id = observation.company_id
+              JOIN evidence_events event ON event.id = observation.evidence_event_id
+              WHERE observation.household_id = ?
+              ORDER BY observation.retrieved_at DESC`,
           )
           .bind(householdId),
       ),
@@ -538,6 +637,7 @@ export class D1AlphaRepository implements AlphaRepository {
           effectiveDate: row.effective_date,
           status: row.status,
           confidencePpm: row.confidence_ppm,
+          modelConfidencePpm: row.model_confidence_ppm,
           sources: [row.source_label],
           priorValue: displayJsonValue(row.prior_value_json),
           replacementValue: displayJsonValue(row.replacement_value_json),
@@ -551,6 +651,37 @@ export class D1AlphaRepository implements AlphaRepository {
                 },
         };
       }),
+      portfolioWatch: {
+        targets: watchTargets.map((row) => ({
+          id: row.id,
+          companyId: row.company_id,
+          companyName: row.company_name,
+          officialHost: row.official_host,
+          status: row.status,
+          lastCheckedAt: row.last_checked_at,
+          latestObservationAt: row.latest_observation_at,
+        })),
+        observations: publicObservations.map((row) => ({
+          id: row.id,
+          companyId: row.company_id,
+          companyName: row.company_name,
+          evidenceEventId: row.evidence_event_id,
+          evidenceStatus: row.evidence_status,
+          sourceClass: row.source_class,
+          sourceUrl: row.source_url,
+          sourceTitle: row.source_title,
+          publishedAt: row.published_at,
+          retrievedAt: row.retrieved_at,
+          observedFact: row.observed_fact,
+          inference: row.inference,
+          sourceReliabilityPpm: row.source_reliability_ppm,
+          modelConfidencePpm: row.model_confidence_ppm,
+          valuationLowMinor: row.valuation_low_minor,
+          valuationMiddleMinor: row.valuation_middle_minor,
+          valuationHighMinor: row.valuation_high_minor,
+          limitations: row.limitations,
+        })),
+      },
       scenarios: scenarioRows.map((row) => ({
         id: row.id,
         name: row.name,
@@ -580,6 +711,251 @@ export class D1AlphaRepository implements AlphaRepository {
           })),
       })),
       forecastHistory: history,
+    });
+  }
+
+  public async scanPortfolioWatch(
+    accessSubject: string,
+  ): Promise<PortfolioWatchScanResult> {
+    const identity = await this.findIdentity(accessSubject);
+    const checkedAt = new Date().toISOString();
+    const sourceUrl =
+      "https://newsroom.harbor-health.example/updates/series-c-financing";
+    const observedFact =
+      "Harbor Health Systems announced a synthetic $62 million Series C financing and described the proceeds as growth capital.";
+    const inference =
+      "Keel's synthetic model uses the reported company-level financing signal to estimate a wider holding-value range. It does not treat the round headline as an administrator NAV.";
+    const limitations =
+      "The public announcement does not disclose the SPV's exact ownership, security preferences, dilution, fees, carry, or settlement terms.";
+    const publishedAt = "2026-07-31T13:00:00-07:00";
+    const fingerprint = await hashInput(
+      `co_harbor|${sourceUrl}|${publishedAt}|${observedFact}`,
+    );
+    const existingObservation = await this.db
+      .prepare(
+        `SELECT id
+         FROM public_source_observations
+         WHERE fingerprint = ? AND household_id = ?`,
+      )
+      .bind(fingerprint, identity.household_id)
+      .first<{ id: string }>();
+
+    if (existingObservation !== null) {
+      await this.db
+        .prepare(
+          `UPDATE portfolio_watch_targets
+           SET last_checked_at = ?
+           WHERE household_id = ? AND status = 'active'`,
+        )
+        .bind(checkedAt, identity.household_id)
+        .run();
+      return PortfolioWatchScanResultSchema.parse({
+        checkedAt,
+        discoveredCount: 0,
+        proposedCount: 0,
+      });
+    }
+
+    const target = await this.db
+      .prepare(
+        `SELECT target.id, company.id AS company_id
+         FROM portfolio_watch_targets target
+         JOIN companies company ON company.id = target.company_id
+         WHERE target.household_id = ?
+           AND target.id = 'watch_harbor'
+           AND target.status = 'active'`,
+      )
+      .bind(identity.household_id)
+      .first<{ id: string; company_id: string }>();
+    if (target === null) {
+      throw new Error("Portfolio watch target not found.");
+    }
+
+    const mark = await this.db
+      .prepare(
+        `SELECT mark.id, mark.value_minor, mark.review_status
+         FROM marks mark
+         JOIN asset_lots lot ON lot.id = mark.asset_lot_id
+         WHERE lot.company_id = ?
+           AND lot.household_id = ?
+           AND mark.mark_kind = 'external_mark'
+         ORDER BY mark.effective_at DESC, mark.created_at DESC
+         LIMIT 1`,
+      )
+      .bind(target.company_id, identity.household_id)
+      .first<ExistingMarkRow>();
+    if (mark === null) {
+      throw new Error("Portfolio watch mark target not found.");
+    }
+
+    const sourceDocumentId = crypto.randomUUID();
+    const evidenceEventId = crypto.randomUUID();
+    const observationId = crypto.randomUUID();
+    const claimId = crypto.randomUUID();
+    const replacementMiddleMinor = 118_000_000;
+    const valuationLowMinor = 93_000_000;
+    const valuationHighMinor = 142_000_000;
+    const retrievedAt = checkedAt;
+    const sourceHash = await hashInput(
+      `${sourceUrl}|${observedFact}|${inference}`,
+    );
+
+    await this.db.batch([
+      this.db
+        .prepare(
+          `INSERT INTO source_documents (
+            id,
+            household_id,
+            object_key,
+            file_name,
+            content_type,
+            byte_size,
+            sha256,
+            effective_date,
+            retrieved_at,
+            source_label,
+            review_status,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          sourceDocumentId,
+          identity.household_id,
+          "synthetic/public-watch/harbor-series-c.txt",
+          "harbor-series-c.txt",
+          "text/plain",
+          2048,
+          sourceHash,
+          "2026-07-31",
+          retrievedAt,
+          "Synthetic official company newsroom",
+          "pending_review",
+          checkedAt,
+        ),
+      this.db
+        .prepare(
+          `INSERT INTO evidence_events (
+            id,
+            household_id,
+            company_id,
+            source_document_id,
+            event_type,
+            headline,
+            effective_date,
+            detected_at,
+            retrieved_at,
+            status,
+            confidence_ppm,
+            prior_value_json,
+            replacement_value_json,
+            estimated_forecast_impact_minor,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          evidenceEventId,
+          identity.household_id,
+          target.company_id,
+          sourceDocumentId,
+          "financing_round",
+          "Public financing announcement suggests a new valuation range",
+          "2026-07-31",
+          retrievedAt,
+          retrievedAt,
+          "pending_review",
+          920_000,
+          JSON.stringify({ externalMarkMinor: mark.value_minor }),
+          JSON.stringify({ externalMarkMinor: replacementMiddleMinor }),
+          replacementMiddleMinor - mark.value_minor,
+          checkedAt,
+        ),
+      this.db
+        .prepare(
+          `INSERT INTO evidence_claims (
+            id,
+            household_id,
+            evidence_event_id,
+            field_path,
+            claim_value_json,
+            unit,
+            provenance,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          claimId,
+          identity.household_id,
+          evidenceEventId,
+          "valuation_estimates.external_mark_range",
+          JSON.stringify({
+            lowMinor: valuationLowMinor,
+            middleMinor: replacementMiddleMinor,
+            highMinor: valuationHighMinor,
+          }),
+          "minor_units",
+          "Synthetic official company newsroom; holding translation is inferred",
+          checkedAt,
+        ),
+      this.db
+        .prepare(
+          `INSERT INTO public_source_observations (
+            id,
+            household_id,
+            company_id,
+            evidence_event_id,
+            source_document_id,
+            source_class,
+            source_url,
+            source_title,
+            published_at,
+            retrieved_at,
+            observed_fact,
+            inference,
+            source_reliability_ppm,
+            model_confidence_ppm,
+            valuation_low_minor,
+            valuation_middle_minor,
+            valuation_high_minor,
+            limitations,
+            fingerprint,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          observationId,
+          identity.household_id,
+          target.company_id,
+          evidenceEventId,
+          sourceDocumentId,
+          "official_company",
+          sourceUrl,
+          "Synthetic Series C financing announcement",
+          publishedAt,
+          retrievedAt,
+          observedFact,
+          inference,
+          920_000,
+          610_000,
+          valuationLowMinor,
+          replacementMiddleMinor,
+          valuationHighMinor,
+          limitations,
+          fingerprint,
+          checkedAt,
+        ),
+      this.db
+        .prepare(
+          `UPDATE portfolio_watch_targets
+           SET last_checked_at = ?
+           WHERE household_id = ? AND status = 'active'`,
+        )
+        .bind(checkedAt, identity.household_id),
+    ]);
+
+    return PortfolioWatchScanResultSchema.parse({
+      checkedAt,
+      discoveredCount: 1,
+      proposedCount: 1,
     });
   }
 
