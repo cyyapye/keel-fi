@@ -19,6 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-node-pnpm
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
       - run: make check
 
   migrations:

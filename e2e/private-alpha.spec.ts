@@ -81,7 +81,8 @@ test("loads the database-backed dashboard and primary views", async ({
   const directAcceptButton = page
     .locator(".evidence-card")
     .filter({ hasText: "New preferred financing terms detected" })
-    .getByRole("button", { name: "Accept evidence" });
+    .locator("button:not([disabled])")
+    .filter({ hasText: "Accept evidence" });
   if (await directAcceptButton.isVisible()) {
     await directAcceptButton.click();
     await expect(

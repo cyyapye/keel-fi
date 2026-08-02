@@ -5,18 +5,24 @@ npm_config_cache ?= $(CURDIR)/.npm-cache
 npm_config_prefer_offline ?= true
 npm_config_update_notifier ?= false
 PNPM ?= npx --yes pnpm@11.9.0
+COMPOSE ?= docker compose
 TEST_ARGS ?=
 E2E_ARGS ?=
 WRANGLER_LOG_PATH ?= $(CURDIR)/.wrangler/logs/wrangler.log
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify e2e verify
+.PHONY: help bootstrap dev dev-up dev-down dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify e2e verify
 
 help:
 	@echo "Keel developer commands"
 	@echo "  make bootstrap     Install dependencies, seed local D1, install Chromium"
 	@echo "  make dev           Start the API and web app together"
+	@echo "  make dev-up        Build and start the Docker development stack"
+	@echo "  make dev-down      Stop the Docker development stack (preserves data)"
+	@echo "  make dev-status    Show Docker development service status"
+	@echo "  make dev-logs      Follow Docker development service logs"
+	@echo "  make dev-build     Rebuild Docker development images"
 	@echo "  make verify        Run the complete local verification suite"
 	@echo "  make check         Run source checks, unit tests, and builds"
 	@echo "  make lint          Run ESLint"
@@ -33,6 +39,21 @@ bootstrap:
 
 dev:
 	$(PNPM) dev
+
+dev-up:
+	$(COMPOSE) up --detach --build --wait --wait-timeout 120
+
+dev-down:
+	$(COMPOSE) down
+
+dev-status:
+	$(COMPOSE) ps
+
+dev-logs:
+	$(COMPOSE) logs --follow --tail=100
+
+dev-build:
+	$(COMPOSE) build
 
 data-scan:
 	$(PNPM) data:scan
