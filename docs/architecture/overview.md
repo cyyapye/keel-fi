@@ -13,6 +13,8 @@ flowchart LR
   Queue --> Proposal["Evidence proposal"]
   Proposal --> Review["Explicit human review"]
   Review --> Snapshot["New immutable forecast snapshot"]
+  Public["Allowlisted public sources"] --> Observation["Public observation"]
+  Observation --> Proposal
   Snapshot --> D1
 ```
 
@@ -29,6 +31,10 @@ flowchart LR
 - `packages/connectors` defines size-limited documents, queue envelopes, and
   evidence-proposal contracts. Connector-specific folders document the future
   trust boundaries.
+- Portfolio Watch stores public observations separately from derived valuation
+  estimates. Source reliability describes the observation; model confidence
+  describes the inference. The synthetic private-alpha scanner exercises this
+  boundary without fetching real companies or accessing an inbox.
 
 ## Value semantics
 

@@ -9,6 +9,8 @@
    are separate concepts.
 6. Forecast versions are append-only.
 7. Synthetic examples demonstrate the product without leaking a real portfolio.
+8. Public-source reliability and model confidence are separate measurements.
+9. A company-level financing signal is not automatically a holding-level mark.
 
 ## Projection contract
 
@@ -27,3 +29,12 @@ Accept, reject, and scenario-only are explicit, one-way decisions. Acceptance
 records both the prior and replacement values. Acceptance alone does not mutate
 a mark or lot; a subsequent workflow creates the accepted record and a new
 forecast snapshot with attribution.
+
+## Public-source monitoring
+
+Portfolio Watch retains the directly observed fact, source class, publication
+and retrieval times, and an immutable fingerprint before recording any derived
+valuation estimate. Inference is labeled separately with its own confidence,
+range, assumptions, and limitations. Public reports can create proposals, but
+they never become administrator NAV, accepted marks, or usable liquidity by
+themselves.

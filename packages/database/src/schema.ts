@@ -438,6 +438,86 @@ export const reviewDecisions = sqliteTable(
   ],
 );
 
+export const portfolioWatchTargets = sqliteTable(
+  "portfolio_watch_targets",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "restrict" }),
+    status: text("status").notNull(),
+    sourcePolicy: text("source_policy").notNull(),
+    lastCheckedAt: timestamp("last_checked_at"),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("portfolio_watch_targets_household_idx").on(
+      table.householdId,
+      table.status,
+    ),
+    uniqueIndex("portfolio_watch_targets_household_company_unique").on(
+      table.householdId,
+      table.companyId,
+    ),
+  ],
+);
+
+export const publicSourceObservations = sqliteTable(
+  "public_source_observations",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "restrict" }),
+    evidenceEventId: text("evidence_event_id")
+      .notNull()
+      .unique()
+      .references(() => evidenceEvents.id, { onDelete: "restrict" }),
+    sourceDocumentId: text("source_document_id")
+      .notNull()
+      .references(() => sourceDocuments.id, { onDelete: "restrict" }),
+    sourceClass: text("source_class").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    sourceTitle: text("source_title").notNull(),
+    publishedAt: timestamp("published_at"),
+    retrievedAt: timestamp("retrieved_at"),
+    observedFact: text("observed_fact").notNull(),
+    inference: text("inference").notNull(),
+    sourceReliabilityPpm: integer("source_reliability_ppm").notNull(),
+    modelConfidencePpm: integer("model_confidence_ppm").notNull(),
+    valuationLowMinor: integer("valuation_low_minor"),
+    valuationMiddleMinor: integer("valuation_middle_minor"),
+    valuationHighMinor: integer("valuation_high_minor"),
+    limitations: text("limitations").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("public_source_observations_household_idx").on(
+      table.householdId,
+      table.retrievedAt,
+    ),
+    index("public_source_observations_company_idx").on(
+      table.companyId,
+      table.publishedAt,
+    ),
+    uniqueIndex("public_source_observations_household_fingerprint_unique").on(
+      table.householdId,
+      table.fingerprint,
+    ),
+    check(
+      "public_source_observations_reliability_check",
+      sql`${table.sourceReliabilityPpm} BETWEEN 0 AND 1000000`,
+    ),
+    check(
+      "public_source_observations_model_confidence_check",
+      sql`${table.modelConfidencePpm} BETWEEN 0 AND 1000000`,
+    ),
+  ],
+);
+
 export const scenarios = sqliteTable(
   "scenarios",
   {

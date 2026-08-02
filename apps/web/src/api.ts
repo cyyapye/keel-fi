@@ -1,9 +1,11 @@
 import {
   AlphaDataSchema,
   GoalDraftInputSchema,
+  PortfolioWatchScanResultSchema,
   ScenarioDraftInputSchema,
   type AlphaData,
   type GoalDraftInput,
+  type PortfolioWatchScanResult,
   type ScenarioDraftInput,
 } from "@keel/domain";
 
@@ -19,6 +21,25 @@ export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
   }
 
   return AlphaDataSchema.parse(await response.json());
+}
+
+export async function scanPortfolioWatch(): Promise<PortfolioWatchScanResult> {
+  const response = await fetch("/api/watch/scan", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      result?.error ?? `Portfolio Watch scan returned ${response.status}.`,
+    );
+  }
+
+  return PortfolioWatchScanResultSchema.parse(await response.json());
 }
 
 export async function submitEvidenceReview(

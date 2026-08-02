@@ -402,6 +402,7 @@ export const EvidenceInboxItemSchema = z.object({
   effectiveDate: IsoDateSchema,
   status: z.enum(["pending_review", "accepted", "rejected", "scenario_only"]),
   confidencePpm: ProbabilityPpmSchema,
+  modelConfidencePpm: ProbabilityPpmSchema.nullable(),
   sources: z.array(z.string().min(1)).min(1),
   priorValue: z.string().min(1),
   replacementValue: z.string().min(1),
@@ -413,6 +414,60 @@ export const EvidenceInboxItemSchema = z.object({
       applied: z.boolean(),
     })
     .nullable(),
+});
+
+export const PublicSourceClassSchema = z.enum([
+  "official_company",
+  "regulatory_filing",
+  "reputable_reporting",
+  "secondary_source",
+]);
+
+export const PortfolioWatchTargetSchema = z.object({
+  id: z.string().min(1),
+  companyId: z.string().min(1),
+  companyName: z.string().min(1),
+  officialHost: z.string().min(1),
+  status: z.enum(["active", "paused"]),
+  lastCheckedAt: IsoTimestampSchema.nullable(),
+  latestObservationAt: IsoTimestampSchema.nullable(),
+});
+
+export const PublicSourceObservationSchema = z.object({
+  id: z.string().min(1),
+  companyId: z.string().min(1),
+  companyName: z.string().min(1),
+  evidenceEventId: z.string().min(1),
+  evidenceStatus: z.enum([
+    "pending_review",
+    "accepted",
+    "rejected",
+    "scenario_only",
+  ]),
+  sourceClass: PublicSourceClassSchema,
+  sourceUrl: z.url(),
+  sourceTitle: z.string().min(1),
+  publishedAt: IsoTimestampSchema,
+  retrievedAt: IsoTimestampSchema,
+  observedFact: z.string().min(1),
+  inference: z.string().min(1),
+  sourceReliabilityPpm: ProbabilityPpmSchema,
+  modelConfidencePpm: ProbabilityPpmSchema,
+  valuationLowMinor: NonNegativeMoneyMinorSchema.nullable(),
+  valuationMiddleMinor: NonNegativeMoneyMinorSchema.nullable(),
+  valuationHighMinor: NonNegativeMoneyMinorSchema.nullable(),
+  limitations: z.string().min(1),
+});
+
+export const PortfolioWatchSchema = z.object({
+  targets: z.array(PortfolioWatchTargetSchema),
+  observations: z.array(PublicSourceObservationSchema),
+});
+
+export const PortfolioWatchScanResultSchema = z.object({
+  checkedAt: IsoTimestampSchema,
+  discoveredCount: z.number().int().nonnegative(),
+  proposedCount: z.number().int().nonnegative(),
 });
 
 export const ScenarioAssumptionSchema = z.object({
@@ -673,6 +728,7 @@ export const AlphaDataSchema = z.object({
   goals: z.array(GoalSchema).min(1),
   holdings: z.array(HoldingSchema),
   evidenceInbox: z.array(EvidenceInboxItemSchema),
+  portfolioWatch: PortfolioWatchSchema,
   scenarios: z.array(ScenarioSchema),
   forecastHistory: z.array(ForecastHistoryItemSchema),
 });
@@ -683,6 +739,12 @@ export type EvidenceInboxItem = z.infer<typeof EvidenceInboxItemSchema>;
 export type Goal = z.infer<typeof GoalSchema>;
 export type GoalDraftInput = z.infer<typeof GoalDraftInputSchema>;
 export type GoalPreview = z.infer<typeof GoalPreviewSchema>;
+export type PortfolioWatchScanResult = z.infer<
+  typeof PortfolioWatchScanResultSchema
+>;
+export type PublicSourceObservation = z.infer<
+  typeof PublicSourceObservationSchema
+>;
 export type Scenario = z.infer<typeof ScenarioSchema>;
 export type ScenarioDraftInput = z.infer<typeof ScenarioDraftInputSchema>;
 export type ScenarioProjection = z.infer<typeof ScenarioProjectionSchema>;

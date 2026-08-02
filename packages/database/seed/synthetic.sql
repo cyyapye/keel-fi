@@ -54,6 +54,45 @@ VALUES
     '2026-06-03T11:45:00-07:00'
   );
 
+INSERT OR IGNORE INTO portfolio_watch_targets
+  (
+    id,
+    household_id,
+    company_id,
+    status,
+    source_policy,
+    last_checked_at,
+    created_at
+  )
+VALUES
+  (
+    'watch_northstar',
+    'hh_demo',
+    'co_northstar',
+    'active',
+    'public_only',
+    NULL,
+    '2026-07-01T09:00:00-07:00'
+  ),
+  (
+    'watch_harbor',
+    'hh_demo',
+    'co_harbor',
+    'active',
+    'public_only',
+    NULL,
+    '2026-07-01T09:00:00-07:00'
+  ),
+  (
+    'watch_lattice',
+    'hh_demo',
+    'co_lattice',
+    'active',
+    'public_only',
+    NULL,
+    '2026-07-01T09:00:00-07:00'
+  );
+
 INSERT OR IGNORE INTO asset_accounts
   (id, household_id, name, account_type, administrator_label, created_at)
 VALUES

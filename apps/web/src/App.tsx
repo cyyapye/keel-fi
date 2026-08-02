@@ -5,6 +5,7 @@ import {
   type EvidenceInboxItem,
   type Goal,
   type GoalDraftInput,
+  type PublicSourceObservation,
   type Scenario,
   type ScenarioDraftInput,
 } from "@keel/domain";
@@ -23,12 +24,19 @@ import {
   loadAlphaData,
   saveGoalVersion,
   saveScenarioVersion,
+  scanPortfolioWatch,
   submitEvidenceReview,
 } from "./api";
 import { formatCompactMoney, formatDate, formatProbability } from "./format";
 
 type Screen =
-  "dashboard" | "goals" | "holdings" | "evidence" | "scenarios" | "history";
+  | "dashboard"
+  | "goals"
+  | "holdings"
+  | "watch"
+  | "evidence"
+  | "scenarios"
+  | "history";
 
 const navigation: readonly {
   id: Screen;
@@ -45,17 +53,23 @@ const navigation: readonly {
   { id: "goals", label: "Goals", shortLabel: "Goals", icon: "02" },
   { id: "holdings", label: "Holdings", shortLabel: "Holdings", icon: "03" },
   {
+    id: "watch",
+    label: "Portfolio Watch",
+    shortLabel: "Watch",
+    icon: "04",
+  },
+  {
     id: "evidence",
     label: "Evidence Inbox",
     shortLabel: "Evidence",
-    icon: "04",
+    icon: "05",
   },
-  { id: "scenarios", label: "Scenarios", shortLabel: "Scenarios", icon: "05" },
+  { id: "scenarios", label: "Scenarios", shortLabel: "Scenarios", icon: "06" },
   {
     id: "history",
     label: "Forecast History",
     shortLabel: "History",
-    icon: "06",
+    icon: "07",
   },
 ];
 
@@ -1328,6 +1342,226 @@ function Holdings({ data }: { data: AlphaData }) {
   );
 }
 
+function sourceClassLabel(sourceClass: PublicSourceObservation["sourceClass"]) {
+  return {
+    official_company: "Official company",
+    regulatory_filing: "Regulatory filing",
+    reputable_reporting: "Named reporting",
+    secondary_source: "Secondary source",
+  }[sourceClass];
+}
+
+function PortfolioWatch({
+  data,
+  onReview,
+  onScan,
+}: {
+  data: AlphaData;
+  onReview: (eventId: string) => void;
+  onScan: () => Promise<{ discoveredCount: number; proposedCount: number }>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const runScan = () => {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    void onScan()
+      .then((result) => {
+        setMessage(
+          result.discoveredCount === 0
+            ? "Scan complete. No new public observations were found."
+            : `Scan complete. ${result.proposedCount} new proposal was added for review.`,
+        );
+      })
+      .catch((scanError: unknown) =>
+        setError(
+          scanError instanceof Error
+            ? scanError.message
+            : "The public-source scan could not be completed.",
+        ),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="screen-stack">
+      <div className="page-intro watch-intro">
+        <div>
+          <p className="eyebrow">Public-source monitoring</p>
+          <h1>Portfolio Watch</h1>
+          <p>
+            Detect public company signals, preserve the source, and separate
+            reported facts from Keel&apos;s valuation inference.
+          </p>
+        </div>
+        <Badge tone="positive">Public only · no inbox access</Badge>
+      </div>
+
+      <Panel className="watch-control-panel">
+        <div>
+          <p className="eyebrow">Synthetic private-alpha connector</p>
+          <h2>Scan the monitored public sources</h2>
+          <p>
+            This demo uses fabricated company news. A production connector would
+            retrieve allowlisted official sites, regulatory filings, and named
+            reporting without importing a user&apos;s mailbox.
+          </p>
+        </div>
+        <Button disabled={busy} onClick={runScan} tone="primary">
+          {busy ? "Scanning…" : "Scan synthetic public sources"}
+        </Button>
+      </Panel>
+
+      {error !== null && <div className="inline-error">{error}</div>}
+      {message !== null && (
+        <p className="form-message success" role="status">
+          {message}
+        </p>
+      )}
+
+      <section>
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Coverage</p>
+            <h2>{data.portfolioWatch.targets.length} monitored companies</h2>
+          </div>
+        </div>
+        <div className="watch-target-grid">
+          {data.portfolioWatch.targets.map((target) => (
+            <article key={target.id}>
+              <header>
+                <strong>{target.companyName}</strong>
+                <Badge
+                  tone={target.status === "active" ? "positive" : "neutral"}
+                >
+                  {target.status}
+                </Badge>
+              </header>
+              <span>{target.officialHost}</span>
+              <small>
+                {target.lastCheckedAt === null
+                  ? "Not checked yet"
+                  : `Checked ${formatDate(target.lastCheckedAt)}`}
+              </small>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Observed versus inferred</p>
+            <h2>Public observations</h2>
+          </div>
+          <Badge tone="neutral">
+            {data.portfolioWatch.observations.length} retained
+          </Badge>
+        </div>
+
+        {data.portfolioWatch.observations.length === 0 ? (
+          <EmptyState title="No public observations yet">
+            Run the synthetic scan to create a source-backed proposal without
+            touching an accepted financial record.
+          </EmptyState>
+        ) : (
+          <div className="watch-observation-list">
+            {data.portfolioWatch.observations.map((observation) => (
+              <article key={observation.id}>
+                <header>
+                  <div>
+                    <p className="eyebrow">
+                      {observation.companyName} ·{" "}
+                      {sourceClassLabel(observation.sourceClass)}
+                    </p>
+                    <h2>{observation.sourceTitle}</h2>
+                    <small>
+                      Published {formatDate(observation.publishedAt)} ·
+                      Retrieved {formatDate(observation.retrievedAt)}
+                    </small>
+                  </div>
+                  <Badge
+                    tone={
+                      observation.evidenceStatus === "pending_review"
+                        ? "accent"
+                        : "neutral"
+                    }
+                  >
+                    {observation.evidenceStatus.replaceAll("_", " ")}
+                  </Badge>
+                </header>
+
+                <div className="watch-observation-body">
+                  <section>
+                    <span>Directly observed</span>
+                    <p>{observation.observedFact}</p>
+                    <small>
+                      Source reliability{" "}
+                      {formatProbability(observation.sourceReliabilityPpm)}
+                    </small>
+                  </section>
+                  <section>
+                    <span>Keel inference</span>
+                    <p>{observation.inference}</p>
+                    <small>
+                      Model confidence{" "}
+                      {formatProbability(observation.modelConfidencePpm)}
+                    </small>
+                  </section>
+                  <section>
+                    <span>Estimated holding range</span>
+                    {observation.valuationLowMinor !== null &&
+                    observation.valuationMiddleMinor !== null &&
+                    observation.valuationHighMinor !== null ? (
+                      <strong>
+                        {formatCompactMoney(observation.valuationLowMinor)} –{" "}
+                        {formatCompactMoney(observation.valuationHighMinor)}
+                      </strong>
+                    ) : (
+                      <strong>Not estimated</strong>
+                    )}
+                    {observation.valuationMiddleMinor !== null && (
+                      <small>
+                        Middle estimate{" "}
+                        {formatCompactMoney(observation.valuationMiddleMinor)}
+                      </small>
+                    )}
+                  </section>
+                </div>
+
+                <footer>
+                  <div>
+                    <span>Known limitations</span>
+                    <p>{observation.limitations}</p>
+                    <code>{observation.sourceUrl}</code>
+                  </div>
+                  <Button
+                    onClick={() => onReview(observation.evidenceEventId)}
+                    tone="primary"
+                  >
+                    Review proposal
+                  </Button>
+                </footer>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <div className="watch-policy-note">
+        <span>◇</span>
+        <p>
+          A public report can create a scenario proposal. It never becomes an
+          administrator NAV, accepted mark, or usable liquidity by itself.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function EvidenceCard({
   busy,
   item,
@@ -1382,7 +1616,9 @@ function EvidenceCard({
             <ins>{item.replacementValue}</ins>
           </div>
           <small>
-            {formatProbability(item.confidencePpm)} source confidence
+            {item.modelConfidencePpm === null
+              ? `${formatProbability(item.confidencePpm)} source confidence`
+              : `${formatProbability(item.confidencePpm)} source reliability · ${formatProbability(item.modelConfidencePpm)} model confidence`}
           </small>
         </div>
         <div className="forecast-impact">
@@ -2146,6 +2382,18 @@ export function App() {
         );
       case "holdings":
         return <Holdings data={data} />;
+      case "watch":
+        return (
+          <PortfolioWatch
+            data={data}
+            onReview={() => setActiveScreen("evidence")}
+            onScan={async () => {
+              const result = await scanPortfolioWatch();
+              setData(await loadAlphaData());
+              return result;
+            }}
+          />
+        );
       case "evidence":
         return (
           <EvidenceInbox

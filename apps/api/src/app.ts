@@ -126,6 +126,29 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.post("/api/watch/scan", async (context) => {
+    try {
+      const result = await repositoryFor(context.env).scanPortfolioWatch(
+        context.get("identity").subject,
+      );
+      return context.json(result, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message.includes("not found")) {
+        return context.json(
+          { error: "Portfolio Watch is not configured for this household." },
+          404,
+        );
+      }
+      return context.json(
+        { error: "Public-source scan could not be completed." },
+        500,
+      );
+    }
+  });
+
   app.post("/api/evidence/:eventId/review", async (context) => {
     let rawInput: unknown;
     try {
