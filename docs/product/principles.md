@@ -12,6 +12,9 @@
 8. Public-source reliability and model confidence are separate measurements.
 9. A company-level financing signal is not automatically a holding-level mark.
 
+The interface and copy acceptance criteria live in
+[`ui-and-copy.md`](./ui-and-copy.md).
+
 ## Projection contract
 
 Annual cumulative liquidity curves record P25, P50, P75, expected liquidity, and

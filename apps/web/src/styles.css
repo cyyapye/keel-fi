@@ -1371,50 +1371,71 @@ h1,
   line-height: 1.55;
 }
 
+.watch-screen {
+  gap: 64px;
+}
+
 .watch-control-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 32px;
-  padding: 28px;
-  border: 1px solid var(--ink);
+  gap: 48px;
+  padding: 4px 3px 8px;
 }
 
 .watch-control-panel h2 {
-  margin-bottom: 8px;
-  font-size: 18px;
+  margin-bottom: 10px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
 }
 
-.watch-control-panel p:last-child {
+.watch-control-panel p {
   max-width: 680px;
+  margin-bottom: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.6;
+}
+
+.watch-control-panel small {
+  display: block;
+  margin-top: 9px;
+  color: var(--faint);
+  font-size: 8px;
+}
+
+.watch-control-panel .button {
+  min-width: 108px;
+}
+
+.watch-screen > section {
+  padding: 0 3px;
+}
+
+.watch-screen .section-heading h2 {
+  margin-bottom: 0;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
 }
 
 .watch-target-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 15px;
+  gap: 40px;
+  margin-top: 22px;
 }
 
 .watch-target-grid article {
   min-width: 0;
-  padding: 18px;
-  border: 1px solid var(--line);
-}
-
-.watch-target-grid header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  padding: 10px 0 18px;
 }
 
 .watch-target-grid strong {
+  display: block;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1422,7 +1443,7 @@ h1,
 .watch-target-grid article > span,
 .watch-target-grid article > small {
   display: block;
-  margin-top: 10px;
+  margin-top: 8px;
   color: var(--muted);
   font-size: 8px;
 }
@@ -1433,26 +1454,27 @@ h1,
 
 .watch-observation-list {
   display: grid;
-  gap: 24px;
-  margin-top: 15px;
+  gap: 64px;
+  margin-top: 26px;
 }
 
 .watch-observation-list > article {
-  border-top: 1px solid var(--ink);
-  border-bottom: 1px solid var(--ink);
+  padding: 10px 0 4px;
 }
 
 .watch-observation-list > article > header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 18px;
-  padding: 20px 0;
+  gap: 28px;
+  padding: 0;
 }
 
 .watch-observation-list h2 {
-  margin-bottom: 6px;
-  font-size: 17px;
+  margin-bottom: 9px;
+  font-size: clamp(20px, 2.3vw, 28px);
+  font-weight: 630;
+  letter-spacing: -0.04em;
 }
 
 .watch-observation-list header small {
@@ -1462,47 +1484,41 @@ h1,
 
 .watch-observation-body {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.05fr) minmax(
+      190px,
+      0.7fr
+    );
+  gap: 48px;
+  margin-top: 38px;
 }
 
 .watch-observation-body section {
   min-width: 0;
-  padding: 24px;
-  border-right: 1px solid var(--line);
-}
-
-.watch-observation-body section:first-child {
-  padding-left: 0;
-}
-
-.watch-observation-body section:last-child {
-  padding-right: 0;
-  border-right: 0;
 }
 
 .watch-observation-body span,
 .watch-observation-list footer span {
   color: var(--faint);
-  font-size: 7px;
+  font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .watch-observation-body p {
-  margin: 12px 0;
+  margin: 14px 0 18px;
   color: var(--ink);
-  font-size: 10px;
-  line-height: 1.6;
+  font-size: 11px;
+  line-height: 1.7;
 }
 
 .watch-observation-body strong {
   display: block;
-  margin: 14px 0 8px;
-  font-size: clamp(18px, 2.2vw, 28px);
-  letter-spacing: -0.04em;
+  margin: 14px 0 10px;
+  font-size: clamp(24px, 3vw, 36px);
+  font-weight: 620;
+  letter-spacing: -0.05em;
+  line-height: 1;
 }
 
 .watch-observation-body small {
@@ -1514,46 +1530,26 @@ h1,
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 28px;
-  padding: 20px 0;
+  gap: 44px;
+  margin-top: 42px;
+  padding: 0;
 }
 
 .watch-observation-list footer p {
-  margin: 7px 0 9px;
+  max-width: 820px;
+  margin: 9px 0;
   color: var(--muted);
-  font-size: 9px;
-  line-height: 1.5;
+  font-size: 10px;
+  line-height: 1.6;
 }
 
-.watch-observation-list footer code {
+.watch-observation-list footer small {
   display: block;
   overflow: hidden;
   color: var(--faint);
-  font-family: inherit;
-  font-size: 7px;
+  font-size: 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.watch-policy-note {
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 0;
-  border-top: 1px dashed var(--ink);
-  border-bottom: 1px dashed var(--ink);
-}
-
-.watch-policy-note span {
-  font-size: 15px;
-  text-align: center;
-}
-
-.watch-policy-note p {
-  color: var(--muted);
-  font-size: 8px;
-  line-height: 1.5;
 }
 
 .evidence-list {
@@ -2341,16 +2337,11 @@ h1,
 
   .watch-observation-body {
     grid-template-columns: 1fr 1fr;
-  }
-
-  .watch-observation-body section:nth-child(2) {
-    border-right: 0;
+    gap: 38px;
   }
 
   .watch-observation-body section:last-child {
     grid-column: 1 / -1;
-    padding-left: 0;
-    border-top: 1px solid var(--line);
   }
 
   .evidence-body {
@@ -2418,6 +2409,20 @@ h1,
 }
 
 @media (max-width: 620px) {
+  .watch-screen {
+    gap: 52px;
+  }
+
+  .watch-intro {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .watch-intro > .badge {
+    margin-top: 0;
+  }
+
   .scenario-context {
     grid-template-columns: 1fr;
   }
@@ -2439,9 +2444,18 @@ h1,
   }
 
   .watch-control-panel {
-    padding: 20px 0;
-    border-right: 0;
-    border-left: 0;
+    gap: 24px;
+    padding: 0 3px;
+  }
+
+  .watch-observation-body {
+    gap: 34px;
+    margin-top: 32px;
+  }
+
+  .watch-observation-list > article > footer {
+    gap: 24px;
+    margin-top: 36px;
   }
 
   .watch-control-panel .button {
@@ -2452,13 +2466,7 @@ h1,
   .watch-observation-body section:first-child,
   .watch-observation-body section:last-child {
     grid-column: 1;
-    padding: 20px 0;
-    border-top: 1px solid var(--line);
-    border-right: 0;
-  }
-
-  .watch-observation-body section:first-child {
-    border-top: 0;
+    padding: 0;
   }
 
   .watch-observation-list > article > footer .button {
