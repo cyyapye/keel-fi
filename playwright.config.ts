@@ -13,7 +13,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   snapshotPathTemplate:
-    "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}",
+    "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}-{platform}{ext}",
   use: {
     baseURL,
     screenshot: "only-on-failure",

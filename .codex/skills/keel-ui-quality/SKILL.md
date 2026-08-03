@@ -75,8 +75,14 @@ problem.
 5. Inspect every generated PNG with the image-viewing tool. Check hierarchy,
    spacing, copy density, borders, badges, contrast, clipping, sticky
    navigation, transient states, and horizontal overflow.
-6. Rerun the visual spec without snapshot-update mode.
-7. Run `make verify` before handoff. Keep browser tests serialized when they
+6. Keep one expected baseline per covered state, project, and supported
+   platform. Snapshot updates must overwrite those canonical files rather than
+   create dated copies.
+7. Commit only expected baselines. Never commit `test-results/`, actual or diff
+   images, traces, Playwright reports, or downloaded CI artifacts. Delete
+   obsolete baselines when their test, state, project, or platform is removed.
+8. Rerun the visual spec without snapshot-update mode.
+9. Run `make verify` before handoff. Keep browser tests serialized when they
    share the seeded local D1 state.
 
 Never update a baseline merely to make a test green. Fix unintended rendering or
