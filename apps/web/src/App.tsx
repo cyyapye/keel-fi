@@ -1351,6 +1351,25 @@ function sourceClassLabel(sourceClass: PublicSourceObservation["sourceClass"]) {
   }[sourceClass];
 }
 
+function evidenceStatusLabel(
+  status: PublicSourceObservation["evidenceStatus"],
+) {
+  return {
+    pending_review: "Needs review",
+    accepted: "Reviewed",
+    rejected: "Dismissed",
+    scenario_only: "Scenario only",
+  }[status];
+}
+
+function sourceHost(sourceUrl: string) {
+  try {
+    return new URL(sourceUrl).hostname;
+  } catch {
+    return sourceUrl;
+  }
+}
+
 function PortfolioWatch({
   data,
   onReview,
@@ -1372,46 +1391,35 @@ function PortfolioWatch({
       .then((result) => {
         setMessage(
           result.discoveredCount === 0
-            ? "Scan complete. No new public observations were found."
-            : `Scan complete. ${result.proposedCount} new proposal was added for review.`,
+            ? "You’re up to date."
+            : `${result.proposedCount} ${result.proposedCount === 1 ? "update is" : "updates are"} ready to review.`,
         );
       })
-      .catch((scanError: unknown) =>
-        setError(
-          scanError instanceof Error
-            ? scanError.message
-            : "The public-source scan could not be completed.",
-        ),
-      )
+      .catch(() => setError("Couldn’t check for updates. Try again."))
       .finally(() => setBusy(false));
   };
 
   return (
-    <div className="screen-stack">
+    <div className="screen-stack watch-screen">
       <div className="page-intro watch-intro">
         <div>
-          <p className="eyebrow">Public-source monitoring</p>
           <h1>Portfolio Watch</h1>
           <p>
-            Detect public company signals, preserve the source, and separate
-            reported facts from Keel&apos;s valuation inference.
+            Follow public signals across your private holdings. Nothing changes
+            until you review it.
           </p>
         </div>
-        <Badge tone="positive">Public only · no inbox access</Badge>
+        <Badge tone="neutral">Public sources only</Badge>
       </div>
 
       <Panel className="watch-control-panel">
         <div>
-          <p className="eyebrow">Synthetic private-alpha connector</p>
-          <h2>Scan the monitored public sources</h2>
-          <p>
-            This demo uses fabricated company news. A production connector would
-            retrieve allowlisted official sites, regulatory filings, and named
-            reporting without importing a user&apos;s mailbox.
-          </p>
+          <h2>Check for updates</h2>
+          <p>Official company sites, filings, and trusted reporting.</p>
+          <small>Demo sources in this preview</small>
         </div>
         <Button disabled={busy} onClick={runScan} tone="primary">
-          {busy ? "Scanning…" : "Scan synthetic public sources"}
+          {busy ? "Checking…" : "Check now"}
         </Button>
       </Panel>
 
@@ -1424,27 +1432,19 @@ function PortfolioWatch({
 
       <section>
         <div className="section-heading">
-          <div>
-            <p className="eyebrow">Coverage</p>
-            <h2>{data.portfolioWatch.targets.length} monitored companies</h2>
-          </div>
+          <h2>Watching {data.portfolioWatch.targets.length} companies</h2>
         </div>
         <div className="watch-target-grid">
           {data.portfolioWatch.targets.map((target) => (
             <article key={target.id}>
-              <header>
-                <strong>{target.companyName}</strong>
-                <Badge
-                  tone={target.status === "active" ? "positive" : "neutral"}
-                >
-                  {target.status}
-                </Badge>
-              </header>
+              <strong>{target.companyName}</strong>
               <span>{target.officialHost}</span>
               <small>
-                {target.lastCheckedAt === null
-                  ? "Not checked yet"
-                  : `Checked ${formatDate(target.lastCheckedAt)}`}
+                {target.status !== "active"
+                  ? "Paused"
+                  : target.lastCheckedAt === null
+                    ? "Not checked yet"
+                    : `Checked ${formatDate(target.lastCheckedAt)}`}
               </small>
             </article>
           ))}
@@ -1453,19 +1453,12 @@ function PortfolioWatch({
 
       <section>
         <div className="section-heading">
-          <div>
-            <p className="eyebrow">Observed versus inferred</p>
-            <h2>Public observations</h2>
-          </div>
-          <Badge tone="neutral">
-            {data.portfolioWatch.observations.length} retained
-          </Badge>
+          <h2>Recent signals</h2>
         </div>
 
         {data.portfolioWatch.observations.length === 0 ? (
-          <EmptyState title="No public observations yet">
-            Run the synthetic scan to create a source-backed proposal without
-            touching an accepted financial record.
+          <EmptyState title="No updates yet">
+            Check now to look for new public signals.
           </EmptyState>
         ) : (
           <div className="watch-observation-list">
@@ -1479,8 +1472,7 @@ function PortfolioWatch({
                     </p>
                     <h2>{observation.sourceTitle}</h2>
                     <small>
-                      Published {formatDate(observation.publishedAt)} ·
-                      Retrieved {formatDate(observation.retrievedAt)}
+                      Published {formatDate(observation.publishedAt)}
                     </small>
                   </div>
                   <Badge
@@ -1490,13 +1482,13 @@ function PortfolioWatch({
                         : "neutral"
                     }
                   >
-                    {observation.evidenceStatus.replaceAll("_", " ")}
+                    {evidenceStatusLabel(observation.evidenceStatus)}
                   </Badge>
                 </header>
 
                 <div className="watch-observation-body">
                   <section>
-                    <span>Directly observed</span>
+                    <span>Observed</span>
                     <p>{observation.observedFact}</p>
                     <small>
                       Source reliability{" "}
@@ -1504,7 +1496,7 @@ function PortfolioWatch({
                     </small>
                   </section>
                   <section>
-                    <span>Keel inference</span>
+                    <span>Keel estimate</span>
                     <p>{observation.inference}</p>
                     <small>
                       Model confidence{" "}
@@ -1512,7 +1504,7 @@ function PortfolioWatch({
                     </small>
                   </section>
                   <section>
-                    <span>Estimated holding range</span>
+                    <span>Estimated range</span>
                     {observation.valuationLowMinor !== null &&
                     observation.valuationMiddleMinor !== null &&
                     observation.valuationHighMinor !== null ? (
@@ -1534,15 +1526,15 @@ function PortfolioWatch({
 
                 <footer>
                   <div>
-                    <span>Known limitations</span>
+                    <span>What&apos;s missing</span>
                     <p>{observation.limitations}</p>
-                    <code>{observation.sourceUrl}</code>
+                    <small>{sourceHost(observation.sourceUrl)}</small>
                   </div>
                   <Button
                     onClick={() => onReview(observation.evidenceEventId)}
                     tone="primary"
                   >
-                    Review proposal
+                    Review
                   </Button>
                 </footer>
               </article>
@@ -1550,14 +1542,6 @@ function PortfolioWatch({
           </div>
         )}
       </section>
-
-      <div className="watch-policy-note">
-        <span>◇</span>
-        <p>
-          A public report can create a scenario proposal. It never becomes an
-          administrator NAV, accepted mark, or usable liquidity by itself.
-        </p>
-      </div>
     </div>
   );
 }

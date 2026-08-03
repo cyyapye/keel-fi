@@ -1,0 +1,5 @@
+interface:
+  display_name: "Keel UI Quality"
+  short_description: "Review Keel UI against its product contract"
+  default_prompt:
+    "Use $keel-ui-quality to implement and verify this Keel interface change."

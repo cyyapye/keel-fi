@@ -38,19 +38,17 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(
     page.getByRole("heading", { name: "Portfolio Watch" }),
   ).toBeVisible();
-  await expect(page.getByText("Public only · no inbox access")).toBeVisible();
+  await expect(page.getByText("Public sources only")).toBeVisible();
   if (!mobile) {
-    await page
-      .getByRole("button", { name: "Scan synthetic public sources" })
-      .click();
+    await page.getByRole("button", { name: "Check now" }).click();
     await expect(
       page.getByRole("heading", {
         name: "Synthetic Series C financing announcement",
       }),
     ).toBeVisible();
-    await expect(page.getByText("Directly observed")).toBeVisible();
-    await expect(page.getByText("Keel inference")).toBeVisible();
-    await page.getByRole("button", { name: "Review proposal" }).click();
+    await expect(page.getByText("Observed")).toBeVisible();
+    await expect(page.getByText("Keel estimate")).toBeVisible();
+    await page.getByRole("button", { name: "Review" }).click();
     await expect(
       page.getByRole("heading", { name: "Evidence Inbox" }),
     ).toBeVisible();
