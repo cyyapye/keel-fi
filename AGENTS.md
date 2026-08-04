@@ -40,6 +40,10 @@
   Run `make bootstrap` manually if setup needs to be repaired or repeated.
 - Start the frontend and backend together with `make dev`. Use the URLs it
   prints because linked worktrees receive deterministic, isolated ports.
+- When the user says "clean up worktree" or makes a similar local-runtime
+  cleanup request, run `make dev-clean` before handoff. It removes the Docker
+  development containers, network, and synthetic database volume. Verify the
+  stack is gone with `make dev-status`.
 - Run `make verify` before publishing runtime or migration changes. Use focused
   targets such as `make lint`, `make typecheck`, `make test`, `make db-verify`,
   or `make e2e` while iterating.

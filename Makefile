@@ -12,7 +12,7 @@ WRANGLER_LOG_PATH ?= $(CURDIR)/.wrangler/logs/wrangler.log
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev dev-up dev-down dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify e2e verify
+.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify e2e verify
 
 help:
 	@echo "Keel developer commands"
@@ -20,6 +20,7 @@ help:
 	@echo "  make dev           Start the API and web app together"
 	@echo "  make dev-up        Build and start the Docker development stack"
 	@echo "  make dev-down      Stop the Docker development stack (preserves data)"
+	@echo "  make dev-clean     Remove the Docker development stack and synthetic data"
 	@echo "  make dev-status    Show Docker development service status"
 	@echo "  make dev-logs      Follow Docker development service logs"
 	@echo "  make dev-build     Rebuild Docker development images"
@@ -45,6 +46,9 @@ dev-up:
 
 dev-down:
 	$(COMPOSE) down
+
+dev-clean:
+	$(COMPOSE) down --volumes --remove-orphans
 
 dev-status:
 	$(COMPOSE) ps

@@ -135,9 +135,9 @@ Stop it with `make dev-down`. This preserves the Docker volumes, including the
 local database, so the next `make dev-up` resumes the same synthetic state. To
 rebuild the development images explicitly, run `make dev-build`.
 
-> [!CAUTION] `docker compose down --volumes` deletes the Docker-managed local D1
-> data. Use it only when you intentionally want a clean synthetic environment;
-> `make dev-down` never removes volumes.
+Run `make dev-clean` when you want to remove the containers, network, and
+Docker-managed local D1 volume. The next `make dev-up` recreates and seeds a
+fresh synthetic database. `make dev-down` never removes volumes.
 
 The native `make db-*` commands operate on the host-side local D1, not the
 Docker-managed database. The Compose API applies migrations and the idempotent
