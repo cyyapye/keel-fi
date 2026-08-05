@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "keel-preview-web-example",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-28",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "REPLACE_WITH_PREVIEW_HOSTNAME",
+      "custom_domain": true,
+      "previews_enabled": false,
+    },
+  ],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api", "/api/*", "/health"],
+  },
+  "services": [
+    {
+      "binding": "API",
+      "service": "keel-preview-api-example",
+    },
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1,
+  },
+}

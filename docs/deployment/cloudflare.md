@@ -10,8 +10,8 @@ Create in a private Cloudflare account:
 - D1 database for canonical records;
 - R2 bucket with public access disabled;
 - Queue for ingestion proposals;
-- API Worker and static-assets Worker; and
-- Access application protecting both origins.
+- private API Worker and static-assets Worker with a service binding; and
+- Access application protecting the single public web origin.
 
 Replace the D1 template ID in `apps/api/wrangler.jsonc` only in private
 deployment configuration. Do not commit account IDs, database IDs, audiences,
@@ -40,7 +40,10 @@ Configure these bindings outside Git:
 - `R2_SIGNING_KEY` only if the selected signed-URL mechanism requires one.
 
 Production `ENVIRONMENT` remains `production`. Do not set it to `local` or add a
-fallback. Attach a custom domain only after Access protects the route.
+fallback. Keep the API Worker off `workers.dev` and preview URLs. Route `/api/*`
+through the public web Worker to the API Worker with a service binding so the
+Access assertion is preserved without creating a second public origin. Attach a
+custom domain only after Access protects the route.
 
 ## Migration and release sequence
 
@@ -49,7 +52,7 @@ fallback. Attach a custom domain only after Access protects the route.
 3. Apply forward migrations to a preview database.
 4. Run synthetic/preview smoke tests and Access negative tests.
 5. Apply migrations to production.
-6. Deploy the API Worker, then static assets.
+6. Deploy the private API Worker, then the web Worker and static assets.
 7. Verify missing, malformed, and valid Access assertions.
 8. Verify the dashboard, evidence review, D1 writes, private R2 behavior, and
    Queue binding.
@@ -67,6 +70,12 @@ pnpm --filter @keel/web exec wrangler deploy
 
 Run them only after replacing private deployment configuration and obtaining
 explicit deployment approval.
+
+The web Worker must keep `workers_dev` and preview URLs disabled in private
+deployment configuration. Its only public route is the Access-protected custom
+domain. The ingestion Queue remains producer-only until a reviewed consumer is
+implemented; do not attach an empty consumer merely to make the binding appear
+complete.
 
 ## Access validation
 

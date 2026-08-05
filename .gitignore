@@ -17,6 +17,7 @@ test-results/
 # Cloudflare local state and secrets
 .dev.vars
 .wrangler/
+wrangler.preview.jsonc
 worker-configuration.d.ts
 
 # Environment files
