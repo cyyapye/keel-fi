@@ -3,6 +3,8 @@
   "name": "keel-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-28",
+  "workers_dev": false,
+  "preview_urls": false,
   "vars": {
     "ENVIRONMENT": "production",
   },
