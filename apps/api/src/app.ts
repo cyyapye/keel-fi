@@ -16,6 +16,10 @@ import { secureHeaders } from "hono/secure-headers";
 
 import { verifyAccessToken, type AccessVerifier } from "./auth";
 import {
+  deploymentSmokeTokenMatches,
+  runDeploymentSmoke,
+} from "./deployment-smoke";
+import {
   HoldingImportUploadError,
   readAngelListCsvUpload,
 } from "./holding-import-upload";
@@ -98,7 +102,13 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/health", (context) =>
-    context.json({ status: "ok", service: "keel-api" }),
+    context.json({
+      status: "ok",
+      service: "keel-api",
+      deployedGitSha: context.env.DEPLOYED_GIT_SHA ?? null,
+      workerVersionId: context.env.CF_VERSION_METADATA?.id ?? null,
+      workerVersionTag: context.env.CF_VERSION_METADATA?.tag ?? null,
+    }),
   );
 
   app.use("/api/*", async (context, next) => {
@@ -134,6 +144,35 @@ export function createApp(options: AppOptions = {}) {
 
   const repositoryFor = (env: Env) =>
     options.repository ?? new D1AlphaRepository(env.DB);
+
+  app.post("/api/deployment-smoke", async (context) => {
+    if (context.env.ENVIRONMENT !== "preview") {
+      return context.json({ error: "Not found." }, 404);
+    }
+
+    const authorized = await deploymentSmokeTokenMatches(
+      context.req.header("X-Keel-Deployment-Smoke-Token"),
+      context.env.DEPLOYMENT_SMOKE_TOKEN,
+    );
+    if (!authorized) {
+      return context.json({ error: "Deployment smoke access denied." }, 403);
+    }
+
+    try {
+      return context.json(await runDeploymentSmoke(context.env), 200, {
+        "Cache-Control": "no-store",
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "deployment_smoke_failed",
+          requestId: context.get("requestId"),
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        }),
+      );
+      return context.json({ error: "Deployment smoke failed." }, 503);
+    }
+  });
 
   app.get("/api/alpha", async (context) => {
     try {

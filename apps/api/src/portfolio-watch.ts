@@ -26,6 +26,7 @@ import {
 import { z } from "zod";
 
 import type { Env } from "./types";
+import { DeploymentSmokeMessageSchema } from "./deployment-smoke";
 
 type FetchLike = (
   input: RequestInfo | URL,
@@ -805,6 +806,10 @@ export async function handlePortfolioWatchQueue(
   env: Env,
 ): Promise<void> {
   for (const queued of batch.messages) {
+    if (DeploymentSmokeMessageSchema.safeParse(queued.body).success) {
+      queued.ack();
+      continue;
+    }
     const parsed = PortfolioWatchSourceJobMessageSchema.safeParse(queued.body);
     if (!parsed.success) {
       queued.ack();

@@ -174,6 +174,33 @@ describe("Keel API", () => {
     expect(getAlphaData).not.toHaveBeenCalled();
   });
 
+  it("fails closed when an Access assertion cannot be verified", async () => {
+    const getAlphaData = vi.fn<AlphaRepository["getAlphaData"]>();
+    const repository: AlphaRepository = {
+      getAlphaData,
+      preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    };
+    const response = await createApp({
+      repository,
+      verifyAccess: vi.fn(() => Promise.reject(new Error("Invalid token"))),
+    }).request(
+      "/api/alpha",
+      { headers: { "Cf-Access-Jwt-Assertion": "invalid" } },
+      testEnv("production"),
+    );
+
+    expect(response.status).toBe(401);
+    expect(getAlphaData).not.toHaveBeenCalled();
+  });
+
   it("serves database repository data in explicitly local mode", async () => {
     const getAlphaData = vi
       .fn<AlphaRepository["getAlphaData"]>()

@@ -1,4 +1,4 @@
-name: Post-merge Verification
+name: Post-merge Verification and Preview Deployment
 
 on:
   push:
@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-node-pnpm
       - run: pnpm exec playwright install --with-deps chromium
       - run: make verify
@@ -34,6 +36,209 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-preview:
+    name: Deploy exact SHA to preview
+    if: github.ref == 'refs/heads/main'
+    needs:
+      - verify
+      - secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      deployments: write
+    environment:
+      name: preview
+      url: ${{ vars.KEEL_PREVIEW_URL }}
+    concurrency:
+      group: keel-preview-deployment
+      cancel-in-progress: false
+    env:
+      KEEL_API_WRANGLER_OUTPUT_PATH: ${{ runner.temp }}/keel-api-deploy.jsonl
+      KEEL_PREVIEW_BACKUP_ARTIFACT_NAME:
+        preview-d1-backup-${{ github.sha }}-attempt-${{ github.run_attempt }}
+      KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH:
+        ${{ runner.temp }}/keel-preview-${{ github.sha }}.sql.gpg
+      KEEL_PREVIEW_BACKUP_MANIFEST_PATH:
+        ${{ runner.temp }}/keel-preview-${{ github.sha }}.backup.json
+      KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH:
+        ${{ runner.temp }}/keel-preview-${{ github.sha }}.sql
+      KEEL_PREVIEW_BACKUP_VERIFY_PATH:
+        ${{ runner.temp }}/keel-preview-${{ github.sha }}.verify.sql
+      KEEL_PREVIEW_RELEASE_EVIDENCE_PATH:
+        ${{ runner.temp }}/keel-preview-${{ github.sha }}.release.json
+      KEEL_PREVIEW_URL: ${{ vars.KEEL_PREVIEW_URL }}
+      KEEL_WEB_WRANGLER_OUTPUT_PATH: ${{ runner.temp }}/keel-web-deploy.jsonl
+    steps:
+      - name: Check out the exact verified SHA
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+      - name: Confirm exact main SHA
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Validate preview environment and generate private configuration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          KEEL_PREVIEW_ACCESS_AUD: ${{ secrets.KEEL_PREVIEW_ACCESS_AUD }}
+          KEEL_PREVIEW_ACCESS_CLIENT_ID:
+            ${{ secrets.KEEL_PREVIEW_ACCESS_CLIENT_ID }}
+          KEEL_PREVIEW_ACCESS_CLIENT_SECRET:
+            ${{ secrets.KEEL_PREVIEW_ACCESS_CLIENT_SECRET }}
+          KEEL_PREVIEW_ACCESS_TEAM_DOMAIN:
+            ${{ secrets.KEEL_PREVIEW_ACCESS_TEAM_DOMAIN }}
+          KEEL_PREVIEW_API_WORKER: ${{ secrets.KEEL_PREVIEW_API_WORKER }}
+          KEEL_PREVIEW_BACKUP_PASSPHRASE:
+            ${{ secrets.KEEL_PREVIEW_BACKUP_PASSPHRASE }}
+          KEEL_PREVIEW_D1_ID: ${{ secrets.KEEL_PREVIEW_D1_ID }}
+          KEEL_PREVIEW_D1_NAME: ${{ secrets.KEEL_PREVIEW_D1_NAME }}
+          KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN:
+            ${{ secrets.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN }}
+          KEEL_PREVIEW_QUEUE: ${{ secrets.KEEL_PREVIEW_QUEUE }}
+          KEEL_PREVIEW_QUEUE_DLQ: ${{ secrets.KEEL_PREVIEW_QUEUE_DLQ }}
+          KEEL_PREVIEW_R2_BUCKET: ${{ secrets.KEEL_PREVIEW_R2_BUCKET }}
+          KEEL_PREVIEW_WEB_WORKER: ${{ secrets.KEEL_PREVIEW_WEB_WORKER }}
+        run: pnpm tsx scripts/preview-deployment-config.ts
+      - name: Export and encrypt D1 before migration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          KEEL_PREVIEW_D1_NAME: ${{ secrets.KEEL_PREVIEW_D1_NAME }}
+        run: |
+          umask 077
+          cleanup_plaintext() {
+            rm -f -- \
+              "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
+              "$KEEL_PREVIEW_BACKUP_VERIFY_PATH" \
+              "$RUNNER_TEMP/keel-preview-backup-passphrase"
+          }
+          trap cleanup_plaintext EXIT
+          pnpm exec wrangler d1 export "$KEEL_PREVIEW_D1_NAME" \
+            --remote \
+            --config apps/api/wrangler.preview.jsonc \
+            --output "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
+            --skip-confirmation
+          gpg --batch --yes --symmetric \
+            --cipher-algo AES256 \
+            --pinentry-mode loopback \
+            --passphrase-file "$RUNNER_TEMP/keel-preview-backup-passphrase" \
+            --output "$KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH" \
+            "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH"
+          gpg --batch --yes \
+            --pinentry-mode loopback \
+            --passphrase-file "$RUNNER_TEMP/keel-preview-backup-passphrase" \
+            --output "$KEEL_PREVIEW_BACKUP_VERIFY_PATH" \
+            --decrypt "$KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH"
+          cmp --silent \
+            "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
+            "$KEEL_PREVIEW_BACKUP_VERIFY_PATH"
+          pnpm tsx scripts/preview-deployment-evidence.ts backup
+          cleanup_plaintext
+          trap - EXIT
+      - name: Retain encrypted pre-migration D1 backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KEEL_PREVIEW_BACKUP_ARTIFACT_NAME }}
+          path: |
+            ${{ env.KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH }}
+            ${{ env.KEEL_PREVIEW_BACKUP_MANIFEST_PATH }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Apply forward-only D1 migrations
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          KEEL_PREVIEW_D1_NAME: ${{ secrets.KEEL_PREVIEW_D1_NAME }}
+        run: |
+          pnpm exec wrangler d1 migrations apply "$KEEL_PREVIEW_D1_NAME" \
+            --remote \
+            --config apps/api/wrangler.preview.jsonc
+          pnpm exec wrangler d1 migrations list "$KEEL_PREVIEW_D1_NAME" \
+            --remote \
+            --config apps/api/wrangler.preview.jsonc
+      - name: Deploy private API Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          KEEL_PREVIEW_ACCESS_AUD: ${{ secrets.KEEL_PREVIEW_ACCESS_AUD }}
+          KEEL_PREVIEW_ACCESS_TEAM_DOMAIN:
+            ${{ secrets.KEEL_PREVIEW_ACCESS_TEAM_DOMAIN }}
+          KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN:
+            ${{ secrets.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ env.KEEL_API_WRANGLER_OUTPUT_PATH }}
+        run: |
+          cleanup_api_secrets() {
+            rm -f -- "$RUNNER_TEMP/keel-preview-api-secrets.json"
+          }
+          trap cleanup_api_secrets EXIT
+          pnpm tsx scripts/preview-deployment-config.ts api-secrets
+          pnpm exec wrangler deploy \
+            --config apps/api/wrangler.preview.jsonc \
+            --secrets-file "$RUNNER_TEMP/keel-preview-api-secrets.json" \
+            --strict \
+            --tag "$GITHUB_SHA" \
+            --message "GitHub Actions preview $GITHUB_SHA"
+          cleanup_api_secrets
+          trap - EXIT
+      - name: Build and deploy web Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ env.KEEL_WEB_WRANGLER_OUTPUT_PATH }}
+        run: |
+          pnpm --filter @keel/web build
+          pnpm exec wrangler deploy \
+            --config apps/web/wrangler.preview.jsonc \
+            --strict \
+            --tag "$GITHUB_SHA" \
+            --message "GitHub Actions preview $GITHUB_SHA"
+      - name: Read deployed Worker versions
+        id: versions
+        env:
+          KEEL_PREVIEW_API_WORKER: ${{ secrets.KEEL_PREVIEW_API_WORKER }}
+          KEEL_PREVIEW_WEB_WORKER: ${{ secrets.KEEL_PREVIEW_WEB_WORKER }}
+        run: pnpm tsx scripts/preview-deployment-evidence.ts versions
+      - name: Run protected post-deploy smokes
+        env:
+          KEEL_API_VERSION_ID: ${{ steps.versions.outputs.api_version_id }}
+          KEEL_PREVIEW_ACCESS_CLIENT_ID:
+            ${{ secrets.KEEL_PREVIEW_ACCESS_CLIENT_ID }}
+          KEEL_PREVIEW_ACCESS_CLIENT_SECRET:
+            ${{ secrets.KEEL_PREVIEW_ACCESS_CLIENT_SECRET }}
+          KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN:
+            ${{ secrets.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN }}
+          KEEL_WEB_VERSION_ID: ${{ steps.versions.outputs.web_version_id }}
+        run: pnpm tsx scripts/preview-deployment-smoke.ts
+      - name: Record exact deployment evidence
+        env:
+          KEEL_PREVIEW_API_WORKER: ${{ secrets.KEEL_PREVIEW_API_WORKER }}
+          KEEL_PREVIEW_WEB_WORKER: ${{ secrets.KEEL_PREVIEW_WEB_WORKER }}
+        run: pnpm tsx scripts/preview-deployment-evidence.ts release
+      - name: Retain preview release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name:
+            preview-release-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.KEEL_PREVIEW_RELEASE_EVIDENCE_PATH }}
+          if-no-files-found: error
+          retention-days: 90
+      - name: Remove private runner files
+        if: always()
+        run: |
+          rm -f -- \
+            apps/api/wrangler.preview.jsonc \
+            apps/web/wrangler.preview.jsonc \
+            "$RUNNER_TEMP/keel-preview-api-secrets.json" \
+            "$RUNNER_TEMP/keel-preview-backup-passphrase" \
+            "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
+            "$KEEL_PREVIEW_BACKUP_VERIFY_PATH"

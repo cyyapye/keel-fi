@@ -8,6 +8,13 @@
   "preview_urls": false,
   "vars": {
     "ENVIRONMENT": "preview",
+    "DEPLOYED_GIT_SHA": "REPLACE_WITH_FULL_DEPLOYED_GIT_SHA",
+  },
+  "secrets": {
+    "required": ["ACCESS_AUD", "ACCESS_TEAM_DOMAIN", "DEPLOYMENT_SMOKE_TOKEN"],
+  },
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA",
   },
   "d1_databases": [
     {
@@ -33,6 +40,7 @@
     "consumers": [
       {
         "queue": "REPLACE_WITH_PREVIEW_QUEUE_NAME",
+        "dead_letter_queue": "REPLACE_WITH_PREVIEW_DLQ_NAME",
         "max_batch_size": 1,
         "max_batch_timeout": 5,
         "max_retries": 3,

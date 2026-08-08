@@ -1,7 +1,8 @@
 # Cloudflare deployment runbook
 
-This runbook is a template. The bootstrap task does not deploy resources or
-request production secrets.
+This runbook covers the automatic private preview and the manually approved
+production path. Repository bootstrap never deploys resources or requests
+deployment secrets.
 
 ## Resources
 
@@ -29,6 +30,44 @@ pnpm dev
 
 Wrangler persists local D1 under the ignored `apps/api/.wrangler` directory.
 
+## Automatic preview deployment
+
+Every exact SHA pushed to `main` must first pass both post-merge verification
+jobs. The same workflow then enters the GitHub `preview` environment and runs
+one serialized deployment:
+
+1. Validate every environment value and generate ignored private Wrangler
+   configuration.
+2. Export D1 to the ephemeral runner, encrypt it with the independent preview
+   backup passphrase, decrypt and byte-compare a verification copy, record both
+   hashes, delete plaintext copies, and retain only the encrypted artifact for
+   14 days.
+3. Apply every pending D1 migration. Never seed, reset, import, or restore the
+   remote preview database during deployment.
+4. Deploy the private API Worker with the merged SHA as its version tag, then
+   build and deploy the web Worker with the same tag.
+5. Use a dedicated Access service token to prove unauthenticated and invalid
+   requests are denied, while an authenticated request reaches the protected
+   health and dashboard surfaces.
+6. Run the preview-only resource smoke. It performs `SELECT 1` through the D1
+   binding, writes/reads/deletes a constant non-financial R2 canary, and
+   publishes a typed Queue canary whose handler has an acknowledge-only path. It
+   does not query a household, read a document, run a source scan, or mutate
+   accepted records.
+7. Compare the API and web runtime SHA/version metadata with Wrangler's
+   deployment output, then retain a non-sensitive release-evidence artifact for
+   90 days.
+
+The job is fail-closed: no migration occurs unless the encrypted backup uploads
+successfully, the web Worker cannot deploy until the API deploy succeeds, and a
+smoke or exact-version mismatch fails the deployment. Cloudflare D1 also keeps
+Time Travel history and captures a backup when migrations apply; the encrypted
+export is the separate release artifact.
+
+Configure the GitHub environment and Access service policy as documented in
+[the workflow README](../../.github/workflows/README.md). Cloudflare account,
+database, Worker, R2, Queue, Access, and token values remain outside Git.
+
 ## Production configuration
 
 Configure these bindings outside Git:
@@ -45,7 +84,7 @@ through the public web Worker to the API Worker with a service binding so the
 Access assertion is preserved without creating a second public origin. Attach a
 custom domain only after Access protects the route.
 
-## Migration and release sequence
+## Manually approved production sequence
 
 1. Complete [the deployment checklist](checklist.md).
 2. Export and verify the current D1 database.
@@ -68,8 +107,9 @@ pnpm --filter @keel/web build
 pnpm --filter @keel/web exec wrangler deploy
 ```
 
-Run them only after replacing private deployment configuration and obtaining
-explicit deployment approval.
+Run production commands only after replacing private deployment configuration
+and obtaining explicit deployment approval. Do not reuse the automatic preview
+job or its credentials for production.
 
 The web Worker must keep `workers_dev` and preview URLs disabled in private
 deployment configuration. Its only public route is the Access-protected custom
