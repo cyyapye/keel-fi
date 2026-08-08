@@ -11,6 +11,7 @@ const migrationFiles = [
   "packages/database/migrations/0005_portfolio_watch_sources.sql",
   "packages/database/migrations/0006_evidence_claim_integrity.sql",
   "packages/database/migrations/0007_holding_imports.sql",
+  "packages/database/migrations/0008_signal_update_proposals.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -162,6 +163,99 @@ describe("Evidence claim review integrity migration", () => {
           );
         `),
       ).toThrow("evidence claims are immutable after review");
+    } finally {
+      database.close();
+    }
+  });
+});
+
+describe("Signal update proposal migration integrity", () => {
+  const reviewedEvidenceSql = `
+    UPDATE evidence_events
+    SET status = 'scenario_only'
+    WHERE id = 'evt_northstar_round';
+    INSERT INTO review_decisions (
+      id, household_id, evidence_event_id, reviewer_user_id, decision,
+      rationale, prior_value_json, replacement_value_json, decided_at
+    ) VALUES (
+      'decision_northstar_proposal', 'hh_demo', 'evt_northstar_round',
+      'usr_demo', 'scenario_only', 'Synthetic proposal review.', '{}', '{}',
+      '2026-08-08T00:00:00Z'
+    );
+  `;
+
+  const proposalSql = (id: string) => `
+    INSERT INTO signal_update_proposals (
+      id, household_id, company_id, reconciliation_group_id,
+      reconciliation_revision, scenario_id, base_forecast_snapshot_id,
+      base_forecast_snapshot_version, proposed_company_valuation_json,
+      rationale, created_at, created_by_user_id, immutable
+    ) VALUES (
+      '${id}', 'hh_demo', 'co_northstar', 'co_northstar:series-c',
+      'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      'scn_sandbox', 'snap_sandbox_v1', 1,
+      '{"amountMinor":31000000000,"currency":"USD","qualifier":"exact","basis":"post_money","evidenceText":"Synthetic reviewed valuation."}',
+      'Synthetic version-safe proposal.', '2026-08-08T00:00:00Z',
+      'usr_demo', 1
+    );
+  `;
+
+  it("locks proposals and their reviewed evidence links", () => {
+    const database = createMigratedDatabase();
+    try {
+      database.exec(reviewedEvidenceSql);
+      database.exec(proposalSql("proposal_integrity"));
+      database.exec(`
+        INSERT INTO signal_update_proposal_evidence (
+          proposal_id, household_id, evidence_event_id, created_at
+        ) VALUES (
+          'proposal_integrity', 'hh_demo', 'evt_northstar_round',
+          '2026-08-08T00:00:00Z'
+        );
+      `);
+
+      expect(() =>
+        database.exec(`
+          UPDATE signal_update_proposals
+          SET rationale = 'Changed'
+          WHERE id = 'proposal_integrity';
+        `),
+      ).toThrow("signal update proposals are immutable");
+      expect(() =>
+        database.exec(`
+          DELETE FROM signal_update_proposal_evidence
+          WHERE proposal_id = 'proposal_integrity';
+        `),
+      ).toThrow("signal update proposal evidence is immutable");
+      expect(() =>
+        database.exec(`
+          DELETE FROM signal_update_proposals
+          WHERE id = 'proposal_integrity';
+        `),
+      ).toThrow("signal update proposals are immutable");
+    } finally {
+      database.close();
+    }
+  });
+
+  it("rejects a proposal after the scenario baseline advances", () => {
+    const database = createMigratedDatabase();
+    try {
+      database.exec(reviewedEvidenceSql);
+      database.exec(`
+        INSERT INTO forecast_snapshots (
+          id, household_id, scenario_id, version, input_hash, created_at,
+          created_by, trigger, attributed_change, immutable
+        ) VALUES (
+          'snap_sandbox_v2_integrity', 'hh_demo', 'scn_sandbox', 2,
+          'synthetic-sandbox-v2-integrity-hash', '2026-08-08T00:01:00Z',
+          'Demo Operator', 'Integrity test', 'Synthetic version advance', 1
+        );
+      `);
+
+      expect(() => database.exec(proposalSql("proposal_stale"))).toThrow(
+        "signal update proposal version mismatch",
+      );
     } finally {
       database.close();
     }

@@ -49,6 +49,27 @@ review decision also locks every claim on that event against later insertion,
 editing, or deletion. Semantic changes to reported terms receive a new
 append-only fingerprint and Review item; identical terms deduplicate.
 
+## Signal reconciliation and proposed updates
+
+Keel derives reconciliation groups from immutable financing observations. The
+group key is the company plus a normalized round label. Within a group, an older
+observation from the same canonical URL is superseded, compatible current terms
+corroborate one another, and differing explicit amounts, currencies,
+instruments, round types, or valuation bases conflict. Input order does not
+affect the result. The recommended queue puts unresolved conflicts first, then
+corroborated reports, then unconfirmed reports; groups with no pending review
+follow groups that still need a decision.
+
+A proposed update is available only after every current, non-rejected report is
+reviewed, the current reports have no blocking ambiguity or conflict, and they
+support one explicit company valuation. The proposal stores the exact
+reconciliation SHA-256, its reviewed evidence events, and the exact latest
+scenario snapshot and version. It is append-only and separate from accepted
+marks and forecast snapshots. A later observation or scenario snapshot makes the
+earlier proposal out of date; it is never silently rebased or applied. Reported
+company valuation remains context only until a later review has the ownership,
+security, and dilution terms needed to calculate a holding or scenario value.
+
 ## Acceptance with real public sources
 
 Deterministic unit and security tests use fabricated content. The opt-in smoke

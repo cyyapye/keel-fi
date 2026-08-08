@@ -801,6 +801,89 @@ export const forecastSnapshots = sqliteTable(
   ],
 );
 
+export const signalUpdateProposals = sqliteTable(
+  "signal_update_proposals",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "restrict" }),
+    reconciliationGroupId: text("reconciliation_group_id").notNull(),
+    reconciliationRevision: text("reconciliation_revision").notNull(),
+    scenarioId: text("scenario_id")
+      .notNull()
+      .references(() => scenarios.id, { onDelete: "restrict" }),
+    baseForecastSnapshotId: text("base_forecast_snapshot_id")
+      .notNull()
+      .references(() => forecastSnapshots.id, { onDelete: "restrict" }),
+    baseForecastSnapshotVersion: integer(
+      "base_forecast_snapshot_version",
+    ).notNull(),
+    proposedCompanyValuationJson: text(
+      "proposed_company_valuation_json",
+    ).notNull(),
+    rationale: text("rationale").notNull(),
+    createdAt: timestamp("created_at"),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("signal_update_proposals_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    index("signal_update_proposals_group_idx").on(
+      table.householdId,
+      table.reconciliationGroupId,
+    ),
+    uniqueIndex("signal_update_proposals_version_unique").on(
+      table.householdId,
+      table.reconciliationGroupId,
+      table.reconciliationRevision,
+      table.scenarioId,
+      table.baseForecastSnapshotId,
+    ),
+    check(
+      "signal_update_proposals_revision_check",
+      sql`length(${table.reconciliationRevision}) = 64`,
+    ),
+    check(
+      "signal_update_proposals_snapshot_version_check",
+      sql`${table.baseForecastSnapshotVersion} > 0`,
+    ),
+    check(
+      "signal_update_proposals_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const signalUpdateProposalEvidence = sqliteTable(
+  "signal_update_proposal_evidence",
+  {
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => signalUpdateProposals.id, { onDelete: "restrict" }),
+    householdId: householdReference(),
+    evidenceEventId: text("evidence_event_id")
+      .notNull()
+      .references(() => evidenceEvents.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("signal_update_proposal_evidence_unique").on(
+      table.proposalId,
+      table.evidenceEventId,
+    ),
+    index("signal_update_proposal_evidence_event_idx").on(
+      table.evidenceEventId,
+    ),
+  ],
+);
+
 export const companyForecasts = sqliteTable(
   "company_forecasts",
   {

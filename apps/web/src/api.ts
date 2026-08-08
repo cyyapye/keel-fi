@@ -1,5 +1,6 @@
 import {
   AlphaDataSchema,
+  CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
   HoldingImportApplyResultSchema,
@@ -7,12 +8,15 @@ import {
   PortfolioWatchScanResultSchema,
   ScenarioDraftInputSchema,
   type AlphaData,
+  type CreateSignalUpdateProposalInput,
   type GoalDraftInput,
   type HoldingImportApplyInput,
   type HoldingImportApplyResult,
   type HoldingImportPreview,
   type PortfolioWatchScanResult,
   type ScenarioDraftInput,
+  SignalUpdateProposalSchema,
+  type SignalUpdateProposal,
 } from "@keel/domain";
 
 async function responseError(
@@ -154,6 +158,32 @@ export async function applyAcceptedEvidence(eventId: string): Promise<void> {
       result?.error ?? `Evidence application returned ${response.status}.`,
     );
   }
+}
+
+export async function createSignalUpdateProposal(
+  input: CreateSignalUpdateProposalInput,
+): Promise<SignalUpdateProposal> {
+  const body = CreateSignalUpdateProposalInputSchema.parse(input);
+  const response = await fetch("/api/signal-update-proposals", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      result?.error ?? `Signal update proposal returned ${response.status}.`,
+    );
+  }
+
+  return SignalUpdateProposalSchema.parse(await response.json());
 }
 
 export async function saveGoalVersion(input: GoalDraftInput): Promise<void> {

@@ -13,6 +13,8 @@ import {
   type PublicSourceObservation,
   type Scenario,
   type ScenarioDraftInput,
+  type SignalReconciliationGroup,
+  type SignalUpdateProposal,
 } from "@keel/domain";
 import { Badge, Button, MetricCard, Panel } from "@keel/ui";
 import {
@@ -28,6 +30,7 @@ import {
 import {
   applyAcceptedEvidence,
   applyHoldingImport,
+  createSignalUpdateProposal as submitSignalUpdateProposal,
   loadAlphaData,
   previewAngelListHoldingImport,
   saveGoalVersion,
@@ -2522,6 +2525,7 @@ function EvidenceCard({
   item,
   onApply,
   onReview,
+  reconciliation,
 }: {
   busy: boolean;
   item: EvidenceInboxItem;
@@ -2530,8 +2534,13 @@ function EvidenceCard({
     eventId: string,
     decision: "accepted" | "rejected" | "scenario_only",
   ) => void;
+  reconciliation?: {
+    relationship: SignalReconciliationGroup["reports"][number]["relationship"];
+    reviewOrder: number;
+  };
 }) {
   const pending = item.status === "pending_review";
+  const reviewable = pending && reconciliation?.relationship !== "superseded";
   const application = item.financingFacts === null ? item.application : null;
   const canApply =
     item.financingFacts === null &&
@@ -2547,6 +2556,19 @@ function EvidenceCard({
       <header>
         <div className="evidence-icon">E</div>
         <div>
+          {reconciliation !== undefined && (
+            <p className="evidence-reconciliation-order">
+              Report {reconciliation.reviewOrder} ·{" "}
+              {
+                {
+                  corroborating: "Corroborates",
+                  conflicting: "Conflicts",
+                  superseded: "Superseded",
+                  unconfirmed: "Unconfirmed",
+                }[reconciliation.relationship]
+              }
+            </p>
+          )}
           <p className="eyebrow">
             {item.companyName} · {item.eventType.replaceAll("_", " ")}
           </p>
@@ -2623,115 +2645,371 @@ function EvidenceCard({
           </>
         )}
       </div>
-      <footer
-        className={
-          item.financingFacts === null ? undefined : "financing-review-footer"
-        }
-      >
-        {item.financingFacts === null && (
-          <p>
-            {application?.applied
-              ? `Accepted and applied to ${application.label}.`
-              : "A review preserves both values. Applying updates only the mapped accepted record; scenario-only keeps the proposal out of it."}
-          </p>
-        )}
-        {showAcceptPreview && (pending || canApply) ? (
-          <div className="evidence-apply-preview">
-            <div>
-              <span>
-                {application === null
-                  ? "Accept as reviewed evidence"
-                  : "Apply to accepted record"}
-              </span>
-              {application === null ? (
-                <p>
-                  {item.financingFacts === null
-                    ? "This proposal has no financial record target yet. Accepting records the evidence without applying a value."
-                    : `Record ${financingRoundLabel(item.financingFacts)} as reviewed company evidence.`}
-                </p>
-              ) : (
-                <p>
-                  Update {application.label}: {item.priorValue} →{" "}
-                  {item.replacementValue}
-                </p>
-              )}
-              <small>
-                {item.financingFacts !== null
-                  ? "No holding mark or forecast changes."
-                  : item.application === null
-                    ? "Use Scenario only to model its impact."
-                    : "Creates an accepted mark on the effective date; forecast impact still requires a new snapshot."}
-              </small>
-            </div>
-            <div>
-              {application !== null && (
-                <Button
-                  disabled={busy}
-                  onClick={() => onApply(item.id)}
-                  tone="primary"
-                >
-                  Confirm & apply
-                </Button>
-              )}
-              {pending && (
-                <Button
-                  disabled={busy}
-                  onClick={() => {
-                    setShowAcceptPreview(false);
-                    onReview(item.id, "accepted");
-                  }}
-                  tone={application === null ? "primary" : "quiet"}
-                >
+      {(item.financingFacts === null || reviewable) && (
+        <footer
+          className={
+            item.financingFacts === null ? undefined : "financing-review-footer"
+          }
+        >
+          {item.financingFacts === null && (
+            <p>
+              {application?.applied
+                ? `Accepted and applied to ${application.label}.`
+                : "A review preserves both values. Applying updates only the mapped accepted record; scenario-only keeps the proposal out of it."}
+            </p>
+          )}
+          {showAcceptPreview && (reviewable || canApply) ? (
+            <div className="evidence-apply-preview">
+              <div>
+                <span>
                   {application === null
-                    ? "Accept evidence"
-                    : "Accept without applying"}
+                    ? "Accept as reviewed evidence"
+                    : "Apply to accepted record"}
+                </span>
+                {application === null ? (
+                  <p>
+                    {item.financingFacts === null
+                      ? "This proposal has no financial record target yet. Accepting records the evidence without applying a value."
+                      : `Record ${financingRoundLabel(item.financingFacts)} as reviewed company evidence.`}
+                  </p>
+                ) : (
+                  <p>
+                    Update {application.label}: {item.priorValue} →{" "}
+                    {item.replacementValue}
+                  </p>
+                )}
+                <small>
+                  {item.financingFacts !== null
+                    ? "No holding mark or forecast changes."
+                    : item.application === null
+                      ? "Use Scenario only to model its impact."
+                      : "Creates an accepted mark on the effective date; forecast impact still requires a new snapshot."}
+                </small>
+              </div>
+              <div>
+                {application !== null && (
+                  <Button
+                    disabled={busy}
+                    onClick={() => onApply(item.id)}
+                    tone="primary"
+                  >
+                    Confirm & apply
+                  </Button>
+                )}
+                {reviewable && (
+                  <Button
+                    disabled={busy}
+                    onClick={() => {
+                      setShowAcceptPreview(false);
+                      onReview(item.id, "accepted");
+                    }}
+                    tone={application === null ? "primary" : "quiet"}
+                  >
+                    {application === null
+                      ? "Accept evidence"
+                      : "Accept without applying"}
+                  </Button>
+                )}
+                <Button
+                  disabled={busy}
+                  onClick={() => setShowAcceptPreview(false)}
+                  tone="quiet"
+                >
+                  Cancel
                 </Button>
-              )}
+              </div>
+            </div>
+          ) : canApply ? (
+            <div>
               <Button
                 disabled={busy}
-                onClick={() => setShowAcceptPreview(false)}
-                tone="quiet"
+                onClick={() => setShowAcceptPreview(true)}
+                tone="primary"
               >
-                Cancel
+                Apply accepted evidence
               </Button>
             </div>
-          </div>
-        ) : canApply ? (
-          <div>
-            <Button
-              disabled={busy}
-              onClick={() => setShowAcceptPreview(true)}
-              tone="primary"
-            >
-              Apply accepted evidence
-            </Button>
-          </div>
-        ) : (
-          <div>
-            <Button
-              disabled={!pending || busy}
-              onClick={() => onReview(item.id, "rejected")}
-              tone="quiet"
-            >
-              Reject
-            </Button>
-            <Button
-              disabled={!pending || busy}
-              onClick={() => onReview(item.id, "scenario_only")}
-            >
-              Scenario only
-            </Button>
-            <Button
-              disabled={!pending || busy}
-              onClick={() => setShowAcceptPreview(true)}
-              tone="primary"
-            >
-              Accept evidence
-            </Button>
-          </div>
-        )}
-      </footer>
+          ) : (
+            <div>
+              <Button
+                disabled={!reviewable || busy}
+                onClick={() => onReview(item.id, "rejected")}
+                tone="quiet"
+              >
+                Reject
+              </Button>
+              <Button
+                disabled={!reviewable || busy}
+                onClick={() => onReview(item.id, "scenario_only")}
+              >
+                Scenario only
+              </Button>
+              <Button
+                disabled={!reviewable || busy}
+                onClick={() => setShowAcceptPreview(true)}
+                tone="primary"
+              >
+                Accept evidence
+              </Button>
+            </div>
+          )}
+        </footer>
+      )}
     </article>
+  );
+}
+
+function SignalProposalComposer({
+  group,
+  onCreate,
+  proposals,
+  scenarios,
+}: {
+  group: SignalReconciliationGroup;
+  onCreate: (
+    group: SignalReconciliationGroup,
+    scenario: Scenario,
+  ) => Promise<void>;
+  proposals: SignalUpdateProposal[];
+  scenarios: Scenario[];
+}) {
+  const availableScenarios = useMemo(
+    () =>
+      scenarios.filter(
+        (scenario) =>
+          scenario.latestSnapshotId !== null &&
+          scenario.latestSnapshotVersion !== null,
+      ),
+    [scenarios],
+  );
+  const preferredScenario = useMemo(
+    () =>
+      availableScenarios.find((scenario) => scenario.isSandbox) ??
+      availableScenarios[0] ??
+      null,
+    [availableScenarios],
+  );
+  const [selectedScenarioId, setSelectedScenarioId] = useState(
+    preferredScenario?.id ?? "",
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const currentProposal = proposals.find((proposal) => proposal.isCurrent);
+  const previousProposal = proposals.find((proposal) => !proposal.isCurrent);
+  const selectedScenario =
+    availableScenarios.find((scenario) => scenario.id === selectedScenarioId) ??
+    preferredScenario;
+
+  if (currentProposal !== undefined) {
+    return (
+      <div className="signal-proposal signal-proposal--saved">
+        <div>
+          <span>Proposed update</span>
+          <strong>
+            {financingAmountLabel(currentProposal.proposedCompanyValuation)}{" "}
+            {financingValuationBasisLabel(
+              currentProposal.proposedCompanyValuation,
+            )}
+          </strong>
+          <small>
+            {currentProposal.scenarioName} v
+            {currentProposal.baseForecastSnapshotVersion} · Nothing has changed
+            in holdings or the scenario.
+          </small>
+        </div>
+      </div>
+    );
+  }
+
+  if (!group.canCreateProposal || group.proposedCompanyValuation === null) {
+    return (
+      <div className="signal-proposal signal-proposal--waiting">
+        <span>Next step</span>
+        <p>
+          {group.pendingReviewCount > 0
+            ? "Review " +
+              group.pendingReviewCount +
+              " current " +
+              (group.pendingReviewCount === 1 ? "report" : "reports") +
+              " before drafting an update."
+            : group.status === "conflicting"
+              ? "Resolve the differing terms before drafting an update."
+              : "No single reported company valuation is ready to propose."}
+        </p>
+        {previousProposal !== undefined && (
+          <small>
+            The earlier {previousProposal.scenarioName} proposal is out of date.
+          </small>
+        )}
+      </div>
+    );
+  }
+
+  if (selectedScenario === null) {
+    return null;
+  }
+
+  return (
+    <div className="signal-proposal signal-proposal--ready">
+      <div>
+        <span>Draft a separate scenario update</span>
+        <strong>
+          {financingAmountLabel(group.proposedCompanyValuation)} ·{" "}
+          {financingValuationBasisLabel(group.proposedCompanyValuation)}
+        </strong>
+        <small>
+          Company valuation only. Holding value still needs ownership and
+          security terms.
+        </small>
+      </div>
+      <label>
+        Start from
+        <select
+          aria-label={
+            "Scenario baseline for " +
+            group.companyName +
+            " " +
+            group.roundLabel
+          }
+          disabled={busy}
+          onChange={(event) => setSelectedScenarioId(event.target.value)}
+          value={selectedScenario.id}
+        >
+          {availableScenarios.map((scenario) => (
+            <option key={scenario.id} value={scenario.id}>
+              {scenario.name} v{scenario.latestSnapshotVersion}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          setError(null);
+          void onCreate(group, selectedScenario)
+            .catch((caught: unknown) =>
+              setError(
+                caught instanceof Error
+                  ? caught.message
+                  : "The proposed update could not be created.",
+              ),
+            )
+            .finally(() => setBusy(false));
+        }}
+        tone="primary"
+      >
+        {busy ? "Creating…" : "Create proposed update"}
+      </Button>
+      <small>
+        Keel checks the exact reports and scenario version again before saving.
+      </small>
+      {error !== null && <div className="inline-error">{error}</div>}
+    </div>
+  );
+}
+
+function SignalReconciliationList({
+  busyEvent,
+  data,
+  onApply,
+  onCreateProposal,
+  onReview,
+}: {
+  busyEvent: string | null;
+  data: AlphaData;
+  onApply: (eventId: string) => void;
+  onCreateProposal: (
+    group: SignalReconciliationGroup,
+    scenario: Scenario,
+  ) => Promise<void>;
+  onReview: (
+    eventId: string,
+    decision: "accepted" | "rejected" | "scenario_only",
+  ) => void;
+}) {
+  if (data.signalReconciliations.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="signal-reconciliation-list">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Recommended review order</p>
+          <h2>Reconcile related reports</h2>
+        </div>
+        <p>
+          Compare current reports together. Superseded reports stay visible but
+          do not drive a proposed update.
+        </p>
+      </div>
+      {data.signalReconciliations.map((group) => {
+        const proposalRows = data.signalUpdateProposals.filter(
+          (proposal) => proposal.groupId === group.id,
+        );
+        return (
+          <section
+            className="signal-reconciliation-group"
+            data-testid={"signal-group-" + group.id}
+            key={group.id}
+          >
+            <header>
+              <div>
+                <p className="eyebrow">
+                  Review {group.reviewRank} · {group.companyName}
+                </p>
+                <h2>{group.roundLabel}</h2>
+                <p>{group.reviewReason}</p>
+              </div>
+              <Badge
+                tone={
+                  group.status === "conflicting"
+                    ? "warning"
+                    : group.status === "corroborated"
+                      ? "positive"
+                      : "neutral"
+                }
+              >
+                {
+                  {
+                    corroborated: "Corroborated",
+                    conflicting: "Terms conflict",
+                    unconfirmed: "Unconfirmed",
+                  }[group.status]
+                }
+              </Badge>
+            </header>
+            <div className="signal-reconciliation-reports">
+              {group.reports.map((report) => {
+                const item = data.evidenceInbox.find(
+                  (candidate) => candidate.id === report.evidenceEventId,
+                );
+                return item === undefined ? null : (
+                  <EvidenceCard
+                    busy={busyEvent === item.id}
+                    item={item}
+                    key={item.id}
+                    onApply={onApply}
+                    onReview={onReview}
+                    reconciliation={{
+                      relationship: report.relationship,
+                      reviewOrder: report.reviewOrder,
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <SignalProposalComposer
+              group={group}
+              onCreate={onCreateProposal}
+              proposals={proposalRows}
+              scenarios={data.scenarios}
+            />
+          </section>
+        );
+      })}
+    </section>
   );
 }
 
@@ -2740,12 +3018,17 @@ function EvidenceInbox({
   data,
   error,
   onApply,
+  onCreateProposal,
   onReview,
 }: {
   busyEvent: string | null;
   data: AlphaData;
   error: string | null;
   onApply: (eventId: string) => void;
+  onCreateProposal: (
+    group: SignalReconciliationGroup,
+    scenario: Scenario,
+  ) => Promise<void>;
   onReview: (
     eventId: string,
     decision: "accepted" | "rejected" | "scenario_only",
@@ -2772,16 +3055,32 @@ function EvidenceInbox({
         </Badge>
       </div>
       {error !== null && <div className="inline-error">{error}</div>}
+      <SignalReconciliationList
+        busyEvent={busyEvent}
+        data={data}
+        onApply={onApply}
+        onCreateProposal={onCreateProposal}
+        onReview={onReview}
+      />
       <div className="evidence-list">
-        {data.evidenceInbox.map((item) => (
-          <EvidenceCard
-            busy={busyEvent === item.id}
-            item={item}
-            key={item.id}
-            onApply={onApply}
-            onReview={onReview}
-          />
-        ))}
+        {data.evidenceInbox
+          .filter(
+            (item) =>
+              !data.signalReconciliations.some((group) =>
+                group.reports.some(
+                  (report) => report.evidenceEventId === item.id,
+                ),
+              ),
+          )
+          .map((item) => (
+            <EvidenceCard
+              busy={busyEvent === item.id}
+              item={item}
+              key={item.id}
+              onApply={onApply}
+              onReview={onReview}
+            />
+          ))}
       </div>
     </div>
   );
@@ -3440,6 +3739,24 @@ export function App() {
                 )
                 .finally(() => setBusyEvent(null));
             }}
+            onCreateProposal={async (group, scenario) => {
+              if (scenario.latestSnapshotId === null) {
+                throw new Error("The selected scenario has no saved version.");
+              }
+              await submitSignalUpdateProposal({
+                groupId: group.id,
+                reconciliationRevision: group.revision,
+                scenarioId: scenario.id,
+                baseForecastSnapshotId: scenario.latestSnapshotId,
+                rationale:
+                  "Reviewed " +
+                  group.companyName +
+                  " " +
+                  group.roundLabel +
+                  " reports; model the company valuation separately.",
+              });
+              setData(await loadAlphaData());
+            }}
             onReview={(eventId, decision) => {
               const reviewedItem = data.evidenceInbox.find(
                 (item) => item.id === eventId,
@@ -3447,19 +3764,8 @@ export function App() {
               setBusyEvent(eventId);
               setReviewError(null);
               void submitEvidenceReview(eventId, decision)
-                .then(() => {
-                  setData((current) =>
-                    current === null
-                      ? current
-                      : {
-                          ...current,
-                          evidenceInbox: current.evidenceInbox.map((item) =>
-                            item.id === eventId
-                              ? { ...item, status: decision }
-                              : item,
-                          ),
-                        },
-                  );
+                .then(async () => {
+                  setData(await loadAlphaData());
                   if (
                     decision === "scenario_only" &&
                     reviewedItem !== undefined

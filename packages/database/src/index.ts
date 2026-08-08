@@ -1,24 +1,34 @@
 import {
   AlphaDataSchema,
+  CreateSignalUpdateProposalInputSchema,
   createGoalPreview,
   FinancingAnnouncementFactsSchema,
+  FinancingValuationFactSchema,
   GoalDraftInputSchema,
   multiplyMinorByScalePpm,
   projectScenario,
   projectScenarioProbabilityPpm,
   projectScenarioValue,
   projectScenarioZeroProbabilityPpm,
+  reconcileFinancingSignals,
   scenarioLiquidityFactorPpm,
   ScenarioDraftInputSchema,
+  signalReconciliationRevisionMaterial,
+  SignalReconciliationGroupSchema,
+  SignalUpdateProposalSchema,
   type AlphaData,
+  type CreateSignalUpdateProposalInput,
   type FinancingAnnouncementFacts,
   type ForecastHistoryItemSchema,
   type GoalDraftInput,
   type HoldingImportApplyInput,
   type HoldingImportApplyResult,
   type HoldingImportPreview,
+  type PublicSourceObservation,
   type Scenario,
   type ScenarioDraftInput,
+  type SignalReconciliationGroup,
+  type SignalUpdateProposal,
 } from "@keel/domain";
 import {
   assertReviewTransition,
@@ -205,8 +215,40 @@ type ScenarioRow = {
   name: string;
   description: string;
   is_sandbox: number;
+  latest_snapshot_id: string | null;
+  latest_snapshot_version: number | null;
   conditional_value_minor: number;
   timing_adjusted_liquidity_minor: number;
+};
+
+type SignalUpdateProposalRow = {
+  id: string;
+  household_id: string;
+  company_id: string;
+  company_name: string;
+  reconciliation_group_id: string;
+  reconciliation_revision: string;
+  scenario_id: string;
+  scenario_name: string;
+  base_forecast_snapshot_id: string;
+  base_forecast_snapshot_version: number;
+  proposed_company_valuation_json: string;
+  rationale: string;
+  created_at: string;
+  created_by: string;
+  current_snapshot_id: string | null;
+};
+
+type SignalUpdateProposalEvidenceRow = {
+  proposal_id: string;
+  evidence_event_id: string;
+};
+
+type SignalUpdateProposalScenarioRow = {
+  id: string;
+  name: string;
+  latest_snapshot_id: string | null;
+  latest_snapshot_version: number | null;
 };
 
 type AssumptionRow = {
@@ -299,6 +341,10 @@ export interface AlphaRepository {
   ): Promise<HoldingImportApplyResult>;
   saveGoal(accessSubject: string, input: GoalDraftInput): Promise<void>;
   saveScenario(accessSubject: string, input: ScenarioDraftInput): Promise<void>;
+  createSignalUpdateProposal(
+    accessSubject: string,
+    input: CreateSignalUpdateProposalInput,
+  ): Promise<SignalUpdateProposal>;
   reviewEvidence(
     accessSubject: string,
     eventId: string,
@@ -387,6 +433,55 @@ function boundedSourceExcerpt(value: string): string | null {
   return excerpt || null;
 }
 
+function publicSourceObservationFromRow(
+  row: PublicSourceObservationRow,
+): PublicSourceObservation {
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    companyName: row.company_name,
+    evidenceEventId: row.evidence_event_id,
+    evidenceStatus: row.evidence_status,
+    sourceClass: row.source_class,
+    sourceUrl: row.source_url,
+    sourceTitle: row.source_title,
+    publishedAt: row.published_at,
+    retrievedAt: row.retrieved_at,
+    observedFact: row.observed_fact,
+    inference: row.inference,
+    sourceReliabilityPpm: row.source_reliability_ppm,
+    modelConfidencePpm: row.model_confidence_ppm,
+    valuationLowMinor: row.valuation_low_minor,
+    valuationMiddleMinor: row.valuation_middle_minor,
+    valuationHighMinor: row.valuation_high_minor,
+    financingFacts: financingFactsFromClaim(row.claim_value_json),
+    limitations: row.limitations,
+  };
+}
+
+async function createSignalReconciliationGroups(
+  observations: readonly PublicSourceObservation[],
+): Promise<SignalReconciliationGroup[]> {
+  return Promise.all(
+    reconcileFinancingSignals(observations).map(async (group) =>
+      SignalReconciliationGroupSchema.parse({
+        ...group,
+        revision: await hashInput(signalReconciliationRevisionMaterial(group)),
+      }),
+    ),
+  );
+}
+
+function parseProposedCompanyValuation(serialized: string) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new Error("Signal update proposal has invalid valuation context.");
+  }
+  return FinancingValuationFactSchema.parse(parsed);
+}
+
 function parseMinorValue(serialized: string, key: string): number {
   let parsed: unknown;
   try {
@@ -434,6 +529,8 @@ export class D1AlphaRepository implements AlphaRepository {
       scenarioRows,
       assumptions,
       curves,
+      signalUpdateProposalRows,
+      signalUpdateProposalEvidenceRows,
     ] = await Promise.all([
       this.getDashboard(householdId),
       this.getGoals(householdId),
@@ -681,45 +778,7 @@ export class D1AlphaRepository implements AlphaRepository {
           )
           .bind(householdId),
       ),
-      all<PublicSourceObservationRow>(
-        this.db
-          .prepare(
-            `SELECT
-                observation.id,
-                company.id AS company_id,
-                company.legal_name AS company_name,
-                observation.evidence_event_id,
-                event.status AS evidence_status,
-                observation.source_class,
-                observation.source_url,
-                observation.source_title,
-                observation.published_at,
-                observation.retrieved_at,
-                observation.observed_fact,
-                observation.inference,
-                observation.source_reliability_ppm,
-                observation.model_confidence_ppm,
-                observation.valuation_low_minor,
-                observation.valuation_middle_minor,
-                observation.valuation_high_minor,
-                (
-                  SELECT claim.claim_value_json
-                  FROM evidence_claims claim
-                  WHERE claim.evidence_event_id = observation.evidence_event_id
-                    AND claim.household_id = observation.household_id
-                    AND claim.field_path = 'company_event.financing_terms'
-                  ORDER BY claim.created_at
-                  LIMIT 1
-                ) AS claim_value_json,
-                observation.limitations
-              FROM public_source_observations observation
-              JOIN companies company ON company.id = observation.company_id
-              JOIN evidence_events event ON event.id = observation.evidence_event_id
-              WHERE observation.household_id = ?
-              ORDER BY observation.retrieved_at DESC`,
-          )
-          .bind(householdId),
-      ),
+      this.getPublicSourceObservationRows(householdId),
       all<ScenarioRow>(
         this.db
           .prepare(
@@ -728,6 +787,8 @@ export class D1AlphaRepository implements AlphaRepository {
                 scenario.name,
                 scenario.description,
                 scenario.is_sandbox,
+                snapshot.id AS latest_snapshot_id,
+                snapshot.version AS latest_snapshot_version,
                 COALESCE(SUM(forecast.conditional_value_minor), 0) AS conditional_value_minor,
                 COALESCE(SUM(forecast.timing_adjusted_liquidity_minor), 0) AS timing_adjusted_liquidity_minor
               FROM scenarios scenario
@@ -800,8 +861,47 @@ export class D1AlphaRepository implements AlphaRepository {
           )
           .bind(householdId),
       ),
+      this.getSignalUpdateProposalRows(householdId),
+      this.getSignalUpdateProposalEvidenceRows(householdId),
     ]);
 
+    const observations = publicObservations.map(publicSourceObservationFromRow);
+    const signalReconciliations =
+      await createSignalReconciliationGroups(observations);
+    const reconciliationById = new Map(
+      signalReconciliations.map((group) => [group.id, group]),
+    );
+    const evidenceIdsByProposal = new Map<string, string[]>();
+    signalUpdateProposalEvidenceRows.forEach((row) => {
+      evidenceIdsByProposal.set(row.proposal_id, [
+        ...(evidenceIdsByProposal.get(row.proposal_id) ?? []),
+        row.evidence_event_id,
+      ]);
+    });
+    const signalUpdateProposals = signalUpdateProposalRows.map((row) =>
+      SignalUpdateProposalSchema.parse({
+        id: row.id,
+        groupId: row.reconciliation_group_id,
+        reconciliationRevision: row.reconciliation_revision,
+        companyId: row.company_id,
+        companyName: row.company_name,
+        scenarioId: row.scenario_id,
+        scenarioName: row.scenario_name,
+        baseForecastSnapshotId: row.base_forecast_snapshot_id,
+        baseForecastSnapshotVersion: row.base_forecast_snapshot_version,
+        evidenceEventIds: (evidenceIdsByProposal.get(row.id) ?? []).sort(),
+        proposedCompanyValuation: parseProposedCompanyValuation(
+          row.proposed_company_valuation_json,
+        ),
+        rationale: row.rationale,
+        createdAt: row.created_at,
+        createdBy: row.created_by,
+        isCurrent:
+          reconciliationById.get(row.reconciliation_group_id)?.revision ===
+            row.reconciliation_revision &&
+          row.current_snapshot_id === row.base_forecast_snapshot_id,
+      }),
+    );
     const history = await this.getHistory(householdId);
 
     return AlphaDataSchema.parse({
@@ -879,33 +979,17 @@ export class D1AlphaRepository implements AlphaRepository {
           lastCheckedAt: row.last_checked_at,
           latestObservationAt: row.latest_observation_at,
         })),
-        observations: publicObservations.map((row) => ({
-          id: row.id,
-          companyId: row.company_id,
-          companyName: row.company_name,
-          evidenceEventId: row.evidence_event_id,
-          evidenceStatus: row.evidence_status,
-          sourceClass: row.source_class,
-          sourceUrl: row.source_url,
-          sourceTitle: row.source_title,
-          publishedAt: row.published_at,
-          retrievedAt: row.retrieved_at,
-          observedFact: row.observed_fact,
-          inference: row.inference,
-          sourceReliabilityPpm: row.source_reliability_ppm,
-          modelConfidencePpm: row.model_confidence_ppm,
-          valuationLowMinor: row.valuation_low_minor,
-          valuationMiddleMinor: row.valuation_middle_minor,
-          valuationHighMinor: row.valuation_high_minor,
-          financingFacts: financingFactsFromClaim(row.claim_value_json),
-          limitations: row.limitations,
-        })),
+        observations,
       },
+      signalReconciliations,
+      signalUpdateProposals,
       scenarios: scenarioRows.map((row) => ({
         id: row.id,
         name: row.name,
         description: row.description,
         isSandbox: Boolean(row.is_sandbox),
+        latestSnapshotId: row.latest_snapshot_id,
+        latestSnapshotVersion: row.latest_snapshot_version,
         conditionalValueMinor: row.conditional_value_minor,
         timingAdjustedLiquidityMinor: row.timing_adjusted_liquidity_minor,
         assumptions: assumptions
@@ -1306,6 +1390,8 @@ export class D1AlphaRepository implements AlphaRepository {
       name: scenario.name,
       description: scenario.description,
       isSandbox: Boolean(scenario.is_sandbox),
+      latestSnapshotId: scenario.latest_snapshot_id,
+      latestSnapshotVersion: scenario.latest_version,
       conditionalValueMinor: companyForecasts.reduce(
         (total, row) => total + row.conditional_value_minor,
         0,
@@ -1559,6 +1645,142 @@ export class D1AlphaRepository implements AlphaRepository {
     });
 
     await this.db.batch(statements);
+  }
+
+  public async createSignalUpdateProposal(
+    accessSubject: string,
+    rawInput: CreateSignalUpdateProposalInput,
+  ): Promise<SignalUpdateProposal> {
+    const input = CreateSignalUpdateProposalInputSchema.parse(rawInput);
+    const identity = await this.findIdentity(accessSubject);
+    const [observationRows, scenario] = await Promise.all([
+      this.getPublicSourceObservationRows(identity.household_id),
+      this.db
+        .prepare(
+          `SELECT
+            scenario.id,
+            scenario.name,
+            snapshot.id AS latest_snapshot_id,
+            snapshot.version AS latest_snapshot_version
+          FROM scenarios scenario
+          LEFT JOIN forecast_snapshots snapshot
+            ON snapshot.scenario_id = scenario.id
+            AND snapshot.version = (
+              SELECT MAX(newest.version)
+              FROM forecast_snapshots newest
+              WHERE newest.scenario_id = scenario.id
+            )
+          WHERE scenario.id = ?
+            AND scenario.household_id = ?
+            AND scenario.archived_at IS NULL`,
+        )
+        .bind(input.scenarioId, identity.household_id)
+        .first<SignalUpdateProposalScenarioRow>(),
+    ]);
+
+    if (scenario === null || scenario.latest_snapshot_id === null) {
+      throw new Error("Scenario not found for signal update proposal.");
+    }
+    if (
+      scenario.latest_snapshot_id !== input.baseForecastSnapshotId ||
+      scenario.latest_snapshot_version === null
+    ) {
+      throw new Error("Signal update proposal base scenario is stale.");
+    }
+
+    const groups = await createSignalReconciliationGroups(
+      observationRows.map(publicSourceObservationFromRow),
+    );
+    const group = groups.find((candidate) => candidate.id === input.groupId);
+    if (group === undefined) {
+      throw new Error("Signal reconciliation group not found.");
+    }
+    if (group.revision !== input.reconciliationRevision) {
+      throw new Error("Signal reconciliation is stale.");
+    }
+    if (!group.canCreateProposal || group.proposedCompanyValuation === null) {
+      throw new Error("Signal reconciliation is not ready for a proposal.");
+    }
+
+    const evidenceEventIds = group.reports
+      .filter(
+        (report) =>
+          report.relationship !== "superseded" &&
+          (report.evidenceStatus === "accepted" ||
+            report.evidenceStatus === "scenario_only"),
+      )
+      .map((report) => report.evidenceEventId)
+      .sort();
+    if (evidenceEventIds.length === 0) {
+      throw new Error("Signal reconciliation is not ready for a proposal.");
+    }
+
+    const proposalId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    await this.db.batch([
+      this.db
+        .prepare(
+          `INSERT INTO signal_update_proposals (
+            id,
+            household_id,
+            company_id,
+            reconciliation_group_id,
+            reconciliation_revision,
+            scenario_id,
+            base_forecast_snapshot_id,
+            base_forecast_snapshot_version,
+            proposed_company_valuation_json,
+            rationale,
+            created_at,
+            created_by_user_id,
+            immutable
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        )
+        .bind(
+          proposalId,
+          identity.household_id,
+          group.companyId,
+          group.id,
+          group.revision,
+          scenario.id,
+          scenario.latest_snapshot_id,
+          scenario.latest_snapshot_version,
+          JSON.stringify(group.proposedCompanyValuation),
+          input.rationale,
+          createdAt,
+          identity.user_id,
+        ),
+      ...evidenceEventIds.map((eventId) =>
+        this.db
+          .prepare(
+            `INSERT INTO signal_update_proposal_evidence (
+              proposal_id,
+              household_id,
+              evidence_event_id,
+              created_at
+            ) VALUES (?, ?, ?, ?)`,
+          )
+          .bind(proposalId, identity.household_id, eventId, createdAt),
+      ),
+    ]);
+
+    return SignalUpdateProposalSchema.parse({
+      id: proposalId,
+      groupId: group.id,
+      reconciliationRevision: group.revision,
+      companyId: group.companyId,
+      companyName: group.companyName,
+      scenarioId: scenario.id,
+      scenarioName: scenario.name,
+      baseForecastSnapshotId: scenario.latest_snapshot_id,
+      baseForecastSnapshotVersion: scenario.latest_snapshot_version,
+      evidenceEventIds,
+      proposedCompanyValuation: group.proposedCompanyValuation,
+      rationale: input.rationale,
+      createdAt,
+      createdBy: identity.display_name,
+      isCurrent: true,
+    });
   }
 
   public async reviewEvidence(
@@ -1929,6 +2151,107 @@ export class D1AlphaRepository implements AlphaRepository {
     );
 
     await this.db.batch(statements);
+  }
+
+  private async getPublicSourceObservationRows(
+    householdId: string,
+  ): Promise<readonly PublicSourceObservationRow[]> {
+    return all<PublicSourceObservationRow>(
+      this.db
+        .prepare(
+          `SELECT
+              observation.id,
+              company.id AS company_id,
+              company.legal_name AS company_name,
+              observation.evidence_event_id,
+              event.status AS evidence_status,
+              observation.source_class,
+              observation.source_url,
+              observation.source_title,
+              observation.published_at,
+              observation.retrieved_at,
+              observation.observed_fact,
+              observation.inference,
+              observation.source_reliability_ppm,
+              observation.model_confidence_ppm,
+              observation.valuation_low_minor,
+              observation.valuation_middle_minor,
+              observation.valuation_high_minor,
+              (
+                SELECT claim.claim_value_json
+                FROM evidence_claims claim
+                WHERE claim.evidence_event_id = observation.evidence_event_id
+                  AND claim.household_id = observation.household_id
+                  AND claim.field_path = 'company_event.financing_terms'
+                ORDER BY claim.created_at
+                LIMIT 1
+              ) AS claim_value_json,
+              observation.limitations
+            FROM public_source_observations observation
+            JOIN companies company ON company.id = observation.company_id
+            JOIN evidence_events event ON event.id = observation.evidence_event_id
+            WHERE observation.household_id = ?
+            ORDER BY observation.retrieved_at DESC`,
+        )
+        .bind(householdId),
+    );
+  }
+
+  private async getSignalUpdateProposalRows(
+    householdId: string,
+  ): Promise<readonly SignalUpdateProposalRow[]> {
+    return all<SignalUpdateProposalRow>(
+      this.db
+        .prepare(
+          `SELECT
+              proposal.id,
+              proposal.household_id,
+              proposal.company_id,
+              company.legal_name AS company_name,
+              proposal.reconciliation_group_id,
+              proposal.reconciliation_revision,
+              proposal.scenario_id,
+              scenario.name AS scenario_name,
+              proposal.base_forecast_snapshot_id,
+              proposal.base_forecast_snapshot_version,
+              proposal.proposed_company_valuation_json,
+              proposal.rationale,
+              proposal.created_at,
+              user.display_name AS created_by,
+              (
+                SELECT snapshot.id
+                FROM forecast_snapshots snapshot
+                WHERE snapshot.scenario_id = proposal.scenario_id
+                ORDER BY snapshot.version DESC
+                LIMIT 1
+              ) AS current_snapshot_id
+            FROM signal_update_proposals proposal
+            JOIN companies company ON company.id = proposal.company_id
+            JOIN scenarios scenario ON scenario.id = proposal.scenario_id
+            JOIN users user ON user.id = proposal.created_by_user_id
+            WHERE proposal.household_id = ?
+            ORDER BY proposal.created_at DESC`,
+        )
+        .bind(householdId),
+    );
+  }
+
+  private async getSignalUpdateProposalEvidenceRows(
+    householdId: string,
+  ): Promise<readonly SignalUpdateProposalEvidenceRow[]> {
+    return all<SignalUpdateProposalEvidenceRow>(
+      this.db
+        .prepare(
+          `SELECT evidence.proposal_id, evidence.evidence_event_id
+           FROM signal_update_proposal_evidence evidence
+           JOIN signal_update_proposals proposal
+             ON proposal.id = evidence.proposal_id
+           WHERE evidence.household_id = ?
+             AND proposal.household_id = evidence.household_id
+           ORDER BY evidence.proposal_id, evidence.evidence_event_id`,
+        )
+        .bind(householdId),
+    );
   }
 
   private async findIdentity(

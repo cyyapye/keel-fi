@@ -4,6 +4,7 @@ import {
 } from "@keel/connectors";
 import { D1AlphaRepository, type AlphaRepository } from "@keel/database";
 import {
+  CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
   PortfolioWatchScanResultSchema,
@@ -429,6 +430,67 @@ export function createApp(options: AppOptions = {}) {
       }
       return context.json(
         { error: "Evidence application could not be recorded." },
+        500,
+      );
+    }
+  });
+
+  app.post("/api/signal-update-proposals", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+
+    const result = CreateSignalUpdateProposalInputSchema.safeParse(rawInput);
+    if (!result.success) {
+      return context.json(
+        {
+          error: "Signal update proposal input is invalid.",
+          issues: result.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+      );
+    }
+
+    try {
+      const proposal = await repositoryFor(
+        context.env,
+      ).createSignalUpdateProposal(
+        context.get("identity").subject,
+        result.data,
+      );
+      return context.json(proposal, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message.includes("not found")) {
+        return context.json(
+          { error: "Signal group or scenario not found." },
+          404,
+        );
+      }
+      if (
+        message.includes("stale") ||
+        message.includes("not ready") ||
+        message.includes("version mismatch") ||
+        message.includes("UNIQUE")
+      ) {
+        return context.json(
+          {
+            error:
+              "Signals or the scenario changed. Reload before creating the proposal.",
+          },
+          409,
+        );
+      }
+      return context.json(
+        { error: "Signal update proposal could not be created." },
         500,
       );
     }

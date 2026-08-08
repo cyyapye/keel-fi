@@ -2018,6 +2018,150 @@ h1,
   gap: 42px;
 }
 
+.signal-reconciliation-list {
+  display: grid;
+  gap: 38px;
+}
+
+.signal-reconciliation-list > .section-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
+  align-items: end;
+  gap: 50px;
+}
+
+.signal-reconciliation-list > .section-heading h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.035em;
+}
+
+.signal-reconciliation-list > .section-heading > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.signal-reconciliation-group {
+  display: grid;
+  gap: 26px;
+  padding-top: 25px;
+  border-top: 1px solid var(--line);
+}
+
+.signal-reconciliation-group > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.signal-reconciliation-group > header h2 {
+  margin-bottom: 7px;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+
+.signal-reconciliation-group > header p:last-child {
+  max-width: 620px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.signal-reconciliation-reports {
+  display: grid;
+  gap: 26px;
+}
+
+.signal-reconciliation-reports .evidence-card + .evidence-card {
+  padding-top: 26px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.evidence-reconciliation-order {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.signal-proposal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.45fr) auto;
+  align-items: end;
+  gap: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.signal-proposal--waiting,
+.signal-proposal--saved {
+  display: block;
+}
+
+.signal-proposal span,
+.signal-proposal strong,
+.signal-proposal small {
+  display: block;
+}
+
+.signal-proposal span,
+.signal-proposal label {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.signal-proposal strong {
+  margin-top: 7px;
+  font-size: 14px;
+}
+
+.signal-proposal p {
+  max-width: 660px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.signal-proposal small {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.signal-proposal > label {
+  display: grid;
+  gap: 7px;
+}
+
+.signal-proposal select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 24px 0 0;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.signal-proposal > small,
+.signal-proposal > .inline-error {
+  grid-column: 1 / -1;
+  margin: -10px 0 0;
+}
+
 .evidence-card {
   overflow: hidden;
   background: transparent;
@@ -3010,6 +3154,37 @@ h1,
 
   .watch-screen {
     gap: 52px;
+  }
+
+  .signal-reconciliation-list > .section-heading {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .signal-reconciliation-group > header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .signal-reconciliation-group > header h2 {
+    font-size: 21px;
+  }
+
+  .signal-proposal {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 18px;
+  }
+
+  .signal-proposal > small,
+  .signal-proposal > .inline-error {
+    grid-column: 1;
+    margin-top: -7px;
+  }
+
+  .signal-proposal .button {
+    width: 100%;
   }
 
   .watch-intro {
