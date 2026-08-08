@@ -29,12 +29,14 @@ flowchart LR
 - `packages/domain` owns integer-only financial and projection calculations.
 - `packages/evidence` owns evidence validation and one-way review transitions.
 - `packages/connectors` defines size-limited documents, queue envelopes, and
-  evidence-proposal contracts. Connector-specific folders document the future
-  trust boundaries.
+  evidence-proposal contracts, including the official-company-web source policy
+  and bounded HTML/feed extraction.
 - Portfolio Watch stores public observations separately from derived valuation
   estimates. Source reliability describes the observation; model confidence
-  describes the inference. The synthetic private-alpha scanner exercises this
-  boundary without fetching real companies or accessing an inbox.
+  describes the inference. D1 holds the automatically discovered source
+  registry; Queue jobs contain only internal source IDs. Real public sources are
+  exercised by an opt-in runtime acceptance command while all checked-in
+  portfolio data remains fabricated.
 
 ## Value semantics
 

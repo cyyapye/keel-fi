@@ -1,5 +1,9 @@
 import { D1AlphaRepository, type AlphaRepository } from "@keel/database";
-import { GoalDraftInputSchema, ScenarioDraftInputSchema } from "@keel/domain";
+import {
+  GoalDraftInputSchema,
+  PortfolioWatchScanResultSchema,
+  ScenarioDraftInputSchema,
+} from "@keel/domain";
 import { ReviewInputSchema } from "@keel/evidence";
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -128,12 +132,30 @@ export function createApp(options: AppOptions = {}) {
 
   app.post("/api/watch/scan", async (context) => {
     try {
-      const result = await repositoryFor(context.env).scanPortfolioWatch(
-        context.get("identity").subject,
+      const preparation = await repositoryFor(
+        context.env,
+      ).preparePortfolioWatchScan(context.get("identity").subject);
+      await Promise.all(
+        preparation.jobs.map((job) =>
+          context.env.INGESTION_QUEUE.send({
+            ...job,
+            messageId: crypto.randomUUID(),
+            requestedAt: preparation.checkedAt,
+          }),
+        ),
       );
-      return context.json(result, 200, {
-        "Cache-Control": "private, no-store",
-      });
+      return context.json(
+        PortfolioWatchScanResultSchema.parse({
+          checkedAt: preparation.checkedAt,
+          queuedCount: preparation.jobs.length,
+          discoveredCount: 0,
+          proposedCount: 0,
+        }),
+        202,
+        {
+          "Cache-Control": "private, no-store",
+        },
+      );
     } catch (error) {
       const message = errorMessage(error);
       if (message.includes("not found")) {

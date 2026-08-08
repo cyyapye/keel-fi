@@ -21,7 +21,11 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings=0",
+    "local:acceptance:apply": "tsx scripts/local-acceptance-profile.ts apply",
+    "local:acceptance:clean": "tsx scripts/local-acceptance-profile.ts clean",
+    "local:acceptance:restore": "tsx scripts/local-acceptance-profile.ts restore",
     "test": "vitest run",
+    "test:live:sources": "tsx scripts/live-company-source-smoke.ts",
     "test:e2e": "playwright test",
     "toolchain:check": "node scripts/check-toolchain.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --filter './apps/**' --filter './packages/**' run typecheck"
@@ -44,6 +48,7 @@
     "typescript-eslint": "^8.38.0",
     "vite": "^7.0.6",
     "vitest": "^3.2.4",
-    "wrangler": "^4.26.1"
+    "wrangler": "^4.26.1",
+    "zod": "^4.0.10"
   }
 }

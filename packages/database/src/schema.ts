@@ -463,6 +463,145 @@ export const portfolioWatchTargets = sqliteTable(
   ],
 );
 
+export const portfolioWatchSources = sqliteTable(
+  "portfolio_watch_sources",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    watchTargetId: text("watch_target_id")
+      .notNull()
+      .references(() => portfolioWatchTargets.id, { onDelete: "restrict" }),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "restrict" }),
+    sourceKind: text("source_kind").notNull(),
+    sourceClass: text("source_class").notNull(),
+    canonicalUrl: text("canonical_url").notNull(),
+    allowedOrigin: text("allowed_origin").notNull(),
+    allowedPathPrefix: text("allowed_path_prefix").notNull(),
+    status: text("status").notNull(),
+    authorityPpm: integer("authority_ppm").notNull(),
+    identityConfidencePpm: integer("identity_confidence_ppm").notNull(),
+    operationalHealthPpm: integer("operational_health_ppm").notNull(),
+    coverageJson: text("coverage_json").notNull(),
+    autoActivatedAt: text("auto_activated_at"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("portfolio_watch_sources_ready_idx").on(
+      table.status,
+      table.updatedAt,
+    ),
+    index("portfolio_watch_sources_company_idx").on(
+      table.householdId,
+      table.companyId,
+      table.status,
+    ),
+    uniqueIndex("portfolio_watch_sources_target_url_unique").on(
+      table.watchTargetId,
+      table.canonicalUrl,
+    ),
+    check(
+      "portfolio_watch_sources_kind_check",
+      sql`${table.sourceKind} IN ('official_company_web', 'official_rss', 'official_atom')`,
+    ),
+    check(
+      "portfolio_watch_sources_class_check",
+      sql`${table.sourceClass} = 'official_company'`,
+    ),
+    check(
+      "portfolio_watch_sources_status_check",
+      sql`${table.status} IN ('discovered', 'verified', 'active', 'degraded', 'quarantined', 'revoked')`,
+    ),
+    check(
+      "portfolio_watch_sources_authority_check",
+      sql`${table.authorityPpm} BETWEEN 0 AND 1000000`,
+    ),
+    check(
+      "portfolio_watch_sources_identity_check",
+      sql`${table.identityConfidencePpm} BETWEEN 0 AND 1000000`,
+    ),
+    check(
+      "portfolio_watch_sources_health_check",
+      sql`${table.operationalHealthPpm} BETWEEN 0 AND 1000000`,
+    ),
+  ],
+);
+
+export const portfolioWatchSourceVerificationEvents = sqliteTable(
+  "portfolio_watch_source_verification_events",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => portfolioWatchSources.id, { onDelete: "restrict" }),
+    eventType: text("event_type").notNull(),
+    reasonCode: text("reason_code").notNull(),
+    observedUrl: text("observed_url").notNull(),
+    normalizedUrl: text("normalized_url"),
+    httpStatus: integer("http_status"),
+    contentType: text("content_type"),
+    redirectUrl: text("redirect_url"),
+    securityPassed: integer("security_passed", { mode: "boolean" }).notNull(),
+    authorityPpm: integer("authority_ppm").notNull(),
+    identityConfidencePpm: integer("identity_confidence_ppm").notNull(),
+    coverageJson: text("coverage_json").notNull(),
+    occurredAt: timestamp("occurred_at"),
+  },
+  (table) => [
+    index("portfolio_watch_source_verification_events_source_idx").on(
+      table.sourceId,
+      table.occurredAt,
+    ),
+    check(
+      "portfolio_watch_source_verification_events_type_check",
+      sql`${table.eventType} IN ('discovered', 'verified', 'activated', 'degraded', 'quarantined', 'revoked')`,
+    ),
+    check(
+      "portfolio_watch_source_verification_events_security_check",
+      sql`${table.securityPassed} IN (0, 1)`,
+    ),
+    check(
+      "portfolio_watch_source_verification_events_authority_check",
+      sql`${table.authorityPpm} BETWEEN 0 AND 1000000`,
+    ),
+    check(
+      "portfolio_watch_source_verification_events_identity_check",
+      sql`${table.identityConfidencePpm} BETWEEN 0 AND 1000000`,
+    ),
+  ],
+);
+
+export const portfolioWatchSourceSyncState = sqliteTable(
+  "portfolio_watch_source_sync_state",
+  {
+    sourceId: text("source_id")
+      .primaryKey()
+      .references(() => portfolioWatchSources.id, { onDelete: "restrict" }),
+    etag: text("etag"),
+    lastModified: text("last_modified"),
+    lastContentSha256: text("last_content_sha256"),
+    lastAttemptAt: text("last_attempt_at"),
+    lastSuccessAt: text("last_success_at"),
+    nextCheckAt: timestamp("next_check_at"),
+    lastHttpStatus: integer("last_http_status"),
+    consecutiveFailureCount: integer("consecutive_failure_count")
+      .notNull()
+      .default(0),
+    lastErrorCode: text("last_error_code"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("portfolio_watch_source_sync_due_idx").on(table.nextCheckAt),
+    check(
+      "portfolio_watch_source_sync_failures_check",
+      sql`${table.consecutiveFailureCount} >= 0`,
+    ),
+  ],
+);
+
 export const publicSourceObservations = sqliteTable(
   "public_source_observations",
   {
@@ -475,6 +614,9 @@ export const publicSourceObservations = sqliteTable(
       .notNull()
       .unique()
       .references(() => evidenceEvents.id, { onDelete: "restrict" }),
+    sourceId: text("source_id").references(() => portfolioWatchSources.id, {
+      onDelete: "restrict",
+    }),
     sourceDocumentId: text("source_document_id")
       .notNull()
       .references(() => sourceDocuments.id, { onDelete: "restrict" }),
@@ -501,6 +643,10 @@ export const publicSourceObservations = sqliteTable(
     ),
     index("public_source_observations_company_idx").on(
       table.companyId,
+      table.publishedAt,
+    ),
+    index("public_source_observations_source_published_idx").on(
+      table.sourceId,
       table.publishedAt,
     ),
     uniqueIndex("public_source_observations_household_fingerprint_unique").on(

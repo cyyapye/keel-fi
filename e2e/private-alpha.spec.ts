@@ -39,24 +39,29 @@ test("loads the database-backed dashboard and primary views", async ({
     page.getByRole("heading", { name: "Portfolio Watch" }),
   ).toBeVisible();
   await expect(page.getByText("Public sources only")).toBeVisible();
+  await expect(page.getByText("Check for updates")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Keel automatically finds and checks company sources when you check.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /manage sources|add source/i }),
+  ).toHaveCount(0);
   if (!mobile) {
     await page.getByRole("button", { name: "Check now" }).click();
+    await expect(page.getByRole("status")).toHaveText(
+      /^(Source checks started\.|You’re up to date\.)$/,
+    );
+    await expect(
+      page.getByRole("heading", { name: "No updates yet" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", {
         name: "Synthetic Series C financing announcement",
       }),
-    ).toBeVisible();
-    await expect(page.getByText("Observed")).toBeVisible();
-    await expect(page.getByText("Keel estimate")).toBeVisible();
-    await page.getByRole("button", { name: "Review" }).click();
-    await expect(
-      page.getByRole("heading", { name: "Evidence Inbox" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        "Public financing announcement suggests a new valuation range",
-      ),
-    ).toBeVisible();
+    ).toHaveCount(0);
   }
 
   await navigation.getByRole("button", { name: /Overview/ }).click();

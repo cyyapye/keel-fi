@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@keel/connectors": "workspace:*",
     "@keel/database": "workspace:*",
     "@keel/domain": "workspace:*",
     "@keel/evidence": "workspace:*",

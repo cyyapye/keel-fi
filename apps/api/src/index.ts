@@ -1,3 +1,9 @@
 import { createApp } from "./app";
+import { handlePortfolioWatchQueue } from "./portfolio-watch";
 
-export default createApp();
+const app = createApp();
+
+export default {
+  fetch: app.fetch,
+  queue: handlePortfolioWatchQueue,
+};

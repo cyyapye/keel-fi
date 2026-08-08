@@ -19,6 +19,7 @@ test-results/
 .wrangler/
 wrangler.preview.jsonc
 worker-configuration.d.ts
+.keel-local/
 
 # Environment files
 .env

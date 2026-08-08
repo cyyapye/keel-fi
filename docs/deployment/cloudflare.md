@@ -73,9 +73,8 @@ explicit deployment approval.
 
 The web Worker must keep `workers_dev` and preview URLs disabled in private
 deployment configuration. Its only public route is the Access-protected custom
-domain. The ingestion Queue remains producer-only until a reviewed consumer is
-implemented; do not attach an empty consumer merely to make the binding appear
-complete.
+domain. The ingestion Queue consumer accepts only registry source IDs and loads
+the approved host and URL policy from D1 before any fetch.
 
 ## Access validation
 

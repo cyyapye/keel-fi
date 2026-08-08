@@ -38,6 +38,9 @@ type Screen =
   | "scenarios"
   | "history";
 
+const isRealCompanyAcceptanceProfile =
+  import.meta.env.VITE_KEEL_ACCEPTANCE_PROFILE === "real-company";
+
 const navigation: readonly {
   id: Screen;
   label: string;
@@ -1370,6 +1373,27 @@ function sourceHost(sourceUrl: string) {
   }
 }
 
+function watchCoverageStatusLabel(
+  status: "active" | "discovering" | "degraded" | "unavailable",
+  lastCheckedAt: string | null,
+  monitoringStatus: "active" | "paused",
+) {
+  if (monitoringStatus === "paused") {
+    return "Monitoring paused";
+  }
+  if (status === "active") {
+    return lastCheckedAt === null
+      ? "Monitoring active"
+      : `Monitoring active · Checked ${formatDate(lastCheckedAt)}`;
+  }
+
+  return {
+    discovering: "Finding sources",
+    degraded: "Temporarily unavailable · Will retry",
+    unavailable: "No verified public source yet",
+  }[status];
+}
+
 function PortfolioWatch({
   data,
   onReview,
@@ -1377,7 +1401,11 @@ function PortfolioWatch({
 }: {
   data: AlphaData;
   onReview: (eventId: string) => void;
-  onScan: () => Promise<{ discoveredCount: number; proposedCount: number }>;
+  onScan: () => Promise<{
+    discoveredCount: number;
+    proposedCount: number;
+    queuedCount: number;
+  }>;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1390,9 +1418,11 @@ function PortfolioWatch({
     void onScan()
       .then((result) => {
         setMessage(
-          result.discoveredCount === 0
-            ? "You’re up to date."
-            : `${result.proposedCount} ${result.proposedCount === 1 ? "update is" : "updates are"} ready to review.`,
+          result.queuedCount > 0
+            ? "Source checks started."
+            : result.discoveredCount === 0
+              ? "You’re up to date."
+              : `${result.proposedCount} ${result.proposedCount === 1 ? "update is" : "updates are"} ready to review.`,
         );
       })
       .catch(() => setError("Couldn’t check for updates. Try again."))
@@ -1409,14 +1439,25 @@ function PortfolioWatch({
             until you review it.
           </p>
         </div>
-        <Badge tone="neutral">Public sources only</Badge>
+        <Badge data-testid="portfolio-watch-status" tone="neutral">
+          Public sources only
+        </Badge>
       </div>
 
-      <Panel className="watch-control-panel">
+      <Panel
+        className="watch-control-panel"
+        data-testid="portfolio-watch-control"
+      >
         <div>
           <h2>Check for updates</h2>
-          <p>Official company sites, filings, and trusted reporting.</p>
-          <small>Demo sources in this preview</small>
+          <p>
+            Keel automatically finds and checks company sources when you check.
+          </p>
+          <small data-testid="portfolio-watch-data-profile">
+            {isRealCompanyAcceptanceProfile
+              ? "Real public sources · Demo portfolio figures"
+              : "Demo sources in this preview"}
+          </small>
         </div>
         <Button disabled={busy} onClick={runScan} tone="primary">
           {busy ? "Checking…" : "Check now"}
@@ -1432,19 +1473,18 @@ function PortfolioWatch({
 
       <section>
         <div className="section-heading">
-          <h2>Watching {data.portfolioWatch.targets.length} companies</h2>
+          <h2>Monitoring {data.portfolioWatch.targets.length} companies</h2>
         </div>
         <div className="watch-target-grid">
           {data.portfolioWatch.targets.map((target) => (
-            <article key={target.id}>
+            <article data-testid={`watch-target-${target.id}`} key={target.id}>
               <strong>{target.companyName}</strong>
-              <span>{target.officialHost}</span>
-              <small>
-                {target.status !== "active"
-                  ? "Paused"
-                  : target.lastCheckedAt === null
-                    ? "Not checked yet"
-                    : `Checked ${formatDate(target.lastCheckedAt)}`}
+              <small data-testid="watch-target-coverage">
+                {watchCoverageStatusLabel(
+                  target.coverageStatus,
+                  target.lastCheckedAt,
+                  target.status,
+                )}
               </small>
             </article>
           ))}
