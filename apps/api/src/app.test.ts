@@ -201,6 +201,39 @@ describe("Keel API", () => {
     expect(getAlphaData).not.toHaveBeenCalled();
   });
 
+  it("rejects a verified service identity from user API routes", async () => {
+    const getAlphaData = vi.fn<AlphaRepository["getAlphaData"]>();
+    const repository: AlphaRepository = {
+      getAlphaData,
+      preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    };
+    const response = await createApp({
+      repository,
+      verifyAccess: vi.fn(() =>
+        Promise.resolve({
+          kind: "service" as const,
+          subject: `${"a".repeat(32)}.access`,
+          email: null,
+        }),
+      ),
+    }).request(
+      "/api/alpha",
+      { headers: { "Cf-Access-Jwt-Assertion": "valid-service-token" } },
+      testEnv("preview"),
+    );
+
+    expect(response.status).toBe(403);
+    expect(getAlphaData).not.toHaveBeenCalled();
+  });
+
   it("serves database repository data in explicitly local mode", async () => {
     const getAlphaData = vi
       .fn<AlphaRepository["getAlphaData"]>()

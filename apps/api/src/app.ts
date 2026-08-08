@@ -116,6 +116,7 @@ export function createApp(options: AppOptions = {}) {
 
     if (context.env.ENVIRONMENT === "local" && token === undefined) {
       context.set("identity", {
+        kind: "user",
         subject: "synthetic-access-subject",
         email: "demo@example.invalid",
       });
@@ -131,7 +132,18 @@ export function createApp(options: AppOptions = {}) {
     }
 
     try {
-      context.set("identity", await verifier(token, context.env));
+      const identity = await verifier(token, context.env);
+      if (
+        identity.kind === "service" &&
+        (context.req.method !== "POST" ||
+          context.req.path !== "/api/deployment-smoke")
+      ) {
+        return context.json(
+          { error: "Access identity is not authorized for this route." },
+          403,
+        );
+      }
+      context.set("identity", identity);
       await next();
       return;
     } catch {
