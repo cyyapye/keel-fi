@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { navigateToScreen } from "./navigation";
+
 test("loads the database-backed dashboard and primary views", async ({
   page,
 }) => {
@@ -25,8 +27,6 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(page.locator(".chart-tooltip")).toContainText("Middle");
 
   const mobile = test.info().project.name === "mobile-chromium";
-  const navigationName = mobile ? "Mobile navigation" : "Primary navigation";
-  const navigation = page.getByRole("navigation", { name: navigationName });
 
   await page
     .getByRole("button", { name: /FI-eligible liquid.*View holdings/ })
@@ -44,7 +44,7 @@ test("loads the database-backed dashboard and primary views", async ({
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(northstarHolding).toBeFocused();
 
-  await navigation.getByRole("button", { name: /Watch/ }).click();
+  await navigateToScreen(page, mobile, /Watch/);
   await expect(
     page.getByRole("heading", { name: "Portfolio Watch" }),
   ).toBeVisible();
@@ -74,7 +74,7 @@ test("loads the database-backed dashboard and primary views", async ({
     ).toHaveCount(0);
   }
 
-  await navigation.getByRole("button", { name: /Overview/ }).click();
+  await navigateToScreen(page, mobile, /Overview/);
   await page
     .getByRole("button", { name: /Protected runway.*View plan inputs/ })
     .click();
@@ -82,7 +82,7 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(page.getByText("Current planning goal")).toBeVisible();
   await expect(page.getByText("Accepted inputs")).toBeVisible();
 
-  await navigation.getByRole("button", { name: /Goals/ }).click();
+  await navigateToScreen(page, mobile, /Goals/);
   await expect(page.getByRole("heading", { name: "Goals" })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Create a new version" }),
@@ -91,7 +91,7 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(page.getByText("Prior decisions stay visible")).toBeVisible();
   await expect(page.getByText("immutable snapshot")).toHaveCount(0);
 
-  await navigation.getByRole("button", { name: /Evidence/ }).click();
+  await navigateToScreen(page, mobile, /Evidence/);
   await expect(
     page.getByRole("heading", { name: "Evidence Inbox" }),
   ).toBeVisible();
@@ -112,7 +112,7 @@ test("loads the database-backed dashboard and primary views", async ({
       page.getByRole("heading", { name: "Scenarios" }),
     ).toBeVisible();
     await expect(page.getByText("Scenario-only evidence")).toBeVisible();
-    await navigation.getByRole("button", { name: /Evidence/ }).click();
+    await navigateToScreen(page, mobile, /Evidence/);
     await expect(
       page.getByRole("heading", { name: "Evidence Inbox" }),
     ).toBeVisible();
@@ -132,7 +132,7 @@ test("loads the database-backed dashboard and primary views", async ({
     await page.getByRole("button", { name: "Cancel" }).click();
   }
 
-  await navigation.getByRole("button", { name: /Scenarios/ }).click();
+  await navigateToScreen(page, mobile, /Scenarios/);
   await expect(page.getByRole("heading", { name: "Scenarios" })).toBeVisible();
   await expect(
     page.getByRole("tab", { name: "FI Underwriting" }),
@@ -163,17 +163,17 @@ test("loads the database-backed dashboard and primary views", async ({
   if (!mobile) {
     await saveScenarioButton.click();
     await expect(page.getByText("Scenario saved.")).toBeVisible();
-    await navigation.getByRole("button", { name: /History/ }).click();
+    await navigateToScreen(page, mobile, /History/);
     await expect(page.locator(".history-list")).toContainText(
       "Scenario editor",
     );
   }
 
-  await navigation.getByRole("button", { name: /Overview/ }).click();
+  await navigateToScreen(page, mobile, /Overview/);
   await page.getByRole("button", { name: "Review goal →" }).click();
   await expect(page.getByRole("heading", { name: "Goals" })).toBeVisible();
 
-  await navigation.getByRole("button", { name: /History/ }).click();
+  await navigateToScreen(page, mobile, /History/);
   await expect(
     page.getByRole("heading", { name: "Forecast History" }),
   ).toBeVisible();

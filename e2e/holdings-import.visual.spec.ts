@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { navigateToScreen } from "./navigation";
+
 const alphaFixture = {
   dashboard: {
     asOfDate: "2026-07-01",
@@ -174,10 +176,7 @@ test("reviews an AngelList CSV without treating locked values as zero", async ({
   await page.goto("/");
 
   const mobile = testInfo.project.name === "mobile-chromium";
-  const navigation = page.getByRole("navigation", {
-    name: mobile ? "Mobile navigation" : "Primary navigation",
-  });
-  await navigation.getByRole("button", { name: /Holdings/ }).click();
+  await navigateToScreen(page, mobile, /Holdings/);
   await page.getByRole("button", { name: "Import holdings" }).click();
 
   await expect(
