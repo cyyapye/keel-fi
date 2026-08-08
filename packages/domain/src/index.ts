@@ -378,19 +378,82 @@ export function createGoalPreview(
 
 export const HoldingSchema = z.object({
   id: z.string().min(1),
-  companyName: z.string().min(1),
-  accountName: z.string().min(1),
-  lotLabel: z.string().min(1),
-  administratorNavMinor: NonNegativeMoneyMinorSchema,
-  externalMarkMinor: NonNegativeMoneyMinorSchema,
-  underwritingValueMinor: NonNegativeMoneyMinorSchema,
-  scenarioValueMinor: NonNegativeMoneyMinorSchema,
-  usableLiquidityMinor: NonNegativeMoneyMinorSchema,
+  positionName: z.string().min(1),
+  exposureName: z.string().min(1).nullable(),
+  ownerLabel: z.string().min(1),
+  positionKind: z.enum(["direct", "spv_interest", "fund_interest"]),
+  administratorNavMinor: NonNegativeMoneyMinorSchema.nullable(),
+  administratorNavState: z.enum(["reported", "locked", "not_set"]),
+  externalMarkMinor: NonNegativeMoneyMinorSchema.nullable(),
+  underwritingValueMinor: NonNegativeMoneyMinorSchema.nullable(),
+  scenarioValueMinor: NonNegativeMoneyMinorSchema.nullable(),
+  usableLiquidityMinor: NonNegativeMoneyMinorSchema.nullable(),
   sourceStatus: z.enum(["verified", "review_due", "proposed"]),
   sourceLabel: z.string().min(1),
   effectiveDate: IsoDateSchema,
   retrievedAt: IsoTimestampSchema,
-  confidencePpm: ProbabilityPpmSchema,
+  confidencePpm: ProbabilityPpmSchema.nullable(),
+});
+
+export const HoldingImportRowActionSchema = z.enum([
+  "create_position",
+  "append_snapshot",
+  "no_change",
+  "needs_attention",
+]);
+
+export const HoldingImportRowPreviewSchema = z.object({
+  id: z.string().min(1),
+  sourceRowNumber: z.number().int().min(3),
+  positionName: z.string().min(1),
+  exposureName: z.string().min(1),
+  ownerLabel: z.string().min(1),
+  providerStatus: z.enum(["Live", "Realized"]),
+  investedOn: IsoDateSchema,
+  investedMinor: NonNegativeMoneyMinorSchema,
+  administratorNavMinor: NonNegativeMoneyMinorSchema.nullable(),
+  administratorNavState: z.enum(["reported", "locked", "not_reported"]),
+  realizedValueMinor: NonNegativeMoneyMinorSchema,
+  action: HoldingImportRowActionSchema,
+  issues: z.array(z.string().min(1)),
+});
+
+export const HoldingImportPreviewSchema = z.object({
+  id: z.string().min(1),
+  provider: z.literal("angellist"),
+  status: z.enum(["pending_review", "applied"]),
+  observedAt: IsoTimestampSchema,
+  summary: z.object({
+    rowCount: z.number().int().nonnegative(),
+    administratorValueCount: z.number().int().nonnegative(),
+    lockedValueCount: z.number().int().nonnegative(),
+    createCount: z.number().int().nonnegative(),
+    updateCount: z.number().int().nonnegative(),
+    unchangedCount: z.number().int().nonnegative(),
+    needsAttentionCount: z.number().int().nonnegative(),
+  }),
+  rows: z.array(HoldingImportRowPreviewSchema),
+});
+
+export const HoldingImportDecisionSchema = z.object({
+  rowId: z.string().min(1),
+  decision: z.enum(["accepted", "rejected"]),
+  matchedPositionId: z.string().min(1).nullable().optional(),
+  rationale: z.string().trim().min(1).max(500),
+});
+
+export const HoldingImportApplyInputSchema = z.object({
+  currency: z.literal("USD"),
+  decisions: z.array(HoldingImportDecisionSchema).min(1),
+});
+
+export const HoldingImportApplyResultSchema = z.object({
+  importId: z.string().min(1),
+  createdCount: z.number().int().nonnegative(),
+  updatedCount: z.number().int().nonnegative(),
+  unchangedCount: z.number().int().nonnegative(),
+  rejectedCount: z.number().int().nonnegative(),
+  lockedValueCount: z.number().int().nonnegative(),
 });
 
 export const FinancingMoneyFactSchema = z
@@ -836,6 +899,17 @@ export type FinancingValuationFact = z.infer<
 export type Goal = z.infer<typeof GoalSchema>;
 export type GoalDraftInput = z.infer<typeof GoalDraftInputSchema>;
 export type GoalPreview = z.infer<typeof GoalPreviewSchema>;
+export type Holding = z.infer<typeof HoldingSchema>;
+export type HoldingImportApplyInput = z.infer<
+  typeof HoldingImportApplyInputSchema
+>;
+export type HoldingImportApplyResult = z.infer<
+  typeof HoldingImportApplyResultSchema
+>;
+export type HoldingImportPreview = z.infer<typeof HoldingImportPreviewSchema>;
+export type HoldingImportRowPreview = z.infer<
+  typeof HoldingImportRowPreviewSchema
+>;
 export type PortfolioWatchScanResult = z.infer<
   typeof PortfolioWatchScanResultSchema
 >;

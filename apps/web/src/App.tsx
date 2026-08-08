@@ -5,6 +5,11 @@ import {
   type EvidenceInboxItem,
   type Goal,
   type GoalDraftInput,
+  type Holding,
+  type HoldingImportApplyInput,
+  type HoldingImportApplyResult,
+  type HoldingImportPreview,
+  type HoldingImportRowPreview,
   type PublicSourceObservation,
   type Scenario,
   type ScenarioDraftInput,
@@ -16,12 +21,15 @@ import {
   type ReactNode,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import {
   applyAcceptedEvidence,
+  applyHoldingImport,
   loadAlphaData,
+  previewAngelListHoldingImport,
   saveGoalVersion,
   saveScenarioVersion,
   scanPortfolioWatch,
@@ -1256,67 +1264,428 @@ function Goals({
   );
 }
 
-function Holdings({ data }: { data: AlphaData }) {
+const HOLDING_IMPORT_PAGE_SIZE = 10;
+
+function holdingValueLabel(value: number | null): string {
+  return value === null ? "Not set" : formatCompactMoney(value);
+}
+
+function administratorValueLabel(holding: Holding): string {
+  if (holding.administratorNavState === "locked") {
+    return holding.sourceLabel === "AngelList export"
+      ? "Locked by AngelList"
+      : `Locked by ${holding.sourceLabel}`;
+  }
+  return holdingValueLabel(holding.administratorNavMinor);
+}
+
+function holdingPrimaryName(holding: Holding): string {
+  return holding.exposureName ?? holding.positionName;
+}
+
+function holdingKindLabel(holding: Holding): string {
+  return {
+    direct: "Direct holding",
+    spv_interest: "SPV interest",
+    fund_interest: "Fund interest",
+  }[holding.positionKind];
+}
+
+function holdingLegalPositionLabel(holding: Holding): string {
+  if (holding.positionKind === "direct") {
+    return "Direct position";
+  }
+  return holding.positionKind === "spv_interest"
+    ? "Legal SPV"
+    : "Legal fund position";
+}
+
+function importAdministratorValueLabel(row: HoldingImportRowPreview): string {
+  if (row.administratorNavState === "locked") {
+    return "Locked by AngelList";
+  }
+  if (row.administratorNavState === "not_reported") {
+    return "Not reported";
+  }
+  return holdingValueLabel(row.administratorNavMinor);
+}
+
+function importActionLabel(action: HoldingImportRowPreview["action"]): string {
+  return {
+    create_position: "New",
+    append_snapshot: "Matched",
+    no_change: "No changes",
+    needs_attention: "Needs attention",
+  }[action];
+}
+
+function importDecisionForRow(
+  row: HoldingImportRowPreview,
+): HoldingImportApplyInput["decisions"][number] {
+  if (row.action === "needs_attention") {
+    return {
+      rowId: row.id,
+      decision: "rejected",
+      rationale: "Excluded because the imported position needs attention.",
+    };
+  }
+  return {
+    rowId: row.id,
+    decision: "accepted",
+    rationale:
+      row.action === "no_change"
+        ? "Reviewed; no accepted holding change was required."
+        : "Accepted during the AngelList holdings import review.",
+  };
+}
+
+function ImportResult({ row }: { row: HoldingImportRowPreview }) {
+  const label = importActionLabel(row.action);
   return (
-    <div className="screen-stack">
-      <div className="page-intro">
-        <div>
-          <p className="eyebrow">Portfolio evidence</p>
-          <h1>Holdings</h1>
+    <div className={`import-result import-result--${row.action}`}>
+      {row.action === "needs_attention" ? (
+        <Badge tone="warning">{label}</Badge>
+      ) : (
+        <strong>{label}</strong>
+      )}
+      {row.issues.length > 0 && <small>{row.issues.join(" · ")}</small>}
+    </div>
+  );
+}
+
+function HoldingImportWorkspace({
+  onApply,
+  onClose,
+  onPreview,
+}: {
+  onApply: (
+    importId: string,
+    input: HoldingImportApplyInput,
+  ) => Promise<HoldingImportApplyResult>;
+  onClose: () => void;
+  onPreview: (file: File) => Promise<HoldingImportPreview>;
+}) {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<HoldingImportPreview | null>(null);
+  const [applyResult, setApplyResult] =
+    useState<HoldingImportApplyResult | null>(null);
+  const [working, setWorking] = useState<"idle" | "previewing" | "applying">(
+    "idle",
+  );
+  const [confirming, setConfirming] = useState(false);
+  const [currencyConfirmed, setCurrencyConfirmed] = useState(false);
+  const [page, setPage] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const workspaceHeadingRef = useRef<HTMLHeadingElement>(null);
+  const confirmationHeadingRef = useRef<HTMLHeadingElement>(null);
+  const messageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    workspaceHeadingRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (confirming) {
+      confirmationHeadingRef.current?.focus();
+    }
+  }, [confirming]);
+
+  useEffect(() => {
+    if (error !== null || applyResult !== null) {
+      messageRef.current?.focus();
+    }
+  }, [applyResult, error]);
+
+  const resetFile = () => {
+    setSelectedFile(null);
+    setPreview(null);
+    setApplyResult(null);
+    setConfirming(false);
+    setCurrencyConfirmed(false);
+    setError(null);
+    setPage(0);
+    if (fileInputRef.current !== null) {
+      fileInputRef.current.value = "";
+    }
+    window.requestAnimationFrame(() => fileInputRef.current?.focus());
+  };
+
+  const requestPreview = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (selectedFile === null) {
+      setError("Choose an AngelList investments CSV export to continue.");
+      return;
+    }
+    setWorking("previewing");
+    setError(null);
+    void onPreview(selectedFile)
+      .then((nextPreview) => {
+        setPreview(nextPreview);
+        setPage(0);
+        window.requestAnimationFrame(() =>
+          workspaceHeadingRef.current?.focus(),
+        );
+      })
+      .catch((previewError: unknown) => {
+        setError(
+          previewError instanceof Error
+            ? previewError.message
+            : "This file could not be reviewed. Choose an AngelList investments CSV export.",
+        );
+      })
+      .finally(() => setWorking("idle"));
+  };
+
+  const applyPreview = () => {
+    if (preview === null || !currencyConfirmed) {
+      return;
+    }
+    setWorking("applying");
+    setError(null);
+    void onApply(preview.id, {
+      currency: "USD",
+      decisions: preview.rows.map(importDecisionForRow),
+    })
+      .then((result) => {
+        setApplyResult(result);
+        setConfirming(false);
+      })
+      .catch((applyError: unknown) => {
+        setError(
+          applyError instanceof Error
+            ? applyError.message
+            : "Nothing changed. The AngelList import could not be applied.",
+        );
+      })
+      .finally(() => setWorking("idle"));
+  };
+
+  if (applyResult !== null && preview !== null) {
+    const changedCount = applyResult.createdCount + applyResult.updatedCount;
+    return (
+      <section
+        aria-labelledby="holding-import-success-title"
+        className="holding-import-workspace"
+      >
+        <div
+          className="import-message import-message--success"
+          ref={messageRef}
+          role="status"
+          tabIndex={-1}
+        >
+          <p className="eyebrow">Import reviewed</p>
+          <h2 id="holding-import-success-title">
+            {changedCount === 0
+              ? "No holdings changed"
+              : `${changedCount} ${changedCount === 1 ? "change" : "changes"} applied`}
+          </h2>
           <p>
-            Five distinct value lenses. No mark implies an exit, and no exit
-            implies usable liquidity.
+            Reviewed {preview.summary.rowCount} AngelList positions.{" "}
+            {preview.summary.administratorValueCount} administrator values were
+            available; {applyResult.lockedValueCount} locked values remain
+            unavailable.
+          </p>
+          {applyResult.rejectedCount > 0 && (
+            <small>
+              {applyResult.rejectedCount}{" "}
+              {applyResult.rejectedCount === 1
+                ? "position was"
+                : "positions were"}{" "}
+              excluded because they need attention.
+            </small>
+          )}
+          <Button onClick={onClose} tone="primary">
+            Back to holdings
+          </Button>
+        </div>
+      </section>
+    );
+  }
+
+  if (preview === null) {
+    return (
+      <section
+        aria-busy={working === "previewing"}
+        aria-labelledby="holding-import-title"
+        className="holding-import-workspace"
+      >
+        <div className="import-heading">
+          <p className="eyebrow">AngelList CSV</p>
+          <h2 id="holding-import-title" ref={workspaceHeadingRef} tabIndex={-1}>
+            Import from AngelList
+          </h2>
+          <p id="holding-import-boundary">
+            Choose your AngelList investments CSV export. Nothing changes until
+            you review it.
           </p>
         </div>
-        <Badge tone="neutral">{data.holdings.length} synthetic lots</Badge>
+        <form className="import-upload" onSubmit={requestPreview}>
+          <label className="field" htmlFor="angellist-import-file">
+            <span>AngelList CSV export</span>
+            <input
+              accept=".csv,text/csv"
+              aria-describedby={`holding-import-boundary${error === null ? "" : " holding-import-error"}`}
+              aria-invalid={error === null ? undefined : true}
+              disabled={working !== "idle"}
+              id="angellist-import-file"
+              onChange={(event) => {
+                setSelectedFile(event.currentTarget.files?.[0] ?? null);
+                setCurrencyConfirmed(false);
+                setError(null);
+              }}
+              ref={fileInputRef}
+              type="file"
+            />
+          </label>
+          {error !== null && (
+            <div
+              className="inline-error"
+              id="holding-import-error"
+              ref={messageRef}
+              role="alert"
+              tabIndex={-1}
+            >
+              {error}
+            </div>
+          )}
+          <div className="import-actions">
+            <Button
+              disabled={working !== "idle"}
+              onClick={onClose}
+              tone="quiet"
+            >
+              Cancel
+            </Button>
+            <Button disabled={working !== "idle"} tone="primary" type="submit">
+              {working === "previewing" ? "Reading…" : "Review file"}
+            </Button>
+          </div>
+        </form>
+      </section>
+    );
+  }
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil(preview.rows.length / HOLDING_IMPORT_PAGE_SIZE),
+  );
+  const pageStart = page * HOLDING_IMPORT_PAGE_SIZE;
+  const visibleRows = preview.rows.slice(
+    pageStart,
+    pageStart + HOLDING_IMPORT_PAGE_SIZE,
+  );
+  const pageEnd = Math.min(
+    pageStart + HOLDING_IMPORT_PAGE_SIZE,
+    preview.rows.length,
+  );
+  const changeCount = preview.summary.createCount + preview.summary.updateCount;
+  const readyCount =
+    preview.summary.rowCount - preview.summary.needsAttentionCount;
+  const primaryActionLabel = `Apply ${readyCount} ${readyCount === 1 ? "position" : "positions"}`;
+
+  return (
+    <section
+      aria-busy={working === "applying"}
+      aria-labelledby="holding-import-title"
+      className="holding-import-workspace"
+    >
+      <div className="import-heading">
+        <p className="eyebrow">AngelList CSV</p>
+        <h2 id="holding-import-title" ref={workspaceHeadingRef} tabIndex={-1}>
+          Review AngelList import
+        </h2>
+        <p>
+          Export dated {formatDate(preview.observedAt)}. Locked values stay
+          unavailable; Keel will not treat them as zero.
+        </p>
       </div>
 
-      <Panel className="table-panel">
+      <div aria-label="Import summary" className="import-summary">
+        <div>
+          <strong>{preview.summary.rowCount}</strong>
+          <span>Positions</span>
+        </div>
+        <div>
+          <strong>{preview.summary.administratorValueCount}</strong>
+          <span>Administrator values</span>
+        </div>
+        <div>
+          <strong>{preview.summary.lockedValueCount}</strong>
+          <span>Locked values</span>
+        </div>
+      </div>
+
+      {preview.summary.needsAttentionCount > 0 && (
+        <p className="import-attention" role="status">
+          {preview.summary.needsAttentionCount}{" "}
+          {preview.summary.needsAttentionCount === 1
+            ? "position needs"
+            : "positions need"}{" "}
+          attention and will not be applied.
+        </p>
+      )}
+
+      {error !== null && (
+        <div
+          className="inline-error"
+          ref={messageRef}
+          role="alert"
+          tabIndex={-1}
+        >
+          {error} Nothing changed. Try again.
+        </div>
+      )}
+
+      <Panel className="table-panel import-table-panel">
         <div className="holdings-table-wrap">
-          <table className="data-table holdings-table">
+          <table className="data-table import-table">
+            <caption className="visually-hidden">
+              AngelList positions ready for review
+            </caption>
             <thead>
               <tr>
-                <th>Company / lot</th>
-                <th>Admin NAV</th>
-                <th>External mark</th>
-                <th>FI underwriting</th>
-                <th>Scenario value</th>
-                <th>Usable now</th>
-                <th>Source</th>
+                <th>Investment / legal position</th>
+                <th>Entity</th>
+                <th>Status</th>
+                <th>Invested</th>
+                <th>Realized</th>
+                <th>Admin value</th>
+                <th>Import result</th>
               </tr>
             </thead>
             <tbody>
-              {data.holdings.map((holding) => (
-                <tr key={holding.id}>
-                  <td data-label="Company / lot">
-                    <strong>{holding.companyName}</strong>
-                    <span>
-                      {holding.accountName} · {holding.lotLabel}
-                    </span>
+              {visibleRows.map((row) => (
+                <tr key={row.id}>
+                  <td data-label="Investment / legal position">
+                    <strong>{row.exposureName}</strong>
+                    <span>Legal position: {row.positionName}</span>
                   </td>
-                  <td data-label="Admin NAV">
-                    {formatCompactMoney(holding.administratorNavMinor)}
-                  </td>
-                  <td data-label="External mark">
-                    {formatCompactMoney(holding.externalMarkMinor)}
-                  </td>
-                  <td data-label="FI underwriting">
-                    <strong>
-                      {formatCompactMoney(holding.underwritingValueMinor)}
-                    </strong>
-                  </td>
-                  <td data-label="Scenario value">
-                    {formatCompactMoney(holding.scenarioValueMinor)}
-                  </td>
-                  <td data-label="Usable now">
-                    {formatCompactMoney(holding.usableLiquidityMinor)}
-                  </td>
-                  <td data-label="Source">
-                    <SourceBadge status={holding.sourceStatus} />
+                  <td data-label="Entity">{row.ownerLabel}</td>
+                  <td data-label="Status">
+                    <strong>{row.providerStatus}</strong>
                     <span className="source-meta">
-                      {formatDate(holding.effectiveDate)} ·{" "}
-                      {formatProbability(holding.confidencePpm)}
+                      Invested {formatDate(row.investedOn)}
                     </span>
+                  </td>
+                  <td data-label="Invested">
+                    {formatCompactMoney(row.investedMinor)}
+                  </td>
+                  <td data-label="Realized">
+                    {formatCompactMoney(row.realizedValueMinor)}
+                  </td>
+                  <td
+                    className={
+                      row.administratorNavState === "locked"
+                        ? "import-value--locked"
+                        : undefined
+                    }
+                    data-label="Admin value"
+                  >
+                    {importAdministratorValueLabel(row)}
+                  </td>
+                  <td data-label="Import result">
+                    <ImportResult row={row} />
                   </td>
                 </tr>
               ))}
@@ -1325,27 +1694,401 @@ function Holdings({ data }: { data: AlphaData }) {
         </div>
       </Panel>
 
-      <div className="definition-grid">
-        {[
-          ["Administrator NAV", "The administrator's current reported value."],
-          ["External mark", "The latest observed third-party economic mark."],
-          [
-            "FI underwriting",
-            "The conservative value allowed into FI planning.",
-          ],
-          ["Scenario value", "The thesis-weighted conditional economic value."],
-          [
-            "Usable liquidity",
-            "Capital currently available for actual decisions.",
-          ],
-        ].map(([title, copy], index) => (
-          <article key={title}>
-            <span>0{index + 1}</span>
-            <h3>{title}</h3>
-            <p>{copy}</p>
-          </article>
-        ))}
+      <nav aria-label="Import preview pages" className="import-pagination">
+        <span>
+          {pageStart + 1}–{pageEnd} of {preview.rows.length}
+        </span>
+        <div>
+          <Button
+            aria-label="Previous import preview page"
+            disabled={page === 0}
+            onClick={() => setPage((current) => Math.max(0, current - 1))}
+            tone="quiet"
+          >
+            Previous
+          </Button>
+          <span>
+            Page {page + 1} of {pageCount}
+          </span>
+          <Button
+            aria-label="Next import preview page"
+            disabled={page + 1 >= pageCount}
+            onClick={() =>
+              setPage((current) => Math.min(pageCount - 1, current + 1))
+            }
+            tone="quiet"
+          >
+            Next
+          </Button>
+        </div>
+      </nav>
+
+      <label className="import-currency-confirmation">
+        <input
+          checked={currencyConfirmed}
+          onChange={(event) =>
+            setCurrencyConfirmed(event.currentTarget.checked)
+          }
+          type="checkbox"
+        />
+        <span>I confirm the export’s $ values are USD.</span>
+      </label>
+
+      {confirming ? (
+        <div
+          aria-labelledby="holding-import-confirmation-title"
+          className="import-confirmation"
+        >
+          <div>
+            <p className="eyebrow">Final review</p>
+            <h3
+              id="holding-import-confirmation-title"
+              ref={confirmationHeadingRef}
+              tabIndex={-1}
+            >
+              Apply the reviewed import?
+            </h3>
+            <p>
+              Create {preview.summary.createCount}, update{" "}
+              {preview.summary.updateCount}, and confirm{" "}
+              {preview.summary.unchangedCount} unchanged.{" "}
+              {preview.summary.lockedValueCount} locked values will remain
+              unavailable. No forecast, underwriting value, or liquidity value
+              will be inferred.
+            </p>
+            {preview.summary.needsAttentionCount > 0 && (
+              <small>
+                {preview.summary.needsAttentionCount}{" "}
+                {preview.summary.needsAttentionCount === 1
+                  ? "position is"
+                  : "positions are"}{" "}
+                excluded because they need attention.
+              </small>
+            )}
+          </div>
+          <div>
+            <Button
+              disabled={working !== "idle" || !currencyConfirmed}
+              onClick={() => setConfirming(false)}
+              tone="quiet"
+            >
+              Back
+            </Button>
+            <Button
+              disabled={working !== "idle" || !currencyConfirmed}
+              onClick={applyPreview}
+              tone="primary"
+            >
+              {working === "applying"
+                ? "Applying…"
+                : changeCount === 0
+                  ? "Confirm review"
+                  : "Confirm & apply"}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="import-footer">
+          <div>
+            <strong>{readyCount} positions reviewed</strong>
+            <span>Every row receives an explicit review decision.</span>
+          </div>
+          <div>
+            <Button onClick={resetFile} tone="quiet">
+              Choose another file
+            </Button>
+            <Button
+              disabled={!currencyConfirmed}
+              onClick={() => setConfirming(true)}
+              tone="primary"
+            >
+              {primaryActionLabel}
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const primaryName = holdingPrimaryName(holding);
+  const legalPositionLabel = holdingLegalPositionLabel(holding);
+  const sourceSectionTitle =
+    holding.externalMarkMinor === null
+      ? "Administrator source"
+      : "External mark source";
+  const valueLenses = [
+    {
+      label: "Administrator NAV",
+      value: administratorValueLabel(holding),
+      helper:
+        holding.administratorNavState === "locked" &&
+        holding.sourceLabel === "AngelList export"
+          ? "AngelList did not disclose this value in the export."
+          : "Administrator-reported value as of the source date.",
+      wide: holding.administratorNavState === "locked",
+    },
+    {
+      label: "External mark",
+      value: holdingValueLabel(holding.externalMarkMinor),
+      helper: "Latest observed third-party economic mark.",
+      wide: false,
+    },
+    {
+      label: "FI planning value",
+      value: holdingValueLabel(holding.underwritingValueMinor),
+      helper: "Conservative value allowed into FI planning.",
+      wide: false,
+    },
+    {
+      label: "Scenario value",
+      value: holdingValueLabel(holding.scenarioValueMinor),
+      helper: "Thesis-weighted conditional economic value.",
+      wide: false,
+    },
+    {
+      label: "Usable liquidity",
+      value: holdingValueLabel(holding.usableLiquidityMinor),
+      helper: "Capital currently available for actual decisions.",
+      wide: false,
+    },
+  ] as const;
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
+  return (
+    <section
+      aria-labelledby="holding-detail-title"
+      className="holding-detail-workspace"
+    >
+      <header className="holding-detail-heading">
+        <p className="eyebrow">Holding detail</p>
+        <h2 id="holding-detail-title" ref={headingRef} tabIndex={-1}>
+          {primaryName}
+        </h2>
+        <p>
+          {holding.exposureName === null
+            ? holdingKindLabel(holding)
+            : holding.positionKind === "direct"
+              ? "Direct position"
+              : `Via ${holding.positionName}`}
+        </p>
+      </header>
+
+      <section aria-labelledby="holding-values-title">
+        <p className="eyebrow">Value lenses</p>
+        <h3 id="holding-values-title">Current values</h3>
+        <div className="holding-detail-values">
+          {valueLenses.map((lens) => (
+            <article
+              className={
+                lens.wide
+                  ? "holding-detail-value holding-detail-value--wide"
+                  : "holding-detail-value"
+              }
+              key={lens.label}
+            >
+              <span>{lens.label}</span>
+              <strong className={lens.value === "Not set" ? "is-not-set" : ""}>
+                {lens.value}
+              </strong>
+              <small>{lens.helper}</small>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <div className="holding-detail-records">
+        <section aria-labelledby="holding-position-title">
+          <p className="eyebrow">Accepted record</p>
+          <h3 id="holding-position-title">Position</h3>
+          <dl>
+            <div>
+              <dt>{legalPositionLabel}</dt>
+              <dd>{holding.positionName}</dd>
+            </div>
+            <div>
+              <dt>Held through</dt>
+              <dd>{holding.ownerLabel}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section aria-labelledby="holding-source-title">
+          <p className="eyebrow">Value evidence</p>
+          <h3 id="holding-source-title">{sourceSectionTitle}</h3>
+          <dl>
+            <div>
+              <dt>Source</dt>
+              <dd>{holding.sourceLabel}</dd>
+            </div>
+            <div>
+              <dt>As of</dt>
+              <dd>{formatDate(holding.effectiveDate)}</dd>
+            </div>
+            {holding.confidencePpm !== null && (
+              <div>
+                <dt>Source confidence</dt>
+                <dd>{formatProbability(holding.confidencePpm)}</dd>
+              </div>
+            )}
+            {holding.sourceStatus !== "verified" && (
+              <div>
+                <dt>Source status</dt>
+                <dd>
+                  <SourceBadge status={holding.sourceStatus} />
+                </dd>
+              </div>
+            )}
+          </dl>
+        </section>
       </div>
+    </section>
+  );
+}
+
+function Holdings({
+  data,
+  onApplyImport,
+  onPreviewImport,
+}: {
+  data: AlphaData;
+  onApplyImport: (
+    importId: string,
+    input: HoldingImportApplyInput,
+  ) => Promise<HoldingImportApplyResult>;
+  onPreviewImport: (file: File) => Promise<HoldingImportPreview>;
+}) {
+  const [showImporter, setShowImporter] = useState(false);
+  const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(
+    null,
+  );
+  const holdingActionRefs = useRef(new Map<string, HTMLButtonElement>());
+  const selectedHolding =
+    data.holdings.find((holding) => holding.id === selectedHoldingId) ?? null;
+
+  const closeHoldingDetail = () => {
+    const returnFocusId = selectedHoldingId;
+    setSelectedHoldingId(null);
+    if (returnFocusId !== null) {
+      window.requestAnimationFrame(() =>
+        holdingActionRefs.current.get(returnFocusId)?.focus(),
+      );
+    }
+  };
+
+  return (
+    <div className="screen-stack">
+      <div className="page-intro">
+        <div>
+          <p className="eyebrow">Portfolio evidence</p>
+          <h1>Holdings</h1>
+          <p>
+            Five distinct value lenses. A mark does not imply an exit, and an
+            exit does not imply usable liquidity.
+          </p>
+        </div>
+        <div className="page-intro__actions">
+          {selectedHolding !== null ? (
+            <Button onClick={closeHoldingDetail} tone="quiet">
+              Back to holdings
+            </Button>
+          ) : showImporter ? (
+            <Button onClick={() => setShowImporter(false)} tone="quiet">
+              Close import
+            </Button>
+          ) : (
+            <>
+              <span className="page-count">
+                {data.holdings.length} holdings
+              </span>
+              <Button
+                onClick={() => {
+                  setSelectedHoldingId(null);
+                  setShowImporter(true);
+                }}
+                tone="primary"
+              >
+                Import holdings
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {selectedHolding !== null ? (
+        <HoldingDetailWorkspace holding={selectedHolding} />
+      ) : showImporter ? (
+        <HoldingImportWorkspace
+          onApply={onApplyImport}
+          onClose={() => setShowImporter(false)}
+          onPreview={onPreviewImport}
+        />
+      ) : (
+        <>
+          <Panel className="table-panel">
+            <div className="holdings-table-wrap">
+              <table className="data-table holdings-table">
+                <thead>
+                  <tr>
+                    <th>Investment</th>
+                    <th>Admin NAV</th>
+                    <th>External mark</th>
+                    <th>FI planning value</th>
+                    <th>Scenario value</th>
+                    <th>Usable now</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.holdings.map((holding) => (
+                    <tr key={holding.id}>
+                      <td data-label="Investment">
+                        <button
+                          aria-label={`View ${holdingPrimaryName(holding)} holding details`}
+                          className="holding-row-action"
+                          onClick={() => setSelectedHoldingId(holding.id)}
+                          ref={(node) => {
+                            if (node === null) {
+                              holdingActionRefs.current.delete(holding.id);
+                            } else {
+                              holdingActionRefs.current.set(holding.id, node);
+                            }
+                          }}
+                          type="button"
+                        >
+                          <strong>{holdingPrimaryName(holding)}</strong>
+                          <i aria-hidden="true">View details →</i>
+                        </button>
+                      </td>
+                      <td data-label="Admin NAV">
+                        {administratorValueLabel(holding)}
+                      </td>
+                      <td data-label="External mark">
+                        {holdingValueLabel(holding.externalMarkMinor)}
+                      </td>
+                      <td data-label="FI planning value">
+                        <strong>
+                          {holdingValueLabel(holding.underwritingValueMinor)}
+                        </strong>
+                      </td>
+                      <td data-label="Scenario value">
+                        {holdingValueLabel(holding.scenarioValueMinor)}
+                      </td>
+                      <td data-label="Usable now">
+                        {holdingValueLabel(holding.usableLiquidityMinor)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </>
+      )}
     </div>
   );
 }
@@ -2654,7 +3397,17 @@ export function App() {
           />
         );
       case "holdings":
-        return <Holdings data={data} />;
+        return (
+          <Holdings
+            data={data}
+            onApplyImport={async (importId, input) => {
+              const result = await applyHoldingImport(importId, input);
+              setData(await loadAlphaData());
+              return result;
+            }}
+            onPreviewImport={previewAngelListHoldingImport}
+          />
+        );
       case "watch":
         return (
           <PortfolioWatch

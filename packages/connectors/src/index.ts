@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export * from "./official-company-web";
 export * from "./financing-announcement";
+export * from "./angellist-investments-csv";
 
 export const ConnectorTypeSchema = z.enum([
   "sec-edgar",
@@ -60,6 +61,7 @@ export const SourceDocumentMetadataSchema = z.object({
   fileName: z.string().min(1).max(255),
   contentType: z.enum([
     "application/pdf",
+    "text/csv",
     "text/plain",
     "text/html",
     "text/markdown",

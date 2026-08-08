@@ -33,6 +33,16 @@ test("loads the database-backed dashboard and primary views", async ({
     .click();
   await expect(page.getByRole("heading", { name: "Holdings" })).toBeVisible();
   await expect(page.getByText("Northstar Robotics")).toBeVisible();
+  const northstarHolding = page.getByRole("button", {
+    name: "View Northstar Robotics holding details",
+  });
+  await northstarHolding.click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Northstar Robotics" }),
+  ).toBeFocused();
+  await expect(page.getByText("External mark source")).toBeVisible();
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(northstarHolding).toBeFocused();
 
   await navigation.getByRole("button", { name: /Watch/ }).click();
   await expect(

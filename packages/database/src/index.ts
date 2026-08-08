@@ -14,6 +14,9 @@ import {
   type FinancingAnnouncementFacts,
   type ForecastHistoryItemSchema,
   type GoalDraftInput,
+  type HoldingImportApplyInput,
+  type HoldingImportApplyResult,
+  type HoldingImportPreview,
   type Scenario,
   type ScenarioDraftInput,
 } from "@keel/domain";
@@ -29,7 +32,13 @@ import {
   D1PortfolioWatchRepository,
   type PortfolioWatchScanPreparation,
 } from "./portfolio-watch";
+import {
+  D1HoldingImportRepository,
+  type HoldingImportStageInput,
+  type HoldingImportStageResult,
+} from "./holding-imports";
 
+export * from "./holding-imports";
 export * from "./portfolio-watch";
 
 type DashboardRow = {
@@ -90,19 +99,21 @@ type GoalIdentityRow = {
 
 type HoldingRow = {
   id: string;
-  company_name: string;
-  account_name: string;
-  lot_label: string;
-  administrator_nav_minor: number;
-  external_mark_minor: number;
-  underwriting_value_minor: number;
-  scenario_value_minor: number;
-  usable_liquidity_minor: number;
+  position_name: string;
+  exposure_name: string | null;
+  owner_label: string;
+  position_kind: "direct" | "spv_interest" | "fund_interest";
+  administrator_nav_minor: number | null;
+  administrator_nav_state: "reported" | "locked" | "not_set";
+  external_mark_minor: number | null;
+  underwriting_value_minor: number | null;
+  scenario_value_minor: number | null;
+  usable_liquidity_minor: number | null;
   source_status: "verified" | "review_due" | "proposed";
   source_label: string;
   effective_date: string;
   retrieved_at: string;
-  confidence_ppm: number;
+  confidence_ppm: number | null;
 };
 
 type EvidenceRow = {
@@ -273,6 +284,19 @@ export interface AlphaRepository {
   preparePortfolioWatchScan(
     accessSubject: string,
   ): Promise<PortfolioWatchScanPreparation>;
+  stageHoldingImport(
+    accessSubject: string,
+    input: HoldingImportStageInput,
+  ): Promise<HoldingImportStageResult>;
+  getHoldingImport(
+    accessSubject: string,
+    importId: string,
+  ): Promise<HoldingImportPreview>;
+  applyHoldingImport(
+    accessSubject: string,
+    importId: string,
+    input: HoldingImportApplyInput,
+  ): Promise<HoldingImportApplyResult>;
   saveGoal(accessSubject: string, input: GoalDraftInput): Promise<void>;
   saveScenario(accessSubject: string, input: ScenarioDraftInput): Promise<void>;
   reviewEvidence(
@@ -416,70 +440,150 @@ export class D1AlphaRepository implements AlphaRepository {
       all<HoldingRow>(
         this.db
           .prepare(
-            `SELECT
-                lot.id,
-                company.legal_name AS company_name,
-                account.name AS account_name,
-                lot.lot_label,
-                (
-                  SELECT mark.value_minor
-                  FROM marks mark
-                  WHERE mark.asset_lot_id = lot.id
-                    AND mark.mark_kind = 'administrator_nav'
-                  ORDER BY mark.effective_at DESC, mark.created_at DESC
-                  LIMIT 1
-                ) AS administrator_nav_minor,
-                external.value_minor AS external_mark_minor,
-                (
-                  SELECT mark.value_minor
-                  FROM marks mark
-                  WHERE mark.asset_lot_id = lot.id
-                    AND mark.mark_kind = 'fi_underwriting'
-                  ORDER BY mark.effective_at DESC, mark.created_at DESC
-                  LIMIT 1
-                ) AS underwriting_value_minor,
-                (
-                  SELECT mark.value_minor
-                  FROM marks mark
-                  WHERE mark.asset_lot_id = lot.id
-                    AND mark.mark_kind = 'thesis_weighted'
-                  ORDER BY mark.effective_at DESC, mark.created_at DESC
-                  LIMIT 1
-                ) AS scenario_value_minor,
-                (
-                  SELECT mark.value_minor
-                  FROM marks mark
-                  WHERE mark.asset_lot_id = lot.id
-                    AND mark.mark_kind = 'usable_liquidity'
-                  ORDER BY mark.effective_at DESC, mark.created_at DESC
-                  LIMIT 1
-                ) AS usable_liquidity_minor,
-                CASE
-                  WHEN external.review_status = 'proposed' THEN 'proposed'
-                  WHEN julianday('now') - julianday(external.retrieved_at) > 90 THEN 'review_due'
-                  ELSE 'verified'
-                END AS source_status,
-                source.source_name AS source_label,
-                substr(external.effective_at, 1, 10) AS effective_date,
-                external.retrieved_at,
-                source.confidence_ppm
-              FROM asset_lots lot
-              JOIN companies company ON company.id = lot.company_id
-              JOIN asset_accounts account ON account.id = lot.asset_account_id
-              JOIN marks external
-                ON external.id = (
-                  SELECT latest.id
-                  FROM marks latest
-                  WHERE latest.asset_lot_id = lot.id
-                    AND latest.mark_kind = 'external_mark'
-                  ORDER BY latest.effective_at DESC, latest.created_at DESC
-                  LIMIT 1
-                )
-              JOIN mark_sources source ON source.id = external.mark_source_id
-              WHERE lot.household_id = ?
-              ORDER BY company.legal_name`,
+            `SELECT * FROM (
+               SELECT
+                 lot.id,
+                 lot.lot_label AS position_name,
+                 company.legal_name AS exposure_name,
+                 account.name AS owner_label,
+                 CASE
+                   WHEN lot.private_vehicle_id IS NULL THEN 'direct'
+                   WHEN account.account_type = 'fund' THEN 'fund_interest'
+                   ELSE 'spv_interest'
+                 END AS position_kind,
+                 (
+                   SELECT mark.value_minor
+                   FROM marks mark
+                   WHERE mark.asset_lot_id = lot.id
+                     AND mark.mark_kind = 'administrator_nav'
+                   ORDER BY mark.effective_at DESC, mark.created_at DESC
+                   LIMIT 1
+                 ) AS administrator_nav_minor,
+                 CASE
+                   WHEN EXISTS (
+                     SELECT 1 FROM marks mark
+                     WHERE mark.asset_lot_id = lot.id
+                       AND mark.mark_kind = 'administrator_nav'
+                   ) THEN 'reported'
+                   ELSE 'not_set'
+                 END AS administrator_nav_state,
+                 external.value_minor AS external_mark_minor,
+                 (
+                   SELECT mark.value_minor
+                   FROM marks mark
+                   WHERE mark.asset_lot_id = lot.id
+                     AND mark.mark_kind = 'fi_underwriting'
+                   ORDER BY mark.effective_at DESC, mark.created_at DESC
+                   LIMIT 1
+                 ) AS underwriting_value_minor,
+                 (
+                   SELECT mark.value_minor
+                   FROM marks mark
+                   WHERE mark.asset_lot_id = lot.id
+                     AND mark.mark_kind = 'thesis_weighted'
+                   ORDER BY mark.effective_at DESC, mark.created_at DESC
+                   LIMIT 1
+                 ) AS scenario_value_minor,
+                 (
+                   SELECT mark.value_minor
+                   FROM marks mark
+                   WHERE mark.asset_lot_id = lot.id
+                     AND mark.mark_kind = 'usable_liquidity'
+                   ORDER BY mark.effective_at DESC, mark.created_at DESC
+                   LIMIT 1
+                 ) AS usable_liquidity_minor,
+                 CASE
+                   WHEN external.review_status = 'proposed' THEN 'proposed'
+                   WHEN julianday('now') - julianday(external.retrieved_at) > 90
+                     THEN 'review_due'
+                   ELSE 'verified'
+                 END AS source_status,
+                 source.source_name AS source_label,
+                 substr(external.effective_at, 1, 10) AS effective_date,
+                 external.retrieved_at,
+                 source.confidence_ppm
+               FROM asset_lots lot
+               JOIN companies company ON company.id = lot.company_id
+               JOIN asset_accounts account ON account.id = lot.asset_account_id
+               JOIN marks external
+                 ON external.id = (
+                   SELECT latest.id
+                   FROM marks latest
+                   WHERE latest.asset_lot_id = lot.id
+                     AND latest.mark_kind = 'external_mark'
+                   ORDER BY latest.effective_at DESC, latest.created_at DESC
+                   LIMIT 1
+                 )
+               JOIN mark_sources source ON source.id = external.mark_source_id
+               WHERE lot.household_id = ?
+
+               UNION ALL
+
+               SELECT
+                 position.id,
+                 position.legal_vehicle_name AS position_name,
+                 (
+                   SELECT exposure.exposure_label
+                   FROM holding_position_exposures exposure
+                   WHERE exposure.position_id = position.id
+                   ORDER BY exposure.created_at, exposure.id
+                   LIMIT 1
+                 ) AS exposure_name,
+                 position.owner_label,
+                 position.position_kind,
+                 snapshot.unrealized_value_minor AS administrator_nav_minor,
+                 CASE snapshot.unrealized_value_state
+                   WHEN 'reported' THEN 'reported'
+                   WHEN 'locked' THEN 'locked'
+                   ELSE 'not_set'
+                 END AS administrator_nav_state,
+                 NULL AS external_mark_minor,
+                 NULL AS underwriting_value_minor,
+                 NULL AS scenario_value_minor,
+                 NULL AS usable_liquidity_minor,
+                 CASE
+                   WHEN julianday('now') - julianday(
+                     COALESCE(document.effective_date, document.retrieved_at)
+                   ) > 90
+                     THEN 'review_due'
+                   ELSE 'verified'
+                 END AS source_status,
+                 'AngelList export' AS source_label,
+                 COALESCE(
+                   document.effective_date,
+                   substr(document.retrieved_at, 1, 10)
+                 ) AS effective_date,
+                 document.retrieved_at,
+                 NULL AS confidence_ppm
+               FROM holding_positions position
+               JOIN holding_position_snapshots snapshot
+                 ON snapshot.id = (
+                   SELECT latest.id
+                   FROM holding_position_snapshots latest
+                   WHERE latest.position_id = position.id
+                   ORDER BY latest.observed_at DESC, latest.created_at DESC
+                   LIMIT 1
+                 )
+               JOIN holding_import_applications latest_application
+                 ON latest_application.id = (
+                   SELECT application.id
+                   FROM holding_import_applications application
+                   WHERE application.position_id = position.id
+                     AND application.snapshot_id = snapshot.id
+                   ORDER BY application.applied_at DESC, application.id DESC
+                   LIMIT 1
+                 )
+               JOIN holding_import_rows latest_row
+                 ON latest_row.id = latest_application.import_row_id
+               JOIN holding_imports latest_import
+                 ON latest_import.id = latest_row.import_id
+               JOIN source_documents document
+                 ON document.id = latest_import.source_document_id
+               WHERE position.household_id = ?
+             ) holdings
+             ORDER BY exposure_name, position_name`,
           )
-          .bind(householdId),
+          .bind(householdId, householdId),
       ),
       all<EvidenceRow>(
         this.db
@@ -705,10 +809,12 @@ export class D1AlphaRepository implements AlphaRepository {
       goals,
       holdings: holdings.map((row) => ({
         id: row.id,
-        companyName: row.company_name,
-        accountName: row.account_name,
-        lotLabel: row.lot_label,
+        positionName: row.position_name,
+        exposureName: row.exposure_name,
+        ownerLabel: row.owner_label,
+        positionKind: row.position_kind,
         administratorNavMinor: row.administrator_nav_minor,
+        administratorNavState: row.administrator_nav_state,
         externalMarkMinor: row.external_mark_minor,
         underwritingValueMinor: row.underwriting_value_minor,
         scenarioValueMinor: row.scenario_value_minor,
@@ -833,6 +939,38 @@ export class D1AlphaRepository implements AlphaRepository {
     const identity = await this.findIdentity(accessSubject);
     return new D1PortfolioWatchRepository(this.db).prepareScan(
       identity.household_id,
+    );
+  }
+
+  public async stageHoldingImport(
+    accessSubject: string,
+    input: HoldingImportStageInput,
+  ): Promise<HoldingImportStageResult> {
+    return new D1HoldingImportRepository(this.db).stageHoldingImport(
+      accessSubject,
+      input,
+    );
+  }
+
+  public async getHoldingImport(
+    accessSubject: string,
+    importId: string,
+  ): Promise<HoldingImportPreview> {
+    return new D1HoldingImportRepository(this.db).getHoldingImport(
+      accessSubject,
+      importId,
+    );
+  }
+
+  public async applyHoldingImport(
+    accessSubject: string,
+    importId: string,
+    input: HoldingImportApplyInput,
+  ): Promise<HoldingImportApplyResult> {
+    return new D1HoldingImportRepository(this.db).applyHoldingImport(
+      accessSubject,
+      importId,
+      input,
     );
   }
 
