@@ -60,6 +60,15 @@ function createMigratedDatabase(): DatabaseSync {
   return database;
 }
 
+describe("Remote D1 migration compatibility", () => {
+  it("avoids unparenthesized SELECT CASE expressions in trigger programs", () => {
+    for (const file of migrationFiles) {
+      const sql = readFileSync(resolve(process.cwd(), file), "utf8");
+      expect(sql).not.toMatch(/\bSELECT\s+CASE\b/i);
+    }
+  });
+});
+
 describe("Portfolio Watch source observation migration integrity", () => {
   it("accepts the evidence event's own document", () => {
     const database = createMigratedDatabase();

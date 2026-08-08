@@ -20,14 +20,15 @@ CREATE INDEX holding_imports_household_created_idx
 CREATE TRIGGER holding_imports_integrity_insert
 BEFORE INSERT ON holding_imports
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'holding import household mismatch')
+  WHERE NOT EXISTS (
     SELECT 1
     FROM source_documents document
     JOIN households household ON household.id = NEW.household_id
     WHERE document.id = NEW.source_document_id
       AND document.household_id = NEW.household_id
       AND household.owner_user_id = NEW.created_by
-  ) THEN RAISE(ABORT, 'holding import household mismatch') END;
+  );
 END;
 
 CREATE TRIGGER holding_imports_no_update
@@ -108,11 +109,12 @@ CREATE INDEX holding_import_rows_position_idx
 CREATE TRIGGER holding_import_rows_integrity_insert
 BEFORE INSERT ON holding_import_rows
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'holding import row household mismatch')
+  WHERE NOT EXISTS (
     SELECT 1 FROM holding_imports import
     WHERE import.id = NEW.import_id
       AND import.household_id = NEW.household_id
-  ) THEN RAISE(ABORT, 'holding import row household mismatch') END;
+  );
 END;
 
 CREATE TRIGGER holding_import_rows_no_update
@@ -163,11 +165,12 @@ CREATE INDEX holding_positions_household_created_idx
 CREATE TRIGGER holding_positions_integrity_insert
 BEFORE INSERT ON holding_positions
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'holding position household mismatch')
+  WHERE NOT EXISTS (
     SELECT 1 FROM households household
     WHERE household.id = NEW.household_id
       AND household.owner_user_id = NEW.created_by
-  ) THEN RAISE(ABORT, 'holding position household mismatch') END;
+  );
 END;
 
 CREATE TRIGGER holding_positions_no_update
@@ -206,16 +209,18 @@ CREATE INDEX holding_position_exposures_household_idx
 CREATE TRIGGER holding_position_exposures_integrity_insert
 BEFORE INSERT ON holding_position_exposures
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'holding exposure household mismatch')
+  WHERE NOT EXISTS (
     SELECT 1 FROM holding_positions position
     WHERE position.id = NEW.position_id
       AND position.household_id = NEW.household_id
-  ) THEN RAISE(ABORT, 'holding exposure household mismatch') END;
-  SELECT CASE WHEN NEW.company_id IS NOT NULL AND NOT EXISTS (
+  );
+  SELECT RAISE(ABORT, 'holding exposure company mismatch')
+  WHERE NEW.company_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM companies company
     WHERE company.id = NEW.company_id
       AND company.household_id = NEW.household_id
-  ) THEN RAISE(ABORT, 'holding exposure company mismatch') END;
+  );
 END;
 
 CREATE TRIGGER holding_position_exposures_no_update
@@ -282,7 +287,8 @@ CREATE INDEX holding_position_snapshots_position_idx
 CREATE TRIGGER holding_position_snapshots_integrity_insert
 BEFORE INSERT ON holding_position_snapshots
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'holding snapshot provenance mismatch')
+  WHERE NOT EXISTS (
     SELECT 1
     FROM holding_positions position
     JOIN holding_import_rows row ON row.id = NEW.source_import_row_id
@@ -300,7 +306,7 @@ BEGIN
         )
       )
       AND import.source_document_id = NEW.source_document_id
-  ) THEN RAISE(ABORT, 'holding snapshot provenance mismatch') END;
+  );
 END;
 
 CREATE TRIGGER holding_position_snapshots_no_update
@@ -340,7 +346,8 @@ CREATE INDEX holding_import_row_decisions_household_idx
 CREATE TRIGGER holding_import_row_decisions_integrity_insert
 BEFORE INSERT ON holding_import_row_decisions
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'holding import decision household mismatch')
+  WHERE NOT EXISTS (
     SELECT 1
     FROM holding_import_rows row
     JOIN households household ON household.id = row.household_id
@@ -348,12 +355,13 @@ BEGIN
       AND row.household_id = NEW.household_id
       AND row.snapshot_fingerprint = NEW.reviewed_snapshot_fingerprint
       AND household.owner_user_id = NEW.reviewer_user_id
-  ) THEN RAISE(ABORT, 'holding import decision household mismatch') END;
-  SELECT CASE WHEN NEW.matched_position_id IS NOT NULL AND NOT EXISTS (
+  );
+  SELECT RAISE(ABORT, 'holding import decision position mismatch')
+  WHERE NEW.matched_position_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM holding_positions position
     WHERE position.id = NEW.matched_position_id
       AND position.household_id = NEW.household_id
-  ) THEN RAISE(ABORT, 'holding import decision position mismatch') END;
+  );
 END;
 
 CREATE TRIGGER holding_import_row_decisions_no_update
@@ -390,7 +398,8 @@ CREATE INDEX holding_import_applications_household_idx
 CREATE TRIGGER holding_import_applications_integrity_insert
 BEFORE INSERT ON holding_import_applications
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'holding import application mismatch')
+  WHERE NOT EXISTS (
     SELECT 1
     FROM holding_import_row_decisions decision
     JOIN holding_position_snapshots snapshot ON snapshot.id = NEW.snapshot_id
@@ -409,7 +418,7 @@ BEGIN
       )
       AND position.household_id = NEW.household_id
       AND household.owner_user_id = NEW.applied_by
-  ) THEN RAISE(ABORT, 'holding import application mismatch') END;
+  );
 END;
 
 CREATE TRIGGER holding_import_applications_no_update

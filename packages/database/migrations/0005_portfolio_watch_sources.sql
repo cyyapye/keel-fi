@@ -43,7 +43,8 @@ CREATE INDEX portfolio_watch_sources_company_idx
 CREATE TRIGGER portfolio_watch_sources_integrity_insert
 BEFORE INSERT ON portfolio_watch_sources
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'portfolio watch source household or company mismatch')
+  WHERE NOT EXISTS (
     SELECT 1
     FROM portfolio_watch_targets target
     JOIN companies company ON company.id = target.company_id
@@ -51,14 +52,15 @@ BEGIN
       AND target.household_id = NEW.household_id
       AND target.company_id = NEW.company_id
       AND company.household_id = NEW.household_id
-  ) THEN RAISE(ABORT, 'portfolio watch source household or company mismatch') END;
+  );
 END;
 
 CREATE TRIGGER portfolio_watch_sources_integrity_update
 BEFORE UPDATE OF household_id, watch_target_id, company_id
 ON portfolio_watch_sources
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'portfolio watch source household or company mismatch')
+  WHERE NOT EXISTS (
     SELECT 1
     FROM portfolio_watch_targets target
     JOIN companies company ON company.id = target.company_id
@@ -66,7 +68,7 @@ BEGIN
       AND target.household_id = NEW.household_id
       AND target.company_id = NEW.company_id
       AND company.household_id = NEW.household_id
-  ) THEN RAISE(ABORT, 'portfolio watch source household or company mismatch') END;
+  );
 END;
 
 CREATE TABLE portfolio_watch_source_verification_events (
@@ -103,11 +105,12 @@ CREATE INDEX portfolio_watch_source_verification_events_source_idx
 CREATE TRIGGER portfolio_watch_source_verification_events_integrity_insert
 BEFORE INSERT ON portfolio_watch_source_verification_events
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'portfolio watch verification household mismatch')
+  WHERE NOT EXISTS (
     SELECT 1 FROM portfolio_watch_sources source
     WHERE source.id = NEW.source_id
       AND source.household_id = NEW.household_id
-  ) THEN RAISE(ABORT, 'portfolio watch verification household mismatch') END;
+  );
 END;
 
 CREATE TRIGGER portfolio_watch_source_verification_events_no_update
@@ -152,7 +155,11 @@ CREATE TRIGGER public_source_observations_source_integrity_insert
 BEFORE INSERT ON public_source_observations
 WHEN NEW.source_id IS NOT NULL
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(
+    ABORT,
+    'portfolio watch observation household or company mismatch'
+  )
+  WHERE NOT EXISTS (
     SELECT 1
     FROM portfolio_watch_sources source
     JOIN evidence_events event ON event.id = NEW.evidence_event_id
@@ -164,5 +171,5 @@ BEGIN
       AND event.company_id = NEW.company_id
       AND event.source_document_id = NEW.source_document_id
       AND document.household_id = NEW.household_id
-  ) THEN RAISE(ABORT, 'portfolio watch observation household or company mismatch') END;
+  );
 END;
