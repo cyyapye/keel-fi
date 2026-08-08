@@ -6,7 +6,58 @@ import {
   inspectApprovedCompanyDocument,
 } from "../apps/api/src/portfolio-watch";
 import { canonicalizeCompanyWebsite } from "../packages/connectors/src/index";
+import type { FinancingAnnouncementFacts } from "../packages/domain/src/index";
 import type { PortfolioWatchSourceRecord } from "../packages/database/src/portfolio-watch";
+
+const ExpectedMoneyFactSchema = z
+  .object({
+    amountMinor: z.number().int().safe().nonnegative(),
+    currency: z.string().regex(/^[A-Z]{3}$/u),
+    qualifier: z
+      .enum(["exact", "approximately", "at_least", "up_to"])
+      .optional(),
+  })
+  .strict();
+
+const ExpectedFinancingFactsSchema = z
+  .object({
+    roundType: z
+      .enum([
+        "pre_seed",
+        "seed",
+        "series",
+        "growth",
+        "strategic",
+        "undisclosed",
+      ])
+      .nullable()
+      .optional(),
+    instrument: z
+      .enum(["equity", "debt", "convertible", "mixed", "undisclosed"])
+      .optional(),
+    announcedAmount: ExpectedMoneyFactSchema.nullable().optional(),
+    companyValuation: ExpectedMoneyFactSchema.extend({
+      basis: z.enum(["pre_money", "post_money", "undisclosed"]).optional(),
+    })
+      .strict()
+      .nullable()
+      .optional(),
+    ambiguities: z
+      .array(
+        z.enum([
+          "currency_not_explicit",
+          "multiple_funding_amounts",
+          "multiple_valuations",
+          "combined_tranches",
+          "prior_round_reference",
+        ]),
+      )
+      .optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Expected financing facts must assert at least one field.",
+  });
 
 const LiveSourceInputSchema = z
   .array(
@@ -25,8 +76,22 @@ const LiveSourceInputSchema = z
             "coverage_gap",
           ])
           .optional(),
+        expectedFinancingFacts: ExpectedFinancingFactsSchema.optional(),
       })
-      .strict(),
+      .strict()
+      .superRefine((input, context) => {
+        if (
+          input.expectedFinancingFacts !== undefined &&
+          input.expectedEventType !== "financing_announced"
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["expectedFinancingFacts"],
+            message:
+              "Expected financing facts require a financing_announced event.",
+          });
+        }
+      }),
   )
   .min(1)
   .max(6);
@@ -87,6 +152,46 @@ function crawlPriority(urlValue: string): number {
   return 4;
 }
 
+function moneyFactMatches(
+  actual:
+    | FinancingAnnouncementFacts["announcedAmount"]
+    | FinancingAnnouncementFacts["companyValuation"],
+  expected: z.infer<typeof ExpectedMoneyFactSchema> | null | undefined,
+): boolean {
+  if (expected === undefined) {
+    return true;
+  }
+  if (actual === null || expected === null) {
+    return actual === expected;
+  }
+  return (
+    actual.amountMinor === expected.amountMinor &&
+    actual.currency === expected.currency &&
+    (expected.qualifier === undefined ||
+      actual.qualifier === expected.qualifier) &&
+    (!("basis" in expected) ||
+      expected.basis === undefined ||
+      ("basis" in actual && actual.basis === expected.basis))
+  );
+}
+
+function financingFactsMatch(
+  actual: FinancingAnnouncementFacts,
+  expected: z.infer<typeof ExpectedFinancingFactsSchema>,
+): boolean {
+  return (
+    (expected.roundType === undefined ||
+      actual.roundType === expected.roundType) &&
+    (expected.instrument === undefined ||
+      actual.instrument === expected.instrument) &&
+    moneyFactMatches(actual.announcedAmount, expected.announcedAmount) &&
+    moneyFactMatches(actual.companyValuation, expected.companyValuation) &&
+    (expected.ambiguities === undefined ||
+      [...actual.ambiguities].sort().join("|") ===
+        [...expected.ambiguities].sort().join("|"))
+  );
+}
+
 async function inspectCompany(
   input: z.infer<typeof LiveSourceInputSchema>[number],
 ) {
@@ -103,6 +208,7 @@ async function inspectCompany(
     ];
   const visited = new Set<string>();
   const eventTypes = new Set<string>();
+  const financingFacts: FinancingAnnouncementFacts[] = [];
   const failureReasons = new Map<string, number>();
   let fetchedCount = 0;
   let discoveredCount = 0;
@@ -129,7 +235,12 @@ async function inspectCompany(
       fetched.text,
       fetched.contentType,
     );
-    inspected.events.forEach((event) => eventTypes.add(event.eventType));
+    inspected.events.forEach((event) => {
+      eventTypes.add(event.eventType);
+      if (event.financingFacts !== null) {
+        financingFacts.push(event.financingFacts);
+      }
+    });
     discoveredCount += inspected.candidates.length;
 
     if (item.depth < 3) {
@@ -156,13 +267,23 @@ async function inspectCompany(
       input.expectedEventType !== undefined &&
       input.expectedEventType !== "none" &&
       input.expectedEventType !== "coverage_gap" &&
-      eventTypes.has(input.expectedEventType)
+      eventTypes.has(input.expectedEventType) &&
+      (input.expectedFinancingFacts === undefined ||
+        financingFacts.some((facts) =>
+          financingFactsMatch(facts, input.expectedFinancingFacts!),
+        ))
     ) {
       break;
     }
   }
 
   const expected = input.expectedEventType;
+  const financingFactsMatched =
+    input.expectedFinancingFacts === undefined
+      ? null
+      : financingFacts.some((facts) =>
+          financingFactsMatch(facts, input.expectedFinancingFacts!),
+        );
   const passed =
     expected === "coverage_gap"
       ? fetchedCount === 0 && failureReasons.size > 0
@@ -172,11 +293,14 @@ async function inspectCompany(
           ? eventTypes.size > 0
           : expected === "none"
             ? eventTypes.size === 0
-            : eventTypes.has(expected));
+            : eventTypes.has(expected)) &&
+        financingFactsMatched !== false;
   return {
     fetchedCount,
     discoveredCount,
     eventTypes: [...eventTypes].sort(),
+    financingFactsObservedCount: financingFacts.length,
+    financingFactsMatched,
     failureReasons: Object.fromEntries(failureReasons),
     passed,
   };

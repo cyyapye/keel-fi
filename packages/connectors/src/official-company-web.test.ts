@@ -5,6 +5,7 @@ import {
   MAX_COMPANY_WEB_EVENT_TEXT_CHARS,
   MAX_OFFICIAL_COMPANY_RESPONSE_BYTES,
   PPM_MAX,
+  PublicCompanyEventObservationSchema,
   canonicalizeCompanyWebsite,
   createSafeFetchRequestPolicy,
   decideSourceLifecycle,
@@ -433,9 +434,36 @@ describe("official-company-web factual event extraction", () => {
   const source = {
     canonicalUrl: "https://example.com/newsroom/series-b",
     host: approvedHost,
+    companyName: "Example",
   };
 
-  it("extracts a bounded financing observation from HTML without financial record fields", () => {
+  it("requires a financingFacts field and rejects facts on non-financing events", () => {
+    const base = {
+      eventType: "acquisition_announced" as const,
+      title: "Example acquires SampleCo",
+      canonicalUrl: "https://example.com/news/acquisition",
+      publishedAt: "2026-07-01T10:30:00.000Z",
+      evidenceText: "Example acquires SampleCo.",
+    };
+    expect(PublicCompanyEventObservationSchema.safeParse(base).success).toBe(
+      false,
+    );
+    expect(
+      PublicCompanyEventObservationSchema.safeParse({
+        ...base,
+        financingFacts: {
+          roundType: "seed",
+          roundLabel: "Seed",
+          instrument: "undisclosed",
+          announcedAmount: null,
+          companyValuation: null,
+          ambiguities: [],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("extracts a bounded financing observation with review-only financing facts", () => {
     const events = extractPublicCompanyEventsFromHtml({
       source,
       document: `
@@ -463,7 +491,153 @@ describe("official-company-web factual event extraction", () => {
       "canonicalUrl",
       "publishedAt",
       "evidenceText",
+      "financingFacts",
     ]);
+    expect(events[0]?.financingFacts).toMatchObject({
+      roundType: "series",
+      roundLabel: "Series B",
+      announcedAmount: null,
+      companyValuation: null,
+    });
+  });
+
+  it("extracts an issuer-bound explicit amount from a money-only title", () => {
+    expect(
+      extractPublicCompanyEventsFromHtml({
+        source,
+        document: `<html><head>
+          <title>Example raises USD 50 million</title>
+          <link rel="canonical" href="/news/money-only-raise" />
+        </head><body><article>
+          <h1>Example raises USD 50 million</h1>
+        </article></body></html>`,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        eventType: "financing_announced",
+        financingFacts: expect.objectContaining({
+          announcedAmount: expect.objectContaining({
+            amountMinor: 5_000_000_000,
+            currency: "USD",
+          }),
+        }),
+      }),
+    ]);
+  });
+
+  it("binds a legal company name in an official financing article", () => {
+    expect(
+      extractPublicCompanyEventsFromHtml({
+        source: { ...source, companyName: "Acme, Inc." },
+        document: `<html><head>
+          <title>Acme, Inc. raises Series B financing</title>
+          <link rel="canonical" href="/news/acme-series-b" />
+        </head><body><article>
+          <h1>Acme, Inc. raises Series B financing</h1>
+          <p>Acme, Inc. raised USD 50 million in Series B financing.</p>
+        </article></body></html>`,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        eventType: "financing_announced",
+        financingFacts: expect.objectContaining({
+          announcedAmount: expect.objectContaining({
+            amountMinor: 5_000_000_000,
+          }),
+        }),
+      }),
+    ]);
+  });
+
+  it("classifies an issuer announcement of a financing closing", () => {
+    expect(
+      extractPublicCompanyEventsFromHtml({
+        source,
+        document: `<html><head>
+          <title>Example announces closing of USD 50 million Series B financing</title>
+          <link rel="canonical" href="/news/series-b-closing" />
+        </head><body><article>
+          <h1>Example announces closing of USD 50 million Series B financing</h1>
+        </article></body></html>`,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        eventType: "financing_announced",
+        financingFacts: expect.objectContaining({
+          roundType: "series",
+          announcedAmount: expect.objectContaining({
+            amountMinor: 5_000_000_000,
+          }),
+        }),
+      }),
+    ]);
+  });
+
+  it("does not classify a customer financing program as a company financing event", () => {
+    expect(
+      extractPublicCompanyEventsFromHtml({
+        source,
+        document: `<html><head>
+          <title>Example launches USD 50 million financing program for customers</title>
+          <link rel="canonical" href="/news/customer-financing" />
+        </head><body><article>
+          <h1>Example launches USD 50 million financing program for customers</h1>
+          <p>Example will provide USD 50 million in financing to qualifying customers.</p>
+        </article></body></html>`,
+      }),
+    ).toEqual([]);
+  });
+
+  it("does not attribute a third-party financing to the watched company", () => {
+    expect(
+      extractPublicCompanyEventsFromHtml({
+        source,
+        document: `<html><head>
+          <title>Example supports Foobar financing</title>
+          <link rel="canonical" href="/news/foobar-financing" />
+        </head><body><article>
+          <h1>Example supports Foobar financing</h1>
+          <p>August 7, 2026</p>
+          <p>Foobar raised USD 50 million in financing.</p>
+        </article></body></html>`,
+      }),
+    ).toEqual([]);
+  });
+
+  it("prefers article text when page chrome exceeds the evidence bound", () => {
+    const events = extractPublicCompanyEventsFromHtml({
+      source,
+      document: `<html><head>
+        <title>Example raises Series C financing</title>
+        <link rel="canonical" href="/newsroom/series-c">
+      </head><body>
+        <nav>${"Navigation and cookie preference text. ".repeat(100)}</nav>
+        <article>
+          <h1>Example raises Series C financing</h1>
+          <p>August 6, 2026</p>
+          <p>Example raised US$250 million in Series C financing at a US$1.5 billion post-money valuation.</p>
+        </article>
+      </body></html>`,
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        eventType: "financing_announced",
+        publishedAt: "2026-08-06T00:00:00.000Z",
+        financingFacts: expect.objectContaining({
+          announcedAmount: expect.objectContaining({
+            amountMinor: 25_000_000_000,
+            currency: "USD",
+          }),
+          companyValuation: expect.objectContaining({
+            amountMinor: 150_000_000_000,
+            currency: "USD",
+            basis: "post_money",
+          }),
+        }),
+      }),
+    ]);
+    expect(events[0]?.evidenceText).not.toContain("Navigation");
   });
 
   it("uses the first visible calendar date when article metadata omits one", () => {
@@ -508,6 +682,7 @@ describe("official-company-web factual event extraction", () => {
       "2026-07-02T10:30:00.000Z",
       "2026-07-03T10:30:00.000Z",
     ]);
+    expect(events.every((event) => event.financingFacts === null)).toBe(true);
   });
 
   it("classifies an official employee tender offer as a secondary transaction", () => {
@@ -533,6 +708,7 @@ describe("official-company-web factual event extraction", () => {
         source: {
           canonicalUrl: "https://example.com/blog/series-c",
           host: approvedHost,
+          companyName: "Example",
         },
         document: `# Example raises Series C funding
 

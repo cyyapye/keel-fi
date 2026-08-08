@@ -1526,6 +1526,63 @@ h1,
   font-size: 8px;
 }
 
+.reported-financing-terms > span,
+.reported-financing-terms > strong,
+.reported-financing-terms > div,
+.reported-financing-terms b,
+.reported-financing-terms small {
+  display: block;
+}
+
+.reported-financing-terms > strong {
+  margin-bottom: 13px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.reported-financing-terms > div + div {
+  margin-top: 14px;
+}
+
+.reported-financing-terms b {
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.reported-financing-terms .financing-source-excerpt {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.reported-financing-terms .financing-ambiguity {
+  margin-top: 13px;
+  color: var(--ink);
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.watch-reported-financing .reported-financing-terms > strong {
+  margin: 14px 0 13px;
+  font-size: clamp(20px, 2.4vw, 28px);
+  font-weight: 620;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+
+.watch-reported-financing .reported-financing-terms b {
+  font-size: 10px;
+}
+
+.watch-reported-financing .reported-financing-terms .financing-source-excerpt,
+.watch-reported-financing .reported-financing-terms .financing-ambiguity {
+  font-size: 8px;
+}
+
 .watch-observation-list > article > footer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1616,6 +1673,16 @@ h1,
   display: block;
 }
 
+.evidence-source-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 8px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .evidence-body span {
   margin-bottom: 11px;
   color: var(--faint);
@@ -1675,6 +1742,12 @@ h1,
   font-size: 22px;
 }
 
+.holding-impact-boundary strong {
+  color: var(--ink);
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+
 .evidence-card > footer {
   display: flex;
   align-items: center;
@@ -1682,6 +1755,10 @@ h1,
   gap: 25px;
   padding: 12px 0;
   background: transparent;
+}
+
+.evidence-card > footer.financing-review-footer {
+  justify-content: flex-end;
 }
 
 .evidence-card > footer p {

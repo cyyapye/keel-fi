@@ -462,6 +462,7 @@ function extractedEvents(
     source: {
       canonicalUrl: source.canonicalUrl,
       host: source.approvedWebsiteHost,
+      companyName: source.companyName,
     },
     document,
   };
@@ -510,6 +511,74 @@ function mappedEventType(
     | "operations_ended";
 }
 
+const FINANCING_FACTS_FINGERPRINT_VERSION = "financing-facts-v1";
+
+function financingFactsFingerprintMaterial(
+  facts: NonNullable<PublicCompanyEventObservation["financingFacts"]>,
+): string {
+  const moneyMaterial = (
+    fact:
+      | NonNullable<typeof facts.announcedAmount>
+      | NonNullable<typeof facts.companyValuation>
+      | null,
+  ): string =>
+    fact === null
+      ? ""
+      : [
+          fact.amountMinor,
+          fact.currency,
+          fact.qualifier,
+          "basis" in fact ? fact.basis : "",
+        ].join(":");
+  return [
+    facts.roundType ?? "",
+    facts.roundLabel ?? "",
+    facts.instrument,
+    moneyMaterial(facts.announcedAmount),
+    moneyMaterial(facts.companyValuation),
+    [...facts.ambiguities].sort().join(","),
+  ].join("|");
+}
+
+function observationFingerprintMaterial(
+  source: PortfolioWatchSourceRecord,
+  event: PublicCompanyEventObservation,
+): string {
+  const factsVersion =
+    event.eventType === "financing_announced" && event.financingFacts !== null
+      ? `|${FINANCING_FACTS_FINGERPRINT_VERSION}|${financingFactsFingerprintMaterial(event.financingFacts)}`
+      : "";
+  return `${source.companyId}|${event.canonicalUrl}|${event.publishedAt}|${event.eventType}${factsVersion}`;
+}
+
+function boundedSourceExcerpt(value: string): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  const words = normalized.match(/\S+/gu) ?? [];
+  let excerpt = "";
+  for (const word of words.slice(0, 25)) {
+    const candidate = excerpt.length === 0 ? word : `${excerpt} ${word}`;
+    if (candidate.length > 240) {
+      break;
+    }
+    excerpt = candidate;
+  }
+  return excerpt || normalized.slice(0, 240).trim();
+}
+
+function observedFactForEvent(event: PublicCompanyEventObservation): string {
+  if (event.financingFacts === null) {
+    return event.title;
+  }
+  const evidenceExcerpts = [
+    event.financingFacts.announcedAmount?.evidenceText,
+    event.financingFacts.companyValuation?.evidenceText,
+  ].filter(
+    (excerpt, index, excerpts): excerpt is string =>
+      excerpt !== undefined && excerpts.indexOf(excerpt) === index,
+  );
+  return evidenceExcerpts.join(" ") || boundedSourceExcerpt(event.evidenceText);
+}
+
 function activeSourceLostIdentity(
   source: PortfolioWatchSourceRecord,
   identityConfirmed: boolean,
@@ -517,9 +586,17 @@ function activeSourceLostIdentity(
   return source.status === "active" && !identityConfirmed;
 }
 
+type ProcessSourceJobOptions = {
+  fetchSource?: (
+    source: PortfolioWatchSourceRecord,
+  ) => Promise<ApprovedSourceFetchResult>;
+  now?: () => string;
+};
+
 async function processSourceJob(
   message: PortfolioWatchSourceJobMessage,
   env: Env,
+  options: ProcessSourceJobOptions = {},
 ): Promise<void> {
   const repository = new D1PortfolioWatchRepository(env.DB);
   const source = await repository.getSource(message.sourceId);
@@ -535,8 +612,10 @@ async function processSourceJob(
     return;
   }
 
-  const checkedAt = new Date().toISOString();
-  const fetched = await fetchApprovedCompanySource(source);
+  const checkedAt = (options.now ?? (() => new Date().toISOString()))();
+  const fetched = await (options.fetchSource ?? fetchApprovedCompanySource)(
+    source,
+  );
   if (!fetched.ok) {
     const nextStatus = fetched.permanent
       ? "quarantined"
@@ -691,9 +770,7 @@ async function processSourceJob(
       continue;
     }
     const fingerprint = await sha256(
-      new TextEncoder().encode(
-        `${source.companyId}|${event.canonicalUrl}|${event.publishedAt}|${event.eventType}`,
-      ),
+      new TextEncoder().encode(observationFingerprintMaterial(source, event)),
     );
     if (await repository.hasObservation(source.householdId, fingerprint)) {
       continue;
@@ -715,8 +792,9 @@ async function processSourceJob(
       sourceTitle: event.title,
       publishedAt: event.publishedAt,
       eventType: mappedEventType(event.eventType),
-      observedFact: event.evidenceText,
+      observedFact: observedFactForEvent(event),
       modelConfidencePpm: 900_000,
+      financingFacts: event.financingFacts,
       fingerprint,
     });
   }
@@ -747,4 +825,7 @@ export const __portfolioWatchTest = {
   candidateInputs,
   extractedEvents,
   maxResponseBytes: MAX_OFFICIAL_COMPANY_RESPONSE_BYTES,
+  observationFingerprintMaterial,
+  observedFactForEvent,
+  processSourceJob,
 };

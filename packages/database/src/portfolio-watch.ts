@@ -4,7 +4,11 @@ import {
   OfficialCompanySourceStatusSchema,
   SourceGradeSchema,
 } from "@keel/connectors";
-import { IsoTimestampSchema } from "@keel/domain";
+import {
+  FinancingAnnouncementFactsSchema,
+  HttpsSourceUrlSchema,
+  IsoTimestampSchema,
+} from "@keel/domain";
 import { z } from "zod";
 
 const SourceKindSchema = z.enum([
@@ -69,28 +73,81 @@ export const PortfolioWatchVerificationInputSchema = z.object({
   errorCode: z.string().max(120).nullable(),
 });
 
-export const PortfolioWatchObservationInputSchema = z.object({
-  sourceId: z.string().min(1),
-  objectKey: z.string().min(1).max(1_024),
-  contentType: z.string().min(1).max(255),
-  byteSize: z.number().int().positive(),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  retrievedAt: IsoTimestampSchema,
-  sourceUrl: z.url(),
-  sourceTitle: z.string().trim().min(1).max(500),
-  publishedAt: IsoTimestampSchema,
-  eventType: z.enum([
-    "financing_announced",
-    "acquisition_announced",
-    "secondary_transaction_announced",
-    "public_listing_announced",
-    "operations_ended",
-    "company_update",
-  ]),
-  observedFact: z.string().trim().min(1).max(2_000),
-  modelConfidencePpm: z.number().int().min(0).max(1_000_000),
-  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-});
+function normalizeEvidenceWhitespace(value: string): string {
+  return value.replace(/\s+/gu, " ").trim();
+}
+
+export const PortfolioWatchObservationInputSchema = z
+  .object({
+    sourceId: z.string().min(1),
+    objectKey: z.string().min(1).max(1_024),
+    contentType: z.string().min(1).max(255),
+    byteSize: z.number().int().positive(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    retrievedAt: IsoTimestampSchema,
+    sourceUrl: HttpsSourceUrlSchema,
+    sourceTitle: z.string().trim().min(1).max(500),
+    publishedAt: IsoTimestampSchema,
+    eventType: z.enum([
+      "financing_announced",
+      "acquisition_announced",
+      "secondary_transaction_announced",
+      "public_listing_announced",
+      "operations_ended",
+      "company_update",
+    ]),
+    observedFact: z.string().trim().min(1).max(2_000),
+    modelConfidencePpm: z.number().int().min(0).max(1_000_000),
+    financingFacts: FinancingAnnouncementFactsSchema.nullable(),
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (
+      input.eventType !== "financing_announced" &&
+      input.financingFacts !== null
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["financingFacts"],
+        message: "Only financing announcements can contain financing facts.",
+      });
+    }
+    if (input.financingFacts === null) {
+      return;
+    }
+
+    const normalizedTitle = normalizeEvidenceWhitespace(input.sourceTitle);
+    const normalizedObservedFact = normalizeEvidenceWhitespace(
+      input.observedFact,
+    );
+    const retainedEvidence = normalizedObservedFact
+      .toLowerCase()
+      .includes(normalizedTitle.toLowerCase())
+      ? normalizedObservedFact
+      : normalizeEvidenceWhitespace(
+          `${normalizedTitle}. ${normalizedObservedFact}`,
+        );
+    const moneyFacts = [
+      ["announcedAmount", input.financingFacts.announcedAmount],
+      ["companyValuation", input.financingFacts.companyValuation],
+    ] as const;
+    for (const [field, fact] of moneyFacts) {
+      if (
+        fact !== null &&
+        !retainedEvidence.includes(
+          normalizeEvidenceWhitespace(fact.evidenceText),
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["financingFacts", field, "evidenceText"],
+          message:
+            "Financing evidence text must appear in the retained source title or observed fact.",
+        });
+      }
+    }
+  });
 
 export type PortfolioWatchScanPreparation = z.infer<
   typeof PortfolioWatchScanPreparationSchema
@@ -679,7 +736,10 @@ export class D1PortfolioWatchRepository {
     const sourceDocumentId = existingDocument?.id ?? crypto.randomUUID();
     const evidenceEventId = crypto.randomUUID();
     const effectiveDate = input.publishedAt.slice(0, 10);
-    const claimPath = `company_event.${input.eventType}`;
+    const claimPath =
+      input.financingFacts === null
+        ? `company_event.${input.eventType}`
+        : "company_event.financing_terms";
     const sourceLabel = "Official company website";
     const limitations =
       "Public company information does not establish security terms, ownership, dilution, fees, taxes, or liquidity for this holding.";
@@ -734,7 +794,7 @@ export class D1PortfolioWatchRepository {
           effectiveDate,
           input.retrievedAt,
           input.retrievedAt,
-          input.modelConfidencePpm,
+          source.grade.authorityPpm,
           input.retrievedAt,
         ),
       this.db
@@ -753,6 +813,7 @@ export class D1PortfolioWatchRepository {
             title: input.sourceTitle,
             publishedAt: input.publishedAt,
             sourceUrl: observedUrl.source.canonicalUrl,
+            financingFacts: input.financingFacts,
           }),
           sourceLabel,
           input.retrievedAt,

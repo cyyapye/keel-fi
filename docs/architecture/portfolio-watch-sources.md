@@ -31,10 +31,23 @@ They are not silently trusted.
 
 Accepted source bytes are stored under opaque keys in private R2. A classified
 company event creates an immutable public observation, a factual evidence claim,
-and a pending Review item. Its prior and replacement financial values are empty
-objects and its forecast impact is zero. Reviewing the event records a decision;
-applying it as a mark remains impossible because it contains no direct financial
-claim.
+and a pending Review item. A financing announcement may also contribute bounded,
+typed company-level terms: round, instrument, announced amount, currency,
+reported company valuation and valuation basis, exact supporting wording, and
+ambiguity flags. These are reported facts, not a Keel valuation of the holding.
+Money remains integer minor units. A bare `$` is not assumed to mean USD; Keel
+leaves the amount unselected and flags that the currency is not explicit. Review
+shows at most one 25-word/240-character source excerpt and a credential-free
+HTTPS link to the approved official origin.
+
+The event's prior and replacement financial values remain empty objects and its
+forecast impact remains zero. Reviewing the event records a decision; applying
+it as a mark remains impossible because `company_event.financing_terms` is not a
+direct financial-record claim. Position value still requires separate ownership,
+security terms, dilution, and an explicit user-reviewed valuation decision. A
+review decision also locks every claim on that event against later insertion,
+editing, or deletion. Semantic changes to reported terms receive a new
+append-only fingerprint and Review item; identical terms deduplicate.
 
 ## Acceptance with real public sources
 
@@ -47,6 +60,13 @@ classification:
 ```sh
 KEEL_LIVE_COMPANY_SOURCES_JSON='[...]' pnpm test:live:sources
 ```
+
+For a financing page, runtime input may also include strict
+`expectedFinancingFacts` assertions for round, instrument, amount/currency,
+valuation/basis, qualifiers, and ambiguity flags. The acceptance result reports
+only whether those facts matched and aggregate counts; it does not print the
+company, URL, excerpt, or expected money values. Real acceptance should use a
+page that states its currency explicitly (`USD` or `US$` for US dollars).
 
 The JSON input and fetched bytes are runtime-only. They must not be added to the
 seed, fixtures, screenshots, logs, or Git. The synthetic household and holding
@@ -101,6 +121,8 @@ KEEL_LOCAL_ACCEPTANCE_PROFILE_STDIN=1 make local-acceptance-apply \
   < /private/path/real-company-profile.json
 # exercise one local scan and verify its pending Review evidence
 make local-acceptance-dev
+# in another terminal, compare hash-only output before and after the scan
+pnpm local:acceptance:invariants
 make local-acceptance-restore
 ```
 
@@ -114,3 +136,8 @@ disposable persistence root, including its source registry, observations,
 evidence, source-document metadata, and local R2 bytes. It does not delete
 accepted financial records or weaken any append-only trigger because it does not
 edit the canonical local state.
+
+The invariant command reads only the disposable local D1/R2 profile and emits
+table hashes plus aggregate evidence/object counts. It never prints company
+identity, URLs, excerpts, money values, or rows. Financial table hashes must be
+identical before and after a source scan; only source/evidence counts may grow.
