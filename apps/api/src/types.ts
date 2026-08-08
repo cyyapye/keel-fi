@@ -12,7 +12,14 @@ export interface Env {
   INGESTION_QUEUE: Queue;
 }
 
-export type AccessIdentity = {
-  subject: string;
-  email: string | null;
-};
+export type AccessIdentity =
+  | {
+      kind: "user";
+      subject: string;
+      email: string | null;
+    }
+  | {
+      kind: "service";
+      subject: string;
+      email: null;
+    };

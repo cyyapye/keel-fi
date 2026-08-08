@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 
 import type { AccessIdentity, Env } from "./types";
@@ -13,12 +13,39 @@ const AccessConfigurationSchema = z.object({
     ),
 });
 
+const AccessServiceSubjectSchema = z.string().regex(/^[a-f0-9]{32}\.access$/i);
+
 const keySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 export type AccessVerifier = (
   token: string,
   env: Env,
 ) => Promise<AccessIdentity>;
+
+export function accessIdentityFromPayload(payload: JWTPayload): AccessIdentity {
+  if (typeof payload.sub === "string" && payload.sub.length > 0) {
+    return {
+      kind: "user",
+      subject: payload.sub,
+      email: typeof payload.email === "string" ? payload.email : null,
+    };
+  }
+
+  if (payload.sub === "") {
+    const serviceSubject = AccessServiceSubjectSchema.safeParse(
+      payload.common_name,
+    );
+    if (serviceSubject.success) {
+      return {
+        kind: "service",
+        subject: serviceSubject.data,
+        email: null,
+      };
+    }
+  }
+
+  throw new Error("Cloudflare Access identity is missing a subject.");
+}
 
 export const verifyAccessToken: AccessVerifier = async (token, env) => {
   const configuration = AccessConfigurationSchema.parse(env);
@@ -37,12 +64,5 @@ export const verifyAccessToken: AccessVerifier = async (token, env) => {
     issuer,
   });
 
-  if (typeof payload.sub !== "string" || payload.sub.length === 0) {
-    throw new Error("Cloudflare Access identity is missing a subject.");
-  }
-
-  return {
-    subject: payload.sub,
-    email: typeof payload.email === "string" ? payload.email : null,
-  };
+  return accessIdentityFromPayload(payload);
 };

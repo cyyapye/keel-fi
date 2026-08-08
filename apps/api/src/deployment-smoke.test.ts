@@ -112,7 +112,11 @@ describe("preview deployment smoke", () => {
     const bindings = deploymentEnv();
     const app = createApp({
       verifyAccess: vi.fn(() =>
-        Promise.resolve({ subject: "deployment-service", email: null }),
+        Promise.resolve({
+          kind: "service" as const,
+          subject: `${"a".repeat(32)}.access`,
+          email: null,
+        }),
       ),
     });
 
