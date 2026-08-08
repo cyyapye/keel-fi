@@ -393,6 +393,75 @@ export const HoldingSchema = z.object({
   confidencePpm: ProbabilityPpmSchema,
 });
 
+export const FinancingMoneyFactSchema = z
+  .object({
+    amountMinor: NonNegativeMoneyMinorSchema,
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    qualifier: z.enum(["exact", "approximately", "at_least", "up_to"]),
+    evidenceText: z.string().trim().min(1).max(240),
+  })
+  .strict();
+
+export const FinancingValuationFactSchema = FinancingMoneyFactSchema.extend({
+  basis: z.enum(["pre_money", "post_money", "undisclosed"]),
+}).strict();
+
+export const FinancingAnnouncementFactsSchema = z
+  .object({
+    roundType: z
+      .enum([
+        "pre_seed",
+        "seed",
+        "series",
+        "growth",
+        "strategic",
+        "undisclosed",
+      ])
+      .nullable(),
+    roundLabel: z.string().trim().min(1).max(80).nullable(),
+    instrument: z.enum([
+      "equity",
+      "debt",
+      "convertible",
+      "mixed",
+      "undisclosed",
+    ]),
+    announcedAmount: FinancingMoneyFactSchema.nullable(),
+    companyValuation: FinancingValuationFactSchema.nullable(),
+    ambiguities: z
+      .array(
+        z.enum([
+          "currency_not_explicit",
+          "multiple_funding_amounts",
+          "multiple_valuations",
+          "combined_tranches",
+          "prior_round_reference",
+        ]),
+      )
+      .max(8),
+  })
+  .strict()
+  .refine(
+    (facts) =>
+      (facts.roundType !== null && facts.roundType !== "undisclosed") ||
+      facts.roundLabel !== null ||
+      facts.instrument !== "undisclosed" ||
+      facts.announcedAmount !== null ||
+      facts.companyValuation !== null ||
+      facts.ambiguities.length > 0,
+    { message: "Financing facts must contain at least one meaningful term." },
+  );
+
+export const HttpsSourceUrlSchema = z
+  .url()
+  .max(2_048)
+  .refine((value) => {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" && url.username === "" && url.password === ""
+    );
+  }, "Source URLs must use HTTPS without credentials.");
+
 export const EvidenceInboxItemSchema = z.object({
   id: z.string().min(1),
   companyName: z.string().min(1),
@@ -404,9 +473,20 @@ export const EvidenceInboxItemSchema = z.object({
   confidencePpm: ProbabilityPpmSchema,
   modelConfidencePpm: ProbabilityPpmSchema.nullable(),
   sources: z.array(z.string().min(1)).min(1),
+  sourceUrl: HttpsSourceUrlSchema.nullable(),
+  sourceExcerpt: z
+    .string()
+    .trim()
+    .min(1)
+    .max(240)
+    .refine((value) => value.split(/\s+/u).length <= 25, {
+      message: "Source excerpts must contain at most 25 words.",
+    })
+    .nullable(),
   priorValue: z.string().min(1),
   replacementValue: z.string().min(1),
   forecastImpactMinor: MoneyMinorSchema,
+  financingFacts: FinancingAnnouncementFactsSchema.nullable(),
   application: z
     .object({
       target: z.enum(["external_mark", "usable_liquidity"]),
@@ -453,7 +533,7 @@ export const PublicSourceObservationSchema = z.object({
     "scenario_only",
   ]),
   sourceClass: PublicSourceClassSchema,
-  sourceUrl: z.url(),
+  sourceUrl: HttpsSourceUrlSchema,
   sourceTitle: z.string().min(1),
   publishedAt: IsoTimestampSchema,
   retrievedAt: IsoTimestampSchema,
@@ -464,6 +544,7 @@ export const PublicSourceObservationSchema = z.object({
   valuationLowMinor: NonNegativeMoneyMinorSchema.nullable(),
   valuationMiddleMinor: NonNegativeMoneyMinorSchema.nullable(),
   valuationHighMinor: NonNegativeMoneyMinorSchema.nullable(),
+  financingFacts: FinancingAnnouncementFactsSchema.nullable(),
   limitations: z.string().min(1),
 });
 
@@ -745,6 +826,13 @@ export const AlphaDataSchema = z.object({
 export type AlphaData = z.infer<typeof AlphaDataSchema>;
 export type Dashboard = z.infer<typeof DashboardSchema>;
 export type EvidenceInboxItem = z.infer<typeof EvidenceInboxItemSchema>;
+export type FinancingAnnouncementFacts = z.infer<
+  typeof FinancingAnnouncementFactsSchema
+>;
+export type FinancingMoneyFact = z.infer<typeof FinancingMoneyFactSchema>;
+export type FinancingValuationFact = z.infer<
+  typeof FinancingValuationFactSchema
+>;
 export type Goal = z.infer<typeof GoalSchema>;
 export type GoalDraftInput = z.infer<typeof GoalDraftInputSchema>;
 export type GoalPreview = z.infer<typeof GoalPreviewSchema>;

@@ -23,6 +23,7 @@
     "lint": "eslint . --max-warnings=0",
     "local:acceptance:apply": "tsx scripts/local-acceptance-profile.ts apply",
     "local:acceptance:clean": "tsx scripts/local-acceptance-profile.ts clean",
+    "local:acceptance:invariants": "tsx scripts/local-acceptance-invariants.ts",
     "local:acceptance:restore": "tsx scripts/local-acceptance-profile.ts restore",
     "test": "vitest run",
     "test:live:sources": "tsx scripts/live-company-source-smoke.ts",

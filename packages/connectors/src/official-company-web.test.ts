@@ -5,6 +5,7 @@ import {
   MAX_COMPANY_WEB_EVENT_TEXT_CHARS,
   MAX_OFFICIAL_COMPANY_RESPONSE_BYTES,
   PPM_MAX,
+  PublicCompanyEventObservationSchema,
   canonicalizeCompanyWebsite,
   createSafeFetchRequestPolicy,
   decideSourceLifecycle,
@@ -435,7 +436,33 @@ describe("official-company-web factual event extraction", () => {
     host: approvedHost,
   };
 
-  it("extracts a bounded financing observation from HTML without financial record fields", () => {
+  it("requires a financingFacts field and rejects facts on non-financing events", () => {
+    const base = {
+      eventType: "acquisition_announced" as const,
+      title: "Example acquires SampleCo",
+      canonicalUrl: "https://example.com/news/acquisition",
+      publishedAt: "2026-07-01T10:30:00.000Z",
+      evidenceText: "Example acquires SampleCo.",
+    };
+    expect(PublicCompanyEventObservationSchema.safeParse(base).success).toBe(
+      false,
+    );
+    expect(
+      PublicCompanyEventObservationSchema.safeParse({
+        ...base,
+        financingFacts: {
+          roundType: "seed",
+          roundLabel: "Seed",
+          instrument: "undisclosed",
+          announcedAmount: null,
+          companyValuation: null,
+          ambiguities: [],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("extracts a bounded financing observation with review-only financing facts", () => {
     const events = extractPublicCompanyEventsFromHtml({
       source,
       document: `
@@ -463,7 +490,50 @@ describe("official-company-web factual event extraction", () => {
       "canonicalUrl",
       "publishedAt",
       "evidenceText",
+      "financingFacts",
     ]);
+    expect(events[0]?.financingFacts).toMatchObject({
+      roundType: "series",
+      roundLabel: "Series B",
+      announcedAmount: null,
+      companyValuation: null,
+    });
+  });
+
+  it("prefers article text when page chrome exceeds the evidence bound", () => {
+    const events = extractPublicCompanyEventsFromHtml({
+      source,
+      document: `<html><head>
+        <title>Example raises Series C financing</title>
+        <link rel="canonical" href="/newsroom/series-c">
+      </head><body>
+        <nav>${"Navigation and cookie preference text. ".repeat(100)}</nav>
+        <article>
+          <h1>Example raises Series C financing</h1>
+          <p>August 6, 2026</p>
+          <p>Example raised US$250 million in Series C financing at a US$1.5 billion post-money valuation.</p>
+        </article>
+      </body></html>`,
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        eventType: "financing_announced",
+        publishedAt: "2026-08-06T00:00:00.000Z",
+        financingFacts: expect.objectContaining({
+          announcedAmount: expect.objectContaining({
+            amountMinor: 25_000_000_000,
+            currency: "USD",
+          }),
+          companyValuation: expect.objectContaining({
+            amountMinor: 150_000_000_000,
+            currency: "USD",
+            basis: "post_money",
+          }),
+        }),
+      }),
+    ]);
+    expect(events[0]?.evidenceText).not.toContain("Navigation");
   });
 
   it("uses the first visible calendar date when article metadata omits one", () => {
@@ -508,6 +578,7 @@ describe("official-company-web factual event extraction", () => {
       "2026-07-02T10:30:00.000Z",
       "2026-07-03T10:30:00.000Z",
     ]);
+    expect(events.every((event) => event.financingFacts === null)).toBe(true);
   });
 
   it("classifies an official employee tender offer as a secondary transaction", () => {

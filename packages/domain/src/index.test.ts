@@ -3,11 +3,92 @@ import { describe, expect, it } from "vitest";
 import {
   createGoalPreview,
   estimateThresholdProbabilityPpm,
+  FinancingAnnouncementFactsSchema,
+  FinancingMoneyFactSchema,
+  HttpsSourceUrlSchema,
   multiplyMinorByPpm,
   projectScenario,
   probabilityMeetingThresholdPpm,
   summarizeLiquidityPaths,
 } from "./index";
+
+describe("financing announcement facts", () => {
+  it("accepts deterministic minor-unit facts with bounded evidence", () => {
+    expect(
+      FinancingAnnouncementFactsSchema.parse({
+        roundType: "series",
+        roundLabel: "Series C",
+        instrument: "mixed",
+        announcedAmount: {
+          amountMinor: 125_000_000_00,
+          currency: "USD",
+          qualifier: "exact",
+          evidenceText: "The company announced US$125 million in new funding.",
+        },
+        companyValuation: {
+          amountMinor: 1_250_000_000_00,
+          currency: "USD",
+          qualifier: "approximately",
+          evidenceText:
+            "The round values the company at about US$1.25 billion.",
+          basis: "post_money",
+        },
+        ambiguities: ["combined_tranches"],
+      }),
+    ).toMatchObject({
+      roundLabel: "Series C",
+      announcedAmount: { amountMinor: 125_000_000_00 },
+      companyValuation: { basis: "post_money" },
+    });
+  });
+
+  it("rejects floating point money, non-ISO currency, and unbounded evidence", () => {
+    expect(() =>
+      FinancingMoneyFactSchema.parse({
+        amountMinor: 100.5,
+        currency: "usd",
+        qualifier: "exact",
+        evidenceText: "x".repeat(241),
+      }),
+    ).toThrow();
+    expect(() =>
+      FinancingMoneyFactSchema.parse({
+        amountMinor: 100,
+        currency: "USD",
+        qualifier: "exact",
+        evidenceText: "The company announced one dollar.",
+        parserNote: "unexpected external field",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a financing object with no meaningful term", () => {
+    expect(() =>
+      FinancingAnnouncementFactsSchema.parse({
+        roundType: "undisclosed",
+        roundLabel: null,
+        instrument: "undisclosed",
+        announcedAmount: null,
+        companyValuation: null,
+        ambiguities: [],
+      }),
+    ).toThrow("at least one meaningful term");
+  });
+
+  it("accepts only credential-free HTTPS source links", () => {
+    expect(
+      HttpsSourceUrlSchema.parse("https://example.com/news/series-c"),
+    ).toBe("https://example.com/news/series-c");
+    for (const unsafe of [
+      "javascript:alert(1)",
+      "data:text/html,unsafe",
+      "http://example.com/news",
+      "https://user:secret@example.com/news",
+    ]) {
+      expect(HttpsSourceUrlSchema.safeParse(unsafe).success).toBe(false);
+    }
+  });
+});
 
 describe("deterministic financial calculations", () => {
   it("multiplies money by integer parts per million without floating point", () => {

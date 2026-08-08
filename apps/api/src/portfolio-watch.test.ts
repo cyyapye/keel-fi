@@ -1,6 +1,16 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+  DatabaseSync,
+  type SQLInputValue,
+  type StatementSync,
+} from "node:sqlite";
 import { MAX_COMPANY_WEB_DISCOVERY_CANDIDATES } from "@keel/connectors";
-import type { PortfolioWatchSourceRecord } from "@keel/database";
-import { describe, expect, it, vi } from "vitest";
+import {
+  D1AlphaRepository,
+  type PortfolioWatchSourceRecord,
+} from "@keel/database";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   __portfolioWatchTest,
@@ -8,6 +18,116 @@ import {
   isPublicIpAddress,
   resolvePublicHostWithDnsJson,
 } from "./portfolio-watch";
+import type { Env } from "./types";
+
+const migrationFiles = [
+  "packages/database/migrations/0001_keel_core.sql",
+  "packages/database/migrations/0002_versioned_goals.sql",
+  "packages/database/migrations/0003_evidence_applications.sql",
+  "packages/database/migrations/0004_portfolio_watch.sql",
+  "packages/database/migrations/0005_portfolio_watch_sources.sql",
+  "packages/database/migrations/0006_evidence_claim_integrity.sql",
+  "packages/database/seed/synthetic.sql",
+] as const;
+
+const financingSourceId = "source_worker_financing_test";
+const financingHeadline = "Northstar Robotics raises Series B";
+
+class TestD1Statement {
+  private bindings: SQLInputValue[] = [];
+
+  public constructor(private readonly statement: StatementSync) {}
+
+  public bind(...values: SQLInputValue[]): TestD1Statement {
+    this.bindings = values;
+    return this;
+  }
+
+  public first<T>(columnName?: string): Promise<T | null> {
+    const row = this.statement.get(...this.bindings);
+    if (row === undefined) {
+      return Promise.resolve(null);
+    }
+    return Promise.resolve(
+      (columnName === undefined ? row : row[columnName]) as T,
+    );
+  }
+
+  public all<T>(): Promise<{ results: T[] }> {
+    return Promise.resolve({
+      results: this.statement.all(...this.bindings) as unknown as T[],
+    });
+  }
+
+  public execute(): { success: true } {
+    this.statement.run(...this.bindings);
+    return { success: true };
+  }
+}
+
+class TestD1Database {
+  public constructor(private readonly database: DatabaseSync) {}
+
+  public prepare(query: string): TestD1Statement {
+    return new TestD1Statement(this.database.prepare(query));
+  }
+
+  public batch(
+    statements: readonly TestD1Statement[],
+  ): Promise<{ success: true }[]> {
+    this.database.exec("BEGIN");
+    try {
+      const results = statements.map((statement) => statement.execute());
+      this.database.exec("COMMIT");
+      return Promise.resolve(results);
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+}
+
+function createMigratedTestDatabase(): DatabaseSync {
+  const database = new DatabaseSync(":memory:");
+  for (const file of migrationFiles) {
+    database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+  }
+  database.exec(`
+    INSERT INTO portfolio_watch_sources (
+      id, household_id, watch_target_id, company_id, source_kind, source_class,
+      canonical_url, allowed_origin, allowed_path_prefix, status,
+      authority_ppm, identity_confidence_ppm, operational_health_ppm,
+      coverage_json, auto_activated_at, created_at, updated_at
+    ) VALUES (
+      '${financingSourceId}', 'hh_demo', 'watch_northstar', 'co_northstar',
+      'official_company_web', 'official_company',
+      'https://northstar-robotics.example/news/series-b',
+      'https://northstar-robotics.example', '/news', 'active',
+      1000000, 1000000, 1000000, '{}',
+      '2026-08-07T00:00:00Z', '2026-08-07T00:00:00Z',
+      '2026-08-07T00:00:00Z'
+    );
+  `);
+  return database;
+}
+
+function tableSnapshot(database: DatabaseSync, table: string): string {
+  return JSON.stringify(database.prepare(`SELECT * FROM ${table}`).all());
+}
+
+function tableCount(database: DatabaseSync, table: string): number {
+  const row = database
+    .prepare(`SELECT COUNT(*) AS count FROM ${table}`)
+    .get() as { count: number };
+  return row.count;
+}
+
+let database: DatabaseSync | null = null;
+
+afterEach(() => {
+  database?.close();
+  database = null;
+});
 
 const source: PortfolioWatchSourceRecord = {
   id: "synthetic-source",
@@ -148,7 +268,7 @@ describe("Portfolio Watch network boundary", () => {
       </head><body>
         <h1>Example Robotics raises Series B</h1>
         <a href="/newsroom/series-b">Announcement</a>
-        <p>Example Robotics announced financing for product development.</p>
+        <p>Example Robotics raised US$125 million in Series B financing at a US$1.2 billion post-money valuation.</p>
       </body></html>`;
     const result = await fetchApprovedCompanySource(source, {
       resolveHost: () => Promise.resolve(["93.184.216.34"]),
@@ -179,6 +299,164 @@ describe("Portfolio Watch network boundary", () => {
     ]);
     expect(events[0]).not.toHaveProperty("valuation");
     expect(events[0]).not.toHaveProperty("holdingId");
+    expect(events[0]?.financingFacts).toMatchObject({
+      roundType: "series",
+      roundLabel: "Series B",
+      announcedAmount: {
+        amountMinor: 12_500_000_000,
+        currency: "USD",
+      },
+      companyValuation: {
+        amountMinor: 120_000_000_000,
+        currency: "USD",
+        basis: "post_money",
+      },
+    });
+
+    const enrichedFingerprintMaterial =
+      __portfolioWatchTest.observationFingerprintMaterial(source, events[0]!);
+    expect(enrichedFingerprintMaterial).toContain("financing-facts-v1");
+    expect(
+      __portfolioWatchTest.observationFingerprintMaterial(source, {
+        ...events[0]!,
+        financingFacts: null,
+      }),
+    ).not.toBe(enrichedFingerprintMaterial);
+    expect(
+      __portfolioWatchTest.observationFingerprintMaterial(source, {
+        ...events[0]!,
+        financingFacts: {
+          ...events[0]!.financingFacts!,
+          announcedAmount: {
+            ...events[0]!.financingFacts!.announcedAmount!,
+            amountMinor: 13_000_000_000,
+          },
+        },
+      }),
+    ).not.toBe(enrichedFingerprintMaterial);
+  });
+
+  it("persists fetched financing facts for Review without mutating financial state", async () => {
+    database = createMigratedTestDatabase();
+    const d1 = new TestD1Database(database);
+    const document = `<!doctype html>
+      <html><head>
+        <meta property="og:title" content="${financingHeadline}" />
+        <meta property="article:published_time" content="2026-08-07T10:00:00Z" />
+        <link rel="canonical" href="/news/series-b" />
+      </head><body><article>
+        <h1>${financingHeadline}</h1>
+        <p>Northstar Robotics raised US$125 million in Series B equity financing at a US$1.2 billion post-money valuation.</p>
+      </article></body></html>`;
+    const bytes = new TextEncoder().encode(document);
+    const fetchSource = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        bytes,
+        text: document,
+        contentType: "text/html",
+        status: 200,
+        sha256: "d".repeat(64),
+        etag: null,
+        lastModified: null,
+      }),
+    );
+    const put = vi.fn(() => Promise.resolve({}));
+    const send = vi.fn(() => Promise.resolve({}));
+    const env: Env = {
+      DB: d1 as unknown as D1Database,
+      DOCUMENTS: { put } as unknown as R2Bucket,
+      ENVIRONMENT: "local",
+      INGESTION_QUEUE: { send } as unknown as Queue,
+    };
+    const message = {
+      type: "portfolio_watch_source_scan" as const,
+      messageId: "00000000-0000-4000-8000-000000000001",
+      sourceId: financingSourceId,
+      requestedAt: "2026-08-07T11:59:00Z",
+    };
+    const lotsBefore = tableSnapshot(database, "asset_lots");
+    const marksBefore = tableSnapshot(database, "marks");
+    const forecastsBefore = tableSnapshot(database, "forecast_snapshots");
+    const applicationsBefore = tableSnapshot(database, "evidence_applications");
+    const observationsBefore = tableCount(
+      database,
+      "public_source_observations",
+    );
+    const evidenceBefore = tableCount(database, "evidence_events");
+
+    await __portfolioWatchTest.processSourceJob(message, env, {
+      fetchSource,
+      now: () => "2026-08-07T12:00:00Z",
+    });
+
+    expect(tableCount(database, "public_source_observations")).toBe(
+      observationsBefore + 1,
+    );
+    expect(tableCount(database, "evidence_events")).toBe(evidenceBefore + 1);
+    const alphaRepository = new D1AlphaRepository(d1 as unknown as D1Database);
+    const alphaData = await alphaRepository.getAlphaData(
+      "synthetic-access-subject",
+    );
+    const financingFacts = {
+      roundType: "series" as const,
+      roundLabel: "Series B",
+      instrument: "equity" as const,
+      announcedAmount: {
+        amountMinor: 12_500_000_000,
+        currency: "USD",
+        qualifier: "exact" as const,
+      },
+      companyValuation: {
+        amountMinor: 120_000_000_000,
+        currency: "USD",
+        qualifier: "exact" as const,
+        basis: "post_money" as const,
+      },
+      ambiguities: [],
+    };
+    expect(
+      alphaData.evidenceInbox.find(
+        (item) => item.headline === financingHeadline,
+      ),
+    ).toMatchObject({
+      status: "pending_review",
+      confidencePpm: 1_000_000,
+      modelConfidencePpm: 900_000,
+      forecastImpactMinor: 0,
+      financingFacts,
+      application: null,
+    });
+    expect(
+      alphaData.portfolioWatch.observations.find(
+        (item) => item.sourceTitle === financingHeadline,
+      ),
+    ).toMatchObject({
+      sourceReliabilityPpm: 1_000_000,
+      modelConfidencePpm: 900_000,
+      valuationLowMinor: null,
+      valuationMiddleMinor: null,
+      valuationHighMinor: null,
+      financingFacts,
+    });
+
+    await __portfolioWatchTest.processSourceJob(message, env, {
+      fetchSource,
+      now: () => "2026-08-07T12:05:00Z",
+    });
+
+    expect(tableCount(database, "public_source_observations")).toBe(
+      observationsBefore + 1,
+    );
+    expect(tableCount(database, "evidence_events")).toBe(evidenceBefore + 1);
+    expect(fetchSource).toHaveBeenCalledTimes(2);
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(tableSnapshot(database, "asset_lots")).toBe(lotsBefore);
+    expect(tableSnapshot(database, "marks")).toBe(marksBefore);
+    expect(tableSnapshot(database, "forecast_snapshots")).toBe(forecastsBefore);
+    expect(tableSnapshot(database, "evidence_applications")).toBe(
+      applicationsBefore,
+    );
   });
 
   it("caps root-page candidates after adding standard source paths", () => {

@@ -1,6 +1,7 @@
 import {
   AlphaDataSchema,
   createGoalPreview,
+  FinancingAnnouncementFactsSchema,
   GoalDraftInputSchema,
   multiplyMinorByScalePpm,
   projectScenario,
@@ -10,6 +11,7 @@ import {
   scenarioLiquidityFactorPpm,
   ScenarioDraftInputSchema,
   type AlphaData,
+  type FinancingAnnouncementFacts,
   type ForecastHistoryItemSchema,
   type GoalDraftInput,
   type Scenario,
@@ -118,6 +120,9 @@ type EvidenceRow = {
   replacement_value_json: string;
   estimated_forecast_impact_minor: number;
   claim_field_path: string | null;
+  claim_value_json: string | null;
+  public_source_url: string | null;
+  public_observed_fact: string | null;
   application_applied_at: string | null;
 };
 
@@ -154,6 +159,7 @@ type PublicSourceObservationRow = {
   valuation_low_minor: number | null;
   valuation_middle_minor: number | null;
   valuation_high_minor: number | null;
+  claim_value_json: string | null;
   limitations: string;
 };
 
@@ -168,6 +174,7 @@ type EvidenceApplyEventRow = HouseholdIdentity & {
   prior_value_json: string | null;
   replacement_value_json: string | null;
   claim_field_path: string | null;
+  has_financing_terms_claim: number;
   review_decision_id: string | null;
 };
 
@@ -316,6 +323,46 @@ function displayJsonValue(serialized: string): string {
   return JSON.stringify(first);
 }
 
+function financingFactsFromClaim(
+  serialized: string | null,
+): FinancingAnnouncementFacts | null {
+  if (serialized === null) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+
+  const result = FinancingAnnouncementFactsSchema.safeParse(
+    (parsed as Record<string, unknown>).financingFacts,
+  );
+  return result.success ? result.data : null;
+}
+
+function boundedSourceExcerpt(value: string): string | null {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  let excerpt = "";
+  for (const word of normalized.split(" ").slice(0, 25)) {
+    const candidate = excerpt.length === 0 ? word : `${excerpt} ${word}`;
+    if (candidate.length > 240) {
+      break;
+    }
+    excerpt = candidate;
+  }
+  return excerpt || null;
+}
+
 function parseMinorValue(serialized: string, key: string): number {
   let parsed: unknown;
   try {
@@ -446,12 +493,7 @@ export class D1AlphaRepository implements AlphaRepository {
                 event.effective_date,
                 event.status,
                 event.confidence_ppm,
-                (
-                  SELECT observation.model_confidence_ppm
-                  FROM public_source_observations observation
-                  WHERE observation.evidence_event_id = event.id
-                  LIMIT 1
-                ) AS model_confidence_ppm,
+                public_observation.model_confidence_ppm,
                 document.source_label,
                 event.prior_value_json,
                 event.replacement_value_json,
@@ -460,9 +502,21 @@ export class D1AlphaRepository implements AlphaRepository {
                   SELECT claim.field_path
                   FROM evidence_claims claim
                   WHERE claim.evidence_event_id = event.id
+                    AND claim.household_id = event.household_id
                   ORDER BY claim.created_at
                   LIMIT 1
                 ) AS claim_field_path,
+                (
+                  SELECT claim.claim_value_json
+                  FROM evidence_claims claim
+                  WHERE claim.evidence_event_id = event.id
+                    AND claim.household_id = event.household_id
+                    AND claim.field_path = 'company_event.financing_terms'
+                  ORDER BY claim.created_at
+                  LIMIT 1
+                ) AS claim_value_json,
+                public_observation.source_url AS public_source_url,
+                public_observation.observed_fact AS public_observed_fact,
                 (
                   SELECT application.applied_at
                   FROM evidence_applications application
@@ -472,6 +526,10 @@ export class D1AlphaRepository implements AlphaRepository {
               FROM evidence_events event
               JOIN companies company ON company.id = event.company_id
               JOIN source_documents document ON document.id = event.source_document_id
+              LEFT JOIN public_source_observations public_observation
+                ON public_observation.evidence_event_id = event.id
+                AND public_observation.household_id = event.household_id
+                AND public_observation.company_id = event.company_id
               WHERE event.household_id = ?
               ORDER BY
                 CASE event.status WHEN 'pending_review' THEN 0 ELSE 1 END,
@@ -540,6 +598,15 @@ export class D1AlphaRepository implements AlphaRepository {
                 observation.valuation_low_minor,
                 observation.valuation_middle_minor,
                 observation.valuation_high_minor,
+                (
+                  SELECT claim.claim_value_json
+                  FROM evidence_claims claim
+                  WHERE claim.evidence_event_id = observation.evidence_event_id
+                    AND claim.household_id = observation.household_id
+                    AND claim.field_path = 'company_event.financing_terms'
+                  ORDER BY claim.created_at
+                  LIMIT 1
+                ) AS claim_value_json,
                 observation.limitations
               FROM public_source_observations observation
               JOIN companies company ON company.id = observation.company_id
@@ -653,7 +720,19 @@ export class D1AlphaRepository implements AlphaRepository {
         confidencePpm: row.confidence_ppm,
       })),
       evidenceInbox: evidence.map((row) => {
-        const application = getDirectEvidenceApplication(row.claim_field_path);
+        const financingFacts = financingFactsFromClaim(row.claim_value_json);
+        const hasPublicFinancingSource =
+          financingFacts !== null &&
+          row.public_source_url !== null &&
+          row.public_observed_fact !== null;
+        const excerptCandidate =
+          financingFacts?.announcedAmount?.evidenceText ??
+          financingFacts?.companyValuation?.evidenceText ??
+          row.public_observed_fact;
+        const application =
+          row.claim_value_json === null
+            ? getDirectEvidenceApplication(row.claim_field_path)
+            : null;
         return {
           id: row.id,
           companyName: row.company_name,
@@ -665,9 +744,15 @@ export class D1AlphaRepository implements AlphaRepository {
           confidencePpm: row.confidence_ppm,
           modelConfidencePpm: row.model_confidence_ppm,
           sources: [row.source_label],
+          sourceUrl: hasPublicFinancingSource ? row.public_source_url : null,
+          sourceExcerpt:
+            hasPublicFinancingSource && excerptCandidate !== null
+              ? boundedSourceExcerpt(excerptCandidate)
+              : null,
           priorValue: displayJsonValue(row.prior_value_json),
           replacementValue: displayJsonValue(row.replacement_value_json),
           forecastImpactMinor: row.estimated_forecast_impact_minor,
+          financingFacts,
           application:
             application === null
               ? null
@@ -706,6 +791,7 @@ export class D1AlphaRepository implements AlphaRepository {
           valuationLowMinor: row.valuation_low_minor,
           valuationMiddleMinor: row.valuation_middle_minor,
           valuationHighMinor: row.valuation_high_minor,
+          financingFacts: financingFactsFromClaim(row.claim_value_json),
           limitations: row.limitations,
         })),
       },
@@ -1426,9 +1512,16 @@ export class D1AlphaRepository implements AlphaRepository {
             SELECT claim.field_path
             FROM evidence_claims claim
             WHERE claim.evidence_event_id = event.id
+              AND claim.household_id = event.household_id
             ORDER BY claim.created_at
             LIMIT 1
           ) AS claim_field_path,
+          EXISTS (
+            SELECT 1
+            FROM evidence_claims claim
+            WHERE claim.evidence_event_id = event.id
+              AND claim.field_path = 'company_event.financing_terms'
+          ) AS has_financing_terms_claim,
           decision.id AS review_decision_id,
           household.id AS household_id,
           user.id AS user_id,
@@ -1448,7 +1541,10 @@ export class D1AlphaRepository implements AlphaRepository {
       throw new Error("Evidence event not found.");
     }
 
-    const application = getDirectEvidenceApplication(event.claim_field_path);
+    const application =
+      event.has_financing_terms_claim !== 0
+        ? null
+        : getDirectEvidenceApplication(event.claim_field_path);
     if (application === null) {
       throw new Error(
         "Evidence event has no deterministic direct application.",

@@ -27,7 +27,12 @@ import {
   scanPortfolioWatch,
   submitEvidenceReview,
 } from "./api";
-import { formatCompactMoney, formatDate, formatProbability } from "./format";
+import {
+  formatCompactCurrency,
+  formatCompactMoney,
+  formatDate,
+  formatProbability,
+} from "./format";
 
 type Screen =
   | "dashboard"
@@ -1373,6 +1378,147 @@ function sourceHost(sourceUrl: string) {
   }
 }
 
+type FinancingFacts = NonNullable<EvidenceInboxItem["financingFacts"]>;
+type FinancingMoneyFact = NonNullable<FinancingFacts["announcedAmount"]>;
+type FinancingValuationFact = NonNullable<FinancingFacts["companyValuation"]>;
+
+function financingRoundLabel(facts: FinancingFacts) {
+  const round =
+    facts.roundLabel ??
+    (facts.roundType === null
+      ? null
+      : {
+          growth: "Growth financing",
+          pre_seed: "Pre-seed",
+          seed: "Seed",
+          series: "Series financing",
+          strategic: "Strategic financing",
+          undisclosed: "Financing",
+        }[facts.roundType]);
+  const instrument = {
+    convertible: "Convertible",
+    debt: "Debt",
+    equity: "Equity",
+    mixed: "Mixed financing",
+    undisclosed: null,
+  }[facts.instrument];
+
+  return (
+    [round, instrument].filter((value) => value !== null).join(" · ") ||
+    "Financing terms"
+  );
+}
+
+function financingQualifierLabel(fact: FinancingMoneyFact) {
+  return {
+    approximately: "About ",
+    at_least: "At least ",
+    exact: "",
+    up_to: "Up to ",
+  }[fact.qualifier];
+}
+
+function financingAmountLabel(fact: FinancingMoneyFact) {
+  return `${financingQualifierLabel(fact)}${formatCompactCurrency(
+    fact.amountMinor,
+    fact.currency,
+  )}`;
+}
+
+function boundedSourceExcerpt(value: string) {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  const words = normalized.match(/\S+/gu) ?? [];
+  let excerpt = "";
+  for (const word of words.slice(0, 25)) {
+    const candidate = excerpt.length === 0 ? word : `${excerpt} ${word}`;
+    if (candidate.length > 240) {
+      break;
+    }
+    excerpt = candidate;
+  }
+  return excerpt || normalized.slice(0, 240).trim();
+}
+
+function financingSourceExcerpt(facts: FinancingFacts, fallback: string) {
+  return (
+    facts.announcedAmount?.evidenceText ??
+    facts.companyValuation?.evidenceText ??
+    boundedSourceExcerpt(fallback)
+  );
+}
+
+function financingValuationBasisLabel(fact: FinancingValuationFact) {
+  return {
+    pre_money: "pre-money company valuation",
+    post_money: "post-money company valuation",
+    undisclosed: "company valuation",
+  }[fact.basis];
+}
+
+function financingAmbiguityLabel(
+  ambiguity: FinancingFacts["ambiguities"][number],
+) {
+  return {
+    combined_tranches: "combined tranches",
+    currency_not_explicit: "currency not explicit",
+    multiple_funding_amounts: "multiple funding amounts",
+    multiple_valuations: "multiple valuations",
+    prior_round_reference: "prior-round reference",
+  }[ambiguity];
+}
+
+function FinancingAmbiguities({ facts }: { facts: FinancingFacts }) {
+  if (facts.ambiguities.length === 0) {
+    return null;
+  }
+
+  return (
+    <small className="financing-ambiguity">
+      Check source wording:{" "}
+      {facts.ambiguities.map(financingAmbiguityLabel).join(", ")}
+    </small>
+  );
+}
+
+function ReportedFinancingTerms({
+  facts,
+  sourceExcerpt,
+}: {
+  facts: FinancingFacts;
+  sourceExcerpt?: string | null;
+}) {
+  const displayedExcerpt =
+    sourceExcerpt ??
+    facts.announcedAmount?.evidenceText ??
+    facts.companyValuation?.evidenceText ??
+    null;
+  return (
+    <div className="reported-financing-terms">
+      <span>Reported financing</span>
+      <strong>{financingRoundLabel(facts)}</strong>
+      {facts.announcedAmount !== null && (
+        <div>
+          <b>{financingAmountLabel(facts.announcedAmount)}</b>
+        </div>
+      )}
+      {facts.companyValuation !== null && (
+        <div>
+          <b>
+            {financingAmountLabel(facts.companyValuation)} ·{" "}
+            {financingValuationBasisLabel(facts.companyValuation)}
+          </b>
+        </div>
+      )}
+      {displayedExcerpt !== null && (
+        <small className="financing-source-excerpt">
+          Source wording: “{displayedExcerpt}”
+        </small>
+      )}
+      <FinancingAmbiguities facts={facts} />
+    </div>
+  );
+}
+
 function watchCoverageStatusLabel(
   status: "active" | "discovering" | "degraded" | "unavailable",
   lastCheckedAt: string | null,
@@ -1527,41 +1673,70 @@ function PortfolioWatch({
                 </header>
 
                 <div className="watch-observation-body">
+                  {observation.financingFacts === null && (
+                    <section>
+                      <span>Observed</span>
+                      <p>{observation.observedFact}</p>
+                      <small>
+                        Source reliability{" "}
+                        {formatProbability(observation.sourceReliabilityPpm)}
+                      </small>
+                    </section>
+                  )}
                   <section>
-                    <span>Observed</span>
-                    <p>{observation.observedFact}</p>
-                    <small>
-                      Source reliability{" "}
-                      {formatProbability(observation.sourceReliabilityPpm)}
-                    </small>
-                  </section>
-                  <section>
-                    <span>Keel estimate</span>
+                    <span>
+                      {observation.financingFacts === null
+                        ? "Keel estimate"
+                        : "What it means"}
+                    </span>
                     <p>{observation.inference}</p>
                     <small>
-                      Model confidence{" "}
-                      {formatProbability(observation.modelConfidencePpm)}
+                      {observation.financingFacts === null ? (
+                        <>
+                          Model confidence{" "}
+                          {formatProbability(observation.modelConfidencePpm)}
+                        </>
+                      ) : (
+                        <>
+                          Source reliability{" "}
+                          {formatProbability(observation.sourceReliabilityPpm)}{" "}
+                          · Classification confidence{" "}
+                          {formatProbability(observation.modelConfidencePpm)}
+                        </>
+                      )}
                     </small>
                   </section>
-                  <section>
-                    <span>Estimated range</span>
-                    {observation.valuationLowMinor !== null &&
-                    observation.valuationMiddleMinor !== null &&
-                    observation.valuationHighMinor !== null ? (
-                      <strong>
-                        {formatCompactMoney(observation.valuationLowMinor)} –{" "}
-                        {formatCompactMoney(observation.valuationHighMinor)}
-                      </strong>
-                    ) : (
-                      <strong>Not estimated</strong>
-                    )}
-                    {observation.valuationMiddleMinor !== null && (
-                      <small>
-                        Middle estimate{" "}
-                        {formatCompactMoney(observation.valuationMiddleMinor)}
-                      </small>
-                    )}
-                  </section>
+                  {observation.financingFacts === null ? (
+                    <section>
+                      <span>Estimated range</span>
+                      {observation.valuationLowMinor !== null &&
+                      observation.valuationMiddleMinor !== null &&
+                      observation.valuationHighMinor !== null ? (
+                        <strong>
+                          {formatCompactMoney(observation.valuationLowMinor)} –{" "}
+                          {formatCompactMoney(observation.valuationHighMinor)}
+                        </strong>
+                      ) : (
+                        <strong>Not estimated</strong>
+                      )}
+                      {observation.valuationMiddleMinor !== null && (
+                        <small>
+                          Middle estimate{" "}
+                          {formatCompactMoney(observation.valuationMiddleMinor)}
+                        </small>
+                      )}
+                    </section>
+                  ) : (
+                    <section className="watch-reported-financing">
+                      <ReportedFinancingTerms
+                        facts={observation.financingFacts}
+                        sourceExcerpt={financingSourceExcerpt(
+                          observation.financingFacts,
+                          observation.observedFact,
+                        )}
+                      />
+                    </section>
+                  )}
                 </div>
 
                 <footer>
@@ -1601,12 +1776,14 @@ function EvidenceCard({
   ) => void;
 }) {
   const pending = item.status === "pending_review";
+  const application = item.financingFacts === null ? item.application : null;
   const canApply =
+    item.financingFacts === null &&
     item.status === "accepted" &&
-    item.application !== null &&
-    !item.application.applied;
+    application !== null &&
+    !application.applied;
   const [showAcceptPreview, setShowAcceptPreview] = useState(false);
-  const statusLabel = item.application?.applied
+  const statusLabel = application?.applied
     ? "accepted & applied"
     : item.status.replaceAll("_", " ");
   return (
@@ -1627,69 +1804,111 @@ function EvidenceCard({
           {item.sources.map((source) => (
             <strong key={source}>▣ {source}</strong>
           ))}
+          {item.sourceUrl !== null && (
+            <a
+              className="evidence-source-link"
+              href={item.sourceUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Open official source ↗
+            </a>
+          )}
           <small>
             Effective {formatDate(item.effectiveDate)} · Retrieved{" "}
             {formatDate(item.detectedAt)}
           </small>
+          {item.financingFacts !== null && (
+            <small>
+              {formatProbability(item.confidencePpm)} source reliability
+              {item.modelConfidencePpm === null
+                ? ""
+                : ` · ${formatProbability(item.modelConfidencePpm)} classification confidence`}
+            </small>
+          )}
         </div>
-        <div className="proposed-change">
-          <span>Proposed change</span>
-          <div>
-            <del>{item.priorValue}</del>
-            <i>→</i>
-            <ins>{item.replacementValue}</ins>
-          </div>
-          <small>
-            {item.modelConfidencePpm === null
-              ? `${formatProbability(item.confidencePpm)} source confidence`
-              : `${formatProbability(item.confidencePpm)} source reliability · ${formatProbability(item.modelConfidencePpm)} model confidence`}
-          </small>
-        </div>
-        <div className="forecast-impact">
-          <span title="50th-percentile estimate">
-            Estimated middle-outcome impact
-          </span>
-          <strong>
-            {item.forecastImpactMinor >= 0 ? "+" : ""}
-            {formatCompactMoney(item.forecastImpactMinor)}
-          </strong>
-          <small>Applied only after a new snapshot is created</small>
-        </div>
+        {item.financingFacts === null ? (
+          <>
+            <div className="proposed-change">
+              <span>Proposed change</span>
+              <div>
+                <del>{item.priorValue}</del>
+                <i>→</i>
+                <ins>{item.replacementValue}</ins>
+              </div>
+              <small>
+                {item.modelConfidencePpm === null
+                  ? `${formatProbability(item.confidencePpm)} source confidence`
+                  : `${formatProbability(item.confidencePpm)} source reliability · ${formatProbability(item.modelConfidencePpm)} model confidence`}
+              </small>
+            </div>
+            <div className="forecast-impact">
+              <span title="50th-percentile estimate">
+                Estimated middle-outcome impact
+              </span>
+              <strong>
+                {item.forecastImpactMinor >= 0 ? "+" : ""}
+                {formatCompactMoney(item.forecastImpactMinor)}
+              </strong>
+              <small>Applied only after a new snapshot is created</small>
+            </div>
+          </>
+        ) : (
+          <>
+            <ReportedFinancingTerms
+              facts={item.financingFacts}
+              sourceExcerpt={item.sourceExcerpt}
+            />
+            <div className="holding-impact-boundary">
+              <span>Holding impact</span>
+              <strong>Not calculated</strong>
+              <small>Company terms do not set this holding’s value.</small>
+            </div>
+          </>
+        )}
       </div>
-      <footer>
-        <p>
-          {item.application?.applied
-            ? `Accepted and applied to ${item.application.label}.`
-            : "A review preserves both values. Applying updates only the mapped accepted record; scenario-only keeps the proposal out of it."}
-        </p>
+      <footer
+        className={
+          item.financingFacts === null ? undefined : "financing-review-footer"
+        }
+      >
+        {item.financingFacts === null && (
+          <p>
+            {application?.applied
+              ? `Accepted and applied to ${application.label}.`
+              : "A review preserves both values. Applying updates only the mapped accepted record; scenario-only keeps the proposal out of it."}
+          </p>
+        )}
         {showAcceptPreview && (pending || canApply) ? (
           <div className="evidence-apply-preview">
             <div>
               <span>
-                {item.application === null
+                {application === null
                   ? "Accept as reviewed evidence"
                   : "Apply to accepted record"}
               </span>
-              {item.application === null ? (
+              {application === null ? (
                 <p>
-                  This proposal has no deterministic financial record target
-                  yet. Accepting will record the evidence without applying a
-                  value.
+                  {item.financingFacts === null
+                    ? "This proposal has no financial record target yet. Accepting records the evidence without applying a value."
+                    : `Record ${financingRoundLabel(item.financingFacts)} as reviewed company evidence.`}
                 </p>
               ) : (
                 <p>
-                  Update {item.application.label}: {item.priorValue} →{" "}
+                  Update {application.label}: {item.priorValue} →{" "}
                   {item.replacementValue}
                 </p>
               )}
               <small>
-                {item.application === null
-                  ? "Use Scenario only to model its impact."
-                  : "Creates an accepted mark on the effective date; forecast impact still requires a new snapshot."}
+                {item.financingFacts !== null
+                  ? "No holding mark or forecast changes."
+                  : item.application === null
+                    ? "Use Scenario only to model its impact."
+                    : "Creates an accepted mark on the effective date; forecast impact still requires a new snapshot."}
               </small>
             </div>
             <div>
-              {item.application !== null && (
+              {application !== null && (
                 <Button
                   disabled={busy}
                   onClick={() => onApply(item.id)}
@@ -1705,9 +1924,9 @@ function EvidenceCard({
                     setShowAcceptPreview(false);
                     onReview(item.id, "accepted");
                   }}
-                  tone={item.application === null ? "primary" : "quiet"}
+                  tone={application === null ? "primary" : "quiet"}
                 >
-                  {item.application === null
+                  {application === null
                     ? "Accept evidence"
                     : "Accept without applying"}
                 </Button>
@@ -1777,7 +1996,7 @@ function EvidenceInbox({
   ) => void;
 }) {
   return (
-    <div className="screen-stack">
+    <div className="screen-stack evidence-screen">
       <div className="page-intro">
         <div>
           <p className="eyebrow">Human review boundary</p>

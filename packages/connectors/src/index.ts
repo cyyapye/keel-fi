@@ -2,6 +2,7 @@ import { IsoTimestampSchema } from "@keel/domain";
 import { z } from "zod";
 
 export * from "./official-company-web";
+export * from "./financing-announcement";
 
 export const ConnectorTypeSchema = z.enum([
   "sec-edgar",

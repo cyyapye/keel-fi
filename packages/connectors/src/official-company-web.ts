@@ -1,5 +1,10 @@
-import { IsoTimestampSchema } from "@keel/domain";
+import {
+  FinancingAnnouncementFactsSchema,
+  IsoTimestampSchema,
+} from "@keel/domain";
 import { z } from "zod";
+
+import { extractFinancingAnnouncementFacts } from "./financing-announcement";
 
 /** One million represents complete confidence; grades never use floating point. */
 export const PPM_MAX = 1_000_000;
@@ -183,14 +188,33 @@ export const PublicCompanyEventTypeSchema = z.enum([
   "shutdown_announced",
 ]);
 
-/** A public observation only; it contains no mark, valuation, or holding fields. */
-export const PublicCompanyEventObservationSchema = z.object({
-  eventType: PublicCompanyEventTypeSchema,
-  title: z.string().trim().min(1).max(500),
-  canonicalUrl: z.string().url().max(2_048),
-  publishedAt: IsoTimestampSchema.nullable(),
-  evidenceText: z.string().trim().min(1).max(MAX_COMPANY_WEB_EVENT_TEXT_CHARS),
-});
+/** A public observation only; financing facts never represent a holding mark. */
+export const PublicCompanyEventObservationSchema = z
+  .object({
+    eventType: PublicCompanyEventTypeSchema,
+    title: z.string().trim().min(1).max(500),
+    canonicalUrl: z.string().url().max(2_048),
+    publishedAt: IsoTimestampSchema.nullable(),
+    evidenceText: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_COMPANY_WEB_EVENT_TEXT_CHARS),
+    financingFacts: FinancingAnnouncementFactsSchema.nullable(),
+  })
+  .strict()
+  .superRefine((observation, context) => {
+    if (
+      observation.eventType !== "financing_announced" &&
+      observation.financingFacts !== null
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Only financing announcements may include financing facts.",
+        path: ["financingFacts"],
+      });
+    }
+  });
 
 export type CanonicalCompanyWebsite = z.infer<
   typeof CanonicalCompanyWebsiteSchema
@@ -780,12 +804,15 @@ export function discoverCompanyWebCandidatesFromSitemap(
 
 /**
  * Extracts a bounded, factual public event observation from one HTML article.
- * It intentionally returns no financial amount, valuation, or holding data.
+ * Source-stated financing terms remain review evidence, never a holding mark.
  */
 export function extractPublicCompanyEventsFromHtml(
   input: z.input<typeof CompanyWebDocumentInputSchema>,
 ): PublicCompanyEventObservation[] {
   const parsed = parseCompanyWebDocumentInput(input);
+  const pageText = stripHtmlToText(parsed.document);
+  const articleText =
+    extractPreferredHtmlArticleText(parsed.document) ?? pageText;
   const title =
     extractHtmlMetaContent(parsed.document, "property", "og:title") ??
     extractHtmlTagText(parsed.document, "h1") ??
@@ -807,8 +834,8 @@ export function extractPublicCompanyEventsFromHtml(
         ) ??
           extractHtmlMetaContent(parsed.document, "name", "date") ??
           extractHtmlTimeDatetime(parsed.document),
-      ) ?? extractFirstCalendarTimestamp(stripHtmlToText(parsed.document)),
-    evidenceText: stripHtmlToText(parsed.document),
+      ) ?? extractFirstCalendarTimestamp(articleText),
+    evidenceText: articleText,
   });
 }
 
@@ -1078,6 +1105,23 @@ function extractHtmlTagText(html: string, tag: string): string | null {
     : clipText(stripHtmlToText(match[1]), 500);
 }
 
+function extractPreferredHtmlArticleText(html: string): string | null {
+  for (const tag of ["article", "main"] as const) {
+    const match = new RegExp(
+      `<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}\\s*>`,
+      "i",
+    ).exec(html);
+    if (match?.[1] === undefined) {
+      continue;
+    }
+    const text = stripHtmlToText(match[1]);
+    if (text.length > 0) {
+      return text;
+    }
+  }
+  return null;
+}
+
 function extractHtmlTimeDatetime(html: string): string | null {
   for (const match of html.matchAll(/<time\b[^>]*>/gi)) {
     const datetime = parseTagAttributes(match[0]).datetime;
@@ -1213,6 +1257,13 @@ function createPublicCompanyEventObservations({
   if (eventType === null) {
     return [];
   }
+  const financingFacts =
+    eventType === "financing_announced"
+      ? extractFinancingAnnouncementFacts({
+          title: normalizedTitle,
+          evidenceText: normalizedEvidenceText,
+        })
+      : null;
   return [
     PublicCompanyEventObservationSchema.parse({
       eventType,
@@ -1220,6 +1271,7 @@ function createPublicCompanyEventObservations({
       canonicalUrl,
       publishedAt,
       evidenceText: normalizedEvidenceText,
+      financingFacts,
     }),
   ];
 }
