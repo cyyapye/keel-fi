@@ -423,12 +423,20 @@ export const PublicSourceClassSchema = z.enum([
   "secondary_source",
 ]);
 
+export const PortfolioWatchCoverageStatusSchema = z.enum([
+  "active",
+  "discovering",
+  "degraded",
+  "unavailable",
+]);
+
 export const PortfolioWatchTargetSchema = z.object({
   id: z.string().min(1),
   companyId: z.string().min(1),
   companyName: z.string().min(1),
   officialHost: z.string().min(1),
   status: z.enum(["active", "paused"]),
+  coverageStatus: PortfolioWatchCoverageStatusSchema,
   lastCheckedAt: IsoTimestampSchema.nullable(),
   latestObservationAt: IsoTimestampSchema.nullable(),
 });
@@ -466,6 +474,7 @@ export const PortfolioWatchSchema = z.object({
 
 export const PortfolioWatchScanResultSchema = z.object({
   checkedAt: IsoTimestampSchema,
+  queuedCount: z.number().int().nonnegative(),
   discoveredCount: z.number().int().nonnegative(),
   proposedCount: z.number().int().nonnegative(),
 });

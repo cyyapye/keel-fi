@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
 import { DEV_HOST, resolveDevPorts } from "./dev-ports";
@@ -39,8 +40,11 @@ console.log(`  Web: http://${DEV_HOST}:${webPort}`);
 console.log(`  API: http://${DEV_HOST}:${apiPort}/api/alpha`);
 console.log("Use Ctrl+C to stop both services.");
 
+const safeProcessEnvironment = { ...process.env };
+delete safeProcessEnvironment.KEEL_LOCAL_ACCEPTANCE_PROFILE_JSON;
+delete safeProcessEnvironment.KEEL_LOCAL_ACCEPTANCE_PROFILE_STDIN;
 const environment = {
-  ...process.env,
+  ...safeProcessEnvironment,
   KEEL_API_ORIGIN: `http://${DEV_HOST}:${apiPort}`,
   KEEL_API_PORT: String(apiPort),
   KEEL_WEB_PORT: String(webPort),
@@ -48,12 +52,41 @@ const environment = {
     process.env.WRANGLER_LOG_PATH ??
     path.join(rootDir, ".wrangler", "logs", "wrangler.log"),
 };
+const localPersistTo = process.env.KEEL_LOCAL_PERSIST_TO;
+const acceptancePersistRoot = path.resolve(rootDir, ".keel-local/acceptance");
+const isAcceptanceProfile =
+  localPersistTo !== undefined &&
+  path.resolve(rootDir, localPersistTo) === acceptancePersistRoot;
+if (localPersistTo !== undefined && !isAcceptanceProfile) {
+  throw new Error(
+    "KEEL_LOCAL_PERSIST_TO may only select the disposable local acceptance profile.",
+  );
+}
+if (isAcceptanceProfile && !existsSync(acceptancePersistRoot)) {
+  throw new Error(
+    "The local acceptance profile is missing. Run make local-acceptance-apply first.",
+  );
+}
+const childEnvironment = {
+  ...environment,
+  ...(isAcceptanceProfile
+    ? {
+        KEEL_ACCEPTANCE_PROFILE: "real-company",
+        VITE_KEEL_ACCEPTANCE_PROFILE: "real-company",
+        WRANGLER_LOG_PATH: path.join(
+          acceptancePersistRoot,
+          "logs",
+          "wrangler.log",
+        ),
+      }
+    : {}),
+};
 const children = new Map<ChildProcess, string>();
 
 function start(name: string, args: readonly string[]): ChildProcess {
   const child = spawn("pnpm", args, {
     cwd: rootDir,
-    env: environment,
+    env: childEnvironment,
     stdio: "inherit",
   });
   children.set(child, name);
@@ -97,6 +130,9 @@ start("API", [
   "local",
   "--port",
   String(apiPort),
+  ...(localPersistTo === undefined
+    ? []
+    : ["--persist-to", path.resolve(rootDir, localPersistTo)]),
 ]);
 start("Web", [
   "--filter",

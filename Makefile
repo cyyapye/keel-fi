@@ -12,7 +12,7 @@ WRANGLER_LOG_PATH ?= $(CURDIR)/.wrangler/logs/wrangler.log
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify e2e verify
+.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean e2e verify
 
 help:
 	@echo "Keel developer commands"
@@ -30,6 +30,9 @@ help:
 	@echo "  make typecheck     Run TypeScript checks"
 	@echo "  make test          Run unit/API tests (optional TEST_ARGS=...)"
 	@echo "  make db-verify     Apply migrations, seed, and check D1 invariants"
+	@echo "  make local-acceptance-apply   Apply a runtime-only real-company source profile to local D1"
+	@echo "  make local-acceptance-dev     Start the disposable real-company local profile"
+	@echo "  make local-acceptance-restore Remove the disposable real-company local state"
 	@echo "  make e2e           Run browser tests (optional E2E_ARGS=...)"
 
 bootstrap:
@@ -98,6 +101,18 @@ db-check:
 db-verify:
 	$(MAKE) db-reset
 	$(MAKE) db-check
+
+local-acceptance-apply:
+	$(PNPM) local:acceptance:apply
+
+local-acceptance-dev:
+	KEEL_LOCAL_PERSIST_TO=.keel-local/acceptance $(PNPM) dev
+
+local-acceptance-restore:
+	$(PNPM) local:acceptance:restore
+
+local-acceptance-clean:
+	$(PNPM) local:acceptance:clean
 
 e2e:
 	$(MAKE) db-reset

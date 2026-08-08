@@ -1,9 +1,12 @@
 import { IsoTimestampSchema } from "@keel/domain";
 import { z } from "zod";
 
+export * from "./official-company-web";
+
 export const ConnectorTypeSchema = z.enum([
   "sec-edgar",
   "company-rss",
+  "official-company-web",
   "email-import",
   "manual-document",
 ]);
@@ -17,6 +20,39 @@ export const IngestionMessageSchema = z.object({
   cursor: z.string().max(2_048).nullable(),
 });
 
+/**
+ * Portfolio Watch scan jobs are deliberately source-ID-only. The worker must
+ * load the approved URL and its policy from the canonical source registry;
+ * queue payloads can never introduce an arbitrary fetch target.
+ */
+const PortfolioWatchSourceJobFields = {
+  messageId: z.uuid(),
+  sourceId: z.string().min(1),
+  requestedAt: IsoTimestampSchema,
+} as const;
+
+export const PortfolioWatchSourceScanMessageSchema = z
+  .object({
+    ...PortfolioWatchSourceJobFields,
+    type: z.literal("portfolio_watch_source_scan"),
+  })
+  .strict();
+
+export const PortfolioWatchSourceVerifyMessageSchema = z
+  .object({
+    ...PortfolioWatchSourceJobFields,
+    type: z.literal("portfolio_watch_source_verify"),
+  })
+  .strict();
+
+export const PortfolioWatchSourceJobMessageSchema = z.discriminatedUnion(
+  "type",
+  [
+    PortfolioWatchSourceScanMessageSchema,
+    PortfolioWatchSourceVerifyMessageSchema,
+  ],
+);
+
 export const SourceDocumentMetadataSchema = z.object({
   householdId: z.string().min(1),
   sourceLabel: z.string().min(1),
@@ -25,6 +61,7 @@ export const SourceDocumentMetadataSchema = z.object({
     "application/pdf",
     "text/plain",
     "text/html",
+    "text/markdown",
     "application/json",
     "application/xml",
     "application/rss+xml",
@@ -52,6 +89,12 @@ export const EvidenceProposalSchema = z.object({
 });
 
 export type IngestionMessage = z.infer<typeof IngestionMessageSchema>;
+export type PortfolioWatchSourceScanMessage = z.infer<
+  typeof PortfolioWatchSourceScanMessageSchema
+>;
+export type PortfolioWatchSourceJobMessage = z.infer<
+  typeof PortfolioWatchSourceJobMessageSchema
+>;
 export type EvidenceProposal = z.infer<typeof EvidenceProposalSchema>;
 export type SourceDocumentMetadata = z.infer<
   typeof SourceDocumentMetadataSchema

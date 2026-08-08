@@ -8,6 +8,7 @@ const portfolioWatchFixture = {
       companyName: "Harbor Health Systems",
       officialHost: "harbor-health.example",
       status: "active",
+      coverageStatus: "active",
       lastCheckedAt: "2026-08-02T12:00:00.000Z",
       latestObservationAt: "2026-08-02T12:00:00.000Z",
     },
@@ -17,6 +18,7 @@ const portfolioWatchFixture = {
       companyName: "Lattice Grove Energy",
       officialHost: "lattice-grove.example",
       status: "active",
+      coverageStatus: "degraded",
       lastCheckedAt: "2026-08-02T12:00:00.000Z",
       latestObservationAt: null,
     },
@@ -26,6 +28,7 @@ const portfolioWatchFixture = {
       companyName: "Northstar Robotics",
       officialHost: "northstar-robotics.example",
       status: "active",
+      coverageStatus: "unavailable",
       lastCheckedAt: "2026-08-02T12:00:00.000Z",
       latestObservationAt: null,
     },
@@ -78,6 +81,7 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
         checkedAt: "2026-08-02T12:00:00.000Z",
         discoveredCount: 0,
         proposedCount: 0,
+        queuedCount: 3,
       },
     });
   });
@@ -92,6 +96,18 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   await navigation.getByRole("button", { name: /Watch/ }).click();
   const checkButton = page.locator(".watch-control-panel .button");
   await expect(checkButton).toHaveText("Check now");
+  await expect(page.getByTestId("portfolio-watch-control")).toContainText(
+    "Keel automatically finds and checks company sources when you check.",
+  );
+  await expect(page.getByTestId("watch-target-watch_harbor")).toContainText(
+    "Monitoring active · Checked Aug 2, 2026",
+  );
+  await expect(page.getByTestId("watch-target-watch_lattice")).toContainText(
+    "Temporarily unavailable · Will retry",
+  );
+  await expect(page.getByTestId("watch-target-watch_northstar")).toContainText(
+    "No verified public source yet",
+  );
   await checkButton.click();
   await expect(
     page.getByRole("heading", {
@@ -100,7 +116,7 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   ).toBeVisible();
   await expect(checkButton).toBeEnabled();
   await expect(checkButton).toHaveText("Check now");
-  await expect(page.getByText("You’re up to date.")).toBeVisible();
+  await expect(page.getByText("Source checks started.")).toBeVisible();
 
   await page.addStyleTag({
     content: `
