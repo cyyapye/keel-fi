@@ -57,4 +57,22 @@ describe("web Worker routing", () => {
     expect(testBindings.assetsFetch).toHaveBeenCalledWith(request);
     expect(testBindings.apiFetch).not.toHaveBeenCalled();
   });
+
+  it("identifies the exact web deployment on the health response", async () => {
+    const testBindings = bindings();
+    const request = new Request("https://keel-preview.example.com/health");
+
+    const response = await handleRequest(request, {
+      ...testBindings.value,
+      CF_VERSION_METADATA: {
+        id: "web-version-1",
+        tag: "a".repeat(40),
+      },
+      DEPLOYED_GIT_SHA: "a".repeat(40),
+    });
+
+    expect(response.headers.get("X-Keel-Web-Git-Sha")).toBe("a".repeat(40));
+    expect(response.headers.get("X-Keel-Web-Version-Id")).toBe("web-version-1");
+    expect(response.headers.get("X-Keel-Web-Version-Tag")).toBe("a".repeat(40));
+  });
 });

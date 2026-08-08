@@ -14,6 +14,28 @@ to ordinary issues, or store them unencrypted.
   recovery owner without recording secret material.
 - Perform quarterly restore drills for an active private alpha.
 
+## Automatic preview release backup
+
+Before each preview migration, the post-merge workflow exports the remote D1
+database to ephemeral runner storage and encrypts it with GPG AES-256 using the
+GitHub `preview` environment passphrase. The workflow decrypts a verification
+copy and byte-compares it with the export, records plaintext and encrypted
+SHA-256 hashes, deletes both plaintext copies and the passphrase file, and
+uploads only the encrypted export plus its non-sensitive manifest. Retention is
+14 days.
+
+The passphrase must be stored separately from downloaded artifacts, rotated
+under the private recovery procedure, and available to the recovery owner. A
+successful upload is a migration precondition. An encrypted artifact is not a
+restore drill: periodically download one, verify both recorded hashes, decrypt
+inside an approved restricted location, and restore into a new non-production D1
+database.
+
+Cloudflare D1 Time Travel and the backup captured by `d1 migrations apply` are
+additional recovery layers, not substitutes for testing the encrypted export.
+Production backup storage, retention, and approval remain separate from this
+preview workflow.
+
 Command shape for an authorized export:
 
 ```sh

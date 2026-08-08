@@ -21,6 +21,9 @@
 - [ ] `pnpm check` passes on the release commit.
 - [ ] D1 migration and seed pass locally.
 - [ ] Preview migration and production build pass.
+- [ ] Preview deployment contains no remote seed, reset, import, or restore
+      command.
+- [ ] Encrypted pre-migration preview backup uploads before migrations begin.
 - [ ] Missing and invalid Access assertions return `401` in production mode.
 - [ ] Household authorization tests pass.
 - [ ] Secure headers and `no-store` financial responses are present.
@@ -41,4 +44,5 @@
 - [ ] Git commit, CI run, migration names, Worker versions, and reviewer are
       recorded privately.
 - [ ] Post-deploy dashboard, evidence, D1, Access, R2, and Queue smokes pass.
+- [ ] Runtime API/web Git SHA and Worker version IDs match deployment output.
 - [ ] Rollback owner and last-known-good Worker version are identified.
