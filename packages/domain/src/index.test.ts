@@ -9,6 +9,7 @@ import {
   multiplyMinorByPpm,
   projectScenario,
   probabilityMeetingThresholdPpm,
+  reconcileFinancingSignals,
   summarizeLiquidityPaths,
 } from "./index";
 
@@ -87,6 +88,172 @@ describe("financing announcement facts", () => {
     ]) {
       expect(HttpsSourceUrlSchema.safeParse(unsafe).success).toBe(false);
     }
+  });
+});
+
+describe("financing signal reconciliation", () => {
+  const valuation = (amountMinor: number) => ({
+    amountMinor,
+    currency: "USD",
+    qualifier: "exact" as const,
+    evidenceText: `The company reported a USD ${amountMinor} valuation.`,
+    basis: "post_money" as const,
+  });
+  const observation = ({
+    id,
+    sourceUrl,
+    publishedAt,
+    amountMinor,
+    evidenceStatus = "pending_review" as const,
+    roundLabel = "Series C financing",
+    sourceClass = "official_company" as const,
+  }: {
+    id: string;
+    sourceUrl: string;
+    publishedAt: string;
+    amountMinor: number;
+    evidenceStatus?:
+      "pending_review" | "accepted" | "rejected" | "scenario_only";
+    roundLabel?: string;
+    sourceClass?:
+      | "official_company"
+      | "regulatory_filing"
+      | "reputable_reporting"
+      | "secondary_source";
+  }) => ({
+    id,
+    companyId: "co_northstar",
+    companyName: "Northstar Robotics",
+    evidenceEventId: `evt_${id}`,
+    evidenceStatus,
+    sourceClass,
+    sourceUrl,
+    sourceTitle: `Synthetic Series C report ${id}`,
+    publishedAt,
+    retrievedAt: publishedAt,
+    observedFact: "Northstar Robotics reported a Series C financing.",
+    inference: "Company-level financing signal only.",
+    sourceReliabilityPpm:
+      sourceClass === "official_company" ? 1_000_000 : 940_000,
+    modelConfidencePpm: 920_000,
+    valuationLowMinor: null,
+    valuationMiddleMinor: null,
+    valuationHighMinor: null,
+    financingFacts: {
+      roundType: "series" as const,
+      roundLabel,
+      instrument: "equity" as const,
+      announcedAmount: null,
+      companyValuation: valuation(amountMinor),
+      ambiguities: [],
+    },
+    limitations: "Holding ownership and security terms are not known.",
+  });
+
+  it("groups by company and normalized round independent of arrival order", () => {
+    const reports = [
+      observation({
+        id: "official_old",
+        sourceUrl: "https://northstar.example/news/series-c",
+        publishedAt: "2026-08-02T10:00:00+10:00",
+        amountMinor: 90_000_000_000,
+        roundLabel: "Series C financing",
+      }),
+      observation({
+        id: "official_current",
+        sourceUrl: "https://northstar.example/news/series-c",
+        publishedAt: "2026-08-02T01:00:00Z",
+        amountMinor: 100_000_000_000,
+        roundLabel: "Series C",
+      }),
+      observation({
+        id: "regulatory",
+        sourceUrl: "https://filings.example/series-c",
+        publishedAt: "2026-08-02T11:00:00Z",
+        amountMinor: 100_000_000_000,
+        roundLabel: "Series C round",
+        sourceClass: "regulatory_filing",
+      }),
+    ];
+
+    const [forward] = reconcileFinancingSignals(reports);
+    const [reversed] = reconcileFinancingSignals([...reports].reverse());
+
+    expect(forward).toEqual(reversed);
+    expect(forward).toMatchObject({
+      id: "co_northstar:series-c",
+      roundLabel: "Series C",
+      status: "corroborated",
+      pendingReviewCount: 2,
+      canCreateProposal: false,
+      proposedCompanyValuation: { amountMinor: 100_000_000_000 },
+    });
+    expect(forward?.recommendedReviewEventIds).toEqual([
+      "evt_official_current",
+      "evt_regulatory",
+    ]);
+    expect(
+      forward?.reports.map((report) => [
+        report.observationId,
+        report.relationship,
+      ]),
+    ).toEqual([
+      ["official_current", "corroborating"],
+      ["regulatory", "corroborating"],
+      ["official_old", "superseded"],
+    ]);
+  });
+
+  it("flags conflicting current terms and unlocks only a reviewed valuation", () => {
+    const conflicting = reconcileFinancingSignals([
+      observation({
+        id: "official",
+        sourceUrl: "https://northstar.example/news/series-c",
+        publishedAt: "2026-08-02T10:00:00Z",
+        amountMinor: 100_000_000_000,
+      }),
+      observation({
+        id: "reporting",
+        sourceUrl: "https://reporting.example/northstar-series-c",
+        publishedAt: "2026-08-02T11:00:00Z",
+        amountMinor: 110_000_000_000,
+        sourceClass: "reputable_reporting",
+      }),
+    ])[0];
+    expect(conflicting).toMatchObject({
+      status: "conflicting",
+      canCreateProposal: false,
+      proposedCompanyValuation: null,
+    });
+    expect(
+      conflicting?.reports.every(
+        (report) => report.relationship === "conflicting",
+      ),
+    ).toBe(true);
+
+    const reviewed = reconcileFinancingSignals([
+      observation({
+        id: "official",
+        sourceUrl: "https://northstar.example/news/series-c",
+        publishedAt: "2026-08-02T10:00:00Z",
+        amountMinor: 100_000_000_000,
+        evidenceStatus: "accepted",
+      }),
+      observation({
+        id: "regulatory",
+        sourceUrl: "https://filings.example/series-c",
+        publishedAt: "2026-08-02T11:00:00Z",
+        amountMinor: 100_000_000_000,
+        evidenceStatus: "scenario_only",
+        sourceClass: "regulatory_filing",
+      }),
+    ])[0];
+    expect(reviewed).toMatchObject({
+      status: "corroborated",
+      pendingReviewCount: 0,
+      canCreateProposal: true,
+      proposedCompanyValuation: { amountMinor: 100_000_000_000 },
+    });
   });
 });
 

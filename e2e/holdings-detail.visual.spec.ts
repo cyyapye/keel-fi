@@ -115,6 +115,8 @@ const alphaFixture = {
   evidenceInbox: [],
   portfolioWatch: { targets: [], observations: [] },
   scenarios: [],
+  signalReconciliations: [],
+  signalUpdateProposals: [],
   forecastHistory: [],
 };
 

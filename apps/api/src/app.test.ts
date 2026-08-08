@@ -68,6 +68,8 @@ const alphaData: AlphaData = {
   holdings: [],
   evidenceInbox: [],
   portfolioWatch: { targets: [], observations: [] },
+  signalReconciliations: [],
+  signalUpdateProposals: [],
   scenarios: [],
   forecastHistory: [],
 };
@@ -158,6 +160,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };
@@ -183,6 +186,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };
@@ -221,6 +225,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };
@@ -267,6 +272,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };
@@ -328,6 +334,7 @@ describe("Keel API", () => {
       applyHoldingImport,
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };
@@ -369,6 +376,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence,
       applyEvidence: vi.fn(),
     };
@@ -410,6 +418,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence,
     };
@@ -437,6 +446,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi
         .fn<AlphaRepository["applyEvidence"]>()
@@ -456,6 +466,75 @@ describe("Keel API", () => {
     });
   });
 
+  it("creates a validated signal update proposal without applying it", async () => {
+    const input = {
+      groupId: "co_northstar:series-c",
+      reconciliationRevision: "a".repeat(64),
+      scenarioId: "scn_sandbox",
+      baseForecastSnapshotId: "snap_sandbox_v1",
+      rationale: "Model the reviewed company valuation separately.",
+    };
+    const createSignalUpdateProposal = vi
+      .fn<AlphaRepository["createSignalUpdateProposal"]>()
+      .mockResolvedValue({
+        id: "proposal_1",
+        groupId: input.groupId,
+        reconciliationRevision: input.reconciliationRevision,
+        companyId: "co_northstar",
+        companyName: "Northstar Robotics",
+        scenarioId: input.scenarioId,
+        scenarioName: "Sandbox",
+        baseForecastSnapshotId: input.baseForecastSnapshotId,
+        baseForecastSnapshotVersion: 1,
+        evidenceEventIds: ["evt_company", "evt_filing"],
+        proposedCompanyValuation: {
+          amountMinor: 100_000_000_000,
+          currency: "USD",
+          qualifier: "exact",
+          evidenceText: "The Series C reported a USD 1 billion valuation.",
+          basis: "post_money",
+        },
+        rationale: input.rationale,
+        createdAt: "2026-08-08T12:00:00Z",
+        createdBy: "Demo Operator",
+        isCurrent: true,
+      });
+    const repository: AlphaRepository = {
+      getAlphaData: vi
+        .fn<AlphaRepository["getAlphaData"]>()
+        .mockResolvedValue(alphaData),
+      preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      createSignalUpdateProposal,
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    };
+
+    const response = await createApp({ repository }).request(
+      "/api/signal-update-proposals",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      id: "proposal_1",
+      isCurrent: true,
+    });
+    expect(createSignalUpdateProposal).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      input,
+    );
+  });
+
   it("validates and records a new immutable goal version", async () => {
     const saveGoal = vi
       .fn<AlphaRepository["saveGoal"]>()
@@ -470,6 +549,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal,
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };
@@ -515,6 +595,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario,
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };
@@ -560,6 +641,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario,
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };

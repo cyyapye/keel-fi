@@ -345,6 +345,427 @@ test("keeps a financing review focused on reported company terms", async ({
   );
 });
 
+test("reconciles financing reports before creating a version-safe proposal", async ({
+  page,
+}, testInfo) => {
+  const alphaResponse = await page.request.get("/api/alpha");
+  expect(alphaResponse.ok()).toBe(true);
+  const liveAlpha = (await alphaResponse.json()) as Record<string, unknown>;
+  const scenarios = liveAlpha.scenarios as Array<{
+    id: string;
+    isSandbox: boolean;
+    latestSnapshotId: string | null;
+    latestSnapshotVersion: number | null;
+    name: string;
+  }>;
+  const sandbox = scenarios.find((scenario) => scenario.isSandbox);
+  if (
+    sandbox === undefined ||
+    sandbox.latestSnapshotId === null ||
+    sandbox.latestSnapshotVersion === null
+  ) {
+    throw new Error("The synthetic Sandbox scenario needs a saved snapshot.");
+  }
+
+  const harborOfficialFacts = {
+    ...financingFactsFixture,
+    roundLabel: "Series D",
+    announcedAmount: {
+      amountMinor: 8_000_000_000,
+      currency: "USD",
+      qualifier: "exact",
+      evidenceText:
+        "announced USD 80 million in Series D financing at a USD 400 million post-money company valuation",
+    },
+    companyValuation: {
+      amountMinor: 40_000_000_000,
+      currency: "USD",
+      qualifier: "exact",
+      basis: "post_money",
+      evidenceText:
+        "announced USD 80 million in Series D financing at a USD 400 million post-money company valuation",
+    },
+  };
+  const harborReportingFacts = {
+    ...harborOfficialFacts,
+    announcedAmount: {
+      amountMinor: 8_500_000_000,
+      currency: "USD",
+      qualifier: "exact",
+      evidenceText:
+        "reported USD 85 million in Series D financing at a USD 420 million post-money company valuation",
+    },
+    companyValuation: {
+      amountMinor: 42_000_000_000,
+      currency: "USD",
+      qualifier: "exact",
+      basis: "post_money",
+      evidenceText:
+        "reported USD 85 million in Series D financing at a USD 420 million post-money company valuation",
+    },
+  };
+  const northstarRegulatoryFacts = {
+    ...financingFactsFixture,
+    announcedAmount: {
+      ...financingFactsFixture.announcedAmount,
+      evidenceText:
+        "reported USD 62 million in Series C financing at a USD 310 million post-money company valuation",
+    },
+    companyValuation: {
+      ...financingFactsFixture.companyValuation,
+      evidenceText:
+        "reported USD 62 million in Series C financing at a USD 310 million post-money company valuation",
+    },
+  };
+  const northstarSupersededFacts = {
+    ...financingFactsFixture,
+    announcedAmount: {
+      amountMinor: 5_500_000_000,
+      currency: "USD",
+      qualifier: "exact",
+      evidenceText:
+        "previously reported USD 55 million in Series C financing at a USD 280 million post-money company valuation",
+    },
+    companyValuation: {
+      amountMinor: 28_000_000_000,
+      currency: "USD",
+      qualifier: "exact",
+      basis: "post_money",
+      evidenceText:
+        "previously reported USD 55 million in Series C financing at a USD 280 million post-money company valuation",
+    },
+  };
+  const harborOfficialUrl =
+    "https://newsroom.harbor-health.example/updates/series-d-financing";
+  const harborReportingUrl = "https://reporting.example/harbor-health-series-d";
+  const northstarOfficialUrl =
+    "https://northstar-robotics.example/news/series-c-financing";
+  const northstarRegulatoryUrl = "https://filings.example/northstar-series-c";
+  const evidenceInbox = [
+    {
+      id: "evt_harbor_series_d_official",
+      companyName: "Harbor Health Systems",
+      eventType: "financing_announced",
+      headline: "Official Series D terms reported",
+      detectedAt: "2026-08-08T10:00:00.000Z",
+      effectiveDate: "2026-08-08",
+      status: "pending_review",
+      confidencePpm: 960_000,
+      modelConfidencePpm: 910_000,
+      sources: ["Official company website"],
+      sourceUrl: harborOfficialUrl,
+      sourceExcerpt: harborOfficialFacts.announcedAmount.evidenceText,
+      priorValue: "Not set",
+      replacementValue: "Not set",
+      forecastImpactMinor: 0,
+      financingFacts: harborOfficialFacts,
+      application: null,
+    },
+    {
+      id: "evt_harbor_series_d_reporting",
+      companyName: "Harbor Health Systems",
+      eventType: "financing_announced",
+      headline: "Differing Series D terms reported",
+      detectedAt: "2026-08-08T10:05:00.000Z",
+      effectiveDate: "2026-08-08",
+      status: "pending_review",
+      confidencePpm: 840_000,
+      modelConfidencePpm: 860_000,
+      sources: ["Named reporting"],
+      sourceUrl: harborReportingUrl,
+      sourceExcerpt: harborReportingFacts.announcedAmount.evidenceText,
+      priorValue: "Not set",
+      replacementValue: "Not set",
+      forecastImpactMinor: 0,
+      financingFacts: harborReportingFacts,
+      application: null,
+    },
+    {
+      id: "evt_northstar_series_c_official",
+      companyName: "Northstar Robotics",
+      eventType: "financing_announced",
+      headline: "Current official Series C terms",
+      detectedAt: "2026-08-07T12:00:00.000Z",
+      effectiveDate: "2026-08-07",
+      status: "scenario_only",
+      confidencePpm: 980_000,
+      modelConfidencePpm: 940_000,
+      sources: ["Official company website"],
+      sourceUrl: northstarOfficialUrl,
+      sourceExcerpt: financingFactsFixture.announcedAmount.evidenceText,
+      priorValue: "Not set",
+      replacementValue: "Not set",
+      forecastImpactMinor: 0,
+      financingFacts: financingFactsFixture,
+      application: null,
+    },
+    {
+      id: "evt_northstar_series_c_filing",
+      companyName: "Northstar Robotics",
+      eventType: "financing_announced",
+      headline: "Matching Series C filing",
+      detectedAt: "2026-08-07T12:05:00.000Z",
+      effectiveDate: "2026-08-07",
+      status: "accepted",
+      confidencePpm: 990_000,
+      modelConfidencePpm: 930_000,
+      sources: ["Regulatory filing"],
+      sourceUrl: northstarRegulatoryUrl,
+      sourceExcerpt: northstarRegulatoryFacts.announcedAmount.evidenceText,
+      priorValue: "Not set",
+      replacementValue: "Not set",
+      forecastImpactMinor: 0,
+      financingFacts: northstarRegulatoryFacts,
+      application: null,
+    },
+    {
+      id: "evt_northstar_series_c_old",
+      companyName: "Northstar Robotics",
+      eventType: "financing_announced",
+      headline: "Earlier official Series C report",
+      detectedAt: "2026-08-01T12:00:00.000Z",
+      effectiveDate: "2026-08-01",
+      status: "accepted",
+      confidencePpm: 980_000,
+      modelConfidencePpm: 900_000,
+      sources: ["Official company website"],
+      sourceUrl: northstarOfficialUrl,
+      sourceExcerpt: northstarSupersededFacts.announcedAmount.evidenceText,
+      priorValue: "Not set",
+      replacementValue: "Not set",
+      forecastImpactMinor: 0,
+      financingFacts: northstarSupersededFacts,
+      application: null,
+    },
+  ];
+  const harborRevision = "a".repeat(64);
+  const northstarRevision = "b".repeat(64);
+  const signalReconciliations = [
+    {
+      id: "co_harbor:series-d",
+      revision: harborRevision,
+      companyId: "co_harbor",
+      companyName: "Harbor Health Systems",
+      roundKey: "series-d",
+      roundLabel: "Series D",
+      status: "conflicting",
+      reviewRank: 1,
+      reviewReason: "Resolve the differing terms before drafting an update.",
+      pendingReviewCount: 2,
+      recommendedReviewEventIds: [
+        "evt_harbor_series_d_official",
+        "evt_harbor_series_d_reporting",
+      ],
+      canCreateProposal: false,
+      proposedCompanyValuation: null,
+      reports: [
+        {
+          observationId: "obs_harbor_series_d_official",
+          evidenceEventId: "evt_harbor_series_d_official",
+          sourceTitle: "Official Series D announcement",
+          sourceUrl: harborOfficialUrl,
+          sourceClass: "official_company",
+          publishedAt: "2026-08-08T09:55:00.000Z",
+          retrievedAt: "2026-08-08T10:00:00.000Z",
+          evidenceStatus: "pending_review",
+          sourceReliabilityPpm: 960_000,
+          modelConfidencePpm: 910_000,
+          relationship: "conflicting",
+          reviewOrder: 1,
+          financingFacts: harborOfficialFacts,
+        },
+        {
+          observationId: "obs_harbor_series_d_reporting",
+          evidenceEventId: "evt_harbor_series_d_reporting",
+          sourceTitle: "Named Series D report",
+          sourceUrl: harborReportingUrl,
+          sourceClass: "reputable_reporting",
+          publishedAt: "2026-08-08T10:01:00.000Z",
+          retrievedAt: "2026-08-08T10:05:00.000Z",
+          evidenceStatus: "pending_review",
+          sourceReliabilityPpm: 840_000,
+          modelConfidencePpm: 860_000,
+          relationship: "conflicting",
+          reviewOrder: 2,
+          financingFacts: harborReportingFacts,
+        },
+      ],
+    },
+    {
+      id: "co_northstar:series-c",
+      revision: northstarRevision,
+      companyId: "co_northstar",
+      companyName: "Northstar Robotics",
+      roundKey: "series-c",
+      roundLabel: "Series C",
+      status: "corroborated",
+      reviewRank: 2,
+      reviewReason:
+        "Review the matching reports together, strongest source first.",
+      pendingReviewCount: 0,
+      recommendedReviewEventIds: [],
+      canCreateProposal: true,
+      proposedCompanyValuation: financingFactsFixture.companyValuation,
+      reports: [
+        {
+          observationId: "obs_northstar_series_c_filing",
+          evidenceEventId: "evt_northstar_series_c_filing",
+          sourceTitle: "Series C filing",
+          sourceUrl: northstarRegulatoryUrl,
+          sourceClass: "regulatory_filing",
+          publishedAt: "2026-08-07T12:01:00.000Z",
+          retrievedAt: "2026-08-07T12:05:00.000Z",
+          evidenceStatus: "accepted",
+          sourceReliabilityPpm: 990_000,
+          modelConfidencePpm: 930_000,
+          relationship: "corroborating",
+          reviewOrder: 1,
+          financingFacts: northstarRegulatoryFacts,
+        },
+        {
+          observationId: "obs_northstar_series_c_official",
+          evidenceEventId: "evt_northstar_series_c_official",
+          sourceTitle: "Official Series C announcement",
+          sourceUrl: northstarOfficialUrl,
+          sourceClass: "official_company",
+          publishedAt: "2026-08-07T11:55:00.000Z",
+          retrievedAt: "2026-08-07T12:00:00.000Z",
+          evidenceStatus: "scenario_only",
+          sourceReliabilityPpm: 980_000,
+          modelConfidencePpm: 940_000,
+          relationship: "corroborating",
+          reviewOrder: 2,
+          financingFacts: financingFactsFixture,
+        },
+        {
+          observationId: "obs_northstar_series_c_old",
+          evidenceEventId: "evt_northstar_series_c_old",
+          sourceTitle: "Earlier official Series C report",
+          sourceUrl: northstarOfficialUrl,
+          sourceClass: "official_company",
+          publishedAt: "2026-08-01T11:55:00.000Z",
+          retrievedAt: "2026-08-01T12:00:00.000Z",
+          evidenceStatus: "accepted",
+          sourceReliabilityPpm: 980_000,
+          modelConfidencePpm: 900_000,
+          relationship: "superseded",
+          reviewOrder: 3,
+          financingFacts: northstarSupersededFacts,
+        },
+      ],
+    },
+  ];
+  const proposal = {
+    id: "proposal_northstar_series_c",
+    groupId: "co_northstar:series-c",
+    reconciliationRevision: northstarRevision,
+    companyId: "co_northstar",
+    companyName: "Northstar Robotics",
+    scenarioId: sandbox.id,
+    scenarioName: sandbox.name,
+    baseForecastSnapshotId: sandbox.latestSnapshotId,
+    baseForecastSnapshotVersion: sandbox.latestSnapshotVersion,
+    evidenceEventIds: [
+      "evt_northstar_series_c_filing",
+      "evt_northstar_series_c_official",
+    ],
+    proposedCompanyValuation: financingFactsFixture.companyValuation,
+    rationale:
+      "Reviewed Northstar Robotics Series C reports; model the company valuation separately.",
+    createdAt: "2026-08-08T12:00:00.000Z",
+    createdBy: "Demo Operator",
+    isCurrent: true,
+  };
+  let proposalSaved = false;
+  const alphaFixture = {
+    ...liveAlpha,
+    evidenceInbox,
+    portfolioWatch: { ...portfolioWatchFixture, observations: [] },
+    signalReconciliations,
+  };
+
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({
+      json: {
+        ...alphaFixture,
+        signalUpdateProposals: proposalSaved ? [proposal] : [],
+      },
+    });
+  });
+  await page.route("**/api/signal-update-proposals", async (route) => {
+    const requestBody = route.request().postDataJSON() as Record<
+      string,
+      unknown
+    >;
+    expect(requestBody).toMatchObject({
+      groupId: "co_northstar:series-c",
+      reconciliationRevision: northstarRevision,
+      scenarioId: sandbox.id,
+      baseForecastSnapshotId: sandbox.latestSnapshotId,
+    });
+    proposalSaved = true;
+    await route.fulfill({ json: proposal, status: 201 });
+  });
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  const navigation = page.getByRole("navigation", {
+    name: mobile ? "Mobile navigation" : "Primary navigation",
+  });
+  await navigation.getByRole("button", { name: /Evidence/ }).click();
+
+  const groups = page.locator(".signal-reconciliation-group");
+  await expect(groups).toHaveCount(2);
+  await expect(groups.nth(0)).toContainText("Review 1 · Harbor Health Systems");
+  await expect(groups.nth(0)).toContainText("Terms conflict");
+  await expect(groups.nth(0)).toContainText("Report 1 · Conflicts");
+  await expect(groups.nth(0)).toContainText("Report 2 · Conflicts");
+  await expect(groups.nth(1)).toContainText("Review 2 · Northstar Robotics");
+  await expect(groups.nth(1)).toContainText("Corroborated");
+  await expect(groups.nth(1)).toContainText("Report 1 · Corroborates");
+  await expect(groups.nth(1)).toContainText("Report 2 · Corroborates");
+  await expect(groups.nth(1)).toContainText("Report 3 · Superseded");
+  await expect(groups.nth(1)).toContainText("Draft a separate scenario update");
+  await expect(groups.nth(1)).toContainText(
+    `${sandbox.name} v${sandbox.latestSnapshotVersion}`,
+  );
+  await expect(groups.nth(1)).toContainText(
+    "Company valuation only. Holding value still needs ownership and security terms.",
+  );
+
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await page.mouse.move(0, 0);
+
+  const evidenceScreen = page.locator(".evidence-screen");
+  const documentWidths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(documentWidths.scroll).toBeLessThanOrEqual(documentWidths.client);
+  await expect(evidenceScreen).toHaveScreenshot("signal-reconciliation.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+
+  await groups
+    .nth(1)
+    .getByRole("button", { name: "Create proposed update" })
+    .click();
+  await expect(groups.nth(1)).toContainText("Proposed update");
+  await expect(groups.nth(1)).toContainText(
+    "Nothing has changed in holdings or the scenario.",
+  );
+});
+
 test("keeps conflicting financing amounts unchosen and reviewable", async ({
   page,
 }, testInfo) => {

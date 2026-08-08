@@ -611,6 +611,495 @@ export const PublicSourceObservationSchema = z.object({
   limitations: z.string().min(1),
 });
 
+export const SignalReportRelationshipSchema = z.enum([
+  "corroborating",
+  "conflicting",
+  "superseded",
+  "unconfirmed",
+]);
+
+export const SignalReconciliationStatusSchema = z.enum([
+  "corroborated",
+  "conflicting",
+  "unconfirmed",
+]);
+
+export const SignalReconciliationReportSchema = z.object({
+  observationId: z.string().min(1),
+  evidenceEventId: z.string().min(1),
+  sourceTitle: z.string().min(1),
+  sourceUrl: HttpsSourceUrlSchema,
+  sourceClass: PublicSourceClassSchema,
+  publishedAt: IsoTimestampSchema,
+  retrievedAt: IsoTimestampSchema,
+  evidenceStatus: z.enum([
+    "pending_review",
+    "accepted",
+    "rejected",
+    "scenario_only",
+  ]),
+  sourceReliabilityPpm: ProbabilityPpmSchema,
+  modelConfidencePpm: ProbabilityPpmSchema,
+  relationship: SignalReportRelationshipSchema,
+  reviewOrder: z.number().int().positive(),
+  financingFacts: FinancingAnnouncementFactsSchema,
+});
+
+export const SignalReconciliationGroupSchema = z.object({
+  id: z.string().min(1).max(240),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  companyId: z.string().min(1),
+  companyName: z.string().min(1),
+  roundKey: z.string().min(1).max(120),
+  roundLabel: z.string().min(1).max(120),
+  status: SignalReconciliationStatusSchema,
+  reviewRank: z.number().int().positive(),
+  reviewReason: z.string().min(1).max(240),
+  pendingReviewCount: z.number().int().nonnegative(),
+  recommendedReviewEventIds: z.array(z.string().min(1)),
+  canCreateProposal: z.boolean(),
+  proposedCompanyValuation: FinancingValuationFactSchema.nullable(),
+  reports: z.array(SignalReconciliationReportSchema).min(1),
+});
+
+export const SignalReconciliationDraftSchema =
+  SignalReconciliationGroupSchema.omit({ revision: true });
+
+export const SignalUpdateProposalSchema = z.object({
+  id: z.string().min(1),
+  groupId: z.string().min(1).max(240),
+  reconciliationRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  companyId: z.string().min(1),
+  companyName: z.string().min(1),
+  scenarioId: z.string().min(1),
+  scenarioName: z.string().min(1),
+  baseForecastSnapshotId: z.string().min(1),
+  baseForecastSnapshotVersion: z.number().int().positive(),
+  evidenceEventIds: z.array(z.string().min(1)).min(1),
+  proposedCompanyValuation: FinancingValuationFactSchema,
+  rationale: z.string().trim().min(3).max(500),
+  createdAt: IsoTimestampSchema,
+  createdBy: z.string().min(1),
+  isCurrent: z.boolean(),
+});
+
+export const CreateSignalUpdateProposalInputSchema = z
+  .object({
+    groupId: z.string().min(1).max(240),
+    reconciliationRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    scenarioId: z.string().min(1),
+    baseForecastSnapshotId: z.string().min(1),
+    rationale: z.string().trim().min(3).max(500),
+  })
+  .strict();
+
+type FinancingFacts = z.infer<typeof FinancingAnnouncementFactsSchema>;
+type FinancingValuationFactValue = z.infer<typeof FinancingValuationFactSchema>;
+type PublicSourceObservationValue = z.infer<
+  typeof PublicSourceObservationSchema
+>;
+type SignalReconciliationDraftValue = z.infer<
+  typeof SignalReconciliationDraftSchema
+>;
+
+const blockingFinancingAmbiguities = new Set<
+  FinancingFacts["ambiguities"][number]
+>([
+  "currency_not_explicit",
+  "multiple_funding_amounts",
+  "multiple_valuations",
+  "combined_tranches",
+  "prior_round_reference",
+]);
+
+function normalizeFinancingRound(value: string): string {
+  return value
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .replace(/\b(financing|funding|round)\b/gu, " ")
+    .trim()
+    .replace(/\s+/gu, "-");
+}
+
+function financingRoundKey(facts: FinancingFacts): string {
+  const label =
+    facts.roundLabel === null ? "" : normalizeFinancingRound(facts.roundLabel);
+  if (label.length > 0) {
+    return label;
+  }
+  if (facts.roundType !== null && facts.roundType !== "undisclosed") {
+    return facts.roundType.replaceAll("_", "-");
+  }
+  return "financing-round-not-specified";
+}
+
+function financingRoundLabel(facts: FinancingFacts): string {
+  if (facts.roundLabel !== null) {
+    return facts.roundLabel;
+  }
+  switch (facts.roundType) {
+    case "pre_seed":
+      return "Pre-seed";
+    case "seed":
+      return "Seed";
+    case "series":
+      return "Series financing";
+    case "growth":
+      return "Growth financing";
+    case "strategic":
+      return "Strategic financing";
+    default:
+      return "Financing round not specified";
+  }
+}
+
+function moneyFactsConflict(
+  left: FinancingValuationFactValue | FinancingFacts["announcedAmount"],
+  right: FinancingValuationFactValue | FinancingFacts["announcedAmount"],
+): boolean {
+  if (left === null || right === null) {
+    return false;
+  }
+  return (
+    left.amountMinor !== right.amountMinor || left.currency !== right.currency
+  );
+}
+
+function financingFactsConflict(
+  left: FinancingFacts,
+  right: FinancingFacts,
+): boolean {
+  const instrumentsConflict =
+    left.instrument !== "undisclosed" &&
+    right.instrument !== "undisclosed" &&
+    left.instrument !== right.instrument;
+  const roundTypesConflict =
+    left.roundType !== null &&
+    right.roundType !== null &&
+    left.roundType !== "undisclosed" &&
+    right.roundType !== "undisclosed" &&
+    left.roundType !== right.roundType;
+  const valuationBasisConflicts =
+    left.companyValuation !== null &&
+    right.companyValuation !== null &&
+    left.companyValuation.basis !== "undisclosed" &&
+    right.companyValuation.basis !== "undisclosed" &&
+    left.companyValuation.basis !== right.companyValuation.basis;
+
+  return (
+    instrumentsConflict ||
+    roundTypesConflict ||
+    moneyFactsConflict(left.announcedAmount, right.announcedAmount) ||
+    moneyFactsConflict(left.companyValuation, right.companyValuation) ||
+    valuationBasisConflicts
+  );
+}
+
+function hasPairwiseConflict(
+  observations: PublicSourceObservationValue[],
+): boolean {
+  return observations.some((left, leftIndex) =>
+    observations
+      .slice(leftIndex + 1)
+      .some((right) =>
+        financingFactsConflict(
+          left.financingFacts as FinancingFacts,
+          right.financingFacts as FinancingFacts,
+        ),
+      ),
+  );
+}
+
+function hasBlockingAmbiguity(facts: FinancingFacts): boolean {
+  return facts.ambiguities.some((ambiguity) =>
+    blockingFinancingAmbiguities.has(ambiguity),
+  );
+}
+
+function compareObservationRecency(
+  left: PublicSourceObservationValue,
+  right: PublicSourceObservationValue,
+): number {
+  return (
+    Date.parse(right.publishedAt) - Date.parse(left.publishedAt) ||
+    Date.parse(right.retrievedAt) - Date.parse(left.retrievedAt) ||
+    right.id.localeCompare(left.id)
+  );
+}
+
+function compareObservationPriority(
+  left: PublicSourceObservationValue,
+  right: PublicSourceObservationValue,
+): number {
+  if (left.sourceReliabilityPpm !== right.sourceReliabilityPpm) {
+    return right.sourceReliabilityPpm - left.sourceReliabilityPpm;
+  }
+  return compareObservationRecency(left, right);
+}
+
+function sameValuation(
+  left: FinancingValuationFactValue,
+  right: FinancingValuationFactValue,
+): boolean {
+  return (
+    left.amountMinor === right.amountMinor &&
+    left.currency === right.currency &&
+    (left.basis === right.basis ||
+      left.basis === "undisclosed" ||
+      right.basis === "undisclosed")
+  );
+}
+
+function proposedValuation(
+  observations: PublicSourceObservationValue[],
+): FinancingValuationFactValue | null {
+  const candidates = observations
+    .filter(
+      (observation) =>
+        observation.financingFacts !== null &&
+        !hasBlockingAmbiguity(observation.financingFacts) &&
+        observation.financingFacts.companyValuation !== null,
+    )
+    .sort(compareObservationPriority);
+  const first = candidates[0]?.financingFacts?.companyValuation ?? null;
+  if (first === null) {
+    return null;
+  }
+  return candidates.every((candidate) => {
+    const valuation = candidate.financingFacts?.companyValuation;
+    return valuation === null || valuation === undefined
+      ? true
+      : sameValuation(first, valuation);
+  })
+    ? first
+    : null;
+}
+
+function reviewReason(
+  status: z.infer<typeof SignalReconciliationStatusSchema>,
+): string {
+  switch (status) {
+    case "conflicting":
+      return "Resolve the differing terms before drafting an update.";
+    case "corroborated":
+      return "Review the matching reports together, strongest source first.";
+    case "unconfirmed":
+      return "Confirm the current report before drafting an update.";
+  }
+}
+
+export function signalReconciliationRevisionMaterial(
+  group: SignalReconciliationDraftValue,
+): string {
+  return JSON.stringify({
+    id: group.id,
+    reports: [...group.reports]
+      .sort((left, right) =>
+        left.evidenceEventId.localeCompare(right.evidenceEventId),
+      )
+      .map((report) => ({
+        evidenceEventId: report.evidenceEventId,
+        evidenceStatus: report.evidenceStatus,
+        publishedAt: report.publishedAt,
+        retrievedAt: report.retrievedAt,
+        sourceUrl: report.sourceUrl,
+        financingFacts: report.financingFacts,
+      })),
+  });
+}
+
+export function reconcileFinancingSignals(
+  rawObservations: readonly PublicSourceObservationValue[],
+): SignalReconciliationDraftValue[] {
+  const observations = z
+    .array(PublicSourceObservationSchema)
+    .parse(rawObservations)
+    .filter((observation) => observation.financingFacts !== null);
+  const grouped = new Map<string, PublicSourceObservationValue[]>();
+
+  observations.forEach((observation) => {
+    const facts = observation.financingFacts as FinancingFacts;
+    const roundKey = financingRoundKey(facts);
+    const groupId = `${observation.companyId}:${roundKey}`;
+    grouped.set(groupId, [...(grouped.get(groupId) ?? []), observation]);
+  });
+
+  const drafts = [...grouped.entries()].map(([groupId, groupObservations]) => {
+    const newestByUrl = new Map<string, PublicSourceObservationValue>();
+    groupObservations.forEach((observation) => {
+      const current = newestByUrl.get(observation.sourceUrl);
+      if (
+        current === undefined ||
+        compareObservationRecency(observation, current) < 0
+      ) {
+        newestByUrl.set(observation.sourceUrl, observation);
+      }
+    });
+    const supersededIds = new Set(
+      groupObservations
+        .filter(
+          (observation) =>
+            newestByUrl.get(observation.sourceUrl)?.id !== observation.id,
+        )
+        .map((observation) => observation.id),
+    );
+    const active = groupObservations.filter(
+      (observation) => !supersededIds.has(observation.id),
+    );
+    const participating = active.filter(
+      (observation) => observation.evidenceStatus !== "rejected",
+    );
+    const conflicting = hasPairwiseConflict(participating);
+    const corroborated =
+      participating.length > 1 &&
+      !conflicting &&
+      participating.every(
+        (observation) =>
+          observation.financingFacts !== null &&
+          !hasBlockingAmbiguity(observation.financingFacts),
+      );
+    const status = conflicting
+      ? ("conflicting" as const)
+      : corroborated
+        ? ("corroborated" as const)
+        : ("unconfirmed" as const);
+    const activeConflicts = new Set(
+      active
+        .filter((observation) =>
+          participating.some(
+            (candidate) =>
+              candidate.id !== observation.id &&
+              financingFactsConflict(
+                observation.financingFacts as FinancingFacts,
+                candidate.financingFacts as FinancingFacts,
+              ),
+          ),
+        )
+        .map((observation) => observation.id),
+    );
+    const relationshipFor = (
+      observation: PublicSourceObservationValue,
+    ): z.infer<typeof SignalReportRelationshipSchema> => {
+      if (supersededIds.has(observation.id)) {
+        return "superseded";
+      }
+      if (status === "conflicting" || activeConflicts.has(observation.id)) {
+        return "conflicting";
+      }
+      return status === "corroborated" ? "corroborating" : "unconfirmed";
+    };
+    const ordered = [...groupObservations].sort((left, right) => {
+      const leftRelationship = relationshipFor(left);
+      const rightRelationship = relationshipFor(right);
+      const relationshipPriority = {
+        conflicting: 0,
+        corroborating: 1,
+        unconfirmed: 1,
+        superseded: 2,
+      } as const;
+      if (
+        relationshipPriority[leftRelationship] !==
+        relationshipPriority[rightRelationship]
+      ) {
+        return (
+          relationshipPriority[leftRelationship] -
+          relationshipPriority[rightRelationship]
+        );
+      }
+      const leftPending = left.evidenceStatus === "pending_review" ? 0 : 1;
+      const rightPending = right.evidenceStatus === "pending_review" ? 0 : 1;
+      return (
+        leftPending - rightPending || compareObservationPriority(left, right)
+      );
+    });
+    const reports = ordered.map((observation, index) => ({
+      observationId: observation.id,
+      evidenceEventId: observation.evidenceEventId,
+      sourceTitle: observation.sourceTitle,
+      sourceUrl: observation.sourceUrl,
+      sourceClass: observation.sourceClass,
+      publishedAt: observation.publishedAt,
+      retrievedAt: observation.retrievedAt,
+      evidenceStatus: observation.evidenceStatus,
+      sourceReliabilityPpm: observation.sourceReliabilityPpm,
+      modelConfidencePpm: observation.modelConfidencePpm,
+      relationship: relationshipFor(observation),
+      reviewOrder: index + 1,
+      financingFacts: observation.financingFacts as FinancingFacts,
+    }));
+    const pendingReviewCount = active.filter(
+      (observation) => observation.evidenceStatus === "pending_review",
+    ).length;
+    const valuation = proposedValuation(participating);
+    const canCreateProposal =
+      participating.length > 0 &&
+      pendingReviewCount === 0 &&
+      !conflicting &&
+      participating.some(
+        (observation) =>
+          observation.evidenceStatus === "accepted" ||
+          observation.evidenceStatus === "scenario_only",
+      ) &&
+      participating.every(
+        (observation) =>
+          observation.financingFacts !== null &&
+          !hasBlockingAmbiguity(observation.financingFacts),
+      ) &&
+      valuation !== null;
+    const canonicalObservation =
+      [...active].sort(compareObservationPriority)[0] ??
+      [...groupObservations].sort(compareObservationPriority)[0];
+    const canonicalFacts =
+      canonicalObservation?.financingFacts as FinancingFacts;
+
+    return SignalReconciliationDraftSchema.parse({
+      id: groupId,
+      companyId: canonicalObservation?.companyId,
+      companyName: canonicalObservation?.companyName,
+      roundKey: financingRoundKey(canonicalFacts),
+      roundLabel: financingRoundLabel(canonicalFacts),
+      status,
+      reviewRank: 1,
+      reviewReason: reviewReason(status),
+      pendingReviewCount,
+      recommendedReviewEventIds: reports
+        .filter(
+          (report) =>
+            report.evidenceStatus === "pending_review" &&
+            report.relationship !== "superseded",
+        )
+        .map((report) => report.evidenceEventId),
+      canCreateProposal,
+      proposedCompanyValuation: valuation,
+      reports,
+    });
+  });
+
+  const statusPriority = {
+    conflicting: 0,
+    corroborated: 1,
+    unconfirmed: 2,
+  } as const;
+  return drafts
+    .sort((left, right) => {
+      const leftReviewed = left.pendingReviewCount === 0 ? 1 : 0;
+      const rightReviewed = right.pendingReviewCount === 0 ? 1 : 0;
+      return (
+        leftReviewed - rightReviewed ||
+        statusPriority[left.status] - statusPriority[right.status] ||
+        Math.max(
+          ...right.reports.map((report) => report.sourceReliabilityPpm),
+        ) -
+          Math.max(
+            ...left.reports.map((report) => report.sourceReliabilityPpm),
+          ) ||
+        left.id.localeCompare(right.id)
+      );
+    })
+    .map((group, index) => ({ ...group, reviewRank: index + 1 }));
+}
+
 export const PortfolioWatchSchema = z.object({
   targets: z.array(PortfolioWatchTargetSchema),
   observations: z.array(PublicSourceObservationSchema),
@@ -646,6 +1135,8 @@ export const ScenarioSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
   isSandbox: z.boolean(),
+  latestSnapshotId: z.string().min(1).nullable().default(null),
+  latestSnapshotVersion: z.number().int().positive().nullable().default(null),
   conditionalValueMinor: NonNegativeMoneyMinorSchema,
   timingAdjustedLiquidityMinor: NonNegativeMoneyMinorSchema,
   assumptions: z.array(ScenarioAssumptionSchema),
@@ -882,11 +1373,16 @@ export const AlphaDataSchema = z.object({
   holdings: z.array(HoldingSchema),
   evidenceInbox: z.array(EvidenceInboxItemSchema),
   portfolioWatch: PortfolioWatchSchema,
+  signalReconciliations: z.array(SignalReconciliationGroupSchema),
+  signalUpdateProposals: z.array(SignalUpdateProposalSchema),
   scenarios: z.array(ScenarioSchema),
   forecastHistory: z.array(ForecastHistoryItemSchema),
 });
 
 export type AlphaData = z.infer<typeof AlphaDataSchema>;
+export type CreateSignalUpdateProposalInput = z.infer<
+  typeof CreateSignalUpdateProposalInputSchema
+>;
 export type Dashboard = z.infer<typeof DashboardSchema>;
 export type EvidenceInboxItem = z.infer<typeof EvidenceInboxItemSchema>;
 export type FinancingAnnouncementFacts = z.infer<
@@ -916,6 +1412,13 @@ export type PortfolioWatchScanResult = z.infer<
 export type PublicSourceObservation = z.infer<
   typeof PublicSourceObservationSchema
 >;
+export type SignalReconciliationDraft = z.infer<
+  typeof SignalReconciliationDraftSchema
+>;
+export type SignalReconciliationGroup = z.infer<
+  typeof SignalReconciliationGroupSchema
+>;
+export type SignalUpdateProposal = z.infer<typeof SignalUpdateProposalSchema>;
 export type Scenario = z.infer<typeof ScenarioSchema>;
 export type ScenarioDraftInput = z.infer<typeof ScenarioDraftInputSchema>;
 export type ScenarioProjection = z.infer<typeof ScenarioProjectionSchema>;
