@@ -14,6 +14,14 @@ export const FinancingAnnouncementExtractionInputSchema = z
   .object({
     title: z.string().trim().min(1).max(500),
     evidenceText: z.string().trim().min(1).max(MAX_EVENT_TEXT_CHARS),
+    expectedCompanyName: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+
+export const CompanyFinancingAnnouncementTitleInputSchema = z
+  .object({
+    title: z.string().trim().min(1).max(500),
+    expectedCompanyName: z.string().trim().min(1).max(500),
   })
   .strict();
 
@@ -36,6 +44,7 @@ const MONEY_NUMBER_SOURCE = String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?`;
 const MONEY_MAGNITUDE_SOURCE = String.raw`(?:thousand|million|billion|k|m|b)`;
 const PREFIX_CURRENCY_SOURCE = String.raw`(?:US\$|C\$|A\$|NZ\$|S\$|USD|EUR|GBP|CAD|AUD|NZD|SGD|CHF|€|£)`;
 const SUFFIX_CURRENCY_SOURCE = String.raw`(?:USD|EUR|GBP|CAD|AUD|NZD|SGD|CHF)`;
+const EXPLICIT_MONEY_SOURCE = String.raw`(?:${PREFIX_CURRENCY_SOURCE}\s*${MONEY_NUMBER_SOURCE}(?:\s*${MONEY_MAGNITUDE_SOURCE})?|${MONEY_NUMBER_SOURCE}(?:\s*${MONEY_MAGNITUDE_SOURCE})?\s+${SUFFIX_CURRENCY_SOURCE})`;
 
 const PREFIX_MONEY_PATTERN = new RegExp(
   String.raw`(?<![\p{L}\p{N}])(?<currency>${PREFIX_CURRENCY_SOURCE})\s*(?<amount>${MONEY_NUMBER_SOURCE})(?<inlinePlus>\+)?(?:\s*(?<magnitude>${MONEY_MAGNITUDE_SOURCE}))?(?![\p{L}\p{N}])`,
@@ -69,8 +78,152 @@ const UNQUALIFIED_DOLLAR_MONEY_PATTERN = new RegExp(
 const PRIOR_MARKER_PATTERN =
   /\b(?:previous(?:ly)?|prior|earlier|last\s+round|preceding\s+round)\b/i;
 
+const FINANCING_EVENT_VERB_SOURCE = String.raw`(?:raise[sd]?|raising|secure[sd]?|securing|close[sd]?|closing|announce[sd]?|announcing|complete[sd]?|completing)`;
+const FINANCING_CONTEXT_PATTERN =
+  /\b(?:funding|financing|capital\s+raise|round|series\s+[a-z](?:-\d+)?|pre[ -]?seed|seed|venture\s+debt|credit\s+facility|term\s+loan|convertible\s+note)\b/i;
+const CUSTOMER_RECIPIENT_SOURCE = String.raw`(?:(?:qualifying|eligible|approved|prospective|its|our|their|the)\s+)*(?:customers?|clients?|buyers?|purchasers?|borrowers?)`;
+const CUSTOMER_FINANCING_OFFERING_PATTERN = new RegExp(
+  String.raw`\b(?:financing|finance|credit|loan|payment)\s+(?:program|product|solution|option|plan|facility)\b.{0,96}\b(?:for|to)\s+${CUSTOMER_RECIPIENT_SOURCE}\b`,
+  "iu",
+);
+const CUSTOMER_FINANCING_PROVISION_PATTERN = new RegExp(
+  String.raw`\b(?:provid(?:e|es|ed|ing)|offer(?:s|ed|ing)?|extend(?:s|ed|ing)|mak(?:e|es|ing)\s+available)\b.{0,120}\b(?:financing|finance|credit|loans?)\b.{0,64}\b(?:for|to)\s+${CUSTOMER_RECIPIENT_SOURCE}\b`,
+  "iu",
+);
+const DIRECT_CUSTOMER_FINANCING_PATTERN = new RegExp(
+  String.raw`\b(?:financing|finance|credit|loans?)\b\s+(?:for|to)\s+${CUSTOMER_RECIPIENT_SOURCE}\b`,
+  "iu",
+);
+
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizedCompanyTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(
+      /\b(?:incorporated|corporation|company|limited|inc|corp|llc|ltd)\b/gu,
+      " ",
+    )
+    .split(/[^\p{L}\p{N}]+/gu)
+    .filter((token) => token.length > 0);
+}
+
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function companyIdentitySource(companyName: string): string | null {
+  const tokens = normalizedCompanyTokens(companyName);
+  if (tokens.length === 0) {
+    return null;
+  }
+  const identity = tokens
+    .map(escapeRegularExpression)
+    .join(String.raw`[^\p{L}\p{N}]+`);
+  const legalSuffix = String.raw`(?:(?:\s*,\s*|\s+)(?:incorporated|corporation|company|limited|inc|corp|llc|ltd)\.?)?`;
+  return `${identity}${legalSuffix}`;
+}
+
+function inferredCompanyNameFromTitle(title: string): string | null {
+  const action =
+    /\b(?:raise[sd]?|raising|secure[sd]?|securing|close[sd]?|closing|announce[sd]?|announcing|complete[sd]?|completing|launch(?:es|ed|ing)?|support(?:s|ed|ing)?)\b/i.exec(
+      title,
+    );
+  if (action === null) {
+    return null;
+  }
+  const subject = title
+    .slice(0, action.index)
+    .replace(/^\s*[^:]{1,24}:\s*/u, "")
+    .replace(/\s+(?:has|had)\s*$/i, "")
+    .trim();
+  return subject.length === 0 ||
+    /^(?:the|this|our)\s+(?:company|round)$/i.test(subject)
+    ? null
+    : subject;
+}
+
+function isCustomerFinancingOfferingText(text: string): boolean {
+  return (
+    CUSTOMER_FINANCING_OFFERING_PATTERN.test(text) ||
+    CUSTOMER_FINANCING_PROVISION_PATTERN.test(text) ||
+    DIRECT_CUSTOMER_FINANCING_PATTERN.test(text)
+  );
+}
+
+function hasExpectedCompanyTitleSubject(
+  title: string,
+  expectedCompanyName: string,
+): boolean {
+  const identitySource = companyIdentitySource(expectedCompanyName);
+  if (identitySource === null) {
+    return false;
+  }
+  const eventVerb = new RegExp(
+    String.raw`\b${FINANCING_EVENT_VERB_SOURCE}\b`,
+    "iu",
+  ).exec(title);
+  if (eventVerb === null) {
+    return false;
+  }
+  const before = title.slice(0, eventVerb.index);
+  return new RegExp(
+    String.raw`(?:^|[^\p{L}\p{N}])(?:${identitySource}|the\s+company|it|we)(?:\s+(?:has|had|also|now|today|successfully|officially))*\s*$`,
+    "iu",
+  ).test(before);
+}
+
+function hasUnambiguousAnnouncedFinancingObject(title: string): boolean {
+  const announcement = /\bannounc(?:e[sd]?|ing)\b/i.exec(title);
+  if (announcement === null) {
+    return true;
+  }
+  const after = title.slice(announcement.index + announcement[0].length);
+  const directObject = new RegExp(
+    String.raw`^\s*(?:(?:its|our|the|a|an|new|additional|further|strategic|growth)\s+)*(?:${EXPLICIT_MONEY_SOURCE}\s+)?(?:series\s+[a-z](?:-\d+)?|pre[ -]?seed|seed|financing|funding|round|capital\s+raise|debt\s+financing|venture\s+debt|credit\s+facility|convertible\s+note)\b`,
+    "iu",
+  );
+  const closingObject = new RegExp(
+    String.raw`^\s*(?:the\s+)?(?:closing|completion)\s+of\s+(?:(?:its|our|the|a|an|new)\s+)*(?:${EXPLICIT_MONEY_SOURCE}\s+)?(?:(?:series\s+[a-z](?:-\d+)?|pre[ -]?seed|seed|growth|strategic)\s+)?(?:financing|funding|round)\b`,
+    "iu",
+  );
+  return directObject.test(after) || closingObject.test(after);
+}
+
+/**
+ * Recognizes a financing title only when the event verb belongs to the watched
+ * company (or the title is explicitly round-led). Customer credit offerings
+ * and third-party financings fail closed.
+ */
+export function isCompanyFinancingAnnouncementTitle(
+  input: z.input<typeof CompanyFinancingAnnouncementTitleInputSchema>,
+): boolean {
+  const parsed = CompanyFinancingAnnouncementTitleInputSchema.parse(input);
+  const title = normalizeText(parsed.title);
+  if (isCustomerFinancingOfferingText(title)) {
+    return false;
+  }
+  const hasExpectedSubject = hasExpectedCompanyTitleSubject(
+    title,
+    parsed.expectedCompanyName,
+  );
+  const hasMoneyOnlyRaiseContext =
+    hasExpectedSubject &&
+    new RegExp(
+      String.raw`\b(?:raise[sd]?|raising)\s+(?:(?:approximately|about|around|roughly|nearly|more\s+than|over|at\s+least|up\s+to)\s+)?${EXPLICIT_MONEY_SOURCE}\s*[.!?]?\s*$`,
+      "iu",
+    ).test(title);
+  if (!FINANCING_CONTEXT_PATTERN.test(title) && !hasMoneyOnlyRaiseContext) {
+    return false;
+  }
+  if (hasExpectedSubject && hasUnambiguousAnnouncedFinancingObject(title)) {
+    return true;
+  }
+  return /^\s*(?:our|this)\s+(?:series\s+[a-z](?:-\d+)?|pre[ -]?seed|seed|growth|strategic)\s+(?:financing|funding|round)\b/i.test(
+    title,
+  );
 }
 
 function currencyFromMarker(marker: string): string | null {
@@ -209,6 +362,14 @@ function sentenceBounds(
     ) {
       return false;
     }
+    if (
+      character === "." &&
+      /\b(?:inc|corp|ltd)\.$/i.test(
+        text.slice(Math.max(0, index - 6), index + 1),
+      )
+    ) {
+      return false;
+    }
     return /[.!?;]/.test(character);
   };
   let sentenceStart = 0;
@@ -305,10 +466,81 @@ function isPriorReference(text: string, start: number, end: number): boolean {
   );
 }
 
+function hasExpectedFundingSubject(
+  text: string,
+  candidateStart: number,
+  expectedCompanyName: string | null,
+): boolean {
+  if (expectedCompanyName === null) {
+    return true;
+  }
+  const identitySource = companyIdentitySource(expectedCompanyName);
+  if (identitySource === null) {
+    return false;
+  }
+  const bounds = sentenceBounds(text, candidateStart, candidateStart);
+  const before = text.slice(bounds.start, candidateStart);
+  const companySubject = new RegExp(
+    String.raw`(?:^|[^\p{L}\p{N}])(?:${identitySource}|the\s+company|it|we)(?:\s+(?:has|had|also|now|today|previously|successfully|officially))*\s+${FINANCING_EVENT_VERB_SOURCE}\b`,
+    "iu",
+  );
+  const roundSubject =
+    /\b(?:(?:the|this|our|its)\s+)?(?:series\s+[a-z](?:-\d+)?|pre[ -]?seed|seed|growth|strategic)?\s*(?:financing|funding|round)\s+(?:of|for|totaling|totalling|worth)\s*$/i;
+  return companySubject.test(before) || roundSubject.test(before);
+}
+
+function hasNonCompanyValuationObject(before: string): boolean {
+  return (
+    /\bvalu(?:e[sd]?|ing)\s+(?:(?:its|the|this|that|an?)\s+)?(?:stake|investment|security|transaction|deal)\s+at\s+(?:(?:approximately|about|around|roughly|at\s+least|up\s+to)\s+)?$/i.test(
+      before,
+    ) ||
+    /\b(?:stake|investment|security|transaction|deal)\b.{0,48}\b(?:(?:pre|post)[ -]?money\s+)?valuation(?:\s+(?:of|at))?\s+(?:(?:approximately|about|around|roughly|at\s+least|up\s+to)\s+)?$/i.test(
+      before,
+    )
+  );
+}
+
+function hasExpectedValuationSubject(
+  text: string,
+  candidateStart: number,
+  expectedCompanyName: string | null,
+): boolean {
+  if (expectedCompanyName === null) {
+    return true;
+  }
+  const identitySource = companyIdentitySource(expectedCompanyName);
+  if (identitySource === null) {
+    return false;
+  }
+  const bounds = sentenceBounds(text, candidateStart, candidateStart);
+  const before = text.slice(bounds.start, candidateStart);
+  const companyFinancingSubject = new RegExp(
+    String.raw`(?:^|[^\p{L}\p{N}])(?:${identitySource}|the\s+company|it|we)(?:\s+(?:has|had|also|now|today|previously|successfully|officially))*\s+${FINANCING_EVENT_VERB_SOURCE}\b`,
+    "iu",
+  );
+  const companyValuationSubject = new RegExp(
+    String.raw`(?:^|[^\p{L}\p{N}])(?:${identitySource}|the\s+company)\s+(?:(?:has|had|reports?|reported|carries|carried|receives?|received)\s+)?(?:an?\s+)?(?:(?:pre|post)[ -]?money\s+)?valuation\b`,
+    "iu",
+  );
+  const roundSubject =
+    /\b(?:(?:the|this|its|our)\s+)?(?:round|financing)\b.{0,64}\b(?:has|had|at|valu(?:e[sd]?|ing)|valuation)\b/i;
+  return (
+    companyFinancingSubject.test(before) ||
+    companyValuationSubject.test(before) ||
+    roundSubject.test(before) ||
+    /\bvalu(?:e[sd]?|ing)\s+the\s+company\s+at\s*$/i.test(before) ||
+    new RegExp(
+      String.raw`\bvalu(?:e[sd]?|ing)\s+${identitySource}\s+at\s*$`,
+      "iu",
+    ).test(before)
+  );
+}
+
 function classifyMoneyRole(
   text: string,
   start: number,
   end: number,
+  expectedCompanyName: string | null,
 ): {
   role: MoneyCandidate["role"];
   basis: FinancingValuationFact["basis"];
@@ -319,11 +551,25 @@ function classifyMoneyRole(
   const directlyAfterValuation =
     /^\s*(?:(?:pre|post)[ -]?money\s+)?valuation\b/i.exec(after) ??
     /^\s*(?:pre|post)[ -]?money(?:\s+valuation)?\b/i.exec(after);
-  const directlyBeforeValuation =
-    /\b(?:(?:pre|post)[ -]?money\s+)?(?:valuation(?:\s+(?:of|at))?|valu(?:e[sd]?|ing)(?:\s+(?:the\s+company|[\p{L}\p{N}&.'-]+(?:\s+[\p{L}\p{N}&.'-]+){0,4}))?\s+at)\s+(?:(?:approximately|about|around|roughly|at least|up to)\s+)?$/iu.exec(
+  const directlyBeforeValuationNoun =
+    /\b(?:(?:pre|post)[ -]?money\s+)?valuation(?:\s+(?:of|at))?\s+(?:(?:approximately|about|around|roughly|at least|up to)\s+)?$/iu.exec(
       before,
     );
-  if (directlyAfterValuation !== null || directlyBeforeValuation !== null) {
+  const identitySource =
+    expectedCompanyName === null
+      ? null
+      : companyIdentitySource(expectedCompanyName);
+  const directlyBeforeValuedCompany = new RegExp(
+    String.raw`\bvalu(?:e[sd]?|ing)\s+(?:the\s+company${identitySource === null ? "" : `|${identitySource}`})\s+at\s+(?:(?:approximately|about|around|roughly|at\s+least|up\s+to)\s+)?$`,
+    "iu",
+  ).exec(before);
+  const directlyBeforeValuation = hasNonCompanyValuationObject(before)
+    ? null
+    : (directlyBeforeValuationNoun ?? directlyBeforeValuedCompany);
+  if (
+    (directlyAfterValuation !== null || directlyBeforeValuation !== null) &&
+    hasExpectedValuationSubject(text, start, expectedCompanyName)
+  ) {
     const valuationPhrase = `${directlyBeforeValuation?.[0] ?? ""} ${directlyAfterValuation?.[0] ?? ""}`;
     const hasPreMoney = /\bpre[ -]?money\b/i.test(valuationPhrase);
     const hasPostMoney = /\bpost[ -]?money\b/i.test(valuationPhrase);
@@ -372,6 +618,12 @@ function classifyMoneyRole(
     directlyBeforeFunding ||
     explicitlyPriorRoundAfter
   ) {
+    if (
+      !explicitlyPriorRoundAfter &&
+      !hasExpectedFundingSubject(text, start, expectedCompanyName)
+    ) {
+      return null;
+    }
     return { role: "funding", basis: "undisclosed" };
   }
   return null;
@@ -381,6 +633,7 @@ function collectMatches(
   text: string,
   pattern: RegExp,
   occupiedRanges: Array<{ start: number; end: number }>,
+  expectedCompanyName: string | null,
 ): MoneyCandidate[] {
   const candidates: MoneyCandidate[] = [];
   for (const match of text.matchAll(pattern)) {
@@ -398,7 +651,12 @@ function collectMatches(
     }
     const currency = currencyFromMarker(marker);
     const amountMinor = parseAmountMinor(amount, match.groups?.magnitude);
-    const classification = classifyMoneyRole(text, start, end);
+    const classification = classifyMoneyRole(
+      text,
+      start,
+      end,
+      expectedCompanyName,
+    );
     if (currency === null || amountMinor === null || classification === null) {
       continue;
     }
@@ -425,6 +683,7 @@ function collectRangeRoles(
   text: string,
   patterns: RegExp[],
   occupiedRanges: Array<{ start: number; end: number }>,
+  expectedCompanyName: string | null,
 ): Array<MoneyCandidate["role"]> {
   const roles: Array<MoneyCandidate["role"]> = [];
   for (const pattern of patterns) {
@@ -437,7 +696,12 @@ function collectRangeRoles(
         continue;
       }
       occupiedRanges.push({ start, end });
-      const classification = classifyMoneyRole(text, start, end);
+      const classification = classifyMoneyRole(
+        text,
+        start,
+        end,
+        expectedCompanyName,
+      );
       if (classification !== null) {
         roles.push(classification.role);
       }
@@ -446,7 +710,10 @@ function collectRangeRoles(
   return roles;
 }
 
-function findMoneyCandidates(text: string): {
+function findMoneyCandidates(
+  text: string,
+  expectedCompanyName: string | null,
+): {
   candidates: MoneyCandidate[];
   rangeRoles: Array<MoneyCandidate["role"]>;
 } {
@@ -460,11 +727,22 @@ function findMoneyCandidates(text: string): {
       SUFFIX_BETWEEN_MONEY_RANGE_PATTERN,
     ],
     occupiedRanges,
+    expectedCompanyName,
   );
   return {
     candidates: [
-      ...collectMatches(text, PREFIX_MONEY_PATTERN, occupiedRanges),
-      ...collectMatches(text, SUFFIX_MONEY_PATTERN, occupiedRanges),
+      ...collectMatches(
+        text,
+        PREFIX_MONEY_PATTERN,
+        occupiedRanges,
+        expectedCompanyName,
+      ),
+      ...collectMatches(
+        text,
+        SUFFIX_MONEY_PATTERN,
+        occupiedRanges,
+        expectedCompanyName,
+      ),
     ].sort((left, right) => left.start - right.start),
     rangeRoles,
   };
@@ -607,9 +885,47 @@ function isCombinedTrancheAnnouncement(
   text: string,
   candidates: MoneyCandidate[],
 ): boolean {
+  const separateDebtAndEquityTranches = new RegExp(
+    String.raw`\b${EXPLICIT_MONEY_SOURCE}\s+(?:in|of)\s+(?:equity\s+financing|debt\s+financing|credit\s+facility|term\s+loan)\b.{0,96}\b(?:and|plus)\b.{0,96}\b${EXPLICIT_MONEY_SOURCE}\s+(?:in|of)\s+(?:equity\s+financing|debt\s+financing|credit\s+facility|term\s+loan)\b`,
+    "iu",
+  ).test(text);
+  if (separateDebtAndEquityTranches) {
+    return (
+      /\b(?:in|of)\s+equity\s+financing\b/i.test(text) &&
+      /\b(?:in|of)\s+(?:debt\s+financing|credit\s+facility|term\s+loan)\b/i.test(
+        text,
+      )
+    );
+  }
   if (candidates.length < 2) {
     return false;
   }
+  const hasLabeledTranche = (instrument: "debt" | "equity"): boolean =>
+    candidates.some((candidate) => {
+      const bounds = sentenceBounds(text, candidate.start, candidate.end);
+      const before = text.slice(
+        Math.max(bounds.start, candidate.start - 72),
+        candidate.start,
+      );
+      const after = text.slice(
+        candidate.end,
+        Math.min(bounds.end, candidate.end + 72),
+      );
+      const source =
+        instrument === "debt"
+          ? String.raw`(?:debt|credit\s+facility|term\s+loan)`
+          : "equity";
+      return (
+        new RegExp(
+          String.raw`\b${source}\b(?:\s+(?:financing|investment|tranche))?(?:\s+(?:of|for|totaling|totalling|worth))?\s*$`,
+          "iu",
+        ).test(before) ||
+        new RegExp(
+          String.raw`^\s*(?:(?:in|of|through|via|from|as\s+part\s+of)\s+)?(?:an?\s+)?${source}\b`,
+          "iu",
+        ).test(after)
+      );
+    });
   return (
     /\b(?:mixed\s+financing|(?:debt\s+and\s+equity|equity\s+and\s+debt)\s+(?:financing|investment|tranches?))\b/i.test(
       text,
@@ -624,7 +940,8 @@ function isCombinedTrancheAnnouncement(
         /\b(?:of|in)\s+(?:debt|credit\s+facility|term\s+loan)\b/i.test(
           candidate.evidenceText,
         ),
-      ))
+      )) ||
+    (hasLabeledTranche("equity") && hasLabeledTranche("debt"))
   );
 }
 
@@ -671,12 +988,29 @@ export function extractFinancingAnnouncementFacts(
   const parsed = FinancingAnnouncementExtractionInputSchema.parse(input);
   const title = normalizeText(parsed.title);
   const normalizedEvidence = normalizeText(parsed.evidenceText);
+  const expectedCompanyName =
+    parsed.expectedCompanyName ?? inferredCompanyNameFromTitle(title);
+  if (
+    expectedCompanyName !== null &&
+    !isCompanyFinancingAnnouncementTitle({
+      title,
+      expectedCompanyName,
+    })
+  ) {
+    return null;
+  }
+  if (isCustomerFinancingOfferingText(normalizedEvidence)) {
+    return null;
+  }
   const text = normalizedEvidence.toLowerCase().includes(title.toLowerCase())
     ? normalizedEvidence
     : `${title}. ${normalizedEvidence}`;
   const nonPriorText = currentSentences(text);
   const round = extractRound(title, nonPriorText);
-  const { candidates, rangeRoles } = findMoneyCandidates(text);
+  const { candidates, rangeRoles } = findMoneyCandidates(
+    text,
+    expectedCompanyName,
+  );
   const ambiguities = new Set<Ambiguity>();
   if (UNQUALIFIED_DOLLAR_MONEY_PATTERN.test(text)) {
     ambiguities.add("currency_not_explicit");
@@ -691,11 +1025,10 @@ export function extractFinancingAnnouncementFacts(
     ambiguities.add("multiple_valuations");
   }
 
-  const currentFunding = distinctCandidates(
-    candidates.filter(
-      (candidate) => candidate.role === "funding" && !candidate.priorReference,
-    ),
+  const currentFundingCandidates = candidates.filter(
+    (candidate) => candidate.role === "funding" && !candidate.priorReference,
   );
+  const currentFunding = distinctCandidates(currentFundingCandidates);
   const currentValuations = distinctCandidates(
     candidates.filter(
       (candidate) =>
@@ -705,7 +1038,7 @@ export function extractFinancingAnnouncementFacts(
 
   const combinedTranches = isCombinedTrancheAnnouncement(
     nonPriorText,
-    currentFunding,
+    currentFundingCandidates,
   );
   const instrument = combinedTranches
     ? "mixed"
@@ -713,16 +1046,19 @@ export function extractFinancingAnnouncementFacts(
   let announcedCandidate: MoneyCandidate | null = null;
   if (rangeRoles.includes("funding")) {
     announcedCandidate = null;
-  } else if (currentFunding.length === 1) {
-    announcedCandidate = currentFunding[0] ?? null;
-  } else if (currentFunding.length > 1) {
-    if (combinedTranches) {
-      ambiguities.add("combined_tranches");
-      announcedCandidate = selectExplicitCombinedTotal(text, currentFunding);
-    }
+  } else if (combinedTranches) {
+    ambiguities.add("combined_tranches");
+    announcedCandidate = selectExplicitCombinedTotal(
+      text,
+      currentFundingCandidates,
+    );
     if (announcedCandidate === null) {
       ambiguities.add("multiple_funding_amounts");
     }
+  } else if (currentFunding.length === 1) {
+    announcedCandidate = currentFunding[0] ?? null;
+  } else if (currentFunding.length > 1) {
+    ambiguities.add("multiple_funding_amounts");
   }
   if (combinedTranches) {
     ambiguities.add("combined_tranches");

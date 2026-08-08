@@ -33,6 +33,78 @@ describe("financing announcement fact extraction", () => {
     });
   });
 
+  it.each([
+    ["Acme raises USD 50 million", "USD", 5_000_000_000],
+    ["Acme raises US$50 million", "USD", 5_000_000_000],
+    ["Acme has raised EUR 62.5 million", "EUR", 6_250_000_000],
+  ] as const)(
+    "extracts an issuer-bound explicit amount without a financing noun: %s",
+    (title, currency, amountMinor) => {
+      expect(
+        extractFinancingAnnouncementFacts({ title, evidenceText: title }),
+      ).toMatchObject({
+        announcedAmount: { currency, amountMinor },
+      });
+    },
+  );
+
+  it.each([
+    "Acme closes USD 50 million contract",
+    "Acme secures USD 50 million government grant",
+    "Acme raises USD 50 million revenue",
+    "Acme raises USD 50 million contract",
+  ])(
+    "does not treat a money-only non-raise title as financing: %s",
+    (title) => {
+      expect(
+        extractFinancingAnnouncementFacts({ title, evidenceText: title }),
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    ["The Browser Company", "The Browser Company raises Series B financing"],
+    ["Acme, Inc.", "Acme, Inc. raises Series B financing"],
+    [
+      "Northstar Robotics, LLC",
+      "Northstar Robotics, LLC raises Series B financing",
+    ],
+  ])(
+    "binds a legal company name in the title and evidence: %s",
+    (company, title) => {
+      expect(
+        extractFinancingAnnouncementFacts({
+          title,
+          evidenceText: `${company} raised USD 50 million in Series B financing.`,
+          expectedCompanyName: company,
+        }),
+      ).toMatchObject({
+        roundType: "series",
+        announcedAmount: { amountMinor: 5_000_000_000 },
+      });
+    },
+  );
+
+  it.each([
+    [
+      "Acme announces closing of USD 50 million Series B financing",
+      5_000_000_000,
+    ],
+    ["Acme announces the closing of its Series B financing", null],
+    ["Acme announces completion of a USD 50 million financing", 5_000_000_000],
+  ] as const)(
+    "accepts an issuer-bound financing closing title: %s",
+    (title, amountMinor) => {
+      const result = extractFinancingAnnouncementFacts({
+        title,
+        evidenceText: title,
+        expectedCompanyName: "Acme",
+      });
+      expect(result).not.toBeNull();
+      expect(result?.announcedAmount?.amountMinor ?? null).toBe(amountMinor);
+    },
+  );
+
   it("does not infer a currency from an unqualified dollar symbol", () => {
     expect(
       extractFinancingAnnouncementFacts({
@@ -167,6 +239,22 @@ describe("financing announcement fact extraction", () => {
       },
       ambiguities: ["combined_tranches"],
     });
+  });
+
+  it("does not collapse equal debt and equity tranches into one equity raise", () => {
+    const result = extractFinancingAnnouncementFacts({
+      title: "Acme closes financing",
+      evidenceText:
+        "Acme closed USD 50 million in equity financing and USD 50 million in debt financing.",
+    });
+
+    expect(result).toMatchObject({
+      instrument: "mixed",
+      announcedAmount: null,
+      companyValuation: null,
+    });
+    expect(result?.ambiguities).toContain("combined_tranches");
+    expect(result?.ambiguities).toContain("multiple_funding_amounts");
   });
 
   it("supports explicit non-USD currency terms", () => {
@@ -400,6 +488,42 @@ describe("financing announcement fact extraction", () => {
     });
   });
 
+  it.each([
+    "The investor values its stake at USD 200 million.",
+    "The investor valued its investment at USD 200 million.",
+    "The investor values the security at USD 200 million.",
+    "The transaction values the deal at USD 200 million.",
+    "The investor reports a stake valuation of USD 200 million.",
+    "The investor's stake had a valuation of USD 200 million.",
+  ])(
+    "does not emit a company valuation for another object: %s",
+    (valuation) => {
+      expect(
+        extractFinancingAnnouncementFacts({
+          title: "Acme raises Series B financing",
+          evidenceText: `Acme raised USD 50 million in financing. ${valuation}`,
+        }),
+      ).toMatchObject({
+        announcedAmount: { amountMinor: 5_000_000_000 },
+        companyValuation: null,
+      });
+    },
+  );
+
+  it("does not emit a company valuation for another named company", () => {
+    expect(
+      extractFinancingAnnouncementFacts({
+        title: "Acme raises Series B financing",
+        evidenceText:
+          "Acme raised USD 50 million in financing. Foobar had a valuation of USD 200 million.",
+        expectedCompanyName: "Acme",
+      }),
+    ).toMatchObject({
+      announcedAmount: { amountMinor: 5_000_000_000 },
+      companyValuation: null,
+    });
+  });
+
   it("does not let incidental debt prose change an explicit equity instrument", () => {
     expect(
       extractFinancingAnnouncementFacts({
@@ -467,6 +591,56 @@ describe("financing announcement fact extraction", () => {
       instrument: "convertible",
       announcedAmount: { amountMinor: 7_000_000_000 },
     });
+  });
+
+  it("rejects a customer financing program instead of extracting a company raise", () => {
+    expect(
+      extractFinancingAnnouncementFacts({
+        title: "Acme launches USD 50 million financing program for customers",
+        evidenceText:
+          "Acme will provide USD 50 million in financing to qualifying customers.",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects direct financing for customers instead of extracting a company raise", () => {
+    expect(
+      extractFinancingAnnouncementFacts({
+        title: "Acme announces USD 50 million in financing for customers",
+        evidenceText:
+          "Acme announced USD 50 million in financing for customers.",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a third-party raise mentioned on the watched company's page", () => {
+    expect(
+      extractFinancingAnnouncementFacts({
+        title: "Acme supports Foobar financing",
+        evidenceText: "Foobar raised USD 50 million in financing.",
+        expectedCompanyName: "Acme",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects another company's named round announced by the watched company", () => {
+    expect(
+      extractFinancingAnnouncementFacts({
+        title: "Acme announces Foobar Series B financing",
+        evidenceText: "Foobar raised USD 50 million in financing.",
+        expectedCompanyName: "Acme",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a round-led title attributed to another company", () => {
+    expect(
+      extractFinancingAnnouncementFacts({
+        title: "Series B financing announced by Foobar",
+        evidenceText: "Foobar raised USD 50 million in financing.",
+        expectedCompanyName: "Acme",
+      }),
+    ).toBeNull();
   });
 
   it.each([

@@ -1455,6 +1455,19 @@ function financingValuationBasisLabel(fact: FinancingValuationFact) {
   }[fact.basis];
 }
 
+function financingScenarioTermsLabel(facts: FinancingFacts) {
+  const terms = [financingRoundLabel(facts)];
+  if (facts.announcedAmount !== null) {
+    terms.push(`${financingAmountLabel(facts.announcedAmount)} announced`);
+  }
+  if (facts.companyValuation !== null) {
+    terms.push(
+      `${financingAmountLabel(facts.companyValuation)} ${financingValuationBasisLabel(facts.companyValuation)}`,
+    );
+  }
+  return terms.join(" · ");
+}
+
 function financingAmbiguityLabel(
   ambiguity: FinancingFacts["ambiguities"][number],
 ) {
@@ -2275,14 +2288,31 @@ function Scenarios({
       {scenarioContext !== null ? (
         <div className="scenario-context" role="status">
           <div>
-            <p className="eyebrow">Scenario-only evidence</p>
+            <p className="eyebrow">
+              {scenarioContext.financingFacts === null
+                ? "Scenario-only evidence"
+                : "Reported financing context"}
+            </p>
             <strong>{scenarioContext.headline}</strong>
-            <small>
-              {scenarioContext.priorValue} → {scenarioContext.replacementValue}{" "}
-              · estimated impact{" "}
-              {scenarioContext.forecastImpactMinor >= 0 ? "+" : ""}
-              {formatCompactMoney(scenarioContext.forecastImpactMinor)}
-            </small>
+            {scenarioContext.financingFacts === null ? (
+              <small>
+                {scenarioContext.priorValue} →{" "}
+                {scenarioContext.replacementValue} · estimated impact{" "}
+                {scenarioContext.forecastImpactMinor >= 0 ? "+" : ""}
+                {formatCompactMoney(scenarioContext.forecastImpactMinor)}
+              </small>
+            ) : (
+              <>
+                <small>
+                  Reported terms:{" "}
+                  {financingScenarioTermsLabel(scenarioContext.financingFacts)}.
+                </small>
+                <small>
+                  Holding impact not calculated. No holding mark or forecast
+                  changes. Adjust assumptions below to model your view.
+                </small>
+              </>
+            )}
           </div>
           <Button tone="quiet" onClick={onClearScenarioContext}>
             Dismiss

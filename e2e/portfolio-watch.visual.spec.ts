@@ -300,6 +300,49 @@ test("keeps a financing review focused on reported company terms", async ({
     card.getByText("No holding mark or forecast changes."),
   ).toBeVisible();
   await card.getByRole("button", { name: "Cancel" }).click();
+
+  await page.route("**/api/evidence/*/review", async (route) => {
+    await route.fulfill({ status: 204 });
+  });
+  await card.getByRole("button", { name: "Scenario only" }).click();
+  await expect(page.getByRole("heading", { name: "Scenarios" })).toBeVisible();
+
+  const scenarioContext = page.locator(".scenario-context");
+  await expect(scenarioContext).toContainText("Reported financing context");
+  await expect(scenarioContext).toContainText(
+    "Synthetic Series C company terms reported",
+  );
+  await expect(scenarioContext).toContainText(
+    "Reported terms: Series C · Equity · USD 62M announced · USD 310M post-money company valuation.",
+  );
+  await expect(scenarioContext).toContainText(
+    "Holding impact not calculated. No holding mark or forecast changes. Adjust assumptions below to model your view.",
+  );
+  await expect(scenarioContext).not.toContainText("Not set → Not set");
+  await expect(scenarioContext).not.toContainText("$0.00");
+
+  const scenarioContextWidths = await scenarioContext.evaluate((element) => ({
+    client: element.clientWidth,
+    scroll: element.scrollWidth,
+  }));
+  expect(scenarioContextWidths.scroll).toBeLessThanOrEqual(
+    scenarioContextWidths.client,
+  );
+  const documentWidths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(documentWidths.scroll).toBeLessThanOrEqual(documentWidths.client);
+
+  await expect(scenarioContext).toHaveScreenshot(
+    "financing-scenario-context.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
 });
 
 test("keeps conflicting financing amounts unchosen and reviewable", async ({

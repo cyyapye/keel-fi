@@ -462,6 +462,7 @@ function extractedEvents(
     source: {
       canonicalUrl: source.canonicalUrl,
       host: source.approvedWebsiteHost,
+      companyName: source.companyName,
     },
     document,
   };

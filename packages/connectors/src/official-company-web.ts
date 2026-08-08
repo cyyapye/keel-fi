@@ -4,7 +4,10 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
-import { extractFinancingAnnouncementFacts } from "./financing-announcement";
+import {
+  extractFinancingAnnouncementFacts,
+  isCompanyFinancingAnnouncementTitle,
+} from "./financing-announcement";
 
 /** One million represents complete confidence; grades never use floating point. */
 export const PPM_MAX = 1_000_000;
@@ -179,6 +182,15 @@ export const CompanyWebDocumentInputSchema = z.object({
   source: CanonicalSourceUrlSchema,
   document: z.string().max(MAX_COMPANY_WEB_DOCUMENT_CHARS),
 });
+
+export const CompanyWebEventDocumentInputSchema = z
+  .object({
+    source: CanonicalSourceUrlSchema.extend({
+      companyName: z.string().trim().min(1).max(500),
+    }).strict(),
+    document: z.string().max(MAX_COMPANY_WEB_DOCUMENT_CHARS),
+  })
+  .strict();
 
 export const PublicCompanyEventTypeSchema = z.enum([
   "financing_announced",
@@ -807,9 +819,9 @@ export function discoverCompanyWebCandidatesFromSitemap(
  * Source-stated financing terms remain review evidence, never a holding mark.
  */
 export function extractPublicCompanyEventsFromHtml(
-  input: z.input<typeof CompanyWebDocumentInputSchema>,
+  input: z.input<typeof CompanyWebEventDocumentInputSchema>,
 ): PublicCompanyEventObservation[] {
-  const parsed = parseCompanyWebDocumentInput(input);
+  const parsed = parseCompanyWebEventDocumentInput(input);
   const pageText = stripHtmlToText(parsed.document);
   const articleText =
     extractPreferredHtmlArticleText(parsed.document) ?? pageText;
@@ -824,6 +836,7 @@ export function extractPublicCompanyEventsFromHtml(
 
   return createPublicCompanyEventObservations({
     title,
+    companyName: parsed.source.companyName,
     canonicalUrl,
     publishedAt:
       extractPublishedTimestamp(
@@ -841,9 +854,9 @@ export function extractPublicCompanyEventsFromHtml(
 
 /** Extracts one bounded factual observation from a Markdown article. */
 export function extractPublicCompanyEventsFromMarkdown(
-  input: z.input<typeof CompanyWebDocumentInputSchema>,
+  input: z.input<typeof CompanyWebEventDocumentInputSchema>,
 ): PublicCompanyEventObservation[] {
-  const parsed = parseCompanyWebDocumentInput(input);
+  const parsed = parseCompanyWebEventDocumentInput(input);
   const titleMatch = /^#\s+(.+)$/m.exec(parsed.document);
   const title =
     titleMatch?.[1] === undefined ? null : clipText(titleMatch[1], 500);
@@ -852,6 +865,7 @@ export function extractPublicCompanyEventsFromMarkdown(
   }
   return createPublicCompanyEventObservations({
     title,
+    companyName: parsed.source.companyName,
     canonicalUrl: parsed.source.canonicalUrl,
     publishedAt: extractFirstCalendarTimestamp(parsed.document),
     evidenceText: parsed.document,
@@ -860,9 +874,9 @@ export function extractPublicCompanyEventsFromMarkdown(
 
 /** Extracts bounded factual public event observations from RSS or Atom entries. */
 export function extractPublicCompanyEventsFromFeed(
-  input: z.input<typeof CompanyWebDocumentInputSchema>,
+  input: z.input<typeof CompanyWebEventDocumentInputSchema>,
 ): PublicCompanyEventObservation[] {
-  const parsed = parseCompanyWebDocumentInput(input);
+  const parsed = parseCompanyWebEventDocumentInput(input);
   assertXmlHasNoDtdOrEntity(parsed.document);
   const observations: PublicCompanyEventObservation[] = [];
   const seen = new Set<string>();
@@ -884,6 +898,7 @@ export function extractPublicCompanyEventsFromFeed(
     }
     const eventObservations = createPublicCompanyEventObservations({
       title,
+      companyName: parsed.source.companyName,
       canonicalUrl: canonical.url,
       publishedAt:
         extractPublishedTimestamp(
@@ -918,6 +933,19 @@ function parseCompanyWebDocumentInput(
   return {
     ...parsed,
     source: parseApprovedCanonicalSource(parsed.source),
+  };
+}
+
+function parseCompanyWebEventDocumentInput(
+  input: z.input<typeof CompanyWebEventDocumentInputSchema>,
+): z.infer<typeof CompanyWebEventDocumentInputSchema> {
+  const parsed = CompanyWebEventDocumentInputSchema.parse(input);
+  return {
+    ...parsed,
+    source: {
+      ...parseApprovedCanonicalSource(parsed.source),
+      companyName: parsed.source.companyName,
+    },
   };
 }
 
@@ -1194,6 +1222,7 @@ function extractFirstCalendarTimestamp(document: string): string | null {
 
 function classifyPublicCompanyEvent(
   title: string,
+  companyName: string,
 ): z.infer<typeof PublicCompanyEventTypeSchema> | null {
   // Classification is title-bound so a newsroom index cannot become a false
   // event merely because one of many linked summaries contains a keyword.
@@ -1227,7 +1256,10 @@ function classifyPublicCompanyEvent(
     return "ipo_or_filing_announced";
   }
   if (
-    /\b(?:raises?|raised|funding round|series [a-z]|financing)\b/.test(text)
+    isCompanyFinancingAnnouncementTitle({
+      title,
+      expectedCompanyName: companyName,
+    })
   ) {
     return "financing_announced";
   }
@@ -1236,11 +1268,13 @@ function classifyPublicCompanyEvent(
 
 function createPublicCompanyEventObservations({
   title,
+  companyName,
   canonicalUrl,
   publishedAt,
   evidenceText,
 }: {
   title: string;
+  companyName: string;
   canonicalUrl: string;
   publishedAt: string | null;
   evidenceText: string;
@@ -1253,7 +1287,7 @@ function createPublicCompanyEventObservations({
   if (normalizedTitle.length === 0 || normalizedEvidenceText.length === 0) {
     return [];
   }
-  const eventType = classifyPublicCompanyEvent(normalizedTitle);
+  const eventType = classifyPublicCompanyEvent(normalizedTitle, companyName);
   if (eventType === null) {
     return [];
   }
@@ -1262,6 +1296,7 @@ function createPublicCompanyEventObservations({
       ? extractFinancingAnnouncementFacts({
           title: normalizedTitle,
           evidenceText: normalizedEvidenceText,
+          expectedCompanyName: companyName,
         })
       : null;
   return [
