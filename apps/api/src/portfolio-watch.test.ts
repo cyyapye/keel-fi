@@ -27,6 +27,7 @@ const migrationFiles = [
   "packages/database/migrations/0004_portfolio_watch.sql",
   "packages/database/migrations/0005_portfolio_watch_sources.sql",
   "packages/database/migrations/0006_evidence_claim_integrity.sql",
+  "packages/database/migrations/0007_holding_imports.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

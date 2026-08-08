@@ -1,13 +1,29 @@
 import {
   AlphaDataSchema,
   GoalDraftInputSchema,
+  HoldingImportApplyInputSchema,
+  HoldingImportApplyResultSchema,
+  HoldingImportPreviewSchema,
   PortfolioWatchScanResultSchema,
   ScenarioDraftInputSchema,
   type AlphaData,
   type GoalDraftInput,
+  type HoldingImportApplyInput,
+  type HoldingImportApplyResult,
+  type HoldingImportPreview,
   type PortfolioWatchScanResult,
   type ScenarioDraftInput,
 } from "@keel/domain";
+
+async function responseError(
+  response: Response,
+  fallback: string,
+): Promise<Error> {
+  const result = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+  return new Error(result?.error ?? fallback);
+}
 
 export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
   const response = await fetch("/api/alpha", {
@@ -40,6 +56,56 @@ export async function scanPortfolioWatch(): Promise<PortfolioWatchScanResult> {
   }
 
   return PortfolioWatchScanResultSchema.parse(await response.json());
+}
+
+export async function previewAngelListHoldingImport(
+  file: File,
+): Promise<HoldingImportPreview> {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch("/api/holding-imports/angellist", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    body,
+  });
+
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList import review returned ${response.status}.`,
+    );
+  }
+
+  return HoldingImportPreviewSchema.parse(await response.json());
+}
+
+export async function applyHoldingImport(
+  importId: string,
+  input: HoldingImportApplyInput,
+): Promise<HoldingImportApplyResult> {
+  const body = HoldingImportApplyInputSchema.parse(input);
+  const response = await fetch(
+    `/api/holding-imports/${encodeURIComponent(importId)}/apply`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList import application returned ${response.status}.`,
+    );
+  }
+
+  return HoldingImportApplyResultSchema.parse(await response.json());
 }
 
 export async function submitEvidenceReview(

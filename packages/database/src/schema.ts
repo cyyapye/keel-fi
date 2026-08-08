@@ -983,3 +983,279 @@ export const connectorSyncRuns = sqliteTable(
     ),
   ],
 );
+
+export const holdingImports = sqliteTable(
+  "holding_imports",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    sourceDocumentId: text("source_document_id")
+      .notNull()
+      .references(() => sourceDocuments.id, { onDelete: "restrict" }),
+    provider: text("provider").notNull(),
+    parserSchema: text("parser_schema").notNull(),
+    rowCount: integer("row_count").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("holding_imports_source_document_unique").on(
+      table.sourceDocumentId,
+    ),
+    index("holding_imports_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    check(
+      "holding_imports_row_count_check",
+      sql`${table.rowCount} BETWEEN 1 AND 500`,
+    ),
+  ],
+);
+
+export const holdingImportRows = sqliteTable(
+  "holding_import_rows",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    importId: text("import_id")
+      .notNull()
+      .references(() => holdingImports.id, { onDelete: "restrict" }),
+    sourceRowNumber: integer("source_row_number").notNull(),
+    positionFingerprint: text("position_fingerprint").notNull(),
+    snapshotFingerprint: text("snapshot_fingerprint").notNull(),
+    legalVehicleName: text("legal_vehicle_name").notNull(),
+    ownerLabel: text("owner_label").notNull(),
+    exposureLabel: text("exposure_label").notNull(),
+    providerStatus: text("provider_status").notNull(),
+    investedOn: text("invested_on").notNull(),
+    investedMinor: integer("invested_minor").notNull(),
+    allocationMinor: integer("allocation_minor").notNull(),
+    unrealizedValueMinor: integer("unrealized_value_minor"),
+    unrealizedValueState: text("unrealized_value_state").notNull(),
+    realizedValueMinor: integer("realized_value_minor").notNull(),
+    netValueMinor: integer("net_value_minor"),
+    netValueState: text("net_value_state").notNull(),
+    instrumentType: text("instrument_type").notNull(),
+    currencyHint: text("currency_hint"),
+    parseStatus: text("parse_status").notNull(),
+    issueCodesJson: text("issue_codes_json").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("holding_import_rows_import_row_unique").on(
+      table.importId,
+      table.sourceRowNumber,
+    ),
+    index("holding_import_rows_import_idx").on(
+      table.importId,
+      table.sourceRowNumber,
+    ),
+    index("holding_import_rows_position_idx").on(
+      table.householdId,
+      table.positionFingerprint,
+    ),
+    check(
+      "holding_import_rows_provider_status_check",
+      sql`${table.providerStatus} IN ('live', 'realized')`,
+    ),
+    check(
+      "holding_import_rows_parse_status_check",
+      sql`${table.parseStatus} IN ('ready', 'needs_attention')`,
+    ),
+    check(
+      "holding_import_rows_issue_codes_json_check",
+      sql`json_valid(${table.issueCodesJson})`,
+    ),
+  ],
+);
+
+export const holdingPositions = sqliteTable(
+  "holding_positions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    provider: text("provider").notNull(),
+    positionFingerprint: text("position_fingerprint").notNull(),
+    legalVehicleName: text("legal_vehicle_name").notNull(),
+    ownerLabel: text("owner_label").notNull(),
+    positionKind: text("position_kind").notNull(),
+    instrumentType: text("instrument_type").notNull(),
+    openedOn: text("opened_on"),
+    currency: text("currency").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("holding_positions_household_provider_fingerprint_unique").on(
+      table.householdId,
+      table.provider,
+      table.positionFingerprint,
+    ),
+    index("holding_positions_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    check(
+      "holding_positions_kind_check",
+      sql`${table.positionKind} IN ('direct', 'spv_interest', 'fund_interest')`,
+    ),
+  ],
+);
+
+export const holdingPositionExposures = sqliteTable(
+  "holding_position_exposures",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    exposureLabel: text("exposure_label"),
+    exposureKind: text("exposure_kind").notNull(),
+    companyId: text("company_id").references(() => companies.id, {
+      onDelete: "restrict",
+    }),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("holding_position_exposures_position_label_unique").on(
+      table.positionId,
+      table.exposureLabel,
+    ),
+    index("holding_position_exposures_household_idx").on(
+      table.householdId,
+      table.positionId,
+    ),
+    check(
+      "holding_position_exposures_kind_check",
+      sql`${table.exposureKind} IN ('unresolved', 'company', 'fund')`,
+    ),
+  ],
+);
+
+export const holdingPositionSnapshots = sqliteTable(
+  "holding_position_snapshots",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    sourceDocumentId: text("source_document_id")
+      .notNull()
+      .references(() => sourceDocuments.id, { onDelete: "restrict" }),
+    sourceImportRowId: text("source_import_row_id")
+      .notNull()
+      .references(() => holdingImportRows.id, { onDelete: "restrict" }),
+    snapshotFingerprint: text("snapshot_fingerprint").notNull(),
+    providerStatus: text("provider_status").notNull(),
+    investedMinor: integer("invested_minor").notNull(),
+    allocationMinor: integer("allocation_minor").notNull(),
+    unrealizedValueMinor: integer("unrealized_value_minor"),
+    unrealizedValueState: text("unrealized_value_state").notNull(),
+    realizedValueMinor: integer("realized_value_minor").notNull(),
+    netValueMinor: integer("net_value_minor"),
+    netValueState: text("net_value_state").notNull(),
+    instrumentType: text("instrument_type").notNull(),
+    currency: text("currency").notNull(),
+    observedAt: timestamp("observed_at"),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("holding_position_snapshots_source_row_unique").on(
+      table.sourceImportRowId,
+    ),
+    uniqueIndex("holding_position_snapshots_position_fingerprint_unique").on(
+      table.positionId,
+      table.snapshotFingerprint,
+    ),
+    index("holding_position_snapshots_position_idx").on(
+      table.positionId,
+      table.observedAt,
+    ),
+  ],
+);
+
+export const holdingImportRowDecisions = sqliteTable(
+  "holding_import_row_decisions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    importRowId: text("import_row_id")
+      .notNull()
+      .references(() => holdingImportRows.id, { onDelete: "restrict" }),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    decision: text("decision").notNull(),
+    matchedPositionId: text("matched_position_id").references(
+      () => holdingPositions.id,
+      { onDelete: "restrict" },
+    ),
+    currency: text("currency"),
+    reviewedSnapshotFingerprint: text(
+      "reviewed_snapshot_fingerprint",
+    ).notNull(),
+    rationale: text("rationale").notNull(),
+    decidedAt: timestamp("decided_at"),
+  },
+  (table) => [
+    uniqueIndex("holding_import_row_decisions_row_unique").on(
+      table.importRowId,
+    ),
+    index("holding_import_row_decisions_household_idx").on(
+      table.householdId,
+      table.decidedAt,
+    ),
+    check(
+      "holding_import_row_decisions_decision_check",
+      sql`${table.decision} IN ('accepted', 'rejected')`,
+    ),
+  ],
+);
+
+export const holdingImportApplications = sqliteTable(
+  "holding_import_applications",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    importRowId: text("import_row_id")
+      .notNull()
+      .references(() => holdingImportRows.id, { onDelete: "restrict" }),
+    decisionId: text("decision_id")
+      .notNull()
+      .references(() => holdingImportRowDecisions.id, {
+        onDelete: "restrict",
+      }),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => holdingPositionSnapshots.id, { onDelete: "restrict" }),
+    outcome: text("outcome").notNull(),
+    appliedBy: text("applied_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    appliedAt: timestamp("applied_at"),
+  },
+  (table) => [
+    uniqueIndex("holding_import_applications_row_unique").on(table.importRowId),
+    uniqueIndex("holding_import_applications_decision_unique").on(
+      table.decisionId,
+    ),
+    index("holding_import_applications_household_idx").on(
+      table.householdId,
+      table.appliedAt,
+    ),
+    check(
+      "holding_import_applications_outcome_check",
+      sql`${table.outcome} IN ('created_position', 'appended_snapshot', 'no_change')`,
+    ),
+  ],
+);

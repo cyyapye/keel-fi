@@ -1,5 +1,9 @@
+import {
+  ANGELLIST_INVESTMENTS_CSV_HEADERS,
+  ANGELLIST_INVESTMENTS_CSV_PREAMBLE,
+} from "@keel/connectors";
 import type { AlphaRepository } from "@keel/database";
-import type { AlphaData } from "@keel/domain";
+import type { AlphaData, HoldingImportPreview } from "@keel/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "./app";
@@ -68,6 +72,72 @@ const alphaData: AlphaData = {
   forecastHistory: [],
 };
 
+const holdingImportPreview: HoldingImportPreview = {
+  id: "import_synthetic_angellist",
+  provider: "angellist",
+  status: "pending_review",
+  observedAt: "2026-06-14T00:00:00.000Z",
+  summary: {
+    rowCount: 1,
+    administratorValueCount: 1,
+    lockedValueCount: 0,
+    createCount: 1,
+    updateCount: 0,
+    unchangedCount: 0,
+    needsAttentionCount: 0,
+  },
+  rows: [
+    {
+      id: "import_row_synthetic",
+      sourceRowNumber: 3,
+      positionName: "Synthetic Finch SPV",
+      exposureName: "Synthetic Finch Labs",
+      ownerLabel: "Synthetic Demo LLC",
+      providerStatus: "Live",
+      investedOn: "2026-06-14",
+      investedMinor: 10_000,
+      administratorNavMinor: 12_500,
+      administratorNavState: "reported",
+      realizedValueMinor: 0,
+      action: "create_position",
+      issues: [],
+    },
+  ],
+};
+
+function syntheticAngelListCsv(): string {
+  const row = [
+    "Synthetic Finch Labs",
+    "Live",
+    "6/14/2026",
+    "$100.00",
+    "$125.00",
+    "$0.00",
+    "$125.00",
+    "1.25",
+    "Synthetic Demo LLC",
+    "",
+    "Syndicate",
+    "",
+    "Seed",
+    "Software",
+    "Synthetic Finch SPV",
+    "$500.00",
+    "safe",
+    "",
+    "Post-money",
+    "$5000000.00",
+    "",
+    "20%",
+    "",
+  ];
+  return [
+    ANGELLIST_INVESTMENTS_CSV_PREAMBLE,
+    ANGELLIST_INVESTMENTS_CSV_HEADERS.join(","),
+    row.join(","),
+  ].join("\n");
+}
+
 function testEnv(environment: Env["ENVIRONMENT"]): Env {
   return {
     DB: {} as D1Database,
@@ -83,6 +153,9 @@ describe("Keel API", () => {
     const repository: AlphaRepository = {
       getAlphaData,
       preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -105,6 +178,9 @@ describe("Keel API", () => {
     const repository: AlphaRepository = {
       getAlphaData,
       preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -140,6 +216,9 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan,
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -176,6 +255,106 @@ describe("Keel API", () => {
     expect(send.mock.calls[0]?.[0]).not.toHaveProperty("householdId");
   });
 
+  it("stages a bounded AngelList CSV in private storage before review", async () => {
+    const stageHoldingImport = vi
+      .fn<AlphaRepository["stageHoldingImport"]>()
+      .mockResolvedValue({ created: true, preview: holdingImportPreview });
+    const repository: AlphaRepository = {
+      getAlphaData: vi.fn(),
+      preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport,
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    };
+    const put = vi.fn().mockResolvedValue({});
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const env = testEnv("local");
+    env.DOCUMENTS = { put, delete: remove } as unknown as R2Bucket;
+    const formData = new FormData();
+    formData.set(
+      "file",
+      new File(
+        [syntheticAngelListCsv()],
+        "synthetic_angellist_investments_2026_06_14.csv",
+        { type: "text/csv" },
+      ),
+    );
+
+    const response = await createApp({ repository }).request(
+      "/api/holding-imports/angellist",
+      { method: "POST", body: formData },
+      env,
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual(holdingImportPreview);
+    expect(put).toHaveBeenCalledOnce();
+    expect(remove).not.toHaveBeenCalled();
+    expect(stageHoldingImport).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      expect.objectContaining({
+        byteSize: new TextEncoder().encode(syntheticAngelListCsv()).byteLength,
+        effectiveDate: "2026-06-14",
+        rows: [
+          expect.objectContaining({
+            companyOrFund: "Synthetic Finch Labs",
+            fundName: "Synthetic Finch SPV",
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("applies only a complete validated holding-import review", async () => {
+    const applyHoldingImport = vi
+      .fn<AlphaRepository["applyHoldingImport"]>()
+      .mockResolvedValue({
+        importId: holdingImportPreview.id,
+        createdCount: 1,
+        updatedCount: 0,
+        unchangedCount: 0,
+        rejectedCount: 0,
+        lockedValueCount: 0,
+      });
+    const repository: AlphaRepository = {
+      getAlphaData: vi.fn(),
+      preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport,
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    };
+    const decision = {
+      rowId: "import_row_synthetic",
+      decision: "accepted" as const,
+      rationale: "Accepted after reviewing the synthetic import.",
+    };
+
+    const response = await createApp({ repository }).request(
+      `/api/holding-imports/${holdingImportPreview.id}/apply`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currency: "USD", decisions: [decision] }),
+      },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(applyHoldingImport).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      holdingImportPreview.id,
+      { currency: "USD", decisions: [decision] },
+    );
+  });
+
   it("records a validated review without applying the proposed fact", async () => {
     const reviewEvidence = vi
       .fn<AlphaRepository["reviewEvidence"]>()
@@ -185,6 +364,9 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence,
@@ -223,6 +405,9 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -247,6 +432,9 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -277,6 +465,9 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal,
       saveScenario: vi.fn(),
       reviewEvidence: vi.fn(),
@@ -319,6 +510,9 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario,
       reviewEvidence: vi.fn(),
@@ -361,6 +555,9 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario,
       reviewEvidence: vi.fn(),
