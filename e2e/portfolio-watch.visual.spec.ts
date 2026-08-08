@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { navigateToScreen } from "./navigation";
+
 const financingFactsFixture = {
   roundType: "series",
   roundLabel: "Series C",
@@ -113,11 +115,7 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   await page.goto("/");
 
   const mobile = testInfo.project.name === "mobile-chromium";
-  const navigation = page.getByRole("navigation", {
-    name: mobile ? "Mobile navigation" : "Primary navigation",
-  });
-
-  await navigation.getByRole("button", { name: /Watch/ }).click();
+  await navigateToScreen(page, mobile, /Watch/);
   const checkButton = page.locator(".watch-control-panel .button");
   await expect(checkButton).toHaveText("Check now");
   await expect(page.getByTestId("portfolio-watch-control")).toContainText(
@@ -229,10 +227,7 @@ test("keeps a financing review focused on reported company terms", async ({
 
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
-  const navigation = page.getByRole("navigation", {
-    name: mobile ? "Mobile navigation" : "Primary navigation",
-  });
-  await navigation.getByRole("button", { name: /Evidence/ }).click();
+  await navigateToScreen(page, mobile, /Evidence/);
 
   const card = page
     .locator(".evidence-card")
@@ -709,10 +704,7 @@ test("reconciles financing reports before creating a version-safe proposal", asy
 
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
-  const navigation = page.getByRole("navigation", {
-    name: mobile ? "Mobile navigation" : "Primary navigation",
-  });
-  await navigation.getByRole("button", { name: /Evidence/ }).click();
+  await navigateToScreen(page, mobile, /Evidence/);
 
   const groups = page.locator(".signal-reconciliation-group");
   await expect(groups).toHaveCount(2);
@@ -814,10 +806,7 @@ test("keeps conflicting financing amounts unchosen and reviewable", async ({
   });
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
-  const navigation = page.getByRole("navigation", {
-    name: mobile ? "Mobile navigation" : "Primary navigation",
-  });
-  await navigation.getByRole("button", { name: /Evidence/ }).click();
+  await navigateToScreen(page, mobile, /Evidence/);
 
   const card = page
     .locator(".evidence-card")
@@ -857,10 +846,7 @@ test("keeps the legacy estimated range when financing facts are absent", async (
   });
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
-  const navigation = page.getByRole("navigation", {
-    name: mobile ? "Mobile navigation" : "Primary navigation",
-  });
-  await navigation.getByRole("button", { name: /Watch/ }).click();
+  await navigateToScreen(page, mobile, /Watch/);
 
   await expect(page.getByText("Estimated range")).toBeVisible();
   await expect(page.getByText("$930k – $1.4M")).toBeVisible();

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { navigateToScreen } from "./navigation";
+
 const alphaFixture = {
   dashboard: {
     asOfDate: "2026-07-01",
@@ -138,10 +140,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.goto("/");
 
   const mobile = testInfo.project.name === "mobile-chromium";
-  const navigation = page.getByRole("navigation", {
-    name: mobile ? "Mobile navigation" : "Primary navigation",
-  });
-  await navigation.getByRole("button", { name: /Holdings/ }).click();
+  await navigateToScreen(page, mobile, /Holdings/);
 
   const harborAction = page.getByRole("button", {
     name: "View Harbor Health Systems holding details",

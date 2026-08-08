@@ -60,34 +60,29 @@ const isRealCompanyAcceptanceProfile =
 const navigation: readonly {
   id: Screen;
   label: string;
-  shortLabel: string;
   icon: string;
 }[] = [
   {
     id: "dashboard",
     label: "Overview",
-    shortLabel: "Overview",
     icon: "01",
   },
-  { id: "goals", label: "Goals", shortLabel: "Goals", icon: "02" },
-  { id: "holdings", label: "Holdings", shortLabel: "Holdings", icon: "03" },
+  { id: "goals", label: "Goals", icon: "02" },
+  { id: "holdings", label: "Holdings", icon: "03" },
   {
     id: "watch",
     label: "Portfolio Watch",
-    shortLabel: "Watch",
     icon: "04",
   },
   {
     id: "evidence",
     label: "Evidence Inbox",
-    shortLabel: "Evidence",
     icon: "05",
   },
-  { id: "scenarios", label: "Scenarios", shortLabel: "Scenarios", icon: "06" },
+  { id: "scenarios", label: "Scenarios", icon: "06" },
   {
     id: "history",
     label: "Forecast History",
-    shortLabel: "History",
     icon: "07",
   },
 ];
@@ -3569,9 +3564,76 @@ function Shell({
   data: AlphaData;
   onNavigate: (screen: Screen) => void;
 }) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileNavigationRef = useRef<HTMLElement>(null);
   const pending = data.evidenceInbox.filter(
     (item) => item.status === "pending_review",
   ).length;
+
+  useEffect(() => {
+    if (!mobileMenuOpen) {
+      return;
+    }
+
+    const navigationElement = mobileNavigationRef.current;
+    const activeItem = navigationElement?.querySelector<HTMLButtonElement>(
+      '[aria-current="page"]',
+    );
+    const focusFrame = window.requestAnimationFrame(() => activeItem?.focus());
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileMenuOpen(false);
+        window.requestAnimationFrame(() =>
+          mobileMenuButtonRef.current?.focus(),
+        );
+        return;
+      }
+
+      if (event.key !== "Tab" || navigationElement === null) {
+        return;
+      }
+
+      const navigationButtons = Array.from(
+        navigationElement.querySelectorAll<HTMLButtonElement>("button"),
+      );
+      const lastButton = navigationButtons.at(-1);
+
+      if (
+        event.shiftKey &&
+        document.activeElement === mobileMenuButtonRef.current &&
+        lastButton !== undefined
+      ) {
+        event.preventDefault();
+        lastButton.focus();
+      } else if (
+        !event.shiftKey &&
+        document.activeElement === lastButton &&
+        mobileMenuButtonRef.current !== null
+      ) {
+        event.preventDefault();
+        mobileMenuButtonRef.current.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileMenuOpen]);
+
+  const closeMobileMenu = () => {
+    setMobileMenuOpen(false);
+    window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
+  };
+
+  const navigateFromMobileMenu = (screen: Screen) => {
+    onNavigate(screen);
+    closeMobileMenu();
+  };
 
   return (
     <div className="app-shell">
@@ -3614,21 +3676,45 @@ function Shell({
             <KeelMark />
             <span>Keel /</span> {pageHeading(activeScreen)}
           </div>
+          <button
+            aria-controls="mobile-navigation"
+            aria-expanded={mobileMenuOpen}
+            aria-label={
+              mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"
+            }
+            className="mobile-menu-toggle"
+            onClick={() => setMobileMenuOpen((isOpen) => !isOpen)}
+            ref={mobileMenuButtonRef}
+            type="button"
+          >
+            <span aria-hidden="true" className="mobile-menu-toggle__icon">
+              <span />
+              <span />
+              <span />
+            </span>
+          </button>
         </header>
         <div className="content">{children}</div>
       </main>
 
-      <nav aria-label="Mobile navigation" className="mobile-nav">
+      <nav
+        aria-label="Mobile navigation"
+        className="mobile-nav"
+        hidden={!mobileMenuOpen}
+        id="mobile-navigation"
+        ref={mobileNavigationRef}
+      >
         {navigation.map((item) => (
           <button
             aria-current={activeScreen === item.id ? "page" : undefined}
             className={activeScreen === item.id ? "active" : ""}
             key={item.id}
-            onClick={() => onNavigate(item.id)}
+            onClick={() => navigateFromMobileMenu(item.id)}
             type="button"
           >
             <i>{item.icon}</i>
-            <span>{item.shortLabel}</span>
+            <span>{item.label}</span>
+            {item.id === "evidence" && pending > 0 && <b>{pending}</b>}
           </button>
         ))}
       </nav>
