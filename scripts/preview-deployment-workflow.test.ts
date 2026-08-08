@@ -17,6 +17,10 @@ describe("post-merge preview deployment workflow", () => {
     expect(jobConfiguration).toContain("name: preview");
     expect(jobConfiguration).toContain("cancel-in-progress: false");
     expect(jobConfiguration).not.toContain("secrets.");
+    expect(jobConfiguration).not.toContain("${{ runner.");
+    expect(deployment).toContain(
+      'echo "KEEL_API_WRANGLER_OUTPUT_PATH=$RUNNER_TEMP/keel-api-deploy.jsonl"',
+    );
     expect(deployment).not.toMatch(/db:seed|seed:local|synthetic\.sql/);
     expect(deployment).not.toContain("environment:\n      name: production");
 

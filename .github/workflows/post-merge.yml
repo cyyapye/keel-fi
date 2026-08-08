@@ -59,21 +59,9 @@ jobs:
       group: keel-preview-deployment
       cancel-in-progress: false
     env:
-      KEEL_API_WRANGLER_OUTPUT_PATH: ${{ runner.temp }}/keel-api-deploy.jsonl
       KEEL_PREVIEW_BACKUP_ARTIFACT_NAME:
         preview-d1-backup-${{ github.sha }}-attempt-${{ github.run_attempt }}
-      KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH:
-        ${{ runner.temp }}/keel-preview-${{ github.sha }}.sql.gpg
-      KEEL_PREVIEW_BACKUP_MANIFEST_PATH:
-        ${{ runner.temp }}/keel-preview-${{ github.sha }}.backup.json
-      KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH:
-        ${{ runner.temp }}/keel-preview-${{ github.sha }}.sql
-      KEEL_PREVIEW_BACKUP_VERIFY_PATH:
-        ${{ runner.temp }}/keel-preview-${{ github.sha }}.verify.sql
-      KEEL_PREVIEW_RELEASE_EVIDENCE_PATH:
-        ${{ runner.temp }}/keel-preview-${{ github.sha }}.release.json
       KEEL_PREVIEW_URL: ${{ vars.KEEL_PREVIEW_URL }}
-      KEEL_WEB_WRANGLER_OUTPUT_PATH: ${{ runner.temp }}/keel-web-deploy.jsonl
     steps:
       - name: Check out the exact verified SHA
         uses: actions/checkout@v5
@@ -84,6 +72,18 @@ jobs:
         run: |
           test "$GITHUB_REF" = "refs/heads/main"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Configure private runner paths
+        shell: bash
+        run: |
+          {
+            echo "KEEL_API_WRANGLER_OUTPUT_PATH=$RUNNER_TEMP/keel-api-deploy.jsonl"
+            echo "KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH=$RUNNER_TEMP/keel-preview-$GITHUB_SHA.sql.gpg"
+            echo "KEEL_PREVIEW_BACKUP_MANIFEST_PATH=$RUNNER_TEMP/keel-preview-$GITHUB_SHA.backup.json"
+            echo "KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH=$RUNNER_TEMP/keel-preview-$GITHUB_SHA.sql"
+            echo "KEEL_PREVIEW_BACKUP_VERIFY_PATH=$RUNNER_TEMP/keel-preview-$GITHUB_SHA.verify.sql"
+            echo "KEEL_PREVIEW_RELEASE_EVIDENCE_PATH=$RUNNER_TEMP/keel-preview-$GITHUB_SHA.release.json"
+            echo "KEEL_WEB_WRANGLER_OUTPUT_PATH=$RUNNER_TEMP/keel-web-deploy.jsonl"
+          } >> "$GITHUB_ENV"
       - uses: ./.github/actions/setup-node-pnpm
       - name: Validate preview environment and generate private configuration
         env:
