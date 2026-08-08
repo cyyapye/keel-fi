@@ -272,6 +272,7 @@ describe("Keel API", () => {
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };
@@ -333,6 +334,7 @@ describe("Keel API", () => {
       applyHoldingImport,
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
       reviewEvidence: vi.fn(),
       applyEvidence: vi.fn(),
     };
@@ -502,6 +504,9 @@ describe("Keel API", () => {
         .fn<AlphaRepository["getAlphaData"]>()
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
       createSignalUpdateProposal,
