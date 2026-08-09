@@ -4,12 +4,14 @@ import {
 } from "@keel/connectors";
 import {
   HoldingImportApplyInputSchema,
+  HoldingImportSummariesSchema,
   IsoDateSchema,
   IsoTimestampSchema,
   type HoldingImportApplyInput,
   type HoldingImportApplyResult,
   type HoldingImportPreview,
   type HoldingImportRowPreview,
+  type HoldingImportSummary,
 } from "@keel/domain";
 import { z } from "zod";
 
@@ -73,6 +75,15 @@ type ImportPreviewRow = {
   existing_snapshot_id: string | null;
   application_outcome:
     "created_position" | "appended_snapshot" | "no_change" | null;
+};
+
+type PendingImportRow = {
+  id: string;
+  provider: string;
+  row_count: number;
+  effective_date: string | null;
+  retrieved_at: string;
+  created_at: string;
 };
 
 type ApplyImportRow = {
@@ -192,6 +203,46 @@ function actionFor(row: ImportPreviewRow): HoldingImportRowPreview["action"] {
 
 export class D1HoldingImportRepository {
   public constructor(private readonly db: D1Database) {}
+
+  public async listPendingHoldingImports(
+    accessSubject: string,
+  ): Promise<HoldingImportSummary[]> {
+    const identity = await this.findIdentity(accessSubject);
+    const rows = await all<PendingImportRow>(
+      this.db
+        .prepare(
+          `SELECT
+             import.id,
+             import.provider,
+             import.row_count,
+             document.effective_date,
+             document.retrieved_at,
+             import.created_at
+           FROM holding_imports import
+           JOIN source_documents document
+             ON document.id = import.source_document_id
+           WHERE import.household_id = ?
+             AND import.provider = 'angellist'
+             AND document.review_status = 'pending_review'
+           ORDER BY import.created_at DESC
+           LIMIT 20`,
+        )
+        .bind(identity.household_id),
+    );
+    return HoldingImportSummariesSchema.parse(
+      rows.map((row) => ({
+        id: row.id,
+        provider: row.provider,
+        status: "pending_review",
+        observedAt:
+          row.effective_date === null
+            ? row.retrieved_at
+            : `${row.effective_date}T00:00:00.000Z`,
+        rowCount: row.row_count,
+        createdAt: row.created_at,
+      })),
+    );
+  }
 
   public async findHoldingImportBySourceHash(
     accessSubject: string,

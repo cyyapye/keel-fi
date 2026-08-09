@@ -157,6 +157,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -181,6 +182,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -208,6 +210,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -243,6 +246,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -282,6 +286,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan,
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -329,6 +334,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport,
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -375,6 +381,76 @@ describe("Keel API", () => {
     );
   });
 
+  it("lists only the authenticated household's pending holding imports", async () => {
+    const pendingImports = [
+      {
+        id: holdingImportPreview.id,
+        provider: "angellist" as const,
+        status: "pending_review" as const,
+        observedAt: holdingImportPreview.observedAt,
+        rowCount: holdingImportPreview.summary.rowCount,
+        createdAt: "2026-06-14T12:01:00.000Z",
+      },
+    ];
+    const listPendingHoldingImports = vi
+      .fn<AlphaRepository["listPendingHoldingImports"]>()
+      .mockResolvedValue(pendingImports);
+    const repository: AlphaRepository = {
+      getAlphaData: vi.fn(),
+      preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      listPendingHoldingImports,
+      applyHoldingImport: vi.fn(),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    };
+
+    const response = await createApp({ repository }).request(
+      "/api/holding-imports",
+      {},
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(pendingImports);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(listPendingHoldingImports).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+    );
+  });
+
+  it("rejects an outside magic-link host without logging the submitted link", async () => {
+    const submittedLink =
+      "https://example.com/sign-in?token=synthetic-sensitive-link";
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      const response = await createApp().request(
+        "/api/automation/angellist/sign-in-refreshes/11111111-1111-4111-8111-111111111111/magic-link",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ magicLink: submittedLink }),
+        },
+        testEnv("local"),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "That AngelList magic link could not be opened.",
+      });
+      expect(JSON.stringify(info.mock.calls)).not.toContain(submittedLink);
+      expect(JSON.stringify(info.mock.calls)).not.toContain(
+        "synthetic-sensitive-link",
+      );
+    } finally {
+      info.mockRestore();
+    }
+  });
+
   it("applies only a complete validated holding-import review", async () => {
     const applyHoldingImport = vi
       .fn<AlphaRepository["applyHoldingImport"]>()
@@ -391,6 +467,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport,
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -433,6 +510,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -475,6 +553,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -503,6 +582,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -566,6 +646,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario: vi.fn(),
@@ -606,6 +687,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal,
       saveScenario: vi.fn(),
@@ -652,6 +734,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario,
@@ -698,6 +781,7 @@ describe("Keel API", () => {
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
       getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
       saveGoal: vi.fn(),
       saveScenario,

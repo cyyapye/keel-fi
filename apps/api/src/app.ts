@@ -16,6 +16,18 @@ import { secureHeaders } from "hono/secure-headers";
 
 import { verifyAccessToken, type AccessVerifier } from "./auth";
 import {
+  AngelListAutomationError,
+  cancelAngelListSignInRefresh,
+  getAngelListSignInRefresh,
+  getAngelListAutomationStatus,
+  readAngelListMagicLinkPayload,
+  readAngelListSessionPayload,
+  runAngelListImportForCaller,
+  startAngelListSignInRefresh,
+  storeAngelListSession,
+  submitAngelListMagicLink,
+} from "./angellist-automation";
+import {
   deploymentSmokeTokenMatches,
   runDeploymentSmoke,
 } from "./deployment-smoke";
@@ -42,6 +54,44 @@ type AppOptions = {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unexpected error";
+}
+
+function angelListRefreshFailure(error: unknown): {
+  message: string;
+  status: 400 | 403 | 404 | 503;
+} {
+  const code =
+    error instanceof AngelListAutomationError
+      ? error.code
+      : "unexpected_failure";
+  if (code === "forbidden") {
+    return {
+      message: "This Access identity cannot refresh AngelList sign-in.",
+      status: 403,
+    };
+  }
+  if (code === "refresh_invalid") {
+    return {
+      message: "This AngelList sign-in refresh is no longer available.",
+      status: 404,
+    };
+  }
+  if (code === "magic_link_invalid") {
+    return {
+      message: "That AngelList magic link could not be opened.",
+      status: 400,
+    };
+  }
+  if (code === "configuration_invalid") {
+    return {
+      message: "AngelList sign-in refresh is not configured.",
+      status: 503,
+    };
+  }
+  return {
+    message: "AngelList sign-in is temporarily unavailable.",
+    status: 503,
+  };
 }
 
 async function sha256Bytes(contents: Uint8Array): Promise<string> {
@@ -209,6 +259,184 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.put("/api/automation/angellist/session", async (context) => {
+    try {
+      const state = await readAngelListSessionPayload(context.req.raw);
+      await storeAngelListSession(
+        context.env,
+        context.get("identity").subject,
+        state,
+      );
+      return context.body(null, 204, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const code =
+        error instanceof AngelListAutomationError
+          ? error.code
+          : "session_invalid";
+      return context.json(
+        {
+          error:
+            code === "forbidden"
+              ? "This Access identity cannot configure AngelList automation."
+              : code === "configuration_invalid"
+                ? "AngelList automation is not configured."
+                : "Keel could not accept this AngelList browser session.",
+        },
+        code === "forbidden"
+          ? 403
+          : code === "configuration_invalid"
+            ? 503
+            : 400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.get("/api/automation/angellist/status", async (context) => {
+    try {
+      const status = await getAngelListAutomationStatus(
+        context.env,
+        context.get("identity").subject,
+      );
+      return context.json(status, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const forbidden =
+        error instanceof AngelListAutomationError && error.code === "forbidden";
+      return context.json(
+        {
+          error: forbidden
+            ? "This Access identity cannot view AngelList automation."
+            : "AngelList automation status is unavailable.",
+        },
+        forbidden ? 403 : 503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/automation/angellist/run", async (context) => {
+    try {
+      const status = await runAngelListImportForCaller(
+        context.env,
+        context.get("identity").subject,
+      );
+      return context.json(status, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const code =
+        error instanceof AngelListAutomationError
+          ? error.code
+          : "unexpected_failure";
+      return context.json(
+        {
+          error:
+            code === "forbidden"
+              ? "This Access identity cannot run AngelList automation."
+              : code === "auth_required" || code === "session_invalid"
+                ? "AngelList sign-in needs to be refreshed."
+                : "AngelList automation could not complete.",
+        },
+        code === "forbidden"
+          ? 403
+          : code === "auth_required" || code === "session_invalid"
+            ? 409
+            : 503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/automation/angellist/sign-in-refreshes", async (context) => {
+    try {
+      return context.json(
+        await startAngelListSignInRefresh(
+          context.env,
+          context.get("identity").subject,
+        ),
+        201,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      const failure = angelListRefreshFailure(error);
+      return context.json({ error: failure.message }, failure.status, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+  });
+
+  app.get(
+    "/api/automation/angellist/sign-in-refreshes/:refreshId",
+    async (context) => {
+      try {
+        return context.json(
+          await getAngelListSignInRefresh(
+            context.env,
+            context.get("identity").subject,
+            context.req.param("refreshId"),
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const failure = angelListRefreshFailure(error);
+        return context.json({ error: failure.message }, failure.status, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/angellist/sign-in-refreshes/:refreshId/magic-link",
+    async (context) => {
+      try {
+        const magicLink = await readAngelListMagicLinkPayload(context.req.raw);
+        return context.json(
+          await submitAngelListMagicLink(
+            context.env,
+            context.get("identity").subject,
+            context.req.param("refreshId"),
+            magicLink,
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const failure = angelListRefreshFailure(error);
+        return context.json({ error: failure.message }, failure.status, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/automation/angellist/sign-in-refreshes/:refreshId",
+    async (context) => {
+      try {
+        return context.json(
+          await cancelAngelListSignInRefresh(
+            context.env,
+            context.get("identity").subject,
+            context.req.param("refreshId"),
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const failure = angelListRefreshFailure(error);
+        return context.json({ error: failure.message }, failure.status, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+    },
+  );
+
   app.post("/api/watch/scan", async (context) => {
     try {
       const preparation = await repositoryFor(
@@ -325,6 +553,22 @@ export function createApp(options: AppOptions = {}) {
         { error: "Keel could not prepare this import for review." },
         500,
         { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.get("/api/holding-imports", async (context) => {
+    try {
+      const imports = await repositoryFor(
+        context.env,
+      ).listPendingHoldingImports(context.get("identity").subject);
+      return context.json(imports, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json(
+        { error: "Keel could not load pending holding imports." },
+        500,
       );
     }
   });

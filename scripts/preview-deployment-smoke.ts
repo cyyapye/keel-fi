@@ -30,7 +30,9 @@ const HealthResponseSchema = z.object({
 
 const ResourceSmokeResponseSchema = HealthResponseSchema.extend({
   checks: z.object({
+    browser: z.literal(true),
     d1: z.literal(true),
+    kv: z.literal(true),
     queue: z.literal(true),
     r2: z.literal(true),
   }),

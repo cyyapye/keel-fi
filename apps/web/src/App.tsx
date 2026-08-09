@@ -2,6 +2,8 @@ import {
   createGoalPreview,
   projectScenario,
   type AlphaData,
+  type AngelListAutomationOverview,
+  type AngelListSignInRefresh,
   type EvidenceInboxItem,
   type Goal,
   type GoalDraftInput,
@@ -10,6 +12,7 @@ import {
   type HoldingImportApplyResult,
   type HoldingImportPreview,
   type HoldingImportRowPreview,
+  type HoldingImportSummary,
   type PublicSourceObservation,
   type Scenario,
   type ScenarioDraftInput,
@@ -21,6 +24,7 @@ import {
   type CSSProperties,
   type FormEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -30,12 +34,19 @@ import {
 import {
   applyAcceptedEvidence,
   applyHoldingImport,
+  cancelAngelListSignInRefresh,
   createSignalUpdateProposal as submitSignalUpdateProposal,
+  getAngelListSignInRefresh,
+  listPendingHoldingImports,
+  loadAngelListAutomationOverview,
   loadAlphaData,
+  loadHoldingImport,
   previewAngelListHoldingImport,
   saveGoalVersion,
   saveScenarioVersion,
   scanPortfolioWatch,
+  startAngelListSignInRefresh,
+  submitAngelListMagicLink,
   submitEvidenceReview,
 } from "./api";
 import {
@@ -89,6 +100,38 @@ const navigation: readonly {
 
 function pageHeading(screen: Screen) {
   return navigation.find((item) => item.id === screen)?.label ?? "Keel";
+}
+
+type AppRoute = {
+  screen: Screen;
+  holdingImportId: string | null;
+};
+
+function routeFromLocation(): AppRoute {
+  const importMatch = window.location.pathname.match(
+    /^\/holdings\/imports\/([^/]+)\/?$/,
+  );
+  if (importMatch?.[1] !== undefined) {
+    try {
+      return {
+        screen: "holdings",
+        holdingImportId: decodeURIComponent(importMatch[1]),
+      };
+    } catch {
+      return { screen: "holdings", holdingImportId: null };
+    }
+  }
+  const screen = navigation.find(
+    (item) => window.location.pathname === `/${item.id}`,
+  )?.id;
+  return {
+    screen: screen ?? "dashboard",
+    holdingImportId: null,
+  };
+}
+
+function pathForScreen(screen: Screen): string {
+  return screen === "dashboard" ? "/" : `/${screen}`;
 }
 
 function KeelMark() {
@@ -1352,10 +1395,12 @@ function ImportResult({ row }: { row: HoldingImportRowPreview }) {
 }
 
 function HoldingImportWorkspace({
+  initialPreview = null,
   onApply,
   onClose,
   onPreview,
 }: {
+  initialPreview?: HoldingImportPreview | null;
   onApply: (
     importId: string,
     input: HoldingImportApplyInput,
@@ -1364,7 +1409,9 @@ function HoldingImportWorkspace({
   onPreview: (file: File) => Promise<HoldingImportPreview>;
 }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<HoldingImportPreview | null>(null);
+  const [preview, setPreview] = useState<HoldingImportPreview | null>(
+    initialPreview,
+  );
   const [applyResult, setApplyResult] =
     useState<HoldingImportApplyResult | null>(null);
   const [working, setWorking] = useState<"idle" | "previewing" | "applying">(
@@ -1560,6 +1607,35 @@ function HoldingImportWorkspace({
             </Button>
           </div>
         </form>
+      </section>
+    );
+  }
+
+  if (preview.status === "applied") {
+    return (
+      <section
+        aria-labelledby="holding-import-reviewed-title"
+        className="holding-import-workspace"
+      >
+        <div className="import-heading">
+          <p className="eyebrow">Import reviewed</p>
+          <h2
+            id="holding-import-reviewed-title"
+            ref={workspaceHeadingRef}
+            tabIndex={-1}
+          >
+            This AngelList export is already recorded
+          </h2>
+          <p>
+            Reviewed {preview.summary.rowCount} positions from the export dated{" "}
+            {formatDate(preview.observedAt)}.
+          </p>
+        </div>
+        <div className="import-actions">
+          <Button onClick={onClose} tone="primary">
+            Back to holdings
+          </Button>
+        </div>
       </section>
     );
   }
@@ -1792,8 +1868,11 @@ function HoldingImportWorkspace({
             <span>Every row receives an explicit review decision.</span>
           </div>
           <div>
-            <Button onClick={resetFile} tone="quiet">
-              Choose another file
+            <Button
+              onClick={initialPreview === null ? resetFile : onClose}
+              tone="quiet"
+            >
+              {initialPreview === null ? "Choose another file" : "Back"}
             </Button>
             <Button
               disabled={!currencyConfirmed}
@@ -1949,25 +2028,496 @@ function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
   );
 }
 
+const ANGELLIST_REFRESH_STORAGE_KEY = "keel.angellistSignInRefreshId";
+
+function rememberedAngelListRefresh(): string | null {
+  try {
+    return window.sessionStorage.getItem(ANGELLIST_REFRESH_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberAngelListRefresh(refreshId: string | null) {
+  try {
+    if (refreshId === null) {
+      window.sessionStorage.removeItem(ANGELLIST_REFRESH_STORAGE_KEY);
+    } else {
+      window.sessionStorage.setItem(ANGELLIST_REFRESH_STORAGE_KEY, refreshId);
+    }
+  } catch {
+    // The refresh still works when private browsing disables sessionStorage.
+  }
+}
+
+function AngelListSignInControl() {
+  const [overview, setOverview] = useState<AngelListAutomationOverview | null>(
+    null,
+  );
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState<AngelListSignInRefresh | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [magicLink, setMagicLink] = useState("");
+  const [busyAction, setBusyAction] = useState<
+    "start" | "magic_link" | "cancel" | null
+  >(null);
+
+  const reloadOverview = useCallback(async () => {
+    try {
+      setOverview(await loadAngelListAutomationOverview());
+      setOverviewError(null);
+    } catch (error) {
+      setOverviewError(
+        error instanceof Error
+          ? error.message
+          : "Keel could not check AngelList sign-in.",
+      );
+    }
+  }, []);
+
+  const acceptRefresh = useCallback(
+    (next: AngelListSignInRefresh) => {
+      setRefresh((current) =>
+        next.status === "waiting_for_sign_in" &&
+        next.liveViewUrl === null &&
+        current?.id === next.id
+          ? {
+              ...next,
+              liveViewUrl: current.liveViewUrl,
+              liveViewExpiresAt: current.liveViewExpiresAt,
+            }
+          : next,
+      );
+      setRefreshError(null);
+      if (next.status === "waiting_for_sign_in") {
+        rememberAngelListRefresh(next.id);
+      } else {
+        rememberAngelListRefresh(null);
+      }
+      if (next.status === "connected") {
+        void reloadOverview();
+      }
+    },
+    [reloadOverview],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadAngelListAutomationOverview()
+      .then((next) => {
+        if (!cancelled) {
+          setOverview(next);
+          setOverviewError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setOverviewError(
+            error instanceof Error
+              ? error.message
+              : "Keel could not check AngelList sign-in.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const refreshId = rememberedAngelListRefresh();
+    if (refreshId === null) {
+      return;
+    }
+    let cancelled = false;
+    void getAngelListSignInRefresh(refreshId)
+      .then((next) => {
+        if (!cancelled) {
+          acceptRefresh(next);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setRefreshError(
+            error instanceof Error
+              ? error.message
+              : "Keel could not reopen this sign-in refresh.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptRefresh]);
+
+  useEffect(() => {
+    if (refresh?.status !== "waiting_for_sign_in") {
+      return;
+    }
+    let cancelled = false;
+    let timer: number | undefined;
+    const check = async () => {
+      try {
+        const next = await getAngelListSignInRefresh(refresh.id);
+        if (!cancelled) {
+          acceptRefresh(next);
+          if (next.status === "waiting_for_sign_in") {
+            timer = window.setTimeout(() => void check(), 3_000);
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRefreshError(
+            error instanceof Error
+              ? error.message
+              : "Keel could not check the AngelList sign-in.",
+          );
+          timer = window.setTimeout(() => void check(), 5_000);
+        }
+      }
+    };
+    timer = window.setTimeout(() => void check(), 3_000);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [acceptRefresh, refresh?.id, refresh?.status]);
+
+  useEffect(() => {
+    if (
+      refresh?.status !== "waiting_for_sign_in" ||
+      refresh.liveViewUrl === null ||
+      refresh.liveViewExpiresAt === null
+    ) {
+      return;
+    }
+    const refreshId = refresh.id;
+    const liveViewUrl = refresh.liveViewUrl;
+    const delay = Math.max(
+      0,
+      new Date(refresh.liveViewExpiresAt).getTime() - Date.now(),
+    );
+    const timer = window.setTimeout(() => {
+      setRefresh((current) =>
+        current?.id === refreshId && current.liveViewUrl === liveViewUrl
+          ? { ...current, liveViewUrl: null, liveViewExpiresAt: null }
+          : current,
+      );
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
+
+  const startRefresh = async () => {
+    setBusyAction("start");
+    setRefreshError(null);
+    try {
+      acceptRefresh(await startAngelListSignInRefresh());
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error
+          ? error.message
+          : "Keel could not start AngelList sign-in.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const sendMagicLink = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (refresh?.status !== "waiting_for_sign_in") {
+      return;
+    }
+    const link = magicLink.trim();
+    setMagicLink("");
+    setBusyAction("magic_link");
+    setRefreshError(null);
+    try {
+      acceptRefresh(await submitAngelListMagicLink(refresh.id, link));
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error
+          ? error.message
+          : "Keel could not open that AngelList magic link.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const cancelRefresh = async () => {
+    if (refresh?.status !== "waiting_for_sign_in") {
+      return;
+    }
+    setBusyAction("cancel");
+    setRefreshError(null);
+    try {
+      acceptRefresh(await cancelAngelListSignInRefresh(refresh.id));
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error
+          ? error.message
+          : "Keel could not cancel this sign-in refresh.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const waiting = refresh?.status === "waiting_for_sign_in";
+  const title = waiting
+    ? "Finish signing in to AngelList"
+    : refresh?.status === "connected"
+      ? "AngelList sign-in refreshed"
+      : refresh?.status === "expired"
+        ? "Sign-in window expired"
+        : refresh?.status === "cancelled"
+          ? "Sign-in refresh cancelled"
+          : overview?.signInStatus === "connected"
+            ? "AngelList sign-in is ready"
+            : overview?.signInStatus === "needs_sign_in"
+              ? "AngelList sign-in needs attention"
+              : "Checking AngelList sign-in";
+  const description = waiting
+    ? "Open the temporary browser, finish signing in, then return here. This window stays open for up to 10 minutes."
+    : refresh?.status === "connected"
+      ? "Scheduled exports can continue. New exports will still wait for your review."
+      : refresh?.status === "expired"
+        ? "Your saved sign-in was not changed. Start a new window when you are ready."
+        : refresh?.status === "cancelled"
+          ? "Your saved sign-in was not changed."
+          : overview?.signInStatus === "connected"
+            ? "Keel can use this sign-in for the weekly export."
+            : overview?.signInStatus === "needs_sign_in"
+              ? "Refresh it from this phone to keep scheduled exports running."
+              : "Keel is checking whether scheduled exports can continue.";
+
+  return (
+    <section
+      aria-labelledby="angellist-sign-in-title"
+      className="angellist-sign-in"
+    >
+      <div className="angellist-sign-in__heading">
+        <p className="eyebrow">AngelList sign-in</p>
+        <h2 id="angellist-sign-in-title">{title}</h2>
+        <p>{description}</p>
+      </div>
+
+      <div className="angellist-sign-in__action" aria-live="polite">
+        {waiting ? (
+          <div className="angellist-sign-in__workflow">
+            {refresh.liveViewUrl !== null ? (
+              <a
+                className="button button--primary angellist-live-view-link"
+                href={refresh.liveViewUrl}
+                referrerPolicy="no-referrer"
+                rel="noreferrer noopener"
+                target="_blank"
+              >
+                Open AngelList sign-in
+              </a>
+            ) : (
+              <Button
+                disabled={busyAction !== null}
+                onClick={() => void startRefresh()}
+                tone="primary"
+              >
+                {busyAction === "start" ? "Reopening…" : "Reopen sign-in"}
+              </Button>
+            )}
+
+            <form
+              className="angellist-magic-link"
+              onSubmit={(event) => void sendMagicLink(event)}
+            >
+              <label htmlFor="angellist-magic-link">
+                <span>Magic link from email</span>
+                <input
+                  aria-describedby="angellist-magic-link-help"
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  id="angellist-magic-link"
+                  inputMode="url"
+                  onChange={(event) => setMagicLink(event.target.value)}
+                  placeholder="https://…"
+                  required
+                  spellCheck={false}
+                  type="url"
+                  value={magicLink}
+                />
+              </label>
+              <p id="angellist-magic-link-help">
+                If AngelList emails a link, copy it here. Keel opens it in the
+                temporary browser and does not save it.
+              </p>
+              <div>
+                <Button
+                  disabled={
+                    busyAction !== null || magicLink.trim().length === 0
+                  }
+                  type="submit"
+                >
+                  {busyAction === "magic_link" ? "Opening…" : "Open magic link"}
+                </Button>
+                <Button
+                  disabled={busyAction !== null}
+                  onClick={() => void cancelRefresh()}
+                  tone="quiet"
+                >
+                  {busyAction === "cancel" ? "Cancelling…" : "Cancel"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        ) : overview === null && refresh === null && overviewError === null ? (
+          <span className="angellist-sign-in__checking" role="status">
+            Checking…
+          </span>
+        ) : (
+          <Button
+            disabled={busyAction !== null}
+            onClick={() => void startRefresh()}
+            tone={
+              overview?.signInStatus === "needs_sign_in" ||
+              refresh?.status === "expired"
+                ? "primary"
+                : "secondary"
+            }
+          >
+            {busyAction === "start"
+              ? "Starting…"
+              : refresh?.status === "connected" ||
+                  overview?.signInStatus === "connected"
+                ? "Refresh sign-in"
+                : "Start sign-in"}
+          </Button>
+        )}
+
+        {overviewError !== null && overview === null && (
+          <p className="angellist-sign-in__error" role="status">
+            {overviewError}
+          </p>
+        )}
+        {refreshError !== null && (
+          <p className="angellist-sign-in__error" role="alert">
+            {refreshError} Your saved sign-in was not changed.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Holdings({
   data,
   onApplyImport,
+  onImportRouteChange,
+  onListPendingImports,
+  onLoadImport,
   onPreviewImport,
+  requestedImportId,
 }: {
   data: AlphaData;
   onApplyImport: (
     importId: string,
     input: HoldingImportApplyInput,
   ) => Promise<HoldingImportApplyResult>;
+  onImportRouteChange: (importId: string | null) => void;
+  onListPendingImports: () => Promise<HoldingImportSummary[]>;
+  onLoadImport: (importId: string) => Promise<HoldingImportPreview>;
   onPreviewImport: (file: File) => Promise<HoldingImportPreview>;
+  requestedImportId: string | null;
 }) {
   const [showImporter, setShowImporter] = useState(false);
+  const [pendingImports, setPendingImports] = useState<HoldingImportSummary[]>(
+    [],
+  );
+  const [pendingImportError, setPendingImportError] = useState<string | null>(
+    null,
+  );
+  const [routedPreview, setRoutedPreview] =
+    useState<HoldingImportPreview | null>(null);
+  const [routedPreviewError, setRoutedPreviewError] = useState<{
+    importId: string;
+    message: string;
+  } | null>(null);
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(
     null,
   );
   const holdingActionRefs = useRef(new Map<string, HTMLButtonElement>());
   const selectedHolding =
     data.holdings.find((holding) => holding.id === selectedHoldingId) ?? null;
+  const importerVisible = showImporter || requestedImportId !== null;
+  const activeRoutedPreview =
+    routedPreview?.id === requestedImportId ? routedPreview : null;
+  const activeRoutedError =
+    routedPreviewError?.importId === requestedImportId
+      ? routedPreviewError.message
+      : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    void onListPendingImports()
+      .then((imports) => {
+        if (!cancelled) {
+          setPendingImports(imports);
+          setPendingImportError(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPendingImportError(
+            "Keel could not check for new AngelList exports.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onListPendingImports]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (requestedImportId === null) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    void onLoadImport(requestedImportId)
+      .then((preview) => {
+        if (!cancelled) {
+          setRoutedPreview(preview);
+          setRoutedPreviewError(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRoutedPreviewError({
+            importId: requestedImportId,
+            message:
+              "This AngelList import is unavailable or has already been reviewed.",
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onLoadImport, requestedImportId]);
+
+  const closeImporter = () => {
+    setShowImporter(false);
+    setRoutedPreview(null);
+    setRoutedPreviewError(null);
+    if (requestedImportId !== null) {
+      onImportRouteChange(null);
+    }
+  };
+
+  const reviewPendingImport = (importId: string) => {
+    onImportRouteChange(importId);
+  };
 
   const closeHoldingDetail = () => {
     const returnFocusId = selectedHoldingId;
@@ -1995,8 +2545,8 @@ function Holdings({
             <Button onClick={closeHoldingDetail} tone="quiet">
               Back to holdings
             </Button>
-          ) : showImporter ? (
-            <Button onClick={() => setShowImporter(false)} tone="quiet">
+          ) : importerVisible ? (
+            <Button onClick={closeImporter} tone="quiet">
               Close import
             </Button>
           ) : (
@@ -2020,14 +2570,76 @@ function Holdings({
 
       {selectedHolding !== null ? (
         <HoldingDetailWorkspace holding={selectedHolding} />
-      ) : showImporter ? (
-        <HoldingImportWorkspace
-          onApply={onApplyImport}
-          onClose={() => setShowImporter(false)}
-          onPreview={onPreviewImport}
-        />
+      ) : importerVisible ? (
+        requestedImportId !== null &&
+        activeRoutedPreview === null &&
+        activeRoutedError === null ? (
+          <div aria-live="polite" className="holding-import-loading">
+            Loading the AngelList import…
+          </div>
+        ) : requestedImportId !== null && activeRoutedPreview === null ? (
+          <div className="inline-error" role="alert">
+            {activeRoutedError ?? "This AngelList import is unavailable."}
+            <Button onClick={closeImporter} tone="quiet">
+              Back to holdings
+            </Button>
+          </div>
+        ) : (
+          <HoldingImportWorkspace
+            initialPreview={activeRoutedPreview}
+            key={activeRoutedPreview?.id ?? "manual-import"}
+            onApply={async (importId, input) => {
+              const result = await onApplyImport(importId, input);
+              setPendingImports((imports) =>
+                imports.filter((item) => item.id !== importId),
+              );
+              return result;
+            }}
+            onClose={closeImporter}
+            onPreview={onPreviewImport}
+          />
+        )
       ) : (
         <>
+          <AngelListSignInControl />
+          {pendingImports.length > 0 && (
+            <section
+              aria-labelledby="pending-holding-imports-title"
+              className="holding-import-pending"
+            >
+              <div>
+                <p className="eyebrow">AngelList update</p>
+                <h2 id="pending-holding-imports-title">
+                  {pendingImports.length === 1
+                    ? "A new export is ready"
+                    : `${pendingImports.length} exports are ready`}
+                </h2>
+                <p>Nothing changes until you review it.</p>
+              </div>
+              <div className="holding-import-pending__items">
+                {pendingImports.map((item) => (
+                  <div key={item.id}>
+                    <span>
+                      <strong>{item.rowCount} positions</strong>
+                      <small>Export dated {formatDate(item.observedAt)}</small>
+                    </span>
+                    <Button
+                      aria-label={`Review AngelList import dated ${formatDate(item.observedAt)}`}
+                      onClick={() => reviewPendingImport(item.id)}
+                      tone="primary"
+                    >
+                      Review import
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          {pendingImportError !== null && requestedImportId === null && (
+            <div className="inline-error" role="status">
+              {pendingImportError}
+            </div>
+          )}
           <Panel className="table-panel">
             <div className="holdings-table-wrap">
               <table className="data-table holdings-table">
@@ -3736,13 +4348,49 @@ function LoadingShell() {
 }
 
 export function App() {
-  const [activeScreen, setActiveScreen] = useState<Screen>("dashboard");
+  const [activeScreen, setActiveScreen] = useState<Screen>(
+    () => routeFromLocation().screen,
+  );
+  const [holdingImportId, setHoldingImportId] = useState<string | null>(
+    () => routeFromLocation().holdingImportId,
+  );
   const [data, setData] = useState<AlphaData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [busyEvent, setBusyEvent] = useState<string | null>(null);
   const [scenarioContext, setScenarioContext] =
     useState<EvidenceInboxItem | null>(null);
+
+  const navigateToScreen = useCallback((screen: Screen) => {
+    const path = pathForScreen(screen);
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, "", path);
+    }
+    setActiveScreen(screen);
+    setHoldingImportId(null);
+  }, []);
+
+  const navigateToHoldingImport = useCallback((importId: string | null) => {
+    const path =
+      importId === null
+        ? "/holdings"
+        : `/holdings/imports/${encodeURIComponent(importId)}`;
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, "", path);
+    }
+    setActiveScreen("holdings");
+    setHoldingImportId(importId);
+  }, []);
+
+  useEffect(() => {
+    const updateRoute = () => {
+      const route = routeFromLocation();
+      setActiveScreen(route.screen);
+      setHoldingImportId(route.holdingImportId);
+    };
+    window.addEventListener("popstate", updateRoute);
+    return () => window.removeEventListener("popstate", updateRoute);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -3762,7 +4410,7 @@ export function App() {
 
   useEffect(() => {
     window.scrollTo({ behavior: "auto", top: 0 });
-  }, [activeScreen]);
+  }, [activeScreen, holdingImportId]);
 
   const content = useMemo(() => {
     if (data === null) {
@@ -3770,7 +4418,7 @@ export function App() {
     }
     switch (activeScreen) {
       case "dashboard":
-        return <Dashboard data={data} onNavigate={setActiveScreen} />;
+        return <Dashboard data={data} onNavigate={navigateToScreen} />;
       case "goals":
         return (
           <Goals
@@ -3790,14 +4438,18 @@ export function App() {
               setData(await loadAlphaData());
               return result;
             }}
+            onImportRouteChange={navigateToHoldingImport}
+            onListPendingImports={listPendingHoldingImports}
+            onLoadImport={loadHoldingImport}
             onPreviewImport={previewAngelListHoldingImport}
+            requestedImportId={holdingImportId}
           />
         );
       case "watch":
         return (
           <PortfolioWatch
             data={data}
-            onReview={() => setActiveScreen("evidence")}
+            onReview={() => navigateToScreen("evidence")}
             onScan={async () => {
               const result = await scanPortfolioWatch();
               setData(await loadAlphaData());
@@ -3857,7 +4509,7 @@ export function App() {
                     reviewedItem !== undefined
                   ) {
                     setScenarioContext(reviewedItem);
-                    setActiveScreen("scenarios");
+                    navigateToScreen("scenarios");
                   }
                 })
                 .catch((error: unknown) =>
@@ -3886,7 +4538,16 @@ export function App() {
       case "history":
         return <ForecastHistory data={data} />;
     }
-  }, [activeScreen, busyEvent, data, reviewError, scenarioContext]);
+  }, [
+    activeScreen,
+    busyEvent,
+    data,
+    holdingImportId,
+    navigateToHoldingImport,
+    navigateToScreen,
+    reviewError,
+    scenarioContext,
+  ]);
 
   if (data === null && loadError === null) {
     return <LoadingShell />;
@@ -3908,7 +4569,11 @@ export function App() {
   }
 
   return (
-    <Shell activeScreen={activeScreen} data={data} onNavigate={setActiveScreen}>
+    <Shell
+      activeScreen={activeScreen}
+      data={data}
+      onNavigate={navigateToScreen}
+    >
       {content}
     </Shell>
   );

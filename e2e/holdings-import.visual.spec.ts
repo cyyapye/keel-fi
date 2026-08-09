@@ -1,7 +1,5 @@
 import { expect, test } from "@playwright/test";
 
-import { navigateToScreen } from "./navigation";
-
 const alphaFixture = {
   dashboard: {
     asOfDate: "2026-07-01",
@@ -139,16 +137,45 @@ const importPreview = {
   rows: previewRows,
 };
 
-test("reviews an AngelList CSV without treating locked values as zero", async ({
+test("reviews a scheduled AngelList export from a persistent phone-safe route", async ({
   page,
-}, testInfo) => {
+}) => {
   const applyBodies: unknown[] = [];
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
-  await page.route(/\/api\/holding-imports\/angellist$/, async (route) => {
-    await route.fulfill({ json: importPreview, status: 201 });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "up_to_date",
+        checkedAt: "2026-08-03T16:00:00.000Z",
+        importId: null,
+        errorCode: null,
+        signInStatus: "connected",
+      },
+    });
   });
+  await page.route(/\/api\/holding-imports$/, async (route) => {
+    await route.fulfill({
+      json: [
+        {
+          id: importPreview.id,
+          provider: "angellist",
+          status: "pending_review",
+          observedAt: importPreview.observedAt,
+          rowCount: importPreview.summary.rowCount,
+          createdAt: "2026-06-14T12:05:00.000Z",
+        },
+      ],
+    });
+  });
+  await page.route(
+    /\/api\/holding-imports\/holding_import_synthetic_angellist$/,
+    async (route) => {
+      await route.fulfill({ json: importPreview });
+    },
+  );
   await page.route(
     /\/api\/holding-imports\/holding_import_synthetic_angellist\/apply$/,
     async (route) => {
@@ -173,23 +200,44 @@ test("reviews an AngelList CSV without treating locked values as zero", async ({
     },
   );
 
-  await page.goto("/");
-
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
-  await page.getByRole("button", { name: "Import holdings" }).click();
+  await page.goto("/holdings");
 
   await expect(
     page.getByText("Nothing changes until you review it."),
   ).toBeVisible();
-  await page.getByLabel("AngelList CSV export").setInputFiles({
-    name: "synthetic-angellist-investments.csv",
-    mimeType: "text/csv",
-    buffer: Buffer.from(
-      "Company/Fund,Fund Name,Entity,Status,Invested,Unrealized,Realized,Net,Multiple\nSynthetic Company,Demo SPV,Demo Family LLC,Live,$10,Locked,$0,Locked,",
-    ),
+  await expect(
+    page.getByRole("heading", { name: "A new export is ready" }),
+  ).toBeVisible();
+
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
   });
-  await page.getByRole("button", { name: "Review file" }).click();
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-import-pending.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  await page
+    .getByRole("button", { name: /Review AngelList import dated/ })
+    .click();
+  await expect(page).toHaveURL(
+    /\/holdings\/imports\/holding_import_synthetic_angellist$/,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Review AngelList import" }),
+  ).toBeVisible();
+
+  await page.reload();
 
   const summary = page.getByLabel("Import summary");
   await expect(summary).toContainText("72Positions");
@@ -277,4 +325,134 @@ test("reviews an AngelList CSV without treating locked values as zero", async ({
   expect((applyBodies[1] as { decisions: unknown[] }).decisions).toHaveLength(
     72,
   );
+});
+
+test("refreshes AngelList sign-in from a phone-safe Holdings flow", async ({
+  page,
+}) => {
+  const refreshId = "11111111-1111-4111-8111-111111111111";
+  const expiresAt = "2026-08-08T16:10:00.000Z";
+  const submittedMagicLinks: unknown[] = [];
+  let connected = false;
+
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: connected ? "up_to_date" : "auth_required",
+        checkedAt: "2026-08-08T16:00:00.000Z",
+        importId: null,
+        errorCode: connected ? null : "auth_required",
+        signInStatus: connected ? "connected" : "needs_sign_in",
+      },
+    });
+  });
+  await page.route(
+    /\/api\/automation\/angellist\/sign-in-refreshes(?:\/.*)?$/,
+    async (route) => {
+      const request = route.request();
+      const path = new URL(request.url()).pathname;
+      if (path.endsWith("/magic-link")) {
+        submittedMagicLinks.push(request.postDataJSON());
+        connected = true;
+        await route.fulfill({
+          json: {
+            version: 1,
+            id: refreshId,
+            status: "connected",
+            expiresAt,
+            liveViewUrl: null,
+            liveViewExpiresAt: null,
+          },
+        });
+        return;
+      }
+      if (request.method() === "POST") {
+        await route.fulfill({
+          json: {
+            version: 1,
+            id: refreshId,
+            status: "waiting_for_sign_in",
+            expiresAt,
+            liveViewUrl: "https://live.browser.run/?token=synthetic-live-view",
+            liveViewExpiresAt: "2099-08-08T16:05:00.000Z",
+          },
+          status: 201,
+        });
+        return;
+      }
+      await route.fulfill({
+        json: {
+          version: 1,
+          id: refreshId,
+          status: connected ? "connected" : "waiting_for_sign_in",
+          expiresAt,
+          liveViewUrl: null,
+          liveViewExpiresAt: null,
+        },
+      });
+    },
+  );
+
+  await page.goto("/holdings");
+  await expect(
+    page.getByRole("heading", { name: "AngelList sign-in needs attention" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Start sign-in" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Finish signing in to AngelList" }),
+  ).toBeVisible();
+  const liveViewLink = page.getByRole("link", {
+    name: "Open AngelList sign-in",
+  });
+  await expect(liveViewLink).toHaveAttribute(
+    "href",
+    "https://live.browser.run/?token=synthetic-live-view",
+  );
+  await expect(liveViewLink).toHaveAttribute("target", "_blank");
+
+  const viewportWidths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(viewportWidths.scroll).toBe(viewportWidths.client);
+
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-angellist-sign-in-refresh.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  const magicLink =
+    "https://venture.angellist.com/users/sign_in?token=synthetic";
+  await page.getByLabel("Magic link from email").fill(magicLink);
+  await page.getByRole("button", { name: "Open magic link" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "AngelList sign-in refreshed" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("New exports will still wait for your review."),
+  ).toBeVisible();
+  expect(submittedMagicLinks).toEqual([{ magicLink }]);
+  await expect(page.getByLabel("Magic link from email")).toHaveCount(0);
 });

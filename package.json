@@ -10,6 +10,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "angellist:setup": "tsx scripts/angellist-browser-import.ts",
     "build": "pnpm -r build",
     "check": "pnpm data:scan && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "data:scan": "node scripts/check-public-data.mjs",

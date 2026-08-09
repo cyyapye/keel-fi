@@ -12,7 +12,7 @@ WRANGLER_LOG_PATH ?= $(CURDIR)/.wrangler/logs/wrangler.log
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean e2e verify
+.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean angellist-setup e2e verify
 
 help:
 	@echo "Keel developer commands"
@@ -33,6 +33,7 @@ help:
 	@echo "  make local-acceptance-apply   Apply a runtime-only real-company source profile to local D1"
 	@echo "  make local-acceptance-dev     Start the disposable real-company local profile"
 	@echo "  make local-acceptance-restore Remove the disposable real-company local state"
+	@echo "  make angellist-setup KEEL_URL=https://...   Seed the encrypted browser session"
 	@echo "  make e2e           Run browser tests (optional E2E_ARGS=...)"
 
 bootstrap:
@@ -113,6 +114,10 @@ local-acceptance-restore:
 
 local-acceptance-clean:
 	$(PNPM) local:acceptance:clean
+
+angellist-setup:
+	@test -n "$(KEEL_URL)" || { echo "KEEL_URL is required."; exit 2; }
+	$(PNPM) angellist:setup -- --keel-url "$(KEEL_URL)"
 
 e2e:
 	$(MAKE) db-reset
