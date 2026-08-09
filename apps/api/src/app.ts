@@ -20,11 +20,13 @@ import {
   cancelAngelListSignInRefresh,
   getAngelListSignInRefresh,
   getAngelListAutomationStatus,
+  readAngelListHandoffInputPayload,
   readAngelListMagicLinkPayload,
   readAngelListSessionPayload,
   runAngelListImportForCaller,
   startAngelListSignInRefresh,
   storeAngelListSession,
+  submitAngelListHandoffInput,
   submitAngelListMagicLink,
 } from "./angellist-automation";
 import {
@@ -79,6 +81,13 @@ function angelListRefreshFailure(error: unknown): {
   if (code === "magic_link_invalid") {
     return {
       message: "That AngelList magic link could not be opened.",
+      status: 400,
+    };
+  }
+  if (code === "handoff_input_invalid") {
+    return {
+      message:
+        "Focus an AngelList email or one-time-code field before sending phone input.",
       status: 400,
     };
   }
@@ -378,6 +387,30 @@ export function createApp(options: AppOptions = {}) {
             context.env,
             context.get("identity").subject,
             context.req.param("refreshId"),
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const failure = angelListRefreshFailure(error);
+        return context.json({ error: failure.message }, failure.status, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/angellist/sign-in-refreshes/:refreshId/handoff-input",
+    async (context) => {
+      try {
+        const input = await readAngelListHandoffInputPayload(context.req.raw);
+        return context.json(
+          await submitAngelListHandoffInput(
+            context.env,
+            context.get("identity").subject,
+            context.req.param("refreshId"),
+            input,
           ),
           200,
           { "Cache-Control": "private, no-store" },

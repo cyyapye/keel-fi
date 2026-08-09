@@ -163,6 +163,31 @@ export async function submitAngelListMagicLink(
   return AngelListSignInRefreshSchema.parse(await response.json());
 }
 
+export async function submitAngelListHandoffInput(
+  refreshId: string,
+  text: string,
+): Promise<AngelListSignInRefresh> {
+  const response = await fetch(
+    `/api/automation/angellist/sign-in-refreshes/${encodeURIComponent(refreshId)}/handoff-input`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text }),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList phone input returned ${response.status}.`,
+    );
+  }
+  return AngelListSignInRefreshSchema.parse(await response.json());
+}
+
 export async function cancelAngelListSignInRefresh(
   refreshId: string,
 ): Promise<AngelListSignInRefresh> {

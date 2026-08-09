@@ -6,12 +6,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cancelAngelListSignInRefresh,
   getAngelListSignInRefresh,
+  parseAngelListHandoffInput,
   parseAngelListMagicLink,
   parseAngelListSessionPayload,
+  readAngelListHandoffInputPayload,
   runAngelListImport,
   shouldRunAngelListImport,
   startAngelListSignInRefresh,
   storeAngelListSession,
+  submitAngelListHandoffInput,
   submitAngelListMagicLink,
 } from "./angellist-automation";
 import type { Env } from "./types";
@@ -93,12 +96,31 @@ function automationEnv() {
 function refreshBrowserFixture() {
   const state = {
     exportVisible: false,
+    focusedField: {
+      tagName: "input" as const,
+      type: "email",
+      autocomplete: "email",
+      inputMode: "email",
+      name: "user_email",
+      id: "user_email",
+      ariaLabel: "Email address",
+      placeholder: "Investor@fund.com",
+    },
+    handoffValue: null as string | null,
     url: "about:blank",
   };
   const browserClose = vi.fn(() => Promise.resolve());
   const browserCdpSend = vi.fn(() => Promise.resolve({}));
   const exportButton = {
     isVisible: vi.fn(() => Promise.resolve(state.exportVisible)),
+  };
+  const focusedField = {
+    count: vi.fn(() => Promise.resolve(1)),
+    evaluate: vi.fn(() => Promise.resolve(state.focusedField)),
+    fill: vi.fn((value: string) => {
+      state.handoffValue = value;
+      return Promise.resolve();
+    }),
   };
   const page = {
     getByRole: vi.fn(() => exportButton),
@@ -108,6 +130,7 @@ function refreshBrowserFixture() {
         : "https://venture.angellist.com/";
       return Promise.resolve(null);
     }),
+    locator: vi.fn(() => focusedField),
     url: vi.fn(() => state.url),
   };
   const refreshedStorageState = {
@@ -140,6 +163,7 @@ function refreshBrowserFixture() {
     browser,
     browserCdpSend,
     context,
+    focusedField,
     page,
     state,
   };
@@ -416,6 +440,121 @@ describe("AngelList Cloudflare automation", () => {
     expect([...values.values()].join("\n")).not.toContain(
       "synthetic-one-time-link",
     );
+  });
+
+  it("relays only focused email or one-time-code input without retaining it", async () => {
+    const { env, values } = automationEnv();
+    const fixture = refreshBrowserFixture();
+    const connector = vi.fn(() => Promise.resolve(fixture.browser));
+    const now = new Date("2026-08-08T16:00:00.000Z");
+    const started = await startAngelListSignInRefresh(
+      env,
+      "synthetic-access-subject",
+      {
+        acquirer: vi.fn(() =>
+          Promise.resolve({ sessionId: "synthetic_browser_session" }),
+        ),
+        connector,
+        now,
+      },
+    );
+    const syntheticEmail = "operator@example.com";
+
+    await expect(
+      submitAngelListHandoffInput(
+        env,
+        "synthetic-access-subject",
+        started.id,
+        syntheticEmail,
+        { connector, now },
+      ),
+    ).resolves.toMatchObject({ status: "waiting_for_sign_in" });
+    expect(fixture.focusedField.fill).toHaveBeenLastCalledWith(syntheticEmail);
+    expect([...values.values()].join("\n")).not.toContain(syntheticEmail);
+
+    fixture.state.focusedField = {
+      ...fixture.state.focusedField,
+      type: "text",
+      autocomplete: "one-time-code",
+      inputMode: "numeric",
+      name: "verification_code",
+      id: "verification_code",
+      ariaLabel: "Verification code",
+      placeholder: "123456",
+    };
+    await expect(
+      submitAngelListHandoffInput(
+        env,
+        "synthetic-access-subject",
+        started.id,
+        "123456",
+        { connector, now },
+      ),
+    ).resolves.toMatchObject({ status: "waiting_for_sign_in" });
+    expect(fixture.focusedField.fill).toHaveBeenLastCalledWith("123456");
+    expect([...values.values()].join("\n")).not.toContain("123456");
+  });
+
+  it("rejects password fields and invalid handoff input", async () => {
+    const { env } = automationEnv();
+    const fixture = refreshBrowserFixture();
+    const connector = vi.fn(() => Promise.resolve(fixture.browser));
+    const now = new Date("2026-08-08T16:00:00.000Z");
+    const started = await startAngelListSignInRefresh(
+      env,
+      "synthetic-access-subject",
+      {
+        acquirer: vi.fn(() =>
+          Promise.resolve({ sessionId: "synthetic_browser_session" }),
+        ),
+        connector,
+        now,
+      },
+    );
+    fixture.state.focusedField = {
+      ...fixture.state.focusedField,
+      type: "password",
+      autocomplete: "current-password",
+      name: "password",
+      id: "password",
+      ariaLabel: "Password",
+      placeholder: "Password",
+    };
+
+    await expect(
+      submitAngelListHandoffInput(
+        env,
+        "synthetic-access-subject",
+        started.id,
+        "synthetic-password",
+        { connector, now },
+      ),
+    ).rejects.toMatchObject({ code: "handoff_input_invalid" });
+    expect(fixture.focusedField.fill).not.toHaveBeenCalled();
+    expect(() => parseAngelListHandoffInput("line one\nline two")).toThrowError(
+      expect.objectContaining({ code: "handoff_input_invalid" }),
+    );
+  });
+
+  it("accepts only bounded JSON handoff input payloads", async () => {
+    await expect(
+      readAngelListHandoffInputPayload(
+        new Request("https://keel.example/handoff-input", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: " operator@example.com " }),
+        }),
+      ),
+    ).resolves.toBe("operator@example.com");
+    await expect(
+      readAngelListHandoffInputPayload(
+        new Request("https://keel.example/handoff-input", {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: "operator@example.com",
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "handoff_input_invalid" });
   });
 
   it("accepts only HTTPS AngelList magic links", () => {

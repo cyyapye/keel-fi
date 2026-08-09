@@ -46,6 +46,7 @@ import {
   saveScenarioVersion,
   scanPortfolioWatch,
   startAngelListSignInRefresh,
+  submitAngelListHandoffInput,
   submitAngelListMagicLink,
   submitEvidenceReview,
 } from "./api";
@@ -2057,9 +2058,11 @@ function AngelListSignInControl() {
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState<AngelListSignInRefresh | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [handoffInput, setHandoffInput] = useState("");
+  const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
   const [magicLink, setMagicLink] = useState("");
   const [busyAction, setBusyAction] = useState<
-    "start" | "magic_link" | "cancel" | null
+    "start" | "handoff_input" | "magic_link" | "cancel" | null
   >(null);
 
   const reloadOverview = useCallback(async () => {
@@ -2096,6 +2099,9 @@ function AngelListSignInControl() {
       }
       if (next.status === "connected") {
         void reloadOverview();
+      }
+      if (next.status !== "waiting_for_sign_in") {
+        setHandoffNotice(null);
       }
     },
     [reloadOverview],
@@ -2247,6 +2253,30 @@ function AngelListSignInControl() {
     }
   };
 
+  const sendHandoffInput = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (refresh?.status !== "waiting_for_sign_in") {
+      return;
+    }
+    const text = handoffInput.trim();
+    setHandoffInput("");
+    setHandoffNotice(null);
+    setBusyAction("handoff_input");
+    setRefreshError(null);
+    try {
+      acceptRefresh(await submitAngelListHandoffInput(refresh.id, text));
+      setHandoffNotice("Text sent. Return to AngelList and tap Continue.");
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error
+          ? error.message
+          : "Keel could not type into the focused AngelList field.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const cancelRefresh = async () => {
     if (refresh?.status !== "waiting_for_sign_in") {
       return;
@@ -2281,7 +2311,7 @@ function AngelListSignInControl() {
               ? "AngelList sign-in needs attention"
               : "Checking AngelList sign-in";
   const description = waiting
-    ? "Open the temporary browser, finish signing in, then return here. This window stays open for up to 10 minutes."
+    ? "Open the temporary browser and finish signing in. If the phone keyboard does not appear, return here to type into the focused field."
     : refresh?.status === "connected"
       ? "Scheduled exports can continue. New exports will still wait for your review."
       : refresh?.status === "expired"
@@ -2329,7 +2359,53 @@ function AngelListSignInControl() {
             )}
 
             <form
-              className="angellist-magic-link"
+              className="angellist-input-form angellist-handoff-input"
+              onSubmit={(event) => void sendHandoffInput(event)}
+            >
+              <label htmlFor="angellist-handoff-input">
+                <span>Email or one-time code</span>
+                <input
+                  aria-describedby="angellist-handoff-input-help"
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  enterKeyHint="send"
+                  id="angellist-handoff-input"
+                  onChange={(event) => setHandoffInput(event.target.value)}
+                  placeholder="Type on this phone"
+                  required
+                  spellCheck={false}
+                  type="text"
+                  value={handoffInput}
+                />
+              </label>
+              <p id="angellist-handoff-input-help">
+                Focus the matching AngelList field first. Keel sends this once
+                and does not save it. Password fields are blocked.
+              </p>
+              <div>
+                <Button
+                  disabled={
+                    busyAction !== null || handoffInput.trim().length === 0
+                  }
+                  type="submit"
+                >
+                  {busyAction === "handoff_input"
+                    ? "Sending…"
+                    : "Type in AngelList"}
+                </Button>
+                {handoffNotice !== null && (
+                  <span
+                    className="angellist-handoff-input__status"
+                    role="status"
+                  >
+                    {handoffNotice}
+                  </span>
+                )}
+              </div>
+            </form>
+
+            <form
+              className="angellist-input-form angellist-magic-link"
               onSubmit={(event) => void sendMagicLink(event)}
             >
               <label htmlFor="angellist-magic-link">

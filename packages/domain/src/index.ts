@@ -503,6 +503,7 @@ export const AngelListAutomationErrorCodeSchema = z.enum([
   "download_failed",
   "export_invalid",
   "forbidden",
+  "handoff_input_invalid",
   "magic_link_invalid",
   "refresh_invalid",
   "session_invalid",
