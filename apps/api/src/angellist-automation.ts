@@ -31,6 +31,7 @@ const SESSION_KEY = "angellist/session/v1";
 const STATUS_KEY = "angellist/status/v1";
 const ACTIVE_REFRESH_KEY = "angellist/sign-in-refresh/active/v1";
 const REFRESH_KEY_PREFIX = "angellist/sign-in-refresh/v1/";
+const MAX_HANDOFF_INPUT_BYTES = 512;
 const MAX_SESSION_BYTES = 262_144;
 const MAX_MAGIC_LINK_BYTES = 8_192;
 const REFRESH_BROWSER_KEEP_ALIVE_MS = 600_000;
@@ -98,6 +99,19 @@ const BrowserRunTargetSchema = z
   .strict();
 
 const BrowserRunTargetListSchema = z.array(BrowserRunTargetSchema).max(32);
+
+const HandoffFieldMetadataSchema = z
+  .object({
+    tagName: z.enum(["input", "textarea"]),
+    type: z.string().max(64),
+    autocomplete: z.string().max(128),
+    inputMode: z.string().max(64),
+    name: z.string().max(512),
+    id: z.string().max(512),
+    ariaLabel: z.string().max(512),
+    placeholder: z.string().max(512),
+  })
+  .strict();
 
 type SignInRefreshRecord = z.infer<typeof SignInRefreshRecordSchema>;
 
@@ -397,6 +411,53 @@ export function parseAngelListMagicLink(value: string): string {
       throw error;
     }
     throw new AngelListAutomationError("magic_link_invalid");
+  }
+}
+
+export function parseAngelListHandoffInput(value: string): string {
+  const normalized = value.trim();
+  const bytes = new TextEncoder().encode(normalized);
+  const hasControlCharacter = [...normalized].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 31 || codePoint === 127);
+  });
+  if (
+    bytes.byteLength === 0 ||
+    bytes.byteLength > MAX_HANDOFF_INPUT_BYTES ||
+    hasControlCharacter
+  ) {
+    throw new AngelListAutomationError("handoff_input_invalid");
+  }
+  return normalized;
+}
+
+export async function readAngelListHandoffInputPayload(
+  request: Request,
+): Promise<string> {
+  if (
+    request.headers.get("Content-Type")?.split(";", 1)[0]?.trim() !==
+    "application/json"
+  ) {
+    throw new AngelListAutomationError("handoff_input_invalid");
+  }
+  try {
+    const body: unknown = JSON.parse(
+      await readBoundedUtf8Body(
+        request,
+        MAX_HANDOFF_INPUT_BYTES,
+        "handoff_input_invalid",
+      ),
+    ) as unknown;
+    const payload = z
+      .object({ text: z.string().min(1).max(MAX_HANDOFF_INPUT_BYTES) })
+      .strict()
+      .parse(body);
+    return parseAngelListHandoffInput(payload.text);
+  } catch (error) {
+    if (error instanceof AngelListAutomationError) {
+      throw error;
+    }
+    throw new AngelListAutomationError("handoff_input_invalid");
   }
 }
 
@@ -755,6 +816,51 @@ async function hasVerifiedAngelListExport(page: Page): Promise<boolean> {
     .catch(() => false);
 }
 
+async function focusedAngelListHandoffField(page: Page) {
+  const field = page.locator("input:focus, textarea:focus");
+  if ((await field.count().catch(() => 0)) !== 1) {
+    throw new AngelListAutomationError("handoff_input_invalid");
+  }
+  let metadata: z.infer<typeof HandoffFieldMetadataSchema>;
+  try {
+    metadata = HandoffFieldMetadataSchema.parse(
+      await field.evaluate((element) => ({
+        tagName: element.tagName.toLowerCase(),
+        type: (element.getAttribute("type") ?? "text").toLowerCase(),
+        autocomplete: (
+          element.getAttribute("autocomplete") ?? ""
+        ).toLowerCase(),
+        inputMode: (element.getAttribute("inputmode") ?? "").toLowerCase(),
+        name: element.getAttribute("name") ?? "",
+        id: element.id,
+        ariaLabel: element.getAttribute("aria-label") ?? "",
+        placeholder: element.getAttribute("placeholder") ?? "",
+      })),
+    );
+  } catch {
+    throw new AngelListAutomationError("handoff_input_invalid");
+  }
+  const description = Object.values(metadata).join(" ").toLowerCase();
+  const isPassword =
+    metadata.type === "password" ||
+    /(?:^|[^a-z])password(?:[^a-z]|$)|current-password|new-password/u.test(
+      description,
+    );
+  const isEmail =
+    metadata.type === "email" ||
+    metadata.autocomplete === "email" ||
+    /(?:^|[^a-z])e-?mail(?:[^a-z]|$)/u.test(description);
+  const isOneTimeCode =
+    metadata.autocomplete === "one-time-code" ||
+    /(?:^|[^a-z0-9])(?:otp|2fa|code)(?:[^a-z0-9]|$)|one[ -]?time|two[ -]?factor|verification|security[ -]?code|auth(?:entication)?[ -]?code/u.test(
+      description,
+    );
+  if (isPassword || (!isEmail && !isOneTimeCode)) {
+    throw new AngelListAutomationError("handoff_input_invalid");
+  }
+  return { field, isEmail, isOneTimeCode };
+}
+
 async function completeRefresh(
   env: AutomationEnv,
   record: SignInRefreshRecord,
@@ -998,6 +1104,47 @@ export async function submitAngelListMagicLink(
     } else {
       await browser.close().catch(() => undefined);
     }
+  }
+}
+
+export async function submitAngelListHandoffInput(
+  env: AutomationEnv,
+  callerSubject: string,
+  id: string,
+  rawInput: string,
+  options: SignInRefreshOptions = {},
+): Promise<AngelListSignInRefresh> {
+  const record = await loadRefreshRecord(env, callerSubject, id);
+  if (record.status !== "waiting_for_sign_in") {
+    return publicRefresh(record);
+  }
+  const connector = options.connector ?? defaultBrowserConnector;
+  if (isRefreshExpired(record, options.now ?? new Date())) {
+    return expireRefresh(env, record, connector);
+  }
+  if (record.sessionId === null) {
+    throw new AngelListAutomationError("refresh_invalid");
+  }
+  const input = parseAngelListHandoffInput(rawInput);
+  const browser = await connectRefreshBrowser(env, record.sessionId, connector);
+  try {
+    const target = await browserPage(browser, false);
+    if (!isAngelListPage(target.page)) {
+      throw new AngelListAutomationError("handoff_input_invalid");
+    }
+    const handoffField = await focusedAngelListHandoffField(target.page);
+    if (
+      (handoffField.isEmail && !z.email().safeParse(input).success) ||
+      (handoffField.isOneTimeCode && input.length > 128)
+    ) {
+      throw new AngelListAutomationError("handoff_input_invalid");
+    }
+    await handoffField.field.fill(input).catch(() => {
+      throw new AngelListAutomationError("handoff_input_invalid");
+    });
+    return publicRefresh(record);
+  } finally {
+    await browser.close().catch(() => undefined);
   }
 }
 

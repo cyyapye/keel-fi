@@ -332,6 +332,7 @@ test("refreshes AngelList sign-in from a phone-safe Holdings flow", async ({
 }) => {
   const refreshId = "11111111-1111-4111-8111-111111111111";
   const expiresAt = "2026-08-08T16:10:00.000Z";
+  const submittedHandoffInputs: unknown[] = [];
   const submittedMagicLinks: unknown[] = [];
   let connected = false;
 
@@ -358,6 +359,20 @@ test("refreshes AngelList sign-in from a phone-safe Holdings flow", async ({
     async (route) => {
       const request = route.request();
       const path = new URL(request.url()).pathname;
+      if (path.endsWith("/handoff-input")) {
+        submittedHandoffInputs.push(request.postDataJSON());
+        await route.fulfill({
+          json: {
+            version: 1,
+            id: refreshId,
+            status: "waiting_for_sign_in",
+            expiresAt,
+            liveViewUrl: null,
+            liveViewExpiresAt: null,
+          },
+        });
+        return;
+      }
       if (path.endsWith("/magic-link")) {
         submittedMagicLinks.push(request.postDataJSON());
         connected = true;
@@ -441,6 +456,15 @@ test("refreshes AngelList sign-in from a phone-safe Holdings flow", async ({
       threshold: 0.25,
     },
   );
+
+  const handoffInput = page.getByLabel("Email or one-time code");
+  await handoffInput.fill("operator@example.com");
+  await page.getByRole("button", { name: "Type in AngelList" }).click();
+  await expect(
+    page.getByText("Text sent. Return to AngelList and tap Continue."),
+  ).toBeVisible();
+  expect(submittedHandoffInputs).toEqual([{ text: "operator@example.com" }]);
+  await expect(handoffInput).toHaveValue("");
 
   const magicLink =
     "https://venture.angellist.com/users/sign_in?token=synthetic";

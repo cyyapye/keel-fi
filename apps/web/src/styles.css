@@ -1546,7 +1546,7 @@ h1,
 }
 
 .angellist-sign-in__heading > p:last-child,
-.angellist-magic-link > p,
+.angellist-input-form > p,
 .angellist-sign-in__error {
   margin: 0;
   color: var(--muted);
@@ -1575,26 +1575,26 @@ h1,
   text-decoration: none;
 }
 
-.angellist-magic-link {
+.angellist-input-form {
   display: grid;
   gap: 9px;
   padding-top: 18px;
   border-top: 1px solid var(--line-soft);
 }
 
-.angellist-magic-link label,
-.angellist-magic-link label > span {
+.angellist-input-form label,
+.angellist-input-form label > span {
   display: block;
 }
 
-.angellist-magic-link label > span {
+.angellist-input-form label > span {
   margin-bottom: 7px;
   color: var(--ink);
   font-size: 9px;
   font-weight: 800;
 }
 
-.angellist-magic-link input {
+.angellist-input-form input {
   width: 100%;
   min-height: 38px;
   padding: 0 11px;
@@ -1604,15 +1604,21 @@ h1,
   border-radius: 0;
 }
 
-.angellist-magic-link input::placeholder {
+.angellist-input-form input::placeholder {
   color: var(--faint);
 }
 
-.angellist-magic-link > div {
+.angellist-input-form > div {
   display: flex;
   align-items: center;
   gap: 7px;
   margin-top: 4px;
+}
+
+.angellist-handoff-input__status {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
 }
 
 .angellist-sign-in__checking {
