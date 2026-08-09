@@ -60,7 +60,13 @@ function successfulFetch(): ReturnType<typeof vi.fn> {
           deployedGitSha: gitSha,
           workerVersionId: "api-version-1",
           workerVersionTag: gitSha,
-          checks: { d1: true, queue: true, r2: true },
+          checks: {
+            browser: true,
+            d1: true,
+            kv: true,
+            queue: true,
+            r2: true,
+          },
         }),
       );
     }

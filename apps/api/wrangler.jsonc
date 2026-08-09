@@ -3,11 +3,23 @@
   "name": "keel-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-28",
-  "compatibility_flags": ["global_fetch_strictly_public"],
+  "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
   "vars": {
     "ENVIRONMENT": "production",
+  },
+  "browser": {
+    "binding": "ANGELLIST_BROWSER",
+  },
+  "kv_namespaces": [
+    {
+      "binding": "ANGELLIST_AUTOMATION",
+      "id": "REPLACE_WITH_PRODUCTION_ANGELLIST_KV_ID",
+    },
+  ],
+  "triggers": {
+    "crons": ["0 * * * 1"],
   },
   "d1_databases": [
     {
@@ -48,6 +60,15 @@
       "vars": {
         "ENVIRONMENT": "local",
       },
+      "browser": {
+        "binding": "ANGELLIST_BROWSER",
+      },
+      "kv_namespaces": [
+        {
+          "binding": "ANGELLIST_AUTOMATION",
+          "id": "00000000-0000-0000-0000-000000000000",
+        },
+      ],
       "d1_databases": [
         {
           "binding": "DB",

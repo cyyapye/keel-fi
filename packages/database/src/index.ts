@@ -24,6 +24,7 @@ import {
   type HoldingImportApplyInput,
   type HoldingImportApplyResult,
   type HoldingImportPreview,
+  type HoldingImportSummary,
   type PublicSourceObservation,
   type Scenario,
   type ScenarioDraftInput,
@@ -334,6 +335,9 @@ export interface AlphaRepository {
     accessSubject: string,
     importId: string,
   ): Promise<HoldingImportPreview>;
+  listPendingHoldingImports(
+    accessSubject: string,
+  ): Promise<HoldingImportSummary[]>;
   applyHoldingImport(
     accessSubject: string,
     importId: string,
@@ -1043,6 +1047,14 @@ export class D1AlphaRepository implements AlphaRepository {
     return new D1HoldingImportRepository(this.db).getHoldingImport(
       accessSubject,
       importId,
+    );
+  }
+
+  public async listPendingHoldingImports(
+    accessSubject: string,
+  ): Promise<HoldingImportSummary[]> {
+    return new D1HoldingImportRepository(this.db).listPendingHoldingImports(
+      accessSubject,
     );
   }
 

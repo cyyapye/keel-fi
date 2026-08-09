@@ -1,8 +1,15 @@
+import type { BrowserWorker } from "@cloudflare/playwright";
+
 export type Environment = "local" | "preview" | "production";
 
 export interface Env {
   ACCESS_AUD?: string;
   ACCESS_TEAM_DOMAIN?: string;
+  ANGELLIST_ACCESS_SUBJECT?: string;
+  ANGELLIST_AUTOMATION?: KVNamespace;
+  ANGELLIST_AUTOMATION_ENABLED?: string;
+  ANGELLIST_BROWSER?: BrowserWorker;
+  ANGELLIST_SESSION_KEY?: string;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   DB: D1Database;
   DEPLOYED_GIT_SHA?: string;

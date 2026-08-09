@@ -136,6 +136,18 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "never_run",
+        checkedAt: null,
+        importId: null,
+        errorCode: null,
+        signInStatus: "connected",
+      },
+    });
+  });
 
   await page.goto("/");
 

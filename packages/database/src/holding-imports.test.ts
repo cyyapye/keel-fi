@@ -160,6 +160,16 @@ describe("AngelList holding import persistence", () => {
         },
       ],
     });
+    await expect(
+      repository.listPendingHoldingImports("synthetic-access-subject"),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: staged.preview.id,
+        provider: "angellist",
+        status: "pending_review",
+        rowCount: 1,
+      }),
+    ]);
 
     const duplicate = await repository.stageHoldingImport(
       "synthetic-access-subject",
@@ -191,6 +201,9 @@ describe("AngelList holding import persistence", () => {
       rejectedCount: 0,
       lockedValueCount: 1,
     });
+    await expect(
+      repository.listPendingHoldingImports("synthetic-access-subject"),
+    ).resolves.toEqual([]);
     await expect(
       repository.applyHoldingImport(
         "synthetic-access-subject",

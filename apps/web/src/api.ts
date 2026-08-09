@@ -1,18 +1,24 @@
 import {
   AlphaDataSchema,
+  AngelListAutomationOverviewSchema,
+  AngelListSignInRefreshSchema,
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
   HoldingImportApplyResultSchema,
   HoldingImportPreviewSchema,
+  HoldingImportSummariesSchema,
   PortfolioWatchScanResultSchema,
   ScenarioDraftInputSchema,
   type AlphaData,
+  type AngelListAutomationOverview,
+  type AngelListSignInRefresh,
   type CreateSignalUpdateProposalInput,
   type GoalDraftInput,
   type HoldingImportApplyInput,
   type HoldingImportApplyResult,
   type HoldingImportPreview,
+  type HoldingImportSummary,
   type PortfolioWatchScanResult,
   type ScenarioDraftInput,
   SignalUpdateProposalSchema,
@@ -81,6 +87,134 @@ export async function previewAngelListHoldingImport(
     );
   }
 
+  return HoldingImportPreviewSchema.parse(await response.json());
+}
+
+export async function loadAngelListAutomationOverview(): Promise<AngelListAutomationOverview> {
+  const response = await fetch("/api/automation/angellist/status", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList automation status returned ${response.status}.`,
+    );
+  }
+  return AngelListAutomationOverviewSchema.parse(await response.json());
+}
+
+export async function startAngelListSignInRefresh(): Promise<AngelListSignInRefresh> {
+  const response = await fetch("/api/automation/angellist/sign-in-refreshes", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList sign-in refresh returned ${response.status}.`,
+    );
+  }
+  return AngelListSignInRefreshSchema.parse(await response.json());
+}
+
+export async function getAngelListSignInRefresh(
+  refreshId: string,
+): Promise<AngelListSignInRefresh> {
+  const response = await fetch(
+    `/api/automation/angellist/sign-in-refreshes/${encodeURIComponent(refreshId)}`,
+    {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList sign-in status returned ${response.status}.`,
+    );
+  }
+  return AngelListSignInRefreshSchema.parse(await response.json());
+}
+
+export async function submitAngelListMagicLink(
+  refreshId: string,
+  magicLink: string,
+): Promise<AngelListSignInRefresh> {
+  const response = await fetch(
+    `/api/automation/angellist/sign-in-refreshes/${encodeURIComponent(refreshId)}/magic-link`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ magicLink }),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList magic link returned ${response.status}.`,
+    );
+  }
+  return AngelListSignInRefreshSchema.parse(await response.json());
+}
+
+export async function cancelAngelListSignInRefresh(
+  refreshId: string,
+): Promise<AngelListSignInRefresh> {
+  const response = await fetch(
+    `/api/automation/angellist/sign-in-refreshes/${encodeURIComponent(refreshId)}`,
+    {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList sign-in cancellation returned ${response.status}.`,
+    );
+  }
+  return AngelListSignInRefreshSchema.parse(await response.json());
+}
+
+export async function listPendingHoldingImports(): Promise<
+  HoldingImportSummary[]
+> {
+  const response = await fetch("/api/holding-imports", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Pending holding imports returned ${response.status}.`,
+    );
+  }
+  return HoldingImportSummariesSchema.parse(await response.json());
+}
+
+export async function loadHoldingImport(
+  importId: string,
+): Promise<HoldingImportPreview> {
+  const response = await fetch(
+    `/api/holding-imports/${encodeURIComponent(importId)}`,
+    {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Holding import returned ${response.status}.`,
+    );
+  }
   return HoldingImportPreviewSchema.parse(await response.json());
 }
 

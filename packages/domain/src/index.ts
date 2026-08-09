@@ -418,6 +418,170 @@ export const HoldingImportRowPreviewSchema = z.object({
   issues: z.array(z.string().min(1)),
 });
 
+export const HoldingImportSummarySchema = z.object({
+  id: z.string().min(1),
+  provider: z.literal("angellist"),
+  status: z.literal("pending_review"),
+  observedAt: IsoTimestampSchema,
+  rowCount: z.number().int().positive(),
+  createdAt: IsoTimestampSchema,
+});
+
+export const HoldingImportSummariesSchema = z
+  .array(HoldingImportSummarySchema)
+  .max(20);
+
+const AngelListCookieDomainSchema = z
+  .string()
+  .min(1)
+  .max(253)
+  .regex(/^(?:\.)?(?:[a-z0-9-]+\.)*angellist\.com$/iu);
+
+const AngelListBrowserOriginSchema = z.url().superRefine((value, context) => {
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    !/^(?:[a-z0-9-]+\.)*angellist\.com$/iu.test(url.hostname)
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Browser state must be scoped to an AngelList HTTPS origin.",
+    });
+  }
+});
+
+export const AngelListBrowserStorageStateSchema = z
+  .object({
+    cookies: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1).max(256),
+            value: z.string().max(16_384),
+            domain: AngelListCookieDomainSchema,
+            path: z.string().startsWith("/").max(2_048),
+            expires: z.number().finite(),
+            httpOnly: z.boolean(),
+            secure: z.literal(true),
+            sameSite: z.enum(["Strict", "Lax", "None"]),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+    origins: z
+      .array(
+        z
+          .object({
+            origin: AngelListBrowserOriginSchema,
+            localStorage: z
+              .array(
+                z
+                  .object({
+                    name: z.string().min(1).max(1_024),
+                    value: z.string().max(65_536),
+                  })
+                  .strict(),
+              )
+              .max(100),
+          })
+          .strict(),
+      )
+      .max(20),
+  })
+  .strict();
+
+export const AngelListAutomationErrorCodeSchema = z.enum([
+  "auth_required",
+  "browser_unavailable",
+  "configuration_invalid",
+  "download_failed",
+  "export_invalid",
+  "forbidden",
+  "magic_link_invalid",
+  "refresh_invalid",
+  "session_invalid",
+  "staging_failed",
+  "unexpected_failure",
+]);
+
+export const AngelListAutomationStatusSchema = z
+  .object({
+    version: z.literal(1),
+    status: z.enum([
+      "never_run",
+      "review_ready",
+      "up_to_date",
+      "auth_required",
+      "failed",
+    ]),
+    checkedAt: IsoTimestampSchema.nullable(),
+    importId: z.string().min(1).nullable(),
+    errorCode: AngelListAutomationErrorCodeSchema.nullable(),
+  })
+  .strict();
+
+export const AngelListAutomationOverviewSchema =
+  AngelListAutomationStatusSchema.extend({
+    signInStatus: z.enum(["connected", "needs_sign_in"]),
+  }).strict();
+
+export const CloudflareLiveViewUrlSchema = z
+  .url()
+  .superRefine((value, context) => {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "live.browser.run" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.port !== ""
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Live View must use Cloudflare's HTTPS host.",
+      });
+    }
+  });
+
+export const AngelListSignInRefreshSchema = z
+  .object({
+    version: z.literal(1),
+    id: z.uuid(),
+    status: z.enum([
+      "waiting_for_sign_in",
+      "connected",
+      "expired",
+      "cancelled",
+    ]),
+    expiresAt: IsoTimestampSchema,
+    liveViewUrl: CloudflareLiveViewUrlSchema.nullable(),
+    liveViewExpiresAt: IsoTimestampSchema.nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.status !== "waiting_for_sign_in" && value.liveViewUrl !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["liveViewUrl"],
+        message: "Completed refreshes cannot expose a Live View URL.",
+      });
+    }
+    if ((value.liveViewUrl === null) !== (value.liveViewExpiresAt === null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["liveViewExpiresAt"],
+        message:
+          "Live View URLs and their expiration must be returned together.",
+      });
+    }
+  });
+
 export const HoldingImportPreviewSchema = z.object({
   id: z.string().min(1),
   provider: z.literal("angellist"),
@@ -1403,6 +1567,22 @@ export type HoldingImportApplyResult = z.infer<
   typeof HoldingImportApplyResultSchema
 >;
 export type HoldingImportPreview = z.infer<typeof HoldingImportPreviewSchema>;
+export type HoldingImportSummary = z.infer<typeof HoldingImportSummarySchema>;
+export type AngelListBrowserStorageState = z.infer<
+  typeof AngelListBrowserStorageStateSchema
+>;
+export type AngelListAutomationErrorCode = z.infer<
+  typeof AngelListAutomationErrorCodeSchema
+>;
+export type AngelListAutomationStatus = z.infer<
+  typeof AngelListAutomationStatusSchema
+>;
+export type AngelListAutomationOverview = z.infer<
+  typeof AngelListAutomationOverviewSchema
+>;
+export type AngelListSignInRefresh = z.infer<
+  typeof AngelListSignInRefreshSchema
+>;
 export type HoldingImportRowPreview = z.infer<
   typeof HoldingImportRowPreviewSchema
 >;

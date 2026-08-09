@@ -1529,6 +1529,170 @@ h1,
   line-height: 1.55;
 }
 
+.angellist-sign-in {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  gap: 48px;
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.angellist-sign-in__heading h2 {
+  margin-bottom: 8px;
+  font-size: clamp(20px, 2.4vw, 28px);
+  font-weight: 630;
+  letter-spacing: -0.04em;
+}
+
+.angellist-sign-in__heading > p:last-child,
+.angellist-magic-link > p,
+.angellist-sign-in__error {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.angellist-sign-in__action {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.angellist-sign-in__workflow {
+  display: grid;
+  width: min(100%, 560px);
+  gap: 18px;
+}
+
+.angellist-live-view-link {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.angellist-magic-link {
+  display: grid;
+  gap: 9px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.angellist-magic-link label,
+.angellist-magic-link label > span {
+  display: block;
+}
+
+.angellist-magic-link label > span {
+  margin-bottom: 7px;
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.angellist-magic-link input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 11px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+}
+
+.angellist-magic-link input::placeholder {
+  color: var(--faint);
+}
+
+.angellist-magic-link > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+}
+
+.angellist-sign-in__checking {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.angellist-sign-in__error {
+  max-width: 560px;
+  margin-left: 18px;
+  color: var(--ink);
+}
+
+.angellist-sign-in + .holding-import-pending {
+  border-top: 0;
+}
+
+.holding-import-pending {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  gap: 48px;
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.holding-import-pending h2 {
+  margin-bottom: 8px;
+  font-size: clamp(20px, 2.4vw, 28px);
+  font-weight: 630;
+  letter-spacing: -0.04em;
+}
+
+.holding-import-pending p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.holding-import-pending__items {
+  display: grid;
+  align-content: center;
+}
+
+.holding-import-pending__items > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0;
+}
+
+.holding-import-pending__items > div + div {
+  border-top: 1px solid var(--line);
+}
+
+.holding-import-pending__items span,
+.holding-import-pending__items strong,
+.holding-import-pending__items small {
+  display: block;
+}
+
+.holding-import-pending__items strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.holding-import-pending__items small {
+  margin-top: 5px;
+  color: var(--faint);
+  font-size: 8px;
+}
+
+.holding-import-loading {
+  padding: 36px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .holding-import-workspace {
   display: grid;
   gap: 34px;
@@ -3174,6 +3338,47 @@ h1,
     gap: 28px;
     padding-right: 0;
     padding-left: 0;
+  }
+
+  .angellist-sign-in {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 20px 0;
+  }
+
+  .angellist-sign-in__action,
+  .angellist-sign-in__workflow {
+    width: 100%;
+  }
+
+  .angellist-sign-in__action {
+    display: grid;
+    justify-content: stretch;
+    gap: 12px;
+  }
+
+  .angellist-sign-in__action > .button,
+  .angellist-live-view-link {
+    width: 100%;
+  }
+
+  .angellist-sign-in__error {
+    margin-left: 0;
+  }
+
+  .holding-import-pending {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 20px 0;
+  }
+
+  .holding-import-pending__items > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .holding-import-pending__items .button {
+    width: 100%;
   }
 
   .import-summary {
