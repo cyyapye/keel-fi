@@ -85,6 +85,20 @@ const SignInRefreshRecordSchema = z
     }
   });
 
+const BrowserRunTargetSchema = z
+  .object({
+    id: z.string().min(1).max(512),
+    type: z.string().min(1).max(64),
+    url: z.string().max(8_192),
+    title: z.string().max(4_096).optional(),
+    description: z.string().max(4_096).optional(),
+    devtoolsFrontendUrl: z.string().max(16_384).optional(),
+    webSocketDebuggerUrl: z.string().max(16_384).optional(),
+  })
+  .strict();
+
+const BrowserRunTargetListSchema = z.array(BrowserRunTargetSchema).max(32);
+
 type SignInRefreshRecord = z.infer<typeof SignInRefreshRecordSchema>;
 
 type AutomationEnv = Env & {
@@ -648,19 +662,48 @@ async function ensureAngelListPage(page: Page): Promise<void> {
 }
 
 async function liveViewUrl(
-  context: BrowserContext,
-  page: Page,
+  worker: BrowserWorker,
+  sessionId: string,
 ): Promise<string> {
-  const session = rawCdpSession(await context.newCDPSession(page));
+  let response: Response;
   try {
-    const response = z
-      .object({ devtoolsFrontendUrl: z.string() })
-      .parse(await session.send("Cloudflare.getLiveView", { mode: "tab" }));
-    return CloudflareLiveViewUrlSchema.parse(response.devtoolsFrontendUrl);
+    // Use Browser Run's session target list so the Live View URL remains valid
+    // after this short-lived Playwright connection disconnects.
+    response = await worker.fetch(
+      `http://fake.host/v1/devtools/browser/${encodeURIComponent(sessionId)}/json`,
+      { headers: { Accept: "application/json" } },
+    );
   } catch {
     throw new AngelListAutomationError("browser_unavailable");
-  } finally {
-    await session.detach().catch(() => undefined);
+  }
+  if (!response.ok) {
+    throw new AngelListAutomationError("browser_unavailable");
+  }
+  let targets: z.infer<typeof BrowserRunTargetListSchema>;
+  try {
+    targets = BrowserRunTargetListSchema.parse(await response.json());
+  } catch {
+    throw new AngelListAutomationError("browser_unavailable");
+  }
+  const matchingTargets = targets.filter((target) => {
+    if (target.type !== "page" || target.devtoolsFrontendUrl === undefined) {
+      return false;
+    }
+    try {
+      return new URL(target.url).origin === ANGELLIST_ORIGIN;
+    } catch {
+      return false;
+    }
+  });
+  if (matchingTargets.length !== 1) {
+    throw new AngelListAutomationError("browser_unavailable");
+  }
+  try {
+    return CloudflareLiveViewUrlSchema.parse(
+      matchingTargets[0]?.devtoolsFrontendUrl,
+    );
+  } catch {
+    throw new AngelListAutomationError("browser_unavailable");
   }
 }
 
@@ -795,7 +838,7 @@ export async function startAngelListSignInRefresh(
         await ensureAngelListPage(target.page);
         return publicRefresh(
           existing,
-          await liveViewUrl(target.context, target.page),
+          await liveViewUrl(browserWorker(env), existing.sessionId),
           new Date(now.getTime() + LIVE_VIEW_UNOPENED_TTL_MS).toISOString(),
         );
       } catch {
@@ -831,7 +874,7 @@ export async function startAngelListSignInRefresh(
   try {
     const target = await browserPage(browser, true);
     await ensureAngelListPage(target.page);
-    const url = await liveViewUrl(target.context, target.page);
+    const url = await liveViewUrl(browserWorker(env), sessionId);
     const record = SignInRefreshRecordSchema.parse({
       version: 1,
       id: crypto.randomUUID(),

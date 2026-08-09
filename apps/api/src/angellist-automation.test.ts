@@ -39,8 +39,30 @@ const storageState = {
   ],
 };
 
+const syntheticLiveViewUrl =
+  "https://live.browser.run/ui/view?wss=live.browser.run/api/devtools/browser/synthetic_browser_session/page/SYNTHETIC_TARGET?jwt=synthetic-live-view";
+
 function automationEnv() {
   const values = new Map<string, string>();
+  const browserFetch = vi.fn(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            id: "SYNTHETIC_TARGET",
+            type: "page",
+            url: "https://venture.angellist.com/",
+            title: "Synthetic AngelList",
+            description: "",
+            devtoolsFrontendUrl: syntheticLiveViewUrl,
+            webSocketDebuggerUrl:
+              "wss://live.browser.run/api/devtools/browser/synthetic_browser_session/page/SYNTHETIC_TARGET?jwt=synthetic-live-view",
+          },
+        ]),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    ),
+  );
   const kv = {
     get: vi.fn((key: string) => Promise.resolve(values.get(key) ?? null)),
     put: vi.fn((key: string, value: string) => {
@@ -56,14 +78,14 @@ function automationEnv() {
     ANGELLIST_ACCESS_SUBJECT: "synthetic-access-subject",
     ANGELLIST_AUTOMATION: kv,
     ANGELLIST_AUTOMATION_ENABLED: "true",
-    ANGELLIST_BROWSER: { fetch },
+    ANGELLIST_BROWSER: { fetch: browserFetch },
     ANGELLIST_SESSION_KEY: "A".repeat(43),
     DB: {} as D1Database,
     DOCUMENTS: {} as R2Bucket,
     ENVIRONMENT: "local",
     INGESTION_QUEUE: {} as Queue,
   };
-  return { env, values };
+  return { browserFetch, env, values };
 }
 
 function refreshBrowserFixture() {
@@ -72,15 +94,6 @@ function refreshBrowserFixture() {
     url: "about:blank",
   };
   const browserClose = vi.fn(() => Promise.resolve());
-  const targetCdpSend = vi.fn((method: string) => {
-    if (method === "Cloudflare.getLiveView") {
-      return Promise.resolve({
-        devtoolsFrontendUrl:
-          "https://live.browser.run/?token=synthetic-live-view",
-      });
-    }
-    return Promise.reject(new Error("Unexpected target CDP method."));
-  });
   const browserCdpSend = vi.fn(() => Promise.resolve({}));
   const exportButton = {
     isVisible: vi.fn(() => Promise.resolve(state.exportVisible)),
@@ -106,12 +119,6 @@ function refreshBrowserFixture() {
     ],
   };
   const context = {
-    newCDPSession: vi.fn(() =>
-      Promise.resolve({
-        detach: vi.fn(() => Promise.resolve()),
-        send: targetCdpSend,
-      }),
-    ),
     newPage: vi.fn(() => Promise.resolve(page)),
     pages: vi.fn(() => [page]),
     storageState: vi.fn(() => Promise.resolve(refreshedStorageState)),
@@ -133,7 +140,6 @@ function refreshBrowserFixture() {
     context,
     page,
     state,
-    targetCdpSend,
   };
 }
 
@@ -245,7 +251,7 @@ describe("AngelList Cloudflare automation", () => {
   });
 
   it("opens an unrecorded Live View and replaces the old session only after verification", async () => {
-    const { env, values } = automationEnv();
+    const { browserFetch, env, values } = automationEnv();
     await storeAngelListSession(env, "synthetic-access-subject", storageState);
     const previousSession = values.get("angellist/session/v1");
     const fixture = refreshBrowserFixture();
@@ -263,12 +269,16 @@ describe("AngelList Cloudflare automation", () => {
 
     expect(started).toMatchObject({
       status: "waiting_for_sign_in",
-      liveViewUrl: "https://live.browser.run/?token=synthetic-live-view",
+      liveViewUrl: syntheticLiveViewUrl,
     });
     expect(acquirer).toHaveBeenCalledWith(env.ANGELLIST_BROWSER, {
       keep_alive: 600_000,
       recording: false,
     });
+    expect(browserFetch).toHaveBeenCalledWith(
+      "http://fake.host/v1/devtools/browser/synthetic_browser_session/json",
+      { headers: { Accept: "application/json" } },
+    );
     expect(values.get("angellist/session/v1")).toBe(previousSession);
     expect([...values.values()].join("\n")).not.toContain(
       "synthetic-live-view",
@@ -295,6 +305,42 @@ describe("AngelList Cloudflare automation", () => {
     const replacementSession = values.get("angellist/session/v1");
     expect(replacementSession).not.toBe(previousSession);
     expect(replacementSession).not.toContain("refreshed-cookie-value");
+    expect(values.has("angellist/sign-in-refresh/active/v1")).toBe(false);
+    expect(fixture.browserCdpSend).toHaveBeenCalledWith("Browser.close");
+  });
+
+  it("rejects a Live View target outside Cloudflare and closes the new browser", async () => {
+    const { browserFetch, env, values } = automationEnv();
+    browserFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          {
+            id: "SYNTHETIC_TARGET",
+            type: "page",
+            url: "https://venture.angellist.com/",
+            title: "Synthetic AngelList",
+            description: "",
+            devtoolsFrontendUrl:
+              "https://example.com/?token=synthetic-live-view",
+            webSocketDebuggerUrl:
+              "wss://example.com/?token=synthetic-live-view",
+          },
+        ]),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const fixture = refreshBrowserFixture();
+
+    await expect(
+      startAngelListSignInRefresh(env, "synthetic-access-subject", {
+        acquirer: vi.fn(() =>
+          Promise.resolve({ sessionId: "synthetic_browser_session" }),
+        ),
+        connector: vi.fn(() => Promise.resolve(fixture.browser)),
+        now: new Date("2026-08-08T16:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "browser_unavailable" });
+
     expect(values.has("angellist/sign-in-refresh/active/v1")).toBe(false);
     expect(fixture.browserCdpSend).toHaveBeenCalledWith("Browser.close");
   });
