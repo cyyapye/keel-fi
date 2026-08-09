@@ -119,9 +119,11 @@ type BrowserAcquirer = (
   options: { keep_alive: number; recording: boolean },
 ) => Promise<{ sessionId: string }>;
 
+// The default CDP context survives after Playwright disconnects. A temporary
+// context would remove its page and leave Live View pointing at a dead target.
 type BrowserConnector = (
   worker: BrowserWorker,
-  sessionId: string,
+  options: { sessionId: string; persistent: true },
 ) => Promise<Browser>;
 
 type SignInRefreshOptions = {
@@ -140,9 +142,9 @@ const defaultBrowserAcquirer: BrowserAcquirer = async (worker, options) => {
   return acquire(worker, options);
 };
 
-const defaultBrowserConnector: BrowserConnector = async (worker, sessionId) => {
+const defaultBrowserConnector: BrowserConnector = async (worker, options) => {
   const { connect } = await import("@cloudflare/playwright");
-  return connect(worker, sessionId);
+  return connect(worker, options);
 };
 
 function safeErrorCode(error: unknown): AngelListAutomationErrorCode {
@@ -699,9 +701,9 @@ async function liveViewUrl(
     throw new AngelListAutomationError("browser_unavailable");
   }
   try {
-    return CloudflareLiveViewUrlSchema.parse(
-      matchingTargets[0]?.devtoolsFrontendUrl,
-    );
+    const url = new URL(matchingTargets[0]?.devtoolsFrontendUrl ?? "");
+    url.searchParams.set("mode", "tab");
+    return CloudflareLiveViewUrlSchema.parse(url.toString());
   } catch {
     throw new AngelListAutomationError("browser_unavailable");
   }
@@ -730,7 +732,10 @@ async function connectRefreshBrowser(
   connector: BrowserConnector,
 ): Promise<Browser> {
   try {
-    return await connector(browserWorker(env), sessionId);
+    return await connector(browserWorker(env), {
+      sessionId,
+      persistent: true,
+    });
   } catch {
     throw new AngelListAutomationError("browser_unavailable");
   }

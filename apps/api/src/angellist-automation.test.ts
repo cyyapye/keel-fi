@@ -41,6 +41,8 @@ const storageState = {
 
 const syntheticLiveViewUrl =
   "https://live.browser.run/ui/view?wss=live.browser.run/api/devtools/browser/synthetic_browser_session/page/SYNTHETIC_TARGET?jwt=synthetic-live-view";
+const syntheticTabLiveViewUrl =
+  "https://live.browser.run/ui/view?wss=live.browser.run%2Fapi%2Fdevtools%2Fbrowser%2Fsynthetic_browser_session%2Fpage%2FSYNTHETIC_TARGET%3Fjwt%3Dsynthetic-live-view&mode=tab";
 
 function automationEnv() {
   const values = new Map<string, string>();
@@ -269,7 +271,7 @@ describe("AngelList Cloudflare automation", () => {
 
     expect(started).toMatchObject({
       status: "waiting_for_sign_in",
-      liveViewUrl: syntheticLiveViewUrl,
+      liveViewUrl: syntheticTabLiveViewUrl,
     });
     expect(acquirer).toHaveBeenCalledWith(env.ANGELLIST_BROWSER, {
       keep_alive: 600_000,
@@ -279,6 +281,10 @@ describe("AngelList Cloudflare automation", () => {
       "http://fake.host/v1/devtools/browser/synthetic_browser_session/json",
       { headers: { Accept: "application/json" } },
     );
+    expect(connector).toHaveBeenNthCalledWith(1, env.ANGELLIST_BROWSER, {
+      sessionId: "synthetic_browser_session",
+      persistent: true,
+    });
     expect(values.get("angellist/session/v1")).toBe(previousSession);
     expect([...values.values()].join("\n")).not.toContain(
       "synthetic-live-view",
