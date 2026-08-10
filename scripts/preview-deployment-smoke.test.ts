@@ -4,6 +4,11 @@ import { runPreviewDeploymentSmoke } from "./preview-deployment-smoke";
 
 const gitSha = "c".repeat(40);
 
+type FetchImplementation = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
 function environment(): NodeJS.ProcessEnv {
   return {
     GITHUB_SHA: gitSha,
@@ -131,5 +136,110 @@ describe("preview deployment runtime verification", () => {
         Promise.resolve(),
       ),
     ).rejects.toThrow("different deployed version");
+  });
+
+  it("retries a resource version mismatch at most three times", async () => {
+    const baseFetch = successfulFetch() as unknown as FetchImplementation;
+    let resourceAttempts = 0;
+    const fetchImplementation = vi.fn(
+      (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(
+          input instanceof Request ? input.url : input.toString(),
+        );
+        if (url.pathname === "/api/deployment-smoke") {
+          resourceAttempts += 1;
+          if (resourceAttempts < 3) {
+            return Promise.resolve(
+              Response.json({
+                status: "ok",
+                service: "keel-api",
+                deployedGitSha: gitSha,
+                workerVersionId: "api-version-previous",
+                workerVersionTag: gitSha,
+                checks: {
+                  d1: true,
+                  queue: true,
+                  r2: true,
+                },
+              }),
+            );
+          }
+        }
+        return baseFetch(input, init);
+      },
+    );
+    const delay = vi.fn(() => Promise.resolve());
+
+    await expect(
+      runPreviewDeploymentSmoke(environment(), fetchImplementation, delay),
+    ).resolves.toBeUndefined();
+
+    expect(resourceAttempts).toBe(3);
+    expect(delay).toHaveBeenCalledTimes(2);
+    expect(delay).toHaveBeenNthCalledWith(1, 5_000);
+    expect(delay).toHaveBeenNthCalledWith(2, 5_000);
+  });
+
+  it("stops after three resource version mismatches", async () => {
+    const baseFetch = successfulFetch() as unknown as FetchImplementation;
+    let resourceAttempts = 0;
+    const fetchImplementation = vi.fn(
+      (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(
+          input instanceof Request ? input.url : input.toString(),
+        );
+        if (url.pathname === "/api/deployment-smoke") {
+          resourceAttempts += 1;
+          return Promise.resolve(
+            Response.json({
+              status: "ok",
+              service: "keel-api",
+              deployedGitSha: gitSha,
+              workerVersionId: "api-version-previous",
+              workerVersionTag: gitSha,
+              checks: {
+                d1: true,
+                queue: true,
+                r2: true,
+              },
+            }),
+          );
+        }
+        return baseFetch(input, init);
+      },
+    );
+    const delay = vi.fn(() => Promise.resolve());
+
+    await expect(
+      runPreviewDeploymentSmoke(environment(), fetchImplementation, delay),
+    ).rejects.toThrow("different API deployment");
+
+    expect(resourceAttempts).toBe(3);
+    expect(delay).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry resource HTTP or authentication failures", async () => {
+    const baseFetch = successfulFetch() as unknown as FetchImplementation;
+    let resourceAttempts = 0;
+    const fetchImplementation = vi.fn(
+      (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(
+          input instanceof Request ? input.url : input.toString(),
+        );
+        if (url.pathname === "/api/deployment-smoke") {
+          resourceAttempts += 1;
+          return Promise.resolve(new Response(null, { status: 503 }));
+        }
+        return baseFetch(input, init);
+      },
+    );
+    const delay = vi.fn(() => Promise.resolve());
+
+    await expect(
+      runPreviewDeploymentSmoke(environment(), fetchImplementation, delay),
+    ).rejects.toThrow("Resource smoke returned HTTP 503");
+
+    expect(resourceAttempts).toBe(1);
+    expect(delay).not.toHaveBeenCalled();
   });
 });
