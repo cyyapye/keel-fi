@@ -390,7 +390,9 @@ test("requests a Mac AngelList update from the phone-safe Holdings flow", async 
   ).toBeVisible();
   await expect(page.getByLabel("Automatic updates")).toHaveValue("weekly");
   await expect(
-    page.getByText("Every new CSV still waits for your review."),
+    page.getByText(
+      "Your Mac checks daily. Exports follow the interval below. Every CSV still waits for your review.",
+    ),
   ).toBeVisible();
 
   const viewportWidths = await page.evaluate(() => ({
@@ -421,15 +423,15 @@ test("requests a Mac AngelList update from the phone-safe Holdings flow", async 
   await expect(page.getByText("AngelList will update daily.")).toBeVisible();
   expect(intervalUpdates).toEqual([{ interval: "daily" }]);
 
-  await page.getByRole("button", { name: "Run now" }).click();
+  await page.getByRole("button", { name: "Queue update" }).click();
   await expect(
-    page.getByRole("heading", { name: "Checking AngelList now" }),
+    page.getByRole("heading", { name: "AngelList update is queued" }),
   ).toBeVisible();
   await expect(
-    page.getByText("AngelList update requested. You can leave this page."),
+    page.getByText("AngelList update queued for your Mac’s next daily check."),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Update in progress" }),
+    page.getByRole("button", { name: "Update queued" }),
   ).toBeDisabled();
 });
 

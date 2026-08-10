@@ -68,24 +68,45 @@ The LaunchAgent records only bounded operational events in:
 
 The plist points to the checkout used during setup. Keep that checkout in place.
 Rerun setup after moving the repository, changing the Keel origin, or changing
-the Node/pnpm installation.
+the Node/pnpm installation. Rerun setup once after upgrading from an agent that
+polled every 30 seconds so launchd installs the daily schedule.
 
 ## Regular operation
 
-The background process keeps Chrome available and polls Keel every 30 seconds.
-It does not create scheduled work while the Mac is asleep or offline. When the
-Mac next polls, D1 creates a due scheduled run if needed.
+launchd starts one short-lived check after setup or login and then once every 24
+hours. The check reuses the dedicated Chrome profile, asks Keel for queued or
+due work, and exits. It does not create scheduled work while the Mac is asleep
+or offline. When the Mac next checks, D1 creates a due scheduled run if needed.
 
 From Holdings, the user can:
 
 - choose daily, weekly, or off;
-- request `Run now` from a phone or desktop; and
-- see Mac availability, last completion, next scheduled date, and bounded
+- queue an update from a phone or desktop for the next daily Mac check; and
+- see the last Mac check, last completion, next scheduled date, and bounded
   attention states.
 
-`Run now` is safe when the Mac is offline: one active run remains queued until
-the Mac returns. A lease lasts five minutes. Completion or failure advances the
-next scheduled date so a broken sign-in cannot create a tight retry loop.
+To run the complete local flow immediately instead of waiting for the next daily
+check:
+
+```bash
+make angellist-run KEEL_URL=https://keel-preview.example.com
+```
+
+or:
+
+```bash
+pnpm angellist:run -- --keel-url https://keel-preview.example.com
+```
+
+The command reuses the signed-in Chrome profile, queues one idempotent run,
+downloads the CSV, and uploads it to Keel as a pending import. It never applies
+the import. If an update was already queued from a phone, the same command picks
+it up immediately.
+
+Queueing an update is safe when the Mac is offline: one active run remains
+queued until the next daily check or local command. A lease lasts five minutes.
+Completion or failure advances the next scheduled date so a broken sign-in
+cannot create a tight retry loop.
 
 When AngelList or Keel authentication expires, the Holdings screen directs the
 user to the dedicated Chrome window on the Mac. Complete sign-in and request
@@ -132,7 +153,8 @@ appears as a pending Keel import, and Holdings remains unchanged until review.
 ## Disable or reinstall
 
 Choose `Off` in Holdings to stop automatic runs while preserving phone-triggered
-`Run now`. To remove the background process entirely, unload and delete only
+queued updates and the local run command. To remove the background process
+entirely, unload and delete only
 `~/Library/LaunchAgents/com.keel.angellist-agent.plist`; the dedicated Chrome
 profile can then be archived or deleted separately after confirming no sign-in
 needs to be retained.

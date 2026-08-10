@@ -20,6 +20,11 @@ describe("AngelList Mac agent boundaries", () => {
       "<string>/opt/keel-node/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>",
     );
     expect(plist).toContain("<string>/opt/keel-node/bin/node</string>");
+    expect(plist).toContain("<string>once</string>");
+    expect(plist).toContain("<key>StartInterval</key>");
+    expect(plist).toContain("<integer>86400</integer>");
+    expect(plist).not.toContain("<key>KeepAlive</key>");
+    expect(plist).not.toContain("<string>serve</string>");
   });
 
   it("accepts only an explicit Keel HTTP(S) origin", () => {
@@ -30,6 +35,14 @@ describe("AngelList Mac agent boundaries", () => {
     ]);
     expect(options.command).toBe("setup");
     expect(options.keelOrigin.origin).toBe("https://keel-preview.example.com");
+
+    expect(
+      __angellistMacAgentTest.parseOptions([
+        "run",
+        "--keel-url",
+        "https://keel-preview.example.com",
+      ]).command,
+    ).toBe("run");
 
     expect(() =>
       __angellistMacAgentTest.parseOptions([

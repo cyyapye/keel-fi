@@ -8,6 +8,7 @@ import { MAX_ANGELLIST_CSV_BYTES } from "../packages/connectors/src/index";
 import {
   AngelListMacAgentLeaseSchema,
   AngelListMacAgentOverviewSchema,
+  AngelListMacAgentRunRequestSchema,
   type AngelListMacAgentErrorCode,
   type AngelListMacAgentLease,
 } from "../packages/domain/src/index";
@@ -40,9 +41,10 @@ const LOG_DIRECTORY = path.join(os.homedir(), "Library", "Logs", "Keel");
 const CHROME_PATH =
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
-const POLL_INTERVAL_MS = 30 * 1_000;
+const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
+const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
 
-type Command = "once" | "serve" | "setup";
+type Command = "once" | "run" | "serve" | "setup";
 
 class AgentFailure extends Error {
   public constructor(public readonly code: AngelListMacAgentErrorCode) {
@@ -53,7 +55,7 @@ class AgentFailure extends Error {
 
 const CliOptionsSchema = z
   .object({
-    command: z.enum(["once", "serve", "setup"]),
+    command: z.enum(["once", "run", "serve", "setup"]),
     keelOrigin: z
       .url()
       .transform((value) => new URL(value))
@@ -298,6 +300,14 @@ async function lease(page: Page): Promise<AngelListMacAgentLease> {
   return AngelListMacAgentLeaseSchema.parse(response.body);
 }
 
+async function requestRun(page: Page) {
+  const response = await pageApi(page, "/api/automation/angellist/run");
+  if (response.status !== 202) {
+    throw new AgentFailure("keel_sign_in_required");
+  }
+  return AngelListMacAgentRunRequestSchema.parse(response.body);
+}
+
 function validateFilename(filename: string): string {
   const containsControlCharacter = [...filename].some((character) => {
     const codePoint = character.codePointAt(0);
@@ -511,7 +521,7 @@ function buildLaunchAgentPlist(options: LaunchAgentPlistOptions): string {
     "exec",
     "tsx",
     options.scriptPath,
-    "serve",
+    "once",
     "--keel-url",
     options.keelOrigin.origin,
   ];
@@ -544,12 +554,10 @@ ${argumentXml}
     <string>${xml(options.repositoryRoot)}</string>
     <key>RunAtLoad</key>
     <true/>
-    <key>KeepAlive</key>
-    <true/>
+    <key>StartInterval</key>
+    <integer>${DAILY_CHECK_INTERVAL_SECONDS.toString()}</integer>
     <key>ProcessType</key>
     <string>Background</string>
-    <key>ThrottleInterval</key>
-    <integer>30</integer>
     <key>StandardOutPath</key>
     <string>${xml(path.join(options.logDirectory, "angellist-agent.log"))}</string>
     <key>StandardErrorPath</key>
@@ -623,8 +631,26 @@ async function setup(keelOrigin: URL): Promise<void> {
   await register(keel);
   await installLaunchAgent(keelOrigin);
   console.info(
-    "AngelList updates are ready. Keep the dedicated Chrome window available; you can now use Run now from your phone.",
+    `AngelList updates are ready. Keel will check once daily. Run pnpm angellist:run -- --keel-url ${keelOrigin.origin} for an immediate local update.`,
   );
+}
+
+async function runLocally(keelOrigin: URL): Promise<void> {
+  const context = await connectContext();
+  const page = await keelPage(context, keelOrigin);
+  await register(page);
+  const requested = await requestRun(page);
+  if (requested.status === "running") {
+    console.info("An AngelList update is already in progress.");
+    return;
+  }
+  const work = await lease(page);
+  if (work.run === null) {
+    console.info("The AngelList update is queued for another agent check.");
+    return;
+  }
+  await executeRun(context, page, work.run);
+  console.info("AngelList CSV uploaded to Keel and ready for review.");
 }
 
 async function serve(
@@ -661,6 +687,10 @@ async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
   if (options.command === "setup") {
     await setup(options.keelOrigin);
+    return;
+  }
+  if (options.command === "run") {
+    await runLocally(options.keelOrigin);
     return;
   }
   await serve(options.command, options.keelOrigin);

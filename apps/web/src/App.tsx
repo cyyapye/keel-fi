@@ -2048,24 +2048,28 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
     return {
       title: "Finish setup on your Mac",
       description:
-        "Run the one-time setup command on your Mac, then sign in to Keel and AngelList in the Chrome window it opens.",
+        "Run the one-time setup command on your Mac, then sign in to Keel and AngelList. Keel will check for work once a day.",
     };
   }
   if (overview.status === "offline") {
     return {
-      title: "Your Mac is offline",
+      title: "Daily Mac check is overdue",
       description:
-        "Wake your Mac and leave the Keel AngelList Chrome window open. Phone requests will wait safely.",
+        "Wake your Mac or rerun setup. Queued updates will wait safely for the next check.",
     };
   }
   if (overview.status === "running") {
-    return {
-      title: "Checking AngelList now",
-      description:
-        overview.runStatus === "queued"
-          ? "Your request is waiting for your Mac."
-          : "Your Mac is downloading the latest CSV. It will still wait for your review in Keel.",
-    };
+    return overview.runStatus === "queued"
+      ? {
+          title: "AngelList update is queued",
+          description:
+            "Your Mac will pick it up at its next daily check. Use the local run command on your Mac if you need it sooner.",
+        }
+      : {
+          title: "Importing AngelList CSV",
+          description:
+            "Your Mac is downloading the latest CSV. It will still wait for your review in Keel.",
+        };
   }
   if (overview.status === "needs_attention") {
     if (overview.errorCode === "angellist_sign_in_required") {
@@ -2098,7 +2102,7 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
   return {
     title: "AngelList updates are ready",
     description:
-      "Your Mac runs the export at the interval below. Every new CSV still waits for your review.",
+      "Your Mac checks daily. Exports follow the interval below. Every CSV still waits for your review.",
   };
 }
 
@@ -2181,7 +2185,7 @@ function AngelListMacAgentControl() {
               runStatus: requested.status,
             },
       );
-      setNotice("AngelList update requested. You can leave this page.");
+      setNotice("AngelList update queued for your Mac’s next daily check.");
       window.setTimeout(() => void reload(), 1_000);
     } catch {
       setError("Keel could not request an AngelList update. Try again.");
@@ -2217,8 +2221,8 @@ function AngelListMacAgentControl() {
             </Button>
             <code>{setupCommand}</code>
             <small>
-              The dedicated Chrome profile stays on your Mac. Keel receives only
-              the CSV export.
+              The dedicated Chrome profile stays on your Mac. Keel checks once a
+              day and receives only the CSV export.
             </small>
           </div>
         ) : (
@@ -2248,8 +2252,10 @@ function AngelListMacAgentControl() {
               {busyAction === "run"
                 ? "Requesting…"
                 : running
-                  ? "Update in progress"
-                  : "Run now"}
+                  ? overview?.runStatus === "queued"
+                    ? "Update queued"
+                    : "Update in progress"
+                  : "Queue update"}
             </Button>
           </div>
         )}
@@ -2257,7 +2263,7 @@ function AngelListMacAgentControl() {
         {overview !== null && !setupRequired && (
           <dl className="angellist-agent__meta">
             <div>
-              <dt>Mac last seen</dt>
+              <dt>Last Mac check</dt>
               <dd>
                 {overview.lastSeenAt === null
                   ? "Not yet"
