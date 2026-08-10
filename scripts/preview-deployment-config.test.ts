@@ -17,10 +17,6 @@ function environment(root: string): NodeJS.ProcessEnv {
     CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
     CLOUDFLARE_API_TOKEN: "synthetic-cloudflare-token-for-tests",
     GITHUB_SHA: "b".repeat(40),
-    KEEL_PREVIEW_ANGELLIST_ACCESS_SUBJECT: "synthetic-access-subject",
-    KEEL_PREVIEW_ANGELLIST_AUTOMATION_ENABLED: "false",
-    KEEL_PREVIEW_ANGELLIST_KV_ID: "c".repeat(32),
-    KEEL_PREVIEW_ANGELLIST_SESSION_KEY: "A".repeat(43),
     KEEL_PREVIEW_ACCESS_AUD: "synthetic-preview-audience",
     KEEL_PREVIEW_ACCESS_CLIENT_ID: "synthetic-preview-service-token.access",
     KEEL_PREVIEW_ACCESS_CLIENT_SECRET:
@@ -77,16 +73,10 @@ describe("preview deployment configuration", () => {
       preview_urls: false,
       vars: { ENVIRONMENT: "preview", DEPLOYED_GIT_SHA: "b".repeat(40) },
       compatibility_flags: ["global_fetch_strictly_public", "nodejs_compat"],
-      browser: { binding: "ANGELLIST_BROWSER" },
-      kv_namespaces: [{ binding: "ANGELLIST_AUTOMATION", id: "c".repeat(32) }],
-      triggers: { crons: ["0 * * * 1"] },
       secrets: {
         required: [
           "ACCESS_AUD",
           "ACCESS_TEAM_DOMAIN",
-          "ANGELLIST_ACCESS_SUBJECT",
-          "ANGELLIST_AUTOMATION_ENABLED",
-          "ANGELLIST_SESSION_KEY",
           "DEPLOYMENT_SMOKE_TOKEN",
         ],
       },
@@ -109,9 +99,6 @@ describe("preview deployment configuration", () => {
     expect(apiSecrets).toEqual({
       ACCESS_AUD: "synthetic-preview-audience",
       ACCESS_TEAM_DOMAIN: "team.example.com",
-      ANGELLIST_ACCESS_SUBJECT: "synthetic-access-subject",
-      ANGELLIST_AUTOMATION_ENABLED: "false",
-      ANGELLIST_SESSION_KEY: "A".repeat(43),
       DEPLOYMENT_SMOKE_TOKEN: "synthetic-preview-smoke-token-for-tests",
     });
     expect(JSON.stringify(apiConfig)).not.toContain(

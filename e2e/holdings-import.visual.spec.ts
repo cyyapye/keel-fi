@@ -148,11 +148,14 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
     await route.fulfill({
       json: {
         version: 1,
-        status: "up_to_date",
-        checkedAt: "2026-08-03T16:00:00.000Z",
-        importId: null,
+        status: "ready",
+        interval: "weekly",
+        runStatus: null,
+        lastSeenAt: "2026-08-09T16:00:00.000Z",
+        lastCompletedAt: "2026-08-03T16:00:00.000Z",
+        nextRunAt: "2026-08-16T16:00:00.000Z",
+        latestImportId: null,
         errorCode: null,
-        signInStatus: "connected",
       },
     });
   });
@@ -327,14 +330,29 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
   );
 });
 
-test("refreshes AngelList sign-in from a phone-safe Holdings flow", async ({
+test("requests a Mac AngelList update from the phone-safe Holdings flow", async ({
   page,
 }) => {
-  const refreshId = "11111111-1111-4111-8111-111111111111";
-  const expiresAt = "2026-08-08T16:10:00.000Z";
-  const submittedHandoffInputs: unknown[] = [];
-  const submittedMagicLinks: unknown[] = [];
-  let connected = false;
+  const intervalUpdates: unknown[] = [];
+  let interval = "weekly";
+  let running = false;
+
+  const overview = () => ({
+    version: 1,
+    status: running ? "running" : "ready",
+    interval,
+    runStatus: running ? "queued" : null,
+    lastSeenAt: "2026-08-09T16:00:00.000Z",
+    lastCompletedAt: "2026-08-08T16:00:00.000Z",
+    nextRunAt:
+      interval === "off"
+        ? null
+        : interval === "daily"
+          ? "2026-08-10T16:00:00.000Z"
+          : "2026-08-16T16:00:00.000Z",
+    latestImportId: null,
+    errorCode: null,
+  });
 
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
@@ -343,95 +361,37 @@ test("refreshes AngelList sign-in from a phone-safe Holdings flow", async ({
     await route.fulfill({ json: [] });
   });
   await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({ json: overview() });
+  });
+  await page.route(
+    "**/api/automation/angellist/mac-agent/config",
+    async (route) => {
+      const body = route.request().postDataJSON() as { interval: string };
+      intervalUpdates.push(body);
+      interval = body.interval;
+      await route.fulfill({ json: overview() });
+    },
+  );
+  await page.route("**/api/automation/angellist/run", async (route) => {
+    running = true;
     await route.fulfill({
       json: {
         version: 1,
-        status: connected ? "up_to_date" : "auth_required",
-        checkedAt: "2026-08-08T16:00:00.000Z",
-        importId: null,
-        errorCode: connected ? null : "auth_required",
-        signInStatus: connected ? "connected" : "needs_sign_in",
+        runId: "11111111-1111-4111-8111-111111111111",
+        status: "queued",
       },
+      status: 202,
     });
   });
-  await page.route(
-    /\/api\/automation\/angellist\/sign-in-refreshes(?:\/.*)?$/,
-    async (route) => {
-      const request = route.request();
-      const path = new URL(request.url()).pathname;
-      if (path.endsWith("/handoff-input")) {
-        submittedHandoffInputs.push(request.postDataJSON());
-        await route.fulfill({
-          json: {
-            version: 1,
-            id: refreshId,
-            status: "waiting_for_sign_in",
-            expiresAt,
-            liveViewUrl: null,
-            liveViewExpiresAt: null,
-          },
-        });
-        return;
-      }
-      if (path.endsWith("/magic-link")) {
-        submittedMagicLinks.push(request.postDataJSON());
-        connected = true;
-        await route.fulfill({
-          json: {
-            version: 1,
-            id: refreshId,
-            status: "connected",
-            expiresAt,
-            liveViewUrl: null,
-            liveViewExpiresAt: null,
-          },
-        });
-        return;
-      }
-      if (request.method() === "POST") {
-        await route.fulfill({
-          json: {
-            version: 1,
-            id: refreshId,
-            status: "waiting_for_sign_in",
-            expiresAt,
-            liveViewUrl: "https://live.browser.run/?token=synthetic-live-view",
-            liveViewExpiresAt: "2099-08-08T16:05:00.000Z",
-          },
-          status: 201,
-        });
-        return;
-      }
-      await route.fulfill({
-        json: {
-          version: 1,
-          id: refreshId,
-          status: connected ? "connected" : "waiting_for_sign_in",
-          expiresAt,
-          liveViewUrl: null,
-          liveViewExpiresAt: null,
-        },
-      });
-    },
-  );
 
   await page.goto("/holdings");
   await expect(
-    page.getByRole("heading", { name: "AngelList sign-in needs attention" }),
+    page.getByRole("heading", { name: "AngelList updates are ready" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Start sign-in" }).click();
-
+  await expect(page.getByLabel("Automatic updates")).toHaveValue("weekly");
   await expect(
-    page.getByRole("heading", { name: "Finish signing in to AngelList" }),
+    page.getByText("Every new CSV still waits for your review."),
   ).toBeVisible();
-  const liveViewLink = page.getByRole("link", {
-    name: "Open AngelList sign-in",
-  });
-  await expect(liveViewLink).toHaveAttribute(
-    "href",
-    "https://live.browser.run/?token=synthetic-live-view",
-  );
-  await expect(liveViewLink).toHaveAttribute("target", "_blank");
 
   const viewportWidths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -448,7 +408,7 @@ test("refreshes AngelList sign-in from a phone-safe Holdings flow", async ({
     `,
   });
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-angellist-sign-in-refresh.png",
+    "holdings-angellist-mac-agent.png",
     {
       animations: "disabled",
       caret: "hide",
@@ -457,26 +417,40 @@ test("refreshes AngelList sign-in from a phone-safe Holdings flow", async ({
     },
   );
 
-  const handoffInput = page.getByLabel("Email or one-time code");
-  await handoffInput.fill("operator@example.com");
-  await page.getByRole("button", { name: "Type in AngelList" }).click();
-  await expect(
-    page.getByText("Text sent. Return to AngelList and tap Continue."),
-  ).toBeVisible();
-  expect(submittedHandoffInputs).toEqual([{ text: "operator@example.com" }]);
-  await expect(handoffInput).toHaveValue("");
+  await page.getByLabel("Automatic updates").selectOption("daily");
+  await expect(page.getByText("AngelList will update daily.")).toBeVisible();
+  expect(intervalUpdates).toEqual([{ interval: "daily" }]);
 
-  const magicLink =
-    "https://venture.angellist.com/users/sign_in?token=synthetic";
-  await page.getByLabel("Magic link from email").fill(magicLink);
-  await page.getByRole("button", { name: "Open magic link" }).click();
+  await page.getByRole("button", { name: "Run now" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Checking AngelList now" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("AngelList update requested. You can leave this page."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Update in progress" }),
+  ).toBeDisabled();
+});
 
-  await expect(
-    page.getByRole("heading", { name: "AngelList sign-in refreshed" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("New exports will still wait for your review."),
-  ).toBeVisible();
-  expect(submittedMagicLinks).toEqual([{ magicLink }]);
-  await expect(page.getByLabel("Magic link from email")).toHaveCount(0);
+test("keeps invalid AngelList agent responses out of user-facing copy", async ({
+  page,
+}) => {
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({ json: { version: 1, status: "unexpected" } });
+  });
+
+  await page.goto("/holdings");
+
+  await expect(page.getByRole("alert")).toHaveText(
+    "Keel could not check AngelList updates. Try again shortly.",
+  );
+  await expect(page.locator("body")).not.toContainText("invalid_value");
+  await expect(page.locator("body")).not.toContainText("unrecognized_keys");
 });

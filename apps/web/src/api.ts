@@ -1,6 +1,9 @@
 import {
   AlphaDataSchema,
   AngelListAutomationOverviewSchema,
+  AngelListMacAgentConfigInputSchema,
+  AngelListMacAgentOverviewSchema,
+  AngelListMacAgentRunRequestSchema,
   AngelListSignInRefreshSchema,
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
@@ -12,6 +15,9 @@ import {
   ScenarioDraftInputSchema,
   type AlphaData,
   type AngelListAutomationOverview,
+  type AngelListMacAgentConfigInput,
+  type AngelListMacAgentOverview,
+  type AngelListMacAgentRunRequest,
   type AngelListSignInRefresh,
   type CreateSignalUpdateProposalInput,
   type GoalDraftInput,
@@ -90,7 +96,21 @@ export async function previewAngelListHoldingImport(
   return HoldingImportPreviewSchema.parse(await response.json());
 }
 
-export async function loadAngelListAutomationOverview(): Promise<AngelListAutomationOverview> {
+export async function loadAngelListAutomationOverview(): Promise<AngelListMacAgentOverview> {
+  const response = await fetch("/api/automation/angellist/status", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList automation status returned ${response.status}.`,
+    );
+  }
+  return AngelListMacAgentOverviewSchema.parse(await response.json());
+}
+
+export async function loadLegacyAngelListAutomationOverview(): Promise<AngelListAutomationOverview> {
   const response = await fetch("/api/automation/angellist/status", {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
@@ -104,6 +124,45 @@ export async function loadAngelListAutomationOverview(): Promise<AngelListAutoma
   return AngelListAutomationOverviewSchema.parse(await response.json());
 }
 
+export async function requestAngelListUpdate(): Promise<AngelListMacAgentRunRequest> {
+  const response = await fetch("/api/automation/angellist/run", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList update request returned ${response.status}.`,
+    );
+  }
+  return AngelListMacAgentRunRequestSchema.parse(await response.json());
+}
+
+export async function configureAngelListMacAgent(
+  input: AngelListMacAgentConfigInput,
+): Promise<AngelListMacAgentOverview> {
+  const body = AngelListMacAgentConfigInputSchema.parse(input);
+  const response = await fetch("/api/automation/angellist/mac-agent/config", {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `AngelList interval update returned ${response.status}.`,
+    );
+  }
+  return AngelListMacAgentOverviewSchema.parse(await response.json());
+}
+
+// Kept only as a one-release rollback path while the Mac agent is accepted in
+// preview. The Holdings UI no longer exposes Browser Run sign-in.
 export async function startAngelListSignInRefresh(): Promise<AngelListSignInRefresh> {
   const response = await fetch("/api/automation/angellist/sign-in-refreshes", {
     method: "POST",

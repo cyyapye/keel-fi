@@ -2,8 +2,15 @@ import {
   ANGELLIST_INVESTMENTS_CSV_HEADERS,
   ANGELLIST_INVESTMENTS_CSV_PREAMBLE,
 } from "@keel/connectors";
-import type { AlphaRepository } from "@keel/database";
-import type { AlphaData, HoldingImportPreview } from "@keel/domain";
+import type {
+  AlphaRepository,
+  AngelListMacAgentRepository,
+} from "@keel/database";
+import type {
+  AlphaData,
+  AngelListMacAgentOverview,
+  HoldingImportPreview,
+} from "@keel/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "./app";
@@ -146,6 +153,42 @@ function testEnv(environment: Env["ENVIRONMENT"]): Env {
     DOCUMENTS: {} as R2Bucket,
     ENVIRONMENT: environment,
     INGESTION_QUEUE: {} as Queue,
+  };
+}
+
+const readyAgentOverview: AngelListMacAgentOverview = {
+  version: 1,
+  status: "ready",
+  interval: "weekly",
+  runStatus: null,
+  lastSeenAt: "2026-08-09T12:00:00.000Z",
+  lastCompletedAt: null,
+  nextRunAt: "2026-08-16T12:00:00.000Z",
+  latestImportId: null,
+  errorCode: null,
+};
+
+function macAgentRepository(
+  overrides: Partial<AngelListMacAgentRepository> = {},
+): AngelListMacAgentRepository {
+  return {
+    getOverview: vi.fn().mockResolvedValue(readyAgentOverview),
+    register: vi.fn().mockResolvedValue(readyAgentOverview),
+    configure: vi.fn().mockResolvedValue(readyAgentOverview),
+    requestRun: vi.fn().mockResolvedValue({
+      version: 1,
+      runId: "11111111-1111-4111-8111-111111111111",
+      status: "queued",
+    }),
+    lease: vi.fn().mockResolvedValue({
+      version: 1,
+      serverTime: "2026-08-09T12:00:00.000Z",
+      run: null,
+    }),
+    assertLease: vi.fn().mockResolvedValue(undefined),
+    complete: vi.fn().mockResolvedValue(readyAgentOverview),
+    fail: vi.fn().mockResolvedValue(readyAgentOverview),
+    ...overrides,
   };
 }
 
@@ -423,7 +466,7 @@ describe("Keel API", () => {
     );
   });
 
-  it("rejects an outside magic-link host without logging the submitted link", async () => {
+  it("does not expose the retired magic-link route or log its body", async () => {
     const submittedLink =
       "https://example.com/sign-in?token=synthetic-sensitive-link";
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
@@ -438,10 +481,7 @@ describe("Keel API", () => {
         testEnv("local"),
       );
 
-      expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({
-        error: "That AngelList magic link could not be opened.",
-      });
+      expect(response.status).toBe(404);
       expect(JSON.stringify(info.mock.calls)).not.toContain(submittedLink);
       expect(JSON.stringify(info.mock.calls)).not.toContain(
         "synthetic-sensitive-link",
@@ -806,5 +846,120 @@ describe("Keel API", () => {
 
     expect(response.status).toBe(400);
     expect(saveScenario).not.toHaveBeenCalled();
+  });
+
+  it("returns Mac agent status and queues a phone request", async () => {
+    const requestRun = vi
+      .fn<AngelListMacAgentRepository["requestRun"]>()
+      .mockResolvedValue({
+        version: 1,
+        runId: "11111111-1111-4111-8111-111111111111",
+        status: "queued",
+      });
+    const agentRepository = macAgentRepository({ requestRun });
+    const app = createApp({ angelListMacAgentRepository: agentRepository });
+
+    const status = await app.request(
+      "/api/automation/angellist/status",
+      undefined,
+      testEnv("local"),
+    );
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toEqual(readyAgentOverview);
+
+    const requested = await app.request(
+      "/api/automation/angellist/run",
+      { method: "POST" },
+      testEnv("local"),
+    );
+    expect(requested.status).toBe(202);
+    expect(requestRun).toHaveBeenCalledWith("synthetic-access-subject");
+  });
+
+  it("validates the Mac agent interval before repository access", async () => {
+    const configure = vi.fn<AngelListMacAgentRepository["configure"]>();
+    const response = await createApp({
+      angelListMacAgentRepository: macAgentRepository({ configure }),
+    }).request(
+      "/api/automation/angellist/mac-agent/config",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interval: "hourly" }),
+      },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(configure).not.toHaveBeenCalled();
+  });
+
+  it("stages a leased Mac export for review before completing the run", async () => {
+    const stageHoldingImport = vi
+      .fn<AlphaRepository["stageHoldingImport"]>()
+      .mockResolvedValue({ created: true, preview: holdingImportPreview });
+    const repository: AlphaRepository = {
+      getAlphaData: vi.fn(),
+      preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport,
+      getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
+      applyHoldingImport: vi.fn(),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    };
+    const assertLease = vi
+      .fn<AngelListMacAgentRepository["assertLease"]>()
+      .mockResolvedValue(undefined);
+    const complete = vi
+      .fn<AngelListMacAgentRepository["complete"]>()
+      .mockResolvedValue({
+        ...readyAgentOverview,
+        latestImportId: holdingImportPreview.id,
+      });
+    const agentRepository = macAgentRepository({ assertLease, complete });
+    const put = vi.fn().mockResolvedValue(undefined);
+    const env = {
+      ...testEnv("local"),
+      DOCUMENTS: { put } as unknown as R2Bucket,
+    };
+    const body = new FormData();
+    body.append(
+      "file",
+      new File([syntheticAngelListCsv()], "investments_2026_08_09.csv", {
+        type: "text/csv",
+      }),
+    );
+    const leaseToken = "a".repeat(43);
+
+    const response = await createApp({
+      angelListMacAgentRepository: agentRepository,
+      repository,
+    }).request(
+      "/api/automation/angellist/mac-agent/runs/11111111-1111-4111-8111-111111111111/complete",
+      {
+        method: "POST",
+        headers: { "X-Keel-Agent-Lease": leaseToken },
+        body,
+      },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(assertLease).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "11111111-1111-4111-8111-111111111111",
+      leaseToken,
+    );
+    expect(stageHoldingImport).toHaveBeenCalledOnce();
+    expect(complete).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "11111111-1111-4111-8111-111111111111",
+      leaseToken,
+      holdingImportPreview.id,
+    );
   });
 });

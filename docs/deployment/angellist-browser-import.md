@@ -1,155 +1,143 @@
-# Scheduled AngelList import
+# AngelList Mac agent
 
-Keel uses Cloudflare Browser Run to download the investments CSV from a
-dedicated read-only AngelList account. The Worker stores the private CSV in R2,
-stages a pending import in D1, and stops. Holdings change only after the user
-reviews the import in Keel.
+Keel uses a dedicated Chrome profile on the user's Mac to request AngelList's
+investments CSV. The Mac keeps the AngelList and Cloudflare Access sessions;
+neither browser cookies nor credentials are uploaded to Keel. Only the CSV is
+sent to the authenticated Keel API, where it enters the existing holding-import
+review flow.
 
-The recurring run is in Cloudflare, so the Mac can be asleep. A pending import
-appears on Holdings and has a durable `/holdings/imports/:id` route that can be
-opened or reloaded from a phone.
+Cloudflare Browser Run is retired for this workflow. The API Worker no longer
+needs a Browser Rendering binding, AngelList KV namespace, cron trigger, stored
+browser session, or AngelList-specific deployment secret.
 
 ## Trust boundary
 
-- Phone setup opens Cloudflare Live View. Passwords, two-factor codes, and other
-  sign-in input go directly to the short-lived remote browser, not to Keel.
-- If AngelList sends a magic link, Keel accepts it only in the authenticated
-  refresh request, navigates the remote browser, and immediately discards it.
-  The link is never written to KV, D1, R2, logs, or status. It exists only in
-  that request and the temporary remote browser, and disappears when that
-  browser closes on completion, cancellation, or expiry.
-- Refresh browsers run with recording disabled. Keel does not take screenshots.
-  Success, cancellation, and expiry close the remote browser; the ten-minute
-  Browser Run keep-alive is the cleanup fallback if a close cannot complete.
-- Only secure `angellist.com` browser state is accepted. Keel and unrelated
-  browser state are discarded.
-- The browser state is encrypted with AES-256-GCM before it is written to KV.
-  The encryption key is a Worker secret and is never stored in KV or Git.
-- The existing encrypted session remains in place until the remote browser is on
-  the exact AngelList origin and the exact **Export CSV** control is visible. A
-  failed, expired, or cancelled refresh cannot replace it.
-- The Worker checks the AngelList origin, the exact **Export CSV** control, a
-  safe `.csv` filename, the one-megabyte limit, and Keel's exact 23-column CSV
-  contract. A changed or expired session stops closed.
-- A downloaded export creates a review item. It never confirms currency, applies
-  a row, changes a holding, or changes a forecast in the background.
-- Logs and automation status contain only allowlisted status codes and opaque
-  import IDs. They never contain cookies, CSV cells, company names, or values.
+- The Chrome profile lives at
+  `~/Library/Application Support/Keel/AngelList Agent/Chrome` with owner-only
+  directory permissions.
+- Chrome's DevTools endpoint binds to loopback on a random nonzero port and uses
+  this non-default profile. It is not exposed to the network.
+- Credentials, passwords, magic links, 2FA codes, cookies, and local storage
+  stay in the dedicated Chrome profile. The user enters authentication directly
+  in Chrome.
+- The Mac agent uploads only a bounded AngelList CSV through the authenticated
+  Keel page. The API validates the file again before private R2 storage and D1
+  staging.
+- A completed agent run creates or reuses a pending holding import. It never
+  applies holdings or forecasts. The user must review the import in Keel.
+- D1 is canonical for registration, interval, heartbeat, run leases, failures,
+  and completion state. Lease tokens are short-lived and only their SHA-256
+  digests are stored.
 
-Browser Run identifies automated requests as bot traffic. Confirm the first live
-smoke succeeds before enabling the schedule.
+The local profile has the same practical risk as another signed-in Chrome
+profile on the Mac: malware or another process running as the same macOS user
+could attempt to inspect or control it. Full-disk encryption, a locked macOS
+account, and the dedicated read-only AngelList account remain required.
 
-## Protected preview rollout
+## One-time setup
 
-Create a dedicated preview KV namespace. Add its 32-character ID and the other
-automation values to the GitHub `preview` environment. The protected post-merge
-workflow generates the private Wrangler configuration; do not deploy this
-feature directly from a worktree.
+Prerequisites:
 
-| GitHub preview secret                       | Initial value                                                  |
-| ------------------------------------------- | -------------------------------------------------------------- |
-| `KEEL_PREVIEW_ANGELLIST_ACCESS_SUBJECT`     | The existing Keel Access subject that owns the household in D1 |
-| `KEEL_PREVIEW_ANGELLIST_AUTOMATION_ENABLED` | `false`                                                        |
-| `KEEL_PREVIEW_ANGELLIST_KV_ID`              | The dedicated preview KV namespace ID                          |
-| `KEEL_PREVIEW_ANGELLIST_SESSION_KEY`        | 32 random bytes encoded as unpadded base64url                  |
+- macOS with Google Chrome installed in `/Applications`;
+- a stable checkout of this repository with dependencies installed;
+- the read-only AngelList account with investments CSV export permission; and
+- a Keel user authorized by Cloudflare Access for the same household.
 
-The generated API configuration includes these bindings and the Monday hourly
-trigger:
+From the stable checkout, run:
 
-```jsonc
-"browser": { "binding": "ANGELLIST_BROWSER" },
-"kv_namespaces": [
-  { "binding": "ANGELLIST_AUTOMATION", "id": "<private KV id>" },
-],
-"triggers": { "crons": ["0 * * * 1"] },
-```
-
-The hourly Monday trigger accounts for daylight-saving changes. The Worker runs
-only when the local time in `America/Los_Angeles` is Monday at 09:00. Keeping
-the initial enable flag `false` makes the trigger a no-op during rollout.
-
-The deployment maps the GitHub values to these Worker secrets without putting
-their values in a checked-in file:
-
-- `ANGELLIST_ACCESS_SUBJECT`: the existing Keel Access subject that owns the
-  household in D1.
-- `ANGELLIST_SESSION_KEY`: 32 random bytes encoded as unpadded base64url.
-- `ANGELLIST_AUTOMATION_ENABLED`: set to `true` only after setup, when ready for
-  the first live smoke.
-
-Merge through the normal protected Keel release flow. Its authenticated resource
-smoke verifies D1, R2, Queue, KV, and the Browser Run binding without launching
-a browser session. Verify the exact merged SHA is live before session setup.
-
-## Sign in or refresh from a phone
-
-Open Keel on the phone and choose **Holdings**. In **AngelList sign-in**:
-
-1. Choose **Start sign-in**.
-2. Choose **Open AngelList sign-in** to open Cloudflare Live View in a new phone
-   tab. An unopened link expires after five minutes; Keel offers **Reopen
-   sign-in** while the ten-minute refresh window is still active.
-3. Sign in to the dedicated read-only AngelList account. If AngelList emails a
-   magic link, copy it, return to Keel, paste it into **Magic link from email**,
-   and choose **Open magic link**.
-4. When AngelList shows **Export CSV**, return to Keel. Keel verifies the page,
-   encrypts the filtered AngelList storage state, replaces the saved session,
-   and closes the remote browser.
-
-The window lasts up to ten minutes. **Cancel** and expiry leave the prior saved
-session unchanged. A Browser Run request still identifies itself as automated,
-so confirm the first live refresh against AngelList before depending on it.
-
-The refresh lifecycle is available only to the configured Cloudflare Access
-subject:
-
-- `POST /api/automation/angellist/sign-in-refreshes` starts or reopens the one
-  active refresh and returns a short-lived Live View URL.
-- `GET /api/automation/angellist/sign-in-refreshes/:id` verifies completion and
-  returns `waiting_for_sign_in`, `connected`, or `expired`.
-- `POST /api/automation/angellist/sign-in-refreshes/:id/magic-link` navigates a
-  validated HTTPS `angellist.com` link without retaining it.
-- `DELETE /api/automation/angellist/sign-in-refreshes/:id` returns `cancelled`
-  and closes the remote browser.
-
-Responses use `private, no-store`. The UI keeps the Live View URL only in page
-memory and remembers only the opaque refresh ID across a same-tab reload.
-
-## Mac fallback
-
-Run setup against the deployed Keel origin:
-
-```sh
+```bash
 pnpm angellist:setup -- --keel-url https://keel-preview.example.com
 ```
 
-A temporary Chrome profile opens. Sign in to the dedicated read-only AngelList
-account and wait for **Export CSV** to appear. Then sign in to Keel Access in
-the second tab. Keel uploads the filtered AngelList browser state directly to
-the authenticated API, which encrypts it before writing KV. The temporary
-profile is deleted when setup finishes.
+or:
 
-This fallback remains useful if Live View is unavailable or AngelList blocks the
-remote browser. Normal refreshes, scheduled exports, and review do not depend on
-the Mac.
+```bash
+make angellist-setup KEEL_URL=https://keel-preview.example.com
+```
 
-## Enable and run the first live smoke
+Setup opens the dedicated Chrome profile. Finish Cloudflare Access sign-in, then
+AngelList sign-in and any 2FA prompt in that window. Setup waits until the Keel
+API is authenticated and the exact `Export CSV` button is visible. It then
+registers the Mac in D1 and installs
+`~/Library/LaunchAgents/com.keel.angellist-agent.plist`.
 
-After setup succeeds, change the GitHub preview secret
-`KEEL_PREVIEW_ANGELLIST_AUTOMATION_ENABLED` to `true` and let the next protected
-deployment publish that Worker secret. Then invoke the authenticated
-`POST /api/automation/angellist/run` endpoint once from Keel's origin. This is
-the only step that launches Browser Run during rollout. A successful response is
-either:
+The LaunchAgent records only bounded operational events in:
 
-- `review_ready`: a new or still-pending export is available in Holdings.
-- `up_to_date`: the byte-identical export was already reviewed.
+- `~/Library/Logs/Keel/angellist-agent.log`
+- `~/Library/Logs/Keel/angellist-agent.error.log`
 
-Open Keel on a phone, choose Holdings, and review the pending import. Confirm
-that a reload of its `/holdings/imports/:id` URL returns to the same D1-backed
-review. Only then leave the weekly trigger enabled.
+The plist points to the checkout used during setup. Keep that checkout in place.
+Rerun setup after moving the repository, changing the Keel origin, or changing
+the Node/pnpm installation.
 
-`GET /api/automation/angellist/status` returns the most recent safe import
-status plus `signInStatus`. `needs_sign_in` means use the phone refresh or the
-Mac fallback. Other failures leave holdings unchanged and expose only an
-allowlisted error code.
+## Regular operation
+
+The background process keeps Chrome available and polls Keel every 30 seconds.
+It does not create scheduled work while the Mac is asleep or offline. When the
+Mac next polls, D1 creates a due scheduled run if needed.
+
+From Holdings, the user can:
+
+- choose daily, weekly, or off;
+- request `Run now` from a phone or desktop; and
+- see Mac availability, last completion, next scheduled date, and bounded
+  attention states.
+
+`Run now` is safe when the Mac is offline: one active run remains queued until
+the Mac returns. A lease lasts five minutes. Completion or failure advances the
+next scheduled date so a broken sign-in cannot create a tight retry loop.
+
+When AngelList or Keel authentication expires, the Holdings screen directs the
+user to the dedicated Chrome window on the Mac. Complete sign-in and request
+another run. A failed attempt never replaces a previously staged import or
+changes accepted holdings.
+
+## API routes
+
+All routes require the normal user Cloudflare Access identity. Service-token
+identities remain restricted to the deployment smoke route.
+
+| Method | Route                                                      | Purpose                                                |
+| ------ | ---------------------------------------------------------- | ------------------------------------------------------ |
+| `GET`  | `/api/automation/angellist/status`                         | Household-scoped overview for Holdings                 |
+| `POST` | `/api/automation/angellist/run`                            | Queue one manual run; idempotent while a run is active |
+| `POST` | `/api/automation/angellist/mac-agent/register`             | Register or heartbeat the authenticated Mac            |
+| `PUT`  | `/api/automation/angellist/mac-agent/config`               | Set `daily`, `weekly`, or `off`                        |
+| `POST` | `/api/automation/angellist/mac-agent/lease`                | Heartbeat and lease one queued or due run              |
+| `POST` | `/api/automation/angellist/mac-agent/runs/:runId/complete` | Validate and stage one leased CSV                      |
+| `POST` | `/api/automation/angellist/mac-agent/runs/:runId/fail`     | Record one bounded failure code                        |
+
+The complete and fail routes require the raw lease token in
+`X-Keel-Agent-Lease`. The CSV route accepts exactly one `file` multipart field
+and retains the existing 1 MB and 500-row bounds.
+
+## Deployment and verification
+
+Migration `0009_angellist_mac_agent.sql` creates one agent per household and an
+operational run history. Preview deployment still follows the normal encrypted
+D1 backup, forward-only migration, API-before-web, and protected smoke order.
+The smoke now checks D1, R2, Queue, and exact Worker metadata; it no longer
+checks unused Browser Run or KV resources.
+
+Before release:
+
+```bash
+make verify
+```
+
+Live acceptance is not complete until the real read-only account signs in from
+the dedicated Chrome profile, an exact `Export CSV` click succeeds, the CSV
+appears as a pending Keel import, and Holdings remains unchanged until review.
+
+## Disable or reinstall
+
+Choose `Off` in Holdings to stop automatic runs while preserving phone-triggered
+`Run now`. To remove the background process entirely, unload and delete only
+`~/Library/LaunchAgents/com.keel.angellist-agent.plist`; the dedicated Chrome
+profile can then be archived or deleted separately after confirming no sign-in
+needs to be retained.
+
+Cloudflare Browser Run resources created for the retired design are not
+referenced by the Worker after this release. They may be removed from the
+Cloudflare account after preview deployment evidence confirms the new Worker has
+no Browser Rendering or AngelList KV binding.

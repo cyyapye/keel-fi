@@ -45,10 +45,6 @@ export const PreviewDeploymentEnvironmentSchema = z.object({
   CLOUDFLARE_ACCOUNT_ID: CloudflareAccountIdSchema,
   CLOUDFLARE_API_TOKEN: z.string().min(20),
   GITHUB_SHA: GitShaSchema,
-  KEEL_PREVIEW_ANGELLIST_ACCESS_SUBJECT: z.string().min(1).max(512),
-  KEEL_PREVIEW_ANGELLIST_AUTOMATION_ENABLED: z.enum(["true", "false"]),
-  KEEL_PREVIEW_ANGELLIST_KV_ID: CloudflareAccountIdSchema,
-  KEEL_PREVIEW_ANGELLIST_SESSION_KEY: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   KEEL_PREVIEW_ACCESS_AUD: z.string().min(8).max(256),
   KEEL_PREVIEW_ACCESS_CLIENT_ID: z.string().min(16).max(512),
   KEEL_PREVIEW_ACCESS_CLIENT_SECRET: z.string().min(32).max(1024),
@@ -67,9 +63,6 @@ export const PreviewDeploymentEnvironmentSchema = z.object({
 });
 
 const PreviewApiSecretsEnvironmentSchema = z.object({
-  KEEL_PREVIEW_ANGELLIST_ACCESS_SUBJECT: z.string().min(1).max(512),
-  KEEL_PREVIEW_ANGELLIST_AUTOMATION_ENABLED: z.enum(["true", "false"]),
-  KEEL_PREVIEW_ANGELLIST_SESSION_KEY: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   KEEL_PREVIEW_ACCESS_AUD: z.string().min(8).max(256),
   KEEL_PREVIEW_ACCESS_TEAM_DOMAIN: HostnameSchema,
   KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN: z.string().min(32).max(1024),
@@ -101,23 +94,8 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
     },
     secrets: {
-      required: [
-        "ACCESS_AUD",
-        "ACCESS_TEAM_DOMAIN",
-        "ANGELLIST_ACCESS_SUBJECT",
-        "ANGELLIST_AUTOMATION_ENABLED",
-        "ANGELLIST_SESSION_KEY",
-        "DEPLOYMENT_SMOKE_TOKEN",
-      ],
+      required: ["ACCESS_AUD", "ACCESS_TEAM_DOMAIN", "DEPLOYMENT_SMOKE_TOKEN"],
     },
-    browser: { binding: "ANGELLIST_BROWSER" },
-    kv_namespaces: [
-      {
-        binding: "ANGELLIST_AUTOMATION",
-        id: configuration.KEEL_PREVIEW_ANGELLIST_KV_ID,
-      },
-    ],
-    triggers: { crons: ["0 * * * 1"] },
     version_metadata: { binding: "CF_VERSION_METADATA" },
     d1_databases: [
       {
@@ -261,11 +239,6 @@ export async function writePreviewApiSecrets(
       {
         ACCESS_AUD: configuration.KEEL_PREVIEW_ACCESS_AUD,
         ACCESS_TEAM_DOMAIN: configuration.KEEL_PREVIEW_ACCESS_TEAM_DOMAIN,
-        ANGELLIST_ACCESS_SUBJECT:
-          configuration.KEEL_PREVIEW_ANGELLIST_ACCESS_SUBJECT,
-        ANGELLIST_AUTOMATION_ENABLED:
-          configuration.KEEL_PREVIEW_ANGELLIST_AUTOMATION_ENABLED,
-        ANGELLIST_SESSION_KEY: configuration.KEEL_PREVIEW_ANGELLIST_SESSION_KEY,
         DEPLOYMENT_SMOKE_TOKEN:
           configuration.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN,
       },

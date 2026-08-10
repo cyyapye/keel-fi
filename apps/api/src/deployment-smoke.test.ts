@@ -16,7 +16,6 @@ function deploymentEnv(): {
   env: Env;
   deleteObject: ReturnType<typeof vi.fn>;
   getObject: ReturnType<typeof vi.fn>;
-  getKv: ReturnType<typeof vi.fn>;
   headObject: ReturnType<typeof vi.fn>;
   putObject: ReturnType<typeof vi.fn>;
   queueSend: ReturnType<typeof vi.fn>;
@@ -31,14 +30,10 @@ function deploymentEnv(): {
   const deleteObject = vi.fn(() => Promise.resolve());
   const headObject = vi.fn(() => Promise.resolve(null));
   const queueSend = vi.fn(() => Promise.resolve());
-  const getKv = vi.fn(() => Promise.resolve(null));
-
   return {
     env: {
       ACCESS_AUD: "synthetic-access-audience",
       ACCESS_TEAM_DOMAIN: "access.example.com",
-      ANGELLIST_AUTOMATION: { get: getKv } as unknown as KVNamespace,
-      ANGELLIST_BROWSER: { fetch },
       CF_VERSION_METADATA: {
         id: "api-version-1",
         tag: deployedGitSha,
@@ -60,7 +55,6 @@ function deploymentEnv(): {
     },
     deleteObject,
     getObject,
-    getKv,
     headObject,
     putObject,
     queueSend,
@@ -80,7 +74,7 @@ describe("preview deployment smoke", () => {
     ).resolves.toBe(false);
   });
 
-  it("verifies Browser Run, D1, KV, transient R2, Queue, and deployment metadata", async () => {
+  it("verifies D1, transient R2, Queue, and deployment metadata", async () => {
     const bindings = deploymentEnv();
 
     await expect(runDeploymentSmoke(bindings.env)).resolves.toEqual({
@@ -89,11 +83,10 @@ describe("preview deployment smoke", () => {
       deployedGitSha,
       workerVersionId: "api-version-1",
       workerVersionTag: deployedGitSha,
-      checks: { browser: true, d1: true, kv: true, queue: true, r2: true },
+      checks: { d1: true, queue: true, r2: true },
     });
     expect(bindings.putObject).toHaveBeenCalledTimes(1);
     expect(bindings.getObject).toHaveBeenCalledTimes(1);
-    expect(bindings.getKv).toHaveBeenCalledTimes(1);
     expect(bindings.deleteObject).toHaveBeenCalledTimes(1);
     expect(bindings.headObject).toHaveBeenCalledTimes(1);
     expect(bindings.queueSend).toHaveBeenCalledWith(

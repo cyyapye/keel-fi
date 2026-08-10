@@ -1529,6 +1529,133 @@ h1,
   line-height: 1.55;
 }
 
+.angellist-agent {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  gap: 48px;
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.angellist-agent__heading h2 {
+  margin-bottom: 8px;
+  font-size: clamp(20px, 2.4vw, 28px);
+  font-weight: 630;
+  letter-spacing: -0.04em;
+}
+
+.angellist-agent__heading > p:last-child,
+.angellist-agent__notice,
+.angellist-agent__error,
+.angellist-agent__setup small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.angellist-agent__action {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  justify-items: end;
+  gap: 14px;
+}
+
+.angellist-agent__controls {
+  display: flex;
+  width: min(100%, 440px);
+  align-items: end;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.angellist-agent__controls label {
+  display: grid;
+  min-width: 150px;
+  gap: 7px;
+}
+
+.angellist-agent__controls label > span,
+.angellist-agent__meta dt {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.angellist-agent__controls select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 24px 0 0;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.angellist-agent__setup {
+  display: grid;
+  width: min(100%, 560px);
+  justify-items: start;
+  gap: 10px;
+}
+
+.angellist-agent__setup code {
+  max-width: 100%;
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 9px;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.angellist-agent__meta {
+  display: flex;
+  width: min(100%, 440px);
+  justify-content: flex-end;
+  gap: 24px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.angellist-agent__meta div {
+  display: grid;
+  gap: 4px;
+}
+
+.angellist-agent__meta dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.angellist-agent__checking {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.angellist-agent__notice,
+.angellist-agent__error {
+  width: min(100%, 440px);
+  text-align: right;
+}
+
+.angellist-agent__error {
+  color: var(--ink);
+}
+
+.angellist-agent + .holding-import-pending {
+  border-top: 0;
+}
+
 .angellist-sign-in {
   display: grid;
   grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
@@ -3344,6 +3471,46 @@ h1,
     gap: 28px;
     padding-right: 0;
     padding-left: 0;
+  }
+
+  .angellist-agent {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 20px 0;
+  }
+
+  .angellist-agent__action,
+  .angellist-agent__controls,
+  .angellist-agent__meta,
+  .angellist-agent__setup {
+    width: 100%;
+  }
+
+  .angellist-agent__action {
+    justify-items: stretch;
+  }
+
+  .angellist-agent__controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .angellist-agent__controls > .button,
+  .angellist-agent__setup > .button {
+    width: 100%;
+  }
+
+  .angellist-agent__meta {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-content: stretch;
+    gap: 12px;
+  }
+
+  .angellist-agent__notice,
+  .angellist-agent__error {
+    width: 100%;
+    text-align: left;
   }
 
   .angellist-sign-in {

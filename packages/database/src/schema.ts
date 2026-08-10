@@ -1067,6 +1067,73 @@ export const connectorSyncRuns = sqliteTable(
   ],
 );
 
+export const angelListMacAgents = sqliteTable(
+  "angellist_mac_agents",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    registeredByUserId: text("registered_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    interval: text("interval").notNull(),
+    lastSeenAt: timestamp("last_seen_at"),
+    lastCompletedAt: text("last_completed_at"),
+    nextRunAt: text("next_run_at"),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("angellist_mac_agents_household_unique").on(table.householdId),
+    check(
+      "angellist_mac_agents_interval_check",
+      sql`${table.interval} IN ('off', 'daily', 'weekly')`,
+    ),
+  ],
+);
+
+export const angelListMacRuns = sqliteTable(
+  "angellist_mac_runs",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => angelListMacAgents.id, { onDelete: "restrict" }),
+    requestedByUserId: text("requested_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    requestKind: text("request_kind").notNull(),
+    status: text("status").notNull(),
+    leaseTokenSha256: text("lease_token_sha256"),
+    leaseExpiresAt: text("lease_expires_at"),
+    importId: text("import_id").references(() => holdingImports.id, {
+      onDelete: "restrict",
+    }),
+    errorCode: text("error_code"),
+    requestedAt: timestamp("requested_at"),
+    startedAt: text("started_at"),
+    finishedAt: text("finished_at"),
+  },
+  (table) => [
+    uniqueIndex("angellist_mac_runs_active_agent_unique")
+      .on(table.agentId)
+      .where(sql`${table.status} IN ('queued', 'leased')`),
+    index("angellist_mac_runs_household_requested_idx").on(
+      table.householdId,
+      table.requestedAt,
+    ),
+    check(
+      "angellist_mac_runs_request_kind_check",
+      sql`${table.requestKind} IN ('manual', 'schedule')`,
+    ),
+    check(
+      "angellist_mac_runs_status_check",
+      sql`${table.status} IN ('queued', 'leased', 'completed', 'failed')`,
+    ),
+  ],
+);
+
 export const holdingImports = sqliteTable(
   "holding_imports",
   {
