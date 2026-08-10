@@ -43,6 +43,9 @@ snapshot.
 - Synthetic Portfolio Watch monitoring that retains public observations,
   separates directly reported facts from valuation inference, and sends every
   proposal through the existing review boundary.
+- Optional macOS-assisted AngelList CSV download and staging with a dedicated
+  local Chrome profile. Automatic checks run daily, an immediate local command
+  is available, and every import still requires review.
 - Cloudflare Access JWT validation that fails closed outside explicit local
   mode.
 - D1 migrations, private R2/Queues interfaces, synthetic seed data, CI,
@@ -65,7 +68,9 @@ docs/           product, architecture, security, and deployment decisions
 ```
 
 See [the architecture overview](docs/architecture/overview.md) and
-[Cloudflare ADR](docs/architecture/adr-001-cloudflare-private-alpha.md).
+[Cloudflare ADR](docs/architecture/adr-001-cloudflare-private-alpha.md). The
+optional AngelList workflow is documented in the
+[Mac agent runbook](docs/deployment/angellist-browser-import.md).
 
 ## Local development
 

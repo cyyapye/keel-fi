@@ -13,7 +13,7 @@ import {
 } from "@keel/domain";
 
 const DEFAULT_INTERVAL: AngelListMacAgentInterval = "weekly";
-const OFFLINE_AFTER_MS = 2 * 60 * 1_000;
+const OFFLINE_AFTER_MS = 36 * 60 * 60 * 1_000;
 const LEASE_DURATION_MS = 5 * 60 * 1_000;
 
 type HouseholdIdentity = {

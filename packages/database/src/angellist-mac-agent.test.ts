@@ -174,6 +174,26 @@ describe("AngelList Mac agent repository", () => {
     ).toEqual({ review_status: "pending_review" });
   });
 
+  it("allows a daily-check grace period before reporting the Mac overdue", async () => {
+    database = createTestDatabase();
+    let now = new Date("2026-08-09T12:00:00.000Z");
+    const repository = new D1AngelListMacAgentRepository(
+      new TestD1Database(database) as unknown as D1Database,
+      () => now,
+    );
+
+    await repository.register("synthetic-access-subject");
+    now = new Date("2026-08-10T18:00:00.000Z");
+    await expect(
+      repository.getOverview("synthetic-access-subject"),
+    ).resolves.toMatchObject({ status: "ready" });
+
+    now = new Date("2026-08-11T01:00:00.001Z");
+    await expect(
+      repository.getOverview("synthetic-access-subject"),
+    ).resolves.toMatchObject({ status: "offline" });
+  });
+
   it("records a bounded failure and rejects a wrong lease token", async () => {
     database = createTestDatabase();
     const now = new Date("2026-08-09T12:00:00.000Z");
