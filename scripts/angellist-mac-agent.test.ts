@@ -4,6 +4,24 @@ import { MAX_ANGELLIST_CSV_BYTES } from "../packages/connectors/src/index";
 import { __angellistMacAgentTest } from "./angellist-mac-agent";
 
 describe("AngelList Mac agent boundaries", () => {
+  it("makes the setup Node binary available to pnpm under launchd", () => {
+    const plist = __angellistMacAgentTest.buildLaunchAgentPlist({
+      keelOrigin: new URL("https://keel-preview.example.com"),
+      logDirectory: "/Users/synthetic/Library/Logs/Keel",
+      nodeExecutable: "/opt/keel-node/bin/node",
+      pnpmCli: "/opt/keel-pnpm/bin/pnpm.mjs",
+      repositoryRoot: "/Users/synthetic/keel-fi",
+      scriptPath: "/Users/synthetic/keel-fi/scripts/angellist-mac-agent.ts",
+    });
+
+    expect(plist).toContain("<key>EnvironmentVariables</key>");
+    expect(plist).toContain("<key>PATH</key>");
+    expect(plist).toContain(
+      "<string>/opt/keel-node/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>",
+    );
+    expect(plist).toContain("<string>/opt/keel-node/bin/node</string>");
+  });
+
   it("accepts only an explicit Keel HTTP(S) origin", () => {
     const options = __angellistMacAgentTest.parseOptions([
       "setup",

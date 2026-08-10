@@ -495,6 +495,70 @@ function xml(value: string): string {
     .replaceAll("'", "&apos;");
 }
 
+type LaunchAgentPlistOptions = {
+  keelOrigin: URL;
+  logDirectory: string;
+  nodeExecutable: string;
+  pnpmCli: string;
+  repositoryRoot: string;
+  scriptPath: string;
+};
+
+function buildLaunchAgentPlist(options: LaunchAgentPlistOptions): string {
+  const arguments_ = [
+    options.nodeExecutable,
+    options.pnpmCli,
+    "exec",
+    "tsx",
+    options.scriptPath,
+    "serve",
+    "--keel-url",
+    options.keelOrigin.origin,
+  ];
+  const argumentXml = arguments_
+    .map((argument) => `      <string>${xml(argument)}</string>`)
+    .join("\n");
+  const environmentPath = [
+    path.dirname(options.nodeExecutable),
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+  ].join(path.delimiter);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>${LAUNCH_AGENT_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+${argumentXml}
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>${xml(environmentPath)}</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>${xml(options.repositoryRoot)}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>${xml(path.join(options.logDirectory, "angellist-agent.log"))}</string>
+    <key>StandardErrorPath</key>
+    <string>${xml(path.join(options.logDirectory, "angellist-agent.error.log"))}</string>
+  </dict>
+</plist>
+`;
+}
+
 async function installLaunchAgent(keelOrigin: URL): Promise<void> {
   if (process.platform !== "darwin") {
     throw new Error("The background agent installer currently supports macOS.");
@@ -509,46 +573,14 @@ async function installLaunchAgent(keelOrigin: URL): Promise<void> {
   const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
   await mkdir(path.dirname(LAUNCH_AGENT_PATH), { recursive: true });
   await mkdir(LOG_DIRECTORY, { mode: 0o700, recursive: true });
-  const arguments_ = [
-    process.execPath,
+  const plist = buildLaunchAgentPlist({
+    keelOrigin,
+    logDirectory: LOG_DIRECTORY,
+    nodeExecutable: process.execPath,
     pnpmCli,
-    "exec",
-    "tsx",
+    repositoryRoot,
     scriptPath,
-    "serve",
-    "--keel-url",
-    keelOrigin.origin,
-  ];
-  const argumentXml = arguments_
-    .map((argument) => `      <string>${xml(argument)}</string>`)
-    .join("\n");
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>${LAUNCH_AGENT_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-${argumentXml}
-    </array>
-    <key>WorkingDirectory</key>
-    <string>${xml(repositoryRoot)}</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>ProcessType</key>
-    <string>Background</string>
-    <key>ThrottleInterval</key>
-    <integer>30</integer>
-    <key>StandardOutPath</key>
-    <string>${xml(path.join(LOG_DIRECTORY, "angellist-agent.log"))}</string>
-    <key>StandardErrorPath</key>
-    <string>${xml(path.join(LOG_DIRECTORY, "angellist-agent.error.log"))}</string>
-  </dict>
-</plist>
-`;
+  });
   await writeFile(LAUNCH_AGENT_PATH, plist, { mode: 0o600 });
   await chmod(LAUNCH_AGENT_PATH, 0o600);
 
@@ -635,6 +667,7 @@ async function main(): Promise<void> {
 }
 
 export const __angellistMacAgentTest = {
+  buildLaunchAgentPlist,
   parseOptions,
   readDownload,
   validateFilename,
