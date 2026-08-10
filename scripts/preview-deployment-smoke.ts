@@ -37,6 +37,13 @@ type FetchLike = (
 
 type Delay = (milliseconds: number) => Promise<void>;
 
+class DeploymentVersionMismatch extends Error {}
+
+type EventuallyOptions = {
+  attempts?: number;
+  shouldRetry?: (error: unknown) => boolean;
+};
+
 function accessHeaders(configuration: PreviewSmokeEnvironment): Headers {
   return new Headers({
     "CF-Access-Client-Id": configuration.KEEL_PREVIEW_ACCESS_CLIENT_ID,
@@ -74,16 +81,20 @@ async function parseJson(response: Response, label: string): Promise<unknown> {
 async function eventually<T>(
   operation: () => Promise<T>,
   delay: Delay,
-  attempts = 12,
+  options: EventuallyOptions = {},
 ): Promise<T> {
+  const attempts = options.attempts ?? 12;
+  const shouldRetry = options.shouldRetry ?? (() => true);
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await operation();
     } catch (error) {
       lastError = error;
-      if (attempt < attempts) {
+      if (attempt < attempts && shouldRetry(error)) {
         await delay(5_000);
+      } else {
+        break;
       }
     }
   }
@@ -176,21 +187,32 @@ export async function runPreviewDeploymentSmoke(
     "X-Keel-Deployment-Smoke-Token",
     configuration.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN,
   );
-  const resourceResponse = await request(
-    fetchImplementation,
-    new URL("/api/deployment-smoke", baseUrl),
-    { method: "POST", headers: resourceHeaders },
+  await eventually(
+    async () => {
+      const resourceResponse = await request(
+        fetchImplementation,
+        new URL("/api/deployment-smoke", baseUrl),
+        { method: "POST", headers: resourceHeaders },
+      );
+      const resourceSmoke = DeploymentSmokeResultSchema.parse(
+        await parseJson(resourceResponse, "Resource smoke"),
+      );
+      if (
+        resourceSmoke.deployedGitSha !== configuration.GITHUB_SHA ||
+        resourceSmoke.workerVersionId !== configuration.KEEL_API_VERSION_ID ||
+        resourceSmoke.workerVersionTag !== configuration.GITHUB_SHA
+      ) {
+        throw new DeploymentVersionMismatch(
+          "Resource smoke reached a different API deployment.",
+        );
+      }
+    },
+    delay,
+    {
+      attempts: 3,
+      shouldRetry: (error) => error instanceof DeploymentVersionMismatch,
+    },
   );
-  const resourceSmoke = DeploymentSmokeResultSchema.parse(
-    await parseJson(resourceResponse, "Resource smoke"),
-  );
-  if (
-    resourceSmoke.deployedGitSha !== configuration.GITHUB_SHA ||
-    resourceSmoke.workerVersionId !== configuration.KEEL_API_VERSION_ID ||
-    resourceSmoke.workerVersionTag !== configuration.GITHUB_SHA
-  ) {
-    throw new Error("Resource smoke reached a different API deployment.");
-  }
 
   console.info(`Preview smokes passed for ${configuration.GITHUB_SHA}.`);
 }
