@@ -1,5 +1,14 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -14,8 +23,10 @@ import {
 } from "../packages/domain/src/index";
 import {
   chromium,
+  type Browser,
   type BrowserContext,
-  type Download,
+  type CDPSession,
+  type ConnectOverCDPOptions,
   type Page,
 } from "@playwright/test";
 import { z } from "zod";
@@ -30,6 +41,7 @@ const APP_DIRECTORY = path.join(
 );
 const PROFILE_DIRECTORY = path.join(APP_DIRECTORY, "Chrome");
 const DEVTOOLS_ACTIVE_PORT = path.join(PROFILE_DIRECTORY, "DevToolsActivePort");
+const DOWNLOAD_DIRECTORY_PREFIX = path.join(APP_DIRECTORY, "Downloads-");
 const LAUNCH_AGENT_LABEL = "com.keel.angellist-agent";
 const LAUNCH_AGENT_PATH = path.join(
   os.homedir(),
@@ -43,6 +55,7 @@ const CHROME_PATH =
 const SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
 const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
+const DOWNLOAD_TIMEOUT_MS = 60_000;
 
 type Command = "once" | "run" | "serve" | "setup";
 
@@ -154,16 +167,116 @@ async function ensureChrome(): Promise<number> {
   throw new Error("Keel could not start the dedicated Chrome profile.");
 }
 
-async function connectContext(): Promise<BrowserContext> {
-  const port = await ensureChrome();
-  const browser = await chromium.connectOverCDP(
-    `http://127.0.0.1:${port.toString()}`,
-  );
+type ConnectOverCDP = (
+  endpointUrl: string,
+  options?: ConnectOverCDPOptions,
+) => Promise<Browser>;
+
+type CapturedDownload = {
+  guid: string;
+  suggestedFilename: string;
+};
+
+type DownloadCapture = {
+  cancel: () => void;
+  result: Promise<CapturedDownload>;
+};
+
+async function connectContext(
+  getPort: () => Promise<number> = ensureChrome,
+  connectOverCDP: ConnectOverCDP = (endpointUrl, options) =>
+    chromium.connectOverCDP(endpointUrl, options),
+): Promise<BrowserContext> {
+  const port = await getPort();
+  const browser = await connectOverCDP(`http://127.0.0.1:${port.toString()}`, {
+    noDefaults: true,
+  });
   const context = browser.contexts()[0];
   if (context === undefined) {
     throw new Error("The dedicated Chrome profile is unavailable.");
   }
   return context;
+}
+
+async function configureDownloads(
+  session: CDPSession,
+  downloadDirectory: string,
+): Promise<void> {
+  await session.send("Browser.setDownloadBehavior", {
+    behavior: "allowAndName",
+    downloadPath: downloadDirectory,
+    eventsEnabled: true,
+  });
+}
+
+async function resetDownloads(session: CDPSession): Promise<void> {
+  await session.send("Browser.setDownloadBehavior", {
+    behavior: "default",
+    eventsEnabled: false,
+  });
+}
+
+function captureNextDownload(
+  session: CDPSession,
+  timeoutMs = DOWNLOAD_TIMEOUT_MS,
+): DownloadCapture {
+  let settled = false;
+  let current: CapturedDownload | null = null;
+  let cancel: () => void = () => undefined;
+  const result = new Promise<CapturedDownload>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      session.off("Browser.downloadWillBegin", onDownloadWillBegin);
+      session.off("Browser.downloadProgress", onDownloadProgress);
+    };
+    const finish = (action: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      action();
+    };
+    const onDownloadWillBegin = (event: {
+      guid: string;
+      suggestedFilename: string;
+    }) => {
+      if (current !== null) {
+        return;
+      }
+      const guid = z.uuid().safeParse(event.guid);
+      if (!guid.success) {
+        finish(() => reject(new AgentFailure("download_failed")));
+        return;
+      }
+      current = {
+        guid: guid.data,
+        suggestedFilename: event.suggestedFilename,
+      };
+    };
+    const onDownloadProgress = (event: {
+      guid: string;
+      state: "canceled" | "completed" | "inProgress";
+    }) => {
+      const download = current;
+      if (download === null || event.guid !== download.guid) {
+        return;
+      }
+      if (event.state === "canceled") {
+        finish(() => reject(new AgentFailure("download_failed")));
+      } else if (event.state === "completed") {
+        finish(() => resolve(download));
+      }
+    };
+    const timeout = setTimeout(
+      () => finish(() => reject(new AgentFailure("download_failed"))),
+      timeoutMs,
+    );
+    session.on("Browser.downloadWillBegin", onDownloadWillBegin);
+    session.on("Browser.downloadProgress", onDownloadProgress);
+    cancel = () => finish(() => reject(new AgentFailure("download_failed")));
+  });
+  return { cancel, result };
 }
 
 function pageAtOrigin(context: BrowserContext, origin: string): Page | null {
@@ -370,6 +483,17 @@ async function readDownload(download: {
   return bytes;
 }
 
+async function readCapturedDownload(
+  downloadDirectory: string,
+  guid: string,
+): Promise<Uint8Array> {
+  return readDownload({
+    failure: () => Promise.resolve(null),
+    createReadStream: () =>
+      Promise.resolve(createReadStream(path.join(downloadDirectory, guid))),
+  });
+}
+
 function base64(bytes: Uint8Array): string {
   let binary = "";
   bytes.forEach((byte) => {
@@ -449,7 +573,8 @@ async function executeRun(
   page: Page,
   run: NonNullable<AngelListMacAgentLease["run"]>,
 ): Promise<void> {
-  let download: Download | null = null;
+  let downloadDirectory: string | null = null;
+  let downloadSession: CDPSession | null = null;
   try {
     const target = await angelListPage(context);
     const exportButton = target.getByRole("button", {
@@ -464,21 +589,45 @@ async function executeRun(
       await target.bringToFront();
       throw new AgentFailure("angellist_sign_in_required");
     }
-    const downloadPromise = target.waitForEvent("download", {
-      timeout: 60_000,
-    });
-    await exportButton.click({ timeout: 15_000 });
-    download = await downloadPromise;
-    const filename = validateFilename(download.suggestedFilename());
-    const bytes = await readDownload(download);
+    const browser = context.browser();
+    if (browser === null) {
+      throw new AgentFailure("download_failed");
+    }
+    downloadDirectory = await mkdtemp(DOWNLOAD_DIRECTORY_PREFIX);
+    await chmod(downloadDirectory, 0o700);
+    downloadSession = await browser.newBrowserCDPSession();
+    try {
+      await configureDownloads(downloadSession, downloadDirectory);
+    } catch {
+      throw new AgentFailure("download_failed");
+    }
+    const capture = captureNextDownload(downloadSession);
+    let download: CapturedDownload;
+    try {
+      await exportButton.click({ timeout: 15_000 });
+      download = await capture.result;
+    } finally {
+      capture.cancel();
+      await capture.result.catch(() => undefined);
+    }
+    const filename = validateFilename(download.suggestedFilename);
+    const bytes = await readCapturedDownload(downloadDirectory, download.guid);
     await uploadCompletion(page, run, filename, bytes);
-    await download.delete().catch(() => undefined);
   } catch (error) {
-    await download?.delete().catch(() => undefined);
     const code =
       error instanceof AgentFailure ? error.code : "unexpected_failure";
     await reportFailure(page, run, code);
     throw error instanceof AgentFailure ? error : new AgentFailure(code);
+  } finally {
+    if (downloadSession !== null) {
+      await resetDownloads(downloadSession).catch(() => undefined);
+      await downloadSession.detach().catch(() => undefined);
+    }
+    if (downloadDirectory !== null) {
+      await rm(downloadDirectory, { force: true, recursive: true }).catch(
+        () => undefined,
+      );
+    }
   }
 }
 
@@ -698,8 +847,12 @@ async function main(): Promise<void> {
 
 export const __angellistMacAgentTest = {
   buildLaunchAgentPlist,
+  captureNextDownload,
+  configureDownloads,
+  connectContext,
   parseOptions,
   readDownload,
+  resetDownloads,
   validateFilename,
 };
 

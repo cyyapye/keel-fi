@@ -1,9 +1,97 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { MAX_ANGELLIST_CSV_BYTES } from "../packages/connectors/src/index";
 import { __angellistMacAgentTest } from "./angellist-mac-agent";
 
 describe("AngelList Mac agent boundaries", () => {
+  it("does not override download behavior when attaching to existing Chrome", async () => {
+    const context = {};
+    const connectOverCDP = vi.fn().mockResolvedValue({
+      contexts: () => [context],
+    });
+
+    await expect(
+      __angellistMacAgentTest.connectContext(
+        () => Promise.resolve(50_576),
+        connectOverCDP,
+      ),
+    ).resolves.toBe(context);
+    expect(connectOverCDP).toHaveBeenCalledWith("http://127.0.0.1:50576", {
+      noDefaults: true,
+    });
+  });
+
+  it("enables browser-level downloads without a browser context id", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const session = {
+      send,
+    } as unknown as Parameters<
+      typeof __angellistMacAgentTest.configureDownloads
+    >[0];
+
+    await __angellistMacAgentTest.configureDownloads(
+      session,
+      "/tmp/keel-synthetic-downloads",
+    );
+
+    expect(send).toHaveBeenCalledWith("Browser.setDownloadBehavior", {
+      behavior: "allowAndName",
+      downloadPath: "/tmp/keel-synthetic-downloads",
+      eventsEnabled: true,
+    });
+    expect(send.mock.calls[0]?.[1]).not.toHaveProperty("browserContextId");
+  });
+
+  it("restores Chrome's default download behavior after a run", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const session = {
+      send,
+    } as unknown as Parameters<
+      typeof __angellistMacAgentTest.resetDownloads
+    >[0];
+
+    await __angellistMacAgentTest.resetDownloads(session);
+
+    expect(send).toHaveBeenCalledWith("Browser.setDownloadBehavior", {
+      behavior: "default",
+      eventsEnabled: false,
+    });
+  });
+
+  it("captures a completed browser-level download and removes its listeners", async () => {
+    type Listener = (event: unknown) => void;
+    const listeners = new Map<string, Set<Listener>>();
+    const on = vi.fn((event: string, listener: Listener) => {
+      const eventListeners = listeners.get(event) ?? new Set<Listener>();
+      eventListeners.add(listener);
+      listeners.set(event, eventListeners);
+    });
+    const off = vi.fn((event: string, listener: Listener) => {
+      listeners.get(event)?.delete(listener);
+    });
+    const session = { off, on } as unknown as Parameters<
+      typeof __angellistMacAgentTest.captureNextDownload
+    >[0];
+    const capture = __angellistMacAgentTest.captureNextDownload(session, 1_000);
+    const guid = "00000000-0000-4000-8000-000000000001";
+
+    listeners.get("Browser.downloadWillBegin")?.forEach((listener) =>
+      listener({
+        guid,
+        suggestedFilename: "keel-synthetic.csv",
+      }),
+    );
+    listeners
+      .get("Browser.downloadProgress")
+      ?.forEach((listener) => listener({ guid, state: "completed" }));
+
+    await expect(capture.result).resolves.toEqual({
+      guid,
+      suggestedFilename: "keel-synthetic.csv",
+    });
+    expect(off).toHaveBeenCalledTimes(2);
+  });
+
   it("makes the setup Node binary available to pnpm under launchd", () => {
     const plist = __angellistMacAgentTest.buildLaunchAgentPlist({
       keelOrigin: new URL("https://keel-preview.example.com"),
