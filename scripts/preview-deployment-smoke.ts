@@ -3,6 +3,8 @@ import { pathToFileURL } from "node:url";
 
 import { z } from "zod";
 
+import { DeploymentSmokeResultSchema } from "../apps/api/src/deployment-smoke";
+
 const GitShaSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const PreviewUrlSchema = z
   .string()
@@ -26,16 +28,6 @@ const HealthResponseSchema = z.object({
   deployedGitSha: GitShaSchema,
   workerVersionId: VersionIdSchema,
   workerVersionTag: GitShaSchema,
-});
-
-const ResourceSmokeResponseSchema = HealthResponseSchema.extend({
-  checks: z.object({
-    browser: z.literal(true),
-    d1: z.literal(true),
-    kv: z.literal(true),
-    queue: z.literal(true),
-    r2: z.literal(true),
-  }),
 });
 
 type FetchLike = (
@@ -189,7 +181,7 @@ export async function runPreviewDeploymentSmoke(
     new URL("/api/deployment-smoke", baseUrl),
     { method: "POST", headers: resourceHeaders },
   );
-  const resourceSmoke = ResourceSmokeResponseSchema.parse(
+  const resourceSmoke = DeploymentSmokeResultSchema.parse(
     await parseJson(resourceResponse, "Resource smoke"),
   );
   if (

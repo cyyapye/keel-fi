@@ -53,18 +53,24 @@ export async function deploymentSmokeTokenMatches(
   return difference === 0;
 }
 
-export type DeploymentSmokeResult = {
-  status: "ok";
-  service: "keel-api";
-  deployedGitSha: string;
-  workerVersionId: string;
-  workerVersionTag: string;
-  checks: {
-    d1: true;
-    queue: true;
-    r2: true;
-  };
-};
+export const DeploymentSmokeResultSchema = z
+  .object({
+    status: z.literal("ok"),
+    service: z.literal("keel-api"),
+    deployedGitSha: DeployedGitShaSchema,
+    workerVersionId: z.string().min(1).max(128),
+    workerVersionTag: DeployedGitShaSchema,
+    checks: z
+      .object({
+        d1: z.literal(true),
+        queue: z.literal(true),
+        r2: z.literal(true),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type DeploymentSmokeResult = z.infer<typeof DeploymentSmokeResultSchema>;
 
 export async function runDeploymentSmoke(
   env: Env,
@@ -113,7 +119,7 @@ export async function runDeploymentSmoke(
     throw new Error("R2 deployment smoke cleanup failed.");
   }
 
-  return {
+  return DeploymentSmokeResultSchema.parse({
     status: "ok",
     service: "keel-api",
     deployedGitSha,
@@ -124,5 +130,5 @@ export async function runDeploymentSmoke(
       queue: true,
       r2: true,
     },
-  };
+  });
 }
