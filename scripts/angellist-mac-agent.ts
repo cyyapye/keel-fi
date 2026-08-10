@@ -678,12 +678,17 @@ if (
   entrypoint !== undefined &&
   import.meta.url === pathToFileURL(path.resolve(entrypoint)).href
 ) {
-  main().catch((error: unknown) => {
-    console.error(
-      error instanceof Error
-        ? error.message
-        : "AngelList Mac setup could not complete.",
-    );
-    process.exitCode = 1;
-  });
+  // connectOverCDP keeps a WebSocket active after setup or a one-shot poll.
+  // Exit completed commands so the LaunchAgent is the only long-lived owner.
+  void main().then(
+    () => process.exit(0),
+    (error: unknown) => {
+      console.error(
+        error instanceof Error
+          ? error.message
+          : "AngelList Mac setup could not complete.",
+      );
+      process.exit(1);
+    },
+  );
 }
