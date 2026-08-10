@@ -3,6 +3,8 @@ import {
   projectScenario,
   type AlphaData,
   type AngelListAutomationOverview,
+  type AngelListMacAgentInterval,
+  type AngelListMacAgentOverview,
   type AngelListSignInRefresh,
   type EvidenceInboxItem,
   type Goal,
@@ -35,13 +37,16 @@ import {
   applyAcceptedEvidence,
   applyHoldingImport,
   cancelAngelListSignInRefresh,
+  configureAngelListMacAgent,
   createSignalUpdateProposal as submitSignalUpdateProposal,
   getAngelListSignInRefresh,
   listPendingHoldingImports,
   loadAngelListAutomationOverview,
   loadAlphaData,
   loadHoldingImport,
+  loadLegacyAngelListAutomationOverview,
   previewAngelListHoldingImport,
+  requestAngelListUpdate,
   saveGoalVersion,
   saveScenarioVersion,
   scanPortfolioWatch,
@@ -2029,6 +2034,270 @@ function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
   );
 }
 
+function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
+  title: string;
+  description: string;
+} {
+  if (overview === null) {
+    return {
+      title: "Checking AngelList updates",
+      description: "Keel is checking whether your Mac is ready.",
+    };
+  }
+  if (overview.status === "setup_required") {
+    return {
+      title: "Finish setup on your Mac",
+      description:
+        "Run the one-time setup command on your Mac, then sign in to Keel and AngelList in the Chrome window it opens.",
+    };
+  }
+  if (overview.status === "offline") {
+    return {
+      title: "Your Mac is offline",
+      description:
+        "Wake your Mac and leave the Keel AngelList Chrome window open. Phone requests will wait safely.",
+    };
+  }
+  if (overview.status === "running") {
+    return {
+      title: "Checking AngelList now",
+      description:
+        overview.runStatus === "queued"
+          ? "Your request is waiting for your Mac."
+          : "Your Mac is downloading the latest CSV. It will still wait for your review in Keel.",
+    };
+  }
+  if (overview.status === "needs_attention") {
+    if (overview.errorCode === "angellist_sign_in_required") {
+      return {
+        title: "AngelList needs attention on your Mac",
+        description:
+          "Open the dedicated Chrome window on your Mac and finish signing in to AngelList.",
+      };
+    }
+    if (overview.errorCode === "keel_sign_in_required") {
+      return {
+        title: "Keel needs attention on your Mac",
+        description:
+          "Open the dedicated Chrome window on your Mac and finish signing in to Keel.",
+      };
+    }
+    if (overview.errorCode === "export_unavailable") {
+      return {
+        title: "AngelList export needs attention",
+        description:
+          "Open AngelList on your Mac and confirm the read-only account can see Export CSV.",
+      };
+    }
+    return {
+      title: "AngelList update needs attention",
+      description:
+        "Open the dedicated Chrome window on your Mac, then run the update again.",
+    };
+  }
+  return {
+    title: "AngelList updates are ready",
+    description:
+      "Your Mac runs the export at the interval below. Every new CSV still waits for your review.",
+  };
+}
+
+function AngelListMacAgentControl() {
+  const [overview, setOverview] = useState<AngelListMacAgentOverview | null>(
+    null,
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<
+    "copy" | "interval" | "run" | null
+  >(null);
+
+  const reload = useCallback(async () => {
+    try {
+      setOverview(await loadAngelListAutomationOverview());
+      setError(null);
+    } catch {
+      setError("Keel could not check AngelList updates. Try again shortly.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void reload(), 0);
+    const timer = window.setInterval(() => void reload(), 10_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
+  }, [reload]);
+
+  const setupCommand = `pnpm angellist:setup -- --keel-url ${window.location.origin}`;
+  const message = angelListAgentMessage(overview);
+  const setupRequired = overview?.status === "setup_required";
+  const running = overview?.status === "running";
+
+  const copySetupCommand = async () => {
+    setBusyAction("copy");
+    setError(null);
+    try {
+      await navigator.clipboard.writeText(setupCommand);
+      setNotice("Mac setup command copied.");
+    } catch {
+      setError("Copy was blocked. Select and copy the command below.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const changeInterval = async (interval: AngelListMacAgentInterval) => {
+    setBusyAction("interval");
+    setError(null);
+    setNotice(null);
+    try {
+      setOverview(await configureAngelListMacAgent({ interval }));
+      setNotice(
+        interval === "off"
+          ? "Automatic updates are off."
+          : `AngelList will update ${interval}.`,
+      );
+    } catch {
+      setError("Keel could not save that interval. Try again.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const runNow = async () => {
+    setBusyAction("run");
+    setError(null);
+    setNotice(null);
+    try {
+      const requested = await requestAngelListUpdate();
+      setOverview((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              status: "running",
+              runStatus: requested.status,
+            },
+      );
+      setNotice("AngelList update requested. You can leave this page.");
+      window.setTimeout(() => void reload(), 1_000);
+    } catch {
+      setError("Keel could not request an AngelList update. Try again.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  return (
+    <section
+      aria-labelledby="angellist-agent-title"
+      className="angellist-agent"
+    >
+      <div className="angellist-agent__heading">
+        <p className="eyebrow">AngelList updates</p>
+        <h2 id="angellist-agent-title">{message.title}</h2>
+        <p>{message.description}</p>
+      </div>
+
+      <div className="angellist-agent__action" aria-live="polite">
+        {overview === null && error === null ? (
+          <span className="angellist-agent__checking" role="status">
+            Checking…
+          </span>
+        ) : setupRequired ? (
+          <div className="angellist-agent__setup">
+            <Button
+              disabled={busyAction !== null}
+              onClick={() => void copySetupCommand()}
+              tone="primary"
+            >
+              {busyAction === "copy" ? "Copying…" : "Copy Mac setup command"}
+            </Button>
+            <code>{setupCommand}</code>
+            <small>
+              The dedicated Chrome profile stays on your Mac. Keel receives only
+              the CSV export.
+            </small>
+          </div>
+        ) : (
+          <div className="angellist-agent__controls">
+            <label htmlFor="angellist-update-interval">
+              <span>Automatic updates</span>
+              <select
+                disabled={busyAction !== null}
+                id="angellist-update-interval"
+                onChange={(event) =>
+                  void changeInterval(
+                    event.currentTarget.value as AngelListMacAgentInterval,
+                  )
+                }
+                value={overview?.interval ?? "weekly"}
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+            <Button
+              disabled={busyAction !== null || running}
+              onClick={() => void runNow()}
+              tone="primary"
+            >
+              {busyAction === "run"
+                ? "Requesting…"
+                : running
+                  ? "Update in progress"
+                  : "Run now"}
+            </Button>
+          </div>
+        )}
+
+        {overview !== null && !setupRequired && (
+          <dl className="angellist-agent__meta">
+            <div>
+              <dt>Mac last seen</dt>
+              <dd>
+                {overview.lastSeenAt === null
+                  ? "Not yet"
+                  : formatDate(overview.lastSeenAt)}
+              </dd>
+            </div>
+            <div>
+              <dt>Last completed</dt>
+              <dd>
+                {overview.lastCompletedAt === null
+                  ? "Not yet"
+                  : formatDate(overview.lastCompletedAt)}
+              </dd>
+            </div>
+            <div>
+              <dt>Next scheduled</dt>
+              <dd>
+                {overview.nextRunAt === null
+                  ? "Off"
+                  : formatDate(overview.nextRunAt)}
+              </dd>
+            </div>
+          </dl>
+        )}
+
+        {notice !== null && (
+          <p className="angellist-agent__notice" role="status">
+            {notice}
+          </p>
+        )}
+        {error !== null && (
+          <p className="angellist-agent__error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 const ANGELLIST_REFRESH_STORAGE_KEY = "keel.angellistSignInRefreshId";
 
 function rememberedAngelListRefresh(): string | null {
@@ -2051,7 +2320,7 @@ function rememberAngelListRefresh(refreshId: string | null) {
   }
 }
 
-function AngelListSignInControl() {
+function AngelListBrowserRunControl() {
   const [overview, setOverview] = useState<AngelListAutomationOverview | null>(
     null,
   );
@@ -2067,7 +2336,7 @@ function AngelListSignInControl() {
 
   const reloadOverview = useCallback(async () => {
     try {
-      setOverview(await loadAngelListAutomationOverview());
+      setOverview(await loadLegacyAngelListAutomationOverview());
       setOverviewError(null);
     } catch (error) {
       setOverviewError(
@@ -2109,7 +2378,7 @@ function AngelListSignInControl() {
 
   useEffect(() => {
     let cancelled = false;
-    void loadAngelListAutomationOverview()
+    void loadLegacyAngelListAutomationOverview()
       .then((next) => {
         if (!cancelled) {
           setOverview(next);
@@ -2486,6 +2755,16 @@ function AngelListSignInControl() {
   );
 }
 
+const ANGELLIST_BROWSER_RUN_RETIRED = true;
+
+function AngelListSignInControl() {
+  return ANGELLIST_BROWSER_RUN_RETIRED ? (
+    <AngelListMacAgentControl />
+  ) : (
+    <AngelListBrowserRunControl />
+  );
+}
+
 function Holdings({
   data,
   onApplyImport,
@@ -2535,22 +2814,32 @@ function Holdings({
 
   useEffect(() => {
     let cancelled = false;
-    void onListPendingImports()
-      .then((imports) => {
+    let timer: number | undefined;
+    const loadPending = async () => {
+      try {
+        const imports = await onListPendingImports();
         if (!cancelled) {
           setPendingImports(imports);
           setPendingImportError(null);
         }
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) {
           setPendingImportError(
             "Keel could not check for new AngelList exports.",
           );
         }
-      });
+      } finally {
+        if (!cancelled) {
+          timer = window.setTimeout(() => void loadPending(), 10_000);
+        }
+      }
+    };
+    void loadPending();
     return () => {
       cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
     };
   }, [onListPendingImports]);
 

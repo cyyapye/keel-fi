@@ -50,6 +50,7 @@ import {
 } from "./holding-imports";
 
 export * from "./holding-imports";
+export * from "./angellist-mac-agent";
 export * from "./portfolio-watch";
 
 type DashboardRow = {

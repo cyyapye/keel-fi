@@ -60,9 +60,7 @@ export type DeploymentSmokeResult = {
   workerVersionId: string;
   workerVersionTag: string;
   checks: {
-    browser: true;
     d1: true;
-    kv: true;
     queue: true;
     r2: true;
   };
@@ -85,16 +83,6 @@ export async function runDeploymentSmoke(
   if (d1Result?.ok !== 1) {
     throw new Error("D1 deployment smoke failed.");
   }
-
-  if (env.ANGELLIST_BROWSER === undefined) {
-    throw new Error("Browser Run deployment binding is unavailable.");
-  }
-  if (env.ANGELLIST_AUTOMATION === undefined) {
-    throw new Error("AngelList automation KV binding is unavailable.");
-  }
-  await env.ANGELLIST_AUTOMATION.get(
-    `deployment-smoke/${deployedGitSha}/${crypto.randomUUID()}`,
-  );
 
   const objectKey = `deployment-smoke/${deployedGitSha}/${crypto.randomUUID()}`;
   try {
@@ -132,9 +120,7 @@ export async function runDeploymentSmoke(
     workerVersionId: versionMetadata.id,
     workerVersionTag: versionMetadata.tag,
     checks: {
-      browser: true,
       d1: true,
-      kv: true,
       queue: true,
       r2: true,
     },

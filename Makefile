@@ -33,7 +33,7 @@ help:
 	@echo "  make local-acceptance-apply   Apply a runtime-only real-company source profile to local D1"
 	@echo "  make local-acceptance-dev     Start the disposable real-company local profile"
 	@echo "  make local-acceptance-restore Remove the disposable real-company local state"
-	@echo "  make angellist-setup KEEL_URL=https://...   Seed the encrypted browser session"
+	@echo "  make angellist-setup KEEL_URL=https://...   Install the Mac update agent"
 	@echo "  make e2e           Run browser tests (optional E2E_ARGS=...)"
 
 bootstrap:

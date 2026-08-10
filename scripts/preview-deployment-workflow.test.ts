@@ -23,10 +23,7 @@ describe("post-merge preview deployment workflow", () => {
     );
     expect(deployment).not.toMatch(/db:seed|seed:local|synthetic\.sql/);
     expect(deployment).not.toContain("environment:\n      name: production");
-    expect(deployment).toContain("KEEL_PREVIEW_ANGELLIST_ACCESS_SUBJECT");
-    expect(deployment).toContain("KEEL_PREVIEW_ANGELLIST_AUTOMATION_ENABLED");
-    expect(deployment).toContain("KEEL_PREVIEW_ANGELLIST_KV_ID");
-    expect(deployment).toContain("KEEL_PREVIEW_ANGELLIST_SESSION_KEY");
+    expect(deployment).not.toContain("KEEL_PREVIEW_ANGELLIST_");
 
     const backup = deployment.indexOf("wrangler d1 export");
     const backupVerification = deployment.indexOf("cmp --silent");

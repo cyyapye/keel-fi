@@ -2,8 +2,16 @@ import {
   AngelListCsvParseError,
   parseAngelListInvestmentsCsv,
 } from "@keel/connectors";
-import { D1AlphaRepository, type AlphaRepository } from "@keel/database";
 import {
+  AngelListMacAgentRepositoryError,
+  D1AlphaRepository,
+  D1AngelListMacAgentRepository,
+  type AlphaRepository,
+  type AngelListMacAgentRepository,
+} from "@keel/database";
+import {
+  AngelListMacAgentConfigInputSchema,
+  AngelListMacAgentFailureInputSchema,
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
@@ -15,20 +23,6 @@ import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 
 import { verifyAccessToken, type AccessVerifier } from "./auth";
-import {
-  AngelListAutomationError,
-  cancelAngelListSignInRefresh,
-  getAngelListSignInRefresh,
-  getAngelListAutomationStatus,
-  readAngelListHandoffInputPayload,
-  readAngelListMagicLinkPayload,
-  readAngelListSessionPayload,
-  runAngelListImportForCaller,
-  startAngelListSignInRefresh,
-  storeAngelListSession,
-  submitAngelListHandoffInput,
-  submitAngelListMagicLink,
-} from "./angellist-automation";
 import {
   deploymentSmokeTokenMatches,
   runDeploymentSmoke,
@@ -50,57 +44,13 @@ type AppEnvironment = {
 };
 
 type AppOptions = {
+  angelListMacAgentRepository?: AngelListMacAgentRepository;
   repository?: AlphaRepository;
   verifyAccess?: AccessVerifier;
 };
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unexpected error";
-}
-
-function angelListRefreshFailure(error: unknown): {
-  message: string;
-  status: 400 | 403 | 404 | 503;
-} {
-  const code =
-    error instanceof AngelListAutomationError
-      ? error.code
-      : "unexpected_failure";
-  if (code === "forbidden") {
-    return {
-      message: "This Access identity cannot refresh AngelList sign-in.",
-      status: 403,
-    };
-  }
-  if (code === "refresh_invalid") {
-    return {
-      message: "This AngelList sign-in refresh is no longer available.",
-      status: 404,
-    };
-  }
-  if (code === "magic_link_invalid") {
-    return {
-      message: "That AngelList magic link could not be opened.",
-      status: 400,
-    };
-  }
-  if (code === "handoff_input_invalid") {
-    return {
-      message:
-        "Focus an AngelList email or one-time-code field before sending phone input.",
-      status: 400,
-    };
-  }
-  if (code === "configuration_invalid") {
-    return {
-      message: "AngelList sign-in refresh is not configured.",
-      status: 503,
-    };
-  }
-  return {
-    message: "AngelList sign-in is temporarily unavailable.",
-    status: 503,
-  };
 }
 
 async function sha256Bytes(contents: Uint8Array): Promise<string> {
@@ -118,6 +68,70 @@ async function discardPrivateObject(bucket: R2Bucket, objectKey: string) {
   } catch {
     // The database never references this object. A bucket lifecycle rule is the
     // final fallback for an orphaned failed-upload object.
+  }
+}
+
+class AngelListImportRequestError extends Error {
+  public constructor(
+    public readonly status: 400 | 413 | 500,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AngelListImportRequestError";
+  }
+}
+
+async function stageAngelListUpload(
+  env: Env,
+  repository: AlphaRepository,
+  accessSubject: string,
+  upload: Awaited<ReturnType<typeof readAngelListCsvUpload>>,
+) {
+  let parsed: Awaited<ReturnType<typeof parseAngelListInvestmentsCsv>>;
+  try {
+    parsed = await parseAngelListInvestmentsCsv(upload.bytes);
+  } catch (error) {
+    throw new AngelListImportRequestError(
+      error instanceof AngelListCsvParseError && error.code === "file_too_large"
+        ? 413
+        : 400,
+      error instanceof AngelListCsvParseError
+        ? error.message
+        : "This is not a supported AngelList investments export.",
+    );
+  }
+
+  const objectKey = `holding-imports/${crypto.randomUUID()}.csv`;
+  try {
+    await env.DOCUMENTS.put(objectKey, upload.bytes, {
+      httpMetadata: { contentType: "text/csv" },
+    });
+  } catch {
+    throw new AngelListImportRequestError(
+      500,
+      "Keel could not retain this import for review.",
+    );
+  }
+
+  try {
+    const staged = await repository.stageHoldingImport(accessSubject, {
+      objectKey,
+      sha256: await sha256Bytes(upload.bytes),
+      byteSize: upload.bytes.byteLength,
+      effectiveDate: upload.effectiveDate,
+      retrievedAt: upload.retrievedAt,
+      rows: parsed.rows,
+    });
+    if (!staged.created) {
+      await discardPrivateObject(env.DOCUMENTS, objectKey);
+    }
+    return staged;
+  } catch {
+    await discardPrivateObject(env.DOCUMENTS, objectKey);
+    throw new AngelListImportRequestError(
+      500,
+      "Keel could not prepare this import for review.",
+    );
   }
 }
 
@@ -215,6 +229,9 @@ export function createApp(options: AppOptions = {}) {
 
   const repositoryFor = (env: Env) =>
     options.repository ?? new D1AlphaRepository(env.DB);
+  const angelListMacAgentRepositoryFor = (env: Env) =>
+    options.angelListMacAgentRepository ??
+    new D1AngelListMacAgentRepository(env.DB);
 
   app.post("/api/deployment-smoke", async (context) => {
     if (context.env.ENVIRONMENT !== "preview") {
@@ -268,60 +285,18 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.put("/api/automation/angellist/session", async (context) => {
-    try {
-      const state = await readAngelListSessionPayload(context.req.raw);
-      await storeAngelListSession(
-        context.env,
-        context.get("identity").subject,
-        state,
-      );
-      return context.body(null, 204, {
-        "Cache-Control": "private, no-store",
-      });
-    } catch (error) {
-      const code =
-        error instanceof AngelListAutomationError
-          ? error.code
-          : "session_invalid";
-      return context.json(
-        {
-          error:
-            code === "forbidden"
-              ? "This Access identity cannot configure AngelList automation."
-              : code === "configuration_invalid"
-                ? "AngelList automation is not configured."
-                : "Keel could not accept this AngelList browser session.",
-        },
-        code === "forbidden"
-          ? 403
-          : code === "configuration_invalid"
-            ? 503
-            : 400,
-        { "Cache-Control": "private, no-store" },
-      );
-    }
-  });
-
   app.get("/api/automation/angellist/status", async (context) => {
     try {
-      const status = await getAngelListAutomationStatus(
+      const status = await angelListMacAgentRepositoryFor(
         context.env,
-        context.get("identity").subject,
-      );
+      ).getOverview(context.get("identity").subject);
       return context.json(status, 200, {
         "Cache-Control": "private, no-store",
       });
-    } catch (error) {
-      const forbidden =
-        error instanceof AngelListAutomationError && error.code === "forbidden";
+    } catch {
       return context.json(
-        {
-          error: forbidden
-            ? "This Access identity cannot view AngelList automation."
-            : "AngelList automation status is unavailable.",
-        },
-        forbidden ? 403 : 503,
+        { error: "AngelList update status is unavailable." },
+        503,
         { "Cache-Control": "private, no-store" },
       );
     }
@@ -329,143 +304,156 @@ export function createApp(options: AppOptions = {}) {
 
   app.post("/api/automation/angellist/run", async (context) => {
     try {
-      const status = await runAngelListImportForCaller(
+      const status = await angelListMacAgentRepositoryFor(
         context.env,
-        context.get("identity").subject,
-      );
-      return context.json(status, 200, {
+      ).requestRun(context.get("identity").subject);
+      return context.json(status, 202, {
         "Cache-Control": "private, no-store",
       });
     } catch (error) {
-      const code =
-        error instanceof AngelListAutomationError
-          ? error.code
-          : "unexpected_failure";
+      const notRegistered =
+        error instanceof AngelListMacAgentRepositoryError &&
+        error.code === "agent_not_registered";
       return context.json(
         {
-          error:
-            code === "forbidden"
-              ? "This Access identity cannot run AngelList automation."
-              : code === "auth_required" || code === "session_invalid"
-                ? "AngelList sign-in needs to be refreshed."
-                : "AngelList automation could not complete.",
+          error: notRegistered
+            ? "Finish AngelList setup on your Mac first."
+            : "Keel could not queue this AngelList update.",
         },
-        code === "forbidden"
-          ? 403
-          : code === "auth_required" || code === "session_invalid"
-            ? 409
-            : 503,
+        notRegistered ? 409 : 503,
         { "Cache-Control": "private, no-store" },
       );
     }
   });
 
-  app.post("/api/automation/angellist/sign-in-refreshes", async (context) => {
+  app.post("/api/automation/angellist/mac-agent/register", async (context) => {
     try {
       return context.json(
-        await startAngelListSignInRefresh(
-          context.env,
+        await angelListMacAgentRepositoryFor(context.env).register(
           context.get("identity").subject,
         ),
-        201,
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch {
+      return context.json(
+        { error: "Mac setup could not be registered." },
+        503,
+        {
+          "Cache-Control": "private, no-store",
+        },
+      );
+    }
+  });
+
+  app.put("/api/automation/angellist/mac-agent/config", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+    const parsed = AngelListMacAgentConfigInputSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      return context.json(
+        { error: "Choose a supported update interval." },
+        400,
+      );
+    }
+    try {
+      return context.json(
+        await angelListMacAgentRepositoryFor(context.env).configure(
+          context.get("identity").subject,
+          parsed.data,
+        ),
+        200,
         { "Cache-Control": "private, no-store" },
       );
     } catch (error) {
-      const failure = angelListRefreshFailure(error);
-      return context.json({ error: failure.message }, failure.status, {
-        "Cache-Control": "private, no-store",
-      });
+      const notRegistered =
+        error instanceof AngelListMacAgentRepositoryError &&
+        error.code === "agent_not_registered";
+      return context.json(
+        {
+          error: notRegistered
+            ? "Finish AngelList setup on your Mac first."
+            : "The AngelList interval could not be saved.",
+        },
+        notRegistered ? 409 : 503,
+        { "Cache-Control": "private, no-store" },
+      );
     }
   });
 
-  app.get(
-    "/api/automation/angellist/sign-in-refreshes/:refreshId",
-    async (context) => {
-      try {
-        return context.json(
-          await getAngelListSignInRefresh(
-            context.env,
-            context.get("identity").subject,
-            context.req.param("refreshId"),
-          ),
-          200,
-          { "Cache-Control": "private, no-store" },
-        );
-      } catch (error) {
-        const failure = angelListRefreshFailure(error);
-        return context.json({ error: failure.message }, failure.status, {
-          "Cache-Control": "private, no-store",
-        });
-      }
-    },
-  );
+  app.post("/api/automation/angellist/mac-agent/lease", async (context) => {
+    try {
+      return context.json(
+        await angelListMacAgentRepositoryFor(context.env).lease(
+          context.get("identity").subject,
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      const notRegistered =
+        error instanceof AngelListMacAgentRepositoryError &&
+        error.code === "agent_not_registered";
+      return context.json(
+        {
+          error: notRegistered
+            ? "Register this Mac before requesting work."
+            : "Keel could not check for an AngelList update.",
+        },
+        notRegistered ? 409 : 503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
 
   app.post(
-    "/api/automation/angellist/sign-in-refreshes/:refreshId/handoff-input",
+    "/api/automation/angellist/mac-agent/runs/:runId/fail",
     async (context) => {
-      try {
-        const input = await readAngelListHandoffInputPayload(context.req.raw);
+      const leaseToken = context.req.header("X-Keel-Agent-Lease") ?? "";
+      if (!/^[A-Za-z0-9_-]{43}$/u.test(leaseToken)) {
         return context.json(
-          await submitAngelListHandoffInput(
-            context.env,
-            context.get("identity").subject,
-            context.req.param("refreshId"),
-            input,
-          ),
-          200,
-          { "Cache-Control": "private, no-store" },
+          { error: "This run lease is no longer valid." },
+          409,
         );
-      } catch (error) {
-        const failure = angelListRefreshFailure(error);
-        return context.json({ error: failure.message }, failure.status, {
-          "Cache-Control": "private, no-store",
-        });
       }
-    },
-  );
-
-  app.post(
-    "/api/automation/angellist/sign-in-refreshes/:refreshId/magic-link",
-    async (context) => {
+      let rawInput: unknown;
       try {
-        const magicLink = await readAngelListMagicLinkPayload(context.req.raw);
-        return context.json(
-          await submitAngelListMagicLink(
-            context.env,
-            context.get("identity").subject,
-            context.req.param("refreshId"),
-            magicLink,
-          ),
-          200,
-          { "Cache-Control": "private, no-store" },
-        );
-      } catch (error) {
-        const failure = angelListRefreshFailure(error);
-        return context.json({ error: failure.message }, failure.status, {
-          "Cache-Control": "private, no-store",
-        });
+        rawInput = await context.req.json();
+      } catch {
+        return context.json({ error: "A JSON request body is required." }, 400);
       }
-    },
-  );
-
-  app.delete(
-    "/api/automation/angellist/sign-in-refreshes/:refreshId",
-    async (context) => {
+      const parsed = AngelListMacAgentFailureInputSchema.safeParse(rawInput);
+      if (!parsed.success) {
+        return context.json({ error: "Choose a supported failure code." }, 400);
+      }
       try {
         return context.json(
-          await cancelAngelListSignInRefresh(
-            context.env,
+          await angelListMacAgentRepositoryFor(context.env).fail(
             context.get("identity").subject,
-            context.req.param("refreshId"),
+            context.req.param("runId"),
+            leaseToken,
+            parsed.data,
           ),
           200,
           { "Cache-Control": "private, no-store" },
         );
       } catch (error) {
-        const failure = angelListRefreshFailure(error);
-        return context.json({ error: failure.message }, failure.status, {
-          "Cache-Control": "private, no-store",
-        });
+        const invalidLease =
+          error instanceof AngelListMacAgentRepositoryError &&
+          error.code === "lease_invalid";
+        return context.json(
+          {
+            error: invalidLease
+              ? "This run lease is no longer valid."
+              : "Keel could not record the AngelList update failure.",
+          },
+          invalidLease ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
       }
     },
   );
@@ -511,6 +499,104 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.post(
+    "/api/automation/angellist/mac-agent/runs/:runId/complete",
+    async (context) => {
+      const leaseToken = context.req.header("X-Keel-Agent-Lease") ?? "";
+      if (!/^[A-Za-z0-9_-]{43}$/u.test(leaseToken)) {
+        return context.json(
+          { error: "This run lease is no longer valid." },
+          409,
+        );
+      }
+      const accessSubject = context.get("identity").subject;
+      const runId = context.req.param("runId");
+      const agentRepository = angelListMacAgentRepositoryFor(context.env);
+      try {
+        await agentRepository.assertLease(accessSubject, runId, leaseToken);
+      } catch (error) {
+        const invalidLease =
+          error instanceof AngelListMacAgentRepositoryError &&
+          error.code === "lease_invalid";
+        return context.json(
+          {
+            error: invalidLease
+              ? "This run lease is no longer valid."
+              : "Keel could not validate this AngelList update.",
+          },
+          invalidLease ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+
+      let upload: Awaited<ReturnType<typeof readAngelListCsvUpload>>;
+      try {
+        upload = await readAngelListCsvUpload(context.req.raw);
+      } catch (error) {
+        if (error instanceof HoldingImportUploadError) {
+          return context.json(
+            { error: error.message },
+            error.code === "file_too_large" ? 413 : 400,
+            { "Cache-Control": "private, no-store" },
+          );
+        }
+        return context.json(
+          { error: "Keel could not read that CSV upload." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+
+      let importId: string;
+      try {
+        const staged = await stageAngelListUpload(
+          context.env,
+          repositoryFor(context.env),
+          accessSubject,
+          upload,
+        );
+        importId = staged.preview.id;
+      } catch (error) {
+        const failure =
+          error instanceof AngelListImportRequestError
+            ? error
+            : new AngelListImportRequestError(
+                500,
+                "Keel could not prepare this import for review.",
+              );
+        return context.json({ error: failure.message }, failure.status, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+
+      try {
+        return context.json(
+          await agentRepository.complete(
+            accessSubject,
+            runId,
+            leaseToken,
+            importId,
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const invalidLease =
+          error instanceof AngelListMacAgentRepositoryError &&
+          error.code === "lease_invalid";
+        return context.json(
+          {
+            error: invalidLease
+              ? "The CSV is saved for review, but this run lease expired."
+              : "The CSV is saved for review, but Keel could not close the run.",
+          },
+          invalidLease ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
   app.post("/api/holding-imports/angellist", async (context) => {
     let upload: Awaited<ReturnType<typeof readAngelListCsvUpload>>;
     try {
@@ -530,63 +616,27 @@ export function createApp(options: AppOptions = {}) {
       );
     }
 
-    let parsed: Awaited<ReturnType<typeof parseAngelListInvestmentsCsv>>;
     try {
-      parsed = await parseAngelListInvestmentsCsv(upload.bytes);
-    } catch (error) {
-      return context.json(
-        {
-          error:
-            error instanceof AngelListCsvParseError
-              ? error.message
-              : "This is not a supported AngelList investments export.",
-        },
-        error instanceof AngelListCsvParseError &&
-          error.code === "file_too_large"
-          ? 413
-          : 400,
-        { "Cache-Control": "private, no-store" },
-      );
-    }
-
-    const objectKey = `holding-imports/${crypto.randomUUID()}.csv`;
-    try {
-      await context.env.DOCUMENTS.put(objectKey, upload.bytes, {
-        httpMetadata: { contentType: "text/csv" },
-      });
-    } catch {
-      return context.json(
-        { error: "Keel could not retain this import for review." },
-        500,
-        { "Cache-Control": "private, no-store" },
-      );
-    }
-
-    try {
-      const staged = await repositoryFor(context.env).stageHoldingImport(
+      const staged = await stageAngelListUpload(
+        context.env,
+        repositoryFor(context.env),
         context.get("identity").subject,
-        {
-          objectKey,
-          sha256: await sha256Bytes(upload.bytes),
-          byteSize: upload.bytes.byteLength,
-          effectiveDate: upload.effectiveDate,
-          retrievedAt: upload.retrievedAt,
-          rows: parsed.rows,
-        },
+        upload,
       );
-      if (!staged.created) {
-        await discardPrivateObject(context.env.DOCUMENTS, objectKey);
-      }
       return context.json(staged.preview, staged.created ? 201 : 200, {
         "Cache-Control": "private, no-store",
       });
-    } catch {
-      await discardPrivateObject(context.env.DOCUMENTS, objectKey);
-      return context.json(
-        { error: "Keel could not prepare this import for review." },
-        500,
-        { "Cache-Control": "private, no-store" },
-      );
+    } catch (error) {
+      const failure =
+        error instanceof AngelListImportRequestError
+          ? error
+          : new AngelListImportRequestError(
+              500,
+              "Keel could not prepare this import for review.",
+            );
+      return context.json({ error: failure.message }, failure.status, {
+        "Cache-Control": "private, no-store",
+      });
     }
   });
 

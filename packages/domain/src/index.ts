@@ -532,6 +532,76 @@ export const AngelListAutomationOverviewSchema =
     signInStatus: z.enum(["connected", "needs_sign_in"]),
   }).strict();
 
+export const AngelListMacAgentIntervalSchema = z.enum([
+  "off",
+  "daily",
+  "weekly",
+]);
+
+export const AngelListMacAgentErrorCodeSchema = z.enum([
+  "angellist_sign_in_required",
+  "export_unavailable",
+  "download_failed",
+  "keel_sign_in_required",
+  "upload_failed",
+  "unexpected_failure",
+]);
+
+export const AngelListMacAgentOverviewSchema = z
+  .object({
+    version: z.literal(1),
+    status: z.enum([
+      "setup_required",
+      "offline",
+      "ready",
+      "running",
+      "needs_attention",
+    ]),
+    interval: AngelListMacAgentIntervalSchema,
+    runStatus: z.enum(["queued", "running"]).nullable(),
+    lastSeenAt: IsoTimestampSchema.nullable(),
+    lastCompletedAt: IsoTimestampSchema.nullable(),
+    nextRunAt: IsoTimestampSchema.nullable(),
+    latestImportId: z.string().min(1).nullable(),
+    errorCode: AngelListMacAgentErrorCodeSchema.nullable(),
+  })
+  .strict();
+
+export const AngelListMacAgentConfigInputSchema = z
+  .object({
+    interval: AngelListMacAgentIntervalSchema,
+  })
+  .strict();
+
+export const AngelListMacAgentRunRequestSchema = z
+  .object({
+    version: z.literal(1),
+    runId: z.uuid(),
+    status: z.enum(["queued", "running"]),
+  })
+  .strict();
+
+export const AngelListMacAgentLeaseSchema = z
+  .object({
+    version: z.literal(1),
+    serverTime: IsoTimestampSchema,
+    run: z
+      .object({
+        id: z.uuid(),
+        leaseToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+        expiresAt: IsoTimestampSchema,
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+export const AngelListMacAgentFailureInputSchema = z
+  .object({
+    errorCode: AngelListMacAgentErrorCodeSchema,
+  })
+  .strict();
+
 export const CloudflareLiveViewUrlSchema = z
   .url()
   .superRefine((value, context) => {
@@ -1580,6 +1650,27 @@ export type AngelListAutomationStatus = z.infer<
 >;
 export type AngelListAutomationOverview = z.infer<
   typeof AngelListAutomationOverviewSchema
+>;
+export type AngelListMacAgentConfigInput = z.infer<
+  typeof AngelListMacAgentConfigInputSchema
+>;
+export type AngelListMacAgentErrorCode = z.infer<
+  typeof AngelListMacAgentErrorCodeSchema
+>;
+export type AngelListMacAgentFailureInput = z.infer<
+  typeof AngelListMacAgentFailureInputSchema
+>;
+export type AngelListMacAgentInterval = z.infer<
+  typeof AngelListMacAgentIntervalSchema
+>;
+export type AngelListMacAgentLease = z.infer<
+  typeof AngelListMacAgentLeaseSchema
+>;
+export type AngelListMacAgentOverview = z.infer<
+  typeof AngelListMacAgentOverviewSchema
+>;
+export type AngelListMacAgentRunRequest = z.infer<
+  typeof AngelListMacAgentRunRequestSchema
 >;
 export type AngelListSignInRefresh = z.infer<
   typeof AngelListSignInRefreshSchema

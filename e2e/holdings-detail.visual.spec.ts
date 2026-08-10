@@ -140,11 +140,14 @@ test("leads with the investment and opens a truthful holding detail", async ({
     await route.fulfill({
       json: {
         version: 1,
-        status: "never_run",
-        checkedAt: null,
-        importId: null,
+        status: "ready",
+        interval: "weekly",
+        runStatus: null,
+        lastSeenAt: "2026-08-09T16:00:00.000Z",
+        lastCompletedAt: null,
+        nextRunAt: "2026-08-16T16:00:00.000Z",
+        latestImportId: null,
         errorCode: null,
-        signInStatus: "connected",
       },
     });
   });
