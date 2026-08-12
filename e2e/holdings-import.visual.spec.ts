@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: false,
+        status: "setup_required",
+        lastSyncedAt: null,
+        latestImportId: null,
+        latestRunStatus: null,
+        errorCode: "configuration_required",
+      },
+    });
+  });
+});
+
 const alphaFixture = {
   dashboard: {
     asOfDate: "2026-07-01",
@@ -137,6 +153,78 @@ const importPreview = {
   rows: previewRows,
 };
 
+const robinhoodImportPreview = {
+  id: "holding_import_synthetic_robinhood",
+  provider: "robinhood",
+  status: "pending_review",
+  observedAt: "2026-08-10T16:00:00.000Z",
+  summary: {
+    rowCount: 3,
+    administratorValueCount: 2,
+    lockedValueCount: 0,
+    createCount: 2,
+    updateCount: 0,
+    unchangedCount: 0,
+    needsAttentionCount: 1,
+  },
+  rows: [
+    {
+      id: "robinhood_row_1",
+      sourceRowNumber: 1,
+      positionName: "SYN · Synthetic Public Company",
+      exposureName: "Synthetic Public Company",
+      ownerLabel: "Robinhood individual account",
+      providerStatus: "Live",
+      investedOn: "2026-08-10",
+      investedMinor: 18_250_000,
+      administratorNavMinor: 23_800_000,
+      administratorNavState: "reported",
+      realizedValueMinor: 0,
+      ticker: "SYN",
+      quantityMicros: 12_345_678,
+      costBasisMinor: 18_250_000,
+      action: "create_position",
+      issues: [],
+    },
+    {
+      id: "robinhood_row_2",
+      sourceRowNumber: 2,
+      positionName: "DEMO · Demo Index ETF",
+      exposureName: "Demo Index ETF",
+      ownerLabel: "Robinhood individual account",
+      providerStatus: "Live",
+      investedOn: "2026-08-10",
+      investedMinor: 9_500_000,
+      administratorNavMinor: 10_120_000,
+      administratorNavState: "reported",
+      realizedValueMinor: 0,
+      ticker: "DEMO",
+      quantityMicros: 8_000_000,
+      costBasisMinor: 9_500_000,
+      action: "create_position",
+      issues: [],
+    },
+    {
+      id: "robinhood_row_3",
+      sourceRowNumber: 3,
+      positionName: "CASH · Cash",
+      exposureName: "Cash",
+      ownerLabel: "Robinhood individual account",
+      providerStatus: "Live",
+      investedOn: "2026-08-10",
+      investedMinor: 0,
+      administratorNavMinor: null,
+      administratorNavState: "not_reported",
+      realizedValueMinor: 0,
+      ticker: null,
+      quantityMicros: 2_000_000,
+      costBasisMinor: null,
+      action: "needs_attention",
+      issues: ["Cost basis is not available for this position."],
+    },
+  ],
+};
+
 test("reviews a scheduled AngelList export from a persistent phone-safe route", async ({
   page,
 }) => {
@@ -209,7 +297,7 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
     page.getByText("Nothing changes until you review it."),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "A new export is ready" }),
+    page.getByRole("heading", { name: "A holding update is ready" }),
   ).toBeVisible();
 
   await page.addStyleTag({
@@ -328,6 +416,156 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
   expect((applyBodies[1] as { decisions: unknown[] }).decisions).toHaveLength(
     72,
   );
+});
+
+test("connects Robinhood and stages a review without inferring sales", async ({
+  page,
+}) => {
+  const exchangeBodies: unknown[] = [];
+  await page.unroute("**/api/public-holdings/robinhood/status");
+  await page.addInitScript(() => {
+    (
+      window as unknown as {
+        Plaid: {
+          create: (input: { onSuccess: (token: string) => void }) => {
+            destroy: () => void;
+            open: () => void;
+          };
+        };
+      }
+    ).Plaid = {
+      create: ({ onSuccess }) => ({
+        destroy: () => undefined,
+        open: () => window.setTimeout(() => onSuccess("public-synthetic"), 0),
+      }),
+    };
+  });
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "ready",
+        interval: "weekly",
+        runStatus: null,
+        lastSeenAt: "2026-08-09T16:00:00.000Z",
+        lastCompletedAt: "2026-08-03T16:00:00.000Z",
+        nextRunAt: "2026-08-16T16:00:00.000Z",
+        latestImportId: null,
+        errorCode: null,
+      },
+    });
+  });
+  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        status: "disconnected",
+        lastSyncedAt: null,
+        latestImportId: null,
+        latestRunStatus: null,
+        errorCode: null,
+      },
+    });
+  });
+  await page.route(
+    "**/api/public-holdings/robinhood/link-token",
+    async (route) => {
+      await route.fulfill({
+        json: {
+          linkToken: "link-synthetic",
+          expiration: "2026-08-10T16:30:00.000Z",
+        },
+      });
+    },
+  );
+  await page.route(
+    "**/api/public-holdings/robinhood/exchange",
+    async (route) => {
+      exchangeBodies.push(route.request().postDataJSON());
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          status: "ready",
+          lastSyncedAt: "2026-08-10T16:00:00.000Z",
+          latestImportId: robinhoodImportPreview.id,
+          latestRunStatus: "succeeded",
+          errorCode: null,
+        },
+      });
+    },
+  );
+  await page.route(
+    /\/api\/holding-imports\/holding_import_synthetic_robinhood$/,
+    async (route) => {
+      await route.fulfill({ json: robinhoodImportPreview });
+    },
+  );
+
+  await page.goto("/holdings");
+  await expect(
+    page.getByRole("heading", { name: "Connect Robinhood" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Connect Robinhood" }).click();
+
+  await expect(page).toHaveURL(
+    /\/holdings\/imports\/holding_import_synthetic_robinhood$/,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Review Robinhood import" }),
+  ).toBeFocused();
+  await expect(
+    page.getByText(
+      "Positions missing from this snapshot are not treated as sales.",
+    ),
+  ).toBeVisible();
+  const summary = page.getByLabel("Import summary");
+  await expect(summary).toContainText("3Positions");
+  await expect(summary).toContainText("2Market values");
+  await expect(summary).toContainText("1Need attention");
+  await expect(page.getByText("12.345678")).toBeVisible();
+  await expect(page.getByText("Cost basis is not available")).toBeVisible();
+
+  const viewportWidths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(viewportWidths.scroll).toBe(viewportWidths.client);
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-robinhood-review.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  await page
+    .getByRole("checkbox", {
+      name: "I confirm the Robinhood $ values are USD.",
+    })
+    .check();
+  await page.getByRole("button", { name: "Apply 2 positions" }).click();
+  await expect(
+    page.getByText("Missing positions will not be recorded as sales."),
+  ).toBeVisible();
+  expect(exchangeBodies).toEqual([{ publicToken: "public-synthetic" }]);
 });
 
 test("requests a Mac AngelList update from the phone-safe Holdings flow", async ({

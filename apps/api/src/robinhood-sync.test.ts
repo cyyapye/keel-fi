@@ -1,0 +1,400 @@
+import type {
+  RobinhoodConnection,
+  RobinhoodConnectionUpdate,
+  RobinhoodSyncRun,
+} from "@keel/database";
+import type { RobinhoodSyncStatus } from "@keel/domain";
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  connectRobinhood,
+  FetchPlaidInvestmentsClient,
+  syncRobinhood,
+  type PlaidInvestmentsClient,
+} from "./robinhood-sync";
+import type { Env } from "./types";
+
+const credentialKey = btoa("k".repeat(32))
+  .replaceAll("+", "-")
+  .replaceAll("/", "_")
+  .replace(/=+$/u, "");
+
+function syntheticHoldingsResponse() {
+  return {
+    accounts: [
+      {
+        account_id: "synthetic-account",
+        persistent_account_id: "synthetic-persistent-account",
+        name: "Synthetic Brokerage",
+        official_name: "Synthetic Brokerage Account",
+        subtype: "brokerage",
+        type: "investment",
+      },
+    ],
+    holdings: [
+      {
+        account_id: "synthetic-account",
+        security_id: "synthetic-security",
+        institution_value: 125,
+        cost_basis: 100,
+        quantity: 1.25,
+        institution_price_as_of: "2026-08-08",
+        iso_currency_code: "USD",
+        unofficial_currency_code: null,
+      },
+    ],
+    securities: [
+      {
+        security_id: "synthetic-security",
+        name: "Synthetic Public Company",
+        ticker_symbol: "SYN",
+        type: "equity",
+        cusip: "000000000",
+        isin: null,
+        sedol: null,
+        iso_currency_code: "USD",
+        unofficial_currency_code: null,
+      },
+    ],
+    item: {
+      institution_id: "synthetic-robinhood",
+      item_id: "synthetic-item",
+    },
+    request_id: "synthetic-request",
+  };
+}
+
+function memoryBucket() {
+  const values = new Map<string, Uint8Array>();
+  return {
+    values,
+    bucket: {
+      put: vi.fn((key: string, value: Uint8Array) => {
+        values.set(key, new Uint8Array(value));
+        return Promise.resolve();
+      }),
+      get: vi.fn((key: string) => {
+        const value = values.get(key);
+        return Promise.resolve(
+          value === undefined
+            ? null
+            : {
+                arrayBuffer: () =>
+                  Promise.resolve(
+                    value.buffer.slice(
+                      value.byteOffset,
+                      value.byteOffset + value.byteLength,
+                    ),
+                  ),
+              },
+        );
+      }),
+      delete: vi.fn((key: string) => {
+        values.delete(key);
+        return Promise.resolve();
+      }),
+    } as unknown as R2Bucket,
+  };
+}
+
+function status(
+  overrides: Partial<RobinhoodSyncStatus> = {},
+): RobinhoodSyncStatus {
+  return {
+    version: 1,
+    configured: true,
+    status: "ready",
+    lastSyncedAt: null,
+    latestImportId: null,
+    latestRunStatus: null,
+    errorCode: null,
+    ...overrides,
+  };
+}
+
+function publicRepository() {
+  const repository = {
+    secretReference: null as string | null,
+    getStatus: vi.fn().mockResolvedValue(status()),
+    getConnection: vi.fn((): Promise<RobinhoodConnection | null> =>
+      Promise.resolve(
+        repository.secretReference === null
+          ? null
+          : {
+              id: "synthetic-connection",
+              secretReference: repository.secretReference,
+            },
+      ),
+    ),
+    upsertConnection: vi.fn(
+      (
+        _accessSubject: string,
+        secretReference: string,
+      ): Promise<RobinhoodConnectionUpdate> => {
+        const previousSecretReference = repository.secretReference;
+        repository.secretReference = secretReference;
+        return Promise.resolve({
+          id: "synthetic-connection",
+          secretReference,
+          previousSecretReference,
+        });
+      },
+    ),
+    beginSync: vi.fn((): Promise<RobinhoodSyncRun> => {
+      if (repository.secretReference === null) {
+        return Promise.reject(new Error("not connected"));
+      }
+      return Promise.resolve({
+        id: "synthetic-run",
+        created: true,
+        connection: {
+          id: "synthetic-connection",
+          secretReference: repository.secretReference,
+        },
+      });
+    }),
+    completeSync: vi.fn().mockResolvedValue(undefined),
+    failSync: vi.fn().mockResolvedValue(undefined),
+  };
+  return repository;
+}
+
+function testEnv(bucket: R2Bucket): Env {
+  return {
+    CONNECTOR_CREDENTIAL_KEY: credentialKey,
+    DB: {} as D1Database,
+    DOCUMENTS: bucket,
+    ENVIRONMENT: "local",
+    INGESTION_QUEUE: {} as Queue,
+    PLAID_CLIENT_ID: "synthetic-client-id",
+    PLAID_ENVIRONMENT: "sandbox",
+    PLAID_REDIRECT_URI: "https://keel.example/holdings",
+    PLAID_SECRET: "synthetic-secret",
+  };
+}
+
+describe("Robinhood Plaid sync", () => {
+  it("validates Robinhood after exchange and removes a wrong institution", async () => {
+    const calls: string[] = [];
+    const fetcher = vi.fn((url: string | URL | Request) => {
+      const rawUrl =
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      const path = new URL(rawUrl).pathname;
+      calls.push(path);
+      const body =
+        path === "/item/public_token/exchange"
+          ? {
+              access_token: "synthetic-access-token",
+              item_id: "synthetic-item",
+              request_id: "synthetic-request",
+            }
+          : path === "/item/get"
+            ? {
+                item: {
+                  institution_id: "synthetic-other-institution",
+                  item_id: "synthetic-item",
+                },
+                request_id: "synthetic-request",
+              }
+            : path === "/institutions/get_by_id"
+              ? {
+                  institution: {
+                    institution_id: "synthetic-other-institution",
+                    name: "Synthetic Other Brokerage",
+                    products: ["investments"],
+                  },
+                  request_id: "synthetic-request",
+                }
+              : { removed: true, request_id: "synthetic-request" };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
+    const client = new FetchPlaidInvestmentsClient(
+      {
+        clientId: "synthetic-client",
+        secret: "synthetic-secret",
+        environment: "sandbox",
+        credentialKey,
+        redirectUri: "https://keel.example/holdings",
+      },
+      fetcher,
+    );
+
+    await expect(
+      client.exchangeRobinhoodToken("synthetic-public-token"),
+    ).rejects.toThrow("Choose Robinhood");
+    expect(calls).toEqual([
+      "/item/public_token/exchange",
+      "/item/get",
+      "/institutions/get_by_id",
+      "/item/remove",
+    ]);
+  });
+
+  it("rejects an oversized provider response before parsing it", async () => {
+    const client = new FetchPlaidInvestmentsClient(
+      {
+        clientId: "synthetic-client",
+        secret: "synthetic-secret",
+        environment: "sandbox",
+        credentialKey,
+        redirectUri: "https://keel.example/holdings",
+      },
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("{}", {
+            headers: { "Content-Length": String(5 * 1_048_576 + 1) },
+          }),
+        ),
+      ),
+    );
+
+    await expect(client.getHoldings("synthetic-access-token")).rejects.toThrow(
+      "oversized response",
+    );
+  });
+
+  it("encrypts the access token and stages fetched holdings for review", async () => {
+    const storage = memoryBucket();
+    const env = testEnv(storage.bucket);
+    const repository = publicRepository();
+    const response = syntheticHoldingsResponse();
+    const responseBytes = new TextEncoder().encode(JSON.stringify(response));
+    const client: PlaidInvestmentsClient = {
+      createLinkToken: vi.fn(),
+      exchangeRobinhoodToken: vi.fn().mockResolvedValue({
+        version: 1,
+        accessToken: "synthetic-private-access-token",
+        itemId: "synthetic-item",
+        institutionId: "synthetic-robinhood",
+      }),
+      removeItem: vi.fn(),
+      getHoldings: vi.fn().mockResolvedValue({
+        bytes: responseBytes,
+        parsed: response,
+      }),
+    };
+
+    await connectRobinhood({
+      env,
+      repository,
+      client,
+      accessSubject: "synthetic-access-subject",
+      publicToken: "synthetic-public-token",
+    });
+    expect(repository.secretReference).toMatch(/^connector-secrets\//u);
+    const encrypted = storage.values.get(repository.secretReference ?? "");
+    expect(encrypted).toBeDefined();
+    expect(new TextDecoder().decode(encrypted)).not.toContain(
+      "synthetic-private-access-token",
+    );
+
+    const stageRobinhoodHoldingImport = vi.fn().mockResolvedValue({
+      created: true,
+      preview: {
+        id: "synthetic-import",
+        provider: "robinhood",
+        status: "pending_review",
+        observedAt: "2026-08-08T00:00:00.000Z",
+        summary: {
+          rowCount: 1,
+          administratorValueCount: 1,
+          lockedValueCount: 0,
+          createCount: 1,
+          updateCount: 0,
+          unchangedCount: 0,
+          needsAttentionCount: 0,
+        },
+        rows: [],
+      },
+    });
+    await syncRobinhood({
+      env,
+      repository,
+      holdingImports: { stageRobinhoodHoldingImport },
+      client,
+      accessSubject: "synthetic-access-subject",
+    });
+
+    expect(stageRobinhoodHoldingImport).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      expect.objectContaining({
+        objectKey: expect.stringMatching(/^holding-imports\//u),
+        normalizedFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        rows: [
+          expect.objectContaining({
+            ticker: "SYN",
+            quantityMicros: 1_250_000,
+            costBasisMinor: 10_000,
+            marketValueMinor: 12_500,
+          }),
+        ],
+      }),
+    );
+    expect(repository.completeSync).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-run",
+      {
+        discoveredCount: 1,
+        proposedCount: 1,
+        importId: "synthetic-import",
+      },
+    );
+    expect(repository.failSync).not.toHaveBeenCalled();
+  });
+
+  it("records an empty snapshot without inferring a disposition", async () => {
+    const storage = memoryBucket();
+    const env = testEnv(storage.bucket);
+    const repository = publicRepository();
+    const emptyResponse = {
+      ...syntheticHoldingsResponse(),
+      holdings: [],
+      securities: [],
+    };
+    const client: PlaidInvestmentsClient = {
+      createLinkToken: vi.fn(),
+      exchangeRobinhoodToken: vi.fn().mockResolvedValue({
+        version: 1,
+        accessToken: "synthetic-private-access-token",
+        itemId: "synthetic-item",
+        institutionId: "synthetic-robinhood",
+      }),
+      removeItem: vi.fn(),
+      getHoldings: vi.fn().mockResolvedValue({
+        bytes: new TextEncoder().encode(JSON.stringify(emptyResponse)),
+        parsed: emptyResponse,
+      }),
+    };
+    await connectRobinhood({
+      env,
+      repository,
+      client,
+      accessSubject: "synthetic-access-subject",
+      publicToken: "synthetic-public-token",
+    });
+    const stageRobinhoodHoldingImport = vi.fn();
+
+    await syncRobinhood({
+      env,
+      repository,
+      holdingImports: { stageRobinhoodHoldingImport },
+      client,
+      accessSubject: "synthetic-access-subject",
+    });
+
+    expect(stageRobinhoodHoldingImport).not.toHaveBeenCalled();
+    expect(repository.completeSync).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-run",
+      {
+        discoveredCount: 0,
+        proposedCount: 0,
+        importId: null,
+      },
+    );
+  });
+});

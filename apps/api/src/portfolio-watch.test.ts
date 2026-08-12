@@ -30,6 +30,7 @@ const migrationFiles = [
   "packages/database/migrations/0007_holding_imports.sql",
   "packages/database/migrations/0008_signal_update_proposals.sql",
   "packages/database/migrations/0009_angellist_mac_agent.sql",
+  "packages/database/migrations/0010_public_holdings.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

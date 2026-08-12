@@ -4,6 +4,7 @@ import { z } from "zod";
 export * from "./official-company-web";
 export * from "./financing-announcement";
 export * from "./angellist-investments-csv";
+export * from "./plaid-robinhood-holdings";
 
 export const ConnectorTypeSchema = z.enum([
   "sec-edgar",
@@ -11,6 +12,7 @@ export const ConnectorTypeSchema = z.enum([
   "official-company-web",
   "email-import",
   "manual-document",
+  "plaid-investments",
 ]);
 
 export const IngestionMessageSchema = z.object({

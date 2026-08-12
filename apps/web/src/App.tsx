@@ -16,6 +16,7 @@ import {
   type HoldingImportRowPreview,
   type HoldingImportSummary,
   type PublicSourceObservation,
+  type RobinhoodSyncStatus,
   type Scenario,
   type ScenarioDraftInput,
   type SignalReconciliationGroup,
@@ -38,13 +39,16 @@ import {
   applyHoldingImport,
   cancelAngelListSignInRefresh,
   configureAngelListMacAgent,
+  createRobinhoodLinkToken,
   createSignalUpdateProposal as submitSignalUpdateProposal,
   getAngelListSignInRefresh,
+  exchangeRobinhoodPublicToken,
   listPendingHoldingImports,
   loadAngelListAutomationOverview,
   loadAlphaData,
   loadHoldingImport,
   loadLegacyAngelListAutomationOverview,
+  loadRobinhoodSyncStatus,
   previewAngelListHoldingImport,
   requestAngelListUpdate,
   saveGoalVersion,
@@ -54,6 +58,7 @@ import {
   submitAngelListHandoffInput,
   submitAngelListMagicLink,
   submitEvidenceReview,
+  syncRobinhoodHoldings,
 } from "./api";
 import {
   formatCompactCurrency,
@@ -61,6 +66,7 @@ import {
   formatDate,
   formatProbability,
 } from "./format";
+import { openRobinhoodLink } from "./plaid-link";
 
 type Screen =
   | "dashboard"
@@ -1326,6 +1332,10 @@ function administratorValueLabel(holding: Holding): string {
   return holdingValueLabel(holding.administratorNavMinor);
 }
 
+function isRobinhoodHolding(holding: Holding): boolean {
+  return holding.sourceLabel === "Robinhood via Plaid";
+}
+
 function holdingPrimaryName(holding: Holding): string {
   return holding.exposureName ?? holding.positionName;
 }
@@ -1347,14 +1357,32 @@ function holdingLegalPositionLabel(holding: Holding): string {
     : "Legal fund position";
 }
 
-function importAdministratorValueLabel(row: HoldingImportRowPreview): string {
+function importAdministratorValueLabel(
+  row: HoldingImportRowPreview,
+  provider: HoldingImportPreview["provider"],
+): string {
   if (row.administratorNavState === "locked") {
     return "Locked by AngelList";
   }
   if (row.administratorNavState === "not_reported") {
-    return "Not reported";
+    return provider === "robinhood" ? "Not available" : "Not reported";
   }
   return holdingValueLabel(row.administratorNavMinor);
+}
+
+function formatQuantityMicros(value: number | null): string {
+  if (value === null) {
+    return "Not reported";
+  }
+  const micros = BigInt(value);
+  const whole = micros / 1_000_000n;
+  const fraction = (micros % 1_000_000n)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/u, "");
+  return fraction.length === 0
+    ? whole.toLocaleString("en-US")
+    : `${whole.toLocaleString("en-US")}.${fraction}`;
 }
 
 function importActionLabel(action: HoldingImportRowPreview["action"]): string {
@@ -1368,6 +1396,7 @@ function importActionLabel(action: HoldingImportRowPreview["action"]): string {
 
 function importDecisionForRow(
   row: HoldingImportRowPreview,
+  provider: HoldingImportPreview["provider"],
 ): HoldingImportApplyInput["decisions"][number] {
   if (row.action === "needs_attention") {
     return {
@@ -1382,7 +1411,7 @@ function importDecisionForRow(
     rationale:
       row.action === "no_change"
         ? "Reviewed; no accepted holding change was required."
-        : "Accepted during the AngelList holdings import review.",
+        : `Accepted during the ${provider === "robinhood" ? "Robinhood" : "AngelList"} holdings import review.`,
   };
 }
 
@@ -1431,6 +1460,9 @@ function HoldingImportWorkspace({
   const workspaceHeadingRef = useRef<HTMLHeadingElement>(null);
   const confirmationHeadingRef = useRef<HTMLHeadingElement>(null);
   const messageRef = useRef<HTMLDivElement>(null);
+  const provider = preview?.provider ?? "angellist";
+  const providerName = provider === "robinhood" ? "Robinhood" : "AngelList";
+  const isRobinhood = provider === "robinhood";
 
   useEffect(() => {
     workspaceHeadingRef.current?.focus();
@@ -1496,7 +1528,9 @@ function HoldingImportWorkspace({
     setError(null);
     void onApply(preview.id, {
       currency: "USD",
-      decisions: preview.rows.map(importDecisionForRow),
+      decisions: preview.rows.map((row) =>
+        importDecisionForRow(row, preview.provider),
+      ),
     })
       .then((result) => {
         setApplyResult(result);
@@ -1506,7 +1540,7 @@ function HoldingImportWorkspace({
         setError(
           applyError instanceof Error
             ? applyError.message
-            : "Nothing changed. The AngelList import could not be applied.",
+            : `Nothing changed. The ${providerName} import could not be applied.`,
         );
       })
       .finally(() => setWorking("idle"));
@@ -1531,12 +1565,20 @@ function HoldingImportWorkspace({
               ? "No holdings changed"
               : `${changedCount} ${changedCount === 1 ? "change" : "changes"} applied`}
           </h2>
-          <p>
-            Reviewed {preview.summary.rowCount} AngelList positions.{" "}
-            {preview.summary.administratorValueCount} administrator values were
-            available; {applyResult.lockedValueCount} locked values remain
-            unavailable.
-          </p>
+          {isRobinhood ? (
+            <p>
+              Reviewed {preview.summary.rowCount} Robinhood positions.{" "}
+              {preview.summary.administratorValueCount} market values were
+              recorded from this snapshot.
+            </p>
+          ) : (
+            <p>
+              Reviewed {preview.summary.rowCount} AngelList positions.{" "}
+              {preview.summary.administratorValueCount} administrator values
+              were available; {applyResult.lockedValueCount} locked values
+              remain unavailable.
+            </p>
+          )}
           {applyResult.rejectedCount > 0 && (
             <small>
               {applyResult.rejectedCount}{" "}
@@ -1630,10 +1672,11 @@ function HoldingImportWorkspace({
             ref={workspaceHeadingRef}
             tabIndex={-1}
           >
-            This AngelList export is already recorded
+            This {providerName} update is already recorded
           </h2>
           <p>
-            Reviewed {preview.summary.rowCount} positions from the export dated{" "}
+            Reviewed {preview.summary.rowCount} positions from the{" "}
+            {isRobinhood ? "snapshot" : "export"} dated{" "}
             {formatDate(preview.observedAt)}.
           </p>
         </div>
@@ -1671,14 +1714,23 @@ function HoldingImportWorkspace({
       className="holding-import-workspace"
     >
       <div className="import-heading">
-        <p className="eyebrow">AngelList CSV</p>
-        <h2 id="holding-import-title" ref={workspaceHeadingRef} tabIndex={-1}>
-          Review AngelList import
-        </h2>
-        <p>
-          Export dated {formatDate(preview.observedAt)}. Locked values stay
-          unavailable; Keel will not treat them as zero.
+        <p className="eyebrow">
+          {isRobinhood ? "Robinhood sync" : "AngelList CSV"}
         </p>
+        <h2 id="holding-import-title" ref={workspaceHeadingRef} tabIndex={-1}>
+          Review {providerName} import
+        </h2>
+        {isRobinhood ? (
+          <p>
+            Snapshot dated {formatDate(preview.observedAt)}. Positions missing
+            from this snapshot are not treated as sales.
+          </p>
+        ) : (
+          <p>
+            Export dated {formatDate(preview.observedAt)}. Locked values stay
+            unavailable; Keel will not treat them as zero.
+          </p>
+        )}
       </div>
 
       <div aria-label="Import summary" className="import-summary">
@@ -1688,11 +1740,15 @@ function HoldingImportWorkspace({
         </div>
         <div>
           <strong>{preview.summary.administratorValueCount}</strong>
-          <span>Administrator values</span>
+          <span>{isRobinhood ? "Market values" : "Administrator values"}</span>
         </div>
         <div>
-          <strong>{preview.summary.lockedValueCount}</strong>
-          <span>Locked values</span>
+          <strong>
+            {isRobinhood
+              ? preview.summary.needsAttentionCount
+              : preview.summary.lockedValueCount}
+          </strong>
+          <span>{isRobinhood ? "Need attention" : "Locked values"}</span>
         </div>
       </div>
 
@@ -1721,54 +1777,87 @@ function HoldingImportWorkspace({
         <div className="holdings-table-wrap">
           <table className="data-table import-table">
             <caption className="visually-hidden">
-              AngelList positions ready for review
+              {providerName} positions ready for review
             </caption>
             <thead>
-              <tr>
-                <th>Investment / legal position</th>
-                <th>Entity</th>
-                <th>Status</th>
-                <th>Invested</th>
-                <th>Realized</th>
-                <th>Admin value</th>
-                <th>Import result</th>
-              </tr>
+              {isRobinhood ? (
+                <tr>
+                  <th>Security</th>
+                  <th>Account</th>
+                  <th>Shares</th>
+                  <th>Cost basis</th>
+                  <th>Market value</th>
+                  <th>Import result</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th>Investment / legal position</th>
+                  <th>Entity</th>
+                  <th>Status</th>
+                  <th>Invested</th>
+                  <th>Realized</th>
+                  <th>Admin value</th>
+                  <th>Import result</th>
+                </tr>
+              )}
             </thead>
             <tbody>
-              {visibleRows.map((row) => (
-                <tr key={row.id}>
-                  <td data-label="Investment / legal position">
-                    <strong>{row.exposureName}</strong>
-                    <span>Legal position: {row.positionName}</span>
-                  </td>
-                  <td data-label="Entity">{row.ownerLabel}</td>
-                  <td data-label="Status">
-                    <strong>{row.providerStatus}</strong>
-                    <span className="source-meta">
-                      Invested {formatDate(row.investedOn)}
-                    </span>
-                  </td>
-                  <td data-label="Invested">
-                    {formatCompactMoney(row.investedMinor)}
-                  </td>
-                  <td data-label="Realized">
-                    {formatCompactMoney(row.realizedValueMinor)}
-                  </td>
-                  <td
-                    className={
-                      row.administratorNavState === "locked"
-                        ? "import-value--locked"
-                        : undefined
-                    }
-                    data-label="Admin value"
-                  >
-                    {importAdministratorValueLabel(row)}
-                  </td>
-                  <td data-label="Import result">
-                    <ImportResult row={row} />
-                  </td>
-                </tr>
-              ))}
+              {visibleRows.map((row) =>
+                isRobinhood ? (
+                  <tr key={row.id}>
+                    <td data-label="Security">
+                      <strong>{row.exposureName}</strong>
+                      <span>{row.ticker ?? "Ticker not reported"}</span>
+                    </td>
+                    <td data-label="Account">{row.ownerLabel}</td>
+                    <td data-label="Shares">
+                      {formatQuantityMicros(row.quantityMicros)}
+                    </td>
+                    <td data-label="Cost basis">
+                      {holdingValueLabel(row.costBasisMinor)}
+                    </td>
+                    <td data-label="Market value">
+                      {importAdministratorValueLabel(row, preview.provider)}
+                    </td>
+                    <td data-label="Import result">
+                      <ImportResult row={row} />
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={row.id}>
+                    <td data-label="Investment / legal position">
+                      <strong>{row.exposureName}</strong>
+                      <span>Legal position: {row.positionName}</span>
+                    </td>
+                    <td data-label="Entity">{row.ownerLabel}</td>
+                    <td data-label="Status">
+                      <strong>{row.providerStatus}</strong>
+                      <span className="source-meta">
+                        Invested {formatDate(row.investedOn)}
+                      </span>
+                    </td>
+                    <td data-label="Invested">
+                      {formatCompactMoney(row.investedMinor)}
+                    </td>
+                    <td data-label="Realized">
+                      {formatCompactMoney(row.realizedValueMinor)}
+                    </td>
+                    <td
+                      className={
+                        row.administratorNavState === "locked"
+                          ? "import-value--locked"
+                          : undefined
+                      }
+                      data-label="Admin value"
+                    >
+                      {importAdministratorValueLabel(row, preview.provider)}
+                    </td>
+                    <td data-label="Import result">
+                      <ImportResult row={row} />
+                    </td>
+                  </tr>
+                ),
+              )}
             </tbody>
           </table>
         </div>
@@ -1811,7 +1900,10 @@ function HoldingImportWorkspace({
           }
           type="checkbox"
         />
-        <span>I confirm the export’s $ values are USD.</span>
+        <span>
+          I confirm the {isRobinhood ? "Robinhood" : "export’s"} $ values are
+          USD.
+        </span>
       </label>
 
       {confirming ? (
@@ -1828,14 +1920,24 @@ function HoldingImportWorkspace({
             >
               Apply the reviewed import?
             </h3>
-            <p>
-              Create {preview.summary.createCount}, update{" "}
-              {preview.summary.updateCount}, and confirm{" "}
-              {preview.summary.unchangedCount} unchanged.{" "}
-              {preview.summary.lockedValueCount} locked values will remain
-              unavailable. No forecast, underwriting value, or liquidity value
-              will be inferred.
-            </p>
+            {isRobinhood ? (
+              <p>
+                Create {preview.summary.createCount}, update{" "}
+                {preview.summary.updateCount}, and confirm{" "}
+                {preview.summary.unchangedCount} unchanged. Missing positions
+                will not be recorded as sales. No forecast, underwriting value,
+                or usable liquidity will be inferred.
+              </p>
+            ) : (
+              <p>
+                Create {preview.summary.createCount}, update{" "}
+                {preview.summary.updateCount}, and confirm{" "}
+                {preview.summary.unchangedCount} unchanged.{" "}
+                {preview.summary.lockedValueCount} locked values will remain
+                unavailable. No forecast, underwriting value, or liquidity value
+                will be inferred.
+              </p>
+            )}
             {preview.summary.needsAttentionCount > 0 && (
               <small>
                 {preview.summary.needsAttentionCount}{" "}
@@ -1898,17 +2000,19 @@ function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const primaryName = holdingPrimaryName(holding);
   const legalPositionLabel = holdingLegalPositionLabel(holding);
-  const sourceSectionTitle =
-    holding.externalMarkMinor === null
+  const sourceSectionTitle = isRobinhoodHolding(holding)
+    ? "Brokerage source"
+    : holding.externalMarkMinor === null
       ? "Administrator source"
       : "External mark source";
   const valueLenses = [
     {
-      label: "Administrator NAV",
+      label: isRobinhoodHolding(holding) ? "Market value" : "Administrator NAV",
       value: administratorValueLabel(holding),
-      helper:
-        holding.administratorNavState === "locked" &&
-        holding.sourceLabel === "AngelList export"
+      helper: isRobinhoodHolding(holding)
+        ? "Brokerage-reported market value as of the source date."
+        : holding.administratorNavState === "locked" &&
+            holding.sourceLabel === "AngelList export"
           ? "AngelList did not disclose this value in the export."
           : "Administrator-reported value as of the source date.",
       wide: holding.administratorNavState === "locked",
@@ -1998,6 +2102,22 @@ function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
               <dt>Held through</dt>
               <dd>{holding.ownerLabel}</dd>
             </div>
+            {isRobinhoodHolding(holding) && (
+              <>
+                <div>
+                  <dt>Ticker</dt>
+                  <dd>{holding.ticker ?? "Not reported"}</dd>
+                </div>
+                <div>
+                  <dt>Shares</dt>
+                  <dd>{formatQuantityMicros(holding.quantityMicros)}</dd>
+                </div>
+                <div>
+                  <dt>Cost basis</dt>
+                  <dd>{holdingValueLabel(holding.costBasisMinor)}</dd>
+                </div>
+              </>
+            )}
           </dl>
         </section>
 
@@ -2771,6 +2891,251 @@ function AngelListSignInControl() {
   );
 }
 
+const ROBINHOOD_LINK_TOKEN_STORAGE_KEY = "keel.robinhoodLinkToken";
+const ROBINHOOD_OAUTH_RECONNECT_MESSAGE =
+  "Reconnect Robinhood to finish signing in.";
+
+function initialRobinhoodSyncError(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const returningFromOauth = new URLSearchParams(window.location.search).has(
+    "oauth_state_id",
+  );
+  return returningFromOauth &&
+    window.sessionStorage.getItem(ROBINHOOD_LINK_TOKEN_STORAGE_KEY) === null
+    ? ROBINHOOD_OAUTH_RECONNECT_MESSAGE
+    : null;
+}
+
+function RobinhoodSyncControl({
+  onReviewImport,
+}: {
+  onReviewImport: (importId: string) => void;
+}) {
+  const [status, setStatus] = useState<RobinhoodSyncStatus | null>(null);
+  const [busyAction, setBusyAction] = useState<
+    "connect" | "exchange" | "sync" | null
+  >(null);
+  const [error, setError] = useState<string | null>(initialRobinhoodSyncError);
+  const [notice, setNotice] = useState<string | null>(null);
+  const oauthStarted = useRef(false);
+
+  const reload = useCallback(async () => {
+    try {
+      setStatus(await loadRobinhoodSyncStatus());
+      setError((current) =>
+        current === ROBINHOOD_OAUTH_RECONNECT_MESSAGE ? current : null,
+      );
+    } catch {
+      setError("Keel could not check Robinhood right now. Try again shortly.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void reload(), 0);
+    const timer = window.setInterval(() => void reload(), 10_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
+  }, [reload]);
+
+  const acceptSyncStatus = useCallback(
+    (next: RobinhoodSyncStatus) => {
+      setStatus(next);
+      setError(null);
+      if (next.latestImportId !== null) {
+        onReviewImport(next.latestImportId);
+      } else {
+        setNotice("Robinhood is up to date. No new review was created.");
+      }
+    },
+    [onReviewImport],
+  );
+
+  const exchangeToken = useCallback(
+    async (publicToken: string) => {
+      setBusyAction("exchange");
+      setError(null);
+      setNotice(null);
+      try {
+        const next = await exchangeRobinhoodPublicToken(publicToken);
+        window.sessionStorage.removeItem(ROBINHOOD_LINK_TOKEN_STORAGE_KEY);
+        if (window.location.search.length > 0) {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+        acceptSyncStatus(next);
+      } catch {
+        setError(
+          "Robinhood could not be connected. Your holdings were not changed.",
+        );
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [acceptSyncStatus],
+  );
+
+  const openLink = useCallback(
+    async (linkToken: string, receivedRedirectUri?: string) => {
+      await openRobinhoodLink({
+        linkToken,
+        onExit: () => setBusyAction(null),
+        onSuccess: (publicToken) => void exchangeToken(publicToken),
+        ...(receivedRedirectUri === undefined ? {} : { receivedRedirectUri }),
+      });
+    },
+    [exchangeToken],
+  );
+
+  useEffect(() => {
+    if (
+      oauthStarted.current ||
+      !new URLSearchParams(window.location.search).has("oauth_state_id")
+    ) {
+      return;
+    }
+    const linkToken = window.sessionStorage.getItem(
+      ROBINHOOD_LINK_TOKEN_STORAGE_KEY,
+    );
+    if (linkToken === null) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (oauthStarted.current) {
+        return;
+      }
+      oauthStarted.current = true;
+      setBusyAction("connect");
+      void openLink(linkToken, window.location.href).catch(() => {
+        setBusyAction(null);
+        setError("Robinhood connection could not be reopened. Try again.");
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [openLink]);
+
+  const connect = async () => {
+    setBusyAction("connect");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await createRobinhoodLinkToken();
+      window.sessionStorage.setItem(
+        ROBINHOOD_LINK_TOKEN_STORAGE_KEY,
+        result.linkToken,
+      );
+      await openLink(result.linkToken);
+    } catch {
+      setBusyAction(null);
+      setError("Robinhood connection could not be opened. Try again.");
+    }
+  };
+
+  const sync = async () => {
+    setBusyAction("sync");
+    setError(null);
+    setNotice(null);
+    try {
+      acceptSyncStatus(await syncRobinhoodHoldings());
+    } catch {
+      setError(
+        "Robinhood could not be synced. Your holdings were not changed.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const setupRequired = status?.status === "setup_required";
+  const disconnected = status?.status === "disconnected";
+  const syncing = status?.status === "syncing";
+  const connectionInvalid =
+    status?.status === "needs_attention" &&
+    status.errorCode === "connection_invalid";
+  const title =
+    status === null
+      ? "Checking Robinhood"
+      : setupRequired
+        ? "Robinhood sync needs setup"
+        : disconnected
+          ? "Connect Robinhood"
+          : syncing
+            ? "Robinhood sync in progress"
+            : connectionInvalid
+              ? "Reconnect Robinhood"
+              : status.status === "needs_attention"
+                ? "Robinhood sync needs attention"
+                : "Robinhood connected";
+  const description = setupRequired
+    ? "Add the Plaid connection settings to enable Robinhood holdings sync."
+    : disconnected
+      ? "Bring in stocks, ETFs, and mutual funds. Nothing changes until you review it."
+      : syncing
+        ? "Keel is reading the latest brokerage snapshot. It will still wait for your review."
+        : connectionInvalid
+          ? "The saved connection no longer works. Reconnect to resume updates."
+          : status?.status === "needs_attention"
+            ? "The latest update could not be prepared. Try again shortly."
+            : "Refresh market values and share counts whenever you choose. Every update waits for review.";
+
+  return (
+    <section aria-labelledby="robinhood-sync-title" className="robinhood-sync">
+      <div className="robinhood-sync__heading">
+        <p className="eyebrow">Public holdings</p>
+        <h2 id="robinhood-sync-title">{title}</h2>
+        <p>{description}</p>
+      </div>
+      <div className="robinhood-sync__action" aria-live="polite">
+        {status === null ? (
+          error === null ? (
+            <span className="robinhood-sync__checking" role="status">
+              Checking…
+            </span>
+          ) : null
+        ) : setupRequired ? null : disconnected || connectionInvalid ? (
+          <Button
+            disabled={busyAction !== null}
+            onClick={() => void connect()}
+            tone="primary"
+          >
+            {busyAction === "connect" || busyAction === "exchange"
+              ? "Connecting…"
+              : connectionInvalid
+                ? "Reconnect Robinhood"
+                : "Connect Robinhood"}
+          </Button>
+        ) : (
+          <div className="robinhood-sync__controls">
+            {status?.lastSyncedAt !== null &&
+              status?.lastSyncedAt !== undefined && (
+                <span>Last synced {formatDate(status.lastSyncedAt)}</span>
+              )}
+            <Button
+              disabled={busyAction !== null || syncing}
+              onClick={() => void sync()}
+              tone="primary"
+            >
+              {busyAction === "sync" || syncing ? "Syncing…" : "Sync Robinhood"}
+            </Button>
+          </div>
+        )}
+        {notice !== null && (
+          <p className="robinhood-sync__notice" role="status">
+            {notice}
+          </p>
+        )}
+        {error !== null && (
+          <p className="robinhood-sync__error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Holdings({
   data,
   onApplyImport,
@@ -2830,9 +3195,7 @@ function Holdings({
         }
       } catch {
         if (!cancelled) {
-          setPendingImportError(
-            "Keel could not check for new AngelList exports.",
-          );
+          setPendingImportError("Keel could not check for holding updates.");
         }
       } finally {
         if (!cancelled) {
@@ -2868,7 +3231,7 @@ function Holdings({
           setRoutedPreviewError({
             importId: requestedImportId,
             message:
-              "This AngelList import is unavailable or has already been reviewed.",
+              "This holding import is unavailable or has already been reviewed.",
           });
         }
       });
@@ -2886,9 +3249,10 @@ function Holdings({
     }
   };
 
-  const reviewPendingImport = (importId: string) => {
-    onImportRouteChange(importId);
-  };
+  const reviewPendingImport = useCallback(
+    (importId: string) => onImportRouteChange(importId),
+    [onImportRouteChange],
+  );
 
   const closeHoldingDetail = () => {
     const returnFocusId = selectedHoldingId;
@@ -2946,11 +3310,11 @@ function Holdings({
         activeRoutedPreview === null &&
         activeRoutedError === null ? (
           <div aria-live="polite" className="holding-import-loading">
-            Loading the AngelList import…
+            Loading the holding import…
           </div>
         ) : requestedImportId !== null && activeRoutedPreview === null ? (
           <div className="inline-error" role="alert">
-            {activeRoutedError ?? "This AngelList import is unavailable."}
+            {activeRoutedError ?? "This holding import is unavailable."}
             <Button onClick={closeImporter} tone="quiet">
               Back to holdings
             </Button>
@@ -2972,6 +3336,7 @@ function Holdings({
         )
       ) : (
         <>
+          <RobinhoodSyncControl onReviewImport={reviewPendingImport} />
           <AngelListSignInControl />
           {pendingImports.length > 0 && (
             <section
@@ -2979,11 +3344,11 @@ function Holdings({
               className="holding-import-pending"
             >
               <div>
-                <p className="eyebrow">AngelList update</p>
+                <p className="eyebrow">Holding updates</p>
                 <h2 id="pending-holding-imports-title">
                   {pendingImports.length === 1
-                    ? "A new export is ready"
-                    : `${pendingImports.length} exports are ready`}
+                    ? "A holding update is ready"
+                    : `${pendingImports.length} holding updates are ready`}
                 </h2>
                 <p>Nothing changes until you review it.</p>
               </div>
@@ -2992,10 +3357,15 @@ function Holdings({
                   <div key={item.id}>
                     <span>
                       <strong>{item.rowCount} positions</strong>
-                      <small>Export dated {formatDate(item.observedAt)}</small>
+                      <small>
+                        {item.provider === "robinhood"
+                          ? "Robinhood snapshot"
+                          : "AngelList export"}{" "}
+                        · {formatDate(item.observedAt)}
+                      </small>
                     </span>
                     <Button
-                      aria-label={`Review AngelList import dated ${formatDate(item.observedAt)}`}
+                      aria-label={`Review ${item.provider === "robinhood" ? "Robinhood" : "AngelList"} import dated ${formatDate(item.observedAt)}`}
                       onClick={() => reviewPendingImport(item.id)}
                       tone="primary"
                     >
@@ -3017,7 +3387,7 @@ function Holdings({
                 <thead>
                   <tr>
                     <th>Investment</th>
-                    <th>Admin NAV</th>
+                    <th>Source value</th>
                     <th>External mark</th>
                     <th>FI planning value</th>
                     <th>Scenario value</th>
@@ -3045,7 +3415,7 @@ function Holdings({
                           <i aria-hidden="true">View details →</i>
                         </button>
                       </td>
-                      <td data-label="Admin NAV">
+                      <td data-label="Source value">
                         {administratorValueLabel(holding)}
                       </td>
                       <td data-label="External mark">

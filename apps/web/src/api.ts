@@ -12,6 +12,9 @@ import {
   HoldingImportPreviewSchema,
   HoldingImportSummariesSchema,
   PortfolioWatchScanResultSchema,
+  RobinhoodExchangeInputSchema,
+  RobinhoodLinkTokenSchema,
+  RobinhoodSyncStatusSchema,
   ScenarioDraftInputSchema,
   type AlphaData,
   type AngelListAutomationOverview,
@@ -26,6 +29,8 @@ import {
   type HoldingImportPreview,
   type HoldingImportSummary,
   type PortfolioWatchScanResult,
+  type RobinhoodLinkToken,
+  type RobinhoodSyncStatus,
   type ScenarioDraftInput,
   SignalUpdateProposalSchema,
   type SignalUpdateProposal,
@@ -281,6 +286,72 @@ export async function listPendingHoldingImports(): Promise<
     );
   }
   return HoldingImportSummariesSchema.parse(await response.json());
+}
+
+export async function loadRobinhoodSyncStatus(): Promise<RobinhoodSyncStatus> {
+  const response = await fetch("/api/public-holdings/robinhood/status", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Robinhood sync status returned ${response.status}.`,
+    );
+  }
+  return RobinhoodSyncStatusSchema.parse(await response.json());
+}
+
+export async function createRobinhoodLinkToken(): Promise<RobinhoodLinkToken> {
+  const response = await fetch("/api/public-holdings/robinhood/link-token", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Robinhood connection returned ${response.status}.`,
+    );
+  }
+  return RobinhoodLinkTokenSchema.parse(await response.json());
+}
+
+export async function exchangeRobinhoodPublicToken(
+  publicToken: string,
+): Promise<RobinhoodSyncStatus> {
+  const body = RobinhoodExchangeInputSchema.parse({ publicToken });
+  const response = await fetch("/api/public-holdings/robinhood/exchange", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Robinhood connection returned ${response.status}.`,
+    );
+  }
+  return RobinhoodSyncStatusSchema.parse(await response.json());
+}
+
+export async function syncRobinhoodHoldings(): Promise<RobinhoodSyncStatus> {
+  const response = await fetch("/api/public-holdings/robinhood/sync", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Robinhood sync returned ${response.status}.`,
+    );
+  }
+  return RobinhoodSyncStatusSchema.parse(await response.json());
 }
 
 export async function loadHoldingImport(

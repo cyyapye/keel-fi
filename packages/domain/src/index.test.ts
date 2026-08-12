@@ -10,8 +10,39 @@ import {
   projectScenario,
   probabilityMeetingThresholdPpm,
   reconcileFinancingSignals,
+  RobinhoodSyncStatusSchema,
   summarizeLiquidityPaths,
 } from "./index";
+
+describe("Robinhood sync status", () => {
+  it("rejects inconsistent configuration and run states", () => {
+    const base = {
+      version: 1 as const,
+      configured: true,
+      status: "ready" as const,
+      lastSyncedAt: null,
+      latestImportId: null,
+      latestRunStatus: null,
+      errorCode: null,
+    };
+    expect(RobinhoodSyncStatusSchema.safeParse(base).success).toBe(true);
+    expect(
+      RobinhoodSyncStatusSchema.safeParse({
+        ...base,
+        configured: false,
+        status: "ready",
+        errorCode: "configuration_required",
+      }).success,
+    ).toBe(false);
+    expect(
+      RobinhoodSyncStatusSchema.safeParse({
+        ...base,
+        status: "syncing",
+        latestRunStatus: "succeeded",
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("financing announcement facts", () => {
   it("accepts deterministic minor-unit facts with bounded evidence", () => {

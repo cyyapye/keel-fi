@@ -17,6 +17,11 @@ export interface Env {
   DOCUMENTS: R2Bucket;
   ENVIRONMENT: Environment;
   INGESTION_QUEUE: Queue;
+  CONNECTOR_CREDENTIAL_KEY?: string;
+  PLAID_CLIENT_ID?: string;
+  PLAID_ENVIRONMENT?: string;
+  PLAID_REDIRECT_URI?: string;
+  PLAID_SECRET?: string;
 }
 
 export type AccessIdentity =
