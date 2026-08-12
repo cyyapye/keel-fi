@@ -29,6 +29,12 @@ function environment(root: string): NodeJS.ProcessEnv {
     KEEL_PREVIEW_D1_NAME: "keel-preview",
     KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN:
       "synthetic-preview-smoke-token-for-tests",
+    KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY: "a".repeat(43),
+    KEEL_PREVIEW_PLAID_CLIENT_ID: "synthetic-plaid-client-id",
+    KEEL_PREVIEW_PLAID_ENVIRONMENT: "sandbox",
+    KEEL_PREVIEW_PLAID_REDIRECT_URI:
+      "https://keel-preview.example.com/holdings",
+    KEEL_PREVIEW_PLAID_SECRET: "synthetic-plaid-secret",
     KEEL_PREVIEW_QUEUE: "keel-preview-ingestion",
     KEEL_PREVIEW_QUEUE_DLQ: "keel-preview-ingestion-dlq",
     KEEL_PREVIEW_R2_BUCKET: "keel-preview-private-documents",
@@ -55,6 +61,12 @@ describe("preview deployment configuration", () => {
     expect(PreviewDeploymentEnvironmentSchema.safeParse(invalid).success).toBe(
       false,
     );
+
+    const partialConnector = environment("/tmp/unused");
+    delete partialConnector.KEEL_PREVIEW_PLAID_SECRET;
+    expect(
+      PreviewDeploymentEnvironmentSchema.safeParse(partialConnector).success,
+    ).toBe(false);
   });
 
   it("generates complete private Wrangler configuration outside tracked files", async () => {
@@ -78,6 +90,11 @@ describe("preview deployment configuration", () => {
           "ACCESS_AUD",
           "ACCESS_TEAM_DOMAIN",
           "DEPLOYMENT_SMOKE_TOKEN",
+          "CONNECTOR_CREDENTIAL_KEY",
+          "PLAID_CLIENT_ID",
+          "PLAID_ENVIRONMENT",
+          "PLAID_REDIRECT_URI",
+          "PLAID_SECRET",
         ],
       },
       version_metadata: { binding: "CF_VERSION_METADATA" },
@@ -99,7 +116,12 @@ describe("preview deployment configuration", () => {
     expect(apiSecrets).toEqual({
       ACCESS_AUD: "synthetic-preview-audience",
       ACCESS_TEAM_DOMAIN: "team.example.com",
+      CONNECTOR_CREDENTIAL_KEY: "a".repeat(43),
       DEPLOYMENT_SMOKE_TOKEN: "synthetic-preview-smoke-token-for-tests",
+      PLAID_CLIENT_ID: "synthetic-plaid-client-id",
+      PLAID_ENVIRONMENT: "sandbox",
+      PLAID_REDIRECT_URI: "https://keel-preview.example.com/holdings",
+      PLAID_SECRET: "synthetic-plaid-secret",
     });
     expect(JSON.stringify(apiConfig)).not.toContain(
       "synthetic-preview-service-secret-for-tests",

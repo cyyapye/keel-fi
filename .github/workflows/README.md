@@ -38,6 +38,13 @@ to `main`, and configure the following environment value:
   `KEEL_PREVIEW_ACCESS_CLIENT_SECRET`, `KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN`,
   and `KEEL_PREVIEW_BACKUP_PASSPHRASE`.
 
+Robinhood sync is optional. To enable it in preview, configure the complete
+secret group `KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY`,
+`KEEL_PREVIEW_PLAID_CLIENT_ID`, `KEEL_PREVIEW_PLAID_ENVIRONMENT`,
+`KEEL_PREVIEW_PLAID_REDIRECT_URI`, and `KEEL_PREVIEW_PLAID_SECRET`. The
+deployment validation rejects a partial group. See
+[the Robinhood sync runbook](../../docs/deployment/robinhood-holdings-sync.md).
+
 Use a custom Cloudflare API token scoped to the private preview account and only
 the Worker, D1, Queue, and route/domain permissions required by these commands.
 Do not use a global API key or a production token. The Access client values must

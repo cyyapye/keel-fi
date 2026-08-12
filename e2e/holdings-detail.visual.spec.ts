@@ -113,6 +113,27 @@ const alphaFixture = {
       retrievedAt: "2026-06-14T12:00:00.000Z",
       confidencePpm: null,
     },
+    {
+      id: "holding_demo_robinhood",
+      positionName: "SYN · Synthetic Public Company",
+      exposureName: "Synthetic Public Company",
+      ownerLabel: "Robinhood individual account",
+      positionKind: "direct",
+      administratorNavMinor: 23_800_000,
+      administratorNavState: "reported",
+      externalMarkMinor: null,
+      underwritingValueMinor: null,
+      scenarioValueMinor: null,
+      usableLiquidityMinor: null,
+      sourceStatus: "verified",
+      sourceLabel: "Robinhood via Plaid",
+      effectiveDate: "2026-08-10",
+      retrievedAt: "2026-08-10T16:00:00.000Z",
+      confidencePpm: null,
+      ticker: "SYN",
+      quantityMicros: 12_345_678,
+      costBasisMinor: 18_250_000,
+    },
   ],
   evidenceInbox: [],
   portfolioWatch: { targets: [], observations: [] },
@@ -147,6 +168,22 @@ test("leads with the investment and opens a truthful holding detail", async ({
         lastCompletedAt: null,
         nextRunAt: "2026-08-16T16:00:00.000Z",
         latestImportId: null,
+        errorCode: null,
+      },
+    });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        status: "disconnected",
+        lastSyncedAt: null,
+        latestImportId: null,
+        latestRunStatus: null,
         errorCode: null,
       },
     });
@@ -230,4 +267,26 @@ test("leads with the investment and opens a truthful holding detail", async ({
     page.getByText("AngelList did not disclose this value in the export."),
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
+
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await page
+    .getByRole("button", {
+      name: "View Synthetic Public Company holding details",
+    })
+    .click();
+  await expect(page.getByText("Brokerage source")).toBeVisible();
+  await expect(page.getByText("12.345678")).toBeVisible();
+  await expect(
+    page.getByText("Brokerage-reported market value as of the source date."),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-detail-robinhood.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
 });

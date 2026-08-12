@@ -41,33 +41,84 @@ const PreviewUrlSchema = z
     return url;
   });
 
-export const PreviewDeploymentEnvironmentSchema = z.object({
-  CLOUDFLARE_ACCOUNT_ID: CloudflareAccountIdSchema,
-  CLOUDFLARE_API_TOKEN: z.string().min(20),
-  GITHUB_SHA: GitShaSchema,
-  KEEL_PREVIEW_ACCESS_AUD: z.string().min(8).max(256),
-  KEEL_PREVIEW_ACCESS_CLIENT_ID: z.string().min(16).max(512),
-  KEEL_PREVIEW_ACCESS_CLIENT_SECRET: z.string().min(32).max(1024),
-  KEEL_PREVIEW_ACCESS_TEAM_DOMAIN: HostnameSchema,
-  KEEL_PREVIEW_API_WORKER: CloudflareResourceNameSchema,
-  KEEL_PREVIEW_BACKUP_PASSPHRASE: z.string().min(32).max(1024),
-  KEEL_PREVIEW_D1_ID: z.uuid(),
-  KEEL_PREVIEW_D1_NAME: CloudflareResourceNameSchema,
-  KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN: z.string().min(32).max(1024),
-  KEEL_PREVIEW_QUEUE: CloudflareResourceNameSchema,
-  KEEL_PREVIEW_QUEUE_DLQ: CloudflareResourceNameSchema,
-  KEEL_PREVIEW_R2_BUCKET: CloudflareResourceNameSchema,
-  KEEL_PREVIEW_URL: PreviewUrlSchema,
-  KEEL_PREVIEW_WEB_WORKER: CloudflareResourceNameSchema,
-  RUNNER_TEMP: z.string().min(1),
-});
+const OptionalEnvironmentValue = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    schema.optional(),
+  );
+const OptionalPlaidEnvironmentShape = {
+  KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY: OptionalEnvironmentValue(
+    z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+  ),
+  KEEL_PREVIEW_PLAID_CLIENT_ID: OptionalEnvironmentValue(
+    z.string().min(1).max(512),
+  ),
+  KEEL_PREVIEW_PLAID_ENVIRONMENT: OptionalEnvironmentValue(
+    z.enum(["sandbox", "production"]),
+  ),
+  KEEL_PREVIEW_PLAID_REDIRECT_URI: OptionalEnvironmentValue(
+    z
+      .url()
+      .max(2_048)
+      .refine((value) => new URL(value).protocol === "https:"),
+  ),
+  KEEL_PREVIEW_PLAID_SECRET: OptionalEnvironmentValue(
+    z.string().min(1).max(512),
+  ),
+} as const;
 
-const PreviewApiSecretsEnvironmentSchema = z.object({
-  KEEL_PREVIEW_ACCESS_AUD: z.string().min(8).max(256),
-  KEEL_PREVIEW_ACCESS_TEAM_DOMAIN: HostnameSchema,
-  KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN: z.string().min(32).max(1024),
-  RUNNER_TEMP: z.string().min(1),
-});
+function validateCompletePlaidEnvironment(
+  value: Partial<Record<keyof typeof OptionalPlaidEnvironmentShape, unknown>>,
+  context: z.RefinementCtx,
+) {
+  const configuredCount = Object.keys(OptionalPlaidEnvironmentShape).filter(
+    (key) =>
+      value[key as keyof typeof OptionalPlaidEnvironmentShape] !== undefined,
+  ).length;
+  if (
+    configuredCount !== 0 &&
+    configuredCount !== Object.keys(OptionalPlaidEnvironmentShape).length
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Preview Plaid settings must be supplied together.",
+    });
+  }
+}
+
+export const PreviewDeploymentEnvironmentSchema = z
+  .object({
+    CLOUDFLARE_ACCOUNT_ID: CloudflareAccountIdSchema,
+    CLOUDFLARE_API_TOKEN: z.string().min(20),
+    GITHUB_SHA: GitShaSchema,
+    KEEL_PREVIEW_ACCESS_AUD: z.string().min(8).max(256),
+    KEEL_PREVIEW_ACCESS_CLIENT_ID: z.string().min(16).max(512),
+    KEEL_PREVIEW_ACCESS_CLIENT_SECRET: z.string().min(32).max(1024),
+    KEEL_PREVIEW_ACCESS_TEAM_DOMAIN: HostnameSchema,
+    KEEL_PREVIEW_API_WORKER: CloudflareResourceNameSchema,
+    KEEL_PREVIEW_BACKUP_PASSPHRASE: z.string().min(32).max(1024),
+    KEEL_PREVIEW_D1_ID: z.uuid(),
+    KEEL_PREVIEW_D1_NAME: CloudflareResourceNameSchema,
+    KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN: z.string().min(32).max(1024),
+    KEEL_PREVIEW_QUEUE: CloudflareResourceNameSchema,
+    KEEL_PREVIEW_QUEUE_DLQ: CloudflareResourceNameSchema,
+    KEEL_PREVIEW_R2_BUCKET: CloudflareResourceNameSchema,
+    KEEL_PREVIEW_URL: PreviewUrlSchema,
+    KEEL_PREVIEW_WEB_WORKER: CloudflareResourceNameSchema,
+    RUNNER_TEMP: z.string().min(1),
+    ...OptionalPlaidEnvironmentShape,
+  })
+  .superRefine(validateCompletePlaidEnvironment);
+
+const PreviewApiSecretsEnvironmentSchema = z
+  .object({
+    KEEL_PREVIEW_ACCESS_AUD: z.string().min(8).max(256),
+    KEEL_PREVIEW_ACCESS_TEAM_DOMAIN: HostnameSchema,
+    KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN: z.string().min(32).max(1024),
+    RUNNER_TEMP: z.string().min(1),
+    ...OptionalPlaidEnvironmentShape,
+  })
+  .superRefine(validateCompletePlaidEnvironment);
 
 type PreviewDeploymentEnvironment = z.infer<
   typeof PreviewDeploymentEnvironmentSchema
@@ -94,7 +145,20 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
     },
     secrets: {
-      required: ["ACCESS_AUD", "ACCESS_TEAM_DOMAIN", "DEPLOYMENT_SMOKE_TOKEN"],
+      required: [
+        "ACCESS_AUD",
+        "ACCESS_TEAM_DOMAIN",
+        "DEPLOYMENT_SMOKE_TOKEN",
+        ...(configuration.KEEL_PREVIEW_PLAID_CLIENT_ID === undefined
+          ? []
+          : [
+              "CONNECTOR_CREDENTIAL_KEY",
+              "PLAID_CLIENT_ID",
+              "PLAID_ENVIRONMENT",
+              "PLAID_REDIRECT_URI",
+              "PLAID_SECRET",
+            ]),
+      ],
     },
     version_metadata: { binding: "CF_VERSION_METADATA" },
     d1_databases: [
@@ -241,6 +305,16 @@ export async function writePreviewApiSecrets(
         ACCESS_TEAM_DOMAIN: configuration.KEEL_PREVIEW_ACCESS_TEAM_DOMAIN,
         DEPLOYMENT_SMOKE_TOKEN:
           configuration.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN,
+        ...(configuration.KEEL_PREVIEW_PLAID_CLIENT_ID === undefined
+          ? {}
+          : {
+              CONNECTOR_CREDENTIAL_KEY:
+                configuration.KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY,
+              PLAID_CLIENT_ID: configuration.KEEL_PREVIEW_PLAID_CLIENT_ID,
+              PLAID_ENVIRONMENT: configuration.KEEL_PREVIEW_PLAID_ENVIRONMENT,
+              PLAID_REDIRECT_URI: configuration.KEEL_PREVIEW_PLAID_REDIRECT_URI,
+              PLAID_SECRET: configuration.KEEL_PREVIEW_PLAID_SECRET,
+            }),
       },
       null,
       2,

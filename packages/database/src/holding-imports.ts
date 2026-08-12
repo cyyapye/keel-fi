@@ -1,9 +1,12 @@
 import {
   AngelListInvestmentCsvRowSchema,
+  RobinhoodHoldingRowSchema,
   type AngelListInvestmentCsvRow,
+  type RobinhoodHoldingRow,
 } from "@keel/connectors";
 import {
   HoldingImportApplyInputSchema,
+  HoldingImportProviderSchema,
   HoldingImportSummariesSchema,
   IsoDateSchema,
   IsoTimestampSchema,
@@ -20,6 +23,9 @@ const MAX_IMPORT_ROWS = 500;
 const ANGELLIST_PROVIDER = "angellist";
 const ANGELLIST_PARSER_SCHEMA = "angellist_investments_v1";
 const ANGELLIST_SOURCE_LABEL = "AngelList export";
+const ROBINHOOD_PROVIDER = "robinhood";
+const ROBINHOOD_PARSER_SCHEMA = "plaid_robinhood_holdings_v1";
+const ROBINHOOD_SOURCE_LABEL = "Robinhood via Plaid";
 
 const HoldingImportStageInputSchema = z
   .object({
@@ -34,6 +40,26 @@ const HoldingImportStageInputSchema = z
 
 export type HoldingImportStageInput = z.infer<
   typeof HoldingImportStageInputSchema
+>;
+
+const RobinhoodHoldingImportStageInputSchema = z
+  .object({
+    objectKey: z.string().min(1).max(1_024),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    byteSize: z
+      .number()
+      .int()
+      .positive()
+      .max(5 * 1_048_576),
+    normalizedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+    effectiveDate: IsoDateSchema,
+    retrievedAt: IsoTimestampSchema,
+    rows: z.array(RobinhoodHoldingRowSchema).min(1).max(MAX_IMPORT_ROWS),
+  })
+  .strict();
+
+export type RobinhoodHoldingImportStageInput = z.infer<
+  typeof RobinhoodHoldingImportStageInputSchema
 >;
 
 export type HoldingImportStageResult = {
@@ -69,6 +95,9 @@ type ImportPreviewRow = {
   unrealized_value_minor: number | null;
   unrealized_value_state: "reported" | "locked" | "not_reported";
   realized_value_minor: number;
+  ticker: string | null;
+  quantity_micros: number | null;
+  cost_basis_minor: number | null;
   parse_status: "ready" | "needs_attention";
   issue_codes_json: string;
   existing_position_id: string | null;
@@ -103,6 +132,10 @@ type ApplyImportRow = {
   net_value_minor: number | null;
   net_value_state: "reported" | "locked" | "not_reported";
   instrument_type: string;
+  position_kind: "direct" | "spv_interest" | "fund_interest";
+  quantity_micros: number | null;
+  ticker: string | null;
+  cost_basis_minor: number | null;
   currency_hint: string | null;
   parse_status: "ready" | "needs_attention";
   source_document_id: string;
@@ -173,6 +206,27 @@ async function snapshotFingerprint(
   );
 }
 
+async function robinhoodSnapshotFingerprint(
+  row: RobinhoodHoldingRow,
+  retrievedAt: string,
+): Promise<string> {
+  return sha256(
+    JSON.stringify([
+      "robinhood-position-snapshot-v1",
+      row.naturalKeySha256,
+      retrievedAt,
+      row.observedOn,
+      row.quantityMicros,
+      row.costBasisMinor,
+      row.marketValueMinor,
+      row.ticker,
+      row.securityType,
+      row.currency,
+      row.issues,
+    ]),
+  );
+}
+
 function issues(serialized: string): string[] {
   const parsed = z.array(z.string().min(1)).safeParse(JSON.parse(serialized));
   if (!parsed.success) {
@@ -222,7 +276,7 @@ export class D1HoldingImportRepository {
            JOIN source_documents document
              ON document.id = import.source_document_id
            WHERE import.household_id = ?
-             AND import.provider = 'angellist'
+             AND import.provider IN ('angellist', 'robinhood')
              AND document.review_status = 'pending_review'
            ORDER BY import.created_at DESC
            LIMIT 20`,
@@ -403,6 +457,171 @@ export class D1HoldingImportRepository {
     };
   }
 
+  public async findRobinhoodHoldingImportByFingerprint(
+    accessSubject: string,
+    normalizedFingerprint: string,
+  ): Promise<HoldingImportPreview | null> {
+    const fingerprint = z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .parse(normalizedFingerprint);
+    const identity = await this.findIdentity(accessSubject);
+    const existing = await this.db
+      .prepare(
+        `SELECT candidate.id
+         FROM holding_imports candidate
+         WHERE candidate.household_id = ?
+           AND candidate.provider = 'robinhood'
+           AND candidate.normalized_fingerprint = ?
+           AND candidate.id = (
+             SELECT latest.id
+             FROM holding_imports latest
+             WHERE latest.household_id = candidate.household_id
+               AND latest.provider = candidate.provider
+             ORDER BY latest.created_at DESC, latest.id DESC
+             LIMIT 1
+           )`,
+      )
+      .bind(identity.household_id, fingerprint)
+      .first<{ id: string }>();
+    return existing === null
+      ? null
+      : this.getHoldingImport(accessSubject, existing.id);
+  }
+
+  public async stageRobinhoodHoldingImport(
+    accessSubject: string,
+    rawInput: RobinhoodHoldingImportStageInput,
+  ): Promise<HoldingImportStageResult> {
+    const input = RobinhoodHoldingImportStageInputSchema.parse(rawInput);
+    const existing = await this.findRobinhoodHoldingImportByFingerprint(
+      accessSubject,
+      input.normalizedFingerprint,
+    );
+    if (existing !== null) {
+      return { created: false, preview: existing };
+    }
+
+    const identity = await this.findIdentity(accessSubject);
+    const preparedRows = await Promise.all(
+      input.rows.map(async (row) => ({
+        row,
+        snapshotFingerprint: await robinhoodSnapshotFingerprint(
+          row,
+          input.retrievedAt,
+        ),
+      })),
+    );
+    const importId = crypto.randomUUID();
+    const sourceDocumentId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const statements: D1PreparedStatement[] = [
+      this.db
+        .prepare(
+          `INSERT INTO source_documents (
+             id, household_id, object_key, file_name, content_type, byte_size,
+             sha256, effective_date, retrieved_at, source_label, review_status,
+             created_at
+           ) VALUES (?, ?, ?, 'robinhood-holdings.json', 'application/json', ?,
+             ?, ?, ?, ?, 'pending_review', ?)`,
+        )
+        .bind(
+          sourceDocumentId,
+          identity.household_id,
+          input.objectKey,
+          input.byteSize,
+          input.sha256,
+          input.effectiveDate,
+          input.retrievedAt,
+          ROBINHOOD_SOURCE_LABEL,
+          createdAt,
+        ),
+      this.db
+        .prepare(
+          `INSERT INTO holding_imports (
+             id, household_id, source_document_id, provider, parser_schema,
+             normalized_fingerprint, row_count, created_by, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          importId,
+          identity.household_id,
+          sourceDocumentId,
+          ROBINHOOD_PROVIDER,
+          ROBINHOOD_PARSER_SCHEMA,
+          input.normalizedFingerprint,
+          preparedRows.length,
+          identity.user_id,
+          createdAt,
+        ),
+    ];
+
+    preparedRows.forEach(({ row, snapshotFingerprint: fingerprint }) => {
+      const exposureLabel =
+        row.ticker === null
+          ? row.securityName
+          : `${row.ticker} · ${row.securityName}`;
+      const costBasisPlaceholder = row.costBasisMinor ?? 0;
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO holding_import_rows (
+               id, household_id, import_id, source_row_number,
+               position_fingerprint, snapshot_fingerprint, legal_vehicle_name,
+               owner_label, exposure_label, provider_status, invested_on,
+               invested_minor, allocation_minor, unrealized_value_minor,
+               unrealized_value_state, realized_value_minor, net_value_minor,
+               net_value_state, instrument_type, currency_hint, parse_status,
+               issue_codes_json, position_kind, quantity_micros, ticker,
+               cost_basis_minor, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?,
+               'reported', 0, ?, 'reported', ?, 'USD', ?, ?, 'direct', ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            importId,
+            row.rowNumber,
+            row.naturalKeySha256,
+            fingerprint,
+            row.securityName,
+            row.accountLabel,
+            exposureLabel,
+            row.observedOn,
+            costBasisPlaceholder,
+            costBasisPlaceholder,
+            row.marketValueMinor,
+            row.marketValueMinor,
+            row.securityType,
+            row.issues.length === 0 ? "ready" : "needs_attention",
+            JSON.stringify(row.issues),
+            row.quantityMicros,
+            row.ticker,
+            row.costBasisMinor,
+            createdAt,
+          ),
+      );
+    });
+
+    try {
+      await this.db.batch(statements);
+    } catch (error) {
+      const raced = await this.findRobinhoodHoldingImportByFingerprint(
+        accessSubject,
+        input.normalizedFingerprint,
+      );
+      if (raced !== null) {
+        return { created: false, preview: raced };
+      }
+      throw error;
+    }
+
+    return {
+      created: true,
+      preview: await this.getHoldingImport(accessSubject, importId),
+    };
+  }
+
   public async getHoldingImport(
     accessSubject: string,
     importId: string,
@@ -435,7 +654,8 @@ export class D1HoldingImportRepository {
     if (importRow === null) {
       throw new Error("Holding import not found.");
     }
-    if (importRow.provider !== ANGELLIST_PROVIDER) {
+    const provider = HoldingImportProviderSchema.safeParse(importRow.provider);
+    if (!provider.success) {
       throw new Error("Holding import provider is not supported.");
     }
 
@@ -454,6 +674,9 @@ export class D1HoldingImportRepository {
              row.unrealized_value_minor,
              row.unrealized_value_state,
              row.realized_value_minor,
+             row.ticker,
+             row.quantity_micros,
+             row.cost_basis_minor,
              row.parse_status,
              row.issue_codes_json,
              position.id AS existing_position_id,
@@ -487,6 +710,9 @@ export class D1HoldingImportRepository {
       administratorNavMinor: row.unrealized_value_minor,
       administratorNavState: row.unrealized_value_state,
       realizedValueMinor: row.realized_value_minor,
+      ticker: row.ticker,
+      quantityMicros: row.quantity_micros,
+      costBasisMinor: row.cost_basis_minor,
       action: actionFor(row),
       issues: issues(row.issue_codes_json),
     }));
@@ -503,7 +729,7 @@ export class D1HoldingImportRepository {
 
     return {
       id: importRow.id,
-      provider: ANGELLIST_PROVIDER,
+      provider: provider.data,
       status,
       observedAt,
       summary: {
@@ -535,6 +761,18 @@ export class D1HoldingImportRepository {
   ): Promise<HoldingImportApplyResult> {
     const input = HoldingImportApplyInputSchema.parse(rawInput);
     const identity = await this.findIdentity(accessSubject);
+    const importProvider = await this.db
+      .prepare(
+        `SELECT provider
+         FROM holding_imports
+         WHERE id = ? AND household_id = ?`,
+      )
+      .bind(importId, identity.household_id)
+      .first<{ provider: string }>();
+    if (importProvider === null) {
+      throw new Error("Holding import not found.");
+    }
+    const provider = HoldingImportProviderSchema.parse(importProvider.provider);
     const rows = await all<ApplyImportRow>(
       this.db
         .prepare(
@@ -555,6 +793,10 @@ export class D1HoldingImportRepository {
              row.net_value_minor,
              row.net_value_state,
              row.instrument_type,
+             row.position_kind,
+             row.quantity_micros,
+             row.ticker,
+             row.cost_basis_minor,
              row.currency_hint,
              row.parse_status,
              import.source_document_id,
@@ -568,7 +810,7 @@ export class D1HoldingImportRepository {
              AND import.provider = ?
            ORDER BY row.source_row_number`,
         )
-        .bind(importId, identity.household_id, ANGELLIST_PROVIDER),
+        .bind(importId, identity.household_id, provider),
     );
     if (rows.length === 0) {
       throw new Error("Holding import not found.");
@@ -632,7 +874,7 @@ export class D1HoldingImportRepository {
            FROM holding_positions
            WHERE household_id = ? AND provider = ?`,
         )
-        .bind(identity.household_id, ANGELLIST_PROVIDER),
+        .bind(identity.household_id, provider),
     );
     const snapshots = await all<ExistingSnapshotRow>(
       this.db
@@ -642,7 +884,7 @@ export class D1HoldingImportRepository {
            JOIN holding_positions position ON position.id = snapshot.position_id
            WHERE snapshot.household_id = ? AND position.provider = ?`,
         )
-        .bind(identity.household_id, ANGELLIST_PROVIDER),
+        .bind(identity.household_id, provider),
     );
     const positionsByFingerprint = new Map(
       positions.map((position) => [position.position_fingerprint, position]),
@@ -726,17 +968,18 @@ export class D1HoldingImportRepository {
                  id, household_id, provider, position_fingerprint,
                  legal_vehicle_name, owner_label, position_kind,
                  instrument_type, opened_on, currency, created_by, created_at
-               ) VALUES (?, ?, ?, ?, ?, ?, 'spv_interest', ?, ?, ?, ?, ?)`,
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               position.id,
               identity.household_id,
-              ANGELLIST_PROVIDER,
+              provider,
               row.position_fingerprint,
               row.legal_vehicle_name,
               row.owner_label,
+              row.position_kind,
               row.instrument_type,
-              row.invested_on,
+              provider === ANGELLIST_PROVIDER ? row.invested_on : null,
               input.currency,
               identity.user_id,
               createdAt,
@@ -805,8 +1048,9 @@ export class D1HoldingImportRepository {
                  source_import_row_id, snapshot_fingerprint, provider_status,
                  invested_minor, allocation_minor, unrealized_value_minor,
                  unrealized_value_state, realized_value_minor, net_value_minor,
-                 net_value_state, instrument_type, currency, observed_at, created_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 net_value_state, instrument_type, currency, observed_at,
+                 quantity_micros, ticker, cost_basis_minor, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               snapshot.id,
@@ -828,6 +1072,9 @@ export class D1HoldingImportRepository {
               row.effective_date === null
                 ? row.retrieved_at
                 : `${row.effective_date}T00:00:00.000Z`,
+              row.quantity_micros,
+              row.ticker,
+              row.cost_basis_minor,
               createdAt,
             ),
         );

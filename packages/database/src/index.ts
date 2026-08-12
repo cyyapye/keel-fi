@@ -51,6 +51,7 @@ import {
 
 export * from "./holding-imports";
 export * from "./angellist-mac-agent";
+export * from "./public-holdings";
 export * from "./portfolio-watch";
 
 type DashboardRow = {
@@ -126,6 +127,9 @@ type HoldingRow = {
   effective_date: string;
   retrieved_at: string;
   confidence_ppm: number | null;
+  ticker: string | null;
+  quantity_micros: number | null;
+  cost_basis_minor: number | null;
 };
 
 type EvidenceRow = {
@@ -603,7 +607,10 @@ export class D1AlphaRepository implements AlphaRepository {
                  source.source_name AS source_label,
                  substr(external.effective_at, 1, 10) AS effective_date,
                  external.retrieved_at,
-                 source.confidence_ppm
+                 source.confidence_ppm,
+                 NULL AS ticker,
+                 NULL AS quantity_micros,
+                 NULL AS cost_basis_minor
                FROM asset_lots lot
                JOIN companies company ON company.id = lot.company_id
                JOIN asset_accounts account ON account.id = lot.asset_account_id
@@ -650,13 +657,19 @@ export class D1AlphaRepository implements AlphaRepository {
                      THEN 'review_due'
                    ELSE 'verified'
                  END AS source_status,
-                 'AngelList export' AS source_label,
+                 CASE position.provider
+                   WHEN 'robinhood' THEN 'Robinhood via Plaid'
+                   ELSE 'AngelList export'
+                 END AS source_label,
                  COALESCE(
                    document.effective_date,
                    substr(document.retrieved_at, 1, 10)
                  ) AS effective_date,
                  document.retrieved_at,
-                 NULL AS confidence_ppm
+                 NULL AS confidence_ppm,
+                 snapshot.ticker,
+                 snapshot.quantity_micros,
+                 snapshot.cost_basis_minor
                FROM holding_positions position
                JOIN holding_position_snapshots snapshot
                  ON snapshot.id = (
@@ -929,6 +942,9 @@ export class D1AlphaRepository implements AlphaRepository {
         effectiveDate: row.effective_date,
         retrievedAt: row.retrieved_at,
         confidencePpm: row.confidence_ppm,
+        ticker: row.ticker,
+        quantityMicros: row.quantity_micros,
+        costBasisMinor: row.cost_basis_minor,
       })),
       evidenceInbox: evidence.map((row) => {
         const financingFacts = financingFactsFromClaim(row.claim_value_json);

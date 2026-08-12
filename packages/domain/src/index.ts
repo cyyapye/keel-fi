@@ -393,7 +393,18 @@ export const HoldingSchema = z.object({
   effectiveDate: IsoDateSchema,
   retrievedAt: IsoTimestampSchema,
   confidencePpm: ProbabilityPpmSchema.nullable(),
+  ticker: z.string().min(1).max(32).nullable().default(null),
+  quantityMicros: z
+    .number()
+    .int()
+    .safe()
+    .nonnegative()
+    .nullable()
+    .default(null),
+  costBasisMinor: NonNegativeMoneyMinorSchema.nullable().default(null),
 });
+
+export const HoldingImportProviderSchema = z.enum(["angellist", "robinhood"]);
 
 export const HoldingImportRowActionSchema = z.enum([
   "create_position",
@@ -404,7 +415,7 @@ export const HoldingImportRowActionSchema = z.enum([
 
 export const HoldingImportRowPreviewSchema = z.object({
   id: z.string().min(1),
-  sourceRowNumber: z.number().int().min(3),
+  sourceRowNumber: z.number().int().positive(),
   positionName: z.string().min(1),
   exposureName: z.string().min(1),
   ownerLabel: z.string().min(1),
@@ -414,13 +425,22 @@ export const HoldingImportRowPreviewSchema = z.object({
   administratorNavMinor: NonNegativeMoneyMinorSchema.nullable(),
   administratorNavState: z.enum(["reported", "locked", "not_reported"]),
   realizedValueMinor: NonNegativeMoneyMinorSchema,
+  ticker: z.string().min(1).max(32).nullable().default(null),
+  quantityMicros: z
+    .number()
+    .int()
+    .safe()
+    .nonnegative()
+    .nullable()
+    .default(null),
+  costBasisMinor: NonNegativeMoneyMinorSchema.nullable().default(null),
   action: HoldingImportRowActionSchema,
   issues: z.array(z.string().min(1)),
 });
 
 export const HoldingImportSummarySchema = z.object({
   id: z.string().min(1),
-  provider: z.literal("angellist"),
+  provider: HoldingImportProviderSchema,
   status: z.literal("pending_review"),
   observedAt: IsoTimestampSchema,
   rowCount: z.number().int().positive(),
@@ -655,7 +675,7 @@ export const AngelListSignInRefreshSchema = z
 
 export const HoldingImportPreviewSchema = z.object({
   id: z.string().min(1),
-  provider: z.literal("angellist"),
+  provider: HoldingImportProviderSchema,
   status: z.enum(["pending_review", "applied"]),
   observedAt: IsoTimestampSchema,
   summary: z.object({
@@ -690,6 +710,92 @@ export const HoldingImportApplyResultSchema = z.object({
   rejectedCount: z.number().int().nonnegative(),
   lockedValueCount: z.number().int().nonnegative(),
 });
+
+export const RobinhoodSyncErrorCodeSchema = z.enum([
+  "configuration_required",
+  "connection_invalid",
+  "provider_unavailable",
+  "response_invalid",
+  "staging_failed",
+  "unexpected_failure",
+]);
+
+export const RobinhoodSyncStatusSchema = z
+  .object({
+    version: z.literal(1),
+    configured: z.boolean(),
+    status: z.enum([
+      "setup_required",
+      "disconnected",
+      "ready",
+      "syncing",
+      "needs_attention",
+    ]),
+    lastSyncedAt: IsoTimestampSchema.nullable(),
+    latestImportId: z.string().min(1).nullable(),
+    latestRunStatus: z.enum(["running", "succeeded", "failed"]).nullable(),
+    errorCode: RobinhoodSyncErrorCodeSchema.nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      !value.configured &&
+      (value.status !== "setup_required" ||
+        value.errorCode !== "configuration_required")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Unconfigured Robinhood sync must require setup.",
+      });
+    }
+    if (
+      value.configured &&
+      (value.status === "setup_required" ||
+        value.errorCode === "configuration_required")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Configured Robinhood sync cannot require setup.",
+      });
+    }
+    if (
+      (value.status === "syncing") !==
+      (value.latestRunStatus === "running")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Robinhood running state is inconsistent.",
+      });
+    }
+    if (
+      (value.status === "needs_attention") !==
+      (value.latestRunStatus === "failed")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Robinhood failure state is inconsistent.",
+      });
+    }
+    if (value.status === "needs_attention" && value.errorCode === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Robinhood failure state requires an error code.",
+      });
+    }
+  });
+
+export const RobinhoodLinkTokenSchema = z
+  .object({
+    linkToken: z.string().min(1).max(4_096),
+    expiration: IsoTimestampSchema,
+  })
+  .strict();
+
+export const RobinhoodExchangeInputSchema = z
+  .object({
+    publicToken: z.string().min(1).max(4_096),
+  })
+  .strict();
 
 export const FinancingMoneyFactSchema = z
   .object({
@@ -1639,6 +1745,14 @@ export type HoldingImportApplyResult = z.infer<
 >;
 export type HoldingImportPreview = z.infer<typeof HoldingImportPreviewSchema>;
 export type HoldingImportSummary = z.infer<typeof HoldingImportSummarySchema>;
+export type RobinhoodExchangeInput = z.infer<
+  typeof RobinhoodExchangeInputSchema
+>;
+export type RobinhoodLinkToken = z.infer<typeof RobinhoodLinkTokenSchema>;
+export type RobinhoodSyncErrorCode = z.infer<
+  typeof RobinhoodSyncErrorCodeSchema
+>;
+export type RobinhoodSyncStatus = z.infer<typeof RobinhoodSyncStatusSchema>;
 export type AngelListBrowserStorageState = z.infer<
   typeof AngelListBrowserStorageStateSchema
 >;

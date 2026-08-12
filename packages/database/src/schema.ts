@@ -1060,6 +1060,9 @@ export const connectorSyncRuns = sqliteTable(
       table.connectorAccountId,
       table.startedAt,
     ),
+    uniqueIndex("connector_sync_runs_active_account_unique")
+      .on(table.connectorAccountId)
+      .where(sql`${table.status} IN ('queued', 'running')`),
     check(
       "connector_sync_runs_counts_check",
       sql`${table.discoveredCount} >= 0 AND ${table.proposedCount} >= 0`,
@@ -1144,6 +1147,7 @@ export const holdingImports = sqliteTable(
       .references(() => sourceDocuments.id, { onDelete: "restrict" }),
     provider: text("provider").notNull(),
     parserSchema: text("parser_schema").notNull(),
+    normalizedFingerprint: text("normalized_fingerprint"),
     rowCount: integer("row_count").notNull(),
     createdBy: text("created_by")
       .notNull()
@@ -1157,6 +1161,10 @@ export const holdingImports = sqliteTable(
     index("holding_imports_household_created_idx").on(
       table.householdId,
       table.createdAt,
+    ),
+    check(
+      "holding_imports_normalized_fingerprint_check",
+      sql`${table.normalizedFingerprint} IS NULL OR (length(${table.normalizedFingerprint}) = 64 AND ${table.normalizedFingerprint} NOT GLOB '*[^0-9a-f]*')`,
     ),
     check(
       "holding_imports_row_count_check",
@@ -1192,6 +1200,10 @@ export const holdingImportRows = sqliteTable(
     currencyHint: text("currency_hint"),
     parseStatus: text("parse_status").notNull(),
     issueCodesJson: text("issue_codes_json").notNull(),
+    positionKind: text("position_kind").notNull().default("spv_interest"),
+    quantityMicros: integer("quantity_micros"),
+    ticker: text("ticker"),
+    costBasisMinor: integer("cost_basis_minor"),
     createdAt: timestamp("created_at"),
   },
   (table) => [
@@ -1218,6 +1230,14 @@ export const holdingImportRows = sqliteTable(
     check(
       "holding_import_rows_issue_codes_json_check",
       sql`json_valid(${table.issueCodesJson})`,
+    ),
+    check(
+      "holding_import_rows_position_kind_check",
+      sql`${table.positionKind} IN ('direct', 'spv_interest', 'fund_interest')`,
+    ),
+    check(
+      "holding_import_rows_public_values_check",
+      sql`(${table.quantityMicros} IS NULL OR ${table.quantityMicros} >= 0) AND (${table.costBasisMinor} IS NULL OR ${table.costBasisMinor} >= 0) AND (${table.ticker} IS NULL OR length(${table.ticker}) BETWEEN 1 AND 32)`,
     ),
   ],
 );
@@ -1314,6 +1334,9 @@ export const holdingPositionSnapshots = sqliteTable(
     instrumentType: text("instrument_type").notNull(),
     currency: text("currency").notNull(),
     observedAt: timestamp("observed_at"),
+    quantityMicros: integer("quantity_micros"),
+    ticker: text("ticker"),
+    costBasisMinor: integer("cost_basis_minor"),
     createdAt: timestamp("created_at"),
   },
   (table) => [
@@ -1327,6 +1350,35 @@ export const holdingPositionSnapshots = sqliteTable(
     index("holding_position_snapshots_position_idx").on(
       table.positionId,
       table.observedAt,
+    ),
+    check(
+      "holding_position_snapshots_public_values_check",
+      sql`(${table.quantityMicros} IS NULL OR ${table.quantityMicros} >= 0) AND (${table.costBasisMinor} IS NULL OR ${table.costBasisMinor} >= 0) AND (${table.ticker} IS NULL OR length(${table.ticker}) BETWEEN 1 AND 32)`,
+    ),
+  ],
+);
+
+export const connectorSyncImports = sqliteTable(
+  "connector_sync_imports",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    syncRunId: text("sync_run_id")
+      .notNull()
+      .references(() => connectorSyncRuns.id, { onDelete: "restrict" }),
+    holdingImportId: text("holding_import_id")
+      .notNull()
+      .references(() => holdingImports.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("connector_sync_imports_run_unique").on(table.syncRunId),
+    uniqueIndex("connector_sync_imports_import_unique").on(
+      table.holdingImportId,
+    ),
+    index("connector_sync_imports_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
     ),
   ],
 );

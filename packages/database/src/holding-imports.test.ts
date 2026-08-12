@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   D1HoldingImportRepository,
   type HoldingImportStageInput,
+  type RobinhoodHoldingImportStageInput,
 } from "./holding-imports";
 import { D1AlphaRepository } from "./index";
 
@@ -19,6 +20,7 @@ const migrationFiles = [
   "packages/database/migrations/0007_holding_imports.sql",
   "packages/database/migrations/0008_signal_update_proposals.sql",
   "packages/database/migrations/0009_angellist_mac_agent.sql",
+  "packages/database/migrations/0010_public_holdings.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -112,6 +114,35 @@ function stageInput(
           shareClass: null,
         },
         ...changes,
+      },
+    ],
+  };
+}
+
+function robinhoodStageInput(
+  normalizedFingerprint = "9".repeat(64),
+): RobinhoodHoldingImportStageInput {
+  return {
+    objectKey: "holding-imports/synthetic-robinhood.json",
+    sha256: "8".repeat(64),
+    byteSize: 2_048,
+    normalizedFingerprint,
+    effectiveDate: "2026-08-08",
+    retrievedAt: "2026-08-10T12:00:00.000Z",
+    rows: [
+      {
+        rowNumber: 1,
+        naturalKeySha256: "7".repeat(64),
+        securityName: "Synthetic Public Company",
+        ticker: "SYN",
+        securityType: "equity",
+        accountLabel: "Robinhood brokerage",
+        quantityMicros: 12_345_678,
+        costBasisMinor: 100_000,
+        marketValueMinor: 123_457,
+        observedOn: "2026-08-08",
+        currency: "USD",
+        issues: [],
       },
     ],
   };
@@ -331,5 +362,176 @@ describe("AngelList holding import persistence", () => {
       )
       .get() as { positions: number; snapshots: number; applications: number };
     expect(counts).toEqual({ positions: 1, snapshots: 2, applications: 3 });
+  });
+
+  it("stages and applies an exact Robinhood public-position snapshot", async () => {
+    const staged = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      robinhoodStageInput(),
+    );
+    expect(staged).toMatchObject({
+      created: true,
+      preview: {
+        provider: "robinhood",
+        status: "pending_review",
+        summary: {
+          rowCount: 1,
+          administratorValueCount: 1,
+          createCount: 1,
+        },
+        rows: [
+          {
+            positionName: "Synthetic Public Company",
+            exposureName: "SYN · Synthetic Public Company",
+            ticker: "SYN",
+            quantityMicros: 12_345_678,
+            costBasisMinor: 100_000,
+            administratorNavMinor: 123_457,
+            action: "create_position",
+          },
+        ],
+      },
+    });
+
+    const repeated = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      { ...robinhoodStageInput(), sha256: "6".repeat(64) },
+    );
+    expect(repeated.created).toBe(false);
+    expect(repeated.preview.id).toBe(staged.preview.id);
+
+    await repository.applyHoldingImport(
+      "synthetic-access-subject",
+      staged.preview.id,
+      {
+        currency: "USD",
+        decisions: [
+          {
+            rowId: staged.preview.rows[0]!.id,
+            decision: "accepted",
+            rationale: "Reviewed synthetic Robinhood position.",
+          },
+        ],
+      },
+    );
+
+    const stored = sqlite
+      .prepare(
+        `SELECT
+           position.position_kind,
+           position.opened_on,
+           snapshot.quantity_micros,
+           snapshot.ticker,
+           snapshot.cost_basis_minor
+         FROM holding_positions position
+         JOIN holding_position_snapshots snapshot
+           ON snapshot.position_id = position.id
+         WHERE position.provider = 'robinhood'`,
+      )
+      .get() as {
+      position_kind: string;
+      opened_on: string | null;
+      quantity_micros: number;
+      ticker: string;
+      cost_basis_minor: number;
+    };
+    expect(stored).toEqual({
+      position_kind: "direct",
+      opened_on: null,
+      quantity_micros: 12_345_678,
+      ticker: "SYN",
+      cost_basis_minor: 100_000,
+    });
+
+    const alpha = await new D1AlphaRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    ).getAlphaData("synthetic-access-subject");
+    expect(alpha.holdings).toContainEqual(
+      expect.objectContaining({
+        exposureName: "SYN · Synthetic Public Company",
+        positionKind: "direct",
+        administratorNavMinor: 123_457,
+        sourceLabel: "Robinhood via Plaid",
+        ticker: "SYN",
+        quantityMicros: 12_345_678,
+        costBasisMinor: 100_000,
+      }),
+    );
+
+    const changedInput = robinhoodStageInput("a".repeat(64));
+    changedInput.objectKey = "holding-imports/synthetic-robinhood-changed.json";
+    changedInput.sha256 = "de".repeat(32);
+    changedInput.effectiveDate = "2026-08-09";
+    changedInput.retrievedAt = "2026-08-09T12:00:00.000Z";
+    changedInput.rows[0] = {
+      ...changedInput.rows[0]!,
+      marketValueMinor: 130_000,
+      observedOn: "2026-08-09",
+    };
+    const changed = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      changedInput,
+    );
+    expect(changed).toMatchObject({
+      created: true,
+      preview: { rows: [{ action: "append_snapshot" }] },
+    });
+    await repository.applyHoldingImport(
+      "synthetic-access-subject",
+      changed.preview.id,
+      {
+        currency: "USD",
+        decisions: [
+          {
+            rowId: changed.preview.rows[0]!.id,
+            decision: "accepted",
+            rationale: "Reviewed changed synthetic Robinhood position.",
+          },
+        ],
+      },
+    );
+
+    const returnedInput = robinhoodStageInput();
+    returnedInput.objectKey =
+      "holding-imports/synthetic-robinhood-returned.json";
+    returnedInput.sha256 = "ef".repeat(32);
+    returnedInput.effectiveDate = "2026-08-10";
+    returnedInput.retrievedAt = "2026-08-10T12:00:00.000Z";
+    returnedInput.rows[0] = {
+      ...returnedInput.rows[0]!,
+      observedOn: "2026-08-10",
+    };
+    const returned = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      returnedInput,
+    );
+    expect(returned).toMatchObject({
+      created: true,
+      preview: { rows: [{ action: "append_snapshot" }] },
+    });
+    await repository.applyHoldingImport(
+      "synthetic-access-subject",
+      returned.preview.id,
+      {
+        currency: "USD",
+        decisions: [
+          {
+            rowId: returned.preview.rows[0]!.id,
+            decision: "accepted",
+            rationale: "Reviewed returned synthetic Robinhood position.",
+          },
+        ],
+      },
+    );
+
+    const current = await new D1AlphaRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    ).getAlphaData("synthetic-access-subject");
+    expect(current.holdings).toContainEqual(
+      expect.objectContaining({
+        administratorNavMinor: 123_457,
+        effectiveDate: "2026-08-10",
+      }),
+    );
   });
 });
