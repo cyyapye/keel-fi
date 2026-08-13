@@ -174,6 +174,56 @@ function testEnv(bucket: R2Bucket): Env {
 }
 
 describe("Robinhood Plaid sync", () => {
+  it("does not rebind the Workers runtime fetch receiver", async () => {
+    let requestCount = 0;
+    const runtimeFetch = function (
+      this: unknown,
+      input: string | URL | Request,
+      init?: RequestInit,
+    ): Promise<Response> {
+      if (this instanceof FetchPlaidInvestmentsClient) {
+        throw new TypeError("Illegal invocation");
+      }
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      expect(new URL(url).pathname).toBe("/link/token/create");
+      expect(init?.method).toBe("POST");
+      requestCount += 1;
+      return Promise.resolve(
+        Response.json({
+          link_token: "link-synthetic-token",
+          expiration: "2026-08-14T00:00:00Z",
+          request_id: "synthetic-request",
+        }),
+      );
+    } as typeof fetch;
+    vi.stubGlobal("fetch", runtimeFetch);
+
+    try {
+      const client = new FetchPlaidInvestmentsClient({
+        clientId: "synthetic-client",
+        secret: "synthetic-secret",
+        environment: "sandbox",
+        credentialKey,
+        redirectUri: "https://keel.example/holdings",
+      });
+
+      await expect(
+        client.createLinkToken("synthetic-access-subject"),
+      ).resolves.toEqual({
+        linkToken: "link-synthetic-token",
+        expiration: "2026-08-14T00:00:00Z",
+      });
+      expect(requestCount).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("validates Robinhood after exchange and removes a wrong institution", async () => {
     const calls: string[] = [];
     const fetcher = vi.fn((url: string | URL | Request) => {
