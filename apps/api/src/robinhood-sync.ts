@@ -352,7 +352,8 @@ async function readBoundedPlaidResponse(
 export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
   public constructor(
     private readonly config: PlaidConfiguration,
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = (input, init) =>
+      fetch(input, init),
   ) {}
 
   public async createLinkToken(
