@@ -79,8 +79,35 @@ test("loads the database-backed dashboard and primary views", async ({
     .getByRole("button", { name: /Protected runway.*View plan inputs/ })
     .click();
   await expect(page.getByRole("heading", { name: "Scenarios" })).toBeVisible();
-  await expect(page.getByText("Current planning goal")).toBeVisible();
-  await expect(page.getByText("Accepted inputs")).toBeVisible();
+  const planInputs = page.locator(".plan-inputs-editor");
+  await expect(
+    planInputs.getByRole("heading", { name: "Plan inputs" }),
+  ).toBeVisible();
+  const savePlanButton = planInputs.getByRole("button", {
+    name: "Save plan",
+  });
+  await expect(savePlanButton).toBeDisabled();
+  const householdBurn = planInputs.getByRole("textbox", {
+    name: /Household burn/,
+  });
+  const savedHouseholdBurn = Number(
+    (await householdBurn.inputValue()).replaceAll(",", ""),
+  );
+  await householdBurn.fill(String(savedHouseholdBurn + 10_000));
+  await expect(planInputs.getByText("Unsaved draft")).toBeVisible();
+  await expect(
+    planInputs.getByRole("textbox", { name: "What changed" }),
+  ).toHaveValue(/Household burn: .*→.*/);
+  await expect(savePlanButton).toBeEnabled();
+  if (mobile) {
+    await planInputs.getByRole("button", { name: "Reset" }).click();
+    await expect(savePlanButton).toBeDisabled();
+  } else {
+    await savePlanButton.click();
+    await expect(planInputs.getByRole("status")).toHaveText(
+      /Plan saved with forecast version \d+\./,
+    );
+  }
 
   await navigateToScreen(page, mobile, /Goals/);
   await expect(page.getByRole("heading", { name: "Goals" })).toBeVisible();
@@ -150,9 +177,11 @@ test("loads the database-backed dashboard and primary views", async ({
   await delaySlider.focus();
   await delaySlider.press("ArrowRight");
   await expect(page.getByText("Working draft preview")).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "What changed" })).toHaveValue(
-    /Liquidity probability: .*→.*; Timing delay: .*→.*/,
-  );
+  await expect(
+    page
+      .locator(".scenario-grid")
+      .getByRole("textbox", { name: "What changed" }),
+  ).toHaveValue(/Liquidity probability: .*→.*; Timing delay: .*→.*/);
   await expect(page.getByText(/probability · \d+-month delay/)).toBeVisible();
   await expect(
     page.getByText(
@@ -180,4 +209,7 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(
     page.getByText("Northstar financing mark incorporated"),
   ).toBeVisible();
+  if (!mobile) {
+    await expect(page.locator(".history-list")).toContainText("Plan inputs");
+  }
 });

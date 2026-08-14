@@ -52,6 +52,7 @@ import {
 export * from "./holding-imports";
 export * from "./angellist-mac-agent";
 export * from "./portfolio-baseline";
+export * from "./plan-inputs";
 export * from "./public-holdings";
 export * from "./portfolio-watch";
 
@@ -2316,11 +2317,21 @@ export class D1AlphaRepository implements AlphaRepository {
           p50.horizon_date AS forecast_horizon_date,
           household.name AS household_name,
           plan.fi_eligible_liquid_minor,
-          CAST(
-            (plan.fi_eligible_liquid_minor - plan.protected_cash_floor_minor)
-            / (plan.household_burn_monthly_minor + plan.business_burn_monthly_minor)
-            AS INTEGER
-          ) AS protected_runway_months,
+          CASE
+            WHEN plan.household_burn_monthly_minor
+                   + plan.business_burn_monthly_minor = 0
+              THEN 0
+            ELSE CAST(
+              MAX(
+                plan.fi_eligible_liquid_minor
+                  - plan.protected_cash_floor_minor,
+                0
+              ) / (
+                plan.household_burn_monthly_minor
+                  + plan.business_burn_monthly_minor
+              ) AS INTEGER
+            )
+          END AS protected_runway_months,
           plan.household_burn_monthly_minor,
           plan.business_burn_monthly_minor,
           plan.fi_target_minor,

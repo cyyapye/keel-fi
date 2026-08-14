@@ -75,6 +75,7 @@ import {
   formatProbability,
 } from "./format";
 import { openRobinhoodLink } from "./plaid-link";
+import { PlanInputsEditor } from "./PlanInputsEditor";
 
 type Screen =
   | "dashboard"
@@ -4924,11 +4925,13 @@ function EvidenceInbox({
 function Scenarios({
   data,
   onSave,
+  onPlanSaved,
   scenarioContext,
   onClearScenarioContext,
 }: {
   data: AlphaData;
   onSave: (input: ScenarioDraftInput) => Promise<void>;
+  onPlanSaved: () => Promise<void>;
   scenarioContext: EvidenceInboxItem | null;
   onClearScenarioContext: () => void;
 }) {
@@ -5108,44 +5111,7 @@ function Scenarios({
         </Badge>
       </div>
 
-      <Panel
-        action={<Badge tone="neutral">Accepted inputs</Badge>}
-        className="plan-inputs"
-        eyebrow="Current planning goal"
-        title="Financial independence"
-      >
-        <p className="plan-inputs__copy">
-          These are the latest accepted cash-flow inputs used by the FI model.
-          The scenario controls below create working drafts; they do not change
-          this accepted plan.
-        </p>
-        <div className="plan-inputs__grid">
-          <MetricCard
-            detail="Decision-usable today"
-            label="FI-eligible liquid"
-            value={formatCompactMoney(data.dashboard.fiEligibleLiquidMinor)}
-          />
-          <MetricCard
-            detail="Personal operating cost"
-            label="Household burn"
-            value={`${formatCompactMoney(
-              data.dashboard.householdBurnMonthlyMinor,
-            )} / mo`}
-          />
-          <MetricCard
-            detail="Protected separately"
-            label="Business burn"
-            value={`${formatCompactMoney(
-              data.dashboard.businessBurnMonthlyMinor,
-            )} / mo`}
-          />
-          <MetricCard
-            detail="Threshold for this template"
-            label="FI target"
-            value={formatCompactMoney(data.dashboard.fiTargetMinor)}
-          />
-        </div>
-      </Panel>
+      <PlanInputsEditor onSaved={onPlanSaved} />
 
       <div className="scenario-tabs" role="tablist">
         {data.scenarios.map((scenario) => (
@@ -5756,6 +5722,7 @@ export function App() {
         return (
           <Scenarios
             data={data}
+            onPlanSaved={async () => setData(await loadAlphaData())}
             onSave={async (input) => {
               await saveScenarioVersion(input);
               setData(await loadAlphaData());

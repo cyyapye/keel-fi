@@ -7,10 +7,12 @@ import {
   D1AlphaRepository,
   D1AngelListMacAgentRepository,
   D1HoldingImportRepository,
+  D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
   D1PublicHoldingsRepository,
   type AlphaRepository,
   type AngelListMacAgentRepository,
+  type PlanInputsRepository,
   type PortfolioBaselineRepository,
   type PublicHoldingsRepository,
 } from "@keel/database";
@@ -20,6 +22,7 @@ import {
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
+  PlanInputSaveSchema,
   PortfolioBaselineConfirmInputSchema,
   PortfolioWatchScanResultSchema,
   RobinhoodExchangeInputSchema,
@@ -65,6 +68,7 @@ type AppOptions = {
     "stageRobinhoodHoldingImport"
   >;
   plaidClient?: PlaidInvestmentsClient;
+  planInputsRepository?: PlanInputsRepository;
   portfolioBaselineRepository?: PortfolioBaselineRepository;
   publicHoldingsRepository?: PublicHoldingsRepository;
   repository?: AlphaRepository;
@@ -303,6 +307,8 @@ export function createApp(options: AppOptions = {}) {
   const portfolioBaselineRepositoryFor = (env: Env) =>
     options.portfolioBaselineRepository ??
     new D1PortfolioBaselineRepository(env.DB);
+  const planInputsRepositoryFor = (env: Env) =>
+    options.planInputsRepository ?? new D1PlanInputsRepository(env.DB);
   const holdingImportRepositoryFor = (env: Env) =>
     options.holdingImportRepository ?? new D1HoldingImportRepository(env.DB);
   const plaidClientFor = (env: Env) =>
@@ -428,6 +434,77 @@ export function createApp(options: AppOptions = {}) {
       }
       return context.json(
         { error: "The portfolio baseline could not be confirmed." },
+        500,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.get("/api/plan-inputs", async (context) => {
+    try {
+      const state = await planInputsRepositoryFor(context.env).getState(
+        context.get("identity").subject,
+      );
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json(
+        { error: "Keel could not load the runway plan." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/plan-inputs", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+    const result = PlanInputSaveSchema.safeParse(rawInput);
+    if (!result.success) {
+      return context.json(
+        {
+          error: "Plan input is invalid.",
+          issues: result.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+
+    try {
+      const saved = await planInputsRepositoryFor(context.env).save(
+        context.get("identity").subject,
+        result.data,
+      );
+      return context.json(saved, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (
+        message.includes("stale") ||
+        message.includes("already current") ||
+        message.includes("UNIQUE")
+      ) {
+        return context.json(
+          {
+            error:
+              "The plan or forecast changed. Reload the latest plan before saving.",
+          },
+          409,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      return context.json(
+        { error: "The runway plan could not be saved." },
         500,
         { "Cache-Control": "private, no-store" },
       );

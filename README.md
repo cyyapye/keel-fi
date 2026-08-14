@@ -52,6 +52,9 @@ snapshot.
   private paper remains outside current liquidity. Confirmation versions the FI
   plan, forecast, and matching FI goal together; unavailable values stay unknown
   and possible overlaps require acknowledgment.
+- An editable runway plan in Scenarios for household burn, business burn, and
+  the protected cash floor. The editor previews the impact without changing the
+  accepted plan; saving appends an attributed cash plan and forecast version.
 - Cloudflare Access JWT validation that fails closed outside explicit local
   mode.
 - D1 migrations, private R2/Queues interfaces, synthetic seed data, CI,

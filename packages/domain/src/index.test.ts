@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createPlanInputImpact,
   createPortfolioBaselineImpact,
   createGoalPreview,
   estimateThresholdProbabilityPpm,
@@ -9,6 +10,7 @@ import {
   HttpsSourceUrlSchema,
   multiplyMinorByPpm,
   PortfolioBaselineConfirmInputSchema,
+  PlanInputSaveSchema,
   projectScenario,
   probabilityMeetingThresholdPpm,
   reconcileFinancingSignals,
@@ -417,6 +419,61 @@ describe("deterministic financial calculations", () => {
         ...base,
         fiEligibleLiquidMinor: 182_500_000,
       }).success,
+    ).toBe(false);
+  });
+
+  it("previews runway plan inputs with integer-only money arithmetic", () => {
+    expect(
+      createPlanInputImpact(
+        {
+          householdBurnMonthlyMinor: 3_000_000,
+          businessBurnMonthlyMinor: 1_500_000,
+          protectedCashFloorMinor: 15_000_000,
+        },
+        182_500_000,
+      ),
+    ).toEqual({
+      totalMonthlyBurnMinor: 4_500_000,
+      liquidAfterCashFloorMinor: 167_500_000,
+      protectedRunwayMonths: 37,
+    });
+    expect(
+      createPlanInputImpact(
+        {
+          householdBurnMonthlyMinor: 0,
+          businessBurnMonthlyMinor: 0,
+          protectedCashFloorMinor: 200_000_000,
+        },
+        182_500_000,
+      ),
+    ).toEqual({
+      totalMonthlyBurnMinor: 0,
+      liquidAfterCashFloorMinor: 0,
+      protectedRunwayMonths: 0,
+    });
+  });
+
+  it("requires a pinned plan and forecast revision before saving inputs", () => {
+    const input = {
+      baseCashFlowPlanId: "cf_fi",
+      baseForecastSnapshotId: "snap_fi_v3",
+      baseForecastSnapshotVersion: 3,
+      householdBurnMonthlyMinor: 3_000_000,
+      businessBurnMonthlyMinor: 1_500_000,
+      protectedCashFloorMinor: 15_000_000,
+      changeNote: "Updated synthetic runway inputs.",
+    };
+
+    expect(PlanInputSaveSchema.safeParse(input).success).toBe(true);
+    expect(
+      PlanInputSaveSchema.safeParse({
+        ...input,
+        householdBurnMonthlyMinor: 30_000.5,
+      }).success,
+    ).toBe(false);
+    expect(
+      PlanInputSaveSchema.safeParse({ ...input, baseCashFlowPlanId: "" })
+        .success,
     ).toBe(false);
   });
 

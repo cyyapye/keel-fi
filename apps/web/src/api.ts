@@ -11,6 +11,9 @@ import {
   HoldingImportApplyResultSchema,
   HoldingImportPreviewSchema,
   HoldingImportSummariesSchema,
+  PlanInputSaveResultSchema,
+  PlanInputSaveSchema,
+  PlanInputStateSchema,
   PortfolioWatchScanResultSchema,
   PortfolioBaselineConfirmInputSchema,
   PortfolioBaselineConfirmResultSchema,
@@ -31,6 +34,9 @@ import {
   type HoldingImportApplyResult,
   type HoldingImportPreview,
   type HoldingImportSummary,
+  type PlanInputSave,
+  type PlanInputSaveResult,
+  type PlanInputState,
   type PortfolioWatchScanResult,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineConfirmResult,
@@ -103,6 +109,45 @@ export async function confirmPortfolioBaseline(
     );
   }
   return PortfolioBaselineConfirmResultSchema.parse(await response.json());
+}
+
+export async function loadPlanInputs(
+  signal?: AbortSignal,
+): Promise<PlanInputState> {
+  const response = await fetch("/api/plan-inputs", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: signal ?? null,
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Runway plan returned ${response.status}.`,
+    );
+  }
+  return PlanInputStateSchema.parse(await response.json());
+}
+
+export async function savePlanInputs(
+  input: PlanInputSave,
+): Promise<PlanInputSaveResult> {
+  const body = PlanInputSaveSchema.parse(input);
+  const response = await fetch("/api/plan-inputs", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Runway plan save returned ${response.status}.`,
+    );
+  }
+  return PlanInputSaveResultSchema.parse(await response.json());
 }
 
 export async function scanPortfolioWatch(): Promise<PortfolioWatchScanResult> {

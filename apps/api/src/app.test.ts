@@ -5,12 +5,15 @@ import {
 import type {
   AlphaRepository,
   AngelListMacAgentRepository,
+  PlanInputsRepository,
   PortfolioBaselineRepository,
 } from "@keel/database";
 import type {
   AlphaData,
   AngelListMacAgentOverview,
   HoldingImportPreview,
+  PlanInputSaveResult,
+  PlanInputState,
   PortfolioBaselineConfirmResult,
   PortfolioBaselineState,
 } from "@keel/domain";
@@ -259,6 +262,47 @@ const portfolioBaselineResult: PortfolioBaselineConfirmResult = {
   },
 };
 
+const planInputState: PlanInputState = {
+  baseCashFlowPlanId: "cf_fi",
+  baseForecastSnapshotId: "snap_fi_v3",
+  baseForecastSnapshotVersion: 3,
+  values: {
+    householdBurnMonthlyMinor: 2_850_000,
+    businessBurnMonthlyMinor: 1_250_000,
+    protectedCashFloorMinor: 10_300_000,
+  },
+  fiEligibleLiquidMinor: 182_500_000,
+  fiTargetMinor: 325_000_000,
+  forecastHorizonDate: "2031-12-31",
+  impact: {
+    totalMonthlyBurnMinor: 4_100_000,
+    liquidAfterCashFloorMinor: 172_200_000,
+    protectedRunwayMonths: 42,
+  },
+};
+
+const planInputResult: PlanInputSaveResult = {
+  plan: {
+    ...planInputState,
+    baseCashFlowPlanId: "cf_fi_v2",
+    baseForecastSnapshotId: "snap_fi_v4",
+    baseForecastSnapshotVersion: 4,
+    values: {
+      householdBurnMonthlyMinor: 3_000_000,
+      businessBurnMonthlyMinor: 1_500_000,
+      protectedCashFloorMinor: 15_000_000,
+    },
+    impact: {
+      totalMonthlyBurnMinor: 4_500_000,
+      liquidAfterCashFloorMinor: 167_500_000,
+      protectedRunwayMonths: 37,
+    },
+  },
+  priorImpact: planInputState.impact,
+  createdAt: "2026-08-14T12:00:00.000Z",
+  createdBy: "Demo Operator",
+};
+
 function macAgentRepository(
   overrides: Partial<AngelListMacAgentRepository> = {},
 ): AngelListMacAgentRepository {
@@ -489,6 +533,108 @@ describe("Keel API", () => {
         "The portfolio or forecast changed. Review the latest baseline before confirming.",
     });
     expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("loads the accepted runway plan", async () => {
+    const getState = vi
+      .fn<PlanInputsRepository["getState"]>()
+      .mockResolvedValue(planInputState);
+    const planInputsRepository: PlanInputsRepository = {
+      getState,
+      save: vi.fn(),
+    };
+
+    const response = await createApp({ planInputsRepository }).request(
+      "/api/plan-inputs",
+      {},
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual(planInputState);
+    expect(getState).toHaveBeenCalledWith("synthetic-access-subject");
+  });
+
+  it("appends validated runway plan inputs", async () => {
+    const save = vi
+      .fn<PlanInputsRepository["save"]>()
+      .mockResolvedValue(planInputResult);
+    const planInputsRepository: PlanInputsRepository = {
+      getState: vi.fn(),
+      save,
+    };
+    const input = {
+      baseCashFlowPlanId: planInputState.baseCashFlowPlanId,
+      baseForecastSnapshotId: planInputState.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: planInputState.baseForecastSnapshotVersion,
+      householdBurnMonthlyMinor: 3_000_000,
+      businessBurnMonthlyMinor: 1_500_000,
+      protectedCashFloorMinor: 15_000_000,
+      changeNote: "Updated synthetic runway inputs.",
+    };
+
+    const response = await createApp({ planInputsRepository }).request(
+      "/api/plan-inputs",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual(planInputResult);
+    expect(save).toHaveBeenCalledWith("synthetic-access-subject", input);
+  });
+
+  it("fails closed for invalid or stale runway plan saves", async () => {
+    const save = vi
+      .fn<PlanInputsRepository["save"]>()
+      .mockRejectedValue(new Error("Plan inputs are stale."));
+    const planInputsRepository: PlanInputsRepository = {
+      getState: vi.fn(),
+      save,
+    };
+    const staleInput = {
+      baseCashFlowPlanId: planInputState.baseCashFlowPlanId,
+      baseForecastSnapshotId: planInputState.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: planInputState.baseForecastSnapshotVersion,
+      householdBurnMonthlyMinor: 3_000_000,
+      businessBurnMonthlyMinor: 1_500_000,
+      protectedCashFloorMinor: 15_000_000,
+      changeNote: "Updated synthetic runway inputs.",
+    };
+
+    const invalid = await createApp({ planInputsRepository }).request(
+      "/api/plan-inputs",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...staleInput, householdBurnMonthlyMinor: -1 }),
+      },
+      testEnv("local"),
+    );
+    expect(invalid.status).toBe(400);
+    expect(save).not.toHaveBeenCalled();
+
+    const stale = await createApp({ planInputsRepository }).request(
+      "/api/plan-inputs",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(staleInput),
+      },
+      testEnv("local"),
+    );
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toEqual({
+      error:
+        "The plan or forecast changed. Reload the latest plan before saving.",
+    });
+    expect(save).toHaveBeenCalledOnce();
   });
 
   it("runs a household-scoped public-source scan", async () => {
