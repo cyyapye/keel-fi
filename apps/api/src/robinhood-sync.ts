@@ -5,7 +5,9 @@ import {
 } from "@keel/connectors";
 import type {
   D1HoldingImportRepository,
+  PortfolioBaselineRepository,
   PublicHoldingsRepository,
+  RobinhoodImportAdjudication,
 } from "@keel/database";
 import {
   RobinhoodLinkTokenSchema,
@@ -146,6 +148,7 @@ export class PlaidClientError extends Error {
       | "connection_invalid"
       | "provider_unavailable"
       | "response_invalid"
+      | "holdings_incomplete"
       | "staging_failed",
     message: string,
   ) {
@@ -723,12 +726,65 @@ function syncErrorCode(error: unknown): RobinhoodSyncErrorCode {
   return "unexpected_failure";
 }
 
+async function refreshPortfolioBaseline(input: {
+  repository:
+    Pick<PortfolioBaselineRepository, "getState" | "confirm"> | undefined;
+  accessSubject: string;
+  adjudication: RobinhoodImportAdjudication;
+}): Promise<{
+  status: "not_needed" | "refreshed" | "manual_required";
+  baselineId: string | null;
+}> {
+  if (
+    input.repository === undefined ||
+    input.adjudication.autoAppliedCount === 0 ||
+    input.adjudication.quarantinedCount > 0 ||
+    input.adjudication.preservedPositionCount > 0
+  ) {
+    return { status: "not_needed", baselineId: null };
+  }
+  try {
+    const state = await input.repository.getState(input.accessSubject);
+    if (
+      state.status !== "ready" ||
+      state.latestBaseline === null ||
+      state.requiresDuplicateReview ||
+      state.sourceRevision === null ||
+      state.baseForecastSnapshotId === null ||
+      state.baseForecastSnapshotVersion === null
+    ) {
+      return {
+        status: state.status === "current" ? "not_needed" : "manual_required",
+        baselineId: null,
+      };
+    }
+    const result = await input.repository.confirm(input.accessSubject, {
+      sourceRevision: state.sourceRevision,
+      baseForecastSnapshotId: state.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
+      otherFiEligibleLiquidMinor:
+        state.latestBaseline.otherFiEligibleLiquidMinor,
+      duplicateReviewConfirmed: false,
+      changeNote: "Robinhood holdings refreshed automatically.",
+    });
+    return { status: "refreshed", baselineId: result.baseline.id };
+  } catch {
+    return { status: "manual_required", baselineId: null };
+  }
+}
+
 export async function syncRobinhood(input: {
   env: Env;
   repository: PublicHoldingsRepository;
   holdingImports: Pick<
     D1HoldingImportRepository,
-    "stageRobinhoodHoldingImport"
+    | "stageRobinhoodHoldingImport"
+    | "autoAdjudicateRobinhoodHoldingImport"
+    | "hasAcceptedRobinhoodPositions"
+  >;
+  portfolioBaselines?: Pick<
+    PortfolioBaselineRepository,
+    "getState" | "confirm"
   >;
   client: PlaidInvestmentsClient;
   accessSubject: string;
@@ -784,6 +840,16 @@ export async function syncRobinhood(input: {
       );
     }
     if (normalized.rows.length === 0) {
+      if (
+        await input.holdingImports.hasAcceptedRobinhoodPositions(
+          input.accessSubject,
+        )
+      ) {
+        throw new PlaidClientError(
+          "holdings_incomplete",
+          "Robinhood returned an empty snapshot while accepted positions remain. Their prior values were preserved.",
+        );
+      }
       await input.repository.completeSync(input.accessSubject, run.id, {
         discoveredCount: 0,
         proposedCount: 0,
@@ -815,7 +881,7 @@ export async function syncRobinhood(input: {
     } catch {
       throw new PlaidClientError(
         "staging_failed",
-        "Keel could not prepare the Robinhood update for review.",
+        "Keel could not safely prepare the Robinhood update.",
       );
     }
     if (!staged.created) {
@@ -826,10 +892,36 @@ export async function syncRobinhood(input: {
       // later sync-run bookkeeping failures.
       stagedObjectKey = null;
     }
+    const adjudication =
+      staged.created || staged.preview.status !== "applied"
+        ? await input.holdingImports.autoAdjudicateRobinhoodHoldingImport(
+            input.accessSubject,
+            staged.preview.id,
+          )
+        : null;
+    const baselineRefresh =
+      adjudication === null
+        ? { status: "not_needed" as const, baselineId: null }
+        : await refreshPortfolioBaseline({
+            repository: input.portfolioBaselines,
+            accessSubject: input.accessSubject,
+            adjudication,
+          });
     await input.repository.completeSync(input.accessSubject, run.id, {
       discoveredCount: normalized.rows.length,
       proposedCount: staged.created ? normalized.rows.length : 0,
-      importId: staged.created ? staged.preview.id : null,
+      importId: adjudication === null ? null : staged.preview.id,
+      adjudication:
+        adjudication === null
+          ? null
+          : {
+              policyVersion: adjudication.policyVersion,
+              autoAppliedCount: adjudication.autoAppliedCount,
+              quarantinedCount: adjudication.quarantinedCount,
+              preservedPositionCount: adjudication.preservedPositionCount,
+              baselineRefreshStatus: baselineRefresh.status,
+              portfolioBaselineId: baselineRefresh.baselineId,
+            },
     });
     return input.repository.getStatus(input.accessSubject, true);
   } catch (error) {

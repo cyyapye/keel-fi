@@ -100,6 +100,9 @@ const holdingImportPreview: HoldingImportPreview = {
     updateCount: 0,
     unchangedCount: 0,
     needsAttentionCount: 0,
+    autoAppliedCount: 0,
+    quarantinedCount: 0,
+    preservedPositionCount: 0,
   },
   rows: [
     {
@@ -119,6 +122,9 @@ const holdingImportPreview: HoldingImportPreview = {
       costBasisMinor: null,
       action: "create_position",
       issues: [],
+      adjudicationStatus: "pending_review",
+      decisionSource: null,
+      reasonCodes: [],
     },
   ],
 };

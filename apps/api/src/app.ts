@@ -66,7 +66,9 @@ type AppOptions = {
   angelListMacAgentRepository?: AngelListMacAgentRepository;
   holdingImportRepository?: Pick<
     D1HoldingImportRepository,
-    "stageRobinhoodHoldingImport"
+    | "stageRobinhoodHoldingImport"
+    | "autoAdjudicateRobinhoodHoldingImport"
+    | "hasAcceptedRobinhoodPositions"
   >;
   plaidClient?: PlaidInvestmentsClient;
   planInputsRepository?: PlanInputsRepository;
@@ -110,8 +112,13 @@ function robinhoodErrorResponse(
       message: "Robinhood returned an unsupported holdings response.",
       status: 502 as const,
     },
+    holdings_incomplete: {
+      message:
+        "Robinhood returned an incomplete holdings snapshot. Prior positions were preserved.",
+      status: 409 as const,
+    },
     staging_failed: {
-      message: "Keel could not prepare the Robinhood update for review.",
+      message: "Keel could not safely prepare the Robinhood update.",
       status: 503 as const,
     },
     unexpected_failure: {
@@ -616,6 +623,7 @@ export function createApp(options: AppOptions = {}) {
         env: context.env,
         repository,
         holdingImports: holdingImportRepositoryFor(context.env),
+        portfolioBaselines: portfolioBaselineRepositoryFor(context.env),
         client,
         accessSubject,
       });
@@ -638,6 +646,7 @@ export function createApp(options: AppOptions = {}) {
         env: context.env,
         repository: publicHoldingsRepositoryFor(context.env),
         holdingImports: holdingImportRepositoryFor(context.env),
+        portfolioBaselines: portfolioBaselineRepositoryFor(context.env),
         client: plaidClientFor(context.env),
         accessSubject: context.get("identity").subject,
       });

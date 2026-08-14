@@ -413,6 +413,13 @@ export const HoldingImportRowActionSchema = z.enum([
   "needs_attention",
 ]);
 
+export const HoldingImportAdjudicationStatusSchema = z.enum([
+  "pending_review",
+  "auto_applied",
+  "quarantined",
+  "manually_resolved",
+]);
+
 export const HoldingImportRowPreviewSchema = z.object({
   id: z.string().min(1),
   sourceRowNumber: z.number().int().positive(),
@@ -436,12 +443,16 @@ export const HoldingImportRowPreviewSchema = z.object({
   costBasisMinor: NonNegativeMoneyMinorSchema.nullable().default(null),
   action: HoldingImportRowActionSchema,
   issues: z.array(z.string().min(1)),
+  adjudicationStatus:
+    HoldingImportAdjudicationStatusSchema.default("pending_review"),
+  decisionSource: z.enum(["manual", "policy"]).nullable().default(null),
+  reasonCodes: z.array(z.string().min(1).max(100)).default([]),
 });
 
 export const HoldingImportSummarySchema = z.object({
   id: z.string().min(1),
   provider: HoldingImportProviderSchema,
-  status: z.literal("pending_review"),
+  status: z.enum(["pending_review", "quarantined"]),
   observedAt: IsoTimestampSchema,
   rowCount: z.number().int().positive(),
   createdAt: IsoTimestampSchema,
@@ -676,7 +687,7 @@ export const AngelListSignInRefreshSchema = z
 export const HoldingImportPreviewSchema = z.object({
   id: z.string().min(1),
   provider: HoldingImportProviderSchema,
-  status: z.enum(["pending_review", "applied"]),
+  status: z.enum(["pending_review", "applied", "quarantined"]),
   observedAt: IsoTimestampSchema,
   summary: z.object({
     rowCount: z.number().int().nonnegative(),
@@ -686,6 +697,9 @@ export const HoldingImportPreviewSchema = z.object({
     updateCount: z.number().int().nonnegative(),
     unchangedCount: z.number().int().nonnegative(),
     needsAttentionCount: z.number().int().nonnegative(),
+    autoAppliedCount: z.number().int().nonnegative().default(0),
+    quarantinedCount: z.number().int().nonnegative().default(0),
+    preservedPositionCount: z.number().int().nonnegative().default(0),
   }),
   rows: z.array(HoldingImportRowPreviewSchema),
 });
@@ -934,9 +948,25 @@ export const RobinhoodSyncErrorCodeSchema = z.enum([
   "connection_invalid",
   "provider_unavailable",
   "response_invalid",
+  "holdings_incomplete",
   "staging_failed",
   "unexpected_failure",
 ]);
+
+export const RobinhoodAdjudicationSummarySchema = z
+  .object({
+    importId: z.string().min(1),
+    policyVersion: z.string().min(1).max(100),
+    autoAppliedCount: z.number().int().nonnegative(),
+    quarantinedCount: z.number().int().nonnegative(),
+    preservedPositionCount: z.number().int().nonnegative(),
+    baselineRefreshStatus: z.enum([
+      "not_needed",
+      "refreshed",
+      "manual_required",
+    ]),
+  })
+  .strict();
 
 export const RobinhoodSyncStatusSchema = z
   .object({
@@ -954,6 +984,8 @@ export const RobinhoodSyncStatusSchema = z
     latestImportId: z.string().min(1).nullable(),
     latestRunStatus: z.enum(["running", "succeeded", "failed"]).nullable(),
     errorCode: RobinhoodSyncErrorCodeSchema.nullable(),
+    latestAdjudication:
+      RobinhoodAdjudicationSummarySchema.nullable().default(null),
   })
   .strict()
   .superRefine((value, context) => {
@@ -1964,6 +1996,9 @@ export type HoldingImportApplyResult = z.infer<
 >;
 export type HoldingImportPreview = z.infer<typeof HoldingImportPreviewSchema>;
 export type HoldingImportSummary = z.infer<typeof HoldingImportSummarySchema>;
+export type RobinhoodAdjudicationSummary = z.infer<
+  typeof RobinhoodAdjudicationSummarySchema
+>;
 export type PortfolioBaselineConfirmInput = z.infer<
   typeof PortfolioBaselineConfirmInputSchema
 >;

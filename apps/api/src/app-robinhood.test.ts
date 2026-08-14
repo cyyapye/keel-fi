@@ -17,6 +17,7 @@ const readyStatus: RobinhoodSyncStatus = {
   latestImportId: null,
   latestRunStatus: "succeeded",
   errorCode: null,
+  latestAdjudication: null,
 };
 
 function repository() {

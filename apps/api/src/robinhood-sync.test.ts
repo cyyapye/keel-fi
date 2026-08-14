@@ -109,6 +109,7 @@ function status(
     latestImportId: null,
     latestRunStatus: null,
     errorCode: null,
+    latestAdjudication: null,
     ...overrides,
   };
 }
@@ -398,10 +399,34 @@ describe("Robinhood Plaid sync", () => {
         rows: [],
       },
     });
+    const autoAdjudicateRobinhoodHoldingImport = vi.fn().mockResolvedValue({
+      importId: "synthetic-import",
+      policyVersion: "robinhood-holdings-auto-v1",
+      autoAppliedCount: 1,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    const hasAcceptedRobinhoodPositions = vi.fn().mockResolvedValue(false);
+    const getState = vi.fn().mockResolvedValue({
+      status: "ready",
+      sourceRevision: "c".repeat(64),
+      baseForecastSnapshotId: "synthetic-forecast",
+      baseForecastSnapshotVersion: 3,
+      requiresDuplicateReview: false,
+      latestBaseline: { otherFiEligibleLiquidMinor: 25_000_000 },
+    });
+    const confirm = vi.fn().mockResolvedValue({
+      baseline: { id: "synthetic-auto-baseline" },
+    });
     await syncRobinhood({
       env,
       repository,
-      holdingImports: { stageRobinhoodHoldingImport },
+      holdingImports: {
+        stageRobinhoodHoldingImport,
+        autoAdjudicateRobinhoodHoldingImport,
+        hasAcceptedRobinhoodPositions,
+      },
+      portfolioBaselines: { getState, confirm },
       client,
       accessSubject: "synthetic-access-subject",
     });
@@ -437,8 +462,24 @@ describe("Robinhood Plaid sync", () => {
         discoveredCount: 1,
         proposedCount: 1,
         importId: "synthetic-import",
+        adjudication: {
+          policyVersion: "robinhood-holdings-auto-v1",
+          autoAppliedCount: 1,
+          quarantinedCount: 0,
+          preservedPositionCount: 0,
+          baselineRefreshStatus: "refreshed",
+          portfolioBaselineId: "synthetic-auto-baseline",
+        },
       },
     );
+    expect(confirm).toHaveBeenCalledWith("synthetic-access-subject", {
+      sourceRevision: "c".repeat(64),
+      baseForecastSnapshotId: "synthetic-forecast",
+      baseForecastSnapshotVersion: 3,
+      otherFiEligibleLiquidMinor: 25_000_000,
+      duplicateReviewConfirmed: false,
+      changeNote: "Robinhood holdings refreshed automatically.",
+    });
     expect(repository.failSync).not.toHaveBeenCalled();
   });
 
@@ -475,11 +516,17 @@ describe("Robinhood Plaid sync", () => {
       publicToken: "synthetic-public-token",
     });
     const stageRobinhoodHoldingImport = vi.fn();
+    const autoAdjudicateRobinhoodHoldingImport = vi.fn();
+    const hasAcceptedRobinhoodPositions = vi.fn().mockResolvedValue(false);
 
     await syncRobinhood({
       env,
       repository,
-      holdingImports: { stageRobinhoodHoldingImport },
+      holdingImports: {
+        stageRobinhoodHoldingImport,
+        autoAdjudicateRobinhoodHoldingImport,
+        hasAcceptedRobinhoodPositions,
+      },
       client,
       accessSubject: "synthetic-access-subject",
     });
@@ -493,6 +540,65 @@ describe("Robinhood Plaid sync", () => {
         proposedCount: 0,
         importId: null,
       },
+    );
+  });
+
+  it("fails closed on an empty snapshot when accepted positions exist", async () => {
+    const storage = memoryBucket();
+    const env = testEnv(storage.bucket);
+    const repository = publicRepository();
+    const emptyResponse = {
+      ...syntheticHoldingsResponse(),
+      holdings: [],
+      securities: [],
+    };
+    const client: PlaidInvestmentsClient = {
+      createLinkToken: vi.fn(),
+      exchangeRobinhoodToken: vi.fn().mockResolvedValue({
+        version: 1,
+        accessToken: "synthetic-private-access-token",
+        itemId: "synthetic-item",
+        institutionId: "synthetic-robinhood",
+      }),
+      removeItem: vi.fn(),
+      updateItemWebhook: vi.fn(),
+      getWebhookVerificationKey: vi.fn(),
+      getHoldings: vi.fn().mockResolvedValue({
+        bytes: new TextEncoder().encode(JSON.stringify(emptyResponse)),
+        parsed: emptyResponse,
+      }),
+    };
+    await connectRobinhood({
+      env,
+      repository,
+      client,
+      accessSubject: "synthetic-access-subject",
+      publicToken: "synthetic-public-token",
+    });
+    const stageRobinhoodHoldingImport = vi.fn();
+    const autoAdjudicateRobinhoodHoldingImport = vi.fn();
+    const hasAcceptedRobinhoodPositions = vi.fn().mockResolvedValue(true);
+
+    await expect(
+      syncRobinhood({
+        env,
+        repository,
+        holdingImports: {
+          stageRobinhoodHoldingImport,
+          autoAdjudicateRobinhoodHoldingImport,
+          hasAcceptedRobinhoodPositions,
+        },
+        client,
+        accessSubject: "synthetic-access-subject",
+      }),
+    ).rejects.toThrow("prior values were preserved");
+
+    expect(stageRobinhoodHoldingImport).not.toHaveBeenCalled();
+    expect(repository.completeSync).not.toHaveBeenCalled();
+    expect(repository.failSync).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-run",
+      "holdings_incomplete",
     );
   });
 });

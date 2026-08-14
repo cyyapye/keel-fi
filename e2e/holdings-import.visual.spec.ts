@@ -157,7 +157,7 @@ const importPreview = {
 const robinhoodImportPreview = {
   id: "holding_import_synthetic_robinhood",
   provider: "robinhood",
-  status: "pending_review",
+  status: "quarantined",
   observedAt: "2026-08-10T16:00:00.000Z",
   summary: {
     rowCount: 3,
@@ -167,6 +167,9 @@ const robinhoodImportPreview = {
     updateCount: 0,
     unchangedCount: 0,
     needsAttentionCount: 1,
+    autoAppliedCount: 2,
+    quarantinedCount: 2,
+    preservedPositionCount: 1,
   },
   rows: [
     {
@@ -186,6 +189,12 @@ const robinhoodImportPreview = {
       costBasisMinor: 18_250_000,
       action: "create_position",
       issues: [],
+      adjudicationStatus: "auto_applied",
+      decisionSource: "policy",
+      reasonCodes: [
+        "supported_usd_long_position",
+        "new_position_identity_clear",
+      ],
     },
     {
       id: "robinhood_row_2",
@@ -204,6 +213,12 @@ const robinhoodImportPreview = {
       costBasisMinor: 9_500_000,
       action: "create_position",
       issues: [],
+      adjudicationStatus: "auto_applied",
+      decisionSource: "policy",
+      reasonCodes: [
+        "supported_usd_long_position",
+        "new_position_identity_clear",
+      ],
     },
     {
       id: "robinhood_row_3",
@@ -221,7 +236,10 @@ const robinhoodImportPreview = {
       quantityMicros: 2_000_000,
       costBasisMinor: null,
       action: "needs_attention",
-      issues: ["Cost basis is not available for this position."],
+      issues: ["The position identity conflicts with the prior snapshot."],
+      adjudicationStatus: "quarantined",
+      decisionSource: null,
+      reasonCodes: [],
     },
   ],
 };
@@ -419,7 +437,7 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
   );
 });
 
-test("connects Robinhood and stages a review without inferring sales", async ({
+test("connects Robinhood, applies clear rows, and isolates exceptions", async ({
   page,
 }) => {
   const exchangeBodies: unknown[] = [];
@@ -501,6 +519,14 @@ test("connects Robinhood and stages a review without inferring sales", async ({
           latestImportId: robinhoodImportPreview.id,
           latestRunStatus: "succeeded",
           errorCode: null,
+          latestAdjudication: {
+            importId: robinhoodImportPreview.id,
+            policyVersion: "robinhood-holdings-auto-v1",
+            autoAppliedCount: 2,
+            quarantinedCount: 2,
+            preservedPositionCount: 1,
+            baselineRefreshStatus: "not_needed",
+          },
         },
       });
     },
@@ -522,19 +548,18 @@ test("connects Robinhood and stages a review without inferring sales", async ({
     /\/holdings\/imports\/holding_import_synthetic_robinhood$/,
   );
   await expect(
-    page.getByRole("heading", { name: "Review Robinhood import" }),
+    page.getByRole("heading", { name: "Uncertain records stayed unchanged" }),
   ).toBeFocused();
   await expect(
     page.getByText(
-      "Positions missing from this snapshot are not treated as sales.",
+      "Keel kept the last accepted values and did not infer sales.",
     ),
   ).toBeVisible();
-  const summary = page.getByLabel("Import summary");
-  await expect(summary).toContainText("3Positions");
-  await expect(summary).toContainText("2Market values");
-  await expect(summary).toContainText("1Need attention");
-  await expect(page.getByText("12.345678")).toBeVisible();
-  await expect(page.getByText("Cost basis is not available")).toBeVisible();
+  const summary = page.getByLabel("Automatic review summary");
+  await expect(summary).toContainText("2Applied");
+  await expect(summary).toContainText("2Exceptions");
+  await expect(summary).toContainText("1Prior positions kept");
+  await expect(page.getByText("The position identity conflicts")).toBeVisible();
 
   const viewportWidths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -550,7 +575,7 @@ test("connects Robinhood and stages a review without inferring sales", async ({
     `,
   });
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-robinhood-review.png",
+    "holdings-robinhood-exceptions.png",
     {
       animations: "disabled",
       caret: "hide",
@@ -559,19 +584,13 @@ test("connects Robinhood and stages a review without inferring sales", async ({
     },
   );
 
-  await page
-    .getByRole("checkbox", {
-      name: "I confirm the Robinhood $ values are USD.",
-    })
-    .check();
-  await page.getByRole("button", { name: "Apply 2 positions" }).click();
   await expect(
-    page.getByText("Missing positions will not be recorded as sales."),
+    page.getByRole("button", { name: "Back to holdings" }),
   ).toBeVisible();
   expect(exchangeBodies).toEqual([{ publicToken: "public-synthetic" }]);
 });
 
-test("shows automatic Robinhood checks without bypassing review", async ({
+test("shows automatic Robinhood checks with exception-only review", async ({
   page,
 }) => {
   await page.unroute("**/api/public-holdings/robinhood/status");
@@ -607,6 +626,14 @@ test("shows automatic Robinhood checks without bypassing review", async ({
         latestImportId: null,
         latestRunStatus: "succeeded",
         errorCode: null,
+        latestAdjudication: {
+          importId: "holding_import_synthetic_applied",
+          policyVersion: "robinhood-holdings-auto-v1",
+          autoAppliedCount: 3,
+          quarantinedCount: 0,
+          preservedPositionCount: 0,
+          baselineRefreshStatus: "refreshed",
+        },
       },
     });
   });
@@ -617,7 +644,7 @@ test("shows automatic Robinhood checks without bypassing review", async ({
   ).toBeVisible();
   await expect(
     page.getByText(
-      "Keel checks after Robinhood reports a holdings change. Every update waits for review.",
+      "Keel records clear holdings changes automatically. Anything uncertain stays unchanged for you to inspect.",
     ),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();

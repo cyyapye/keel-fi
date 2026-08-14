@@ -23,6 +23,7 @@ const migrationFiles = [
   "packages/database/migrations/0011_portfolio_baselines.sql",
   "packages/database/migrations/0012_append_only_cash_flow_plans.sql",
   "packages/database/migrations/0013_plaid_holdings_webhooks.sql",
+  "packages/database/migrations/0014_robinhood_auto_adjudication.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -201,10 +202,23 @@ describe("Robinhood public-holdings connection state", () => {
         ],
       },
     );
+    const adjudication =
+      await holdingRepository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        staged.preview.id,
+      );
     await repository.completeSync("synthetic-access-subject", run.id, {
       discoveredCount: 1,
       proposedCount: 1,
       importId: staged.preview.id,
+      adjudication: {
+        policyVersion: adjudication.policyVersion,
+        autoAppliedCount: adjudication.autoAppliedCount,
+        quarantinedCount: adjudication.quarantinedCount,
+        preservedPositionCount: adjudication.preservedPositionCount,
+        baselineRefreshStatus: "not_needed",
+        portfolioBaselineId: null,
+      },
     });
 
     await expect(
@@ -212,8 +226,16 @@ describe("Robinhood public-holdings connection state", () => {
     ).resolves.toMatchObject({
       status: "ready",
       latestRunStatus: "succeeded",
-      latestImportId: staged.preview.id,
+      latestImportId: null,
       lastSyncedAt: expect.any(String),
+      latestAdjudication: {
+        importId: staged.preview.id,
+        policyVersion: "robinhood-holdings-auto-v1",
+        autoAppliedCount: 1,
+        quarantinedCount: 0,
+        preservedPositionCount: 0,
+        baselineRefreshStatus: "not_needed",
+      },
     });
 
     const replacement = await repository.upsertConnection(
