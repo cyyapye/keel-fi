@@ -1,4 +1,5 @@
 import {
+  addMinorUnits,
   createGoalPreview,
   createPortfolioBaselineImpact,
   projectScenario,
@@ -70,6 +71,7 @@ import {
   formatCompactCurrency,
   formatCompactMoney,
   formatDate,
+  formatMoney,
   formatProbability,
 } from "./format";
 import { openRobinhoodLink } from "./plaid-link";
@@ -3182,9 +3184,9 @@ function PortfolioBaselineSection({
 }) {
   const [state, setState] = useState<PortfolioBaselineState | null>(null);
   const [reviewing, setReviewing] = useState(false);
-  const [dollarInput, setDollarInput] = useState("");
+  const [otherLiquidInput, setOtherLiquidInput] = useState("");
   const [changeNote, setChangeNote] = useState(
-    "Reviewed synced holdings for the FI plan.",
+    "Replaced the FI liquid baseline with reviewed holdings.",
   );
   const [duplicateReviewConfirmed, setDuplicateReviewConfirmed] =
     useState(false);
@@ -3226,10 +3228,23 @@ function PortfolioBaselineSection({
     }
   }, [reviewing]);
 
-  const proposedFiEligibleMinor = useMemo(
-    () => dollarInputToMinorUnits(dollarInput),
-    [dollarInput],
+  const proposedOtherLiquidMinor = useMemo(
+    () => dollarInputToMinorUnits(otherLiquidInput),
+    [otherLiquidInput],
   );
+  const proposedFiEligibleMinor = useMemo(() => {
+    if (
+      state === null ||
+      state.summary === null ||
+      proposedOtherLiquidMinor === null
+    ) {
+      return null;
+    }
+    return addMinorUnits(
+      state.summary.publicMarketValueMinor,
+      proposedOtherLiquidMinor,
+    );
+  }, [proposedOtherLiquidMinor, state]);
   const proposedImpact = useMemo(() => {
     if (state === null || proposedFiEligibleMinor === null) {
       return null;
@@ -3244,10 +3259,10 @@ function PortfolioBaselineSection({
     if (state === null) {
       return;
     }
-    setDollarInput(
-      minorUnitsToDollarInput(state.planning.currentFiEligibleLiquidMinor),
+    setOtherLiquidInput(
+      minorUnitsToDollarInput(state.suggestedOtherFiEligibleLiquidMinor),
     );
-    setChangeNote("Reviewed synced holdings for the FI plan.");
+    setChangeNote("Replaced the FI liquid baseline with reviewed holdings.");
     setDuplicateReviewConfirmed(false);
     setError(null);
     setReviewing(true);
@@ -3259,7 +3274,7 @@ function PortfolioBaselineSection({
       state.sourceRevision === null ||
       state.baseForecastSnapshotId === null ||
       state.baseForecastSnapshotVersion === null ||
-      proposedFiEligibleMinor === null ||
+      proposedOtherLiquidMinor === null ||
       changeNote.trim().length === 0
     ) {
       return;
@@ -3268,7 +3283,7 @@ function PortfolioBaselineSection({
       sourceRevision: state.sourceRevision,
       baseForecastSnapshotId: state.baseForecastSnapshotId,
       baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
-      fiEligibleLiquidMinor: proposedFiEligibleMinor,
+      otherFiEligibleLiquidMinor: proposedOtherLiquidMinor,
       duplicateReviewConfirmed,
       changeNote: changeNote.trim(),
     };
@@ -3318,7 +3333,7 @@ function PortfolioBaselineSection({
   }
 
   if (reviewing) {
-    const moneyInputInvalid = proposedFiEligibleMinor === null;
+    const otherLiquidInputInvalid = proposedOtherLiquidMinor === null;
     const duplicateCount = state.summary.potentialDuplicateCount;
     return (
       <section
@@ -3332,17 +3347,17 @@ function PortfolioBaselineSection({
             ref={reviewHeadingRef}
             tabIndex={-1}
           >
-            Decide what counts toward the FI plan
+            Review the new FI liquid baseline
           </h2>
           <p>
-            Source values are reference points. Enter the full liquid amount you
-            are willing to count, including cash held elsewhere.
+            Reviewed public-market holdings are included in full. Add only cash
+            or liquid assets held elsewhere.
           </p>
         </header>
 
         <div aria-label="Reviewed holding totals" className="baseline-totals">
           <div>
-            <span>Public market</span>
+            <span>Imported liquid</span>
             <strong>
               {formatCompactMoney(state.summary.publicMarketValueMinor)}
             </strong>
@@ -3406,25 +3421,47 @@ function PortfolioBaselineSection({
 
         <div className="baseline-policy-grid">
           <div className="baseline-policy-input">
-            <label className="field" htmlFor="fi-eligible-liquid-input">
-              <span>FI-eligible liquid amount</span>
-              <span className="field__value">
-                <i>$</i>
-                <input
-                  aria-describedby="fi-eligible-liquid-help"
-                  aria-invalid={moneyInputInvalid || undefined}
-                  id="fi-eligible-liquid-input"
-                  inputMode="decimal"
-                  onChange={(event) =>
-                    setDollarInput(event.currentTarget.value)
-                  }
-                  value={dollarInput}
-                />
-              </span>
-            </label>
+            <div
+              aria-label="Proposed FI-eligible liquid calculation"
+              className="baseline-liquid-composition"
+            >
+              <div className="baseline-liquid-composition__row">
+                <span>Reviewed public-market holdings</span>
+                <strong>
+                  {formatMoney(state.summary.publicMarketValueMinor)}
+                </strong>
+              </div>
+              <label
+                className="field baseline-liquid-composition__field"
+                htmlFor="other-fi-eligible-liquid-input"
+              >
+                <span>Other FI-eligible liquid assets</span>
+                <span className="field__value">
+                  <i>$</i>
+                  <input
+                    aria-describedby="fi-eligible-liquid-help"
+                    aria-invalid={otherLiquidInputInvalid || undefined}
+                    id="other-fi-eligible-liquid-input"
+                    inputMode="decimal"
+                    onChange={(event) =>
+                      setOtherLiquidInput(event.currentTarget.value)
+                    }
+                    value={otherLiquidInput}
+                  />
+                </span>
+              </label>
+              <div className="baseline-liquid-composition__row baseline-liquid-composition__total">
+                <span>Proposed FI-eligible liquid</span>
+                <strong>
+                  {proposedFiEligibleMinor === null
+                    ? "—"
+                    : formatMoney(proposedFiEligibleMinor)}
+                </strong>
+              </div>
+            </div>
             <p id="fi-eligible-liquid-help">
-              Reviewed holdings are not counted automatically. Locked values
-              remain unknown, not zero.
+              Private paper stays outside current liquidity. Nothing changes
+              until you confirm. Locked values remain unknown.
             </p>
             <label className="field" htmlFor="portfolio-baseline-change-note">
               <span>What changed</span>
@@ -3444,7 +3481,7 @@ function PortfolioBaselineSection({
             ) : (
               <>
                 <div>
-                  <span>Liquid amount</span>
+                  <span>FI-eligible liquid</span>
                   <strong>
                     {formatCompactMoney(
                       state.planning.currentFiEligibleLiquidMinor,
@@ -3488,8 +3525,8 @@ function PortfolioBaselineSection({
         )}
         <footer className="baseline-review-actions">
           <p>
-            Confirming saves a new FI plan and forecast version. Earlier
-            versions remain available.
+            Confirming replaces the current FI liquid baseline and saves a new
+            forecast version. Earlier versions remain available.
           </p>
           <div>
             <Button
@@ -3531,12 +3568,12 @@ function PortfolioBaselineSection({
         <h2 id="portfolio-baseline-title">
           {isCurrent
             ? "Planning baseline is current"
-            : "Reviewed holdings are ready for planning"}
+            : "Reviewed holdings are ready to replace the FI baseline"}
         </h2>
         <p>
           {isCurrent
             ? `Confirmed ${formatDate(state.latestBaseline?.createdAt ?? state.observedAt ?? "")}. Source updates will wait for another review.`
-            : "Synced values do not change your FI plan until you confirm what counts."}
+            : "Review the imported liquid total and add any eligible liquid assets held elsewhere. Nothing changes until you confirm."}
         </p>
         {result !== null && (
           <p className="portfolio-baseline__success" role="status">
@@ -3566,7 +3603,7 @@ function PortfolioBaselineSection({
       </div>
       {!isCurrent && (
         <Button onClick={openReview} tone="primary">
-          Review baseline
+          Review replacement
         </Button>
       )}
     </section>

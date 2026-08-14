@@ -68,6 +68,7 @@ const readyState = {
     p75FiveYearLiquidityMinor: 354_000_000,
     forecastHorizonDate: "2031-12-31",
   },
+  suggestedOtherFiEligibleLiquidMinor: 0,
   currentImpact: {
     fiEligibleLiquidMinor: 182_500_000,
     fiEligibleChangeMinor: 0,
@@ -91,7 +92,8 @@ const confirmationResult = {
     observedAt: readyState.observedAt,
     summary: readyState.summary,
     priorFiEligibleLiquidMinor: 182_500_000,
-    fiEligibleLiquidMinor: 200_000_000,
+    fiEligibleLiquidMinor: 23_800_000,
+    otherFiEligibleLiquidMinor: 0,
     forecastSnapshotId: "snap_fi_v4",
     forecastSnapshotVersion: 4,
     goalVersion: 2,
@@ -100,14 +102,14 @@ const confirmationResult = {
     createdBy: "Demo Operator",
   },
   impact: {
-    fiEligibleLiquidMinor: 200_000_000,
-    fiEligibleChangeMinor: 17_500_000,
-    protectedRunwayMonths: 46,
-    fiGapMinor: 125_000_000,
-    lowerTotalAvailableMinor: 294_000_000,
-    middleTotalAvailableMinor: 410_000_000,
-    higherTotalAvailableMinor: 554_000_000,
-    probabilityCrossingFiPpm: 683_190,
+    fiEligibleLiquidMinor: 23_800_000,
+    fiEligibleChangeMinor: -158_700_000,
+    protectedRunwayMonths: 3,
+    fiGapMinor: 301_200_000,
+    lowerTotalAvailableMinor: 117_800_000,
+    middleTotalAvailableMinor: 233_800_000,
+    higherTotalAvailableMinor: 377_800_000,
+    probabilityCrossingFiPpm: 341_667,
   },
 } as const;
 
@@ -146,8 +148,9 @@ test("reviews synced holdings before refreshing the FI forecast", async ({
       baseForecastSnapshotVersion: 4,
       planning: {
         ...readyState.planning,
-        currentFiEligibleLiquidMinor: 200_000_000,
+        currentFiEligibleLiquidMinor: 23_800_000,
       },
+      suggestedOtherFiEligibleLiquidMinor: 0,
       currentImpact: confirmationResult.impact,
       latestBaseline: confirmationResult.baseline,
       hasSourceChanges: false,
@@ -191,7 +194,7 @@ test("reviews synced holdings before refreshing the FI forecast", async ({
   const summary = page.locator(".portfolio-baseline");
   await expect(
     page.getByRole("heading", {
-      name: "Reviewed holdings are ready for planning",
+      name: "Reviewed holdings are ready to replace the FI baseline",
     }),
   ).toBeVisible();
   await expect(summary).toHaveScreenshot("portfolio-baseline-ready.png", {
@@ -201,8 +204,13 @@ test("reviews synced holdings before refreshing the FI forecast", async ({
     threshold: 0.25,
   });
 
-  await page.getByRole("button", { name: "Review baseline" }).click();
-  await page.getByLabel("FI-eligible liquid amount").fill("2,000,000.00");
+  await page.getByRole("button", { name: "Review replacement" }).click();
+  await expect(page.getByLabel("Other FI-eligible liquid assets")).toHaveValue(
+    "0.00",
+  );
+  await expect(
+    page.getByLabel("Proposed FI-eligible liquid calculation"),
+  ).toContainText("$238,000.00");
   await page
     .getByLabel(/I reviewed the 2 possible overlapping positions/u)
     .check();
@@ -230,7 +238,7 @@ test("reviews synced holdings before refreshing the FI forecast", async ({
     sourceRevision: readyState.sourceRevision,
     baseForecastSnapshotId: "snap_fi_v3",
     baseForecastSnapshotVersion: 3,
-    fiEligibleLiquidMinor: 200_000_000,
+    otherFiEligibleLiquidMinor: 0,
     duplicateReviewConfirmed: true,
   });
 });

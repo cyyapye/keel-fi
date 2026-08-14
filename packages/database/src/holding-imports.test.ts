@@ -635,6 +635,7 @@ describe("reviewed portfolio baseline persistence", () => {
       hasSourceChanges: true,
       requiresDuplicateReview: true,
       canConfirm: true,
+      suggestedOtherFiEligibleLiquidMinor: 0,
     });
     expect(
       state.positions.filter((position) => position.potentialDuplicate),
@@ -651,7 +652,7 @@ describe("reviewed portfolio baseline persistence", () => {
       sourceRevision: state.sourceRevision,
       baseForecastSnapshotId: state.baseForecastSnapshotId,
       baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
-      fiEligibleLiquidMinor: 200_000_000,
+      otherFiEligibleLiquidMinor: 199_876_543,
       duplicateReviewConfirmed: false,
       changeNote: "Reviewed synced holdings for the FI plan.",
     };
@@ -668,6 +669,7 @@ describe("reviewed portfolio baseline persistence", () => {
         sourceRevision: state.sourceRevision,
         priorFiEligibleLiquidMinor: 182_500_000,
         fiEligibleLiquidMinor: 200_000_000,
+        otherFiEligibleLiquidMinor: 199_876_543,
         forecastSnapshotVersion: 4,
         goalVersion: 2,
       },
@@ -746,6 +748,7 @@ describe("reviewed portfolio baseline persistence", () => {
       status: "current",
       hasSourceChanges: false,
       canConfirm: false,
+      suggestedOtherFiEligibleLiquidMinor: 199_876_543,
       latestBaseline: { id: confirmed.baseline.id },
     });
     expect(() =>

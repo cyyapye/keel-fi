@@ -46,8 +46,10 @@ flowchart LR
 - Accepted Robinhood and AngelList observations remain source facts until the
   user confirms a Portfolio Baseline. The baseline records the exact reviewed
   source revision, keeps unavailable values unknown, requires an overlap check
-  when cross-provider names collide, and writes the new FI cash plan, forecast,
-  and primary FI goal version in one D1 batch.
+  when cross-provider names collide, and proposes reviewed public-market value
+  plus explicitly entered other liquid assets as the FI-eligible replacement.
+  Private paper remains outside current liquidity. Confirmation writes the new
+  FI cash plan, forecast, and primary FI goal version in one D1 batch.
 
 ## Value semantics
 
@@ -58,7 +60,7 @@ The model intentionally avoids a single overloaded “value” column:
 | Administrator NAV         | Current administrator-reported value       | Reconciliation    |
 | External mark             | Latest observed external economic mark     | Evidence input    |
 | FI underwriting           | Conservative policy value                  | FI planning       |
-| FI-eligible baseline      | Reviewed liquid amount counted by policy   | FI plan input     |
+| FI-eligible baseline      | Reviewed public holdings plus other liquid | FI plan input     |
 | Thesis-weighted value     | Conditional probability-weighted economics | Scenario analysis |
 | Timing-adjusted liquidity | Value discounted for timing/probability    | Forecasting       |
 | Actual liquidity          | Distributed cash that actually occurred    | Reconciliation    |

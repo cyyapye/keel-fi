@@ -1733,6 +1733,51 @@ h1,
   gap: 28px;
 }
 
+.baseline-liquid-composition {
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+
+.baseline-liquid-composition__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 15px 0;
+}
+
+.baseline-liquid-composition__row + .baseline-liquid-composition__field,
+.baseline-liquid-composition__field + .baseline-liquid-composition__row {
+  border-top: 1px solid var(--line-soft);
+}
+
+.baseline-liquid-composition__row span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.baseline-liquid-composition__row strong {
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.baseline-liquid-composition__field {
+  gap: 5px;
+  padding: 15px 0;
+}
+
+.baseline-liquid-composition__field .field__value {
+  max-width: 240px;
+}
+
+.baseline-liquid-composition__total strong {
+  font-size: 16px;
+}
+
 .baseline-policy-input > p {
   margin: -17px 0 0;
   color: var(--muted);

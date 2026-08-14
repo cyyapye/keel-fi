@@ -214,6 +214,7 @@ const portfolioBaselineState: PortfolioBaselineState = {
     p75FiveYearLiquidityMinor: 354_000_000,
     forecastHorizonDate: "2031-12-31",
   },
+  suggestedOtherFiEligibleLiquidMinor: 0,
   currentImpact: {
     fiEligibleLiquidMinor: 182_500_000,
     fiEligibleChangeMinor: 0,
@@ -238,6 +239,7 @@ const portfolioBaselineResult: PortfolioBaselineConfirmResult = {
     summary: portfolioBaselineState.summary!,
     priorFiEligibleLiquidMinor: 182_500_000,
     fiEligibleLiquidMinor: 200_000_000,
+    otherFiEligibleLiquidMinor: 176_200_000,
     forecastSnapshotId: "snap_fi_v4",
     forecastSnapshotVersion: 4,
     goalVersion: 2,
@@ -433,7 +435,7 @@ describe("Keel API", () => {
       baseForecastSnapshotId: portfolioBaselineState.baseForecastSnapshotId,
       baseForecastSnapshotVersion:
         portfolioBaselineState.baseForecastSnapshotVersion,
-      fiEligibleLiquidMinor: 200_000_000,
+      otherFiEligibleLiquidMinor: 176_200_000,
       duplicateReviewConfirmed: false,
       changeNote: "Reviewed synced holdings for the FI plan.",
     };
@@ -473,7 +475,7 @@ describe("Keel API", () => {
           baseForecastSnapshotId: portfolioBaselineState.baseForecastSnapshotId,
           baseForecastSnapshotVersion:
             portfolioBaselineState.baseForecastSnapshotVersion,
-          fiEligibleLiquidMinor: 200_000_000,
+          otherFiEligibleLiquidMinor: 176_200_000,
           duplicateReviewConfirmed: false,
           changeNote: "Reviewed synced holdings for the FI plan.",
         }),
