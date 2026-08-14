@@ -124,6 +124,23 @@ type PreviewDeploymentEnvironment = z.infer<
   typeof PreviewDeploymentEnvironmentSchema
 >;
 
+export function plaidWebhookUrl(previewUrl: URL): URL {
+  const labels = previewUrl.hostname.split(".");
+  if (labels.length < 3) {
+    throw new Error("Preview URL must use a subdomain in a managed zone.");
+  }
+  const first = labels.shift();
+  if (first === undefined) {
+    throw new Error("Preview URL must include a hostname.");
+  }
+  const webhook = new URL(previewUrl);
+  webhook.hostname = HostnameSchema.parse(
+    `${first}-webhooks.${labels.join(".")}`,
+  );
+  webhook.pathname = "/webhooks/plaid";
+  return webhook;
+}
+
 export type PreviewDeploymentPaths = {
   apiConfigPath: string;
   apiSecretsPath: string;
@@ -132,6 +149,7 @@ export type PreviewDeploymentPaths = {
 };
 
 function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
+  const webhookUrl = plaidWebhookUrl(configuration.KEEL_PREVIEW_URL);
   return {
     $schema: "node_modules/wrangler/config-schema.json",
     name: configuration.KEEL_PREVIEW_API_WORKER,
@@ -143,6 +161,7 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
     vars: {
       ENVIRONMENT: "preview",
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
+      PLAID_WEBHOOK_URL: webhookUrl.href,
     },
     secrets: {
       required: [
@@ -200,6 +219,7 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
 }
 
 function webConfiguration(configuration: PreviewDeploymentEnvironment) {
+  const webhookUrl = plaidWebhookUrl(configuration.KEEL_PREVIEW_URL);
   return {
     $schema: "node_modules/wrangler/config-schema.json",
     name: configuration.KEEL_PREVIEW_WEB_WORKER,
@@ -213,16 +233,22 @@ function webConfiguration(configuration: PreviewDeploymentEnvironment) {
         custom_domain: true,
         previews_enabled: false,
       },
+      {
+        pattern: webhookUrl.hostname,
+        custom_domain: true,
+        previews_enabled: false,
+      },
     ],
     vars: {
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
+      PLAID_WEBHOOK_HOST: webhookUrl.hostname,
     },
     version_metadata: { binding: "CF_VERSION_METADATA" },
     assets: {
       directory: "./dist",
       binding: "ASSETS",
       not_found_handling: "single-page-application",
-      run_worker_first: ["/api", "/api/*", "/health"],
+      run_worker_first: true,
     },
     services: [
       {

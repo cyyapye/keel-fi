@@ -44,6 +44,10 @@ secret group `KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY`,
 `KEEL_PREVIEW_PLAID_REDIRECT_URI`, and `KEEL_PREVIEW_PLAID_SECRET`. The
 deployment validation rejects a partial group. See
 [the Robinhood sync runbook](../../docs/deployment/robinhood-holdings-sync.md).
+The deployment derives a second custom domain by adding `-webhooks` to the first
+label of `KEEL_PREVIEW_URL`. That hostname exposes only `POST /webhooks/plaid`;
+preview smoke proves its root is `404` and an unsigned delivery fails closed
+before the protected dashboard checks continue.
 
 Use a custom Cloudflare API token scoped to the private preview account and only
 the Worker, D1, Queue, and route/domain permissions required by these commands.

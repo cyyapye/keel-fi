@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   PreviewDeploymentEnvironmentSchema,
+  plaidWebhookUrl,
   writePreviewApiSecrets,
   writePreviewDeploymentFiles,
 } from "./preview-deployment-config";
@@ -53,6 +54,15 @@ afterEach(async () => {
 });
 
 describe("preview deployment configuration", () => {
+  it("derives a dedicated same-zone webhook hostname", () => {
+    expect(
+      plaidWebhookUrl(new URL("https://keel-preview.example.com")).href,
+    ).toBe("https://keel-preview-webhooks.example.com/webhooks/plaid");
+    expect(() =>
+      plaidWebhookUrl(new URL(`https://${"a".repeat(60)}.example.com`)),
+    ).toThrow();
+  });
+
   it("fails closed on a non-origin preview URL or partial Git SHA", () => {
     const invalid = environment("/tmp/unused");
     invalid.GITHUB_SHA = "abc123";
@@ -83,7 +93,12 @@ describe("preview deployment configuration", () => {
       name: "keel-preview-api",
       workers_dev: false,
       preview_urls: false,
-      vars: { ENVIRONMENT: "preview", DEPLOYED_GIT_SHA: "b".repeat(40) },
+      vars: {
+        ENVIRONMENT: "preview",
+        DEPLOYED_GIT_SHA: "b".repeat(40),
+        PLAID_WEBHOOK_URL:
+          "https://keel-preview-webhooks.example.com/webhooks/plaid",
+      },
       compatibility_flags: ["global_fetch_strictly_public", "nodejs_compat"],
       secrets: {
         required: [
@@ -109,9 +124,16 @@ describe("preview deployment configuration", () => {
     });
     expect(webConfig).toMatchObject({
       name: "keel-preview-web",
-      routes: [{ pattern: "keel-preview.example.com" }],
+      routes: [
+        { pattern: "keel-preview.example.com" },
+        { pattern: "keel-preview-webhooks.example.com" },
+      ],
       services: [{ service: "keel-preview-api" }],
-      vars: { DEPLOYED_GIT_SHA: "b".repeat(40) },
+      vars: {
+        DEPLOYED_GIT_SHA: "b".repeat(40),
+        PLAID_WEBHOOK_HOST: "keel-preview-webhooks.example.com",
+      },
+      assets: { run_worker_first: true },
     });
     expect(apiSecrets).toEqual({
       ACCESS_AUD: "synthetic-preview-audience",

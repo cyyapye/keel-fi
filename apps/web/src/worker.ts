@@ -12,13 +12,28 @@ export type WebWorkerBindings = {
   ASSETS: FetchBinding;
   CF_VERSION_METADATA?: VersionMetadata;
   DEPLOYED_GIT_SHA?: string;
+  PLAID_WEBHOOK_HOST?: string;
 };
 
 export async function handleRequest(
   request: Request,
   bindings: WebWorkerBindings,
 ): Promise<Response> {
-  const { pathname } = new URL(request.url);
+  const { hostname, pathname } = new URL(request.url);
+
+  if (
+    bindings.PLAID_WEBHOOK_HOST !== undefined &&
+    hostname === bindings.PLAID_WEBHOOK_HOST
+  ) {
+    if (request.method === "POST" && pathname === "/webhooks/plaid") {
+      return bindings.API.fetch(request);
+    }
+    return new Response(null, { status: 404 });
+  }
+
+  if (pathname === "/webhooks/plaid") {
+    return new Response(null, { status: 404 });
+  }
 
   if (
     pathname === "/api" ||

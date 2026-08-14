@@ -105,6 +105,7 @@ function status(
     configured: true,
     status: "ready",
     lastSyncedAt: null,
+    automaticUpdatesEnabled: true,
     latestImportId: null,
     latestRunStatus: null,
     errorCode: null,
@@ -115,6 +116,7 @@ function status(
 function publicRepository() {
   const repository = {
     secretReference: null as string | null,
+    providerAccountKey: null as string | null,
     getStatus: vi.fn().mockResolvedValue(status()),
     getConnection: vi.fn((): Promise<RobinhoodConnection | null> =>
       Promise.resolve(
@@ -123,6 +125,7 @@ function publicRepository() {
           : {
               id: "synthetic-connection",
               secretReference: repository.secretReference,
+              providerAccountKey: repository.providerAccountKey,
             },
       ),
     ),
@@ -130,16 +133,32 @@ function publicRepository() {
       (
         _accessSubject: string,
         secretReference: string,
+        nextProviderAccountKey: string,
       ): Promise<RobinhoodConnectionUpdate> => {
         const previousSecretReference = repository.secretReference;
         repository.secretReference = secretReference;
+        repository.providerAccountKey = nextProviderAccountKey;
         return Promise.resolve({
           id: "synthetic-connection",
           secretReference,
+          providerAccountKey: nextProviderAccountKey,
           previousSecretReference,
         });
       },
     ),
+    bindProviderAccountKey: vi.fn(
+      (
+        _accessSubject: string,
+        _connectionId: string,
+        nextProviderAccountKey: string,
+      ) => {
+        repository.providerAccountKey = nextProviderAccountKey;
+        return Promise.resolve();
+      },
+    ),
+    claimPlaidWebhookDelivery: vi.fn(),
+    getPlaidWebhookDelivery: vi.fn(),
+    markPlaidWebhookDelivery: vi.fn(),
     beginSync: vi.fn((): Promise<RobinhoodSyncRun> => {
       if (repository.secretReference === null) {
         return Promise.reject(new Error("not connected"));
@@ -150,6 +169,7 @@ function publicRepository() {
         connection: {
           id: "synthetic-connection",
           secretReference: repository.secretReference,
+          providerAccountKey: repository.providerAccountKey,
         },
       });
     }),
@@ -170,6 +190,7 @@ function testEnv(bucket: R2Bucket): Env {
     PLAID_ENVIRONMENT: "sandbox",
     PLAID_REDIRECT_URI: "https://keel.example/holdings",
     PLAID_SECRET: "synthetic-secret",
+    PLAID_WEBHOOK_URL: "https://keel-webhooks.example/webhooks/plaid",
   };
 }
 
@@ -192,6 +213,12 @@ describe("Robinhood Plaid sync", () => {
             : input.url;
       expect(new URL(url).pathname).toBe("/link/token/create");
       expect(init?.method).toBe("POST");
+      if (typeof init?.body !== "string") {
+        throw new TypeError("Expected a JSON request body.");
+      }
+      expect(JSON.parse(init.body)).toMatchObject({
+        webhook: "https://keel-webhooks.example/webhooks/plaid",
+      });
       requestCount += 1;
       return Promise.resolve(
         Response.json({
@@ -210,6 +237,7 @@ describe("Robinhood Plaid sync", () => {
         environment: "sandbox",
         credentialKey,
         redirectUri: "https://keel.example/holdings",
+        webhookUrl: "https://keel-webhooks.example/webhooks/plaid",
       });
 
       await expect(
@@ -269,6 +297,7 @@ describe("Robinhood Plaid sync", () => {
         environment: "sandbox",
         credentialKey,
         redirectUri: "https://keel.example/holdings",
+        webhookUrl: "https://keel-webhooks.example/webhooks/plaid",
       },
       fetcher,
     );
@@ -292,6 +321,7 @@ describe("Robinhood Plaid sync", () => {
         environment: "sandbox",
         credentialKey,
         redirectUri: "https://keel.example/holdings",
+        webhookUrl: "https://keel-webhooks.example/webhooks/plaid",
       },
       vi.fn(() =>
         Promise.resolve(
@@ -313,6 +343,7 @@ describe("Robinhood Plaid sync", () => {
     const repository = publicRepository();
     const response = syntheticHoldingsResponse();
     const responseBytes = new TextEncoder().encode(JSON.stringify(response));
+    const updateItemWebhook = vi.fn();
     const client: PlaidInvestmentsClient = {
       createLinkToken: vi.fn(),
       exchangeRobinhoodToken: vi.fn().mockResolvedValue({
@@ -322,6 +353,8 @@ describe("Robinhood Plaid sync", () => {
         institutionId: "synthetic-robinhood",
       }),
       removeItem: vi.fn(),
+      updateItemWebhook,
+      getWebhookVerificationKey: vi.fn(),
       getHoldings: vi.fn().mockResolvedValue({
         bytes: responseBytes,
         parsed: response,
@@ -341,6 +374,10 @@ describe("Robinhood Plaid sync", () => {
     expect(new TextDecoder().decode(encrypted)).not.toContain(
       "synthetic-private-access-token",
     );
+
+    // Connections created before webhook support receive the callback URL on
+    // their next explicit check and then gain the opaque provider binding.
+    repository.providerAccountKey = null;
 
     const stageRobinhoodHoldingImport = vi.fn().mockResolvedValue({
       created: true,
@@ -368,6 +405,15 @@ describe("Robinhood Plaid sync", () => {
       client,
       accessSubject: "synthetic-access-subject",
     });
+
+    expect(updateItemWebhook).toHaveBeenCalledWith(
+      "synthetic-private-access-token",
+    );
+    expect(repository.bindProviderAccountKey).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-connection",
+      expect.stringMatching(/^[0-9a-f]{64}$/u),
+    );
 
     expect(stageRobinhoodHoldingImport).toHaveBeenCalledWith(
       "synthetic-access-subject",
@@ -414,6 +460,8 @@ describe("Robinhood Plaid sync", () => {
         institutionId: "synthetic-robinhood",
       }),
       removeItem: vi.fn(),
+      updateItemWebhook: vi.fn(),
+      getWebhookVerificationKey: vi.fn(),
       getHoldings: vi.fn().mockResolvedValue({
         bytes: new TextEncoder().encode(JSON.stringify(emptyResponse)),
         parsed: emptyResponse,

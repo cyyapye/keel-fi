@@ -950,6 +950,7 @@ export const RobinhoodSyncStatusSchema = z
       "needs_attention",
     ]),
     lastSyncedAt: IsoTimestampSchema.nullable(),
+    automaticUpdatesEnabled: z.boolean().default(false),
     latestImportId: z.string().min(1).nullable(),
     latestRunStatus: z.enum(["running", "succeeded", "failed"]).nullable(),
     errorCode: RobinhoodSyncErrorCodeSchema.nullable(),

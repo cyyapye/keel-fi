@@ -12,7 +12,10 @@ Create in a private Cloudflare account:
 - R2 bucket with public access disabled;
 - Queue for ingestion proposals;
 - private API Worker and static-assets Worker with a service binding; and
-- Access application protecting the single public web origin.
+- Access application protecting the public app origin. When Robinhood is
+  enabled, the same web Worker also owns a dedicated webhook custom domain that
+  exposes only `POST /webhooks/plaid` and relies on Plaid signature validation
+  instead of Access.
 
 Replace the D1 template ID in `apps/api/wrangler.jsonc` only in private
 deployment configuration. Do not commit account IDs, database IDs, audiences,
@@ -48,7 +51,8 @@ one serialized deployment:
    build and deploy the web Worker with the same tag.
 5. Use a dedicated Access service token to prove unauthenticated and invalid
    requests are denied, while an authenticated request reaches the protected
-   health and dashboard surfaces.
+   health and dashboard surfaces. Separately prove the webhook hostname root is
+   `404` and its unsigned Plaid endpoint fails closed.
 6. Run the preview-only resource smoke. It performs `SELECT 1` through the D1
    binding, writes/reads/deletes a constant non-financial R2 canary, and
    publishes a typed Queue canary whose handler has an acknowledge-only path. It
@@ -83,8 +87,10 @@ Configure these bindings outside Git:
 Production `ENVIRONMENT` remains `production`. Do not set it to `local` or add a
 fallback. Keep the API Worker off `workers.dev` and preview URLs. Route `/api/*`
 through the public web Worker to the API Worker with a service binding so the
-Access assertion is preserved without creating a second public origin. Attach a
-custom domain only after Access protects the route.
+Access assertion is preserved. If Robinhood is enabled, route only
+`POST /webhooks/plaid` from a dedicated custom domain through the same service
+binding, set its exact URL as `PLAID_WEBHOOK_URL`, and return `404` for every
+other path on that hostname.
 
 ## Manually approved production sequence
 
@@ -114,9 +120,10 @@ and obtaining explicit deployment approval. Do not reuse the automatic preview
 job or its credentials for production.
 
 The web Worker must keep `workers_dev` and preview URLs disabled in private
-deployment configuration. Its only public route is the Access-protected custom
-domain. The ingestion Queue consumer accepts only registry source IDs and loads
-the approved host and URL policy from D1 before any fetch.
+deployment configuration. Public app routes remain Access-protected. The
+optional Plaid hostname is webhook-only and signature-authenticated. Queue
+consumers accept typed opaque internal IDs and resolve all provider or source
+state from D1 before work begins.
 
 ## Access validation
 

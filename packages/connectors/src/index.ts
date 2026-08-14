@@ -57,6 +57,15 @@ export const PortfolioWatchSourceJobMessageSchema = z.discriminatedUnion(
   ],
 );
 
+export const PlaidHoldingsWebhookJobMessageSchema = z
+  .object({
+    type: z.literal("plaid_holdings_webhook"),
+    messageId: z.uuid(),
+    deliveryId: z.uuid(),
+    requestedAt: IsoTimestampSchema,
+  })
+  .strict();
+
 export const SourceDocumentMetadataSchema = z.object({
   householdId: z.string().min(1),
   sourceLabel: z.string().min(1),
@@ -99,6 +108,9 @@ export type PortfolioWatchSourceScanMessage = z.infer<
 >;
 export type PortfolioWatchSourceJobMessage = z.infer<
   typeof PortfolioWatchSourceJobMessageSchema
+>;
+export type PlaidHoldingsWebhookJobMessage = z.infer<
+  typeof PlaidHoldingsWebhookJobMessageSchema
 >;
 export type EvidenceProposal = z.infer<typeof EvidenceProposalSchema>;
 export type SourceDocumentMetadata = z.infer<

@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
 import { DeploymentSmokeResultSchema } from "../apps/api/src/deployment-smoke";
+import { plaidWebhookUrl } from "./preview-deployment-config";
 
 const GitShaSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const PreviewUrlSchema = z
@@ -113,6 +114,7 @@ export async function runPreviewDeploymentSmoke(
 ): Promise<void> {
   const configuration = PreviewSmokeEnvironmentSchema.parse(rawEnvironment);
   const baseUrl = configuration.KEEL_PREVIEW_URL;
+  const webhookUrl = plaidWebhookUrl(baseUrl);
 
   const unauthenticatedResponse = await request(fetchImplementation, baseUrl);
   if (unauthenticatedResponse.ok) {
@@ -127,6 +129,28 @@ export async function runPreviewDeploymentSmoke(
   });
   if (invalidAccessResponse.ok) {
     throw new Error("Cloudflare Access allowed an invalid service token.");
+  }
+
+  const webhookHostRoot = new URL(webhookUrl);
+  webhookHostRoot.pathname = "/";
+  const webhookRootResponse = await request(
+    fetchImplementation,
+    webhookHostRoot,
+  );
+  if (webhookRootResponse.status !== 404) {
+    throw new Error("Plaid webhook host exposed an unexpected route.");
+  }
+  const unsignedWebhookResponse = await request(
+    fetchImplementation,
+    webhookUrl,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    },
+  );
+  if (![401, 503].includes(unsignedWebhookResponse.status)) {
+    throw new Error("Plaid webhook endpoint did not fail closed.");
   }
 
   const authenticatedHeaders = accessHeaders(configuration);

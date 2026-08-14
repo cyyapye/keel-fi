@@ -1027,6 +1027,7 @@ export const connectorAccounts = sqliteTable(
     secretReference: text("secret_reference").notNull(),
     status: text("status").notNull(),
     lastSyncedAt: text("last_synced_at"),
+    providerAccountKey: text("provider_account_key"),
     createdAt: timestamp("created_at"),
   },
   (table) => [
@@ -1035,6 +1036,52 @@ export const connectorAccounts = sqliteTable(
       table.householdId,
       table.connectorType,
       table.displayLabel,
+    ),
+    uniqueIndex("connector_accounts_provider_account_key_unique")
+      .on(table.connectorType, table.providerAccountKey)
+      .where(sql`${table.providerAccountKey} IS NOT NULL`),
+    check(
+      "connector_accounts_provider_account_key_check",
+      sql`${table.providerAccountKey} IS NULL OR (length(${table.providerAccountKey}) = 64 AND ${table.providerAccountKey} NOT GLOB '*[^0-9a-f]*')`,
+    ),
+  ],
+);
+
+export const plaidWebhookDeliveries = sqliteTable(
+  "plaid_webhook_deliveries",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    connectorAccountId: text("connector_account_id")
+      .notNull()
+      .references(() => connectorAccounts.id, { onDelete: "restrict" }),
+    signatureSha256: text("signature_sha256").notNull().unique(),
+    bodySha256: text("body_sha256").notNull(),
+    issuedAt: timestamp("issued_at"),
+    receivedAt: timestamp("received_at"),
+    status: text("status").notNull(),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("plaid_webhook_deliveries_account_received_idx").on(
+      table.connectorAccountId,
+      table.receivedAt,
+    ),
+    index("plaid_webhook_deliveries_status_received_idx").on(
+      table.status,
+      table.receivedAt,
+    ),
+    check(
+      "plaid_webhook_deliveries_signature_check",
+      sql`length(${table.signatureSha256}) = 64 AND ${table.signatureSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "plaid_webhook_deliveries_body_check",
+      sql`length(${table.bodySha256}) = 64 AND ${table.bodySha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "plaid_webhook_deliveries_status_check",
+      sql`${table.status} IN ('received', 'queued', 'processing', 'processed', 'failed')`,
     ),
   ],
 );

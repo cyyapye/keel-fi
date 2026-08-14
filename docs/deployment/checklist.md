@@ -33,6 +33,9 @@
 ## Ingestion
 
 - [ ] Connector secrets use isolated bindings.
+- [ ] When Plaid is enabled, only `POST /webhooks/plaid` is exposed on its
+      dedicated hostname; invalid signatures fail closed and replay creates no
+      second job.
 - [ ] Source allowlists, SSRF protection, redirect limits, timeouts, and byte
       limits are tested before any network connector is enabled.
 - [ ] Upload types, sizes, quarantine, and malware scanning are enforced before

@@ -22,6 +22,7 @@ export interface Env {
   PLAID_ENVIRONMENT?: string;
   PLAID_REDIRECT_URI?: string;
   PLAID_SECRET?: string;
+  PLAID_WEBHOOK_URL?: string;
 }
 
 export type AccessIdentity =

@@ -183,6 +183,7 @@ test("reviews synced holdings before refreshing the FI forecast", async ({
         configured: true,
         status: "ready",
         lastSyncedAt: "2026-08-13T16:00:00.000Z",
+        automaticUpdatesEnabled: true,
         latestImportId: null,
         latestRunStatus: "succeeded",
         errorCode: null,

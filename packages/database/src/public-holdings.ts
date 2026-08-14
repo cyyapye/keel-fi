@@ -19,6 +19,7 @@ type ConnectionRow = {
   secret_reference: string;
   status: "active" | "paused" | "revoked";
   last_synced_at: string | null;
+  provider_account_key: string | null;
 };
 
 type LatestRunRow = {
@@ -29,6 +30,7 @@ type LatestRunRow = {
 export type RobinhoodConnection = {
   readonly id: string;
   readonly secretReference: string;
+  readonly providerAccountKey: string | null;
 };
 
 export type RobinhoodConnectionUpdate = RobinhoodConnection & {
@@ -41,6 +43,20 @@ export type RobinhoodSyncRun = {
   readonly created: boolean;
 };
 
+export type PlaidWebhookDeliveryClaim =
+  | { readonly status: "unknown" }
+  | { readonly status: "duplicate"; readonly deliveryId: string }
+  | { readonly status: "claimed"; readonly deliveryId: string };
+
+export type PlaidWebhookDelivery = {
+  readonly id: string;
+  readonly accessSubject: string;
+  readonly status:
+    "received" | "queued" | "processing" | "processed" | "failed";
+};
+
+const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/u);
+
 export interface PublicHoldingsRepository {
   getStatus(
     accessSubject: string,
@@ -50,7 +66,27 @@ export interface PublicHoldingsRepository {
   upsertConnection(
     accessSubject: string,
     secretReference: string,
+    providerAccountKey: string,
   ): Promise<RobinhoodConnectionUpdate>;
+  bindProviderAccountKey(
+    accessSubject: string,
+    connectionId: string,
+    providerAccountKey: string,
+  ): Promise<void>;
+  claimPlaidWebhookDelivery(input: {
+    providerAccountKey: string;
+    signatureSha256: string;
+    bodySha256: string;
+    issuedAt: string;
+    receivedAt: string;
+  }): Promise<PlaidWebhookDeliveryClaim>;
+  getPlaidWebhookDelivery(
+    deliveryId: string,
+  ): Promise<PlaidWebhookDelivery | null>;
+  markPlaidWebhookDelivery(
+    deliveryId: string,
+    status: "queued" | "processing" | "processed" | "failed",
+  ): Promise<boolean>;
   beginSync(accessSubject: string): Promise<RobinhoodSyncRun>;
   completeSync(
     accessSubject: string,
@@ -102,6 +138,9 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         configured: false,
         status: "setup_required",
         lastSyncedAt: connection?.last_synced_at ?? null,
+        automaticUpdatesEnabled:
+          connection?.provider_account_key !== null &&
+          connection?.provider_account_key !== undefined,
         latestImportId: null,
         latestRunStatus: null,
         errorCode: "configuration_required",
@@ -113,6 +152,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         configured: true,
         status: "disconnected",
         lastSyncedAt: null,
+        automaticUpdatesEnabled: false,
         latestImportId: null,
         latestRunStatus: null,
         errorCode: null,
@@ -162,6 +202,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
             ? "needs_attention"
             : "ready",
       lastSyncedAt: connection.last_synced_at,
+      automaticUpdatesEnabled: connection.provider_account_key !== null,
       latestImportId: latestImport?.id ?? null,
       latestRunStatus: runStatus,
       errorCode,
@@ -176,18 +217,24 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
     if (connection === null || connection.status !== "active") {
       return null;
     }
-    return { id: connection.id, secretReference: connection.secret_reference };
+    return {
+      id: connection.id,
+      secretReference: connection.secret_reference,
+      providerAccountKey: connection.provider_account_key,
+    };
   }
 
   public async upsertConnection(
     accessSubject: string,
     rawSecretReference: string,
+    rawProviderAccountKey: string,
   ): Promise<RobinhoodConnectionUpdate> {
     const secretReference = z
       .string()
       .min(1)
       .max(1_024)
       .parse(rawSecretReference);
+    const providerAccountKey = Sha256Schema.parse(rawProviderAccountKey);
     const identity = await findIdentity(this.db, accessSubject);
     const existing = await this.findConnection(identity.household_id);
     const now = new Date().toISOString();
@@ -197,8 +244,8 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         .prepare(
           `INSERT INTO connector_accounts (
              id, household_id, connector_type, display_label, secret_reference,
-             status, last_synced_at, created_at
-           ) VALUES (?, ?, ?, ?, ?, 'active', NULL, ?)`,
+             status, last_synced_at, provider_account_key, created_at
+           ) VALUES (?, ?, ?, ?, ?, 'active', NULL, ?, ?)`,
         )
         .bind(
           id,
@@ -206,29 +253,203 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
           CONNECTOR_TYPE,
           DISPLAY_LABEL,
           secretReference,
+          providerAccountKey,
           now,
         )
         .run();
       return {
         id,
         secretReference,
+        providerAccountKey,
         previousSecretReference: null,
       };
     }
 
-    await this.db
+    const result = await this.db
       .prepare(
         `UPDATE connector_accounts
-         SET secret_reference = ?, status = 'active'
+         SET secret_reference = ?, provider_account_key = ?, status = 'active'
          WHERE id = ? AND household_id = ?`,
       )
-      .bind(secretReference, existing.id, identity.household_id)
+      .bind(
+        secretReference,
+        providerAccountKey,
+        existing.id,
+        identity.household_id,
+      )
       .run();
+    if (result.meta.changes !== 1) {
+      throw new Error("Robinhood connection could not be updated.");
+    }
     return {
       id: existing.id,
       secretReference,
+      providerAccountKey,
       previousSecretReference: existing.secret_reference,
     };
+  }
+
+  public async bindProviderAccountKey(
+    accessSubject: string,
+    rawConnectionId: string,
+    rawProviderAccountKey: string,
+  ): Promise<void> {
+    const connectionId = z.string().min(1).parse(rawConnectionId);
+    const providerAccountKey = Sha256Schema.parse(rawProviderAccountKey);
+    const identity = await findIdentity(this.db, accessSubject);
+    const result = await this.db
+      .prepare(
+        `UPDATE connector_accounts
+         SET provider_account_key = ?
+         WHERE id = ? AND household_id = ? AND connector_type = ?
+           AND status = 'active'`,
+      )
+      .bind(
+        providerAccountKey,
+        connectionId,
+        identity.household_id,
+        CONNECTOR_TYPE,
+      )
+      .run();
+    if (result.meta.changes !== 1) {
+      throw new Error("Active Robinhood connection was not found.");
+    }
+  }
+
+  public async claimPlaidWebhookDelivery(input: {
+    providerAccountKey: string;
+    signatureSha256: string;
+    bodySha256: string;
+    issuedAt: string;
+    receivedAt: string;
+  }): Promise<PlaidWebhookDeliveryClaim> {
+    const parsed = z
+      .object({
+        providerAccountKey: Sha256Schema,
+        signatureSha256: Sha256Schema,
+        bodySha256: Sha256Schema,
+        issuedAt: z.iso.datetime({ offset: true }),
+        receivedAt: z.iso.datetime({ offset: true }),
+      })
+      .strict()
+      .parse(input);
+    const connection = await this.db
+      .prepare(
+        `SELECT id, household_id
+         FROM connector_accounts
+         WHERE connector_type = ? AND provider_account_key = ?
+           AND status = 'active'`,
+      )
+      .bind(CONNECTOR_TYPE, parsed.providerAccountKey)
+      .first<{ id: string; household_id: string }>();
+    if (connection === null) {
+      return { status: "unknown" };
+    }
+    const existing = await this.db
+      .prepare(
+        `SELECT id, status
+         FROM plaid_webhook_deliveries
+         WHERE signature_sha256 = ?`,
+      )
+      .bind(parsed.signatureSha256)
+      .first<{ id: string; status: string }>();
+    if (existing !== null && existing.status !== "received") {
+      return { status: "duplicate", deliveryId: existing.id };
+    }
+    if (existing !== null) {
+      return { status: "claimed", deliveryId: existing.id };
+    }
+
+    const deliveryId = crypto.randomUUID();
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO plaid_webhook_deliveries (
+             id, household_id, connector_account_id, signature_sha256,
+             body_sha256, issued_at, received_at, status, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'received', ?)`,
+        )
+        .bind(
+          deliveryId,
+          connection.household_id,
+          connection.id,
+          parsed.signatureSha256,
+          parsed.bodySha256,
+          parsed.issuedAt,
+          parsed.receivedAt,
+          parsed.receivedAt,
+        )
+        .run();
+      return { status: "claimed", deliveryId };
+    } catch (error) {
+      const raced = await this.db
+        .prepare(
+          `SELECT id, status
+           FROM plaid_webhook_deliveries
+           WHERE signature_sha256 = ?`,
+        )
+        .bind(parsed.signatureSha256)
+        .first<{ id: string; status: string }>();
+      if (raced === null) {
+        throw error;
+      }
+      return {
+        status: raced.status === "received" ? "claimed" : "duplicate",
+        deliveryId: raced.id,
+      };
+    }
+  }
+
+  public async getPlaidWebhookDelivery(
+    rawDeliveryId: string,
+  ): Promise<PlaidWebhookDelivery | null> {
+    const deliveryId = z.uuid().parse(rawDeliveryId);
+    const row = await this.db
+      .prepare(
+        `SELECT delivery.id, user.access_subject, delivery.status
+         FROM plaid_webhook_deliveries delivery
+         JOIN connector_accounts account
+           ON account.id = delivery.connector_account_id
+          AND account.household_id = delivery.household_id
+         JOIN households household ON household.id = delivery.household_id
+         JOIN users user ON user.id = household.owner_user_id
+         WHERE delivery.id = ? AND account.status = 'active'`,
+      )
+      .bind(deliveryId)
+      .first<{
+        id: string;
+        access_subject: string;
+        status: PlaidWebhookDelivery["status"];
+      }>();
+    return row === null
+      ? null
+      : { id: row.id, accessSubject: row.access_subject, status: row.status };
+  }
+
+  public async markPlaidWebhookDelivery(
+    rawDeliveryId: string,
+    rawStatus: "queued" | "processing" | "processed" | "failed",
+  ): Promise<boolean> {
+    const deliveryId = z.uuid().parse(rawDeliveryId);
+    const status = z
+      .enum(["queued", "processing", "processed", "failed"])
+      .parse(rawStatus);
+    const priorStatuses = {
+      queued: ["received"],
+      processing: ["received", "queued", "processing", "failed"],
+      processed: ["processing"],
+      failed: ["processing"],
+    }[status];
+    const placeholders = priorStatuses.map(() => "?").join(", ");
+    const result = await this.db
+      .prepare(
+        `UPDATE plaid_webhook_deliveries
+         SET status = ?, updated_at = ?
+         WHERE id = ? AND status IN (${placeholders})`,
+      )
+      .bind(status, new Date().toISOString(), deliveryId, ...priorStatuses)
+      .run();
+    return result.meta.changes > 0;
   }
 
   public async beginSync(accessSubject: string): Promise<RobinhoodSyncRun> {
@@ -255,6 +476,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         connection: {
           id: connection.id,
           secretReference: connection.secret_reference,
+          providerAccountKey: connection.provider_account_key,
         },
         created: false,
       };
@@ -293,6 +515,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         connection: {
           id: connection.id,
           secretReference: connection.secret_reference,
+          providerAccountKey: connection.provider_account_key,
         },
         created: false,
       };
@@ -302,6 +525,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
       connection: {
         id: connection.id,
         secretReference: connection.secret_reference,
+        providerAccountKey: connection.provider_account_key,
       },
       created: true,
     };
@@ -395,7 +619,8 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
   ): Promise<ConnectionRow | null> {
     return this.db
       .prepare(
-        `SELECT id, secret_reference, status, last_synced_at
+        `SELECT id, secret_reference, status, last_synced_at,
+                provider_account_key
          FROM connector_accounts
          WHERE household_id = ? AND connector_type = ? AND display_label = ?`,
       )

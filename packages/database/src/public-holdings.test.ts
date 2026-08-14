@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { D1HoldingImportRepository } from "./holding-imports";
 import { D1PublicHoldingsRepository } from "./public-holdings";
 
+const providerAccountKey = "a".repeat(64);
+const replacementProviderAccountKey = "b".repeat(64);
+
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -19,6 +22,7 @@ const migrationFiles = [
   "packages/database/migrations/0010_public_holdings.sql",
   "packages/database/migrations/0011_portfolio_baselines.sql",
   "packages/database/migrations/0012_append_only_cash_flow_plans.sql",
+  "packages/database/migrations/0013_plaid_holdings_webhooks.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -45,9 +49,9 @@ class TestD1Statement {
     });
   }
 
-  public run(): Promise<void> {
-    this.database.prepare(this.sql).run(...this.values);
-    return Promise.resolve();
+  public run(): Promise<{ meta: { changes: number } }> {
+    const result = this.database.prepare(this.sql).run(...this.values);
+    return Promise.resolve({ meta: { changes: Number(result.changes) } });
   }
 
   public execute(): void {
@@ -93,6 +97,43 @@ describe("Robinhood public-holdings connection state", () => {
 
   afterEach(() => sqlite.close());
 
+  it("enables automatic updates on the next check for a migrated connection", async () => {
+    sqlite
+      .prepare(
+        `INSERT INTO connector_accounts (
+           id, household_id, connector_type, display_label, secret_reference,
+           status, last_synced_at, provider_account_key, created_at
+         ) VALUES (?, ?, ?, ?, ?, 'active', NULL, NULL, ?)`,
+      )
+      .run(
+        "synthetic-legacy-connection",
+        "hh_demo",
+        "plaid-investments",
+        "Robinhood",
+        "connector-secrets/synthetic-legacy.enc",
+        "2026-08-01T12:00:00.000Z",
+      );
+
+    await expect(
+      repository.getStatus("synthetic-access-subject", true),
+    ).resolves.toMatchObject({
+      status: "ready",
+      automaticUpdatesEnabled: false,
+    });
+    await expect(
+      repository.getConnection("synthetic-access-subject"),
+    ).resolves.toMatchObject({ providerAccountKey: null });
+
+    await repository.bindProviderAccountKey(
+      "synthetic-access-subject",
+      "synthetic-legacy-connection",
+      providerAccountKey,
+    );
+    await expect(
+      repository.getStatus("synthetic-access-subject", true),
+    ).resolves.toMatchObject({ automaticUpdatesEnabled: true });
+  });
+
   it("moves from setup to connected sync and exposes only a pending review", async () => {
     await expect(
       repository.getStatus("synthetic-access-subject", false),
@@ -111,11 +152,16 @@ describe("Robinhood public-holdings connection state", () => {
     const connection = await repository.upsertConnection(
       "synthetic-access-subject",
       "connector-secrets/synthetic-one.enc",
+      providerAccountKey,
     );
     expect(connection.previousSecretReference).toBeNull();
     await expect(
       repository.getStatus("synthetic-access-subject", true),
-    ).resolves.toMatchObject({ status: "ready", lastSyncedAt: null });
+    ).resolves.toMatchObject({
+      status: "ready",
+      lastSyncedAt: null,
+      automaticUpdatesEnabled: true,
+    });
 
     const run = await repository.beginSync("synthetic-access-subject");
     expect(run.created).toBe(true);
@@ -173,6 +219,7 @@ describe("Robinhood public-holdings connection state", () => {
     const replacement = await repository.upsertConnection(
       "synthetic-access-subject",
       "connector-secrets/synthetic-two.enc",
+      replacementProviderAccountKey,
     );
     expect(replacement.previousSecretReference).toBe(
       "connector-secrets/synthetic-one.enc",
@@ -183,6 +230,7 @@ describe("Robinhood public-holdings connection state", () => {
     await repository.upsertConnection(
       "synthetic-access-subject",
       "connector-secrets/synthetic.enc",
+      providerAccountKey,
     );
     const run = await repository.beginSync("synthetic-access-subject");
     await repository.failSync(
@@ -198,5 +246,72 @@ describe("Robinhood public-holdings connection state", () => {
       latestRunStatus: "failed",
       errorCode: "provider_unavailable",
     });
+  });
+
+  it("claims signed deliveries by opaque account key and advances their lifecycle", async () => {
+    const connection = await repository.upsertConnection(
+      "synthetic-access-subject",
+      "connector-secrets/synthetic.enc",
+      providerAccountKey,
+    );
+    expect(connection.providerAccountKey).toBe(providerAccountKey);
+
+    const claim = await repository.claimPlaidWebhookDelivery({
+      providerAccountKey,
+      signatureSha256: "c".repeat(64),
+      bodySha256: "d".repeat(64),
+      issuedAt: "2026-08-14T12:00:00.000Z",
+      receivedAt: "2026-08-14T12:00:01.000Z",
+    });
+    expect(claim.status).toBe("claimed");
+    if (claim.status !== "claimed") {
+      throw new Error("Expected a claimed webhook delivery.");
+    }
+
+    await expect(
+      repository.getPlaidWebhookDelivery(claim.deliveryId),
+    ).resolves.toEqual({
+      id: claim.deliveryId,
+      accessSubject: "synthetic-access-subject",
+      status: "received",
+    });
+    await expect(
+      repository.markPlaidWebhookDelivery(claim.deliveryId, "queued"),
+    ).resolves.toBe(true);
+    await expect(
+      repository.markPlaidWebhookDelivery(claim.deliveryId, "processing"),
+    ).resolves.toBe(true);
+    await expect(
+      repository.markPlaidWebhookDelivery(claim.deliveryId, "processed"),
+    ).resolves.toBe(true);
+    await expect(
+      repository.markPlaidWebhookDelivery(claim.deliveryId, "processed"),
+    ).resolves.toBe(false);
+    await expect(
+      repository.getPlaidWebhookDelivery(claim.deliveryId),
+    ).resolves.toMatchObject({ status: "processed" });
+
+    await expect(
+      repository.claimPlaidWebhookDelivery({
+        providerAccountKey,
+        signatureSha256: "c".repeat(64),
+        bodySha256: "d".repeat(64),
+        issuedAt: "2026-08-14T12:00:00.000Z",
+        receivedAt: "2026-08-14T12:00:02.000Z",
+      }),
+    ).resolves.toEqual({
+      status: "duplicate",
+      deliveryId: claim.deliveryId,
+    });
+
+    await expect(
+      repository.claimPlaidWebhookDelivery({
+        providerAccountKey: "e".repeat(64),
+        signatureSha256: "f".repeat(64),
+        bodySha256: "0".repeat(64),
+        issuedAt: "2026-08-14T12:00:00.000Z",
+        receivedAt: "2026-08-14T12:00:02.000Z",
+      }),
+    ).resolves.toEqual({ status: "unknown" });
   });
 });

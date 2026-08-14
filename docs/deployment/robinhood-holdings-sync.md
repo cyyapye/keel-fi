@@ -20,13 +20,17 @@ endpoint is the source for this first integration.
 3. Register the exact Keel Holdings URL as the OAuth redirect URI, for example
    `https://keel-preview.example.com/holdings`. The URI must use HTTPS outside
    local development and must match `PLAID_REDIRECT_URI` exactly.
-4. Generate an independent 32-byte connector-encryption key:
+4. Configure a dedicated webhook hostname on the web Worker. Preview derives it
+   by adding `-webhooks` to the first hostname label, for example
+   `https://keel-preview-webhooks.example.com/webhooks/plaid`. Set that exact
+   HTTPS URL as `PLAID_WEBHOOK_URL` in local or private Worker configuration.
+5. Generate an independent 32-byte connector-encryption key:
 
    ```sh
    openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
    ```
 
-5. Configure all five Worker secrets together:
+6. Configure all five Worker secrets together:
 
    - `CONNECTOR_CREDENTIAL_KEY`: the base64url key generated above;
    - `PLAID_CLIENT_ID`;
@@ -37,7 +41,8 @@ endpoint is the source for this first integration.
 For local Wrangler development, put these values in the ignored
 `apps/api/.dev.vars` file. Never copy them into tracked configuration. The Plaid
 access token is encrypted with AES-GCM before it is stored in the private R2
-binding; D1 retains only an opaque object reference.
+binding. D1 retains only an opaque object reference and an HMAC-derived account
+key; it never stores Plaid's raw Item ID.
 
 Changing `CONNECTOR_CREDENTIAL_KEY` makes existing encrypted connections
 unreadable. Plan a Robinhood reconnect immediately after an intentional key
@@ -70,10 +75,27 @@ bounded setup-required state.
 - Consecutive identical normalized snapshots are deduplicated. A no-change sync
   creates no redundant review, while a later return to an older portfolio state
   still creates a new review.
-- Sync is manual in this milestone. Do not add an unauthenticated Plaid webhook
-  until its verification and replay controls are implemented fail-closed.
+- Link registers the exact webhook URL. Existing connections register it during
+  their next manual check, after which Holdings reports automatic updates as
+  enabled.
+- Keel accepts only `HOLDINGS: DEFAULT_UPDATE` on the dedicated webhook host.
+  The API verifies Plaid's `ES256` JWT, fetches the exact `kid`, rejects keys or
+  deliveries outside their time bounds, and compares the signed SHA-256 claim
+  with the exact bounded request body before parsing it.
+- A valid delivery is replay-deduplicated by its signature hash and queued by an
+  opaque delivery ID. Unknown Items are acknowledged without revealing whether a
+  connection exists. Raw bodies, bearer values, Item IDs, and user IDs are
+  absent from D1, Queue messages, and logs.
+- Queue processing reads the latest holdings snapshot and stages the same
+  review-gated import as a manual check. It never applies holdings, infers a
+  sale from a missing position, confirms a Portfolio Baseline, or changes a
+  goal.
+- Keel relies on Plaid's periodic Investments refresh and `DEFAULT_UPDATE`
+  notification. The optional on-demand Investments Refresh add-on is not
+  required for this flow; “Check now” remains a manual fallback.
 
 Reference the official
 [Plaid Investments overview](https://plaid.com/docs/investments/),
 [Investments API](https://plaid.com/docs/api/products/investments/), and
-[Link guide](https://plaid.com/docs/link/) when changing the integration.
+[webhook verification guide](https://plaid.com/docs/api/webhooks/webhook-verification/)
+when changing the integration.

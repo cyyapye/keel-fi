@@ -8,6 +8,7 @@ test.beforeEach(async ({ page }) => {
         configured: false,
         status: "setup_required",
         lastSyncedAt: null,
+        automaticUpdatesEnabled: false,
         latestImportId: null,
         latestRunStatus: null,
         errorCode: "configuration_required",
@@ -468,6 +469,7 @@ test("connects Robinhood and stages a review without inferring sales", async ({
         configured: true,
         status: "disconnected",
         lastSyncedAt: null,
+        automaticUpdatesEnabled: false,
         latestImportId: null,
         latestRunStatus: null,
         errorCode: null,
@@ -495,6 +497,7 @@ test("connects Robinhood and stages a review without inferring sales", async ({
           configured: true,
           status: "ready",
           lastSyncedAt: "2026-08-10T16:00:00.000Z",
+          automaticUpdatesEnabled: true,
           latestImportId: robinhoodImportPreview.id,
           latestRunStatus: "succeeded",
           errorCode: null,
@@ -566,6 +569,82 @@ test("connects Robinhood and stages a review without inferring sales", async ({
     page.getByText("Missing positions will not be recorded as sales."),
   ).toBeVisible();
   expect(exchangeBodies).toEqual([{ publicToken: "public-synthetic" }]);
+});
+
+test("shows automatic Robinhood checks without bypassing review", async ({
+  page,
+}) => {
+  await page.unroute("**/api/public-holdings/robinhood/status");
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "ready",
+        interval: "weekly",
+        runStatus: null,
+        lastSeenAt: "2026-08-13T16:00:00.000Z",
+        lastCompletedAt: "2026-08-10T16:00:00.000Z",
+        nextRunAt: "2026-08-17T16:00:00.000Z",
+        latestImportId: null,
+        errorCode: null,
+      },
+    });
+  });
+  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        status: "ready",
+        lastSyncedAt: "2026-08-14T16:00:00.000Z",
+        automaticUpdatesEnabled: true,
+        latestImportId: null,
+        latestRunStatus: "succeeded",
+        errorCode: null,
+      },
+    });
+  });
+
+  await page.goto("/holdings");
+  await expect(
+    page.getByRole("heading", { name: "Robinhood updates automatically" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Keel checks after Robinhood reports a holdings change. Every update waits for review.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();
+  await expect(page.getByText(/Last checked/)).toBeVisible();
+
+  const viewportWidths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(viewportWidths.scroll).toBe(viewportWidths.client);
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-robinhood-automatic.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
 });
 
 test("requests a Mac AngelList update from the phone-safe Holdings flow", async ({

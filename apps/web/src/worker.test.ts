@@ -58,6 +58,38 @@ describe("web Worker routing", () => {
     expect(testBindings.apiFetch).not.toHaveBeenCalled();
   });
 
+  it("exposes only the Plaid endpoint on the dedicated webhook host", async () => {
+    const testBindings = bindings();
+    const webhookBindings = {
+      ...testBindings.value,
+      PLAID_WEBHOOK_HOST: "keel-preview-webhooks.example.com",
+    };
+    const webhook = new Request(
+      "https://keel-preview-webhooks.example.com/webhooks/plaid",
+      { method: "POST", body: "{}" },
+    );
+
+    const response = await handleRequest(webhook, webhookBindings);
+
+    expect(await response.text()).toBe("api");
+    expect(testBindings.apiFetch).toHaveBeenCalledWith(webhook);
+    expect(
+      await handleRequest(
+        new Request("https://keel-preview-webhooks.example.com/"),
+        webhookBindings,
+      ),
+    ).toMatchObject({ status: 404 });
+    expect(
+      await handleRequest(
+        new Request("https://keel-preview.example.com/webhooks/plaid", {
+          method: "POST",
+          body: "{}",
+        }),
+        webhookBindings,
+      ),
+    ).toMatchObject({ status: 404 });
+  });
+
   it("identifies the exact web deployment on the health response", async () => {
     const testBindings = bindings();
     const request = new Request("https://keel-preview.example.com/health");
