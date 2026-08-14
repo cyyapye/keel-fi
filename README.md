@@ -60,6 +60,10 @@ snapshot.
 - D1 migrations, private R2/Queues interfaces, synthetic seed data, CI,
   Dependabot, and secret scanning.
 
+The [product delivery roadmap](docs/product/roadmap.md) records shipped evidence
+and the ordered, checkable milestones for the private alpha. Its first unchecked
+milestone is the active product slice.
+
 ## Workspace
 
 ```text
