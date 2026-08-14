@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createPortfolioBaselineImpact,
   createGoalPreview,
   estimateThresholdProbabilityPpm,
   FinancingAnnouncementFactsSchema,
@@ -364,6 +365,34 @@ describe("deterministic financial calculations", () => {
       middleValueInteger: 392_500_000,
       higherValueInteger: 536_500_000,
       successProbabilityPpm: 645_475,
+    });
+  });
+
+  it("previews a portfolio baseline with integer runway and FI outcomes", () => {
+    expect(
+      createPortfolioBaselineImpact(
+        {
+          currentFiEligibleLiquidMinor: 182_500_000,
+          protectedCashFloorMinor: 10_300_000,
+          householdBurnMonthlyMinor: 2_850_000,
+          businessBurnMonthlyMinor: 1_250_000,
+          fiTargetMinor: 325_000_000,
+          p25FiveYearLiquidityMinor: 94_000_000,
+          p50FiveYearLiquidityMinor: 210_000_000,
+          p75FiveYearLiquidityMinor: 354_000_000,
+          forecastHorizonDate: "2031-12-31",
+        },
+        200_000_000,
+      ),
+    ).toEqual({
+      fiEligibleLiquidMinor: 200_000_000,
+      fiEligibleChangeMinor: 17_500_000,
+      protectedRunwayMonths: 46,
+      fiGapMinor: 125_000_000,
+      lowerTotalAvailableMinor: 294_000_000,
+      middleTotalAvailableMinor: 410_000_000,
+      higherTotalAvailableMinor: 554_000_000,
+      probabilityCrossingFiPpm: 683_190,
     });
   });
 

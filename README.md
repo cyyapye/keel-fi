@@ -46,6 +46,11 @@ snapshot.
 - Optional macOS-assisted AngelList CSV download and staging with a dedicated
   local Chrome profile. Automatic checks run daily, an immediate local command
   is available, and every import still requires review.
+- Review-gated Robinhood market-value sync and a Portfolio Baseline step that
+  combines accepted public and private source facts without counting them
+  automatically. Confirmation versions the FI plan, forecast, and matching FI
+  goal together; unavailable values stay unknown and possible overlaps require
+  acknowledgment.
 - Cloudflare Access JWT validation that fails closed outside explicit local
   mode.
 - D1 migrations, private R2/Queues interfaces, synthetic seed data, CI,

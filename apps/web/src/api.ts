@@ -12,6 +12,9 @@ import {
   HoldingImportPreviewSchema,
   HoldingImportSummariesSchema,
   PortfolioWatchScanResultSchema,
+  PortfolioBaselineConfirmInputSchema,
+  PortfolioBaselineConfirmResultSchema,
+  PortfolioBaselineStateSchema,
   RobinhoodExchangeInputSchema,
   RobinhoodLinkTokenSchema,
   RobinhoodSyncStatusSchema,
@@ -29,6 +32,9 @@ import {
   type HoldingImportPreview,
   type HoldingImportSummary,
   type PortfolioWatchScanResult,
+  type PortfolioBaselineConfirmInput,
+  type PortfolioBaselineConfirmResult,
+  type PortfolioBaselineState,
   type RobinhoodLinkToken,
   type RobinhoodSyncStatus,
   type ScenarioDraftInput,
@@ -58,6 +64,45 @@ export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
   }
 
   return AlphaDataSchema.parse(await response.json());
+}
+
+export async function loadPortfolioBaseline(
+  signal?: AbortSignal,
+): Promise<PortfolioBaselineState> {
+  const response = await fetch("/api/portfolio-baseline", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: signal ?? null,
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Portfolio baseline returned ${response.status}.`,
+    );
+  }
+  return PortfolioBaselineStateSchema.parse(await response.json());
+}
+
+export async function confirmPortfolioBaseline(
+  input: PortfolioBaselineConfirmInput,
+): Promise<PortfolioBaselineConfirmResult> {
+  const body = PortfolioBaselineConfirmInputSchema.parse(input);
+  const response = await fetch("/api/portfolio-baselines", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Portfolio baseline confirmation returned ${response.status}.`,
+    );
+  }
+  return PortfolioBaselineConfirmResultSchema.parse(await response.json());
 }
 
 export async function scanPortfolioWatch(): Promise<PortfolioWatchScanResult> {

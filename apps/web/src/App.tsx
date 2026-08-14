@@ -1,5 +1,6 @@
 import {
   createGoalPreview,
+  createPortfolioBaselineImpact,
   projectScenario,
   type AlphaData,
   type AngelListAutomationOverview,
@@ -15,6 +16,9 @@ import {
   type HoldingImportPreview,
   type HoldingImportRowPreview,
   type HoldingImportSummary,
+  type PortfolioBaselineConfirmInput,
+  type PortfolioBaselineConfirmResult,
+  type PortfolioBaselineState,
   type PublicSourceObservation,
   type RobinhoodSyncStatus,
   type Scenario,
@@ -38,6 +42,7 @@ import {
   applyAcceptedEvidence,
   applyHoldingImport,
   cancelAngelListSignInRefresh,
+  confirmPortfolioBaseline,
   configureAngelListMacAgent,
   createRobinhoodLinkToken,
   createSignalUpdateProposal as submitSignalUpdateProposal,
@@ -48,6 +53,7 @@ import {
   loadAlphaData,
   loadHoldingImport,
   loadLegacyAngelListAutomationOverview,
+  loadPortfolioBaseline,
   loadRobinhoodSyncStatus,
   previewAngelListHoldingImport,
   requestAngelListUpdate,
@@ -3136,8 +3142,440 @@ function RobinhoodSyncControl({
   );
 }
 
+function minorUnitsToDollarInput(value: number): string {
+  const minor = BigInt(value);
+  const dollars = (minor / 100n).toLocaleString("en-US");
+  const cents = (minor % 100n).toString().padStart(2, "0");
+  return `${dollars}.${cents}`;
+}
+
+function dollarInputToMinorUnits(value: string): number | null {
+  const normalized = value.trim().replaceAll(",", "");
+  const match = /^(\d+)(?:\.(\d{0,2}))?$/u.exec(normalized);
+  if (match === null) {
+    return null;
+  }
+  const whole = BigInt(match[1] ?? "0");
+  const fraction = (match[2] ?? "").padEnd(2, "0");
+  const minor = whole * 100n + BigInt(fraction.length === 0 ? "0" : fraction);
+  return minor <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(minor) : null;
+}
+
+function baselineValueLabel(
+  position: PortfolioBaselineState["positions"][number],
+): string {
+  if (position.valueState === "locked") {
+    return "Locked";
+  }
+  if (position.valueMinor === null) {
+    return "Not reported";
+  }
+  return formatCompactMoney(position.valueMinor);
+}
+
+function PortfolioBaselineSection({
+  onConfirmed,
+  refreshKey,
+}: {
+  onConfirmed: () => Promise<void>;
+  refreshKey: string;
+}) {
+  const [state, setState] = useState<PortfolioBaselineState | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [dollarInput, setDollarInput] = useState("");
+  const [changeNote, setChangeNote] = useState(
+    "Reviewed synced holdings for the FI plan.",
+  );
+  const [duplicateReviewConfirmed, setDuplicateReviewConfirmed] =
+    useState(false);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<PortfolioBaselineConfirmResult | null>(
+    null,
+  );
+  const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  const reload = useCallback(async (signal?: AbortSignal) => {
+    const next = await loadPortfolioBaseline(signal);
+    setState(next);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void reload(controller.signal).catch((loadError: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Keel could not prepare the planning baseline.",
+          );
+        }
+      });
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [refreshKey, reload]);
+
+  useEffect(() => {
+    if (reviewing) {
+      reviewHeadingRef.current?.focus();
+    }
+  }, [reviewing]);
+
+  const proposedFiEligibleMinor = useMemo(
+    () => dollarInputToMinorUnits(dollarInput),
+    [dollarInput],
+  );
+  const proposedImpact = useMemo(() => {
+    if (state === null || proposedFiEligibleMinor === null) {
+      return null;
+    }
+    return createPortfolioBaselineImpact(
+      state.planning,
+      proposedFiEligibleMinor,
+    );
+  }, [proposedFiEligibleMinor, state]);
+
+  const openReview = () => {
+    if (state === null) {
+      return;
+    }
+    setDollarInput(
+      minorUnitsToDollarInput(state.planning.currentFiEligibleLiquidMinor),
+    );
+    setChangeNote("Reviewed synced holdings for the FI plan.");
+    setDuplicateReviewConfirmed(false);
+    setError(null);
+    setReviewing(true);
+  };
+
+  const confirm = async () => {
+    if (
+      state === null ||
+      state.sourceRevision === null ||
+      state.baseForecastSnapshotId === null ||
+      state.baseForecastSnapshotVersion === null ||
+      proposedFiEligibleMinor === null ||
+      changeNote.trim().length === 0
+    ) {
+      return;
+    }
+    const input: PortfolioBaselineConfirmInput = {
+      sourceRevision: state.sourceRevision,
+      baseForecastSnapshotId: state.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
+      fiEligibleLiquidMinor: proposedFiEligibleMinor,
+      duplicateReviewConfirmed,
+      changeNote: changeNote.trim(),
+    };
+    setWorking(true);
+    setError(null);
+    try {
+      const nextResult = await confirmPortfolioBaseline(input);
+      setResult(nextResult);
+      setReviewing(false);
+      try {
+        await Promise.all([onConfirmed(), reload()]);
+      } catch {
+        setError(
+          "The baseline was confirmed, but the latest plan could not be reloaded. Refresh to see it.",
+        );
+      }
+    } catch (confirmationError: unknown) {
+      setError(
+        confirmationError instanceof Error
+          ? confirmationError.message
+          : "Nothing changed. The baseline could not be confirmed.",
+      );
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  if (state === null) {
+    return error === null ? null : (
+      <section className="portfolio-baseline portfolio-baseline--error">
+        <div>
+          <p className="eyebrow">Planning baseline</p>
+          <h2>Planning baseline unavailable</h2>
+          <p>{error}</p>
+        </div>
+        <Button onClick={() => void reload()} tone="quiet">
+          Try again
+        </Button>
+      </section>
+    );
+  }
+  if (
+    state.status === "waiting_for_reviewed_holdings" ||
+    state.summary === null
+  ) {
+    return null;
+  }
+
+  if (reviewing) {
+    const moneyInputInvalid = proposedFiEligibleMinor === null;
+    const duplicateCount = state.summary.potentialDuplicateCount;
+    return (
+      <section
+        aria-labelledby="portfolio-baseline-review-title"
+        className="portfolio-baseline-review"
+      >
+        <header className="portfolio-baseline-review__heading">
+          <p className="eyebrow">Planning baseline</p>
+          <h2
+            id="portfolio-baseline-review-title"
+            ref={reviewHeadingRef}
+            tabIndex={-1}
+          >
+            Decide what counts toward the FI plan
+          </h2>
+          <p>
+            Source values are reference points. Enter the full liquid amount you
+            are willing to count, including cash held elsewhere.
+          </p>
+        </header>
+
+        <div aria-label="Reviewed holding totals" className="baseline-totals">
+          <div>
+            <span>Public market</span>
+            <strong>
+              {formatCompactMoney(state.summary.publicMarketValueMinor)}
+            </strong>
+          </div>
+          <div>
+            <span>Private paper</span>
+            <strong>
+              {formatCompactMoney(state.summary.privatePaperValueMinor)}
+            </strong>
+          </div>
+          <div>
+            <span>Value unavailable</span>
+            <strong>{state.summary.unknownValueCount}</strong>
+          </div>
+        </div>
+
+        <div className="baseline-position-list">
+          <div className="baseline-position-list__header">
+            <span>Reviewed position</span>
+            <span>Source value</span>
+          </div>
+          {state.positions.map((position) => (
+            <article key={position.id}>
+              <div>
+                <strong>{position.positionName}</strong>
+                <span>
+                  {position.sourceLabel} · {position.ownerLabel}
+                </span>
+                {position.potentialDuplicate && (
+                  <small>Possible overlap across sources</small>
+                )}
+              </div>
+              <div>
+                <strong>{baselineValueLabel(position)}</strong>
+                <span>
+                  {position.classification === "public_market"
+                    ? "Public market"
+                    : "Private paper"}
+                </span>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        {state.requiresDuplicateReview && (
+          <label className="baseline-overlap-confirmation">
+            <input
+              checked={duplicateReviewConfirmed}
+              onChange={(event) =>
+                setDuplicateReviewConfirmed(event.currentTarget.checked)
+              }
+              type="checkbox"
+            />
+            <span>
+              I reviewed the {duplicateCount} possible overlapping{" "}
+              {duplicateCount === 1 ? "position" : "positions"} and set the FI
+              amount without double counting.
+            </span>
+          </label>
+        )}
+
+        <div className="baseline-policy-grid">
+          <div className="baseline-policy-input">
+            <label className="field" htmlFor="fi-eligible-liquid-input">
+              <span>FI-eligible liquid amount</span>
+              <span className="field__value">
+                <i>$</i>
+                <input
+                  aria-describedby="fi-eligible-liquid-help"
+                  aria-invalid={moneyInputInvalid || undefined}
+                  id="fi-eligible-liquid-input"
+                  inputMode="decimal"
+                  onChange={(event) =>
+                    setDollarInput(event.currentTarget.value)
+                  }
+                  value={dollarInput}
+                />
+              </span>
+            </label>
+            <p id="fi-eligible-liquid-help">
+              Reviewed holdings are not counted automatically. Locked values
+              remain unknown, not zero.
+            </p>
+            <label className="field" htmlFor="portfolio-baseline-change-note">
+              <span>What changed</span>
+              <input
+                id="portfolio-baseline-change-note"
+                maxLength={500}
+                onChange={(event) => setChangeNote(event.currentTarget.value)}
+                value={changeNote}
+              />
+            </label>
+          </div>
+
+          <div aria-live="polite" className="baseline-impact">
+            <p className="eyebrow">Forecast impact</p>
+            {proposedImpact === null ? (
+              <p>Enter a valid dollar amount with no more than two decimals.</p>
+            ) : (
+              <>
+                <div>
+                  <span>Liquid amount</span>
+                  <strong>
+                    {formatCompactMoney(
+                      state.planning.currentFiEligibleLiquidMinor,
+                    )}{" "}
+                    → {formatCompactMoney(proposedImpact.fiEligibleLiquidMinor)}
+                  </strong>
+                </div>
+                <div>
+                  <span>Protected runway</span>
+                  <strong>{proposedImpact.protectedRunwayMonths} months</strong>
+                </div>
+                <div>
+                  <span>FI gap</span>
+                  <strong>
+                    {formatCompactMoney(proposedImpact.fiGapMinor)}
+                  </strong>
+                </div>
+                <div>
+                  <span>5-year middle total</span>
+                  <strong>
+                    {formatCompactMoney(
+                      proposedImpact.middleTotalAvailableMinor,
+                    )}
+                  </strong>
+                </div>
+                <div>
+                  <span>Chance of reaching FI</span>
+                  <strong>
+                    {formatProbability(proposedImpact.probabilityCrossingFiPpm)}
+                  </strong>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {error !== null && (
+          <p className="inline-error" role="alert">
+            {error}
+          </p>
+        )}
+        <footer className="baseline-review-actions">
+          <p>
+            Confirming saves a new FI plan and forecast version. Earlier
+            versions remain available.
+          </p>
+          <div>
+            <Button
+              disabled={working}
+              onClick={() => {
+                setReviewing(false);
+                setError(null);
+              }}
+              tone="quiet"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                working ||
+                proposedImpact === null ||
+                changeNote.trim().length === 0 ||
+                (state.requiresDuplicateReview && !duplicateReviewConfirmed)
+              }
+              onClick={() => void confirm()}
+              tone="primary"
+            >
+              {working ? "Confirming…" : "Confirm baseline"}
+            </Button>
+          </div>
+        </footer>
+      </section>
+    );
+  }
+
+  const isCurrent = state.status === "current";
+  return (
+    <section
+      aria-labelledby="portfolio-baseline-title"
+      className={`portfolio-baseline${isCurrent ? " portfolio-baseline--current" : ""}`}
+    >
+      <div className="portfolio-baseline__heading">
+        <p className="eyebrow">Planning baseline</p>
+        <h2 id="portfolio-baseline-title">
+          {isCurrent
+            ? "Planning baseline is current"
+            : "Reviewed holdings are ready for planning"}
+        </h2>
+        <p>
+          {isCurrent
+            ? `Confirmed ${formatDate(state.latestBaseline?.createdAt ?? state.observedAt ?? "")}. Source updates will wait for another review.`
+            : "Synced values do not change your FI plan until you confirm what counts."}
+        </p>
+        {result !== null && (
+          <p className="portfolio-baseline__success" role="status">
+            FI plan updated to{" "}
+            {formatCompactMoney(result.impact.fiEligibleLiquidMinor)}.
+          </p>
+        )}
+        {error !== null && (
+          <p className="portfolio-baseline__error" role="status">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="portfolio-baseline__summary">
+        <span>
+          <strong>{state.summary.positionCount}</strong> reviewed positions
+        </span>
+        <span>
+          <strong>{state.summary.unknownValueCount}</strong> values unavailable
+        </span>
+        <span>
+          <strong>
+            {formatCompactMoney(state.planning.currentFiEligibleLiquidMinor)}
+          </strong>{" "}
+          in the FI plan
+        </span>
+      </div>
+      {!isCurrent && (
+        <Button onClick={openReview} tone="primary">
+          Review baseline
+        </Button>
+      )}
+    </section>
+  );
+}
+
 function Holdings({
   data,
+  onBaselineConfirmed,
   onApplyImport,
   onImportRouteChange,
   onListPendingImports,
@@ -3146,6 +3584,7 @@ function Holdings({
   requestedImportId,
 }: {
   data: AlphaData;
+  onBaselineConfirmed: () => Promise<void>;
   onApplyImport: (
     importId: string,
     input: HoldingImportApplyInput,
@@ -3182,6 +3621,13 @@ function Holdings({
     routedPreviewError?.importId === requestedImportId
       ? routedPreviewError.message
       : null;
+  const baselineRefreshKey = data.holdings
+    .map(
+      (holding) =>
+        `${holding.id}:${holding.effectiveDate}:${holding.administratorNavMinor ?? "unknown"}`,
+    )
+    .sort((left, right) => left.localeCompare(right))
+    .join("|");
 
   useEffect(() => {
     let cancelled = false;
@@ -3336,6 +3782,10 @@ function Holdings({
         )
       ) : (
         <>
+          <PortfolioBaselineSection
+            onConfirmed={onBaselineConfirmed}
+            refreshKey={baselineRefreshKey}
+          />
           <RobinhoodSyncControl onReviewImport={reviewPendingImport} />
           <AngelListSignInControl />
           {pendingImports.length > 0 && (
@@ -5174,6 +5624,7 @@ export function App() {
         return (
           <Holdings
             data={data}
+            onBaselineConfirmed={async () => setData(await loadAlphaData())}
             onApplyImport={async (importId, input) => {
               const result = await applyHoldingImport(importId, input);
               setData(await loadAlphaData());

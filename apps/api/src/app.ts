@@ -7,9 +7,11 @@ import {
   D1AlphaRepository,
   D1AngelListMacAgentRepository,
   D1HoldingImportRepository,
+  D1PortfolioBaselineRepository,
   D1PublicHoldingsRepository,
   type AlphaRepository,
   type AngelListMacAgentRepository,
+  type PortfolioBaselineRepository,
   type PublicHoldingsRepository,
 } from "@keel/database";
 import {
@@ -18,6 +20,7 @@ import {
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
+  PortfolioBaselineConfirmInputSchema,
   PortfolioWatchScanResultSchema,
   RobinhoodExchangeInputSchema,
   ScenarioDraftInputSchema,
@@ -62,6 +65,7 @@ type AppOptions = {
     "stageRobinhoodHoldingImport"
   >;
   plaidClient?: PlaidInvestmentsClient;
+  portfolioBaselineRepository?: PortfolioBaselineRepository;
   publicHoldingsRepository?: PublicHoldingsRepository;
   repository?: AlphaRepository;
   verifyAccess?: AccessVerifier;
@@ -296,6 +300,9 @@ export function createApp(options: AppOptions = {}) {
     new D1AngelListMacAgentRepository(env.DB);
   const publicHoldingsRepositoryFor = (env: Env) =>
     options.publicHoldingsRepository ?? new D1PublicHoldingsRepository(env.DB);
+  const portfolioBaselineRepositoryFor = (env: Env) =>
+    options.portfolioBaselineRepository ??
+    new D1PortfolioBaselineRepository(env.DB);
   const holdingImportRepositoryFor = (env: Env) =>
     options.holdingImportRepository ?? new D1HoldingImportRepository(env.DB);
   const plaidClientFor = (env: Env) =>
@@ -351,6 +358,78 @@ export function createApp(options: AppOptions = {}) {
       return context.json(
         { error: "Keel could not load the household view." },
         500,
+      );
+    }
+  });
+
+  app.get("/api/portfolio-baseline", async (context) => {
+    try {
+      const state = await portfolioBaselineRepositoryFor(context.env).getState(
+        context.get("identity").subject,
+      );
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json(
+        { error: "Keel could not prepare the portfolio baseline." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/portfolio-baselines", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+    const result = PortfolioBaselineConfirmInputSchema.safeParse(rawInput);
+    if (!result.success) {
+      return context.json(
+        {
+          error: "Portfolio baseline input is invalid.",
+          issues: result.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+      );
+    }
+
+    try {
+      const confirmed = await portfolioBaselineRepositoryFor(
+        context.env,
+      ).confirm(context.get("identity").subject, result.data);
+      return context.json(confirmed, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message.includes("stale") || message.includes("already current")) {
+        return context.json(
+          {
+            error:
+              "The portfolio or forecast changed. Review the latest baseline before confirming.",
+          },
+          409,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      if (message.includes("overlaps")) {
+        return context.json(
+          { error: "Review the possible overlaps before confirming." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      return context.json(
+        { error: "The portfolio baseline could not be confirmed." },
+        500,
+        { "Cache-Control": "private, no-store" },
       );
     }
   });
