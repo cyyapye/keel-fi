@@ -862,6 +862,73 @@ export const PortfolioBaselineConfirmResultSchema = z.object({
   impact: PortfolioBaselineImpactSchema,
 });
 
+export const PlanInputValuesSchema = z.object({
+  householdBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  businessBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  protectedCashFloorMinor: NonNegativeMoneyMinorSchema,
+});
+
+export const PlanInputImpactSchema = z.object({
+  totalMonthlyBurnMinor: NonNegativeMoneyMinorSchema,
+  liquidAfterCashFloorMinor: NonNegativeMoneyMinorSchema,
+  protectedRunwayMonths: z.number().int().nonnegative(),
+});
+
+export function createPlanInputImpact(
+  rawValues: z.input<typeof PlanInputValuesSchema>,
+  rawFiEligibleLiquidMinor: number,
+): z.infer<typeof PlanInputImpactSchema> {
+  const values = PlanInputValuesSchema.parse(rawValues);
+  const fiEligibleLiquidMinor = NonNegativeMoneyMinorSchema.parse(
+    rawFiEligibleLiquidMinor,
+  );
+  const totalMonthlyBurnMinor = addMinorUnits(
+    values.householdBurnMonthlyMinor,
+    values.businessBurnMonthlyMinor,
+  );
+  const liquidAfterCashFloorMinor = Math.max(
+    subtractMinorUnits(fiEligibleLiquidMinor, values.protectedCashFloorMinor),
+    0,
+  );
+  const protectedRunwayMonths =
+    totalMonthlyBurnMinor === 0
+      ? 0
+      : Number(
+          BigInt(liquidAfterCashFloorMinor) / BigInt(totalMonthlyBurnMinor),
+        );
+
+  return PlanInputImpactSchema.parse({
+    totalMonthlyBurnMinor,
+    liquidAfterCashFloorMinor,
+    protectedRunwayMonths,
+  });
+}
+
+export const PlanInputStateSchema = z.object({
+  baseCashFlowPlanId: z.string().min(1),
+  baseForecastSnapshotId: z.string().min(1),
+  baseForecastSnapshotVersion: z.number().int().positive(),
+  values: PlanInputValuesSchema,
+  fiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
+  fiTargetMinor: NonNegativeMoneyMinorSchema,
+  forecastHorizonDate: IsoDateSchema,
+  impact: PlanInputImpactSchema,
+});
+
+export const PlanInputSaveSchema = PlanInputValuesSchema.extend({
+  baseCashFlowPlanId: z.string().min(1),
+  baseForecastSnapshotId: z.string().min(1),
+  baseForecastSnapshotVersion: z.number().int().positive(),
+  changeNote: z.string().trim().min(1).max(500),
+});
+
+export const PlanInputSaveResultSchema = z.object({
+  plan: PlanInputStateSchema,
+  priorImpact: PlanInputImpactSchema,
+  createdAt: IsoTimestampSchema,
+  createdBy: z.string().min(1),
+});
+
 export const RobinhoodSyncErrorCodeSchema = z.enum([
   "configuration_required",
   "connection_invalid",
@@ -1917,6 +1984,11 @@ export type PortfolioBaselineState = z.infer<
 export type PortfolioBaselineSummary = z.infer<
   typeof PortfolioBaselineSummarySchema
 >;
+export type PlanInputImpact = z.infer<typeof PlanInputImpactSchema>;
+export type PlanInputSave = z.infer<typeof PlanInputSaveSchema>;
+export type PlanInputSaveResult = z.infer<typeof PlanInputSaveResultSchema>;
+export type PlanInputState = z.infer<typeof PlanInputStateSchema>;
+export type PlanInputValues = z.infer<typeof PlanInputValuesSchema>;
 export type RobinhoodExchangeInput = z.infer<
   typeof RobinhoodExchangeInputSchema
 >;

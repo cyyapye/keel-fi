@@ -15,12 +15,15 @@ flowchart LR
   HoldingReview --> AcceptedHolding["Accepted source facts"]
   AcceptedHolding --> BaselineReview["Portfolio baseline review"]
   BaselineReview --> VersionBundle["New FI plan, forecast, and goal versions"]
+  D1 --> PlanEditor["Runway plan edit and preview"]
+  PlanEditor --> PlanVersion["New FI plan and forecast versions"]
   Public["Allowlisted public sources"] --> Observation["Public observation"]
   Observation --> EvidenceProposal["Evidence proposal"]
   EvidenceProposal --> EvidenceReview["Evidence review"]
   EvidenceReview --> Snapshot["New immutable forecast snapshot"]
   AcceptedHolding --> D1
   VersionBundle --> D1
+  PlanVersion --> D1
   Snapshot --> D1
 ```
 
@@ -50,6 +53,11 @@ flowchart LR
   plus explicitly entered other liquid assets as the FI-eligible replacement.
   Private paper remains outside current liquidity. Confirmation writes the new
   FI cash plan, forecast, and primary FI goal version in one D1 batch.
+- The Scenarios runway editor changes only household burn, business burn, and
+  the protected cash floor. FI-eligible liquid remains owned by reviewed
+  Holdings and the FI target remains owned by Goals. Saving appends a cash-flow
+  plan and attributed forecast snapshot while preserving the accepted forecast
+  artifacts; it does not create a goal version.
 
 ## Value semantics
 
@@ -70,8 +78,9 @@ parts per million. Quantity fields use explicit integer scales.
 
 ## Immutability and audit
 
-Forecast snapshots, outputs, company forecasts, liquidity curves, portfolio
-baseline records and items, review decisions, and actual-liquidity events are
-guarded by D1 triggers against update or deletion. Accepted marks and accepted
-evidence cannot be deleted. A new forecast or Portfolio Baseline changes the
-record by appending a new version.
+Cash-flow plans, forecast snapshots, outputs, company forecasts, liquidity
+curves, portfolio baseline records and items, review decisions, and
+actual-liquidity events are guarded by D1 triggers against update or deletion.
+Accepted marks and accepted evidence cannot be deleted. A new forecast,
+Portfolio Baseline, or runway-plan save changes the record by appending a new
+version.

@@ -3109,16 +3109,108 @@ h1,
 
 .plan-inputs__copy {
   max-width: 680px;
-  margin: -5px 0 10px;
+  margin: -5px 0 24px;
   color: var(--muted);
   font-size: 10px;
   line-height: 1.6;
 }
 
-.plan-inputs__grid {
+.plan-inputs__context,
+.plan-inputs__fields,
+.plan-inputs__preview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.plan-inputs__context {
+  gap: 28px;
+  padding: 0 0 27px;
+}
+
+.plan-inputs__context article,
+.plan-inputs__preview article {
+  min-width: 0;
+}
+
+.plan-inputs__context span,
+.plan-inputs__context strong,
+.plan-inputs__context small,
+.plan-inputs__preview span,
+.plan-inputs__preview strong,
+.plan-inputs__preview small {
+  display: block;
+}
+
+.plan-inputs__context span,
+.plan-inputs__preview span {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.plan-inputs__context strong {
+  margin-top: 7px;
+  color: var(--ink);
+  font-size: 20px;
+  letter-spacing: -0.035em;
+}
+
+.plan-inputs__context small,
+.plan-inputs__preview small,
+.plan-inputs__fields .field > small {
+  margin-top: 6px;
+  color: var(--faint);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.plan-inputs__form {
+  padding-top: 28px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.plan-inputs__fields {
+  gap: 30px;
+}
+
+.plan-inputs__fields .field__value input {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.plan-inputs__preview {
+  gap: 30px;
+  margin-top: 30px;
+  padding: 25px 0;
+  background: var(--wash);
+}
+
+.plan-inputs__preview article {
+  padding: 0 18px;
+}
+
+.plan-inputs__preview strong {
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 24px;
+  letter-spacing: -0.045em;
+}
+
+.plan-inputs__change-note {
+  margin-top: 24px;
+}
+
+.plan-inputs__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.plan-inputs--error > .button {
+  margin-top: 14px;
 }
 
 .scenario-tabs {
@@ -3528,10 +3620,6 @@ h1,
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .plan-inputs__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .scenario-grid {
     grid-template-columns: 1fr;
   }
@@ -3802,6 +3890,44 @@ h1,
 }
 
 @media (max-width: 620px) {
+  .plan-inputs__context,
+  .plan-inputs__preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px 18px;
+  }
+
+  .plan-inputs__context article:last-child,
+  .plan-inputs__preview article:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .plan-inputs__fields {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .plan-inputs__preview article {
+    padding: 0;
+  }
+
+  .plan-inputs__preview strong {
+    font-size: 21px;
+  }
+
+  .plan-inputs__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .plan-inputs__actions .button {
+    width: 100%;
+  }
+
+  .plan-inputs__actions .button--primary {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
   .page-intro__actions {
     align-items: flex-end;
     flex-direction: column;
@@ -4277,10 +4403,6 @@ h1,
 
   .panel {
     padding: 22px 0;
-  }
-
-  .plan-inputs__grid {
-    grid-template-columns: 1fr;
   }
 
   .fi-panel {
