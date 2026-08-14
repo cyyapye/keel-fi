@@ -25,6 +25,7 @@ const migrationFiles = [
   "packages/database/migrations/0011_portfolio_baselines.sql",
   "packages/database/migrations/0012_append_only_cash_flow_plans.sql",
   "packages/database/migrations/0013_plaid_holdings_webhooks.sql",
+  "packages/database/migrations/0014_robinhood_auto_adjudication.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -537,6 +538,160 @@ describe("AngelList holding import persistence", () => {
         effectiveDate: "2026-08-10",
       }),
     );
+  });
+
+  it("auto-applies clear Robinhood rows and quarantines only ambiguous changes", async () => {
+    const initialInput = robinhoodStageInput();
+    initialInput.rows[0] = {
+      ...initialInput.rows[0]!,
+      costBasisMinor: null,
+      issues: ["Cost basis is unavailable."],
+    };
+    initialInput.rows.push({
+      ...initialInput.rows[0],
+      rowNumber: 2,
+      naturalKeySha256: "6".repeat(64),
+      securityName: "Synthetic Index Fund",
+      ticker: "SIX",
+      quantityMicros: 2_000_000,
+      costBasisMinor: 18_000,
+      marketValueMinor: 20_000,
+      issues: [],
+    });
+    const initial = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      initialInput,
+    );
+    const initialAdjudication =
+      await repository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        initial.preview.id,
+      );
+    expect(initialAdjudication).toEqual({
+      importId: initial.preview.id,
+      policyVersion: "robinhood-holdings-auto-v1",
+      autoAppliedCount: 2,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    await expect(
+      repository.getHoldingImport(
+        "synthetic-access-subject",
+        initial.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      status: "applied",
+      summary: { autoAppliedCount: 2, quarantinedCount: 0 },
+      rows: [
+        {
+          costBasisMinor: null,
+          adjudicationStatus: "auto_applied",
+          decisionSource: "policy",
+          reasonCodes: expect.arrayContaining(["cost_basis_unavailable"]),
+        },
+        { adjudicationStatus: "auto_applied" },
+      ],
+    });
+
+    const changedInput = robinhoodStageInput("a".repeat(64));
+    changedInput.objectKey = "holding-imports/synthetic-robinhood-shift.json";
+    changedInput.sha256 = "ab".repeat(32);
+    changedInput.retrievedAt = "2026-08-11T12:00:00.000Z";
+    changedInput.effectiveDate = "2026-08-11";
+    changedInput.rows[0] = {
+      ...changedInput.rows[0]!,
+      marketValueMinor: 130_000,
+      observedOn: "2026-08-11",
+    };
+    changedInput.rows.push({
+      ...changedInput.rows[0],
+      rowNumber: 2,
+      naturalKeySha256: "5".repeat(64),
+      securityName: "Synthetic Renamed Fund",
+      ticker: "SRF",
+      marketValueMinor: 21_000,
+    });
+    const changed = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      changedInput,
+    );
+    const changedAdjudication =
+      await repository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        changed.preview.id,
+      );
+    expect(changedAdjudication).toEqual({
+      importId: changed.preview.id,
+      policyVersion: "robinhood-holdings-auto-v1",
+      autoAppliedCount: 1,
+      quarantinedCount: 2,
+      preservedPositionCount: 1,
+    });
+    const preview = await repository.getHoldingImport(
+      "synthetic-access-subject",
+      changed.preview.id,
+    );
+    expect(preview).toMatchObject({
+      status: "quarantined",
+      summary: {
+        autoAppliedCount: 1,
+        quarantinedCount: 2,
+        preservedPositionCount: 1,
+      },
+      rows: [
+        { ticker: "SYN", adjudicationStatus: "auto_applied" },
+        {
+          ticker: "SRF",
+          action: "needs_attention",
+          adjudicationStatus: "quarantined",
+        },
+      ],
+    });
+    await expect(
+      repository.listPendingHoldingImports("synthetic-access-subject"),
+    ).resolves.toContainEqual(
+      expect.objectContaining({
+        id: changed.preview.id,
+        status: "quarantined",
+      }),
+    );
+
+    const stored = sqlite
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM holding_positions
+            WHERE provider = 'robinhood') AS positions,
+           (SELECT COUNT(*) FROM holding_position_snapshots snapshot
+            JOIN holding_positions position ON position.id = snapshot.position_id
+            WHERE position.provider = 'robinhood') AS snapshots,
+           (SELECT COUNT(*) FROM holding_import_row_decisions
+            WHERE decision_source = 'policy') AS policy_decisions,
+           (SELECT COUNT(*) FROM holding_import_quarantines) AS quarantines`,
+      )
+      .get() as {
+      positions: number;
+      snapshots: number;
+      policy_decisions: number;
+      quarantines: number;
+    };
+    expect(stored).toEqual({
+      positions: 2,
+      snapshots: 3,
+      policy_decisions: 3,
+      quarantines: 2,
+    });
+    expect(() =>
+      sqlite
+        .prepare("UPDATE holding_import_quarantines SET detail = 'changed'")
+        .run(),
+    ).toThrow("immutable");
+
+    await expect(
+      repository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        changed.preview.id,
+      ),
+    ).resolves.toEqual(changedAdjudication);
   });
 });
 

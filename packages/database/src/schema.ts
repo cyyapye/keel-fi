@@ -1101,6 +1101,16 @@ export const connectorSyncRuns = sqliteTable(
     discoveredCount: integer("discovered_count").notNull(),
     proposedCount: integer("proposed_count").notNull(),
     errorCode: text("error_code"),
+    adjudicationPolicyVersion: text("adjudication_policy_version"),
+    autoAppliedCount: integer("auto_applied_count").notNull().default(0),
+    quarantinedCount: integer("quarantined_count").notNull().default(0),
+    preservedPositionCount: integer("preserved_position_count")
+      .notNull()
+      .default(0),
+    baselineRefreshStatus: text("baseline_refresh_status")
+      .notNull()
+      .default("not_needed"),
+    portfolioBaselineId: text("portfolio_baseline_id"),
   },
   (table) => [
     index("connector_sync_runs_account_started_idx").on(
@@ -1112,7 +1122,11 @@ export const connectorSyncRuns = sqliteTable(
       .where(sql`${table.status} IN ('queued', 'running')`),
     check(
       "connector_sync_runs_counts_check",
-      sql`${table.discoveredCount} >= 0 AND ${table.proposedCount} >= 0`,
+      sql`${table.discoveredCount} >= 0 AND ${table.proposedCount} >= 0 AND ${table.autoAppliedCount} >= 0 AND ${table.quarantinedCount} >= 0 AND ${table.preservedPositionCount} >= 0`,
+    ),
+    check(
+      "connector_sync_runs_baseline_refresh_check",
+      sql`${table.baselineRefreshStatus} IN ('not_needed', 'refreshed', 'manual_required')`,
     ),
   ],
 );
@@ -1451,6 +1465,9 @@ export const holdingImportRowDecisions = sqliteTable(
       "reviewed_snapshot_fingerprint",
     ).notNull(),
     rationale: text("rationale").notNull(),
+    decisionSource: text("decision_source").notNull().default("manual"),
+    policyVersion: text("policy_version"),
+    reasonCodesJson: text("reason_codes_json").notNull().default("[]"),
     decidedAt: timestamp("decided_at"),
   },
   (table) => [
@@ -1464,6 +1481,48 @@ export const holdingImportRowDecisions = sqliteTable(
     check(
       "holding_import_row_decisions_decision_check",
       sql`${table.decision} IN ('accepted', 'rejected')`,
+    ),
+    check(
+      "holding_import_row_decisions_source_check",
+      sql`${table.decisionSource} IN ('manual', 'policy')`,
+    ),
+  ],
+);
+
+export const holdingImportQuarantines = sqliteTable(
+  "holding_import_quarantines",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    importId: text("import_id")
+      .notNull()
+      .references(() => holdingImports.id, { onDelete: "restrict" }),
+    importRowId: text("import_row_id").references(() => holdingImportRows.id, {
+      onDelete: "restrict",
+    }),
+    positionId: text("position_id").references(() => holdingPositions.id, {
+      onDelete: "restrict",
+    }),
+    reasonCode: text("reason_code").notNull(),
+    policyVersion: text("policy_version").notNull(),
+    evidenceSha256: text("evidence_sha256").notNull(),
+    detail: text("detail").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("holding_import_quarantines_row_unique")
+      .on(table.importId, table.importRowId)
+      .where(sql`${table.importRowId} IS NOT NULL`),
+    uniqueIndex("holding_import_quarantines_position_unique")
+      .on(table.importId, table.positionId)
+      .where(sql`${table.positionId} IS NOT NULL`),
+    index("holding_import_quarantines_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    check(
+      "holding_import_quarantines_reason_check",
+      sql`${table.reasonCode} IN ('row_validation_failed', 'possible_identity_change', 'position_not_reported')`,
     ),
   ],
 );

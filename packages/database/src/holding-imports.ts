@@ -26,6 +26,8 @@ const ANGELLIST_SOURCE_LABEL = "AngelList export";
 const ROBINHOOD_PROVIDER = "robinhood";
 const ROBINHOOD_PARSER_SCHEMA = "plaid_robinhood_holdings_v1";
 const ROBINHOOD_SOURCE_LABEL = "Robinhood via Plaid";
+export const ROBINHOOD_HOLDINGS_POLICY_VERSION = "robinhood-holdings-auto-v1";
+const NON_BLOCKING_ROBINHOOD_ISSUES = new Set(["Cost basis is unavailable."]);
 
 const HoldingImportStageInputSchema = z
   .object({
@@ -67,6 +69,28 @@ export type HoldingImportStageResult = {
   readonly preview: HoldingImportPreview;
 };
 
+export type RobinhoodImportAdjudication = {
+  readonly importId: string;
+  readonly policyVersion: typeof ROBINHOOD_HOLDINGS_POLICY_VERSION;
+  readonly autoAppliedCount: number;
+  readonly quarantinedCount: number;
+  readonly preservedPositionCount: number;
+};
+
+type DecisionContext = {
+  readonly source: "manual" | "policy";
+  readonly policyVersion: string | null;
+  readonly allowPartial: boolean;
+  readonly reasonCodesByRow: ReadonlyMap<string, readonly string[]>;
+};
+
+const MANUAL_DECISION_CONTEXT: DecisionContext = {
+  source: "manual",
+  policyVersion: null,
+  allowPartial: false,
+  reasonCodesByRow: new Map(),
+};
+
 type HouseholdIdentity = {
   household_id: string;
   user_id: string;
@@ -81,6 +105,9 @@ type ImportIdentityRow = {
   decision_count: number;
   accepted_count: number;
   application_count: number;
+  auto_applied_count: number;
+  quarantined_count: number;
+  preserved_position_count: number;
 };
 
 type ImportPreviewRow = {
@@ -104,6 +131,10 @@ type ImportPreviewRow = {
   existing_snapshot_id: string | null;
   application_outcome:
     "created_position" | "appended_snapshot" | "no_change" | null;
+  decision_source: "manual" | "policy" | null;
+  reason_codes_json: string | null;
+  quarantine_reason_code:
+    "row_validation_failed" | "possible_identity_change" | null;
 };
 
 type PendingImportRow = {
@@ -113,6 +144,7 @@ type PendingImportRow = {
   effective_date: string | null;
   retrieved_at: string;
   created_at: string;
+  quarantined_count: number;
 };
 
 type ApplyImportRow = {
@@ -161,6 +193,20 @@ type ExistingDecisionRow = {
   matched_position_id: string | null;
   currency: string | null;
   rationale: string;
+  decision_source: "manual" | "policy";
+};
+
+type RobinhoodAdjudicationRow = {
+  id: string;
+  position_fingerprint: string;
+  snapshot_fingerprint: string;
+  parse_status: "ready" | "needs_attention";
+  cost_basis_minor: number | null;
+  issue_codes_json: string;
+};
+
+type RobinhoodAdjudicationImport = {
+  normalized_fingerprint: string;
 };
 
 type ApplySummaryRow = {
@@ -236,7 +282,10 @@ function issues(serialized: string): string[] {
 }
 
 function actionFor(row: ImportPreviewRow): HoldingImportRowPreview["action"] {
-  if (row.parse_status === "needs_attention") {
+  if (
+    row.parse_status === "needs_attention" ||
+    row.quarantine_reason_code !== null
+  ) {
     return "needs_attention";
   }
   switch (row.application_outcome) {
@@ -271,7 +320,14 @@ export class D1HoldingImportRepository {
              import.row_count,
              document.effective_date,
              document.retrieved_at,
-             import.created_at
+             import.created_at,
+             (SELECT COUNT(*)
+              FROM holding_import_quarantines quarantine
+              LEFT JOIN holding_import_row_decisions decision
+                ON decision.import_row_id = quarantine.import_row_id
+              WHERE quarantine.import_id = import.id
+                AND (quarantine.position_id IS NOT NULL OR decision.id IS NULL))
+               AS quarantined_count
            FROM holding_imports import
            JOIN source_documents document
              ON document.id = import.source_document_id
@@ -287,7 +343,10 @@ export class D1HoldingImportRepository {
       rows.map((row) => ({
         id: row.id,
         provider: row.provider,
-        status: "pending_review",
+        status:
+          row.provider === ROBINHOOD_PROVIDER && row.quarantined_count > 0
+            ? "quarantined"
+            : "pending_review",
         observedAt:
           row.effective_date === null
             ? row.retrieved_at
@@ -593,7 +652,11 @@ export class D1HoldingImportRepository {
             row.marketValueMinor,
             row.marketValueMinor,
             row.securityType,
-            row.issues.length === 0 ? "ready" : "needs_attention",
+            row.issues.every((issue) =>
+              NON_BLOCKING_ROBINHOOD_ISSUES.has(issue),
+            )
+              ? "ready"
+              : "needs_attention",
             JSON.stringify(row.issues),
             row.quantityMicros,
             row.ticker,
@@ -622,6 +685,208 @@ export class D1HoldingImportRepository {
     };
   }
 
+  public async hasAcceptedRobinhoodPositions(
+    accessSubject: string,
+  ): Promise<boolean> {
+    const identity = await this.findIdentity(accessSubject);
+    const row = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS position_count
+         FROM holding_positions
+         WHERE household_id = ? AND provider = 'robinhood'`,
+      )
+      .bind(identity.household_id)
+      .first<{ position_count: number }>();
+    return (row?.position_count ?? 0) > 0;
+  }
+
+  public async autoAdjudicateRobinhoodHoldingImport(
+    accessSubject: string,
+    importId: string,
+  ): Promise<RobinhoodImportAdjudication> {
+    const identity = await this.findIdentity(accessSubject);
+    const [importRecord, rows, positions, recordedDecisions] =
+      await Promise.all([
+        this.db
+          .prepare(
+            `SELECT normalized_fingerprint
+           FROM holding_imports
+           WHERE id = ? AND household_id = ? AND provider = 'robinhood'`,
+          )
+          .bind(importId, identity.household_id)
+          .first<RobinhoodAdjudicationImport>(),
+        all<RobinhoodAdjudicationRow>(
+          this.db
+            .prepare(
+              `SELECT id, position_fingerprint, snapshot_fingerprint,
+                    parse_status, cost_basis_minor, issue_codes_json
+             FROM holding_import_rows
+             WHERE import_id = ? AND household_id = ?
+             ORDER BY source_row_number`,
+            )
+            .bind(importId, identity.household_id),
+        ),
+        all<ExistingPositionRow>(
+          this.db
+            .prepare(
+              `SELECT id, position_fingerprint, currency
+             FROM holding_positions
+             WHERE household_id = ? AND provider = 'robinhood'`,
+            )
+            .bind(identity.household_id),
+        ),
+        all<{ decision_source: "manual" | "policy" }>(
+          this.db
+            .prepare(
+              `SELECT decision.decision_source
+             FROM holding_import_row_decisions decision
+             JOIN holding_import_rows row ON row.id = decision.import_row_id
+             WHERE row.import_id = ? AND decision.household_id = ?`,
+            )
+            .bind(importId, identity.household_id),
+        ),
+      ]);
+    if (importRecord === null || rows.length === 0) {
+      throw new Error("Robinhood holding import not found.");
+    }
+    if (
+      recordedDecisions.some(
+        (decision) => decision.decision_source === "manual",
+      )
+    ) {
+      throw new Error(
+        "Robinhood holding import was already reviewed manually.",
+      );
+    }
+    if (recordedDecisions.length > 0) {
+      const preview = await this.getHoldingImport(accessSubject, importId);
+      return {
+        importId,
+        policyVersion: ROBINHOOD_HOLDINGS_POLICY_VERSION,
+        autoAppliedCount: preview.summary.autoAppliedCount,
+        quarantinedCount: preview.summary.quarantinedCount,
+        preservedPositionCount: preview.summary.preservedPositionCount,
+      };
+    }
+
+    const currentFingerprints = new Set(
+      rows.map((row) => row.position_fingerprint),
+    );
+    const positionsByFingerprint = new Map(
+      positions.map((position) => [position.position_fingerprint, position]),
+    );
+    const missingPositions = positions.filter(
+      (position) => !currentFingerprints.has(position.position_fingerprint),
+    );
+    const possibleIdentityChange =
+      positions.length > 0 && missingPositions.length > 0;
+    const clearRows: RobinhoodAdjudicationRow[] = [];
+    const quarantineStatements: D1PreparedStatement[] = [];
+    const createdAt = new Date().toISOString();
+
+    rows.forEach((row) => {
+      const rowValidationFailed = row.parse_status === "needs_attention";
+      const identityChanged =
+        possibleIdentityChange &&
+        !positionsByFingerprint.has(row.position_fingerprint);
+      if (!rowValidationFailed && !identityChanged) {
+        clearRows.push(row);
+        return;
+      }
+      quarantineStatements.push(
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO holding_import_quarantines (
+               id, household_id, import_id, import_row_id, position_id,
+               reason_code, policy_version, evidence_sha256, detail, created_at
+             ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            importId,
+            row.id,
+            rowValidationFailed
+              ? "row_validation_failed"
+              : "possible_identity_change",
+            ROBINHOOD_HOLDINGS_POLICY_VERSION,
+            row.snapshot_fingerprint,
+            rowValidationFailed
+              ? (
+                  "The row did not satisfy the automatic holdings policy: " +
+                  issues(row.issue_codes_json).join(" ")
+                ).slice(0, 500)
+              : "A new position appeared while a prior position disappeared, so Keel kept both states separate.",
+            createdAt,
+          ),
+      );
+    });
+    missingPositions.forEach((position) => {
+      quarantineStatements.push(
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO holding_import_quarantines (
+               id, household_id, import_id, import_row_id, position_id,
+               reason_code, policy_version, evidence_sha256, detail, created_at
+             ) VALUES (?, ?, ?, NULL, ?, 'position_not_reported', ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            importId,
+            position.id,
+            ROBINHOOD_HOLDINGS_POLICY_VERSION,
+            importRecord.normalized_fingerprint,
+            "Robinhood did not report this prior position. Keel preserved its last accepted value and did not infer a sale.",
+            createdAt,
+          ),
+      );
+    });
+    if (quarantineStatements.length > 0) {
+      await this.db.batch(quarantineStatements);
+    }
+
+    if (clearRows.length > 0) {
+      const reasonCodesByRow = new Map<string, readonly string[]>();
+      clearRows.forEach((row) => {
+        reasonCodesByRow.set(row.id, [
+          "supported_usd_long_position",
+          positionsByFingerprint.has(row.position_fingerprint)
+            ? "existing_position_matched"
+            : "new_position_identity_clear",
+          ...(row.cost_basis_minor === null ? ["cost_basis_unavailable"] : []),
+        ]);
+      });
+      await this.applyHoldingImport(
+        accessSubject,
+        importId,
+        {
+          currency: "USD",
+          decisions: clearRows.map((row) => ({
+            rowId: row.id,
+            decision: "accepted" as const,
+            rationale: `Automatically accepted by ${ROBINHOOD_HOLDINGS_POLICY_VERSION}.`,
+          })),
+        },
+        {
+          source: "policy",
+          policyVersion: ROBINHOOD_HOLDINGS_POLICY_VERSION,
+          allowPartial: true,
+          reasonCodesByRow,
+        },
+      );
+    }
+
+    const preview = await this.getHoldingImport(accessSubject, importId);
+    return {
+      importId,
+      policyVersion: ROBINHOOD_HOLDINGS_POLICY_VERSION,
+      autoAppliedCount: preview.summary.autoAppliedCount,
+      quarantinedCount: preview.summary.quarantinedCount,
+      preservedPositionCount: preview.summary.preservedPositionCount,
+    };
+  }
+
   public async getHoldingImport(
     accessSubject: string,
     importId: string,
@@ -644,7 +909,18 @@ export class D1HoldingImportRepository {
              AS accepted_count,
            (SELECT COUNT(*) FROM holding_import_applications application
             JOIN holding_import_rows row ON row.id = application.import_row_id
-            WHERE row.import_id = import.id) AS application_count
+            WHERE row.import_id = import.id) AS application_count,
+           (SELECT COUNT(*) FROM holding_import_row_decisions decision
+            JOIN holding_import_rows row ON row.id = decision.import_row_id
+            WHERE row.import_id = import.id
+              AND decision.decision_source = 'policy'
+              AND decision.decision = 'accepted') AS auto_applied_count,
+           (SELECT COUNT(*) FROM holding_import_quarantines quarantine
+            WHERE quarantine.import_id = import.id) AS quarantined_count,
+           (SELECT COUNT(*) FROM holding_import_quarantines quarantine
+            WHERE quarantine.import_id = import.id
+              AND quarantine.position_id IS NOT NULL)
+             AS preserved_position_count
          FROM holding_imports import
          JOIN source_documents document ON document.id = import.source_document_id
          WHERE import.id = ? AND import.household_id = ?`,
@@ -681,7 +957,10 @@ export class D1HoldingImportRepository {
              row.issue_codes_json,
              position.id AS existing_position_id,
              snapshot.id AS existing_snapshot_id,
-             application.outcome AS application_outcome
+             application.outcome AS application_outcome,
+             decision.decision_source,
+             decision.reason_codes_json,
+             quarantine.reason_code AS quarantine_reason_code
            FROM holding_import_rows row
            JOIN holding_imports import ON import.id = row.import_id
            LEFT JOIN holding_positions position
@@ -693,6 +972,10 @@ export class D1HoldingImportRepository {
              AND snapshot.snapshot_fingerprint = row.snapshot_fingerprint
            LEFT JOIN holding_import_applications application
              ON application.import_row_id = row.id
+           LEFT JOIN holding_import_row_decisions decision
+             ON decision.import_row_id = row.id
+           LEFT JOIN holding_import_quarantines quarantine
+             ON quarantine.import_row_id = row.id
            WHERE row.import_id = ? AND row.household_id = ?
            ORDER BY row.source_row_number`,
         )
@@ -715,6 +998,17 @@ export class D1HoldingImportRepository {
       costBasisMinor: row.cost_basis_minor,
       action: actionFor(row),
       issues: issues(row.issue_codes_json),
+      adjudicationStatus:
+        row.decision_source === "policy"
+          ? "auto_applied"
+          : row.decision_source === "manual"
+            ? "manually_resolved"
+            : row.quarantine_reason_code !== null
+              ? "quarantined"
+              : "pending_review",
+      decisionSource: row.decision_source,
+      reasonCodes:
+        row.reason_codes_json === null ? [] : issues(row.reason_codes_json),
     }));
     const actions = previewRows.map((row) => row.action);
     const observedAt =
@@ -722,10 +1016,12 @@ export class D1HoldingImportRepository {
         ? importRow.retrieved_at
         : `${importRow.effective_date}T00:00:00.000Z`;
     const status =
-      importRow.decision_count === importRow.row_count &&
-      importRow.application_count === importRow.accepted_count
-        ? "applied"
-        : "pending_review";
+      importRow.quarantined_count > 0
+        ? "quarantined"
+        : importRow.decision_count === importRow.row_count &&
+            importRow.application_count === importRow.accepted_count
+          ? "applied"
+          : "pending_review";
 
     return {
       id: importRow.id,
@@ -749,6 +1045,9 @@ export class D1HoldingImportRepository {
         needsAttentionCount: actions.filter(
           (action) => action === "needs_attention",
         ).length,
+        autoAppliedCount: importRow.auto_applied_count,
+        quarantinedCount: importRow.quarantined_count,
+        preservedPositionCount: importRow.preserved_position_count,
       },
       rows: previewRows,
     };
@@ -758,6 +1057,7 @@ export class D1HoldingImportRepository {
     accessSubject: string,
     importId: string,
     rawInput: HoldingImportApplyInput,
+    decisionContext: DecisionContext = MANUAL_DECISION_CONTEXT,
   ): Promise<HoldingImportApplyResult> {
     const input = HoldingImportApplyInputSchema.parse(rawInput);
     const identity = await this.findIdentity(accessSubject);
@@ -815,21 +1115,17 @@ export class D1HoldingImportRepository {
     if (rows.length === 0) {
       throw new Error("Holding import not found.");
     }
+    const decisionsByRow = new Map(
+      input.decisions.map((decision) => [decision.rowId, decision]),
+    );
     if (
-      input.decisions.length !== rows.length ||
-      new Set(input.decisions.map((decision) => decision.rowId)).size !==
-        rows.length ||
+      decisionsByRow.size !== input.decisions.length ||
       input.decisions.some(
         (decision) => !rows.some((row) => row.id === decision.rowId),
       )
     ) {
-      throw new Error(
-        "Holding import decisions must cover every row exactly once.",
-      );
+      throw new Error("Holding import decisions contain an invalid row.");
     }
-    const decisionsByRow = new Map(
-      input.decisions.map((decision) => [decision.rowId, decision]),
-    );
 
     const existingDecisions = await all<ExistingDecisionRow>(
       this.db
@@ -839,16 +1135,24 @@ export class D1HoldingImportRepository {
              decision.decision,
              decision.matched_position_id,
              decision.currency,
-             decision.rationale
+             decision.rationale,
+             decision.decision_source
            FROM holding_import_row_decisions decision
            JOIN holding_import_rows row ON row.id = decision.import_row_id
            WHERE row.import_id = ? AND decision.household_id = ?`,
         )
         .bind(importId, identity.household_id),
     );
-    if (existingDecisions.length > 0) {
+    const existingDecisionRowIds = new Set(
+      existingDecisions.map((decision) => decision.import_row_id),
+    );
+    const unresolvedRows = rows.filter(
+      (row) => !existingDecisionRowIds.has(row.id),
+    );
+    if (unresolvedRows.length === 0) {
       const exactRetry =
         existingDecisions.length === rows.length &&
+        input.decisions.length === rows.length &&
         existingDecisions.every((recorded) => {
           const requested = decisionsByRow.get(recorded.import_row_id);
           return (
@@ -865,6 +1169,22 @@ export class D1HoldingImportRepository {
         throw new Error("Holding import was already reviewed differently.");
       }
       return this.getApplyResult(identity.household_id, importId);
+    }
+    if (
+      input.decisions.some((decision) =>
+        existingDecisionRowIds.has(decision.rowId),
+      ) ||
+      (!decisionContext.allowPartial &&
+        input.decisions.length !== unresolvedRows.length) ||
+      input.decisions.some(
+        (decision) => !unresolvedRows.some((row) => row.id === decision.rowId),
+      )
+    ) {
+      throw new Error(
+        decisionContext.allowPartial
+          ? "Automatic holding decisions must cover only clear unresolved rows."
+          : "Holding import decisions must cover every unresolved row exactly once.",
+      );
     }
 
     const positions = await all<ExistingPositionRow>(
@@ -911,7 +1231,7 @@ export class D1HoldingImportRepository {
     for (const row of rows) {
       const decision = decisionsByRow.get(row.id);
       if (decision === undefined) {
-        throw new Error("Holding import decision is missing.");
+        continue;
       }
       if (decision.decision === "accepted" && row.parse_status !== "ready") {
         throw new Error(
@@ -1011,8 +1331,9 @@ export class D1HoldingImportRepository {
             `INSERT INTO holding_import_row_decisions (
                id, household_id, import_row_id, reviewer_user_id, decision,
                matched_position_id, currency, reviewed_snapshot_fingerprint,
-               rationale, decided_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               rationale, decision_source, policy_version, reason_codes_json,
+               decided_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             decisionId,
@@ -1024,6 +1345,9 @@ export class D1HoldingImportRepository {
             decision.decision === "accepted" ? input.currency : null,
             row.snapshot_fingerprint,
             decision.rationale,
+            decisionContext.source,
+            decisionContext.policyVersion,
+            JSON.stringify(decisionContext.reasonCodesByRow.get(row.id) ?? []),
             createdAt,
           ),
       );

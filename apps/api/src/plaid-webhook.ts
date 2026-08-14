@@ -1,6 +1,7 @@
 import { PlaidHoldingsWebhookJobMessageSchema } from "@keel/connectors";
 import {
   D1HoldingImportRepository,
+  D1PortfolioBaselineRepository,
   D1PublicHoldingsRepository,
   type PublicHoldingsRepository,
 } from "@keel/database";
@@ -362,6 +363,7 @@ export async function processPlaidHoldingsWebhookJob(
       env,
       repository,
       holdingImports: new D1HoldingImportRepository(env.DB),
+      portfolioBaselines: new D1PortfolioBaselineRepository(env.DB),
       client: createPlaidInvestmentsClient(env),
       accessSubject: delivery.accessSubject,
     });

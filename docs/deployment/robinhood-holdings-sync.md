@@ -1,9 +1,11 @@
 # Robinhood holdings sync
 
 Keel reads current Robinhood positions through Plaid Investments and stages each
-snapshot as a holding import. A sync never changes accepted holdings until the
-user reviews and applies the import. A position omitted from a later snapshot is
-not treated as sold or closed.
+snapshot as a holding import. The versioned holdings policy automatically
+applies supported USD long positions with deterministic identities. Anything
+uncertain is isolated from accepted holdings with an immutable policy decision
+or quarantine record. A position omitted from a later snapshot keeps its last
+accepted value and is never treated as sold or closed.
 
 Robinhood's downloadable
 [account-activity report](https://robinhood.com/us/en/support/articles/finding-your-account-documents/)
@@ -69,9 +71,20 @@ bounded setup-required state.
 - Money is converted from Plaid decimal strings to integer minor units without
   JavaScript floating-point arithmetic. Quantities use integer millionths.
 - Raw brokerage responses and encrypted credentials stay in the private R2
-  binding. Public API responses expose only normalized review rows.
-- Unsupported security types, non-USD values, short positions, and missing cost
-  basis are surfaced for attention and cannot be silently applied.
+  binding. Public API responses expose only normalized holdings and bounded
+  exception details.
+- Supported USD long positions are accepted by `robinhood-holdings-auto-v1`.
+  Each decision records the policy version, evidence fingerprint, reason codes,
+  and resulting snapshot application.
+- Missing cost basis does not block an otherwise usable market value. It stays
+  explicitly unavailable.
+- Unsupported security types and possible identity changes are quarantined at
+  the affected row. Non-USD, short, or malformed provider responses fail closed
+  before any accepted holding changes.
+- If a previously accepted position is absent, Keel preserves its latest
+  snapshot and records a `position_not_reported` exception. If a new identity
+  appears in the same snapshot, that new row is also isolated so a corporate
+  action cannot silently double-count the portfolio.
 - Consecutive identical normalized snapshots are deduplicated. A no-change sync
   creates no redundant review, while a later return to an older portfolio state
   still creates a new review.
@@ -86,10 +99,12 @@ bounded setup-required state.
   opaque delivery ID. Unknown Items are acknowledged without revealing whether a
   connection exists. Raw bodies, bearer values, Item IDs, and user IDs are
   absent from D1, Queue messages, and logs.
-- Queue processing reads the latest holdings snapshot and stages the same
-  review-gated import as a manual check. It never applies holdings, infers a
-  sale from a missing position, confirms a Portfolio Baseline, or changes a
-  goal.
+- Queue processing uses the same policy as a manual check. Clear rows are
+  applied automatically; exceptions stay unchanged and visible in Holdings.
+- A clean update refreshes an existing Portfolio Baseline, forecast, and FI goal
+  with the already accepted other-liquid amount. Initial baselines, possible
+  cross-provider overlaps, and any quarantined update still require the existing
+  explicit baseline flow.
 - Keel relies on Plaid's periodic Investments refresh and `DEFAULT_UPDATE`
   notification. The optional on-demand Investments Refresh add-on is not
   required for this flow; “Check now” remains a manual fallback.

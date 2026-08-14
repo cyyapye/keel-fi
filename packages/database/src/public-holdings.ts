@@ -25,6 +25,12 @@ type ConnectionRow = {
 type LatestRunRow = {
   status: "queued" | "running" | "succeeded" | "failed";
   error_code: string | null;
+  adjudication_policy_version: string | null;
+  auto_applied_count: number;
+  quarantined_count: number;
+  preserved_position_count: number;
+  baseline_refresh_status: "not_needed" | "refreshed" | "manual_required";
+  holding_import_id: string | null;
 };
 
 export type RobinhoodConnection = {
@@ -95,6 +101,14 @@ export interface PublicHoldingsRepository {
       discoveredCount: number;
       proposedCount: number;
       importId: string | null;
+      adjudication?: {
+        policyVersion: string;
+        autoAppliedCount: number;
+        quarantinedCount: number;
+        preservedPositionCount: number;
+        baselineRefreshStatus: "not_needed" | "refreshed" | "manual_required";
+        portfolioBaselineId: string | null;
+      } | null;
     },
   ): Promise<void>;
   failSync(
@@ -144,6 +158,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         latestImportId: null,
         latestRunStatus: null,
         errorCode: "configuration_required",
+        latestAdjudication: null,
       });
     }
     if (connection === null || connection.status !== "active") {
@@ -156,23 +171,32 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         latestImportId: null,
         latestRunStatus: null,
         errorCode: null,
+        latestAdjudication: null,
       });
     }
 
-    const [latestRun, latestImport] = await Promise.all([
-      this.db
-        .prepare(
-          `SELECT status, error_code
-           FROM connector_sync_runs
-           WHERE connector_account_id = ? AND household_id = ?
-           ORDER BY started_at DESC, id DESC
+    const [latestRun, latestPendingImport, latestLinkedImport] =
+      await Promise.all([
+        this.db
+          .prepare(
+            `SELECT run.status, run.error_code,
+                  run.adjudication_policy_version,
+                  run.auto_applied_count,
+                  run.quarantined_count,
+                  run.preserved_position_count,
+                  run.baseline_refresh_status,
+                  link.holding_import_id
+           FROM connector_sync_runs run
+           LEFT JOIN connector_sync_imports link ON link.sync_run_id = run.id
+           WHERE run.connector_account_id = ? AND run.household_id = ?
+           ORDER BY run.started_at DESC, run.id DESC
            LIMIT 1`,
-        )
-        .bind(connection.id, identity.household_id)
-        .first<LatestRunRow>(),
-      this.db
-        .prepare(
-          `SELECT link.holding_import_id AS id
+          )
+          .bind(connection.id, identity.household_id)
+          .first<LatestRunRow>(),
+        this.db
+          .prepare(
+            `SELECT link.holding_import_id AS id
            FROM connector_sync_imports link
            JOIN holding_imports import ON import.id = link.holding_import_id
            JOIN source_documents document
@@ -181,16 +205,41 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
              AND document.review_status = 'pending_review'
            ORDER BY link.created_at DESC, link.id DESC
            LIMIT 1`,
-        )
-        .bind(identity.household_id)
-        .first<{ id: string }>(),
-    ]);
+          )
+          .bind(identity.household_id)
+          .first<{ id: string }>(),
+        this.db
+          .prepare(
+            `SELECT holding_import_id AS id
+             FROM connector_sync_imports
+             WHERE household_id = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1`,
+          )
+          .bind(identity.household_id)
+          .first<{ id: string }>(),
+      ]);
     const runStatus =
       latestRun?.status === "queued" ? "running" : (latestRun?.status ?? null);
     const errorCode =
       latestRun?.error_code === null || latestRun?.error_code === undefined
         ? null
         : RobinhoodSyncErrorCodeSchema.parse(latestRun.error_code);
+    const adjudicationImportId =
+      latestRun?.holding_import_id ?? latestLinkedImport?.id ?? null;
+    const latestAdjudication =
+      latestRun?.adjudication_policy_version === null ||
+      latestRun?.adjudication_policy_version === undefined ||
+      adjudicationImportId === null
+        ? null
+        : {
+            importId: adjudicationImportId,
+            policyVersion: latestRun.adjudication_policy_version,
+            autoAppliedCount: latestRun.auto_applied_count,
+            quarantinedCount: latestRun.quarantined_count,
+            preservedPositionCount: latestRun.preserved_position_count,
+            baselineRefreshStatus: latestRun.baseline_refresh_status,
+          };
 
     return RobinhoodSyncStatusSchema.parse({
       version: 1,
@@ -203,9 +252,13 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
             : "ready",
       lastSyncedAt: connection.last_synced_at,
       automaticUpdatesEnabled: connection.provider_account_key !== null,
-      latestImportId: latestImport?.id ?? null,
+      latestImportId:
+        latestAdjudication !== null && latestAdjudication.quarantinedCount > 0
+          ? latestAdjudication.importId
+          : (latestPendingImport?.id ?? null),
       latestRunStatus: runStatus,
       errorCode,
+      latestAdjudication,
     });
   }
 
@@ -538,6 +591,14 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
       discoveredCount: number;
       proposedCount: number;
       importId: string | null;
+      adjudication?: {
+        policyVersion: string;
+        autoAppliedCount: number;
+        quarantinedCount: number;
+        preservedPositionCount: number;
+        baselineRefreshStatus: "not_needed" | "refreshed" | "manual_required";
+        portfolioBaselineId: string | null;
+      } | null;
     },
   ): Promise<void> {
     const parsed = z
@@ -545,6 +606,23 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         discoveredCount: z.number().int().nonnegative().max(500),
         proposedCount: z.number().int().nonnegative().max(500),
         importId: z.string().min(1).nullable(),
+        adjudication: z
+          .object({
+            policyVersion: z.string().min(1).max(100),
+            autoAppliedCount: z.number().int().nonnegative().max(500),
+            quarantinedCount: z.number().int().nonnegative().max(1_000),
+            preservedPositionCount: z.number().int().nonnegative().max(500),
+            baselineRefreshStatus: z.enum([
+              "not_needed",
+              "refreshed",
+              "manual_required",
+            ]),
+            portfolioBaselineId: z.string().min(1).nullable(),
+          })
+          .strict()
+          .nullable()
+          .optional()
+          .default(null),
       })
       .strict()
       .parse(input);
@@ -555,13 +633,22 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         .prepare(
           `UPDATE connector_sync_runs
            SET status = 'succeeded', finished_at = ?, discovered_count = ?,
-               proposed_count = ?, error_code = NULL
+               proposed_count = ?, error_code = NULL,
+               adjudication_policy_version = ?, auto_applied_count = ?,
+               quarantined_count = ?, preserved_position_count = ?,
+               baseline_refresh_status = ?, portfolio_baseline_id = ?
            WHERE id = ? AND household_id = ? AND status = 'running'`,
         )
         .bind(
           finishedAt,
           parsed.discoveredCount,
           parsed.proposedCount,
+          parsed.adjudication?.policyVersion ?? null,
+          parsed.adjudication?.autoAppliedCount ?? 0,
+          parsed.adjudication?.quarantinedCount ?? 0,
+          parsed.adjudication?.preservedPositionCount ?? 0,
+          parsed.adjudication?.baselineRefreshStatus ?? "not_needed",
+          parsed.adjudication?.portfolioBaselineId ?? null,
           runId,
           identity.household_id,
         ),
@@ -581,7 +668,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
       statements.push(
         this.db
           .prepare(
-            `INSERT INTO connector_sync_imports (
+            `INSERT OR IGNORE INTO connector_sync_imports (
                id, household_id, sync_run_id, holding_import_id, created_at
              ) VALUES (?, ?, ?, ?, ?)`,
           )

@@ -1425,10 +1425,16 @@ function importDecisionForRow(
 }
 
 function ImportResult({ row }: { row: HoldingImportRowPreview }) {
-  const label = importActionLabel(row.action);
+  const label =
+    row.adjudicationStatus === "auto_applied"
+      ? "Applied automatically"
+      : row.adjudicationStatus === "quarantined"
+        ? "Isolated"
+        : importActionLabel(row.action);
   return (
     <div className={`import-result import-result--${row.action}`}>
-      {row.action === "needs_attention" ? (
+      {row.adjudicationStatus === "quarantined" ||
+      row.action === "needs_attention" ? (
         <Badge tone="warning">{label}</Badge>
       ) : (
         <strong>{label}</strong>
@@ -1537,9 +1543,9 @@ function HoldingImportWorkspace({
     setError(null);
     void onApply(preview.id, {
       currency: "USD",
-      decisions: preview.rows.map((row) =>
-        importDecisionForRow(row, preview.provider),
-      ),
+      decisions: preview.rows
+        .filter((row) => row.adjudicationStatus === "pending_review")
+        .map((row) => importDecisionForRow(row, preview.provider)),
     })
       .then((result) => {
         setApplyResult(result);
@@ -1568,7 +1574,9 @@ function HoldingImportWorkspace({
           role="status"
           tabIndex={-1}
         >
-          <p className="eyebrow">Import reviewed</p>
+          <p className="eyebrow">
+            {isRobinhood ? "Automatic update" : "Import reviewed"}
+          </p>
           <h2 id="holding-import-success-title">
             {changedCount === 0
               ? "No holdings changed"
@@ -1668,6 +1676,135 @@ function HoldingImportWorkspace({
     );
   }
 
+  if (isRobinhood && preview.status === "quarantined") {
+    const exceptionRows = preview.rows.filter(
+      (row) => row.adjudicationStatus === "quarantined",
+    );
+    return (
+      <section
+        aria-labelledby="holding-import-exceptions-title"
+        className="holding-import-workspace"
+      >
+        <div className="import-heading">
+          <p className="eyebrow">Robinhood exceptions</p>
+          <h2
+            id="holding-import-exceptions-title"
+            ref={workspaceHeadingRef}
+            tabIndex={-1}
+          >
+            Uncertain records stayed unchanged
+          </h2>
+          <p>
+            Keel applied {preview.summary.autoAppliedCount} clear{" "}
+            {preview.summary.autoAppliedCount === 1 ? "position" : "positions"}.
+            The exceptions below were isolated from your accepted holdings.
+          </p>
+        </div>
+
+        <div aria-label="Automatic review summary" className="import-summary">
+          <div>
+            <strong>{preview.summary.autoAppliedCount}</strong>
+            <span>Applied</span>
+          </div>
+          <div>
+            <strong>{preview.summary.quarantinedCount}</strong>
+            <span>Exceptions</span>
+          </div>
+          <div>
+            <strong>{preview.summary.preservedPositionCount}</strong>
+            <span>Prior positions kept</span>
+          </div>
+        </div>
+
+        {preview.summary.preservedPositionCount > 0 && (
+          <p className="import-attention" role="status">
+            Robinhood did not report {preview.summary.preservedPositionCount}{" "}
+            prior{" "}
+            {preview.summary.preservedPositionCount === 1
+              ? "position"
+              : "positions"}
+            . Keel kept the last accepted values and did not infer sales.
+          </p>
+        )}
+
+        {exceptionRows.length > 0 && (
+          <Panel className="table-panel import-table-panel">
+            <div className="holdings-table-wrap">
+              <table className="data-table import-table">
+                <caption className="visually-hidden">
+                  Isolated Robinhood positions
+                </caption>
+                <thead>
+                  <tr>
+                    <th>Security</th>
+                    <th>Account</th>
+                    <th>Shares</th>
+                    <th>Market value</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {exceptionRows.map((row) => (
+                    <tr key={row.id}>
+                      <td data-label="Security">
+                        <strong>{row.exposureName}</strong>
+                        <span>{row.ticker ?? "Ticker not reported"}</span>
+                      </td>
+                      <td data-label="Account">{row.ownerLabel}</td>
+                      <td data-label="Shares">
+                        {formatQuantityMicros(row.quantityMicros)}
+                      </td>
+                      <td data-label="Market value">
+                        {importAdministratorValueLabel(row, preview.provider)}
+                      </td>
+                      <td data-label="Result">
+                        <ImportResult row={row} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        )}
+
+        <div className="import-actions">
+          <Button onClick={onClose} tone="primary">
+            Back to holdings
+          </Button>
+        </div>
+      </section>
+    );
+  }
+
+  if (isRobinhood && preview.status === "pending_review") {
+    return (
+      <section
+        aria-labelledby="holding-import-checking-title"
+        className="holding-import-workspace"
+      >
+        <div className="import-heading">
+          <p className="eyebrow">Robinhood update</p>
+          <h2
+            id="holding-import-checking-title"
+            ref={workspaceHeadingRef}
+            tabIndex={-1}
+          >
+            Automatic review is still running
+          </h2>
+          <p>
+            Your accepted holdings have not been changed by this update yet.
+          </p>
+        </div>
+        <div className="import-actions">
+          <Button onClick={onClose} tone="primary">
+            Back to holdings
+          </Button>
+        </div>
+      </section>
+    );
+  }
+
   if (preview.status === "applied") {
     return (
       <section
@@ -1684,9 +1821,17 @@ function HoldingImportWorkspace({
             This {providerName} update is already recorded
           </h2>
           <p>
-            Reviewed {preview.summary.rowCount} positions from the{" "}
-            {isRobinhood ? "snapshot" : "export"} dated{" "}
-            {formatDate(preview.observedAt)}.
+            {isRobinhood ? (
+              <>
+                Keel applied {preview.summary.autoAppliedCount} clear positions
+                from the {formatDate(preview.observedAt)} snapshot.
+              </>
+            ) : (
+              <>
+                Reviewed {preview.summary.rowCount} positions from the export
+                dated {formatDate(preview.observedAt)}.
+              </>
+            )}
           </p>
         </div>
         <div className="import-actions">
@@ -2954,10 +3099,25 @@ function RobinhoodSyncControl({
     (next: RobinhoodSyncStatus) => {
       setStatus(next);
       setError(null);
-      if (next.latestImportId !== null) {
+      if (
+        next.latestImportId !== null &&
+        (next.latestAdjudication?.quarantinedCount ?? 0) > 0
+      ) {
         onReviewImport(next.latestImportId);
+      } else if ((next.latestAdjudication?.autoAppliedCount ?? 0) > 0) {
+        const applied = next.latestAdjudication?.autoAppliedCount ?? 0;
+        setNotice(
+          "Keel applied " +
+            applied +
+            " clear " +
+            (applied === 1 ? "position" : "positions") +
+            " automatically" +
+            (next.latestAdjudication?.baselineRefreshStatus === "refreshed"
+              ? " and refreshed your plan."
+              : "."),
+        );
       } else {
-        setNotice("Robinhood is up to date. No new review was created.");
+        setNotice("Robinhood is up to date. No holding changes were found.");
       }
     },
     [onReviewImport],
@@ -3063,6 +3223,8 @@ function RobinhoodSyncControl({
   const connectionInvalid =
     status?.status === "needs_attention" &&
     status.errorCode === "connection_invalid";
+  const quarantinedCount = status?.latestAdjudication?.quarantinedCount ?? 0;
+  const autoAppliedCount = status?.latestAdjudication?.autoAppliedCount ?? 0;
   const title =
     status === null
       ? "Checking Robinhood"
@@ -3074,24 +3236,36 @@ function RobinhoodSyncControl({
             ? "Checking Robinhood"
             : connectionInvalid
               ? "Reconnect Robinhood"
-              : status.status === "needs_attention"
-                ? "Robinhood update needs attention"
-                : status.automaticUpdatesEnabled
-                  ? "Robinhood updates automatically"
-                  : "Turn on automatic Robinhood updates";
+              : quarantinedCount > 0
+                ? quarantinedCount === 1
+                  ? "One Robinhood exception was isolated"
+                  : quarantinedCount + " Robinhood exceptions were isolated"
+                : status.status === "needs_attention"
+                  ? "Robinhood update needs attention"
+                  : status.automaticUpdatesEnabled
+                    ? "Robinhood updates automatically"
+                    : "Turn on automatic Robinhood updates";
   const description = setupRequired
     ? "Add the Plaid connection settings to enable Robinhood holdings sync."
     : disconnected
-      ? "Bring in stocks, ETFs, and mutual funds. Nothing changes until you review it."
+      ? "Bring in stocks, ETFs, and mutual funds. Clear updates are recorded automatically."
       : syncing
-        ? "Keel is checking the latest brokerage snapshot. Any update will wait for your review."
+        ? "Keel is checking the latest brokerage snapshot and isolating anything uncertain."
         : connectionInvalid
           ? "The saved connection no longer works. Reconnect to resume updates."
-          : status?.status === "needs_attention"
-            ? "The latest update could not be prepared. Try again shortly."
-            : status?.automaticUpdatesEnabled
-              ? "Keel checks after Robinhood reports a holdings change. Every update waits for review."
-              : "Check Robinhood once to enable automatic updates. Every update waits for review.";
+          : status?.errorCode === "holdings_incomplete"
+            ? "The latest snapshot was incomplete. Prior holdings stayed unchanged."
+            : status?.status === "needs_attention"
+              ? "The latest update could not be safely applied. Try again shortly."
+              : quarantinedCount > 0
+                ? "Keel applied " +
+                  autoAppliedCount +
+                  " clear " +
+                  (autoAppliedCount === 1 ? "position" : "positions") +
+                  " and kept uncertain records unchanged."
+                : status?.automaticUpdatesEnabled
+                  ? "Keel records clear holdings changes automatically. Anything uncertain stays unchanged for you to inspect."
+                  : "Check Robinhood once to enable automatic updates.";
 
   return (
     <section aria-labelledby="robinhood-sync-title" className="robinhood-sync">
@@ -3125,6 +3299,16 @@ function RobinhoodSyncControl({
               status?.lastSyncedAt !== undefined && (
                 <span>Last checked {formatDate(status.lastSyncedAt)}</span>
               )}
+            {status.latestImportId !== null && quarantinedCount > 0 && (
+              <Button
+                onClick={() => onReviewImport(status.latestImportId!)}
+                tone="primary"
+              >
+                {quarantinedCount === 1
+                  ? "View exception"
+                  : "View " + quarantinedCount + " exceptions"}
+              </Button>
+            )}
             <Button
               disabled={busyAction !== null || syncing}
               onClick={() => void sync()}
@@ -3846,7 +4030,11 @@ function Holdings({
                     ? "A holding update is ready"
                     : `${pendingImports.length} holding updates are ready`}
                 </h2>
-                <p>Nothing changes until you review it.</p>
+                <p>
+                  {pendingImports.some((item) => item.provider === "robinhood")
+                    ? "AngelList exports wait for review. Robinhood shows only isolated exceptions."
+                    : "Nothing changes until you review it."}
+                </p>
               </div>
               <div className="holding-import-pending__items">
                 {pendingImports.map((item) => (
@@ -3861,11 +4049,13 @@ function Holdings({
                       </small>
                     </span>
                     <Button
-                      aria-label={`Review ${item.provider === "robinhood" ? "Robinhood" : "AngelList"} import dated ${formatDate(item.observedAt)}`}
+                      aria-label={`${item.provider === "robinhood" ? "View Robinhood exceptions from" : "Review AngelList import dated"} ${formatDate(item.observedAt)}`}
                       onClick={() => reviewPendingImport(item.id)}
                       tone="primary"
                     >
-                      Review import
+                      {item.provider === "robinhood"
+                        ? "View exceptions"
+                        : "Review import"}
                     </Button>
                   </div>
                 ))}
