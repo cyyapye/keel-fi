@@ -5,9 +5,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 **Active** so delivery does not split across partially finished product slices.
 
 - Last reconciled: 2026-08-14
-- Current deployed `main`:
+- Reconciled product baseline:
   [`7197f9f`](https://github.com/cyyapye/keel-fi/commit/7197f9fddd49af199b1ffa4b781dab2de63f2225)
-- Current release evidence:
+- Baseline release evidence:
   [`31811740114`](https://github.com/cyyapye/keel-fi/actions/runs/31811740114)
 
 ## How to use this roadmap
