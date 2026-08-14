@@ -30,6 +30,9 @@ describe("Robinhood sync status", () => {
       errorCode: null,
     };
     expect(RobinhoodSyncStatusSchema.safeParse(base).success).toBe(true);
+    expect(RobinhoodSyncStatusSchema.parse(base).automaticUpdatesEnabled).toBe(
+      false,
+    );
     expect(
       RobinhoodSyncStatusSchema.safeParse({
         ...base,

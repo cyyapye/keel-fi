@@ -41,6 +41,7 @@ import {
   HoldingImportUploadError,
   readAngelListCsvUpload,
 } from "./holding-import-upload";
+import { PlaidWebhookRequestError, receivePlaidWebhook } from "./plaid-webhook";
 import {
   connectRobinhood,
   createPlaidInvestmentsClient,
@@ -208,6 +209,24 @@ async function stageAngelListUpload(
 export function createApp(options: AppOptions = {}) {
   const app = new Hono<AppEnvironment>();
   const verifier = options.verifyAccess ?? verifyAccessToken;
+  const repositoryFor = (env: Env) =>
+    options.repository ?? new D1AlphaRepository(env.DB);
+  const angelListMacAgentRepositoryFor = (env: Env) =>
+    options.angelListMacAgentRepository ??
+    new D1AngelListMacAgentRepository(env.DB);
+  const publicHoldingsRepositoryFor = (env: Env) =>
+    options.publicHoldingsRepository ?? new D1PublicHoldingsRepository(env.DB);
+  const portfolioBaselineRepositoryFor = (env: Env) =>
+    options.portfolioBaselineRepository ??
+    new D1PortfolioBaselineRepository(env.DB);
+  const planInputsRepositoryFor = (env: Env) =>
+    options.planInputsRepository ?? new D1PlanInputsRepository(env.DB);
+  const holdingImportRepositoryFor = (env: Env) =>
+    options.holdingImportRepository ?? new D1HoldingImportRepository(env.DB);
+  const plaidClientFor = (env: Env) =>
+    options.plaidClient ?? createPlaidInvestmentsClient(env);
+  const robinhoodConfiguredFor = (env: Env) =>
+    options.plaidClient !== undefined || robinhoodSyncConfigured(env);
 
   app.use(
     "*",
@@ -254,6 +273,44 @@ export function createApp(options: AppOptions = {}) {
     }),
   );
 
+  app.post("/webhooks/plaid", async (context) => {
+    if (!robinhoodConfiguredFor(context.env)) {
+      return context.body(null, 503, { "Cache-Control": "no-store" });
+    }
+    try {
+      const result = await receivePlaidWebhook({
+        request: context.req.raw,
+        env: context.env,
+        repository: publicHoldingsRepositoryFor(context.env),
+        client: plaidClientFor(context.env),
+      });
+      console.info(
+        JSON.stringify({
+          event: "plaid_webhook_received",
+          requestId: context.get("requestId"),
+          result,
+        }),
+      );
+      return context.body(null, result === "ignored" ? 204 : 202, {
+        "Cache-Control": "no-store",
+      });
+    } catch (error) {
+      const status =
+        error instanceof PlaidWebhookRequestError ? error.status : 503;
+      console.error(
+        JSON.stringify({
+          event: "plaid_webhook_rejected",
+          requestId: context.get("requestId"),
+          errorCode:
+            error instanceof PlaidWebhookRequestError
+              ? error.code
+              : "temporary_failure",
+        }),
+      );
+      return context.body(null, status, { "Cache-Control": "no-store" });
+    }
+  });
+
   app.use("/api/*", async (context, next) => {
     const token = context.req.header("Cf-Access-Jwt-Assertion");
 
@@ -296,25 +353,6 @@ export function createApp(options: AppOptions = {}) {
       );
     }
   });
-
-  const repositoryFor = (env: Env) =>
-    options.repository ?? new D1AlphaRepository(env.DB);
-  const angelListMacAgentRepositoryFor = (env: Env) =>
-    options.angelListMacAgentRepository ??
-    new D1AngelListMacAgentRepository(env.DB);
-  const publicHoldingsRepositoryFor = (env: Env) =>
-    options.publicHoldingsRepository ?? new D1PublicHoldingsRepository(env.DB);
-  const portfolioBaselineRepositoryFor = (env: Env) =>
-    options.portfolioBaselineRepository ??
-    new D1PortfolioBaselineRepository(env.DB);
-  const planInputsRepositoryFor = (env: Env) =>
-    options.planInputsRepository ?? new D1PlanInputsRepository(env.DB);
-  const holdingImportRepositoryFor = (env: Env) =>
-    options.holdingImportRepository ?? new D1HoldingImportRepository(env.DB);
-  const plaidClientFor = (env: Env) =>
-    options.plaidClient ?? createPlaidInvestmentsClient(env);
-  const robinhoodConfiguredFor = (env: Env) =>
-    options.plaidClient !== undefined || robinhoodSyncConfigured(env);
 
   app.post("/api/deployment-smoke", async (context) => {
     if (context.env.ENVIRONMENT !== "preview") {

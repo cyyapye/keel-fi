@@ -29,6 +29,13 @@ function successfulFetch(): ReturnType<typeof vi.fn> {
       input instanceof Request ? input.url : input.toString(),
     );
     const headers = new Headers(init?.headers);
+    if (url.hostname === "keel-preview-webhooks.example.com") {
+      return Promise.resolve(
+        new Response(null, {
+          status: url.pathname === "/webhooks/plaid" ? 401 : 404,
+        }),
+      );
+    }
     const authenticated =
       headers.get("CF-Access-Client-Id") ===
         "synthetic-preview-service-token.access" &&
@@ -99,36 +106,38 @@ describe("preview deployment runtime verification", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(fetchImplementation).toHaveBeenCalledTimes(6);
+    expect(fetchImplementation).toHaveBeenCalledTimes(8);
   });
 
   it("fails when the public health route reports a different merged SHA", async () => {
-    const fetchImplementation = successfulFetch();
-    fetchImplementation.mockImplementationOnce(() =>
-      Promise.resolve(new Response(null, { status: 403 })),
-    );
-    fetchImplementation.mockImplementationOnce(() =>
-      Promise.resolve(new Response(null, { status: 403 })),
-    );
-    fetchImplementation.mockImplementation(() =>
-      Promise.resolve(
-        Response.json(
-          {
-            status: "ok",
-            service: "keel-api",
-            deployedGitSha: "d".repeat(40),
-            workerVersionId: "api-version-1",
-            workerVersionTag: "d".repeat(40),
-          },
-          {
-            headers: {
-              "X-Keel-Web-Git-Sha": gitSha,
-              "X-Keel-Web-Version-Id": "web-version-1",
-              "X-Keel-Web-Version-Tag": gitSha,
-            },
-          },
-        ),
-      ),
+    const baseFetch = successfulFetch() as unknown as FetchImplementation;
+    const fetchImplementation = vi.fn(
+      (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(
+          input instanceof Request ? input.url : input.toString(),
+        );
+        if (url.pathname === "/health") {
+          return Promise.resolve(
+            Response.json(
+              {
+                status: "ok",
+                service: "keel-api",
+                deployedGitSha: "d".repeat(40),
+                workerVersionId: "api-version-1",
+                workerVersionTag: "d".repeat(40),
+              },
+              {
+                headers: {
+                  "X-Keel-Web-Git-Sha": gitSha,
+                  "X-Keel-Web-Version-Id": "web-version-1",
+                  "X-Keel-Web-Version-Tag": gitSha,
+                },
+              },
+            ),
+          );
+        }
+        return baseFetch(input, init);
+      },
     );
 
     await expect(

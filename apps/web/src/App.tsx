@@ -3071,23 +3071,27 @@ function RobinhoodSyncControl({
         : disconnected
           ? "Connect Robinhood"
           : syncing
-            ? "Robinhood sync in progress"
+            ? "Checking Robinhood"
             : connectionInvalid
               ? "Reconnect Robinhood"
               : status.status === "needs_attention"
-                ? "Robinhood sync needs attention"
-                : "Robinhood connected";
+                ? "Robinhood update needs attention"
+                : status.automaticUpdatesEnabled
+                  ? "Robinhood updates automatically"
+                  : "Turn on automatic Robinhood updates";
   const description = setupRequired
     ? "Add the Plaid connection settings to enable Robinhood holdings sync."
     : disconnected
       ? "Bring in stocks, ETFs, and mutual funds. Nothing changes until you review it."
       : syncing
-        ? "Keel is reading the latest brokerage snapshot. It will still wait for your review."
+        ? "Keel is checking the latest brokerage snapshot. Any update will wait for your review."
         : connectionInvalid
           ? "The saved connection no longer works. Reconnect to resume updates."
           : status?.status === "needs_attention"
             ? "The latest update could not be prepared. Try again shortly."
-            : "Refresh market values and share counts whenever you choose. Every update waits for review.";
+            : status?.automaticUpdatesEnabled
+              ? "Keel checks after Robinhood reports a holdings change. Every update waits for review."
+              : "Check Robinhood once to enable automatic updates. Every update waits for review.";
 
   return (
     <section aria-labelledby="robinhood-sync-title" className="robinhood-sync">
@@ -3119,14 +3123,18 @@ function RobinhoodSyncControl({
           <div className="robinhood-sync__controls">
             {status?.lastSyncedAt !== null &&
               status?.lastSyncedAt !== undefined && (
-                <span>Last synced {formatDate(status.lastSyncedAt)}</span>
+                <span>Last checked {formatDate(status.lastSyncedAt)}</span>
               )}
             <Button
               disabled={busyAction !== null || syncing}
               onClick={() => void sync()}
-              tone="primary"
+              tone={status.automaticUpdatesEnabled ? "secondary" : "primary"}
             >
-              {busyAction === "sync" || syncing ? "Syncing…" : "Sync Robinhood"}
+              {busyAction === "sync" || syncing
+                ? "Checking…"
+                : status.automaticUpdatesEnabled
+                  ? "Check now"
+                  : "Turn on automatic updates"}
             </Button>
           </div>
         )}

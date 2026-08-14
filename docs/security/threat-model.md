@@ -21,6 +21,7 @@ decisions.
 | Leaked Worker secrets             | Secret bindings, no plaintext config, rotation runbook, redacted logs                                                                                                                                              | Rotate the individual secret and examine deployment/audit history                                                                       |
 | Malicious source documents        | Private quarantine, allowlisted types, 20 MiB limit, hash, malware scan before parsing, no active rendering                                                                                                        | Disable upload/connector and retain evidence for investigation                                                                          |
 | Connector-token theft             | Dedicated secret binding, no token in D1, logs, or ordinary variables; narrow provider scopes                                                                                                                      | Revoke at provider, rotate binding, invalidate sessions                                                                                 |
+| Forged or replayed Plaid webhook  | Dedicated single-route hostname; bounded raw body; ES256 and exact `kid` verification; five-minute age and body-hash checks; HMAC Item lookup; signature-hash deduplication; opaque Queue ID                       | Rate-limit the edge route, monitor rejection volume, and rotate connector credentials after suspected abuse                             |
 | Cross-household access            | Household on every financial table; Access subject-to-household lookup; scoped repositories; tests                                                                                                                 | Add adversarial authorization tests before multi-user operation                                                                         |
 | Broken Access-token validation    | Verify RS256 signature, exact issuer, audience, and subject; production fail-closed                                                                                                                                | Monitor `401` changes and test absent/invalid token behavior                                                                            |
 | Document URL leakage              | Private R2, opaque object keys, maximum five-minute signed reads, `no-store`, no URL logs                                                                                                                          | Revoke signing key if applicable; rotate object key and inspect access                                                                  |
@@ -41,7 +42,10 @@ decisions.
    short-lived authorization.
 4. **External source to ingestion:** all bytes are malicious until validated,
    quarantined, and reviewed.
-5. **Evidence to accepted fact:** review records a decision; a separately
+5. **Plaid to webhook Worker:** Access is intentionally absent. The exact raw
+   request is untrusted until its signature, key lifetime, age, and body hash
+   pass; a valid event can create only queued review work.
+6. **Evidence to accepted fact:** review records a decision; a separately
    attributed workflow creates new accepted facts and a forecast version.
 
 ## Logging boundary
@@ -58,5 +62,7 @@ and connector payloads.
 - a valid identity requesting another household;
 - XSS payloads in every imported text field;
 - SSRF private-address, redirect, wrong-type, and oversized-response cases;
+- Plaid webhook wrong-algorithm, unknown-key, bad-signature, stale, future,
+  body-mismatch, oversized, replay, and unknown-Item cases;
 - immutable-trigger behavior for snapshots and accepted records; and
 - restore tests using a non-production account.

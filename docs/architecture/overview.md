@@ -10,6 +10,8 @@ flowchart LR
   API -->|"household-scoped SQL"| D1["D1 canonical record"]
   API -->|"short-lived read only"| R2["Private R2 documents"]
   Sources["Connectors and uploads"] --> Queue["Queues-compatible ingestion"]
+  Plaid["Plaid holdings webhook"] -->|"ES256 + exact-body verification"| API
+  API -->|"opaque delivery ID"| Queue
   Queue --> HoldingProposal["Holding import proposal"]
   HoldingProposal --> HoldingReview["Holding review"]
   HoldingReview --> AcceptedHolding["Accepted source facts"]
@@ -58,6 +60,11 @@ flowchart LR
   Holdings and the FI target remains owned by Goals. Saving appends a cash-flow
   plan and attributed forecast snapshot while preserving the accepted forecast
   artifacts; it does not create a goal version.
+- Plaid's dedicated webhook hostname exposes exactly one POST route. The web
+  Worker forwards it through the private API service binding; the API verifies
+  the signed raw body and queues only an opaque internal delivery ID. Processing
+  stages a holding proposal and stops at the same review boundary as a manual
+  Robinhood check.
 
 ## Value semantics
 

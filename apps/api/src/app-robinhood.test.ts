@@ -13,6 +13,7 @@ const readyStatus: RobinhoodSyncStatus = {
   configured: true,
   status: "ready",
   lastSyncedAt: "2026-08-10T12:00:00.000Z",
+  automaticUpdatesEnabled: true,
   latestImportId: null,
   latestRunStatus: "succeeded",
   errorCode: null,
@@ -25,6 +26,7 @@ function repository() {
     upsertConnection: vi.fn().mockResolvedValue({
       id: "synthetic-connection",
       secretReference: "synthetic-reference",
+      providerAccountKey: "a".repeat(64),
       previousSecretReference: null,
     } satisfies RobinhoodConnectionUpdate),
     beginSync: vi.fn().mockResolvedValue({
@@ -33,10 +35,15 @@ function repository() {
       connection: {
         id: "synthetic-connection",
         secretReference: "synthetic-reference",
+        providerAccountKey: "a".repeat(64),
       },
     } satisfies RobinhoodSyncRun),
     completeSync: vi.fn().mockResolvedValue(undefined),
     failSync: vi.fn().mockResolvedValue(undefined),
+    bindProviderAccountKey: vi.fn().mockResolvedValue(undefined),
+    claimPlaidWebhookDelivery: vi.fn(),
+    getPlaidWebhookDelivery: vi.fn(),
+    markPlaidWebhookDelivery: vi.fn(),
   };
 }
 
@@ -48,6 +55,8 @@ function client() {
     }),
     exchangeRobinhoodToken: vi.fn(),
     removeItem: vi.fn(),
+    updateItemWebhook: vi.fn(),
+    getWebhookVerificationKey: vi.fn(),
     getHoldings: vi.fn(),
   };
 }
@@ -62,6 +71,32 @@ function env(): Env {
 }
 
 describe("Robinhood public-holdings API", () => {
+  it("rejects unsigned Plaid webhooks before they reach repository state", async () => {
+    const publicHoldingsRepository = repository();
+    const app = createApp({
+      publicHoldingsRepository,
+      plaidClient: client(),
+    });
+    const response = await app.request(
+      "/webhooks/plaid",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhook_type: "HOLDINGS",
+          webhook_code: "DEFAULT_UPDATE",
+        }),
+      },
+      env(),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("");
+    expect(
+      publicHoldingsRepository.claimPlaidWebhookDelivery,
+    ).not.toHaveBeenCalled();
+  });
+
   it("returns configured status and creates a private Link token", async () => {
     const publicHoldingsRepository = repository();
     const plaidClient = client();

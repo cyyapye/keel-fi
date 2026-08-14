@@ -46,12 +46,12 @@ snapshot.
 - Optional macOS-assisted AngelList CSV download and staging with a dedicated
   local Chrome profile. Automatic checks run daily, an immediate local command
   is available, and every import still requires review.
-- Review-gated Robinhood market-value sync and a Portfolio Baseline step that
-  proposes accepted public-market value as the replacement FI liquid baseline.
-  The user adds any eligible liquid assets held elsewhere before confirmation;
-  private paper remains outside current liquidity. Confirmation versions the FI
-  plan, forecast, and matching FI goal together; unavailable values stay unknown
-  and possible overlaps require acknowledgment.
+- Automatic, review-gated Robinhood holdings checks and a Portfolio Baseline
+  step that proposes accepted public-market value as the replacement FI liquid
+  baseline. The user adds any eligible liquid assets held elsewhere before
+  confirmation; private paper remains outside current liquidity. Confirmation
+  versions the FI plan, forecast, and matching FI goal together; unavailable
+  values stay unknown and possible overlaps require acknowledgment.
 - An editable runway plan in Scenarios for household burn, business burn, and
   the protected cash floor. The editor previews the impact without changing the
   accepted plan; saving appends an attributed cash plan and forecast version.

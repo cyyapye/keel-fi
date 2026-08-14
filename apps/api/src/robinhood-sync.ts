@@ -27,6 +27,21 @@ const PlaidConfigurationSchema = z
     environment: z.enum(["sandbox", "production"]),
     credentialKey: z.string().min(1).max(256),
     redirectUri: z.url().max(2_048),
+    webhookUrl: z
+      .url()
+      .max(2_048)
+      .refine((value) => {
+        const url = new URL(value);
+        return (
+          url.protocol === "https:" &&
+          url.username === "" &&
+          url.password === "" &&
+          url.port === "" &&
+          url.pathname === "/webhooks/plaid" &&
+          url.search === "" &&
+          url.hash === ""
+        );
+      }),
   })
   .strict();
 
@@ -59,6 +74,38 @@ const PlaidItemResponseSchema = z
     request_id: z.string().min(1).max(512),
   })
   .passthrough();
+
+const PlaidItemWebhookUpdateResponseSchema = z
+  .object({
+    item: z.object({ webhook: z.url().max(2_048).nullable() }).passthrough(),
+    request_id: z.string().min(1).max(512),
+  })
+  .passthrough();
+
+export const PlaidWebhookVerificationKeySchema = z
+  .object({
+    alg: z.literal("ES256"),
+    crv: z.literal("P-256"),
+    kid: z.string().min(1).max(512),
+    kty: z.literal("EC"),
+    use: z.literal("sig"),
+    x: z.string().regex(/^[A-Za-z0-9_-]+$/u),
+    y: z.string().regex(/^[A-Za-z0-9_-]+$/u),
+    created_at: z.number().int().nonnegative(),
+    expired_at: z.number().int().nonnegative().nullable(),
+  })
+  .strict();
+
+const PlaidWebhookVerificationKeyResponseSchema = z
+  .object({
+    key: PlaidWebhookVerificationKeySchema,
+    request_id: z.string().min(1).max(512),
+  })
+  .passthrough();
+
+export type PlaidWebhookVerificationKey = z.infer<
+  typeof PlaidWebhookVerificationKeySchema
+>;
 
 const PlaidInstitutionResponseSchema = z
   .object({
@@ -111,6 +158,10 @@ export interface PlaidInvestmentsClient {
   createLinkToken(clientUserId: string): Promise<RobinhoodLinkToken>;
   exchangeRobinhoodToken(publicToken: string): Promise<RobinhoodCredential>;
   removeItem(accessToken: string): Promise<void>;
+  updateItemWebhook(accessToken: string): Promise<void>;
+  getWebhookVerificationKey(
+    keyId: string,
+  ): Promise<PlaidWebhookVerificationKey>;
   getHoldings(accessToken: string): Promise<{
     bytes: Uint8Array;
     parsed: PlaidInvestmentsHoldingsResponse;
@@ -124,6 +175,7 @@ function configuration(env: Env): PlaidConfiguration {
     environment: env.PLAID_ENVIRONMENT,
     credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
     redirectUri: env.PLAID_REDIRECT_URI,
+    webhookUrl: env.PLAID_WEBHOOK_URL,
   });
   if (!parsed.success) {
     throw new PlaidClientError(
@@ -190,6 +242,46 @@ async function credentialKey(env: Env): Promise<CryptoKey> {
     false,
     ["encrypt", "decrypt"],
   );
+}
+
+async function providerAccountHmacKey(env: Env): Promise<CryptoKey> {
+  const key = base64UrlDecode(configuration(env).credentialKey);
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    ownedArrayBuffer(key),
+    "HKDF",
+    false,
+    ["deriveKey"],
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: ownedArrayBuffer(
+        new TextEncoder().encode("keel-provider-account-key-v1"),
+      ),
+      info: ownedArrayBuffer(new TextEncoder().encode("plaid-item-id")),
+    },
+    keyMaterial,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    false,
+    ["sign"],
+  );
+}
+
+export async function providerAccountKey(
+  env: Env,
+  rawItemId: string,
+): Promise<string> {
+  const itemId = z.string().min(1).max(512).parse(rawItemId);
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    await providerAccountHmacKey(env),
+    ownedArrayBuffer(new TextEncoder().encode(itemId)),
+  );
+  return [...new Uint8Array(signature)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function encryptCredential(
@@ -367,6 +459,7 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
         language: "en",
         products: ["investments"],
         redirect_uri: this.config.redirectUri,
+        webhook: this.config.webhookUrl,
         account_filters: {
           investment: { account_subtypes: ["all"] },
         },
@@ -457,6 +550,39 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
       );
     }
     return { bytes: response, parsed: parsed.data };
+  }
+
+  public async updateItemWebhook(accessToken: string): Promise<void> {
+    const token = z.string().min(1).max(4_096).parse(accessToken);
+    const response = await this.post(
+      "/item/webhook/update",
+      { access_token: token, webhook: this.config.webhookUrl },
+      PlaidItemWebhookUpdateResponseSchema,
+    );
+    if (response.item.webhook !== this.config.webhookUrl) {
+      throw new PlaidClientError(
+        "provider_unavailable",
+        "Robinhood automatic updates could not be enabled.",
+      );
+    }
+  }
+
+  public async getWebhookVerificationKey(
+    rawKeyId: string,
+  ): Promise<PlaidWebhookVerificationKey> {
+    const keyId = z.string().min(1).max(512).parse(rawKeyId);
+    const response = await this.post(
+      "/webhook_verification_key/get",
+      { key_id: keyId },
+      PlaidWebhookVerificationKeyResponseSchema,
+    );
+    if (response.key.kid !== keyId) {
+      throw new PlaidClientError(
+        "response_invalid",
+        "Plaid returned an unsupported verification key.",
+      );
+    }
+    return response.key;
   }
 
   public async removeItem(accessToken: string): Promise<void> {
@@ -570,6 +696,7 @@ export async function connectRobinhood(input: {
     const connection = await input.repository.upsertConnection(
       input.accessSubject,
       objectKey,
+      await providerAccountKey(input.env, credential.itemId),
     );
     if (
       connection.previousSecretReference !== null &&
@@ -634,6 +761,14 @@ export async function syncRobinhood(input: {
       input.accessSubject,
       run.connection.secretReference,
     );
+    if (run.connection.providerAccountKey === null) {
+      await input.client.updateItemWebhook(credential.accessToken);
+      await input.repository.bindProviderAccountKey(
+        input.accessSubject,
+        run.connection.id,
+        await providerAccountKey(input.env, credential.itemId),
+      );
+    }
     const retrievedAt = new Date().toISOString();
     const holdings = await input.client.getHoldings(credential.accessToken);
     let normalized: Awaited<ReturnType<typeof normalizeRobinhoodHoldings>>;

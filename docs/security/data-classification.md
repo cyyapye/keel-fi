@@ -19,6 +19,9 @@ a real portfolio.
 - R2 stores Restricted source-document bytes. The bucket has no public access.
 - Connector credentials live only in dedicated secret bindings or an approved
   secret manager. D1 stores a non-secret reference, never a token.
+- Raw provider account and user identifiers are Confidential. Encrypted
+  connector state may retain the minimum account identifier needed to operate;
+  D1 and Queue messages use only keyed or internal opaque identifiers.
 - Browser responses contain only the minimum household view required for the
   current decision surface.
 - Logs use an explicit metadata allowlist and must not contain Confidential or

@@ -182,6 +182,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
         configured: true,
         status: "disconnected",
         lastSyncedAt: null,
+        automaticUpdatesEnabled: false,
         latestImportId: null,
         latestRunStatus: null,
         errorCode: null,
