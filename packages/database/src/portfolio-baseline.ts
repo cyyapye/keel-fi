@@ -5,6 +5,7 @@ import {
   PortfolioBaselineConfirmInputSchema,
   PortfolioBaselineConfirmResultSchema,
   PortfolioBaselineStateSchema,
+  subtractMinorUnits,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineConfirmResult,
   type PortfolioBaselinePosition,
@@ -180,6 +181,13 @@ function baselineRecordFromRow(row: BaselineRow): PortfolioBaselineRecord {
     },
     priorFiEligibleLiquidMinor: row.prior_fi_eligible_liquid_minor,
     fiEligibleLiquidMinor: row.fi_eligible_liquid_minor,
+    otherFiEligibleLiquidMinor: Math.max(
+      subtractMinorUnits(
+        row.fi_eligible_liquid_minor,
+        row.public_market_value_minor,
+      ),
+      0,
+    ),
     forecastSnapshotId: row.forecast_snapshot_id,
     forecastSnapshotVersion: row.forecast_snapshot_version,
     goalVersion: row.goal_version,
@@ -300,6 +308,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       p75FiveYearLiquidityMinor: planning.p75_five_year_liquidity_minor,
       forecastHorizonDate: planning.forecast_horizon_date,
     };
+    const suggestedOtherFiEligibleLiquidMinor =
+      latestBaseline?.otherFiEligibleLiquidMinor ?? 0;
     const currentImpact = createPortfolioBaselineImpact(
       planningContext,
       planning.fi_eligible_liquid_minor,
@@ -315,6 +325,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
         summary: null,
         positions: [],
         planning: planningContext,
+        suggestedOtherFiEligibleLiquidMinor,
         currentImpact,
         latestBaseline,
         hasSourceChanges: false,
@@ -343,6 +354,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       summary,
       positions,
       planning: planningContext,
+      suggestedOtherFiEligibleLiquidMinor,
       currentImpact,
       latestBaseline,
       hasSourceChanges,
@@ -440,6 +452,11 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       throw new Error("Possible portfolio overlaps must be reviewed.");
     }
 
+    const fiEligibleLiquidMinor = addMinorUnits(
+      currentSummary.publicMarketValueMinor,
+      input.otherFiEligibleLiquidMinor,
+    );
+
     const impact = createPortfolioBaselineImpact(
       {
         currentFiEligibleLiquidMinor: planning.fi_eligible_liquid_minor,
@@ -452,7 +469,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
         p75FiveYearLiquidityMinor: planning.p75_five_year_liquidity_minor,
         forecastHorizonDate: planning.forecast_horizon_date,
       },
-      input.fiEligibleLiquidMinor,
+      fiEligibleLiquidMinor,
     );
     const createdAt = new Date().toISOString();
     const baselineId = crypto.randomUUID();
@@ -463,7 +480,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       [
         "portfolio-baseline",
         input.sourceRevision,
-        input.fiEligibleLiquidMinor,
+        fiEligibleLiquidMinor,
+        input.otherFiEligibleLiquidMinor,
         forecastSnapshotVersion,
       ].join("|"),
     );
@@ -491,7 +509,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           planning.scenario_id,
           planning.household_burn_monthly_minor,
           planning.business_burn_monthly_minor,
-          input.fiEligibleLiquidMinor,
+          fiEligibleLiquidMinor,
           planning.protected_cash_floor_minor,
           planning.fi_target_minor,
           createdAt,
@@ -608,7 +626,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           targetValueInteger: goal.target_value_integer,
           targetUnit: goal.target_unit,
           targetDate: goal.target_date,
-          currentValueInteger: input.fiEligibleLiquidMinor,
+          currentValueInteger: fiEligibleLiquidMinor,
           makePrimary: Boolean(goal.is_primary),
           changeNote: input.changeNote,
         },
@@ -640,7 +658,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
             goal.target_value_integer,
             goal.target_unit,
             goal.target_date,
-            input.fiEligibleLiquidMinor,
+            fiEligibleLiquidMinor,
             "Portfolio baseline",
             input.changeNote,
             createdAt,
@@ -699,7 +717,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           currentSummary.unknownValueCount,
           currentSummary.potentialDuplicateCount,
           planning.fi_eligible_liquid_minor,
-          input.fiEligibleLiquidMinor,
+          fiEligibleLiquidMinor,
           input.baseForecastSnapshotId,
           cashFlowPlanId,
           forecastSnapshotId,
@@ -744,7 +762,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
         observedAt: currentObservedAt,
         summary: currentSummary,
         priorFiEligibleLiquidMinor: planning.fi_eligible_liquid_minor,
-        fiEligibleLiquidMinor: input.fiEligibleLiquidMinor,
+        fiEligibleLiquidMinor,
+        otherFiEligibleLiquidMinor: input.otherFiEligibleLiquidMinor,
         forecastSnapshotId,
         forecastSnapshotVersion,
         goalVersion,

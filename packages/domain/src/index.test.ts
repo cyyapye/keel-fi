@@ -8,6 +8,7 @@ import {
   FinancingMoneyFactSchema,
   HttpsSourceUrlSchema,
   multiplyMinorByPpm,
+  PortfolioBaselineConfirmInputSchema,
   projectScenario,
   probabilityMeetingThresholdPpm,
   reconcileFinancingSignals,
@@ -394,6 +395,29 @@ describe("deterministic financial calculations", () => {
       higherTotalAvailableMinor: 554_000_000,
       probabilityCrossingFiPpm: 683_190,
     });
+  });
+
+  it("accepts only an explicit other-liquid amount for baseline confirmation", () => {
+    const base = {
+      sourceRevision: "a".repeat(64),
+      baseForecastSnapshotId: "snap_fi_v3",
+      baseForecastSnapshotVersion: 3,
+      duplicateReviewConfirmed: false,
+      changeNote: "Replace the FI liquid baseline.",
+    };
+
+    expect(
+      PortfolioBaselineConfirmInputSchema.safeParse({
+        ...base,
+        otherFiEligibleLiquidMinor: 0,
+      }).success,
+    ).toBe(true);
+    expect(
+      PortfolioBaselineConfirmInputSchema.safeParse({
+        ...base,
+        fiEligibleLiquidMinor: 182_500_000,
+      }).success,
+    ).toBe(false);
   });
 
   it("does not invent a forecast for an unconfigured goal template", () => {
