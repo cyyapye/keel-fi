@@ -5,11 +5,14 @@ import {
 import type {
   AlphaRepository,
   AngelListMacAgentRepository,
+  PortfolioBaselineRepository,
 } from "@keel/database";
 import type {
   AlphaData,
   AngelListMacAgentOverview,
   HoldingImportPreview,
+  PortfolioBaselineConfirmResult,
+  PortfolioBaselineState,
 } from "@keel/domain";
 import { describe, expect, it, vi } from "vitest";
 
@@ -171,6 +174,89 @@ const readyAgentOverview: AngelListMacAgentOverview = {
   errorCode: null,
 };
 
+const portfolioBaselineState: PortfolioBaselineState = {
+  status: "ready",
+  sourceRevision: "a".repeat(64),
+  observedAt: "2026-08-10T16:00:00.000Z",
+  baseForecastSnapshotId: "snap_fi_v3",
+  baseForecastSnapshotVersion: 3,
+  summary: {
+    positionCount: 1,
+    publicMarketValueMinor: 23_800_000,
+    privatePaperValueMinor: 0,
+    unknownValueCount: 0,
+    potentialDuplicateCount: 0,
+  },
+  positions: [
+    {
+      id: "holding_demo_robinhood",
+      positionName: "Synthetic Public Company",
+      ownerLabel: "Demo Brokerage",
+      sourceLabel: "Robinhood",
+      provider: "robinhood",
+      classification: "public_market",
+      valueMinor: 23_800_000,
+      valueState: "reported",
+      observedAt: "2026-08-10T16:00:00.000Z",
+      ticker: "SYN",
+      potentialDuplicate: false,
+      duplicateWith: [],
+    },
+  ],
+  planning: {
+    currentFiEligibleLiquidMinor: 182_500_000,
+    protectedCashFloorMinor: 10_300_000,
+    householdBurnMonthlyMinor: 2_850_000,
+    businessBurnMonthlyMinor: 1_250_000,
+    fiTargetMinor: 325_000_000,
+    p25FiveYearLiquidityMinor: 94_000_000,
+    p50FiveYearLiquidityMinor: 210_000_000,
+    p75FiveYearLiquidityMinor: 354_000_000,
+    forecastHorizonDate: "2031-12-31",
+  },
+  currentImpact: {
+    fiEligibleLiquidMinor: 182_500_000,
+    fiEligibleChangeMinor: 0,
+    protectedRunwayMonths: 42,
+    fiGapMinor: 142_500_000,
+    lowerTotalAvailableMinor: 276_500_000,
+    middleTotalAvailableMinor: 392_500_000,
+    higherTotalAvailableMinor: 536_500_000,
+    probabilityCrossingFiPpm: 645_475,
+  },
+  latestBaseline: null,
+  hasSourceChanges: true,
+  requiresDuplicateReview: false,
+  canConfirm: true,
+};
+
+const portfolioBaselineResult: PortfolioBaselineConfirmResult = {
+  baseline: {
+    id: "baseline_synthetic",
+    sourceRevision: "a".repeat(64),
+    observedAt: "2026-08-10T16:00:00.000Z",
+    summary: portfolioBaselineState.summary!,
+    priorFiEligibleLiquidMinor: 182_500_000,
+    fiEligibleLiquidMinor: 200_000_000,
+    forecastSnapshotId: "snap_fi_v4",
+    forecastSnapshotVersion: 4,
+    goalVersion: 2,
+    changeNote: "Reviewed synced holdings for the FI plan.",
+    createdAt: "2026-08-13T12:00:00.000Z",
+    createdBy: "Demo Operator",
+  },
+  impact: {
+    fiEligibleLiquidMinor: 200_000_000,
+    fiEligibleChangeMinor: 17_500_000,
+    protectedRunwayMonths: 46,
+    fiGapMinor: 125_000_000,
+    lowerTotalAvailableMinor: 294_000_000,
+    middleTotalAvailableMinor: 410_000_000,
+    higherTotalAvailableMinor: 554_000_000,
+    probabilityCrossingFiPpm: 683_190,
+  },
+};
+
 function macAgentRepository(
   overrides: Partial<AngelListMacAgentRepository> = {},
 ): AngelListMacAgentRepository {
@@ -311,6 +397,96 @@ describe("Keel API", () => {
       dashboard: { protectedRunwayMonths: 42 },
     });
     expect(getAlphaData).toHaveBeenCalledWith("synthetic-access-subject");
+  });
+
+  it("loads the reviewed-holdings portfolio baseline state", async () => {
+    const getState = vi
+      .fn<PortfolioBaselineRepository["getState"]>()
+      .mockResolvedValue(portfolioBaselineState);
+    const portfolioBaselineRepository: PortfolioBaselineRepository = {
+      getState,
+      confirm: vi.fn(),
+    };
+
+    const response = await createApp({ portfolioBaselineRepository }).request(
+      "/api/portfolio-baseline",
+      {},
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual(portfolioBaselineState);
+    expect(getState).toHaveBeenCalledWith("synthetic-access-subject");
+  });
+
+  it("confirms a validated portfolio baseline through its explicit endpoint", async () => {
+    const confirm = vi
+      .fn<PortfolioBaselineRepository["confirm"]>()
+      .mockResolvedValue(portfolioBaselineResult);
+    const portfolioBaselineRepository: PortfolioBaselineRepository = {
+      getState: vi.fn(),
+      confirm,
+    };
+    const input = {
+      sourceRevision: portfolioBaselineState.sourceRevision,
+      baseForecastSnapshotId: portfolioBaselineState.baseForecastSnapshotId,
+      baseForecastSnapshotVersion:
+        portfolioBaselineState.baseForecastSnapshotVersion,
+      fiEligibleLiquidMinor: 200_000_000,
+      duplicateReviewConfirmed: false,
+      changeNote: "Reviewed synced holdings for the FI plan.",
+    };
+
+    const response = await createApp({ portfolioBaselineRepository }).request(
+      "/api/portfolio-baselines",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual(portfolioBaselineResult);
+    expect(confirm).toHaveBeenCalledWith("synthetic-access-subject", input);
+  });
+
+  it("rejects stale portfolio baseline confirmation without retrying", async () => {
+    const confirm = vi
+      .fn<PortfolioBaselineRepository["confirm"]>()
+      .mockRejectedValue(new Error("Portfolio baseline source is stale."));
+    const portfolioBaselineRepository: PortfolioBaselineRepository = {
+      getState: vi.fn(),
+      confirm,
+    };
+
+    const response = await createApp({ portfolioBaselineRepository }).request(
+      "/api/portfolio-baselines",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceRevision: portfolioBaselineState.sourceRevision,
+          baseForecastSnapshotId: portfolioBaselineState.baseForecastSnapshotId,
+          baseForecastSnapshotVersion:
+            portfolioBaselineState.baseForecastSnapshotVersion,
+          fiEligibleLiquidMinor: 200_000_000,
+          duplicateReviewConfirmed: false,
+          changeNote: "Reviewed synced holdings for the FI plan.",
+        }),
+      },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "The portfolio or forecast changed. Review the latest baseline before confirming.",
+    });
+    expect(confirm).toHaveBeenCalledOnce();
   });
 
   it("runs a household-scoped public-source scan", async () => {

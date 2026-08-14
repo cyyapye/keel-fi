@@ -9,6 +9,7 @@ import {
   type RobinhoodHoldingImportStageInput,
 } from "./holding-imports";
 import { D1AlphaRepository } from "./index";
+import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
 
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
@@ -21,6 +22,7 @@ const migrationFiles = [
   "packages/database/migrations/0008_signal_update_proposals.sql",
   "packages/database/migrations/0009_angellist_mac_agent.sql",
   "packages/database/migrations/0010_public_holdings.sql",
+  "packages/database/migrations/0011_portfolio_baselines.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -533,5 +535,234 @@ describe("AngelList holding import persistence", () => {
         effectiveDate: "2026-08-10",
       }),
     );
+  });
+});
+
+describe("reviewed portfolio baseline persistence", () => {
+  let sqlite: DatabaseSync;
+  let database: TestD1Database;
+  let holdingImports: D1HoldingImportRepository;
+  let baselines: D1PortfolioBaselineRepository;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(":memory:");
+    migrationFiles.forEach((file) => {
+      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+    });
+    database = new TestD1Database(sqlite);
+    holdingImports = new D1HoldingImportRepository(
+      database as unknown as D1Database,
+    );
+    baselines = new D1PortfolioBaselineRepository(
+      database as unknown as D1Database,
+    );
+  });
+
+  afterEach(() => {
+    sqlite.close();
+  });
+
+  it("atomically appends a reviewed FI baseline without treating unknown values as money", async () => {
+    const angelListInput = stageInput("4".repeat(64), {
+      companyOrFund: "Synthetic Public Company",
+      fundName: "Synthetic Public Company SPV",
+      unrealizedValueMinor: 2_500_000,
+      unrealizedValueState: "reported",
+      netValueMinor: 2_500_000,
+      netValueState: "reported",
+      multiplePpm: 1_000_000,
+    });
+    const firstAngelListRow = angelListInput.rows[0]!;
+    angelListInput.rows.push({
+      ...firstAngelListRow,
+      rowNumber: 4,
+      naturalKeySha256: "5".repeat(64),
+      companyOrFund: "Synthetic Hidden Systems",
+      fundName: "Synthetic Hidden Systems SPV",
+      unrealizedValueMinor: null,
+      unrealizedValueState: "locked",
+      netValueMinor: null,
+      netValueState: "locked",
+      multiplePpm: null,
+    });
+
+    const angelList = await holdingImports.stageHoldingImport(
+      "synthetic-access-subject",
+      angelListInput,
+    );
+    await holdingImports.applyHoldingImport(
+      "synthetic-access-subject",
+      angelList.preview.id,
+      {
+        currency: "USD",
+        decisions: angelList.preview.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted" as const,
+          rationale: "Reviewed synthetic AngelList position.",
+        })),
+      },
+    );
+
+    const robinhood = await holdingImports.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      robinhoodStageInput(),
+    );
+    await holdingImports.applyHoldingImport(
+      "synthetic-access-subject",
+      robinhood.preview.id,
+      {
+        currency: "USD",
+        decisions: robinhood.preview.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted" as const,
+          rationale: "Reviewed synthetic Robinhood position.",
+        })),
+      },
+    );
+
+    const state = await baselines.getState("synthetic-access-subject");
+    expect(state).toMatchObject({
+      status: "ready",
+      baseForecastSnapshotId: "snap_fi_v3",
+      baseForecastSnapshotVersion: 3,
+      summary: {
+        positionCount: 3,
+        publicMarketValueMinor: 123_457,
+        privatePaperValueMinor: 2_500_000,
+        unknownValueCount: 1,
+        potentialDuplicateCount: 2,
+      },
+      hasSourceChanges: true,
+      requiresDuplicateReview: true,
+      canConfirm: true,
+    });
+    expect(
+      state.positions.filter((position) => position.potentialDuplicate),
+    ).toHaveLength(2);
+    if (
+      state.sourceRevision === null ||
+      state.baseForecastSnapshotId === null ||
+      state.baseForecastSnapshotVersion === null
+    ) {
+      throw new Error("Expected a confirmable synthetic baseline.");
+    }
+
+    const confirmation = {
+      sourceRevision: state.sourceRevision,
+      baseForecastSnapshotId: state.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
+      fiEligibleLiquidMinor: 200_000_000,
+      duplicateReviewConfirmed: false,
+      changeNote: "Reviewed synced holdings for the FI plan.",
+    };
+    await expect(
+      baselines.confirm("synthetic-access-subject", confirmation),
+    ).rejects.toThrow("overlaps");
+
+    const confirmed = await baselines.confirm("synthetic-access-subject", {
+      ...confirmation,
+      duplicateReviewConfirmed: true,
+    });
+    expect(confirmed).toMatchObject({
+      baseline: {
+        sourceRevision: state.sourceRevision,
+        priorFiEligibleLiquidMinor: 182_500_000,
+        fiEligibleLiquidMinor: 200_000_000,
+        forecastSnapshotVersion: 4,
+        goalVersion: 2,
+      },
+      impact: {
+        fiEligibleChangeMinor: 17_500_000,
+        protectedRunwayMonths: 46,
+        fiGapMinor: 125_000_000,
+        lowerTotalAvailableMinor: 294_000_000,
+        middleTotalAvailableMinor: 410_000_000,
+        higherTotalAvailableMinor: 554_000_000,
+        probabilityCrossingFiPpm: 683_190,
+      },
+    });
+
+    const stored = sqlite
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM portfolio_baselines) AS baselines,
+           (SELECT COUNT(*) FROM portfolio_baseline_items) AS baseline_items,
+           (SELECT COUNT(*) FROM cash_flow_plans WHERE scenario_id = 'scn_fi')
+             AS fi_plans,
+           (SELECT MAX(version) FROM forecast_snapshots
+            WHERE scenario_id = 'scn_fi') AS latest_forecast_version,
+           (SELECT probability_ppm FROM forecast_outputs
+            WHERE forecast_snapshot_id = ?
+              AND metric_key = 'probability_crossing_fi') AS crossing_ppm,
+           (SELECT MAX(version) FROM goal_versions
+            WHERE goal_id = 'goal_fi') AS latest_goal_version`,
+      )
+      .get(confirmed.baseline.forecastSnapshotId) as {
+      baselines: number;
+      baseline_items: number;
+      fi_plans: number;
+      latest_forecast_version: number;
+      crossing_ppm: number;
+      latest_goal_version: number;
+    };
+    expect(stored).toEqual({
+      baselines: 1,
+      baseline_items: 3,
+      fi_plans: 2,
+      latest_forecast_version: 4,
+      crossing_ppm: 683_190,
+      latest_goal_version: 2,
+    });
+
+    const alpha = await new D1AlphaRepository(
+      database as unknown as D1Database,
+    ).getAlphaData("synthetic-access-subject");
+    expect(alpha.dashboard).toMatchObject({
+      asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/u),
+      fiEligibleLiquidMinor: 200_000_000,
+      protectedRunwayMonths: 46,
+      fiGapMinor: 125_000_000,
+      probabilityCrossingFiPpm: 683_190,
+    });
+    expect(alpha.goals[0]?.versions[0]).toMatchObject({
+      version: 2,
+      currentValueInteger: 200_000_000,
+      currentValueSource: "Portfolio baseline",
+      forecast: {
+        lowerValueInteger: 294_000_000,
+        middleValueInteger: 410_000_000,
+        higherValueInteger: 554_000_000,
+        successProbabilityPpm: 683_190,
+      },
+    });
+    expect(alpha.forecastHistory[0]).toMatchObject({
+      version: 4,
+      trigger: "Portfolio baseline",
+    });
+
+    await expect(
+      baselines.getState("synthetic-access-subject"),
+    ).resolves.toMatchObject({
+      status: "current",
+      hasSourceChanges: false,
+      canConfirm: false,
+      latestBaseline: { id: confirmed.baseline.id },
+    });
+    expect(() =>
+      sqlite
+        .prepare("UPDATE portfolio_baselines SET change_note = 'changed'")
+        .run(),
+    ).toThrow("immutable");
+    expect(() =>
+      sqlite
+        .prepare(
+          `UPDATE cash_flow_plans
+           SET fi_eligible_liquid_minor = 0
+           WHERE id = (
+             SELECT cash_flow_plan_id FROM portfolio_baselines LIMIT 1
+           )`,
+        )
+        .run(),
+    ).toThrow("immutable");
   });
 });

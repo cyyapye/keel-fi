@@ -51,6 +51,7 @@ import {
 
 export * from "./holding-imports";
 export * from "./angellist-mac-agent";
+export * from "./portfolio-baseline";
 export * from "./public-holdings";
 export * from "./portfolio-watch";
 
@@ -2311,7 +2312,7 @@ export class D1AlphaRepository implements AlphaRepository {
     const row = await this.db
       .prepare(
         `SELECT
-          plan.effective_date AS as_of_date,
+          substr(plan.effective_date, 1, 10) AS as_of_date,
           p50.horizon_date AS forecast_horizon_date,
           household.name AS household_name,
           plan.fi_eligible_liquid_minor,

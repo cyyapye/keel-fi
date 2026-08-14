@@ -10,11 +10,17 @@ flowchart LR
   API -->|"household-scoped SQL"| D1["D1 canonical record"]
   API -->|"short-lived read only"| R2["Private R2 documents"]
   Sources["Connectors and uploads"] --> Queue["Queues-compatible ingestion"]
-  Queue --> Proposal["Evidence proposal"]
-  Proposal --> Review["Explicit human review"]
-  Review --> Snapshot["New immutable forecast snapshot"]
+  Queue --> HoldingProposal["Holding import proposal"]
+  HoldingProposal --> HoldingReview["Holding review"]
+  HoldingReview --> AcceptedHolding["Accepted source facts"]
+  AcceptedHolding --> BaselineReview["Portfolio baseline review"]
+  BaselineReview --> VersionBundle["New FI plan, forecast, and goal versions"]
   Public["Allowlisted public sources"] --> Observation["Public observation"]
-  Observation --> Proposal
+  Observation --> EvidenceProposal["Evidence proposal"]
+  EvidenceProposal --> EvidenceReview["Evidence review"]
+  EvidenceReview --> Snapshot["New immutable forecast snapshot"]
+  AcceptedHolding --> D1
+  VersionBundle --> D1
   Snapshot --> D1
 ```
 
@@ -37,6 +43,11 @@ flowchart LR
   registry; Queue jobs contain only internal source IDs. Real public sources are
   exercised by an opt-in runtime acceptance command while all checked-in
   portfolio data remains fabricated.
+- Accepted Robinhood and AngelList observations remain source facts until the
+  user confirms a Portfolio Baseline. The baseline records the exact reviewed
+  source revision, keeps unavailable values unknown, requires an overlap check
+  when cross-provider names collide, and writes the new FI cash plan, forecast,
+  and primary FI goal version in one D1 batch.
 
 ## Value semantics
 
@@ -47,6 +58,7 @@ The model intentionally avoids a single overloaded “value” column:
 | Administrator NAV         | Current administrator-reported value       | Reconciliation    |
 | External mark             | Latest observed external economic mark     | Evidence input    |
 | FI underwriting           | Conservative policy value                  | FI planning       |
+| FI-eligible baseline      | Reviewed liquid amount counted by policy   | FI plan input     |
 | Thesis-weighted value     | Conditional probability-weighted economics | Scenario analysis |
 | Timing-adjusted liquidity | Value discounted for timing/probability    | Forecasting       |
 | Actual liquidity          | Distributed cash that actually occurred    | Reconciliation    |
@@ -56,7 +68,8 @@ parts per million. Quantity fields use explicit integer scales.
 
 ## Immutability and audit
 
-Forecast snapshots, outputs, company forecasts, liquidity curves, review
-decisions, and actual-liquidity events are guarded by D1 triggers against update
-or deletion. Accepted marks and accepted evidence cannot be deleted. A new
-forecast changes the record by appending a new version.
+Forecast snapshots, outputs, company forecasts, liquidity curves, portfolio
+baseline records and items, review decisions, and actual-liquidity events are
+guarded by D1 triggers against update or deletion. Accepted marks and accepted
+evidence cannot be deleted. A new forecast or Portfolio Baseline changes the
+record by appending a new version.

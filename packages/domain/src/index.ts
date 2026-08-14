@@ -711,6 +711,155 @@ export const HoldingImportApplyResultSchema = z.object({
   lockedValueCount: z.number().int().nonnegative(),
 });
 
+const Sha256Schema = z
+  .string()
+  .length(64)
+  .regex(/^[0-9a-f]+$/u);
+
+export const PortfolioBaselinePositionSchema = z.object({
+  id: z.string().min(1),
+  positionName: z.string().min(1),
+  ownerLabel: z.string().min(1),
+  sourceLabel: z.string().min(1),
+  provider: HoldingImportProviderSchema,
+  classification: z.enum(["public_market", "private_paper"]),
+  valueMinor: NonNegativeMoneyMinorSchema.nullable(),
+  valueState: z.enum(["reported", "locked", "not_reported"]),
+  observedAt: IsoTimestampSchema,
+  ticker: z.string().min(1).max(32).nullable(),
+  potentialDuplicate: z.boolean(),
+  duplicateWith: z.array(z.string().min(1)),
+});
+
+export const PortfolioBaselineSummarySchema = z.object({
+  positionCount: z.number().int().positive(),
+  publicMarketValueMinor: NonNegativeMoneyMinorSchema,
+  privatePaperValueMinor: NonNegativeMoneyMinorSchema,
+  unknownValueCount: z.number().int().nonnegative(),
+  potentialDuplicateCount: z.number().int().nonnegative(),
+});
+
+export const PortfolioBaselinePlanningContextSchema = z.object({
+  currentFiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
+  protectedCashFloorMinor: NonNegativeMoneyMinorSchema,
+  householdBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  businessBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  fiTargetMinor: NonNegativeMoneyMinorSchema,
+  p25FiveYearLiquidityMinor: NonNegativeMoneyMinorSchema,
+  p50FiveYearLiquidityMinor: NonNegativeMoneyMinorSchema,
+  p75FiveYearLiquidityMinor: NonNegativeMoneyMinorSchema,
+  forecastHorizonDate: IsoDateSchema,
+});
+
+export const PortfolioBaselineImpactSchema = z.object({
+  fiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
+  fiEligibleChangeMinor: MoneyMinorSchema,
+  protectedRunwayMonths: z.number().int().nonnegative(),
+  fiGapMinor: NonNegativeMoneyMinorSchema,
+  lowerTotalAvailableMinor: NonNegativeMoneyMinorSchema,
+  middleTotalAvailableMinor: NonNegativeMoneyMinorSchema,
+  higherTotalAvailableMinor: NonNegativeMoneyMinorSchema,
+  probabilityCrossingFiPpm: ProbabilityPpmSchema,
+});
+
+export function createPortfolioBaselineImpact(
+  rawContext: z.input<typeof PortfolioBaselinePlanningContextSchema>,
+  rawFiEligibleLiquidMinor: number,
+): z.infer<typeof PortfolioBaselineImpactSchema> {
+  const context = PortfolioBaselinePlanningContextSchema.parse(rawContext);
+  const fiEligibleLiquidMinor = NonNegativeMoneyMinorSchema.parse(
+    rawFiEligibleLiquidMinor,
+  );
+  const monthlyBurnMinor = addMinorUnits(
+    context.householdBurnMonthlyMinor,
+    context.businessBurnMonthlyMinor,
+  );
+  const runwayBaseMinor = Math.max(
+    fiEligibleLiquidMinor - context.protectedCashFloorMinor,
+    0,
+  );
+  const protectedRunwayMonths =
+    monthlyBurnMinor === 0
+      ? 0
+      : Number(BigInt(runwayBaseMinor) / BigInt(monthlyBurnMinor));
+  const lowerTotalAvailableMinor = addMinorUnits(
+    fiEligibleLiquidMinor,
+    context.p25FiveYearLiquidityMinor,
+  );
+  const middleTotalAvailableMinor = addMinorUnits(
+    fiEligibleLiquidMinor,
+    context.p50FiveYearLiquidityMinor,
+  );
+  const higherTotalAvailableMinor = addMinorUnits(
+    fiEligibleLiquidMinor,
+    context.p75FiveYearLiquidityMinor,
+  );
+
+  return PortfolioBaselineImpactSchema.parse({
+    fiEligibleLiquidMinor,
+    fiEligibleChangeMinor: subtractMinorUnits(
+      fiEligibleLiquidMinor,
+      context.currentFiEligibleLiquidMinor,
+    ),
+    protectedRunwayMonths,
+    fiGapMinor: Math.max(context.fiTargetMinor - fiEligibleLiquidMinor, 0),
+    lowerTotalAvailableMinor,
+    middleTotalAvailableMinor,
+    higherTotalAvailableMinor,
+    probabilityCrossingFiPpm: estimateThresholdProbabilityPpm(
+      context.fiTargetMinor,
+      lowerTotalAvailableMinor,
+      middleTotalAvailableMinor,
+      higherTotalAvailableMinor,
+    ),
+  });
+}
+
+export const PortfolioBaselineRecordSchema = z.object({
+  id: z.string().min(1),
+  sourceRevision: Sha256Schema,
+  observedAt: IsoTimestampSchema,
+  summary: PortfolioBaselineSummarySchema,
+  priorFiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
+  fiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
+  forecastSnapshotId: z.string().min(1),
+  forecastSnapshotVersion: z.number().int().positive(),
+  goalVersion: z.number().int().positive().nullable(),
+  changeNote: z.string().min(1).max(500),
+  createdAt: IsoTimestampSchema,
+  createdBy: z.string().min(1),
+});
+
+export const PortfolioBaselineStateSchema = z.object({
+  status: z.enum(["waiting_for_reviewed_holdings", "ready", "current"]),
+  sourceRevision: Sha256Schema.nullable(),
+  observedAt: IsoTimestampSchema.nullable(),
+  baseForecastSnapshotId: z.string().min(1).nullable(),
+  baseForecastSnapshotVersion: z.number().int().positive().nullable(),
+  summary: PortfolioBaselineSummarySchema.nullable(),
+  positions: z.array(PortfolioBaselinePositionSchema),
+  planning: PortfolioBaselinePlanningContextSchema,
+  currentImpact: PortfolioBaselineImpactSchema,
+  latestBaseline: PortfolioBaselineRecordSchema.nullable(),
+  hasSourceChanges: z.boolean(),
+  requiresDuplicateReview: z.boolean(),
+  canConfirm: z.boolean(),
+});
+
+export const PortfolioBaselineConfirmInputSchema = z.object({
+  sourceRevision: Sha256Schema,
+  baseForecastSnapshotId: z.string().min(1),
+  baseForecastSnapshotVersion: z.number().int().positive(),
+  fiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
+  duplicateReviewConfirmed: z.boolean(),
+  changeNote: z.string().trim().min(1).max(500),
+});
+
+export const PortfolioBaselineConfirmResultSchema = z.object({
+  baseline: PortfolioBaselineRecordSchema,
+  impact: PortfolioBaselineImpactSchema,
+});
+
 export const RobinhoodSyncErrorCodeSchema = z.enum([
   "configuration_required",
   "connection_invalid",
@@ -1745,6 +1894,27 @@ export type HoldingImportApplyResult = z.infer<
 >;
 export type HoldingImportPreview = z.infer<typeof HoldingImportPreviewSchema>;
 export type HoldingImportSummary = z.infer<typeof HoldingImportSummarySchema>;
+export type PortfolioBaselineConfirmInput = z.infer<
+  typeof PortfolioBaselineConfirmInputSchema
+>;
+export type PortfolioBaselineConfirmResult = z.infer<
+  typeof PortfolioBaselineConfirmResultSchema
+>;
+export type PortfolioBaselineImpact = z.infer<
+  typeof PortfolioBaselineImpactSchema
+>;
+export type PortfolioBaselinePosition = z.infer<
+  typeof PortfolioBaselinePositionSchema
+>;
+export type PortfolioBaselineRecord = z.infer<
+  typeof PortfolioBaselineRecordSchema
+>;
+export type PortfolioBaselineState = z.infer<
+  typeof PortfolioBaselineStateSchema
+>;
+export type PortfolioBaselineSummary = z.infer<
+  typeof PortfolioBaselineSummarySchema
+>;
 export type RobinhoodExchangeInput = z.infer<
   typeof RobinhoodExchangeInputSchema
 >;

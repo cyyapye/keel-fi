@@ -1461,3 +1461,129 @@ export const holdingImportApplications = sqliteTable(
     ),
   ],
 );
+
+export const portfolioBaselines = sqliteTable(
+  "portfolio_baselines",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    sourceRevision: text("source_revision").notNull(),
+    sourceObservedAt: timestamp("source_observed_at"),
+    positionCount: integer("position_count").notNull(),
+    publicMarketValueMinor: integer("public_market_value_minor").notNull(),
+    privatePaperValueMinor: integer("private_paper_value_minor").notNull(),
+    unknownValueCount: integer("unknown_value_count").notNull(),
+    potentialDuplicateCount: integer("potential_duplicate_count").notNull(),
+    priorFiEligibleLiquidMinor: integer(
+      "prior_fi_eligible_liquid_minor",
+    ).notNull(),
+    fiEligibleLiquidMinor: integer("fi_eligible_liquid_minor").notNull(),
+    baseForecastSnapshotId: text("base_forecast_snapshot_id")
+      .notNull()
+      .references(() => forecastSnapshots.id, { onDelete: "restrict" }),
+    cashFlowPlanId: text("cash_flow_plan_id")
+      .notNull()
+      .references(() => cashFlowPlans.id, { onDelete: "restrict" }),
+    forecastSnapshotId: text("forecast_snapshot_id")
+      .notNull()
+      .references(() => forecastSnapshots.id, { onDelete: "restrict" }),
+    goalVersionId: text("goal_version_id").references(() => goalVersions.id, {
+      onDelete: "restrict",
+    }),
+    changeNote: text("change_note").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("portfolio_baselines_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    uniqueIndex("portfolio_baselines_forecast_snapshot_unique").on(
+      table.forecastSnapshotId,
+    ),
+    uniqueIndex("portfolio_baselines_cash_flow_plan_unique").on(
+      table.cashFlowPlanId,
+    ),
+    check(
+      "portfolio_baselines_source_revision_check",
+      sql`length(${table.sourceRevision}) = 64 AND ${table.sourceRevision} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "portfolio_baselines_counts_check",
+      sql`${table.positionCount} > 0 AND ${table.unknownValueCount} BETWEEN 0 AND ${table.positionCount} AND ${table.potentialDuplicateCount} BETWEEN 0 AND ${table.positionCount}`,
+    ),
+    check(
+      "portfolio_baselines_values_check",
+      sql`${table.publicMarketValueMinor} >= 0 AND ${table.privatePaperValueMinor} >= 0 AND ${table.priorFiEligibleLiquidMinor} >= 0 AND ${table.fiEligibleLiquidMinor} >= 0`,
+    ),
+    check(
+      "portfolio_baselines_note_check",
+      sql`length(${table.changeNote}) BETWEEN 1 AND 500`,
+    ),
+    check("portfolio_baselines_immutable_check", sql`${table.immutable} = 1`),
+  ],
+);
+
+export const portfolioBaselineItems = sqliteTable(
+  "portfolio_baseline_items",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    baselineId: text("baseline_id")
+      .notNull()
+      .references(() => portfolioBaselines.id, { onDelete: "restrict" }),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => holdingPositionSnapshots.id, {
+        onDelete: "restrict",
+      }),
+    provider: text("provider").notNull(),
+    classification: text("classification").notNull(),
+    valueMinor: integer("value_minor"),
+    valueState: text("value_state").notNull(),
+    observedAt: timestamp("observed_at"),
+    duplicateKey: text("duplicate_key"),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("portfolio_baseline_items_baseline_position_unique").on(
+      table.baselineId,
+      table.positionId,
+    ),
+    index("portfolio_baseline_items_baseline_idx").on(
+      table.baselineId,
+      table.positionId,
+    ),
+    check(
+      "portfolio_baseline_items_provider_check",
+      sql`${table.provider} IN ('angellist', 'robinhood')`,
+    ),
+    check(
+      "portfolio_baseline_items_classification_check",
+      sql`${table.classification} IN ('public_market', 'private_paper')`,
+    ),
+    check(
+      "portfolio_baseline_items_value_check",
+      sql`${table.valueMinor} IS NULL OR ${table.valueMinor} >= 0`,
+    ),
+    check(
+      "portfolio_baseline_items_state_check",
+      sql`${table.valueState} IN ('reported', 'locked', 'not_reported')`,
+    ),
+    check(
+      "portfolio_baseline_items_provider_classification_check",
+      sql`(${table.provider} = 'robinhood' AND ${table.classification} = 'public_market') OR (${table.provider} = 'angellist' AND ${table.classification} = 'private_paper')`,
+    ),
+    check(
+      "portfolio_baseline_items_value_state_check",
+      sql`(${table.valueState} = 'reported' AND ${table.valueMinor} IS NOT NULL) OR (${table.valueState} <> 'reported' AND ${table.valueMinor} IS NULL)`,
+    ),
+  ],
+);
