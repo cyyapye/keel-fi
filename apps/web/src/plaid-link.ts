@@ -41,7 +41,7 @@ function loadPlaidLink(): Promise<void> {
     const fail = () => {
       script.remove();
       plaidScriptPromise = null;
-      reject(new Error("Robinhood connection could not be opened."));
+      reject(new Error("Plaid connection could not be opened."));
     };
     script.addEventListener(
       "load",
@@ -56,7 +56,7 @@ function loadPlaidLink(): Promise<void> {
   return plaidScriptPromise;
 }
 
-export async function openRobinhoodLink(input: {
+export async function openPlaidLink(input: {
   linkToken: string;
   onExit: () => void;
   onSuccess: (publicToken: string) => void;
@@ -64,7 +64,7 @@ export async function openRobinhoodLink(input: {
 }): Promise<PlaidLinkHandler> {
   await loadPlaidLink();
   if (window.Plaid === undefined) {
-    throw new Error("Robinhood connection could not be opened.");
+    throw new Error("Plaid connection could not be opened.");
   }
   const handler = window.Plaid.create({
     token: input.linkToken,

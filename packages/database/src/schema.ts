@@ -1131,6 +1131,162 @@ export const connectorSyncRuns = sqliteTable(
   ],
 );
 
+export const cashBalanceProposals = sqliteTable(
+  "cash_balance_proposals",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    connectorAccountId: text("connector_account_id")
+      .notNull()
+      .references(() => connectorAccounts.id, { onDelete: "restrict" }),
+    syncRunId: text("sync_run_id")
+      .notNull()
+      .references(() => connectorSyncRuns.id, { onDelete: "restrict" }),
+    sourceObjectKey: text("source_object_key").notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    normalizedFingerprint: text("normalized_fingerprint").notNull(),
+    refreshKind: text("refresh_kind").notNull(),
+    observedAt: timestamp("observed_at"),
+    retrievedAt: timestamp("retrieved_at"),
+    status: text("status").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("cash_balance_proposals_sync_run_unique").on(table.syncRunId),
+    uniqueIndex("cash_balance_proposals_source_object_unique").on(
+      table.sourceObjectKey,
+    ),
+    index("cash_balance_proposals_household_status_idx").on(
+      table.householdId,
+      table.status,
+      table.createdAt,
+    ),
+    index("cash_balance_proposals_connection_created_idx").on(
+      table.connectorAccountId,
+      table.createdAt,
+    ),
+    check(
+      "cash_balance_proposals_source_sha_check",
+      sql`length(${table.sourceSha256}) = 64 AND ${table.sourceSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "cash_balance_proposals_fingerprint_check",
+      sql`length(${table.normalizedFingerprint}) = 64 AND ${table.normalizedFingerprint} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "cash_balance_proposals_refresh_kind_check",
+      sql`${table.refreshKind} IN ('initial', 'live')`,
+    ),
+    check(
+      "cash_balance_proposals_status_check",
+      sql`${table.status} IN ('pending_review', 'applied')`,
+    ),
+  ],
+);
+
+export const cashBalanceProposalRows = sqliteTable(
+  "cash_balance_proposal_rows",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => cashBalanceProposals.id, { onDelete: "restrict" }),
+    naturalKeySha256: text("natural_key_sha256").notNull(),
+    institutionLabel: text("institution_label").notNull(),
+    accountLabel: text("account_label").notNull(),
+    subtype: text("subtype").notNull(),
+    availableMinor: integer("available_minor"),
+    currentMinor: integer("current_minor"),
+    valueMinor: integer("value_minor"),
+    valueState: text("value_state").notNull(),
+    balanceSource: text("balance_source"),
+    observedAt: timestamp("observed_at"),
+    issuesJson: text("issues_json").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("cash_balance_proposal_rows_proposal_key_unique").on(
+      table.proposalId,
+      table.naturalKeySha256,
+    ),
+    index("cash_balance_proposal_rows_proposal_idx").on(
+      table.proposalId,
+      table.naturalKeySha256,
+    ),
+    check(
+      "cash_balance_proposal_rows_key_check",
+      sql`length(${table.naturalKeySha256}) = 64 AND ${table.naturalKeySha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "cash_balance_proposal_rows_subtype_check",
+      sql`${table.subtype} IN ('checking', 'savings', 'money market', 'cash management', 'other')`,
+    ),
+    check(
+      "cash_balance_proposal_rows_labels_check",
+      sql`length(${table.institutionLabel}) BETWEEN 1 AND 512 AND length(${table.accountLabel}) BETWEEN 1 AND 512`,
+    ),
+    check(
+      "cash_balance_proposal_rows_value_state_check",
+      sql`${table.valueState} IN ('reported', 'unavailable', 'unsupported', 'not_reported')`,
+    ),
+    check(
+      "cash_balance_proposal_rows_balance_source_check",
+      sql`${table.balanceSource} IS NULL OR ${table.balanceSource} IN ('available', 'current')`,
+    ),
+    check(
+      "cash_balance_proposal_rows_value_check",
+      sql`(${table.valueState} = 'reported' AND ${table.valueMinor} IS NOT NULL AND ${table.valueMinor} >= 0 AND ${table.balanceSource} IS NOT NULL) OR (${table.valueState} <> 'reported' AND ${table.valueMinor} IS NULL AND ${table.balanceSource} IS NULL)`,
+    ),
+    check(
+      "cash_balance_proposal_rows_issues_check",
+      sql`json_valid(${table.issuesJson}) AND json_type(${table.issuesJson}) = 'array'`,
+    ),
+  ],
+);
+
+export const cashBalanceReviewDecisions = sqliteTable(
+  "cash_balance_review_decisions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => cashBalanceProposals.id, { onDelete: "restrict" }),
+    proposalRowId: text("proposal_row_id")
+      .notNull()
+      .references(() => cashBalanceProposalRows.id, { onDelete: "restrict" }),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    decision: text("decision").notNull(),
+    changeNote: text("change_note").notNull(),
+    decidedAt: timestamp("decided_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("cash_balance_review_decisions_row_unique").on(
+      table.proposalRowId,
+    ),
+    index("cash_balance_review_decisions_household_decided_idx").on(
+      table.householdId,
+      table.decidedAt,
+    ),
+    check(
+      "cash_balance_review_decisions_decision_check",
+      sql`${table.decision} IN ('accepted', 'excluded')`,
+    ),
+    check(
+      "cash_balance_review_decisions_note_check",
+      sql`length(${table.changeNote}) BETWEEN 1 AND 500`,
+    ),
+    check(
+      "cash_balance_review_decisions_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
 export const angelListMacAgents = sqliteTable(
   "angellist_mac_agents",
   {
@@ -1578,6 +1734,9 @@ export const portfolioBaselines = sqliteTable(
     positionCount: integer("position_count").notNull(),
     publicMarketValueMinor: integer("public_market_value_minor").notNull(),
     privatePaperValueMinor: integer("private_paper_value_minor").notNull(),
+    cashAccountCount: integer("cash_account_count").notNull(),
+    cashAccountValueMinor: integer("cash_account_value_minor").notNull(),
+    unknownCashAccountCount: integer("unknown_cash_account_count").notNull(),
     unknownValueCount: integer("unknown_value_count").notNull(),
     potentialDuplicateCount: integer("potential_duplicate_count").notNull(),
     priorFiEligibleLiquidMinor: integer(
@@ -1620,11 +1779,11 @@ export const portfolioBaselines = sqliteTable(
     ),
     check(
       "portfolio_baselines_counts_check",
-      sql`${table.positionCount} > 0 AND ${table.unknownValueCount} BETWEEN 0 AND ${table.positionCount} AND ${table.potentialDuplicateCount} BETWEEN 0 AND ${table.positionCount}`,
+      sql`${table.positionCount} > 0 AND ${table.unknownValueCount} BETWEEN 0 AND ${table.positionCount} AND ${table.potentialDuplicateCount} BETWEEN 0 AND ${table.positionCount} AND ${table.cashAccountCount} >= 0 AND ${table.unknownCashAccountCount} BETWEEN 0 AND ${table.cashAccountCount}`,
     ),
     check(
       "portfolio_baselines_values_check",
-      sql`${table.publicMarketValueMinor} >= 0 AND ${table.privatePaperValueMinor} >= 0 AND ${table.priorFiEligibleLiquidMinor} >= 0 AND ${table.fiEligibleLiquidMinor} >= 0`,
+      sql`${table.publicMarketValueMinor} >= 0 AND ${table.privatePaperValueMinor} >= 0 AND ${table.cashAccountValueMinor} >= 0 AND ${table.priorFiEligibleLiquidMinor} >= 0 AND ${table.fiEligibleLiquidMinor} >= 0`,
     ),
     check(
       "portfolio_baselines_note_check",
@@ -1690,6 +1849,52 @@ export const portfolioBaselineItems = sqliteTable(
     check(
       "portfolio_baseline_items_value_state_check",
       sql`(${table.valueState} = 'reported' AND ${table.valueMinor} IS NOT NULL) OR (${table.valueState} <> 'reported' AND ${table.valueMinor} IS NULL)`,
+    ),
+  ],
+);
+
+export const portfolioBaselineCashItems = sqliteTable(
+  "portfolio_baseline_cash_items",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    baselineId: text("baseline_id")
+      .notNull()
+      .references(() => portfolioBaselines.id, { onDelete: "restrict" }),
+    reviewDecisionId: text("review_decision_id")
+      .notNull()
+      .references(() => cashBalanceReviewDecisions.id, {
+        onDelete: "restrict",
+      }),
+    proposalRowId: text("proposal_row_id")
+      .notNull()
+      .references(() => cashBalanceProposalRows.id, { onDelete: "restrict" }),
+    naturalKeySha256: text("natural_key_sha256").notNull(),
+    valueMinor: integer("value_minor"),
+    valueState: text("value_state").notNull(),
+    observedAt: timestamp("observed_at"),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("portfolio_baseline_cash_items_baseline_key_unique").on(
+      table.baselineId,
+      table.naturalKeySha256,
+    ),
+    index("portfolio_baseline_cash_items_baseline_idx").on(
+      table.baselineId,
+      table.naturalKeySha256,
+    ),
+    check(
+      "portfolio_baseline_cash_items_key_check",
+      sql`length(${table.naturalKeySha256}) = 64 AND ${table.naturalKeySha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "portfolio_baseline_cash_items_value_state_check",
+      sql`${table.valueState} IN ('reported', 'not_reported')`,
+    ),
+    check(
+      "portfolio_baseline_cash_items_value_check",
+      sql`(${table.valueState} = 'reported' AND ${table.valueMinor} IS NOT NULL AND ${table.valueMinor} >= 0) OR (${table.valueState} = 'not_reported' AND ${table.valueMinor} IS NULL)`,
     ),
   ],
 );

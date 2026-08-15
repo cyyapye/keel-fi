@@ -111,17 +111,21 @@ Reuse the existing D1, private R2, Queue, and Access boundary where appropriate.
 
 **Exit gates:**
 
-- [ ] Provider, consent, freshness, and cost decision is documented.
-- [ ] Cash-account domain, D1 migration, proposal lifecycle, and synthetic tests
+- [x] Provider, consent, freshness, and cost decision is documented.
+- [x] Cash-account domain, D1 migration, proposal lifecycle, and synthetic tests
       pass.
-- [ ] Holdings review and Portfolio Baseline confirmation work at desktop and
+- [x] Holdings review and Portfolio Baseline confirmation work at desktop and
       mobile sizes with no horizontal overflow.
-- [ ] Duplicate, stale, unavailable, non-USD, and missing-account cases fail
+- [x] Duplicate, stale, unavailable, non-USD, and missing-account cases fail
       closed or remain reviewable as designed.
 - [ ] Private runtime acceptance verifies the provider boundary without putting
       private account data in Git, logs, screenshots, or CI artifacts.
 - [ ] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
+
+Implementation evidence:
+[ADR 002](../architecture/adr-002-reviewed-cash-accounts.md) and the
+[cash-account deployment runbook](../deployment/cash-accounts.md).
 
 ### [ ] M7 — Liabilities to reviewed obligation baseline
 

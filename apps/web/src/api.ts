@@ -5,6 +5,11 @@ import {
   AngelListMacAgentOverviewSchema,
   AngelListMacAgentRunRequestSchema,
   AngelListSignInRefreshSchema,
+  CashAccountApplyInputSchema,
+  CashAccountApplyResultSchema,
+  CashAccountExchangeInputSchema,
+  CashAccountLinkTokenSchema,
+  CashAccountsStateSchema,
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
@@ -28,6 +33,10 @@ import {
   type AngelListMacAgentOverview,
   type AngelListMacAgentRunRequest,
   type AngelListSignInRefresh,
+  type CashAccountApplyInput,
+  type CashAccountApplyResult,
+  type CashAccountLinkToken,
+  type CashAccountsState,
   type CreateSignalUpdateProposalInput,
   type GoalDraftInput,
   type HoldingImportApplyInput,
@@ -87,6 +96,106 @@ export async function loadPortfolioBaseline(
     );
   }
   return PortfolioBaselineStateSchema.parse(await response.json());
+}
+
+export async function loadCashAccounts(
+  signal?: AbortSignal,
+): Promise<CashAccountsState> {
+  const response = await fetch("/api/cash-accounts", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: signal ?? null,
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Cash accounts returned ${response.status}.`,
+    );
+  }
+  return CashAccountsStateSchema.parse(await response.json());
+}
+
+export async function createCashAccountLinkToken(): Promise<CashAccountLinkToken> {
+  const response = await fetch("/api/cash-accounts/link-token", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Cash account connection returned ${response.status}.`,
+    );
+  }
+  return CashAccountLinkTokenSchema.parse(await response.json());
+}
+
+export async function exchangeCashAccountPublicToken(
+  publicToken: string,
+): Promise<CashAccountsState> {
+  const body = CashAccountExchangeInputSchema.parse({ publicToken });
+  const response = await fetch("/api/cash-accounts/exchange", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Cash account connection returned ${response.status}.`,
+    );
+  }
+  return CashAccountsStateSchema.parse(await response.json());
+}
+
+export async function refreshCashAccount(
+  connectionId: string,
+): Promise<CashAccountsState> {
+  const response = await fetch(
+    `/api/cash-accounts/connections/${encodeURIComponent(connectionId)}/refresh`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Cash balance check returned ${response.status}.`,
+    );
+  }
+  return CashAccountsStateSchema.parse(await response.json());
+}
+
+export async function applyCashAccountProposal(
+  proposalId: string,
+  input: CashAccountApplyInput,
+): Promise<CashAccountApplyResult> {
+  const body = CashAccountApplyInputSchema.parse(input);
+  const response = await fetch(
+    `/api/cash-account-proposals/${encodeURIComponent(proposalId)}/apply`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Cash account review returned ${response.status}.`,
+    );
+  }
+  return CashAccountApplyResultSchema.parse(await response.json());
 }
 
 export async function confirmPortfolioBaseline(

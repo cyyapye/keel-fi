@@ -52,6 +52,15 @@ snapshot.
   update versions an existing Portfolio Baseline, forecast, and matching FI goal
   with the already accepted other-liquid amount; initial baselines, unavailable
   values, and possible overlaps remain explicit.
+- User-initiated Plaid cash-balance checks. Checking, savings, money-market, and
+  cash-management observations remain dated proposals until reviewed; missing,
+  non-USD, and unavailable balances stay explicit.
+- A Portfolio Baseline step combines accepted public-market holdings, reviewed
+  cash accounts, and a manual residual without double counting. Private paper
+  remains outside current liquidity. Confirmation versions the FI plan,
+  forecast, and matching FI goal together. Cash changes wait for a separate
+  baseline review; unavailable values stay unknown and possible overlaps require
+  acknowledgment.
 - An editable runway plan in Scenarios for household burn, business burn, and
   the protected cash floor. The editor previews the impact without changing the
   accepted plan; saving appends an attributed cash plan and forecast version.
@@ -81,8 +90,11 @@ docs/           product, architecture, security, and deployment decisions
 ```
 
 See [the architecture overview](docs/architecture/overview.md) and
-[Cloudflare ADR](docs/architecture/adr-001-cloudflare-private-alpha.md). The
-optional AngelList workflow is documented in the
+[Cloudflare ADR](docs/architecture/adr-001-cloudflare-private-alpha.md). Plaid
+cash-account policy is captured in
+[ADR 002](docs/architecture/adr-002-reviewed-cash-accounts.md) and its
+[deployment runbook](docs/deployment/cash-accounts.md). The optional AngelList
+workflow is documented in the
 [Mac agent runbook](docs/deployment/angellist-browser-import.md).
 
 ## Local development

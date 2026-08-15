@@ -8,6 +8,8 @@ import {
   type AngelListMacAgentInterval,
   type AngelListMacAgentOverview,
   type AngelListSignInRefresh,
+  type CashAccountsState,
+  type CashBalanceProposal,
   type EvidenceInboxItem,
   type Goal,
   type GoalDraftInput,
@@ -40,23 +42,28 @@ import {
 
 import {
   applyAcceptedEvidence,
+  applyCashAccountProposal,
   applyHoldingImport,
   cancelAngelListSignInRefresh,
   confirmPortfolioBaseline,
   configureAngelListMacAgent,
+  createCashAccountLinkToken,
   createRobinhoodLinkToken,
   createSignalUpdateProposal as submitSignalUpdateProposal,
   getAngelListSignInRefresh,
+  exchangeCashAccountPublicToken,
   exchangeRobinhoodPublicToken,
   listPendingHoldingImports,
   loadAngelListAutomationOverview,
   loadAlphaData,
   loadHoldingImport,
   loadLegacyAngelListAutomationOverview,
+  loadCashAccounts,
   loadPortfolioBaseline,
   loadRobinhoodSyncStatus,
   previewAngelListHoldingImport,
   requestAngelListUpdate,
+  refreshCashAccount,
   saveGoalVersion,
   saveScenarioVersion,
   scanPortfolioWatch,
@@ -73,7 +80,7 @@ import {
   formatMoney,
   formatProbability,
 } from "./format";
-import { openRobinhoodLink } from "./plaid-link";
+import { openPlaidLink } from "./plaid-link";
 import { PlanInputsEditor } from "./PlanInputsEditor";
 
 type Screen =
@@ -3045,6 +3052,7 @@ function AngelListSignInControl() {
 }
 
 const ROBINHOOD_LINK_TOKEN_STORAGE_KEY = "keel.robinhoodLinkToken";
+const PLAID_OAUTH_FLOW_STORAGE_KEY = "keel.plaidOauthFlow";
 const ROBINHOOD_OAUTH_RECONNECT_MESSAGE =
   "Reconnect Robinhood to finish signing in.";
 
@@ -3056,6 +3064,8 @@ function initialRobinhoodSyncError(): string | null {
     "oauth_state_id",
   );
   return returningFromOauth &&
+    window.sessionStorage.getItem(PLAID_OAUTH_FLOW_STORAGE_KEY) ===
+      "robinhood" &&
     window.sessionStorage.getItem(ROBINHOOD_LINK_TOKEN_STORAGE_KEY) === null
     ? ROBINHOOD_OAUTH_RECONNECT_MESSAGE
     : null;
@@ -3130,6 +3140,7 @@ function RobinhoodSyncControl({
       try {
         const next = await exchangeRobinhoodPublicToken(publicToken);
         window.sessionStorage.removeItem(ROBINHOOD_LINK_TOKEN_STORAGE_KEY);
+        window.sessionStorage.removeItem(PLAID_OAUTH_FLOW_STORAGE_KEY);
         if (window.location.search.length > 0) {
           window.history.replaceState(null, "", window.location.pathname);
         }
@@ -3147,7 +3158,7 @@ function RobinhoodSyncControl({
 
   const openLink = useCallback(
     async (linkToken: string, receivedRedirectUri?: string) => {
-      await openRobinhoodLink({
+      await openPlaidLink({
         linkToken,
         onExit: () => setBusyAction(null),
         onSuccess: (publicToken) => void exchangeToken(publicToken),
@@ -3160,7 +3171,9 @@ function RobinhoodSyncControl({
   useEffect(() => {
     if (
       oauthStarted.current ||
-      !new URLSearchParams(window.location.search).has("oauth_state_id")
+      !new URLSearchParams(window.location.search).has("oauth_state_id") ||
+      window.sessionStorage.getItem(PLAID_OAUTH_FLOW_STORAGE_KEY) !==
+        "robinhood"
     ) {
       return;
     }
@@ -3194,6 +3207,7 @@ function RobinhoodSyncControl({
         ROBINHOOD_LINK_TOKEN_STORAGE_KEY,
         result.linkToken,
       );
+      window.sessionStorage.setItem(PLAID_OAUTH_FLOW_STORAGE_KEY, "robinhood");
       await openLink(result.linkToken);
     } catch {
       setBusyAction(null);
@@ -3336,6 +3350,533 @@ function RobinhoodSyncControl({
   );
 }
 
+const CASH_LINK_TOKEN_STORAGE_KEY = "keel.cashLinkToken";
+
+function initialCashAccountError(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return new URLSearchParams(window.location.search).has("oauth_state_id") &&
+    window.sessionStorage.getItem(PLAID_OAUTH_FLOW_STORAGE_KEY) === "cash" &&
+    window.sessionStorage.getItem(CASH_LINK_TOKEN_STORAGE_KEY) === null
+    ? "Reconnect the institution to finish signing in."
+    : null;
+}
+
+function cashProposalValueLabel(
+  row: CashBalanceProposal["rows"][number],
+): string {
+  if (row.valueState === "not_reported") {
+    return "Not reported";
+  }
+  if (row.valueMinor === null) {
+    return "Needs attention";
+  }
+  return formatMoney(row.valueMinor);
+}
+
+function acceptedCashValueLabel(valueMinor: number | null): string {
+  return valueMinor === null ? "Not reported" : formatMoney(valueMinor);
+}
+
+function CashBalanceProposalReview({
+  onApplied,
+  onCancel,
+  proposal,
+}: {
+  onApplied: () => Promise<void>;
+  onCancel: () => void;
+  proposal: CashBalanceProposal;
+}) {
+  const [includedByRow, setIncludedByRow] = useState<Record<string, boolean>>(
+    () =>
+      Object.fromEntries(
+        proposal.rows.map((row) => [
+          row.id,
+          row.valueState === "reported" || row.valueState === "not_reported",
+        ]),
+      ),
+  );
+  const [changeNote, setChangeNote] = useState(
+    `Reviewed ${proposal.institutionLabel} cash balances.`,
+  );
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
+  const apply = async () => {
+    setWorking(true);
+    setError(null);
+    try {
+      await applyCashAccountProposal(proposal.id, {
+        changeNote: changeNote.trim(),
+        decisions: proposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: includedByRow[row.id] ? "accepted" : "excluded",
+        })),
+      });
+      await onApplied();
+    } catch (applyError: unknown) {
+      setError(
+        applyError instanceof Error
+          ? applyError.message
+          : "The cash account review could not be applied.",
+      );
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <div className="cash-review">
+      <header className="cash-review__heading">
+        <p className="eyebrow">Cash balance review</p>
+        <h3 ref={headingRef} tabIndex={-1}>
+          Review {proposal.institutionLabel}
+        </h3>
+        <p>
+          {proposal.refreshKind === "live"
+            ? `Live balances checked ${formatDate(proposal.observedAt)}.`
+            : `Cached account data retrieved ${formatDate(proposal.observedAt)}.`}{" "}
+          Choose which balances become reviewed source facts; the FI plan still
+          waits for baseline confirmation.
+        </p>
+      </header>
+
+      <div aria-label="Cash balance totals" className="cash-review__totals">
+        <span>
+          <strong>{proposal.summary.rowCount}</strong> accounts
+        </span>
+        <span>
+          <strong>
+            {formatCompactMoney(proposal.summary.totalReportedMinor)}
+          </strong>{" "}
+          reported
+        </span>
+        <span>
+          <strong>{proposal.summary.needsAttentionCount}</strong> need attention
+        </span>
+      </div>
+
+      <div className="cash-review__rows">
+        {proposal.rows.map((row) => {
+          const canAccept =
+            row.valueState === "reported" || row.valueState === "not_reported";
+          const checked = includedByRow[row.id] ?? false;
+          return (
+            <article key={row.id}>
+              <div>
+                <span className="cash-review__type">{row.subtype}</span>
+                <strong>{row.accountLabel}</strong>
+                <small>
+                  {row.action === "new_account"
+                    ? "New account"
+                    : row.action === "update_balance"
+                      ? `Previously ${row.priorValueMinor === null ? "not reported" : formatMoney(row.priorValueMinor)}`
+                      : row.action === "no_change"
+                        ? "Balance unchanged"
+                        : row.action === "not_reported"
+                          ? "Missing from this check"
+                          : "Cannot be used as cash"}
+                </small>
+              </div>
+              <div className="cash-review__decision">
+                <strong>{cashProposalValueLabel(row)}</strong>
+                {row.balanceSource !== null && (
+                  <span>{row.balanceSource} balance</span>
+                )}
+                <label>
+                  <input
+                    checked={checked}
+                    disabled={!canAccept || working}
+                    onChange={(event) =>
+                      setIncludedByRow((current) => ({
+                        ...current,
+                        [row.id]: event.currentTarget.checked,
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>
+                    {row.valueState === "not_reported"
+                      ? "Confirm not reported"
+                      : canAccept
+                        ? "Use as reviewed cash"
+                        : "Cannot use this balance"}
+                  </span>
+                </label>
+              </div>
+              {row.issues.length > 0 && (
+                <p className="cash-review__issue">{row.issues.join(" ")}</p>
+              )}
+            </article>
+          );
+        })}
+      </div>
+
+      <label className="field cash-review__note" htmlFor="cash-review-note">
+        <span>What changed</span>
+        <input
+          id="cash-review-note"
+          maxLength={500}
+          onChange={(event) => setChangeNote(event.currentTarget.value)}
+          value={changeNote}
+        />
+      </label>
+      {error !== null && (
+        <p className="inline-error" role="alert">
+          {error}
+        </p>
+      )}
+      <footer className="cash-review__actions">
+        <p>Applying this review does not change the FI plan.</p>
+        <div>
+          <Button disabled={working} onClick={onCancel} tone="quiet">
+            Review later
+          </Button>
+          <Button
+            disabled={working || changeNote.trim().length === 0}
+            onClick={() => void apply()}
+            tone="primary"
+          >
+            {working ? "Applying…" : "Apply cash review"}
+          </Button>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function CashAccountsControl({
+  onAccepted,
+}: {
+  onAccepted: () => Promise<void>;
+}) {
+  const [state, setState] = useState<CashAccountsState | null>(null);
+  const [activeProposalId, setActiveProposalId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialCashAccountError);
+  const oauthStarted = useRef(false);
+
+  const reload = useCallback(async (signal?: AbortSignal) => {
+    const next = await loadCashAccounts(signal);
+    setState(next);
+    setError(null);
+    return next;
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void reload(controller.signal).catch((loadError: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Keel could not check cash accounts.",
+          );
+        }
+      });
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [reload]);
+
+  const acceptState = useCallback((next: CashAccountsState) => {
+    setState(next);
+    setError(null);
+    const pending = next.pendingProposals[0];
+    if (pending !== undefined) {
+      setActiveProposalId(pending.id);
+      setNotice(null);
+    } else {
+      setNotice("Balances checked. No review is waiting.");
+    }
+  }, []);
+
+  const exchangeToken = useCallback(
+    async (publicToken: string) => {
+      setBusyAction("exchange");
+      setError(null);
+      setNotice(null);
+      try {
+        const next = await exchangeCashAccountPublicToken(publicToken);
+        window.sessionStorage.removeItem(CASH_LINK_TOKEN_STORAGE_KEY);
+        window.sessionStorage.removeItem(PLAID_OAUTH_FLOW_STORAGE_KEY);
+        if (window.location.search.length > 0) {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+        acceptState(next);
+      } catch (exchangeError: unknown) {
+        setError(
+          exchangeError instanceof Error
+            ? exchangeError.message
+            : "The cash account could not be connected.",
+        );
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [acceptState],
+  );
+
+  const openLink = useCallback(
+    async (linkToken: string, receivedRedirectUri?: string) => {
+      await openPlaidLink({
+        linkToken,
+        onExit: () => setBusyAction(null),
+        onSuccess: (publicToken) => void exchangeToken(publicToken),
+        ...(receivedRedirectUri === undefined ? {} : { receivedRedirectUri }),
+      });
+    },
+    [exchangeToken],
+  );
+
+  useEffect(() => {
+    if (
+      oauthStarted.current ||
+      !new URLSearchParams(window.location.search).has("oauth_state_id") ||
+      window.sessionStorage.getItem(PLAID_OAUTH_FLOW_STORAGE_KEY) !== "cash"
+    ) {
+      return;
+    }
+    const linkToken = window.sessionStorage.getItem(
+      CASH_LINK_TOKEN_STORAGE_KEY,
+    );
+    if (linkToken === null) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (oauthStarted.current) {
+        return;
+      }
+      oauthStarted.current = true;
+      setBusyAction("connect");
+      void openLink(linkToken, window.location.href).catch(() => {
+        setBusyAction(null);
+        setError("The cash account connection could not be reopened.");
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [openLink]);
+
+  const connect = async () => {
+    setBusyAction("connect");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await createCashAccountLinkToken();
+      window.sessionStorage.setItem(
+        CASH_LINK_TOKEN_STORAGE_KEY,
+        result.linkToken,
+      );
+      window.sessionStorage.setItem(PLAID_OAUTH_FLOW_STORAGE_KEY, "cash");
+      await openLink(result.linkToken);
+    } catch (connectError: unknown) {
+      setBusyAction(null);
+      setError(
+        connectError instanceof Error
+          ? connectError.message
+          : "The cash account connection could not be opened.",
+      );
+    }
+  };
+
+  const checkBalances = async (connectionId: string) => {
+    setBusyAction(connectionId);
+    setError(null);
+    setNotice(null);
+    try {
+      acceptState(await refreshCashAccount(connectionId));
+    } catch (refreshError: unknown) {
+      setError(
+        refreshError instanceof Error
+          ? refreshError.message
+          : "Cash balances could not be checked.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const activeProposal =
+    state?.pendingProposals.find(
+      (proposal) => proposal.id === activeProposalId,
+    ) ?? null;
+  const acceptedCashMinor = addMinorUnits(
+    ...(state?.acceptedAccounts.map((account) => account.valueMinor ?? 0) ??
+      []),
+  );
+  const setupRequired = state?.status === "setup_required";
+
+  return (
+    <section aria-labelledby="cash-accounts-title" className="cash-accounts">
+      <div className="cash-accounts__heading">
+        <div>
+          <p className="eyebrow">Cash accounts</p>
+          <h2 id="cash-accounts-title">
+            {setupRequired
+              ? "Cash accounts need setup"
+              : state?.status === "disconnected"
+                ? "Add cash accounts"
+                : "Reviewed cash, on your terms"}
+          </h2>
+          <p>
+            Checking, savings, money-market, and cash-management balances wait
+            for review before they can enter the FI baseline.
+          </p>
+        </div>
+        {!setupRequired && (
+          <Button
+            disabled={busyAction !== null}
+            onClick={() => void connect()}
+            tone={state?.connections.length === 0 ? "primary" : "secondary"}
+          >
+            {busyAction === "connect" || busyAction === "exchange"
+              ? "Connecting…"
+              : state?.connections.length === 0
+                ? "Connect cash account"
+                : "Add institution"}
+          </Button>
+        )}
+      </div>
+
+      {setupRequired && (
+        <p className="cash-accounts__setup">
+          Add the Plaid connection settings to enable cash accounts.
+        </p>
+      )}
+
+      {state !== null && state.acceptedAccounts.length > 0 && (
+        <div className="cash-accounts__accepted">
+          <div>
+            <span>Reviewed cash</span>
+            <strong>{formatCompactMoney(acceptedCashMinor)}</strong>
+          </div>
+          <div className="cash-accounts__accepted-list">
+            {state.acceptedAccounts.map((account) => (
+              <span key={account.id}>
+                <strong>{account.accountLabel}</strong>
+                <small>
+                  {account.institutionLabel} ·{" "}
+                  {acceptedCashValueLabel(account.valueMinor)} ·{" "}
+                  {account.refreshKind === "live"
+                    ? "live balance checked"
+                    : "cached data retrieved"}{" "}
+                  {formatDate(account.observedAt)}
+                </small>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {state !== null && state.connections.length > 0 && (
+        <div className="cash-accounts__connections">
+          {state.connections.map((connection) => {
+            const reviewWaiting = state.pendingProposals.some(
+              (proposal) => proposal.connectionId === connection.id,
+            );
+            return (
+              <div key={connection.id}>
+                <span>
+                  <strong>{connection.institutionLabel}</strong>
+                  <small>
+                    {connection.lastCheckedAt === null
+                      ? "No retrieval yet"
+                      : `Last retrieval ${formatDate(connection.lastCheckedAt)}`}
+                    {` · ${connection.liveRefreshesRemaining} live ${connection.liveRefreshesRemaining === 1 ? "check" : "checks"} left this month`}
+                  </small>
+                </span>
+                <Button
+                  disabled={
+                    busyAction !== null ||
+                    reviewWaiting ||
+                    connection.liveRefreshesRemaining === 0
+                  }
+                  onClick={() => void checkBalances(connection.id)}
+                  tone="secondary"
+                >
+                  {busyAction === connection.id
+                    ? "Checking…"
+                    : reviewWaiting
+                      ? "Review waiting"
+                      : "Check balances"}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {state !== null && state.pendingProposals.length > 0 && (
+        <div className="cash-accounts__pending">
+          {state.pendingProposals.map((proposal) => (
+            <div key={proposal.id}>
+              <span>
+                <strong>{proposal.institutionLabel} is ready to review</strong>
+                <small>
+                  {proposal.summary.rowCount} accounts ·{" "}
+                  {proposal.refreshKind === "live"
+                    ? "live balances checked"
+                    : "cached data retrieved"}{" "}
+                  {formatDate(proposal.observedAt)}
+                </small>
+              </span>
+              <Button
+                onClick={() => setActiveProposalId(proposal.id)}
+                tone="primary"
+              >
+                Review balances
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeProposal !== null && (
+        <CashBalanceProposalReview
+          key={activeProposal.id}
+          onApplied={async () => {
+            setActiveProposalId(null);
+            await Promise.all([reload(), onAccepted()]);
+            setNotice(
+              "Cash review applied. Review the FI baseline when it appears.",
+            );
+          }}
+          onCancel={() => setActiveProposalId(null)}
+          proposal={activeProposal}
+        />
+      )}
+
+      {notice !== null && (
+        <p className="cash-accounts__notice" role="status">
+          {notice}
+        </p>
+      )}
+      {error !== null && (
+        <p className="cash-accounts__error" role="alert">
+          {error}
+        </p>
+      )}
+      {!setupRequired && (
+        <p className="cash-accounts__cost-note">
+          Plaid may charge once when you connect and for each live balance
+          check. Keel runs live checks only when you ask, up to four per
+          institution each month.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function minorUnitsToDollarInput(value: number): string {
   const minor = BigInt(value);
   const dollars = (minor / 100n).toLocaleString("en-US");
@@ -3378,9 +3919,11 @@ function PortfolioBaselineSection({
   const [reviewing, setReviewing] = useState(false);
   const [otherLiquidInput, setOtherLiquidInput] = useState("");
   const [changeNote, setChangeNote] = useState(
-    "Replaced the FI liquid baseline with reviewed holdings.",
+    "Replaced the FI liquid baseline with reviewed sources.",
   );
   const [duplicateReviewConfirmed, setDuplicateReviewConfirmed] =
+    useState(false);
+  const [cashOverlapReviewConfirmed, setCashOverlapReviewConfirmed] =
     useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3423,7 +3966,9 @@ function PortfolioBaselineSection({
       state === null ||
       state.status !== "ready" ||
       state.latestBaseline === null ||
+      state.hasCashAccountChanges ||
       state.requiresDuplicateReview ||
+      state.requiresCashOverlapReview ||
       !state.canConfirm ||
       state.sourceRevision === null ||
       state.baseForecastSnapshotId === null ||
@@ -3441,6 +3986,7 @@ function PortfolioBaselineSection({
       otherFiEligibleLiquidMinor:
         state.latestBaseline.otherFiEligibleLiquidMinor,
       duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
       changeNote: "Accepted holdings refreshed automatically.",
     };
     let cancelled = false;
@@ -3503,6 +4049,7 @@ function PortfolioBaselineSection({
     }
     return addMinorUnits(
       state.summary.publicMarketValueMinor,
+      state.summary.cashAccountValueMinor,
       proposedOtherLiquidMinor,
     );
   }, [proposedOtherLiquidMinor, state]);
@@ -3523,8 +4070,9 @@ function PortfolioBaselineSection({
     setOtherLiquidInput(
       minorUnitsToDollarInput(state.suggestedOtherFiEligibleLiquidMinor),
     );
-    setChangeNote("Replaced the FI liquid baseline with reviewed holdings.");
+    setChangeNote("Replaced the FI liquid baseline with reviewed sources.");
     setDuplicateReviewConfirmed(false);
+    setCashOverlapReviewConfirmed(false);
     setError(null);
     setReviewing(true);
   };
@@ -3546,6 +4094,7 @@ function PortfolioBaselineSection({
       baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
       otherFiEligibleLiquidMinor: proposedOtherLiquidMinor,
       duplicateReviewConfirmed,
+      cashOverlapReviewConfirmed,
       changeNote: changeNote.trim(),
     };
     setWorking(true);
@@ -3595,6 +4144,19 @@ function PortfolioBaselineSection({
   if (reviewing) {
     const otherLiquidInputInvalid = proposedOtherLiquidMinor === null;
     const duplicateCount = state.summary.potentialDuplicateCount;
+    const brokerageCashMinor = addMinorUnits(
+      ...state.positions
+        .filter(
+          (position) => position.isCashPosition && position.valueMinor !== null,
+        )
+        .map((position) => position.valueMinor ?? 0),
+    );
+    const requiresCashOverlapReview =
+      [
+        state.summary.cashAccountValueMinor,
+        brokerageCashMinor,
+        proposedOtherLiquidMinor ?? 0,
+      ].filter((value) => value > 0).length > 1;
     return (
       <section
         aria-labelledby="portfolio-baseline-review-title"
@@ -3610,16 +4172,22 @@ function PortfolioBaselineSection({
             Review the new FI liquid baseline
           </h2>
           <p>
-            Reviewed public-market holdings are included in full. Add only cash
-            or liquid assets held elsewhere.
+            Reviewed public-market holdings and cash accounts are included in
+            full. Add only liquid assets not already listed below.
           </p>
         </header>
 
-        <div aria-label="Reviewed holding totals" className="baseline-totals">
+        <div aria-label="Reviewed source totals" className="baseline-totals">
           <div>
-            <span>Imported liquid</span>
+            <span>Public holdings</span>
             <strong>
               {formatCompactMoney(state.summary.publicMarketValueMinor)}
+            </strong>
+          </div>
+          <div>
+            <span>Cash accounts</span>
+            <strong>
+              {formatCompactMoney(state.summary.cashAccountValueMinor)}
             </strong>
           </div>
           <div>
@@ -3630,9 +4198,40 @@ function PortfolioBaselineSection({
           </div>
           <div>
             <span>Value unavailable</span>
-            <strong>{state.summary.unknownValueCount}</strong>
+            <strong>
+              {state.summary.unknownValueCount +
+                state.summary.unknownCashAccountCount}
+            </strong>
           </div>
         </div>
+
+        {state.cashAccounts.length > 0 && (
+          <div className="baseline-position-list baseline-cash-list">
+            <div className="baseline-position-list__header">
+              <span>Reviewed cash account</span>
+              <span>Reviewed balance</span>
+            </div>
+            {state.cashAccounts.map((account) => (
+              <article key={account.id}>
+                <div>
+                  <strong>{account.accountLabel}</strong>
+                  <span>
+                    {account.institutionLabel} · {account.subtype}
+                  </span>
+                </div>
+                <div>
+                  <strong>{acceptedCashValueLabel(account.valueMinor)}</strong>
+                  <span>
+                    {account.refreshKind === "live"
+                      ? "Live balance checked"
+                      : "Cached data retrieved"}{" "}
+                    {formatDate(account.observedAt)}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
 
         <div className="baseline-position-list">
           <div className="baseline-position-list__header">
@@ -3653,9 +4252,11 @@ function PortfolioBaselineSection({
               <div>
                 <strong>{baselineValueLabel(position)}</strong>
                 <span>
-                  {position.classification === "public_market"
-                    ? "Public market"
-                    : "Private paper"}
+                  {position.isCashPosition
+                    ? "Brokerage cash"
+                    : position.classification === "public_market"
+                      ? "Public market"
+                      : "Private paper"}
                 </span>
               </div>
             </article>
@@ -3691,11 +4292,17 @@ function PortfolioBaselineSection({
                   {formatMoney(state.summary.publicMarketValueMinor)}
                 </strong>
               </div>
+              <div className="baseline-liquid-composition__row">
+                <span>Reviewed cash accounts</span>
+                <strong>
+                  {formatMoney(state.summary.cashAccountValueMinor)}
+                </strong>
+              </div>
               <label
                 className="field baseline-liquid-composition__field"
                 htmlFor="other-fi-eligible-liquid-input"
               >
-                <span>Other FI-eligible liquid assets</span>
+                <span>Manual liquid residual</span>
                 <span className="field__value">
                   <i>$</i>
                   <input
@@ -3720,9 +4327,25 @@ function PortfolioBaselineSection({
               </div>
             </div>
             <p id="fi-eligible-liquid-help">
-              Private paper stays outside current liquidity. Nothing changes
-              until you confirm. Locked values remain unknown.
+              Enter only eligible liquid assets not represented by a linked cash
+              account or public holding. Private paper stays outside current
+              liquidity and unavailable values remain unknown.
             </p>
+            {requiresCashOverlapReview && (
+              <label className="baseline-overlap-confirmation">
+                <input
+                  checked={cashOverlapReviewConfirmed}
+                  onChange={(event) =>
+                    setCashOverlapReviewConfirmed(event.currentTarget.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  I checked linked cash accounts, brokerage cash positions, and
+                  the manual residual and removed any overlap.
+                </span>
+              </label>
+            )}
             <label className="field" htmlFor="portfolio-baseline-change-note">
               <span>What changed</span>
               <input
@@ -3804,7 +4427,8 @@ function PortfolioBaselineSection({
                 working ||
                 proposedImpact === null ||
                 changeNote.trim().length === 0 ||
-                (state.requiresDuplicateReview && !duplicateReviewConfirmed)
+                (state.requiresDuplicateReview && !duplicateReviewConfirmed) ||
+                (requiresCashOverlapReview && !cashOverlapReviewConfirmed)
               }
               onClick={() => void confirm()}
               tone="primary"
@@ -3821,11 +4445,15 @@ function PortfolioBaselineSection({
   const isUpdatingAutomatically =
     !isCurrent &&
     state.latestBaseline !== null &&
-    !state.requiresDuplicateReview;
+    !state.hasCashAccountChanges &&
+    !state.requiresDuplicateReview &&
+    !state.requiresCashOverlapReview;
   const requiresOverlapReview =
     !isCurrent &&
     state.latestBaseline !== null &&
-    state.requiresDuplicateReview;
+    (state.requiresDuplicateReview || state.requiresCashOverlapReview);
+  const requiresSourceReview =
+    !isCurrent && state.latestBaseline !== null && state.hasCashAccountChanges;
   return (
     <section
       aria-labelledby="portfolio-baseline-title"
@@ -3840,16 +4468,20 @@ function PortfolioBaselineSection({
               ? "Updating the planning baseline"
               : requiresOverlapReview
                 ? "Possible overlaps need review"
-                : "Set the FI planning baseline"}
+                : requiresSourceReview
+                  ? "Cash changes are ready to review"
+                  : "Set the FI planning baseline"}
         </h2>
         <p>
           {isCurrent
-            ? `Updated ${formatDate(state.latestBaseline?.createdAt ?? state.observedAt ?? "")}. Accepted holdings update this plan automatically.`
+            ? `Updated ${formatDate(state.latestBaseline?.createdAt ?? state.observedAt ?? "")}. Accepted holdings can update automatically; cash changes wait for review.`
             : isUpdatingAutomatically
               ? "Accepted holdings changed. Keel is updating the FI plan automatically."
               : requiresOverlapReview
-                ? "Confirm which accepted positions overlap before Keel updates the FI plan."
-                : "Set imported liquid holdings as the FI baseline and add eligible liquid assets held elsewhere."}
+                ? "Confirm which accepted sources overlap before Keel updates the FI plan."
+                : requiresSourceReview
+                  ? "Review accepted cash accounts and the manual residual. Nothing changes until you confirm."
+                  : "Set reviewed holdings and cash accounts as the FI baseline, then add any eligible liquid assets held elsewhere."}
         </p>
         {error !== null && (
           <p className="portfolio-baseline__error" role="status">
@@ -3865,6 +4497,9 @@ function PortfolioBaselineSection({
           <strong>{state.summary.unknownValueCount}</strong> values unavailable
         </span>
         <span>
+          <strong>{state.summary.cashAccountCount}</strong> cash accounts
+        </span>
+        <span>
           <strong>
             {formatCompactMoney(state.planning.currentFiEligibleLiquidMinor)}
           </strong>{" "}
@@ -3873,7 +4508,11 @@ function PortfolioBaselineSection({
       </div>
       {!isCurrent && !isUpdatingAutomatically && (
         <Button onClick={openReview} tone="primary">
-          {requiresOverlapReview ? "Review overlaps" : "Set baseline"}
+          {requiresOverlapReview
+            ? "Review overlaps"
+            : requiresSourceReview
+              ? "Review cash changes"
+              : "Set baseline"}
         </Button>
       )}
     </section>
@@ -3918,6 +4557,7 @@ function Holdings({
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(
     null,
   );
+  const [cashRefreshVersion, setCashRefreshVersion] = useState(0);
   const holdingActionRefs = useRef(new Map<string, HTMLButtonElement>());
   const selectedHolding =
     data.holdings.find((holding) => holding.id === selectedHoldingId) ?? null;
@@ -3928,13 +4568,13 @@ function Holdings({
     routedPreviewError?.importId === requestedImportId
       ? routedPreviewError.message
       : null;
-  const baselineRefreshKey = data.holdings
+  const baselineRefreshKey = `${data.holdings
     .map(
       (holding) =>
         `${holding.id}:${holding.effectiveDate}:${holding.administratorNavMinor ?? "unknown"}`,
     )
     .sort((left, right) => left.localeCompare(right))
-    .join("|");
+    .join("|")}:cash:${cashRefreshVersion}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -4091,6 +4731,12 @@ function Holdings({
         )
       ) : (
         <>
+          <CashAccountsControl
+            onAccepted={() => {
+              setCashRefreshVersion((current) => current + 1);
+              return Promise.resolve();
+            }}
+          />
           <PortfolioBaselineSection
             onConfirmed={onBaselineConfirmed}
             refreshKey={baselineRefreshKey}

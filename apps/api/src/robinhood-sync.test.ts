@@ -412,7 +412,9 @@ describe("Robinhood Plaid sync", () => {
       sourceRevision: "c".repeat(64),
       baseForecastSnapshotId: "synthetic-forecast",
       baseForecastSnapshotVersion: 3,
+      hasCashAccountChanges: false,
       requiresDuplicateReview: false,
+      requiresCashOverlapReview: false,
       latestBaseline: { otherFiEligibleLiquidMinor: 25_000_000 },
     });
     const confirm = vi.fn().mockResolvedValue({
@@ -478,6 +480,7 @@ describe("Robinhood Plaid sync", () => {
       baseForecastSnapshotVersion: 3,
       otherFiEligibleLiquidMinor: 25_000_000,
       duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
       changeNote: "Robinhood holdings refreshed automatically.",
     });
     expect(repository.failSync).not.toHaveBeenCalled();
