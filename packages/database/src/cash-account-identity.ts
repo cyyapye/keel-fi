@@ -123,13 +123,29 @@ export function projectCashAccountIdentities<
     }
   };
 
-  rows.forEach((row) =>
+  rows.forEach((row) => {
     connect(
       row.connector_account_id,
       row.natural_key_sha256,
       row.item_account_key_sha256,
-    ),
-  );
+    );
+    if (
+      row.item_account_key_sha256 === null &&
+      row.value_state !== "not_reported"
+    ) {
+      // Before Item-scoped keys were retained, the natural key was derived
+      // from Plaid's account_id. Bridge that legacy key into the Item namespace
+      // so a later persistent_account_id can continue the same lineage.
+      union(
+        identityNode(
+          row.connector_account_id,
+          "natural",
+          row.natural_key_sha256,
+        ),
+        identityNode(row.connector_account_id, "item", row.natural_key_sha256),
+      );
+    }
+  });
   observations.forEach((observation) =>
     connect(
       observation.connectorAccountId,
