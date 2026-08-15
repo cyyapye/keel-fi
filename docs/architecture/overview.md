@@ -8,8 +8,10 @@ The diagram below describes the shipped architecture. The accepted target model
 for connecting multiple investment institutions, keeping same-security holdings
 separate by account, and keeping same-company SPV interests legally distinct is
 [ADR 005: Multi-source holdings identity](./adr-005-multi-source-holdings-identity.md).
-Its implementation is pending; Robinhood and AngelList remain the currently
-implemented holding sources.
+Its additive connection, container, coverage, and exposure persistence contract
+is present but initially empty. Legacy association, generic ingestion, and
+additional-institution authorization remain pending; Robinhood and AngelList are
+still the implemented holding sources.
 
 ```mermaid
 flowchart LR
@@ -79,6 +81,12 @@ flowchart LR
   the residual as the FI-eligible replacement. Private paper remains outside
   current liquidity. Confirmation writes the new FI cash plan, forecast, and
   primary FI goal version in one D1 batch.
+- Multi-source investment identity uses HMAC-derived connection, container, and
+  position keys. Institution and account labels are versioned metadata rather
+  than identity. The additive M9 tables initially contain no legacy association
+  and cannot contribute value to a Portfolio Baseline; later slices must prove
+  compatibility before changing any holding write or read path. See the
+  [multi-source holdings runbook](../deployment/multi-source-holdings.md).
 - Cash-account linking requests only Plaid Auth and eligible US depository
   subtypes. The initial cached account response and every explicit live balance
   check become proposals. D1 retains HMAC-derived account keys and normalized
@@ -137,8 +145,11 @@ Cash-flow plans, forecast snapshots, outputs, company forecasts, liquidity
 curves, portfolio baseline records and items, cash-account review decisions,
 liability proposal rows and review decisions, cash-flow activation events,
 aggregate burn proposals and reviews, other review decisions, and
-actual-liquidity events are guarded by D1 triggers against rewriting. Accepted
-marks and accepted evidence cannot be deleted. Redacted transaction revisions
-are append-only until the 24-month retention boundary or explicit disconnect
-deletes them. A new provider observation, forecast, Portfolio Baseline, or
-runway-plan save changes the accepted record by appending a new version.
+actual-liquidity events are guarded by D1 triggers against rewriting. Investment
+connections and containers use immutable identities plus versioned metadata;
+accepted position ownership, coverage, exposure identities, and mapping versions
+are also append-only. Accepted marks and accepted evidence cannot be deleted.
+Redacted transaction revisions are append-only until the 24-month retention
+boundary or explicit disconnect deletes them. A new provider observation,
+forecast, Portfolio Baseline, or runway-plan save changes the accepted record by
+appending a new version.
