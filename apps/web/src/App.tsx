@@ -3405,7 +3405,15 @@ function CashBalanceProposalReview({
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    headingRef.current?.focus();
+    const heading = headingRef.current;
+    if (heading === null) {
+      return;
+    }
+    const animationFrame = window.requestAnimationFrame(() => {
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ block: "start", behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
   }, []);
 
   const apply = async () => {
@@ -3434,16 +3442,15 @@ function CashBalanceProposalReview({
   return (
     <div className="cash-review">
       <header className="cash-review__heading">
-        <p className="eyebrow">Cash balance review</p>
         <h3 ref={headingRef} tabIndex={-1}>
-          Review {proposal.institutionLabel}
+          {proposal.institutionLabel} balances
         </h3>
         <p>
           {proposal.refreshKind === "live"
-            ? `Live balances checked ${formatDate(proposal.observedAt)}.`
-            : `Cached account data retrieved ${formatDate(proposal.observedAt)}.`}{" "}
-          Choose which balances become reviewed source facts; the FI plan still
-          waits for baseline confirmation.
+            ? `Live balances from ${formatDate(proposal.observedAt)}.`
+            : `Cached balances from ${formatDate(proposal.observedAt)}.`}{" "}
+          Choose which balances to approve. Your FI plan will not change until
+          you confirm its baseline.
         </p>
       </header>
 
@@ -3505,8 +3512,8 @@ function CashBalanceProposalReview({
                     {row.valueState === "not_reported"
                       ? "Confirm not reported"
                       : canAccept
-                        ? "Use as reviewed cash"
-                        : "Cannot use this balance"}
+                        ? "Approve balance"
+                        : "Cannot approve this balance"}
                   </span>
                 </label>
               </div>
@@ -3533,17 +3540,16 @@ function CashBalanceProposalReview({
         </p>
       )}
       <footer className="cash-review__actions">
-        <p>Applying this review does not change the FI plan.</p>
         <div>
           <Button disabled={working} onClick={onCancel} tone="quiet">
-            Review later
+            Decide later
           </Button>
           <Button
             disabled={working || changeNote.trim().length === 0}
             onClick={() => void apply()}
             tone="primary"
           >
-            {working ? "Applying…" : "Apply cash review"}
+            {working ? "Saving…" : "Save decisions"}
           </Button>
         </div>
       </footer>
@@ -3726,11 +3732,11 @@ function CashAccountsControl({
               ? "Cash accounts need setup"
               : state?.status === "disconnected"
                 ? "Add cash accounts"
-                : "Reviewed cash, on your terms"}
+                : "Linked cash accounts"}
           </h2>
           <p>
-            Checking, savings, money-market, and cash-management balances wait
-            for review before they can enter the FI baseline.
+            Checking, savings, money-market, and cash-management balances stay
+            out of your FI baseline until you approve them.
           </p>
         </div>
         {!setupRequired && (
@@ -3781,79 +3787,66 @@ function CashAccountsControl({
       {state !== null && state.connections.length > 0 && (
         <div className="cash-accounts__connections">
           {state.connections.map((connection) => {
-            const reviewWaiting = state.pendingProposals.some(
+            const pendingProposal = state.pendingProposals.find(
               (proposal) => proposal.connectionId === connection.id,
             );
+            if (
+              pendingProposal !== undefined &&
+              pendingProposal.id === activeProposal?.id
+            ) {
+              return (
+                <CashBalanceProposalReview
+                  key={pendingProposal.id}
+                  onApplied={async () => {
+                    setActiveProposalId(null);
+                    await Promise.all([reload(), onAccepted()]);
+                    setNotice(
+                      "Balance decisions saved. Confirm the FI baseline when ready.",
+                    );
+                  }}
+                  onCancel={() => setActiveProposalId(null)}
+                  proposal={pendingProposal}
+                />
+              );
+            }
             return (
-              <div key={connection.id}>
+              <div className="cash-accounts__connection" key={connection.id}>
                 <span>
                   <strong>{connection.institutionLabel}</strong>
                   <small>
-                    {connection.lastCheckedAt === null
-                      ? "No retrieval yet"
-                      : `Last retrieval ${formatDate(connection.lastCheckedAt)}`}
+                    {pendingProposal !== undefined
+                      ? `${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "balance" : "balances"} ready · ${pendingProposal.refreshKind === "live" ? "live check" : "cached"} ${formatDate(pendingProposal.observedAt)}`
+                      : connection.lastCheckedAt === null
+                        ? "Not checked yet"
+                        : `Last checked ${formatDate(connection.lastCheckedAt)}`}
                     {` · ${connection.liveRefreshesRemaining} live ${connection.liveRefreshesRemaining === 1 ? "check" : "checks"} left this month`}
                   </small>
                 </span>
                 <Button
                   disabled={
                     busyAction !== null ||
-                    reviewWaiting ||
-                    connection.liveRefreshesRemaining === 0
+                    (pendingProposal === undefined &&
+                      connection.liveRefreshesRemaining === 0)
                   }
-                  onClick={() => void checkBalances(connection.id)}
-                  tone="secondary"
+                  onClick={() => {
+                    if (pendingProposal !== undefined) {
+                      setActiveProposalId(pendingProposal.id);
+                      return;
+                    }
+                    void checkBalances(connection.id);
+                  }}
+                  tone={pendingProposal === undefined ? "secondary" : "primary"}
                 >
                   {busyAction === connection.id
                     ? "Checking…"
-                    : reviewWaiting
-                      ? "Review waiting"
+                    : pendingProposal !== undefined
+                      ? `Review ${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "balance" : "balances"}`
                       : "Check balances"}
                 </Button>
               </div>
             );
           })}
         </div>
-      )}
-
-      {state !== null && state.pendingProposals.length > 0 && (
-        <div className="cash-accounts__pending">
-          {state.pendingProposals.map((proposal) => (
-            <div key={proposal.id}>
-              <span>
-                <strong>{proposal.institutionLabel} is ready to review</strong>
-                <small>
-                  {proposal.summary.rowCount} accounts ·{" "}
-                  {proposal.refreshKind === "live"
-                    ? "live balances checked"
-                    : "cached data retrieved"}{" "}
-                  {formatDate(proposal.observedAt)}
-                </small>
-              </span>
-              <Button
-                onClick={() => setActiveProposalId(proposal.id)}
-                tone="primary"
-              >
-                Review balances
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {activeProposal !== null && (
-        <CashBalanceProposalReview
-          key={activeProposal.id}
-          onApplied={async () => {
-            setActiveProposalId(null);
-            await Promise.all([reload(), onAccepted()]);
-            setNotice(
-              "Cash review applied. Review the FI baseline when it appears.",
-            );
-          }}
-          onCancel={() => setActiveProposalId(null)}
-          proposal={activeProposal}
-        />
       )}
 
       {notice !== null && (

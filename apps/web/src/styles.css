@@ -1576,12 +1576,9 @@ h1,
 .cash-accounts__accepted > div:first-child strong,
 .cash-accounts__accepted-list strong,
 .cash-accounts__accepted-list small,
-.cash-accounts__connections span,
-.cash-accounts__connections strong,
-.cash-accounts__connections small,
-.cash-accounts__pending span,
-.cash-accounts__pending strong,
-.cash-accounts__pending small {
+.cash-accounts__connection span,
+.cash-accounts__connection strong,
+.cash-accounts__connection small {
   display: block;
 }
 
@@ -1607,29 +1604,25 @@ h1,
 }
 
 .cash-accounts__accepted-list strong,
-.cash-accounts__connections strong,
-.cash-accounts__pending strong {
+.cash-accounts__connection strong {
   font-size: 10px;
   line-height: 1.4;
 }
 
 .cash-accounts__accepted-list small,
-.cash-accounts__connections small,
-.cash-accounts__pending small {
+.cash-accounts__connection small {
   margin-top: 5px;
   color: var(--faint);
   font-size: 8px;
   line-height: 1.45;
 }
 
-.cash-accounts__connections,
-.cash-accounts__pending {
+.cash-accounts__connections {
   margin-top: 22px;
   border-top: 1px solid var(--line-soft);
 }
 
-.cash-accounts__connections > div,
-.cash-accounts__pending > div {
+.cash-accounts__connection {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -1660,6 +1653,12 @@ h1,
   margin-top: 30px;
   padding-top: 30px;
   border-top: 1px solid var(--ink);
+}
+
+.cash-accounts__connections > .cash-review {
+  margin-top: 0;
+  padding-top: 24px;
+  border-top: 0;
 }
 
 .cash-review__heading {
@@ -1766,16 +1765,10 @@ h1,
 .cash-review__actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 28px;
   padding-top: 18px;
   border-top: 1px solid var(--line);
-}
-
-.cash-review__actions p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 9px;
 }
 
 .cash-review__actions > div {
@@ -4254,8 +4247,7 @@ h1,
   }
 
   .cash-accounts__heading .button,
-  .cash-accounts__connections .button,
-  .cash-accounts__pending .button {
+  .cash-accounts__connection .button {
     width: 100%;
   }
 
@@ -4263,8 +4255,7 @@ h1,
     grid-template-columns: 1fr;
   }
 
-  .cash-accounts__connections > div,
-  .cash-accounts__pending > div {
+  .cash-accounts__connection {
     grid-template-columns: 1fr;
     gap: 12px;
   }
@@ -4296,12 +4287,12 @@ h1,
 
   .cash-review__actions {
     align-items: stretch;
-    flex-direction: column;
   }
 
   .cash-review__actions > div {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    width: 100%;
   }
 
   .cash-review__actions .button {
