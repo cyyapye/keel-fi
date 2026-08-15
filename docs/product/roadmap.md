@@ -4,11 +4,11 @@ This is Keel's canonical product sequence for the owner-operated private alpha.
 The first unchecked milestone is next. Keep exactly one milestone marked
 **Active** so delivery does not split across partially finished product slices.
 
-- Last reconciled: 2026-08-14
+- Last reconciled: 2026-08-15
 - Reconciled product baseline:
-  [`8196c94`](https://github.com/cyyapye/keel-fi/commit/8196c947a8cbc3f2029ee34ab9e97642df1f086e)
+  [`7bb5257`](https://github.com/cyyapye/keel-fi/commit/7bb5257010f0f5d76f27aea913d689a52e56c9aa)
 - Baseline release evidence:
-  [`31867504712`](https://github.com/cyyapye/keel-fi/actions/runs/31867504712)
+  [`31893835608`](https://github.com/cyyapye/keel-fi/actions/runs/31893835608)
 
 ## How to use this roadmap
 
@@ -97,44 +97,22 @@ The first unchecked milestone is next. Keep exactly one milestone marked
     Provider-backed production use remains gated on deployment-specific
     coverage, pricing, and retention approval; manual review is available
     without provider retention.
+- [x] **M8 — Observed cash flow to reviewed burn proposals.** Bounded Plaid
+      transaction checks separate household, business, debt, and excluded cash
+      flow, then compare three complete months with the accepted runway plan.
+      Material differences create a reviewable plan draft; they never change
+      accepted burn automatically.
+  - Evidence: [PR #56](https://github.com/cyyapye/keel-fi/pull/56) at
+    [`7bb5257`](https://github.com/cyyapye/keel-fi/commit/7bb5257010f0f5d76f27aea913d689a52e56c9aa),
+    with exact-SHA verification, encrypted D1 backup, forward-only migration,
+    protected smokes, and deployment evidence in
+    [run `31893835608`](https://github.com/cyyapye/keel-fi/actions/runs/31893835608).
+    Provider-backed activation remains gated on deployment-specific Plaid
+    Transactions pricing confirmation; no live Item was activated.
 
 ## Ordered next milestones
 
-### [ ] M8 — Observed cash flow to reviewed burn proposals — **Active**
-
-**User outcome:** Keel compares accepted household and business burn assumptions
-with observed cash flow and proposes a better runway plan when the evidence is
-materially different.
-
-**Trust boundary:** Raw transactions remain restricted source material.
-Deterministic aggregates may propose a plan change, but no transaction or model
-silently changes accepted burn.
-
-**Scope:** Incremental private transaction ingestion, bounded normalization,
-reviewable household-versus-business treatment, monthly aggregates, and a
-proposal that reuses the M5 runway-plan preview and save path.
-
-**Non-goals:** A general budgeting product, tax categorization, autonomous
-merchant classification, payments, or automatic plan changes.
-
-**Dependency:** M6 supplies linked cash accounts; M7 supplies debt-payment
-context that must not be double counted as ordinary burn.
-
-**Infrastructure-cost gate:** Record Transactions product billing, refresh and
-webhook volume, R2/D1 retention, deletion policy, and expected monthly storage
-and request cost before ingesting private transaction data.
-
-**Exit gates:**
-
-- [ ] Transaction data classification, retention, and redaction policy is
-      approved.
-- [ ] Incremental ingestion, deduplication, aggregation, and proposal tests
-      pass.
-- [ ] Runway comparison and proposal review work at desktop and mobile sizes.
-- [ ] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
-      post-merge deployment evidence pass.
-
-### [ ] M9 — Plan versus actual monitoring
+### [ ] M9 — Plan versus actual monitoring — **Active**
 
 **User outcome:** Keel identifies meaningful drift in cash, debt, burn, and
 runway and presents the next decision without requiring the user to compare
