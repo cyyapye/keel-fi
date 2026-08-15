@@ -741,14 +741,201 @@ export const PortfolioBaselinePositionSchema = z.object({
   valueState: z.enum(["reported", "locked", "not_reported"]),
   observedAt: IsoTimestampSchema,
   ticker: z.string().min(1).max(32).nullable(),
+  isCashPosition: z.boolean(),
   potentialDuplicate: z.boolean(),
   duplicateWith: z.array(z.string().min(1)),
 });
+
+export const CashAccountSubtypeSchema = z.enum([
+  "checking",
+  "savings",
+  "money market",
+  "cash management",
+  "other",
+]);
+
+export const CashAccountValueStateSchema = z.enum([
+  "reported",
+  "unavailable",
+  "unsupported",
+  "not_reported",
+]);
+
+export const AcceptedCashAccountValueStateSchema = z.enum([
+  "reported",
+  "not_reported",
+]);
+
+export const CashBalanceSourceSchema = z.enum(["available", "current"]);
+
+export const CashAccountProposalRowSchema = z.object({
+  id: z.string().min(1),
+  naturalKeySha256: Sha256Schema,
+  institutionLabel: z.string().min(1).max(512),
+  accountLabel: z.string().min(1).max(512),
+  subtype: CashAccountSubtypeSchema,
+  availableMinor: MoneyMinorSchema.nullable(),
+  currentMinor: MoneyMinorSchema.nullable(),
+  valueMinor: NonNegativeMoneyMinorSchema.nullable(),
+  valueState: CashAccountValueStateSchema,
+  balanceSource: CashBalanceSourceSchema.nullable(),
+  observedAt: IsoTimestampSchema,
+  priorValueMinor: NonNegativeMoneyMinorSchema.nullable(),
+  priorValueState: CashAccountValueStateSchema.nullable(),
+  action: z.enum([
+    "new_account",
+    "update_balance",
+    "no_change",
+    "not_reported",
+    "needs_attention",
+  ]),
+  issues: z.array(z.string().min(1).max(240)).max(5),
+});
+
+export const CashBalanceProposalSummarySchema = z.object({
+  rowCount: z.number().int().positive(),
+  reportedCount: z.number().int().nonnegative(),
+  needsAttentionCount: z.number().int().nonnegative(),
+  notReportedCount: z.number().int().nonnegative(),
+  totalReportedMinor: NonNegativeMoneyMinorSchema,
+});
+
+export const CashBalanceProposalSchema = z.object({
+  id: z.string().min(1),
+  connectionId: z.string().min(1),
+  institutionLabel: z.string().min(1).max(512),
+  status: z.literal("pending_review"),
+  refreshKind: z.enum(["initial", "live"]),
+  observedAt: IsoTimestampSchema,
+  retrievedAt: IsoTimestampSchema,
+  summary: CashBalanceProposalSummarySchema,
+  rows: z.array(CashAccountProposalRowSchema).min(1).max(100),
+});
+
+export const AcceptedCashAccountSchema = z
+  .object({
+    id: z.string().min(1),
+    naturalKeySha256: Sha256Schema,
+    connectionId: z.string().min(1),
+    institutionLabel: z.string().min(1).max(512),
+    accountLabel: z.string().min(1).max(512),
+    subtype: CashAccountSubtypeSchema,
+    valueMinor: NonNegativeMoneyMinorSchema.nullable(),
+    valueState: AcceptedCashAccountValueStateSchema,
+    balanceSource: CashBalanceSourceSchema.nullable(),
+    refreshKind: z.enum(["initial", "live"]),
+    observedAt: IsoTimestampSchema,
+    acceptedAt: IsoTimestampSchema,
+  })
+  .superRefine((account, context) => {
+    const inconsistentReportedValue =
+      account.valueState === "reported" &&
+      (account.valueMinor === null || account.balanceSource === null);
+    const inconsistentMissingValue =
+      account.valueState === "not_reported" &&
+      (account.valueMinor !== null || account.balanceSource !== null);
+    if (inconsistentReportedValue || inconsistentMissingValue) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Accepted cash value and source must match its state.",
+        path: ["valueState"],
+      });
+    }
+  });
+
+export const CashAccountConnectionSchema = z.object({
+  id: z.string().min(1),
+  institutionLabel: z.string().min(1).max(512),
+  status: z.enum(["ready", "needs_attention"]),
+  lastCheckedAt: IsoTimestampSchema.nullable(),
+  liveRefreshLimit: z.number().int().positive(),
+  liveRefreshesUsed: z.number().int().nonnegative(),
+  liveRefreshesRemaining: z.number().int().nonnegative(),
+});
+
+export const CashAccountsErrorCodeSchema = z.enum([
+  "configuration_required",
+  "connection_invalid",
+  "monthly_limit_reached",
+  "review_required",
+  "provider_unavailable",
+  "response_invalid",
+  "staging_failed",
+  "unexpected_failure",
+]);
+
+export const CashAccountsStateSchema = z.object({
+  version: z.literal(1),
+  configured: z.boolean(),
+  status: z.enum([
+    "setup_required",
+    "disconnected",
+    "ready",
+    "needs_attention",
+  ]),
+  connections: z.array(CashAccountConnectionSchema).max(20),
+  acceptedAccounts: z.array(AcceptedCashAccountSchema).max(100),
+  pendingProposals: z.array(CashBalanceProposalSchema).max(20),
+  errorCode: CashAccountsErrorCodeSchema.nullable(),
+});
+
+export const CashAccountLinkTokenSchema = z.object({
+  linkToken: z.string().min(1).max(4_096),
+  expiration: IsoTimestampSchema,
+});
+
+export const CashAccountExchangeInputSchema = z.object({
+  publicToken: z.string().min(1).max(4_096),
+});
+
+export const CashAccountReviewDecisionSchema = z.object({
+  rowId: z.string().min(1),
+  decision: z.enum(["accepted", "excluded"]),
+});
+
+export const CashAccountApplyInputSchema = z.object({
+  decisions: z.array(CashAccountReviewDecisionSchema).min(1).max(100),
+  changeNote: z.string().trim().min(1).max(500),
+});
+
+export const CashAccountApplyResultSchema = z.object({
+  proposalId: z.string().min(1),
+  acceptedCount: z.number().int().nonnegative(),
+  excludedCount: z.number().int().nonnegative(),
+  acceptedCashMinor: NonNegativeMoneyMinorSchema,
+});
+
+export const PortfolioBaselineCashAccountSchema = z
+  .object({
+    id: z.string().min(1),
+    institutionLabel: z.string().min(1).max(512),
+    accountLabel: z.string().min(1).max(512),
+    subtype: CashAccountSubtypeSchema,
+    valueMinor: NonNegativeMoneyMinorSchema.nullable(),
+    valueState: AcceptedCashAccountValueStateSchema,
+    refreshKind: z.enum(["initial", "live"]),
+    observedAt: IsoTimestampSchema,
+  })
+  .superRefine((account, context) => {
+    const valueMatchesState =
+      (account.valueState === "reported" && account.valueMinor !== null) ||
+      (account.valueState === "not_reported" && account.valueMinor === null);
+    if (!valueMatchesState) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Baseline cash value must match its reviewed state.",
+        path: ["valueState"],
+      });
+    }
+  });
 
 export const PortfolioBaselineSummarySchema = z.object({
   positionCount: z.number().int().positive(),
   publicMarketValueMinor: NonNegativeMoneyMinorSchema,
   privatePaperValueMinor: NonNegativeMoneyMinorSchema,
+  cashAccountCount: z.number().int().nonnegative(),
+  cashAccountValueMinor: NonNegativeMoneyMinorSchema,
+  unknownCashAccountCount: z.number().int().nonnegative(),
   unknownValueCount: z.number().int().nonnegative(),
   potentialDuplicateCount: z.number().int().nonnegative(),
 });
@@ -853,12 +1040,15 @@ export const PortfolioBaselineStateSchema = z.object({
   baseForecastSnapshotVersion: z.number().int().positive().nullable(),
   summary: PortfolioBaselineSummarySchema.nullable(),
   positions: z.array(PortfolioBaselinePositionSchema),
+  cashAccounts: z.array(PortfolioBaselineCashAccountSchema),
   planning: PortfolioBaselinePlanningContextSchema,
   suggestedOtherFiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
   currentImpact: PortfolioBaselineImpactSchema,
   latestBaseline: PortfolioBaselineRecordSchema.nullable(),
   hasSourceChanges: z.boolean(),
+  hasCashAccountChanges: z.boolean(),
   requiresDuplicateReview: z.boolean(),
+  requiresCashOverlapReview: z.boolean(),
   canConfirm: z.boolean(),
 });
 
@@ -868,6 +1058,7 @@ export const PortfolioBaselineConfirmInputSchema = z.object({
   baseForecastSnapshotVersion: z.number().int().positive(),
   otherFiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
   duplicateReviewConfirmed: z.boolean(),
+  cashOverlapReviewConfirmed: z.boolean(),
   changeNote: z.string().trim().min(1).max(500),
 });
 
@@ -1972,6 +2163,25 @@ export const AlphaDataSchema = z.object({
 });
 
 export type AlphaData = z.infer<typeof AlphaDataSchema>;
+export type AcceptedCashAccount = z.infer<typeof AcceptedCashAccountSchema>;
+export type CashAccountApplyInput = z.infer<typeof CashAccountApplyInputSchema>;
+export type CashAccountApplyResult = z.infer<
+  typeof CashAccountApplyResultSchema
+>;
+export type CashAccountConnection = z.infer<typeof CashAccountConnectionSchema>;
+export type CashAccountExchangeInput = z.infer<
+  typeof CashAccountExchangeInputSchema
+>;
+export type CashAccountLinkToken = z.infer<typeof CashAccountLinkTokenSchema>;
+export type CashAccountProposalRow = z.infer<
+  typeof CashAccountProposalRowSchema
+>;
+export type CashAccountsErrorCode = z.infer<typeof CashAccountsErrorCodeSchema>;
+export type CashAccountsState = z.infer<typeof CashAccountsStateSchema>;
+export type CashAccountSubtype = z.infer<typeof CashAccountSubtypeSchema>;
+export type CashAccountValueState = z.infer<typeof CashAccountValueStateSchema>;
+export type CashBalanceProposal = z.infer<typeof CashBalanceProposalSchema>;
+export type CashBalanceSource = z.infer<typeof CashBalanceSourceSchema>;
 export type CreateSignalUpdateProposalInput = z.infer<
   typeof CreateSignalUpdateProposalInputSchema
 >;
@@ -2004,6 +2214,9 @@ export type PortfolioBaselineConfirmInput = z.infer<
 >;
 export type PortfolioBaselineConfirmResult = z.infer<
   typeof PortfolioBaselineConfirmResultSchema
+>;
+export type PortfolioBaselineCashAccount = z.infer<
+  typeof PortfolioBaselineCashAccountSchema
 >;
 export type PortfolioBaselineImpact = z.infer<
   typeof PortfolioBaselineImpactSchema

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AcceptedCashAccountSchema,
   createPlanInputImpact,
   createPortfolioBaselineImpact,
   createGoalPreview,
@@ -10,6 +11,7 @@ import {
   HttpsSourceUrlSchema,
   multiplyMinorByPpm,
   PortfolioBaselineConfirmInputSchema,
+  PortfolioBaselineCashAccountSchema,
   PlanInputSaveSchema,
   projectScenario,
   probabilityMeetingThresholdPpm,
@@ -17,6 +19,53 @@ import {
   RobinhoodSyncStatusSchema,
   summarizeLiquidityPaths,
 } from "./index";
+
+describe("accepted cash account boundaries", () => {
+  const accepted = {
+    id: "decision_cash_1",
+    naturalKeySha256: "a".repeat(64),
+    connectionId: "connection_cash_1",
+    institutionLabel: "First Synthetic Bank",
+    accountLabel: "Household checking",
+    subtype: "checking",
+    valueMinor: 125_000,
+    valueState: "reported",
+    balanceSource: "available",
+    refreshKind: "live",
+    observedAt: "2026-08-14T18:00:00.000Z",
+    acceptedAt: "2026-08-14T18:05:00.000Z",
+  };
+
+  it("allows reviewed facts and rejects provider-only unavailable states", () => {
+    expect(AcceptedCashAccountSchema.safeParse(accepted).success).toBe(true);
+    expect(
+      AcceptedCashAccountSchema.safeParse({
+        ...accepted,
+        valueMinor: null,
+        valueState: "unavailable",
+        balanceSource: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      AcceptedCashAccountSchema.safeParse({
+        ...accepted,
+        valueMinor: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      PortfolioBaselineCashAccountSchema.safeParse({
+        id: accepted.id,
+        institutionLabel: accepted.institutionLabel,
+        accountLabel: accepted.accountLabel,
+        subtype: accepted.subtype,
+        valueMinor: null,
+        valueState: "unsupported",
+        refreshKind: accepted.refreshKind,
+        observedAt: accepted.observedAt,
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("Robinhood sync status", () => {
   it("rejects inconsistent configuration and run states", () => {
@@ -408,6 +457,7 @@ describe("deterministic financial calculations", () => {
       baseForecastSnapshotId: "snap_fi_v3",
       baseForecastSnapshotVersion: 3,
       duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
       changeNote: "Replace the FI liquid baseline.",
     };
 

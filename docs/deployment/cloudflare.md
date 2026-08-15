@@ -78,8 +78,9 @@ Configure these bindings outside Git:
 
 - `ACCESS_AUD`: Access application audience;
 - `ACCESS_TEAM_DOMAIN`: the exact team hostname used as JWT issuer;
-- the complete Robinhood connector secret group documented in
-  [Robinhood holdings sync](robinhood-holdings-sync.md), when enabled;
+- the complete shared Plaid connector secret group documented in
+  [Robinhood holdings sync](robinhood-holdings-sync.md) and
+  [cash accounts](cash-accounts.md), when either integration is enabled;
 - any other future connector token as an isolated secret, not a general
   environment variable;
 - `R2_SIGNING_KEY` only if the selected signed-URL mechanism requires one.

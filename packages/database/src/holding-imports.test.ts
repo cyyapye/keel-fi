@@ -9,6 +9,7 @@ import {
   type RobinhoodHoldingImportStageInput,
 } from "./holding-imports";
 import { D1AlphaRepository } from "./index";
+import { D1CashAccountsRepository } from "./cash-accounts";
 import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
 
 const migrationFiles = [
@@ -26,6 +27,7 @@ const migrationFiles = [
   "packages/database/migrations/0012_append_only_cash_flow_plans.sql",
   "packages/database/migrations/0013_plaid_holdings_webhooks.sql",
   "packages/database/migrations/0014_robinhood_auto_adjudication.sql",
+  "packages/database/migrations/0015_reviewed_cash_accounts.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -50,6 +52,11 @@ class TestD1Statement {
     return Promise.resolve({
       results: this.database.prepare(this.sql).all(...this.values) as T[],
     });
+  }
+
+  public run(): Promise<{ meta: { changes: number } }> {
+    const result = this.database.prepare(this.sql).run(...this.values);
+    return Promise.resolve({ meta: { changes: Number(result.changes) } });
   }
 
   public execute(): void {
@@ -700,6 +707,7 @@ describe("reviewed portfolio baseline persistence", () => {
   let database: TestD1Database;
   let holdingImports: D1HoldingImportRepository;
   let baselines: D1PortfolioBaselineRepository;
+  let cashAccounts: D1CashAccountsRepository;
 
   beforeEach(() => {
     sqlite = new DatabaseSync(":memory:");
@@ -711,6 +719,9 @@ describe("reviewed portfolio baseline persistence", () => {
       database as unknown as D1Database,
     );
     baselines = new D1PortfolioBaselineRepository(
+      database as unknown as D1Database,
+    );
+    cashAccounts = new D1CashAccountsRepository(
       database as unknown as D1Database,
     );
   });
@@ -760,9 +771,21 @@ describe("reviewed portfolio baseline persistence", () => {
       },
     );
 
+    const robinhoodInput = robinhoodStageInput();
+    robinhoodInput.rows.push({
+      ...robinhoodInput.rows[0]!,
+      rowNumber: 2,
+      naturalKeySha256: "6".repeat(64),
+      securityName: "Brokerage cash",
+      ticker: null,
+      securityType: "cash",
+      quantityMicros: 100_000_000,
+      costBasisMinor: 100_000,
+      marketValueMinor: 100_000,
+    });
     const robinhood = await holdingImports.stageRobinhoodHoldingImport(
       "synthetic-access-subject",
-      robinhoodStageInput(),
+      robinhoodInput,
     );
     await holdingImports.applyHoldingImport(
       "synthetic-access-subject",
@@ -777,23 +800,94 @@ describe("reviewed portfolio baseline persistence", () => {
       },
     );
 
+    const cashConnection = await cashAccounts.upsertConnection(
+      "synthetic-access-subject",
+      "First Synthetic Bank",
+      "connector-secrets/synthetic-cash.enc",
+      "c".repeat(64),
+    );
+    const cashRun = await cashAccounts.beginRefresh(
+      "synthetic-access-subject",
+      cashConnection.id,
+      "initial",
+    );
+    const cashStage = await cashAccounts.stageProposal(
+      "synthetic-access-subject",
+      cashRun.id,
+      {
+        objectKey: "cash-observations/synthetic-baseline.json",
+        sourceSha256: "d".repeat(64),
+        normalized: {
+          normalizedFingerprint: "e".repeat(64),
+          observedAt: "2026-08-14T18:00:00.000Z",
+          rows: [
+            {
+              naturalKeySha256: "f".repeat(64),
+              institutionLabel: "First Synthetic Bank",
+              accountLabel: "Household checking",
+              subtype: "checking",
+              availableMinor: 300_000,
+              currentMinor: 300_000,
+              valueMinor: 300_000,
+              valueState: "reported",
+              balanceSource: "available",
+              observedAt: "2026-08-14T18:00:00.000Z",
+              issues: [],
+            },
+          ],
+        },
+      },
+    );
+    const cashProposal = cashStage.proposal;
+    if (cashProposal === null) {
+      throw new Error("Expected a synthetic cash proposal.");
+    }
+    await cashAccounts.completeRefresh(
+      "synthetic-access-subject",
+      cashRun.id,
+      cashProposal.id,
+      1,
+    );
+    await cashAccounts.applyProposal(
+      "synthetic-access-subject",
+      cashProposal.id,
+      {
+        changeNote: "Reviewed synthetic cash for the FI baseline.",
+        decisions: cashProposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted",
+        })),
+      },
+    );
+
     const state = await baselines.getState("synthetic-access-subject");
     expect(state).toMatchObject({
       status: "ready",
       baseForecastSnapshotId: "snap_fi_v3",
       baseForecastSnapshotVersion: 3,
       summary: {
-        positionCount: 3,
-        publicMarketValueMinor: 123_457,
+        positionCount: 4,
+        publicMarketValueMinor: 223_457,
         privatePaperValueMinor: 2_500_000,
+        cashAccountCount: 1,
+        cashAccountValueMinor: 300_000,
+        unknownCashAccountCount: 0,
         unknownValueCount: 1,
         potentialDuplicateCount: 2,
       },
       hasSourceChanges: true,
+      hasCashAccountChanges: true,
       requiresDuplicateReview: true,
+      requiresCashOverlapReview: true,
       canConfirm: true,
       suggestedOtherFiEligibleLiquidMinor: 0,
     });
+    expect(state.cashAccounts).toEqual([
+      expect.objectContaining({
+        accountLabel: "Household checking",
+        refreshKind: "initial",
+      }),
+    ]);
     expect(
       state.positions.filter((position) => position.potentialDuplicate),
     ).toHaveLength(2);
@@ -809,24 +903,46 @@ describe("reviewed portfolio baseline persistence", () => {
       sourceRevision: state.sourceRevision,
       baseForecastSnapshotId: state.baseForecastSnapshotId,
       baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
-      otherFiEligibleLiquidMinor: 199_876_543,
+      otherFiEligibleLiquidMinor: 199_476_543,
       duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
       changeNote: "Reviewed synced holdings for the FI plan.",
     };
+    await expect(
+      baselines.confirm("synthetic-access-subject", {
+        ...confirmation,
+        sourceRevision: "0".repeat(64),
+      }),
+    ).rejects.toThrow("stale");
+    await expect(
+      baselines.confirm("synthetic-access-subject", {
+        ...confirmation,
+        otherFiEligibleLiquidMinor: 0,
+        duplicateReviewConfirmed: true,
+      }),
+    ).rejects.toThrow("cash overlaps");
     await expect(
       baselines.confirm("synthetic-access-subject", confirmation),
     ).rejects.toThrow("overlaps");
 
+    await expect(
+      baselines.confirm("synthetic-access-subject", {
+        ...confirmation,
+        duplicateReviewConfirmed: true,
+      }),
+    ).rejects.toThrow("cash overlaps");
+
     const confirmed = await baselines.confirm("synthetic-access-subject", {
       ...confirmation,
       duplicateReviewConfirmed: true,
+      cashOverlapReviewConfirmed: true,
     });
     expect(confirmed).toMatchObject({
       baseline: {
         sourceRevision: state.sourceRevision,
         priorFiEligibleLiquidMinor: 182_500_000,
         fiEligibleLiquidMinor: 200_000_000,
-        otherFiEligibleLiquidMinor: 199_876_543,
+        otherFiEligibleLiquidMinor: 199_476_543,
         forecastSnapshotVersion: 4,
         goalVersion: 2,
       },
@@ -846,6 +962,8 @@ describe("reviewed portfolio baseline persistence", () => {
         `SELECT
            (SELECT COUNT(*) FROM portfolio_baselines) AS baselines,
            (SELECT COUNT(*) FROM portfolio_baseline_items) AS baseline_items,
+           (SELECT COUNT(*) FROM portfolio_baseline_cash_items)
+             AS baseline_cash_items,
            (SELECT COUNT(*) FROM cash_flow_plans WHERE scenario_id = 'scn_fi')
              AS fi_plans,
            (SELECT MAX(version) FROM forecast_snapshots
@@ -859,6 +977,7 @@ describe("reviewed portfolio baseline persistence", () => {
       .get(confirmed.baseline.forecastSnapshotId) as {
       baselines: number;
       baseline_items: number;
+      baseline_cash_items: number;
       fi_plans: number;
       latest_forecast_version: number;
       crossing_ppm: number;
@@ -866,7 +985,8 @@ describe("reviewed portfolio baseline persistence", () => {
     };
     expect(stored).toEqual({
       baselines: 1,
-      baseline_items: 3,
+      baseline_items: 4,
+      baseline_cash_items: 1,
       fi_plans: 2,
       latest_forecast_version: 4,
       crossing_ppm: 683_190,
@@ -904,10 +1024,74 @@ describe("reviewed portfolio baseline persistence", () => {
     ).resolves.toMatchObject({
       status: "current",
       hasSourceChanges: false,
+      hasCashAccountChanges: false,
       canConfirm: false,
-      suggestedOtherFiEligibleLiquidMinor: 199_876_543,
+      suggestedOtherFiEligibleLiquidMinor: 199_476_543,
       latestBaseline: { id: confirmed.baseline.id },
     });
+
+    const updatedCashRun = await cashAccounts.beginRefresh(
+      "synthetic-access-subject",
+      cashConnection.id,
+      "live",
+    );
+    const updatedCashStage = await cashAccounts.stageProposal(
+      "synthetic-access-subject",
+      updatedCashRun.id,
+      {
+        objectKey: "cash-observations/synthetic-baseline-live.json",
+        sourceSha256: "1".repeat(64),
+        normalized: {
+          normalizedFingerprint: "2".repeat(64),
+          observedAt: "2026-08-14T20:00:00.000Z",
+          rows: [
+            {
+              naturalKeySha256: "f".repeat(64),
+              institutionLabel: "First Synthetic Bank",
+              accountLabel: "Household checking",
+              subtype: "checking",
+              availableMinor: 350_000,
+              currentMinor: 350_000,
+              valueMinor: 350_000,
+              valueState: "reported",
+              balanceSource: "available",
+              observedAt: "2026-08-14T20:00:00.000Z",
+              issues: [],
+            },
+          ],
+        },
+      },
+    );
+    if (updatedCashStage.proposal === null) {
+      throw new Error("Expected an updated synthetic cash proposal.");
+    }
+    await cashAccounts.completeRefresh(
+      "synthetic-access-subject",
+      updatedCashRun.id,
+      updatedCashStage.proposal.id,
+      1,
+    );
+    await cashAccounts.applyProposal(
+      "synthetic-access-subject",
+      updatedCashStage.proposal.id,
+      {
+        changeNote: "Reviewed the updated synthetic cash balance.",
+        decisions: updatedCashStage.proposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted",
+        })),
+      },
+    );
+    await expect(
+      baselines.getState("synthetic-access-subject"),
+    ).resolves.toMatchObject({
+      status: "ready",
+      hasSourceChanges: true,
+      hasCashAccountChanges: true,
+      summary: { cashAccountValueMinor: 350_000 },
+      latestBaseline: { id: confirmed.baseline.id },
+    });
+
     expect(() =>
       sqlite
         .prepare("UPDATE portfolio_baselines SET change_note = 'changed'")

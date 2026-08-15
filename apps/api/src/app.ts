@@ -6,12 +6,14 @@ import {
   AngelListMacAgentRepositoryError,
   D1AlphaRepository,
   D1AngelListMacAgentRepository,
+  D1CashAccountsRepository,
   D1HoldingImportRepository,
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
   D1PublicHoldingsRepository,
   type AlphaRepository,
   type AngelListMacAgentRepository,
+  type CashAccountsRepository,
   type PlanInputsRepository,
   type PortfolioBaselineRepository,
   type PublicHoldingsRepository,
@@ -19,6 +21,9 @@ import {
 import {
   AngelListMacAgentConfigInputSchema,
   AngelListMacAgentFailureInputSchema,
+  CashAccountApplyInputSchema,
+  CashAccountExchangeInputSchema,
+  CashAccountsErrorCodeSchema,
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
@@ -42,6 +47,13 @@ import {
   readAngelListCsvUpload,
 } from "./holding-import-upload";
 import { PlaidWebhookRequestError, receivePlaidWebhook } from "./plaid-webhook";
+import {
+  cashAccountsConfigured,
+  connectCashAccount,
+  createPlaidCashClient,
+  refreshCashAccount,
+  type PlaidCashClient,
+} from "./plaid-cash-sync";
 import {
   connectRobinhood,
   createPlaidInvestmentsClient,
@@ -70,6 +82,8 @@ type AppOptions = {
     | "autoAdjudicateRobinhoodHoldingImport"
     | "hasAcceptedRobinhoodPositions"
   >;
+  cashAccountsRepository?: CashAccountsRepository;
+  cashPlaidClient?: PlaidCashClient;
   plaidClient?: PlaidInvestmentsClient;
   planInputsRepository?: PlanInputsRepository;
   portfolioBaselineRepository?: PortfolioBaselineRepository;
@@ -126,6 +140,67 @@ function robinhoodErrorResponse(
       status: 503 as const,
     },
   }[code];
+  return context.json({ error: response.message }, response.status, {
+    "Cache-Control": "private, no-store",
+  });
+}
+
+function cashAccountErrorResponse(
+  context: Context<AppEnvironment>,
+  error: unknown,
+) {
+  const rawCode =
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+      ? error.code
+      : "unexpected_failure";
+  const parsedCode = CashAccountsErrorCodeSchema.safeParse(rawCode);
+  const code = parsedCode.success ? parsedCode.data : "unexpected_failure";
+  console.error(
+    JSON.stringify({
+      event: "cash_accounts_failed",
+      requestId: context.get("requestId"),
+      errorCode: code,
+    }),
+  );
+  const responses = {
+    configuration_required: {
+      message: "Cash accounts are not configured.",
+      status: 503 as const,
+    },
+    connection_invalid: {
+      message: "Reconnect this institution to continue.",
+      status: 409 as const,
+    },
+    monthly_limit_reached: {
+      message: "This institution has used its live balance checks this month.",
+      status: 429 as const,
+    },
+    review_required: {
+      message:
+        "Review the waiting balances before checking this institution again.",
+      status: 409 as const,
+    },
+    provider_unavailable: {
+      message: "Cash balances are temporarily unavailable.",
+      status: 503 as const,
+    },
+    response_invalid: {
+      message: "Plaid returned an unsupported balance response.",
+      status: 502 as const,
+    },
+    staging_failed: {
+      message: "Keel could not prepare the cash balances for review.",
+      status: 503 as const,
+    },
+    unexpected_failure: {
+      message: "Keel could not update cash accounts.",
+      status: 503 as const,
+    },
+  } as const;
+  const response = responses[code];
   return context.json({ error: response.message }, response.status, {
     "Cache-Control": "private, no-store",
   });
@@ -234,6 +309,12 @@ export function createApp(options: AppOptions = {}) {
     options.plaidClient ?? createPlaidInvestmentsClient(env);
   const robinhoodConfiguredFor = (env: Env) =>
     options.plaidClient !== undefined || robinhoodSyncConfigured(env);
+  const cashAccountsRepositoryFor = (env: Env) =>
+    options.cashAccountsRepository ?? new D1CashAccountsRepository(env.DB);
+  const cashPlaidClientFor = (env: Env) =>
+    options.cashPlaidClient ?? createPlaidCashClient(env);
+  const cashAccountsConfiguredFor = (env: Env) =>
+    options.cashPlaidClient !== undefined || cashAccountsConfigured(env);
 
   app.use(
     "*",
@@ -551,6 +632,161 @@ export function createApp(options: AppOptions = {}) {
       return context.json(
         { error: "The runway plan could not be saved." },
         500,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.get("/api/cash-accounts", async (context) => {
+    try {
+      const state = await cashAccountsRepositoryFor(context.env).getState(
+        context.get("identity").subject,
+        cashAccountsConfiguredFor(context.env),
+      );
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json(
+        { error: "Cash account status is unavailable." },
+        503,
+        {
+          "Cache-Control": "private, no-store",
+        },
+      );
+    }
+  });
+
+  app.post("/api/cash-accounts/link-token", async (context) => {
+    if (!cashAccountsConfiguredFor(context.env)) {
+      return context.json({ error: "Cash accounts are not configured." }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    try {
+      const linkToken = await cashPlaidClientFor(context.env).createLinkToken(
+        context.get("identity").subject,
+      );
+      return context.json(linkToken, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return cashAccountErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/cash-accounts/exchange", async (context) => {
+    if (!cashAccountsConfiguredFor(context.env)) {
+      return context.json({ error: "Cash accounts are not configured." }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json(
+        { error: "Cash account connection is invalid." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    const parsed = CashAccountExchangeInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        { error: "Cash account connection is invalid." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const state = await connectCashAccount({
+        env: context.env,
+        repository: cashAccountsRepositoryFor(context.env),
+        client: cashPlaidClientFor(context.env),
+        accessSubject: context.get("identity").subject,
+        publicToken: parsed.data.publicToken,
+      });
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return cashAccountErrorResponse(context, error);
+    }
+  });
+
+  app.post(
+    "/api/cash-accounts/connections/:connectionId/refresh",
+    async (context) => {
+      if (!cashAccountsConfiguredFor(context.env)) {
+        return context.json(
+          { error: "Cash accounts are not configured." },
+          503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      try {
+        const state = await refreshCashAccount({
+          env: context.env,
+          repository: cashAccountsRepositoryFor(context.env),
+          client: cashPlaidClientFor(context.env),
+          accessSubject: context.get("identity").subject,
+          connectionId: context.req.param("connectionId"),
+          refreshKind: "live",
+        });
+        return context.json(state, 200, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        return cashAccountErrorResponse(context, error);
+      }
+    },
+  );
+
+  app.post("/api/cash-account-proposals/:proposalId/apply", async (context) => {
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const parsed = CashAccountApplyInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: "Cash account review input is invalid.",
+          issues: parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const result = await cashAccountsRepositoryFor(context.env).applyProposal(
+        context.get("identity").subject,
+        context.req.param("proposalId"),
+        parsed.data,
+      );
+      return context.json(result, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message.includes("stale") || message.includes("UNIQUE")) {
+        return context.json(
+          { error: "This cash account review is no longer current." },
+          409,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      return context.json(
+        { error: "Every cash account needs a valid review decision." },
+        400,
         { "Cache-Control": "private, no-store" },
       );
     }

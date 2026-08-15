@@ -746,7 +746,9 @@ async function refreshPortfolioBaseline(input: {
     if (
       state.status !== "ready" ||
       state.latestBaseline === null ||
+      state.hasCashAccountChanges ||
       state.requiresDuplicateReview ||
+      state.requiresCashOverlapReview ||
       state.sourceRevision === null ||
       state.baseForecastSnapshotId === null ||
       state.baseForecastSnapshotVersion === null
@@ -763,6 +765,7 @@ async function refreshPortfolioBaseline(input: {
       otherFiEligibleLiquidMinor:
         state.latestBaseline.otherFiEligibleLiquidMinor,
       duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
       changeNote: "Robinhood holdings refreshed automatically.",
     });
     return { status: "refreshed", baselineId: result.baseline.id };

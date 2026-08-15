@@ -15,7 +15,12 @@ flowchart LR
   Queue --> HoldingProposal["Holding import proposal"]
   HoldingProposal --> HoldingReview["Holding review"]
   HoldingReview --> AcceptedHolding["Accepted source facts"]
+  API -->|"explicit accounts fetch"| PlaidCash["Plaid cash accounts"]
+  PlaidCash --> CashProposal["Dated cash proposal"]
+  CashProposal --> CashReview["Cash review"]
+  CashReview --> AcceptedCash["Accepted cash facts"]
   AcceptedHolding --> BaselineReview["Portfolio baseline review"]
+  AcceptedCash --> BaselineReview
   BaselineReview --> VersionBundle["New FI plan, forecast, and goal versions"]
   D1 --> PlanEditor["Runway plan edit and preview"]
   PlanEditor --> PlanVersion["New FI plan and forecast versions"]
@@ -48,13 +53,20 @@ flowchart LR
   registry; Queue jobs contain only internal source IDs. Real public sources are
   exercised by an opt-in runtime acceptance command while all checked-in
   portfolio data remains fabricated.
-- Accepted Robinhood and AngelList observations remain source facts until the
-  user confirms a Portfolio Baseline. The baseline records the exact reviewed
-  source revision, keeps unavailable values unknown, requires an overlap check
-  when cross-provider names collide, and proposes reviewed public-market value
-  plus explicitly entered other liquid assets as the FI-eligible replacement.
-  Private paper remains outside current liquidity. Confirmation writes the new
-  FI cash plan, forecast, and primary FI goal version in one D1 batch.
+- Accepted Robinhood, AngelList, and cash-account observations remain source
+  facts until the user confirms a Portfolio Baseline. The baseline records the
+  exact reviewed source revision, keeps unavailable values unknown, requires
+  overlap checks for cross-provider positions and linked cash versus the manual
+  residual, and proposes reviewed public-market holdings plus reviewed cash and
+  the residual as the FI-eligible replacement. Private paper remains outside
+  current liquidity. Confirmation writes the new FI cash plan, forecast, and
+  primary FI goal version in one D1 batch.
+- Cash-account linking requests only Plaid Auth and eligible US depository
+  subtypes. The initial cached account response and every explicit live balance
+  check become proposals. D1 retains HMAC-derived account keys and normalized
+  integer facts; the raw response and encrypted access token stay in private R2.
+  Applying a proposal cannot change the FI plan, and missing or unsupported
+  accounts cannot be silently accepted as zero.
 - The Scenarios runway editor changes only household burn, business burn, and
   the protected cash floor. FI-eligible liquid remains owned by reviewed
   Holdings and the FI target remains owned by Goals. Saving appends a cash-flow
@@ -75,7 +87,8 @@ The model intentionally avoids a single overloaded “value” column:
 | Administrator NAV         | Current administrator-reported value       | Reconciliation    |
 | External mark             | Latest observed external economic mark     | Evidence input    |
 | FI underwriting           | Conservative policy value                  | FI planning       |
-| FI-eligible baseline      | Reviewed public holdings plus other liquid | FI plan input     |
+| Reviewed cash balance     | Accepted dated USD available/current value | Baseline input    |
+| FI-eligible baseline      | Public holdings + cash + manual residual   | FI plan input     |
 | Thesis-weighted value     | Conditional probability-weighted economics | Scenario analysis |
 | Timing-adjusted liquidity | Value discounted for timing/probability    | Forecasting       |
 | Actual liquidity          | Distributed cash that actually occurred    | Reconciliation    |
@@ -86,8 +99,8 @@ parts per million. Quantity fields use explicit integer scales.
 ## Immutability and audit
 
 Cash-flow plans, forecast snapshots, outputs, company forecasts, liquidity
-curves, portfolio baseline records and items, review decisions, and
-actual-liquidity events are guarded by D1 triggers against update or deletion.
-Accepted marks and accepted evidence cannot be deleted. A new forecast,
-Portfolio Baseline, or runway-plan save changes the record by appending a new
-version.
+curves, portfolio baseline records and items, cash-account review decisions,
+other review decisions, and actual-liquidity events are guarded by D1 triggers
+against update or deletion. Accepted marks and accepted evidence cannot be
+deleted. A new provider observation, forecast, Portfolio Baseline, or
+runway-plan save changes the record by appending a new version.

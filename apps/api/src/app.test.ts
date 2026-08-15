@@ -193,6 +193,9 @@ const portfolioBaselineState: PortfolioBaselineState = {
     positionCount: 1,
     publicMarketValueMinor: 23_800_000,
     privatePaperValueMinor: 0,
+    cashAccountCount: 0,
+    cashAccountValueMinor: 0,
+    unknownCashAccountCount: 0,
     unknownValueCount: 0,
     potentialDuplicateCount: 0,
   },
@@ -208,10 +211,12 @@ const portfolioBaselineState: PortfolioBaselineState = {
       valueState: "reported",
       observedAt: "2026-08-10T16:00:00.000Z",
       ticker: "SYN",
+      isCashPosition: false,
       potentialDuplicate: false,
       duplicateWith: [],
     },
   ],
+  cashAccounts: [],
   planning: {
     currentFiEligibleLiquidMinor: 182_500_000,
     protectedCashFloorMinor: 10_300_000,
@@ -236,7 +241,9 @@ const portfolioBaselineState: PortfolioBaselineState = {
   },
   latestBaseline: null,
   hasSourceChanges: true,
+  hasCashAccountChanges: false,
   requiresDuplicateReview: false,
+  requiresCashOverlapReview: false,
   canConfirm: true,
 };
 
@@ -487,6 +494,7 @@ describe("Keel API", () => {
         portfolioBaselineState.baseForecastSnapshotVersion,
       otherFiEligibleLiquidMinor: 176_200_000,
       duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
       changeNote: "Reviewed synced holdings for the FI plan.",
     };
 
@@ -527,6 +535,7 @@ describe("Keel API", () => {
             portfolioBaselineState.baseForecastSnapshotVersion,
           otherFiEligibleLiquidMinor: 176_200_000,
           duplicateReviewConfirmed: false,
+          cashOverlapReviewConfirmed: false,
           changeNote: "Reviewed synced holdings for the FI plan.",
         }),
       },

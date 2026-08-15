@@ -8,6 +8,7 @@ import {
   subtractMinorUnits,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineConfirmResult,
+  type PortfolioBaselineCashAccount,
   type PortfolioBaselinePosition,
   type PortfolioBaselineRecord,
   type PortfolioBaselineState,
@@ -32,6 +33,21 @@ type SourcePositionRow = {
   unrealized_value_state: "reported" | "locked" | "not_reported";
   observed_at: string;
   ticker: string | null;
+  instrument_type: string;
+};
+
+type SourceCashAccountRow = {
+  decision_id: string;
+  proposal_row_id: string;
+  natural_key_sha256: string;
+  institution_label: string;
+  account_label: string;
+  subtype:
+    "checking" | "savings" | "money market" | "cash management" | "other";
+  value_minor: number | null;
+  value_state: "reported" | "not_reported";
+  refresh_kind: "initial" | "live";
+  observed_at: string;
 };
 
 type PlanningRow = {
@@ -57,6 +73,9 @@ type BaselineRow = {
   position_count: number;
   public_market_value_minor: number;
   private_paper_value_minor: number;
+  cash_account_count: number;
+  cash_account_value_minor: number;
+  unknown_cash_account_count: number;
   unknown_value_count: number;
   potential_duplicate_count: number;
   prior_fi_eligible_liquid_minor: number;
@@ -147,11 +166,13 @@ function normalizedDuplicateKey(name: string, ticker: string | null): string {
 
 async function sourceRevision(
   rows: readonly SourcePositionRow[],
+  cashRows: readonly SourceCashAccountRow[],
 ): Promise<string> {
   return sha256(
-    rows
-      .map((row) =>
+    [
+      ...rows.map((row) =>
         [
+          "holding",
           row.position_id,
           row.snapshot_id,
           row.snapshot_fingerprint,
@@ -160,8 +181,22 @@ async function sourceRevision(
           row.unrealized_value_state,
           row.observed_at,
           row.ticker ?? "",
+          row.instrument_type,
         ].join(":"),
-      )
+      ),
+      ...cashRows.map((row) =>
+        [
+          "cash",
+          row.decision_id,
+          row.proposal_row_id,
+          row.natural_key_sha256,
+          row.value_minor ?? "unknown",
+          row.value_state,
+          row.refresh_kind,
+          row.observed_at,
+        ].join(":"),
+      ),
+    ]
       .sort((left, right) => left.localeCompare(right))
       .join("|"),
   );
@@ -176,6 +211,9 @@ function baselineRecordFromRow(row: BaselineRow): PortfolioBaselineRecord {
       positionCount: row.position_count,
       publicMarketValueMinor: row.public_market_value_minor,
       privatePaperValueMinor: row.private_paper_value_minor,
+      cashAccountCount: row.cash_account_count,
+      cashAccountValueMinor: row.cash_account_value_minor,
+      unknownCashAccountCount: row.unknown_cash_account_count,
       unknownValueCount: row.unknown_value_count,
       potentialDuplicateCount: row.potential_duplicate_count,
     },
@@ -184,7 +222,10 @@ function baselineRecordFromRow(row: BaselineRow): PortfolioBaselineRecord {
     otherFiEligibleLiquidMinor: Math.max(
       subtractMinorUnits(
         row.fi_eligible_liquid_minor,
-        row.public_market_value_minor,
+        addMinorUnits(
+          row.public_market_value_minor,
+          row.cash_account_value_minor,
+        ),
       ),
       0,
     ),
@@ -195,6 +236,21 @@ function baselineRecordFromRow(row: BaselineRow): PortfolioBaselineRecord {
     createdAt: row.created_at,
     createdBy: row.created_by,
   };
+}
+
+function sourceCashAccounts(
+  rows: readonly SourceCashAccountRow[],
+): PortfolioBaselineCashAccount[] {
+  return rows.map((row) => ({
+    id: row.decision_id,
+    institutionLabel: row.institution_label,
+    accountLabel: row.account_label,
+    subtype: row.subtype,
+    valueMinor: row.value_minor,
+    valueState: row.value_state,
+    refreshKind: row.refresh_kind,
+    observedAt: row.observed_at,
+  }));
 }
 
 function sourcePositions(
@@ -238,6 +294,7 @@ function sourcePositions(
       valueState: row.unrealized_value_state,
       observedAt: row.observed_at,
       ticker: row.ticker,
+      isCashPosition: row.instrument_type.toLowerCase() === "cash",
       potentialDuplicate,
       duplicateWith,
     };
@@ -246,6 +303,7 @@ function sourcePositions(
 
 function summarizePositions(
   positions: readonly PortfolioBaselinePosition[],
+  cashAccounts: readonly PortfolioBaselineCashAccount[],
 ): PortfolioBaselineSummary {
   return {
     positionCount: positions.length,
@@ -267,6 +325,13 @@ function summarizePositions(
         )
         .map((position) => position.valueMinor ?? 0),
     ),
+    cashAccountCount: cashAccounts.length,
+    cashAccountValueMinor: addMinorUnits(
+      ...cashAccounts.map((account) => account.valueMinor ?? 0),
+    ),
+    unknownCashAccountCount: cashAccounts.filter(
+      (account) => account.valueState !== "reported",
+    ).length,
     unknownValueCount: positions.filter(
       (position) => position.valueState !== "reported",
     ).length,
@@ -274,6 +339,37 @@ function summarizePositions(
       (position) => position.potentialDuplicate,
     ).length,
   };
+}
+
+function requiresCashOverlapReview(
+  positions: readonly PortfolioBaselinePosition[],
+  linkedCashMinor: number,
+  manualResidualMinor: number,
+): boolean {
+  const brokerageCashMinor = addMinorUnits(
+    ...positions
+      .filter(
+        (position) => position.isCashPosition && position.valueMinor !== null,
+      )
+      .map((position) => position.valueMinor ?? 0),
+  );
+  return (
+    [linkedCashMinor, brokerageCashMinor, manualResidualMinor].filter(
+      (value) => value > 0,
+    ).length > 1
+  );
+}
+
+function haveSameIds(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  const sortedLeft = [...left].sort((a, b) => a.localeCompare(b));
+  const sortedRight = [...right].sort((a, b) => a.localeCompare(b));
+  return (
+    sortedLeft.length === sortedRight.length &&
+    sortedLeft.every((id, index) => id === sortedRight[index])
+  );
 }
 
 export interface PortfolioBaselineRepository {
@@ -291,12 +387,14 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     accessSubject: string,
   ): Promise<PortfolioBaselineState> {
     const identity = await this.findIdentity(accessSubject);
-    const [rows, planning, latestBaseline] = await Promise.all([
+    const [rows, cashRows, planning, latestBaseline] = await Promise.all([
       this.getSourceRows(identity.household_id),
+      this.getSourceCashRows(identity.household_id),
       this.getPlanningRow(identity.household_id),
       this.getLatestBaseline(identity.household_id),
     ]);
     const positions = sourcePositions(rows);
+    const cashAccounts = sourceCashAccounts(cashRows);
     const planningContext = {
       currentFiEligibleLiquidMinor: planning.fi_eligible_liquid_minor,
       protectedCashFloorMinor: planning.protected_cash_floor_minor,
@@ -314,6 +412,20 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       planningContext,
       planning.fi_eligible_liquid_minor,
     );
+    const baselineCashDecisionIds =
+      latestBaseline === null
+        ? []
+        : await this.getBaselineCashDecisionIds(
+            identity.household_id,
+            latestBaseline.id,
+          );
+    const hasCashAccountChanges =
+      latestBaseline === null
+        ? cashRows.length > 0
+        : !haveSameIds(
+            cashRows.map((row) => row.decision_id),
+            baselineCashDecisionIds,
+          );
 
     if (positions.length === 0) {
       return PortfolioBaselineStateSchema.parse({
@@ -324,24 +436,27 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
         baseForecastSnapshotVersion: null,
         summary: null,
         positions: [],
+        cashAccounts,
         planning: planningContext,
         suggestedOtherFiEligibleLiquidMinor,
         currentImpact,
         latestBaseline,
         hasSourceChanges: false,
+        hasCashAccountChanges,
         requiresDuplicateReview: false,
+        requiresCashOverlapReview: false,
         canConfirm: false,
       });
     }
 
-    const currentSourceRevision = await sourceRevision(rows);
-    const observedAt = positions
-      .map((position) => position.observedAt)
+    const currentSourceRevision = await sourceRevision(rows, cashRows);
+    const observedAt = [...positions, ...cashAccounts]
+      .map((item) => item.observedAt)
       .sort((left, right) => right.localeCompare(left))[0];
     if (observedAt === undefined) {
       throw new Error("Portfolio baseline has no observed source date.");
     }
-    const summary = summarizePositions(positions);
+    const summary = summarizePositions(positions, cashAccounts);
     const hasSourceChanges =
       latestBaseline?.sourceRevision !== currentSourceRevision;
 
@@ -353,12 +468,19 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       baseForecastSnapshotVersion: planning.forecast_snapshot_version,
       summary,
       positions,
+      cashAccounts,
       planning: planningContext,
       suggestedOtherFiEligibleLiquidMinor,
       currentImpact,
       latestBaseline,
       hasSourceChanges,
+      hasCashAccountChanges,
       requiresDuplicateReview: summary.potentialDuplicateCount > 0,
+      requiresCashOverlapReview: requiresCashOverlapReview(
+        positions,
+        summary.cashAccountValueMinor,
+        suggestedOtherFiEligibleLiquidMinor,
+      ),
       canConfirm: hasSourceChanges,
     });
   }
@@ -388,53 +510,78 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     if (state.requiresDuplicateReview && !input.duplicateReviewConfirmed) {
       throw new Error("Possible portfolio overlaps must be reviewed.");
     }
+    if (
+      requiresCashOverlapReview(
+        state.positions,
+        state.summary.cashAccountValueMinor,
+        input.otherFiEligibleLiquidMinor,
+      ) &&
+      !input.cashOverlapReviewConfirmed
+    ) {
+      throw new Error("Possible cash overlaps must be reviewed.");
+    }
 
     const identity = await this.findIdentity(accessSubject);
-    const [sourceRows, planning, companyForecasts, curves, outputs, goal] =
-      await Promise.all([
-        this.getSourceRows(identity.household_id),
-        this.getPlanningRow(identity.household_id),
-        all<CompanyForecastRow>(
-          this.db
-            .prepare(
-              `SELECT company_id, conditional_value_minor,
+    const [
+      sourceRows,
+      sourceCashRows,
+      planning,
+      companyForecasts,
+      curves,
+      outputs,
+      goal,
+    ] = await Promise.all([
+      this.getSourceRows(identity.household_id),
+      this.getSourceCashRows(identity.household_id),
+      this.getPlanningRow(identity.household_id),
+      all<CompanyForecastRow>(
+        this.db
+          .prepare(
+            `SELECT company_id, conditional_value_minor,
                       timing_adjusted_liquidity_minor, probability_zero_ppm,
                       effective_date
                FROM company_forecasts
                WHERE household_id = ? AND forecast_snapshot_id = ?
                ORDER BY company_id`,
-            )
-            .bind(identity.household_id, input.baseForecastSnapshotId),
-        ),
-        all<LiquidityCurveRow>(
-          this.db
-            .prepare(
-              `SELECT year, p25_minor, p50_minor, p75_minor, expected_minor,
+          )
+          .bind(identity.household_id, input.baseForecastSnapshotId),
+      ),
+      all<LiquidityCurveRow>(
+        this.db
+          .prepare(
+            `SELECT year, p25_minor, p50_minor, p75_minor, expected_minor,
                       probability_zero_ppm
                FROM liquidity_curves
                WHERE household_id = ? AND forecast_snapshot_id = ?
                ORDER BY year`,
-            )
-            .bind(identity.household_id, input.baseForecastSnapshotId),
-        ),
-        all<ForecastOutputRow>(
-          this.db
-            .prepare(
-              `SELECT metric_key, horizon_date, percentile, value_minor,
+          )
+          .bind(identity.household_id, input.baseForecastSnapshotId),
+      ),
+      all<ForecastOutputRow>(
+        this.db
+          .prepare(
+            `SELECT metric_key, horizon_date, percentile, value_minor,
                       probability_ppm
                FROM forecast_outputs
                WHERE household_id = ? AND forecast_snapshot_id = ?
                ORDER BY metric_key, percentile`,
-            )
-            .bind(identity.household_id, input.baseForecastSnapshotId),
-        ),
-        this.getFinancialIndependenceGoal(identity.household_id),
-      ]);
+          )
+          .bind(identity.household_id, input.baseForecastSnapshotId),
+      ),
+      this.getFinancialIndependenceGoal(identity.household_id),
+    ]);
     const currentPositions = sourcePositions(sourceRows);
-    const currentSourceRevision = await sourceRevision(sourceRows);
-    const currentSummary = summarizePositions(currentPositions);
-    const currentObservedAt = currentPositions
-      .map((position) => position.observedAt)
+    const currentCashAccounts = sourceCashAccounts(sourceCashRows);
+    const currentSourceRevision = await sourceRevision(
+      sourceRows,
+      sourceCashRows,
+    );
+    const currentSummary = summarizePositions(
+      currentPositions,
+      currentCashAccounts,
+    );
+    const currentObservedAt = [...currentPositions, ...currentCashAccounts]
+      .map((item) => item.observedAt)
       .sort((left, right) => right.localeCompare(left))[0];
     if (
       planning.forecast_snapshot_id !== input.baseForecastSnapshotId ||
@@ -451,9 +598,20 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     ) {
       throw new Error("Possible portfolio overlaps must be reviewed.");
     }
+    if (
+      requiresCashOverlapReview(
+        currentPositions,
+        currentSummary.cashAccountValueMinor,
+        input.otherFiEligibleLiquidMinor,
+      ) &&
+      !input.cashOverlapReviewConfirmed
+    ) {
+      throw new Error("Possible cash overlaps must be reviewed.");
+    }
 
     const fiEligibleLiquidMinor = addMinorUnits(
       currentSummary.publicMarketValueMinor,
+      currentSummary.cashAccountValueMinor,
       input.otherFiEligibleLiquidMinor,
     );
 
@@ -698,13 +856,15 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           `INSERT INTO portfolio_baselines (
              id, household_id, source_revision, source_observed_at,
              position_count, public_market_value_minor,
-             private_paper_value_minor, unknown_value_count,
-             potential_duplicate_count, prior_fi_eligible_liquid_minor,
-             fi_eligible_liquid_minor, base_forecast_snapshot_id,
+             private_paper_value_minor, cash_account_count,
+             cash_account_value_minor, unknown_cash_account_count,
+             unknown_value_count, potential_duplicate_count,
+             prior_fi_eligible_liquid_minor, fi_eligible_liquid_minor,
+             base_forecast_snapshot_id,
              cash_flow_plan_id,
              forecast_snapshot_id, goal_version_id, change_note,
              created_by_user_id, created_at, immutable
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         )
         .bind(
           baselineId,
@@ -714,6 +874,9 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           currentSummary.positionCount,
           currentSummary.publicMarketValueMinor,
           currentSummary.privatePaperValueMinor,
+          currentSummary.cashAccountCount,
+          currentSummary.cashAccountValueMinor,
+          currentSummary.unknownCashAccountCount,
           currentSummary.unknownValueCount,
           currentSummary.potentialDuplicateCount,
           planning.fi_eligible_liquid_minor,
@@ -749,6 +912,30 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
             row.unrealized_value_state,
             row.observed_at,
             duplicateKeys.get(row.position_id) ?? null,
+            createdAt,
+          ),
+      );
+    });
+    sourceCashRows.forEach((row) => {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO portfolio_baseline_cash_items (
+               id, household_id, baseline_id, review_decision_id,
+               proposal_row_id, natural_key_sha256, value_minor, value_state,
+               observed_at, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            baselineId,
+            row.decision_id,
+            row.proposal_row_id,
+            row.natural_key_sha256,
+            row.value_minor,
+            row.value_state,
+            row.observed_at,
             createdAt,
           ),
       );
@@ -817,7 +1004,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
              snapshot.unrealized_value_minor,
              snapshot.unrealized_value_state,
              snapshot.observed_at,
-             snapshot.ticker
+             snapshot.ticker,
+             position.instrument_type
            FROM holding_positions position
            JOIN holding_position_snapshots snapshot
              ON snapshot.id = (
@@ -837,6 +1025,45 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
                  AND application.snapshot_id = snapshot.id
              )
            ORDER BY position.provider, position.id`,
+        )
+        .bind(householdId),
+    );
+  }
+
+  private getSourceCashRows(householdId: string) {
+    return all<SourceCashAccountRow>(
+      this.db
+        .prepare(
+          `WITH accepted AS (
+             SELECT
+               decision.id AS decision_id,
+               row.id AS proposal_row_id,
+               row.natural_key_sha256,
+               row.institution_label,
+               row.account_label,
+               row.subtype,
+               row.value_minor,
+               row.value_state,
+               proposal.refresh_kind,
+               row.observed_at,
+               ROW_NUMBER() OVER (
+                 PARTITION BY row.natural_key_sha256
+                 ORDER BY decision.decided_at DESC, decision.id DESC
+               ) AS recency
+             FROM cash_balance_review_decisions decision
+             JOIN cash_balance_proposal_rows row
+               ON row.id = decision.proposal_row_id
+             JOIN cash_balance_proposals proposal
+               ON proposal.id = decision.proposal_id
+             WHERE decision.household_id = ?
+               AND decision.decision = 'accepted'
+           )
+           SELECT decision_id, proposal_row_id, natural_key_sha256,
+                  institution_label, account_label, subtype, value_minor,
+                  value_state, refresh_kind, observed_at
+           FROM accepted
+           WHERE recency = 1
+           ORDER BY natural_key_sha256`,
         )
         .bind(householdId),
     );
@@ -908,6 +1135,9 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
            baseline.position_count,
            baseline.public_market_value_minor,
            baseline.private_paper_value_minor,
+           baseline.cash_account_count,
+           baseline.cash_account_value_minor,
+           baseline.unknown_cash_account_count,
            baseline.unknown_value_count,
            baseline.potential_duplicate_count,
            baseline.prior_fi_eligible_liquid_minor,
@@ -930,6 +1160,22 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       .bind(householdId)
       .first<BaselineRow>();
     return row === null ? null : baselineRecordFromRow(row);
+  }
+
+  private getBaselineCashDecisionIds(
+    householdId: string,
+    baselineId: string,
+  ): Promise<readonly string[]> {
+    return all<{ review_decision_id: string }>(
+      this.db
+        .prepare(
+          `SELECT review_decision_id
+           FROM portfolio_baseline_cash_items
+           WHERE household_id = ? AND baseline_id = ?
+           ORDER BY review_decision_id`,
+        )
+        .bind(householdId, baselineId),
+    ).then((rows) => rows.map((row) => row.review_decision_id));
   }
 
   private getFinancialIndependenceGoal(householdId: string) {
