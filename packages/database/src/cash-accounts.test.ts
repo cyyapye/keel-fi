@@ -25,6 +25,7 @@ const migrationFiles = [
   "packages/database/migrations/0015_reviewed_cash_accounts.sql",
   "packages/database/migrations/0016_reviewed_liabilities.sql",
   "packages/database/migrations/0017_reviewed_cash_flow.sql",
+  "packages/database/migrations/0018_reviewed_cash_account_identities.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -109,6 +110,103 @@ function reportedRow(
     observedAt: "2026-08-14T18:00:00.000Z",
     issues: [],
     ...overrides,
+  };
+}
+
+async function acceptOpaqueIdentityRotation(
+  repository: D1CashAccountsRepository,
+) {
+  const priorNaturalKeySha256 = "a".repeat(64);
+  const reportedNaturalKeySha256 = "b".repeat(64);
+  const connection = await repository.upsertConnection(
+    "synthetic-access-subject",
+    "First Synthetic Bank",
+    "connector-secrets/synthetic-cash.enc",
+    "c".repeat(64),
+  );
+  const initial = await repository.beginRefresh(
+    "synthetic-access-subject",
+    connection.id,
+    "initial",
+  );
+  const initialProposal = (
+    await repository.stageProposal("synthetic-access-subject", initial.id, {
+      objectKey: "cash-observations/synthetic-opaque-initial.json",
+      sourceSha256: "d".repeat(64),
+      normalized: normalized([
+        reportedRow({
+          naturalKeySha256: priorNaturalKeySha256,
+          itemAccountKeySha256: priorNaturalKeySha256,
+        }),
+      ]),
+    })
+  ).proposal;
+  if (initialProposal === null) {
+    throw new Error("Expected the initial opaque-identity proposal.");
+  }
+  await repository.completeRefresh(
+    "synthetic-access-subject",
+    initial.id,
+    initialProposal.id,
+    1,
+  );
+  await repository.applyProposal(
+    "synthetic-access-subject",
+    initialProposal.id,
+    {
+      changeNote: "Accepted the initial synthetic account.",
+      decisions: initialProposal.rows.map((row) => ({
+        rowId: row.id,
+        decision: "accepted",
+      })),
+    },
+  );
+
+  const live = await repository.beginRefresh(
+    "synthetic-access-subject",
+    connection.id,
+    "live",
+  );
+  const liveObservedAt = "2026-08-15T18:00:00.000Z";
+  const liveProposal = (
+    await repository.stageProposal("synthetic-access-subject", live.id, {
+      objectKey: "cash-observations/synthetic-opaque-live.json",
+      sourceSha256: "e".repeat(64),
+      normalized: normalized(
+        [
+          reportedRow({
+            naturalKeySha256: reportedNaturalKeySha256,
+            itemAccountKeySha256: reportedNaturalKeySha256,
+            valueMinor: 130_000,
+            availableMinor: 130_000,
+            currentMinor: 135_000,
+            observedAt: liveObservedAt,
+          }),
+        ],
+        liveObservedAt,
+      ),
+    })
+  ).proposal;
+  if (liveProposal === null) {
+    throw new Error("Expected the rotated opaque-identity proposal.");
+  }
+  await repository.completeRefresh(
+    "synthetic-access-subject",
+    live.id,
+    liveProposal.id,
+    1,
+  );
+  await repository.applyProposal("synthetic-access-subject", liveProposal.id, {
+    changeNote: "Accepted the reported and missing synthetic records.",
+    decisions: liveProposal.rows.map((row) => ({
+      rowId: row.id,
+      decision: "accepted",
+    })),
+  });
+  return {
+    connection,
+    priorNaturalKeySha256,
+    reportedNaturalKeySha256,
   };
 }
 
@@ -667,6 +765,75 @@ describe("reviewed cash accounts", () => {
       new Set(state.acceptedAccounts.map((account) => account.naturalKeySha256))
         .size,
     ).toBe(2);
+  });
+
+  it("requires review before linking a one-to-one opaque account rotation", async () => {
+    const rotation = await acceptOpaqueIdentityRotation(repository);
+    const beforeReview = await repository.getState(
+      "synthetic-access-subject",
+      true,
+    );
+    expect(beforeReview.acceptedAccounts).toHaveLength(2);
+    expect(beforeReview.identityCandidates).toEqual([
+      expect.objectContaining({
+        connectionId: rotation.connection.id,
+        accountLabel: "Household checking",
+        priorNaturalKeySha256: rotation.priorNaturalKeySha256,
+        reportedNaturalKeySha256: rotation.reportedNaturalKeySha256,
+      }),
+    ]);
+
+    await repository.reviewIdentity("synthetic-access-subject", {
+      connectionId: rotation.connection.id,
+      priorNaturalKeySha256: rotation.priorNaturalKeySha256,
+      reportedNaturalKeySha256: rotation.reportedNaturalKeySha256,
+      decision: "same_account",
+      changeNote: "Confirmed the synthetic records describe one account.",
+    });
+
+    const afterReview = await repository.getState(
+      "synthetic-access-subject",
+      true,
+    );
+    expect(afterReview.identityCandidates).toEqual([]);
+    expect(afterReview.acceptedAccounts).toEqual([
+      expect.objectContaining({
+        naturalKeySha256: rotation.priorNaturalKeySha256,
+        valueMinor: 130_000,
+        valueState: "reported",
+      }),
+    ]);
+    expect(() =>
+      sqlite
+        .prepare(
+          "UPDATE cash_account_identity_decisions SET decision = 'separate_accounts'",
+        )
+        .run(),
+    ).toThrow("cash account identity decisions are immutable");
+    await expect(
+      repository.reviewIdentity("synthetic-access-subject", {
+        connectionId: rotation.connection.id,
+        priorNaturalKeySha256: rotation.priorNaturalKeySha256,
+        reportedNaturalKeySha256: rotation.reportedNaturalKeySha256,
+        decision: "same_account",
+        changeNote: "Tried to repeat a stale synthetic review.",
+      }),
+    ).rejects.toMatchObject({ code: "review_required" });
+  });
+
+  it("records a reviewed decision to keep opaque account identities separate", async () => {
+    const rotation = await acceptOpaqueIdentityRotation(repository);
+    await repository.reviewIdentity("synthetic-access-subject", {
+      connectionId: rotation.connection.id,
+      priorNaturalKeySha256: rotation.priorNaturalKeySha256,
+      reportedNaturalKeySha256: rotation.reportedNaturalKeySha256,
+      decision: "separate_accounts",
+      changeNote: "Confirmed the synthetic records are separate accounts.",
+    });
+
+    const state = await repository.getState("synthetic-access-subject", true);
+    expect(state.identityCandidates).toEqual([]);
+    expect(state.acceptedAccounts).toHaveLength(2);
   });
 
   it("counts every live provider attempt and enforces the monthly ceiling", async () => {

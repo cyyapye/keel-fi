@@ -8,6 +8,7 @@ import {
   CashAccountApplyInputSchema,
   CashAccountApplyResultSchema,
   CashAccountExchangeInputSchema,
+  CashAccountIdentityReviewInputSchema,
   CashAccountLinkTokenSchema,
   CashAccountsStateSchema,
   CASH_FLOW_POLICY_VERSION,
@@ -47,6 +48,7 @@ import {
   type CashAccountApplyInput,
   type CashAccountApplyResult,
   type CashAccountLinkToken,
+  type CashAccountIdentityReviewInput,
   type CashAccountsState,
   type CashFlowReviewInput,
   type CashFlowReviewResult,
@@ -307,6 +309,28 @@ export async function applyCashAccountProposal(
     );
   }
   return CashAccountApplyResultSchema.parse(await response.json());
+}
+
+export async function reviewCashAccountIdentity(
+  input: CashAccountIdentityReviewInput,
+): Promise<CashAccountsState> {
+  const body = CashAccountIdentityReviewInputSchema.parse(input);
+  const response = await fetch("/api/cash-account-identities/review", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Cash account identity review returned ${response.status}.`,
+    );
+  }
+  return CashAccountsStateSchema.parse(await response.json());
 }
 
 export async function loadLiabilities(

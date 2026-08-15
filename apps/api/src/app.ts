@@ -4,6 +4,7 @@ import {
 } from "@keel/connectors";
 import {
   AngelListMacAgentRepositoryError,
+  CashAccountRepositoryError,
   D1AlphaRepository,
   D1AngelListMacAgentRepository,
   D1CashAccountsRepository,
@@ -27,6 +28,7 @@ import {
   AngelListMacAgentFailureInputSchema,
   CashAccountApplyInputSchema,
   CashAccountExchangeInputSchema,
+  CashAccountIdentityReviewInputSchema,
   CashAccountsErrorCodeSchema,
   CashFlowErrorCodeSchema,
   CashFlowReviewInputSchema,
@@ -996,6 +998,57 @@ export function createApp(options: AppOptions = {}) {
       return context.json(
         { error: "Every cash account needs a valid review decision." },
         400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/cash-account-identities/review", async (context) => {
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const parsed = CashAccountIdentityReviewInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        { error: "Cash account identity review input is invalid." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    const repository = cashAccountsRepositoryFor(context.env);
+    try {
+      await repository.reviewIdentity(
+        context.get("identity").subject,
+        parsed.data,
+      );
+      const state = await repository.getState(
+        context.get("identity").subject,
+        cashAccountsConfiguredFor(context.env),
+      );
+      return context.json(state, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (
+        error instanceof CashAccountRepositoryError ||
+        message.includes("already exists") ||
+        message.includes("UNIQUE")
+      ) {
+        return context.json(
+          { error: "This account match is no longer waiting for review." },
+          409,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      return context.json(
+        { error: "The account match could not be saved." },
+        500,
         { "Cache-Control": "private, no-store" },
       );
     }

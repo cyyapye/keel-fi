@@ -25,6 +25,7 @@ const cashState: CashAccountsState = {
     },
   ],
   acceptedAccounts: [],
+  identityCandidates: [],
   pendingProposals: [],
   errorCode: null,
 };
@@ -49,6 +50,7 @@ function repository(
       excludedCount: 0,
       acceptedCashMinor: 123_456,
     }),
+    reviewIdentity: vi.fn(),
     ...overrides,
   };
 }
@@ -141,6 +143,38 @@ describe("cash account API", () => {
       "synthetic-cash-proposal",
       input,
     );
+  });
+
+  it("records an explicit account identity review and returns current state", async () => {
+    const reviewIdentity = vi.fn().mockResolvedValue(undefined);
+    const getState = vi.fn().mockResolvedValue(cashState);
+    const app = createApp({
+      cashAccountsRepository: repository({ reviewIdentity, getState }),
+      cashPlaidClient: client(),
+    });
+    const input = {
+      connectionId: "synthetic-cash-connection",
+      priorNaturalKeySha256: "a".repeat(64),
+      reportedNaturalKeySha256: "b".repeat(64),
+      decision: "same_account" as const,
+      changeNote: "Confirmed one synthetic account.",
+    };
+    const response = await app.request(
+      "/api/cash-account-identities/review",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+      env(),
+    );
+
+    expect(response.status).toBe(201);
+    expect(reviewIdentity).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      input,
+    );
+    expect(getState).toHaveBeenCalledWith("synthetic-access-subject", true);
   });
 
   it("returns a bounded 429 before a fifth live provider call", async () => {

@@ -17,6 +17,7 @@ function row(
     >,
 ): AcceptedCashAccountHistoryRow {
   return {
+    proposal_id: "cash_proposal_synthetic",
     connector_account_id: "cash_connection_synthetic",
     institution_label: "First Synthetic Bank",
     account_label: "Household checking",
@@ -88,6 +89,57 @@ describe("cash account identity projection", () => {
     ]);
 
     expect(projection.acceptedRows).toHaveLength(2);
+  });
+
+  it("uses a reviewed link when the provider rotated every account key", () => {
+    const priorKey = "a".repeat(64);
+    const reportedKey = "b".repeat(64);
+    const projection = projectCashAccountIdentities(
+      [
+        row({
+          decision_id: "cash_decision_prior_reported",
+          proposal_id: "cash_proposal_prior",
+          natural_key_sha256: priorKey,
+          item_account_key_sha256: priorKey,
+          value_state: "reported",
+          decided_at: "2026-08-14T18:00:00.000Z",
+        }),
+        row({
+          decision_id: "cash_decision_prior_missing",
+          proposal_id: "cash_proposal_rotation",
+          natural_key_sha256: priorKey,
+          item_account_key_sha256: null,
+          value_state: "not_reported",
+          decided_at: "2026-08-15T18:00:00.000Z",
+        }),
+        row({
+          decision_id: "cash_decision_new_reported",
+          proposal_id: "cash_proposal_rotation",
+          natural_key_sha256: reportedKey,
+          item_account_key_sha256: reportedKey,
+          value_state: "reported",
+          decided_at: "2026-08-15T18:00:00.000Z",
+        }),
+      ],
+      [],
+      [
+        {
+          connectorAccountId: "cash_connection_synthetic",
+          naturalKeyLowSha256: priorKey,
+          naturalKeyHighSha256: reportedKey,
+        },
+      ],
+    );
+
+    expect(projection.acceptedRows).toEqual([
+      expect.objectContaining({
+        canonicalNaturalKeySha256: priorKey,
+        row: expect.objectContaining({
+          decision_id: "cash_decision_new_reported",
+          value_state: "reported",
+        }),
+      }),
+    ]);
   });
 
   it("keeps exact keys scoped to their connected institution", () => {

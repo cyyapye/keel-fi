@@ -1617,6 +1617,66 @@ h1,
   line-height: 1.45;
 }
 
+.cash-accounts__identity-review {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.3fr) minmax(0, 1fr);
+  gap: 42px;
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.cash-accounts__identity-heading h3 {
+  margin-bottom: 7px;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.cash-accounts__identity-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.cash-accounts__identity-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.cash-accounts__identity-list > div:first-child {
+  padding-top: 0;
+}
+
+.cash-accounts__identity-list span,
+.cash-accounts__identity-list strong,
+.cash-accounts__identity-list small {
+  display: block;
+}
+
+.cash-accounts__identity-list strong {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.cash-accounts__identity-list small {
+  margin-top: 5px;
+  color: var(--faint);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.cash-accounts__identity-list > div > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .cash-accounts__connections {
   margin-top: 22px;
   border-top: 1px solid var(--line-soft);
@@ -5094,7 +5154,8 @@ h1,
   }
 
   .cash-accounts__heading,
-  .cash-accounts__accepted {
+  .cash-accounts__accepted,
+  .cash-accounts__identity-review {
     grid-template-columns: 1fr;
     gap: 18px;
   }
@@ -5111,6 +5172,20 @@ h1,
   .cash-accounts__connection {
     grid-template-columns: 1fr;
     gap: 12px;
+  }
+
+  .cash-accounts__identity-list > div {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .cash-accounts__identity-list > div > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cash-accounts__identity-list .button {
+    width: 100%;
   }
 
   .cash-review {

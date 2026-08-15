@@ -1,5 +1,6 @@
 export type AcceptedCashAccountHistoryRow = {
   decision_id: string;
+  proposal_id: string;
   natural_key_sha256: string;
   item_account_key_sha256: string | null;
   connector_account_id: string;
@@ -21,12 +22,22 @@ type CashAccountIdentityObservation = {
   readonly itemAccountKeySha256: string;
 };
 
+export type CashAccountIdentityLink = {
+  readonly connectorAccountId: string;
+  readonly naturalKeyLowSha256: string;
+  readonly naturalKeyHighSha256: string;
+};
+
 type CashAccountIdentityProjection<Row extends AcceptedCashAccountHistoryRow> =
   {
     readonly acceptedRows: readonly {
       readonly canonicalNaturalKeySha256: string;
       readonly row: Row;
     }[];
+    canonicalNaturalKeyForNatural(
+      connectorAccountId: string,
+      naturalKeySha256: string,
+    ): string;
     canonicalNaturalKeyFor(
       connectorAccountId: string,
       naturalKeySha256: string,
@@ -75,6 +86,7 @@ export function projectCashAccountIdentities<
 >(
   rows: readonly Row[],
   observations: readonly CashAccountIdentityObservation[] = [],
+  links: readonly CashAccountIdentityLink[] = [],
 ): CashAccountIdentityProjection<Row> {
   const parents = new Map<string, string>();
   const ensure = (node: string) => {
@@ -153,6 +165,20 @@ export function projectCashAccountIdentities<
       observation.itemAccountKeySha256,
     ),
   );
+  links.forEach((link) =>
+    union(
+      identityNode(
+        link.connectorAccountId,
+        "natural",
+        link.naturalKeyLowSha256,
+      ),
+      identityNode(
+        link.connectorAccountId,
+        "natural",
+        link.naturalKeyHighSha256,
+      ),
+    ),
+  );
 
   const canonicalCandidateByRoot = new Map<
     string,
@@ -199,6 +225,18 @@ export function projectCashAccountIdentities<
       null,
     ),
   );
+
+  const canonicalNaturalKeyForNatural = (
+    connectorAccountId: string,
+    naturalKeySha256: string,
+  ) => {
+    const root = find(
+      identityNode(connectorAccountId, "natural", naturalKeySha256),
+    );
+    return (
+      canonicalCandidateByRoot.get(root)?.naturalKeySha256 ?? naturalKeySha256
+    );
+  };
 
   const canonicalNaturalKeyFor = (
     connectorAccountId: string,
@@ -253,5 +291,9 @@ export function projectCashAccountIdentities<
       ),
   );
 
-  return { acceptedRows, canonicalNaturalKeyFor };
+  return {
+    acceptedRows,
+    canonicalNaturalKeyForNatural,
+    canonicalNaturalKeyFor,
+  };
 }

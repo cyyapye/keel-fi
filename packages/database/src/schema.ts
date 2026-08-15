@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  foreignKey,
   index,
   integer,
   sqliteTable,
@@ -1290,6 +1291,68 @@ export const cashBalanceReviewDecisions = sqliteTable(
     ),
     check(
       "cash_balance_review_decisions_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const cashAccountIdentityDecisions = sqliteTable(
+  "cash_account_identity_decisions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    connectorAccountId: text("connector_account_id")
+      .notNull()
+      .references(() => connectorAccounts.id, { onDelete: "restrict" }),
+    naturalKeyLowSha256: text("natural_key_low_sha256").notNull(),
+    naturalKeyHighSha256: text("natural_key_high_sha256").notNull(),
+    decision: text("decision").notNull(),
+    supersedesDecisionId: text("supersedes_decision_id"),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    changeNote: text("change_note").notNull(),
+    decidedAt: timestamp("decided_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesDecisionId],
+      foreignColumns: [table.id],
+      name: "cash_account_identity_decisions_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("cash_account_identity_decisions_supersedes_unique").on(
+      table.supersedesDecisionId,
+    ),
+    index("cash_account_identity_decisions_household_pair_idx").on(
+      table.householdId,
+      table.connectorAccountId,
+      table.naturalKeyLowSha256,
+      table.naturalKeyHighSha256,
+      table.decidedAt,
+    ),
+    check(
+      "cash_account_identity_decisions_low_key_check",
+      sql`length(${table.naturalKeyLowSha256}) = 64 AND ${table.naturalKeyLowSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "cash_account_identity_decisions_high_key_check",
+      sql`length(${table.naturalKeyHighSha256}) = 64 AND ${table.naturalKeyHighSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "cash_account_identity_decisions_key_order_check",
+      sql`${table.naturalKeyLowSha256} < ${table.naturalKeyHighSha256}`,
+    ),
+    check(
+      "cash_account_identity_decisions_decision_check",
+      sql`${table.decision} IN ('same_account', 'separate_accounts')`,
+    ),
+    check(
+      "cash_account_identity_decisions_note_check",
+      sql`length(${table.changeNote}) BETWEEN 1 AND 500`,
+    ),
+    check(
+      "cash_account_identity_decisions_immutable_check",
       sql`${table.immutable} = 1`,
     ),
   ],

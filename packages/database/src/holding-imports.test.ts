@@ -30,6 +30,7 @@ const migrationFiles = [
   "packages/database/migrations/0015_reviewed_cash_accounts.sql",
   "packages/database/migrations/0016_reviewed_liabilities.sql",
   "packages/database/migrations/0017_reviewed_cash_flow.sql",
+  "packages/database/migrations/0018_reviewed_cash_account_identities.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -1242,7 +1243,7 @@ describe("reviewed portfolio baseline persistence", () => {
     ).toThrow("immutable");
   });
 
-  it("materializes an exact provider identity rotation as one cash account", async () => {
+  it("materializes a reviewed opaque identity rotation as one cash account", async () => {
     const holding = await holdingImports.stageHoldingImport(
       "synthetic-access-subject",
       stageInput("2".repeat(64)),
@@ -1362,7 +1363,7 @@ describe("reviewed portfolio baseline persistence", () => {
         reportedRowId,
         proposalId,
         "a".repeat(64),
-        "7".repeat(64),
+        "a".repeat(64),
         observedAt,
         observedAt,
       );
@@ -1399,6 +1400,24 @@ describe("reviewed portfolio baseline persistence", () => {
         rowId,
         decision: "accepted",
       })),
+    });
+    await expect(
+      cashAccounts.getState("synthetic-access-subject", true),
+    ).resolves.toMatchObject({
+      acceptedAccounts: expect.arrayContaining([
+        expect.objectContaining({ valueState: "not_reported" }),
+        expect.objectContaining({ valueState: "reported" }),
+      ]),
+      identityCandidates: [
+        expect.objectContaining({ accountLabel: "Household checking" }),
+      ],
+    });
+    await cashAccounts.reviewIdentity("synthetic-access-subject", {
+      connectionId: connection.id,
+      priorNaturalKeySha256: "6".repeat(64),
+      reportedNaturalKeySha256: "a".repeat(64),
+      decision: "same_account",
+      changeNote: "Confirmed the synthetic records describe one account.",
     });
 
     const state = await baselines.getState("synthetic-access-subject");

@@ -134,8 +134,38 @@ const appliedState = {
       observedAt,
       acceptedAt: "2026-08-14T16:05:00.000Z",
     },
+    {
+      ...acceptedSavings,
+      id: "cash_fact_prior_savings_missing",
+      naturalKeySha256: "4".repeat(64),
+      valueMinor: null,
+      valueState: "not_reported",
+      balanceSource: null,
+      refreshKind: "live",
+      observedAt,
+      acceptedAt: "2026-08-14T16:05:00.000Z",
+    },
+  ],
+  identityCandidates: [
+    {
+      connectionId,
+      institutionLabel: "Northstar Demo Bank",
+      accountLabel: "Reserve savings",
+      subtype: "savings",
+      priorNaturalKeySha256: "4".repeat(64),
+      reportedNaturalKeySha256: "2".repeat(64),
+      observedAt,
+    },
   ],
   pendingProposals: [],
+} as const;
+
+const resolvedIdentityState = {
+  ...appliedState,
+  acceptedAccounts: appliedState.acceptedAccounts.filter(
+    (account) => account.id !== "cash_fact_prior_savings_missing",
+  ),
+  identityCandidates: [],
 } as const;
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -154,6 +184,7 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   const alphaFixture = await alphaResponse.json();
   let cashState: Record<string, unknown> = pendingState;
   let applyBody: Record<string, unknown> | null = null;
+  let identityReviewBody: Record<string, unknown> | null = null;
 
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
@@ -180,6 +211,14 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
       });
     },
   );
+  await page.route("**/api/cash-account-identities/review", async (route) => {
+    identityReviewBody = (await route.request().postDataJSON()) as Record<
+      string,
+      unknown
+    >;
+    cashState = resolvedIdentityState;
+    await route.fulfill({ json: resolvedIdentityState, status: 201 });
+  });
   await page.route("**/api/portfolio-baseline", async (route) => {
     await route.fulfill({
       json: {
@@ -315,5 +354,42 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
       { rowId: "cash_row_savings", decision: "accepted" },
       { rowId: "cash_row_non_usd", decision: "excluded" },
     ],
+  });
+
+  await expect(
+    page.getByRole("heading", { name: "Possible duplicate accounts" }),
+  ).toBeVisible();
+  await expect(cashSection).toContainText(
+    "Confirm each match before the records are combined.",
+  );
+  await expect(cashSection).toHaveScreenshot(
+    "cash-accounts-identity-review.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole("button", { name: "Same account" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Possible duplicate accounts" }),
+  ).toHaveCount(0);
+  await expect(cashSection).toContainText(
+    "Account records combined. Review the FI baseline when ready.",
+  );
+  await expect(
+    cashSection
+      .locator(".cash-accounts__accepted-list strong")
+      .filter({ hasText: "Reserve savings" }),
+  ).toHaveCount(1);
+  expect(identityReviewBody).toEqual({
+    connectionId,
+    priorNaturalKeySha256: "4".repeat(64),
+    reportedNaturalKeySha256: "2".repeat(64),
+    decision: "same_account",
+    changeNote: "Confirmed both records describe the same cash account.",
   });
 });

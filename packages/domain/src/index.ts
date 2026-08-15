@@ -853,6 +853,37 @@ export const CashAccountConnectionSchema = z.object({
   liveRefreshesRemaining: z.number().int().nonnegative(),
 });
 
+export const CashAccountIdentityCandidateSchema = z.object({
+  connectionId: z.string().min(1),
+  institutionLabel: z.string().min(1).max(512),
+  accountLabel: z.string().min(1).max(512),
+  subtype: CashAccountSubtypeSchema,
+  priorNaturalKeySha256: Sha256Schema,
+  reportedNaturalKeySha256: Sha256Schema,
+  observedAt: IsoTimestampSchema,
+});
+
+export const CashAccountIdentityDecisionSchema = z.enum([
+  "same_account",
+  "separate_accounts",
+]);
+
+export const CashAccountIdentityReviewInputSchema = z
+  .object({
+    connectionId: z.string().min(1),
+    priorNaturalKeySha256: Sha256Schema,
+    reportedNaturalKeySha256: Sha256Schema,
+    decision: CashAccountIdentityDecisionSchema,
+    changeNote: z.string().trim().min(1).max(500),
+  })
+  .refine(
+    (input) => input.priorNaturalKeySha256 !== input.reportedNaturalKeySha256,
+    {
+      message: "Cash account identity keys must differ.",
+      path: ["reportedNaturalKeySha256"],
+    },
+  );
+
 export const CashAccountsErrorCodeSchema = z.enum([
   "configuration_required",
   "connection_invalid",
@@ -875,6 +906,10 @@ export const CashAccountsStateSchema = z.object({
   ]),
   connections: z.array(CashAccountConnectionSchema).max(20),
   acceptedAccounts: z.array(AcceptedCashAccountSchema).max(100),
+  identityCandidates: z
+    .array(CashAccountIdentityCandidateSchema)
+    .max(100)
+    .default([]),
   pendingProposals: z.array(CashBalanceProposalSchema).max(20),
   errorCode: CashAccountsErrorCodeSchema.nullable(),
 });
@@ -2777,6 +2812,15 @@ export type CashAccountApplyResult = z.infer<
   typeof CashAccountApplyResultSchema
 >;
 export type CashAccountConnection = z.infer<typeof CashAccountConnectionSchema>;
+export type CashAccountIdentityCandidate = z.infer<
+  typeof CashAccountIdentityCandidateSchema
+>;
+export type CashAccountIdentityDecision = z.infer<
+  typeof CashAccountIdentityDecisionSchema
+>;
+export type CashAccountIdentityReviewInput = z.infer<
+  typeof CashAccountIdentityReviewInputSchema
+>;
 export type CashAccountExchangeInput = z.infer<
   typeof CashAccountExchangeInputSchema
 >;

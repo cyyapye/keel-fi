@@ -3,11 +3,15 @@ import {
   addMinorUnits,
   CashAccountApplyInputSchema,
   CashAccountApplyResultSchema,
+  CashAccountIdentityReviewInputSchema,
   CashAccountsErrorCodeSchema,
   CashAccountsStateSchema,
   type AcceptedCashAccount,
   type CashAccountApplyInput,
   type CashAccountApplyResult,
+  type CashAccountIdentityCandidate,
+  type CashAccountIdentityDecision,
+  type CashAccountIdentityReviewInput,
   type CashAccountProposalRow,
   type CashAccountsErrorCode,
   type CashAccountsState,
@@ -68,6 +72,14 @@ type ProposalSourceRow = {
   balance_source: "available" | "current" | null;
   observed_at: string;
   issues_json: string;
+};
+
+type CashAccountIdentityDecisionRow = {
+  id: string;
+  connector_account_id: string;
+  natural_key_low_sha256: string;
+  natural_key_high_sha256: string;
+  decision: CashAccountIdentityDecision;
 };
 
 export type CashAccountConnection = {
@@ -153,6 +165,151 @@ function acceptedFromCanonicalRow(
     observedAt: row.observed_at,
     acceptedAt: row.decided_at,
   };
+}
+
+function orderedIdentityKeys(left: string, right: string): [string, string] {
+  return left.localeCompare(right) < 0 ? [left, right] : [right, left];
+}
+
+function identityPairKey(
+  connectionId: string,
+  left: string,
+  right: string,
+): string {
+  const [low, high] = orderedIdentityKeys(left, right);
+  return JSON.stringify([connectionId, low, high]);
+}
+
+function sameAccountLinks(
+  decisions: readonly CashAccountIdentityDecisionRow[],
+) {
+  return decisions
+    .filter((decision) => decision.decision === "same_account")
+    .map((decision) => ({
+      connectorAccountId: decision.connector_account_id,
+      naturalKeyLowSha256: decision.natural_key_low_sha256,
+      naturalKeyHighSha256: decision.natural_key_high_sha256,
+    }));
+}
+
+function identityCandidates(
+  rows: readonly AcceptedCashAccountHistoryRow[],
+  decisions: readonly CashAccountIdentityDecisionRow[],
+): CashAccountIdentityCandidate[] {
+  const decidedPairs = new Set(
+    decisions.map((decision) =>
+      identityPairKey(
+        decision.connector_account_id,
+        decision.natural_key_low_sha256,
+        decision.natural_key_high_sha256,
+      ),
+    ),
+  );
+  const projection = projectCashAccountIdentities(
+    rows,
+    [],
+    sameAccountLinks(decisions),
+  );
+  const historyByNatural = new Map<string, AcceptedCashAccountHistoryRow[]>();
+  rows.forEach((row) => {
+    const key = JSON.stringify([
+      row.connector_account_id,
+      row.natural_key_sha256,
+    ]);
+    const history = historyByNatural.get(key) ?? [];
+    history.push(row);
+    historyByNatural.set(key, history);
+  });
+  const rowsByProposal = new Map<string, AcceptedCashAccountHistoryRow[]>();
+  rows.forEach((row) => {
+    const proposalRows = rowsByProposal.get(row.proposal_id) ?? [];
+    proposalRows.push(row);
+    rowsByProposal.set(row.proposal_id, proposalRows);
+  });
+  const candidates: CashAccountIdentityCandidate[] = [];
+  rowsByProposal.forEach((proposalRows) => {
+    const groups = new Map<string, AcceptedCashAccountHistoryRow[]>();
+    proposalRows.forEach((row) => {
+      const key = JSON.stringify([
+        row.connector_account_id,
+        row.institution_label,
+        row.account_label,
+        row.subtype,
+      ]);
+      const group = groups.get(key) ?? [];
+      group.push(row);
+      groups.set(key, group);
+    });
+    groups.forEach((group) => {
+      const reported = group.filter((row) => row.value_state === "reported");
+      const missing = group.filter((row) => row.value_state === "not_reported");
+      if (reported.length !== 1 || missing.length !== 1) {
+        return;
+      }
+      const reportedRow = reported[0];
+      const missingRow = missing[0];
+      if (reportedRow === undefined || missingRow === undefined) {
+        return;
+      }
+      const pairKey = identityPairKey(
+        reportedRow.connector_account_id,
+        reportedRow.natural_key_sha256,
+        missingRow.natural_key_sha256,
+      );
+      const reportedHistory =
+        historyByNatural.get(
+          JSON.stringify([
+            reportedRow.connector_account_id,
+            reportedRow.natural_key_sha256,
+          ]),
+        ) ?? [];
+      const missingHistory =
+        historyByNatural.get(
+          JSON.stringify([
+            missingRow.connector_account_id,
+            missingRow.natural_key_sha256,
+          ]),
+        ) ?? [];
+      const priorReportedExists = missingHistory.some(
+        (row) =>
+          row.value_state === "reported" &&
+          row.decided_at.localeCompare(reportedRow.decided_at) < 0,
+      );
+      const alreadySameIdentity =
+        projection.canonicalNaturalKeyForNatural(
+          reportedRow.connector_account_id,
+          reportedRow.natural_key_sha256,
+        ) ===
+        projection.canonicalNaturalKeyForNatural(
+          missingRow.connector_account_id,
+          missingRow.natural_key_sha256,
+        );
+      if (
+        reportedRow.natural_key_sha256 === missingRow.natural_key_sha256 ||
+        reportedHistory.length !== 1 ||
+        !priorReportedExists ||
+        alreadySameIdentity ||
+        decidedPairs.has(pairKey)
+      ) {
+        return;
+      }
+      candidates.push({
+        connectionId: reportedRow.connector_account_id,
+        institutionLabel: reportedRow.institution_label,
+        accountLabel: reportedRow.account_label,
+        subtype: reportedRow.subtype,
+        priorNaturalKeySha256: missingRow.natural_key_sha256,
+        reportedNaturalKeySha256: reportedRow.natural_key_sha256,
+        observedAt: reportedRow.observed_at,
+      });
+    });
+  });
+  return candidates.sort(
+    (left, right) =>
+      left.institutionLabel.localeCompare(right.institutionLabel) ||
+      left.accountLabel.localeCompare(right.accountLabel) ||
+      left.priorNaturalKeySha256.localeCompare(right.priorNaturalKeySha256),
+  );
 }
 
 function proposalAction(
@@ -268,6 +425,10 @@ export interface CashAccountsRepository {
     proposalId: string,
     input: CashAccountApplyInput,
   ): Promise<CashAccountApplyResult>;
+  reviewIdentity(
+    accessSubject: string,
+    input: CashAccountIdentityReviewInput,
+  ): Promise<void>;
 }
 
 export class D1CashAccountsRepository implements CashAccountsRepository {
@@ -278,10 +439,10 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     configured: boolean,
   ): Promise<CashAccountsState> {
     const identity = await findIdentity(this.db, accessSubject);
-    const [connections, acceptedAccounts, pendingProposals] = await Promise.all(
+    const [connections, acceptedIdentity, pendingProposals] = await Promise.all(
       [
         this.connectionStateRows(identity.household_id),
-        this.acceptedAccounts(identity.household_id),
+        this.acceptedIdentityState(identity.household_id),
         this.pendingProposals(identity.household_id),
       ],
     );
@@ -323,7 +484,8 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
           0,
         ),
       })),
-      acceptedAccounts,
+      acceptedAccounts: acceptedIdentity.acceptedAccounts,
+      identityCandidates: acceptedIdentity.identityCandidates,
       pendingProposals,
       errorCode: configured ? parsedErrorCode : "configuration_required",
     });
@@ -709,10 +871,13 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         "The cash balance check is no longer active.",
       );
     }
-    const acceptedHistory = await this.acceptedAccountRows(
-      identity.household_id,
-      run.connector_account_id,
-    );
+    const [acceptedHistory, identityDecisions] = await Promise.all([
+      this.acceptedAccountRows(identity.household_id, run.connector_account_id),
+      this.effectiveIdentityDecisions(
+        identity.household_id,
+        run.connector_account_id,
+      ),
+    ]);
     const identityProjection = projectCashAccountIdentities(
       acceptedHistory,
       input.normalized.rows.map((row) => ({
@@ -720,6 +885,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         naturalKeySha256: row.naturalKeySha256,
         itemAccountKeySha256: row.itemAccountKeySha256,
       })),
+      sameAccountLinks(identityDecisions),
     );
     const accepted = identityProjection.acceptedRows.map(
       ({ canonicalNaturalKeySha256, row }) =>
@@ -1052,6 +1218,58 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     });
   }
 
+  public async reviewIdentity(
+    accessSubject: string,
+    rawInput: CashAccountIdentityReviewInput,
+  ): Promise<void> {
+    const input = CashAccountIdentityReviewInputSchema.parse(rawInput);
+    const identity = await findIdentity(this.db, accessSubject);
+    const [rows, decisions] = await Promise.all([
+      this.acceptedAccountRows(identity.household_id, input.connectionId),
+      this.effectiveIdentityDecisions(
+        identity.household_id,
+        input.connectionId,
+      ),
+    ]);
+    const candidate = identityCandidates(rows, decisions).find(
+      (item) =>
+        item.connectionId === input.connectionId &&
+        item.priorNaturalKeySha256 === input.priorNaturalKeySha256 &&
+        item.reportedNaturalKeySha256 === input.reportedNaturalKeySha256,
+    );
+    if (candidate === undefined) {
+      throw new CashAccountRepositoryError(
+        "review_required",
+        "This cash account identity review is no longer current.",
+      );
+    }
+    const [naturalKeyLowSha256, naturalKeyHighSha256] = orderedIdentityKeys(
+      input.priorNaturalKeySha256,
+      input.reportedNaturalKeySha256,
+    );
+    await this.db
+      .prepare(
+        `INSERT INTO cash_account_identity_decisions (
+           id, household_id, connector_account_id,
+           natural_key_low_sha256, natural_key_high_sha256, decision,
+           supersedes_decision_id, reviewer_user_id, change_note, decided_at,
+           immutable
+         ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 1)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        identity.household_id,
+        input.connectionId,
+        naturalKeyLowSha256,
+        naturalKeyHighSha256,
+        input.decision,
+        identity.user_id,
+        input.changeNote,
+        new Date().toISOString(),
+      )
+      .run();
+  }
+
   private connectionStateRows(householdId: string) {
     return all<ConnectionStateRow>(
       this.db
@@ -1133,11 +1351,33 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     householdId: string,
     connectionId?: string,
   ): Promise<AcceptedCashAccount[]> {
-    const rows = await this.acceptedAccountRows(householdId, connectionId);
-    return projectCashAccountIdentities(rows).acceptedRows.map(
-      ({ canonicalNaturalKeySha256, row }) =>
-        acceptedFromCanonicalRow(row, canonicalNaturalKeySha256),
+    return (await this.acceptedIdentityState(householdId, connectionId))
+      .acceptedAccounts;
+  }
+
+  private async acceptedIdentityState(
+    householdId: string,
+    connectionId?: string,
+  ): Promise<{
+    acceptedAccounts: AcceptedCashAccount[];
+    identityCandidates: CashAccountIdentityCandidate[];
+  }> {
+    const [rows, decisions] = await Promise.all([
+      this.acceptedAccountRows(householdId, connectionId),
+      this.effectiveIdentityDecisions(householdId, connectionId),
+    ]);
+    const projection = projectCashAccountIdentities(
+      rows,
+      [],
+      sameAccountLinks(decisions),
     );
+    return {
+      acceptedAccounts: projection.acceptedRows.map(
+        ({ canonicalNaturalKeySha256, row }) =>
+          acceptedFromCanonicalRow(row, canonicalNaturalKeySha256),
+      ),
+      identityCandidates: identityCandidates(rows, decisions),
+    };
   }
 
   private async acceptedAccountRows(
@@ -1147,7 +1387,8 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     const rows = await all<AcceptedCashAccountHistoryRow>(
       this.db
         .prepare(
-          `SELECT decision.id AS decision_id, row.natural_key_sha256,
+          `SELECT decision.id AS decision_id, proposal.id AS proposal_id,
+                  row.natural_key_sha256,
                   row.item_account_key_sha256,
                   proposal.connector_account_id, row.institution_label,
                   row.account_label, row.subtype, row.value_minor,
@@ -1165,6 +1406,29 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         .bind(householdId, connectionId ?? null, connectionId ?? null),
     );
     return rows;
+  }
+
+  private effectiveIdentityDecisions(
+    householdId: string,
+    connectionId?: string,
+  ): Promise<readonly CashAccountIdentityDecisionRow[]> {
+    return all<CashAccountIdentityDecisionRow>(
+      this.db
+        .prepare(
+          `SELECT decision.id, decision.connector_account_id,
+                  decision.natural_key_low_sha256,
+                  decision.natural_key_high_sha256, decision.decision
+           FROM cash_account_identity_decisions decision
+           WHERE decision.household_id = ?
+             AND (? IS NULL OR decision.connector_account_id = ?)
+             AND NOT EXISTS (
+               SELECT 1 FROM cash_account_identity_decisions later
+               WHERE later.supersedes_decision_id = decision.id
+             )
+           ORDER BY decision.decided_at, decision.id`,
+        )
+        .bind(householdId, connectionId ?? null, connectionId ?? null),
+    );
   }
 
   private async pendingProposals(

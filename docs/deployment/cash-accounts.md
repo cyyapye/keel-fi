@@ -87,6 +87,11 @@ contract.
   Item-scoped key. If the provider rotates one key while preserving the other,
   the account keeps one reviewed lineage; matching institution or account names
   alone never merge accounts.
+- If Plaid rotates both keys and supplies no persistent account ID, Keel shows a
+  possible duplicate only for an unambiguous one-reported/one-missing pair with
+  the same label and subtype in one reviewed proposal. **Same account** appends
+  a protected-key link; **Keep separate** appends the opposite decision. Neither
+  choice rewrites the accepted observations, and names alone never decide it.
 - A missing previously accepted account becomes an explicit `not_reported` row.
   The user may accept that state to clear the stale balance, but Keel never
   infers closure, withdrawal, or a zero balance.
