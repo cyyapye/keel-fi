@@ -1,0 +1,93 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  plaidInvestmentsAccountKey,
+  plaidInvestmentsPositionKey,
+  plaidInvestmentsSourceKey,
+} from "./investment-identity";
+import type { Env } from "./types";
+
+const credentialKey = btoa("k".repeat(32))
+  .replaceAll("+", "-")
+  .replaceAll("/", "_")
+  .replace(/=+$/u, "");
+const env = { CONNECTOR_CREDENTIAL_KEY: credentialKey } as Env;
+
+describe("protected investment identity", () => {
+  it("preserves the shipped Robinhood Item fingerprint", async () => {
+    await expect(
+      plaidInvestmentsSourceKey(env, "synthetic-item"),
+    ).resolves.toBe(
+      "5e8acfa77955812b53741e6ce7cefb15b00f863a4f29cf0e3218639870c4ad5c",
+    );
+  });
+
+  it("scopes accounts to Items and positions to ownership containers", async () => {
+    const [firstSource, secondSource] = await Promise.all([
+      plaidInvestmentsSourceKey(env, "synthetic-item-one"),
+      plaidInvestmentsSourceKey(env, "synthetic-item-two"),
+    ]);
+    const [firstAccount, secondAccount] = await Promise.all([
+      plaidInvestmentsAccountKey(env, firstSource, "same-account-id"),
+      plaidInvestmentsAccountKey(env, secondSource, "same-account-id"),
+    ]);
+    const [firstPosition, secondPosition] = await Promise.all([
+      plaidInvestmentsPositionKey(env, firstAccount, "same-position-id"),
+      plaidInvestmentsPositionKey(env, secondAccount, "same-position-id"),
+    ]);
+
+    for (const key of [
+      firstSource,
+      secondSource,
+      firstAccount,
+      secondAccount,
+      firstPosition,
+      secondPosition,
+    ]) {
+      expect(key).toMatch(/^[a-f0-9]{64}$/u);
+    }
+    expect(firstAccount).not.toBe(secondAccount);
+    expect(firstPosition).not.toBe(secondPosition);
+    await expect(
+      plaidInvestmentsAccountKey(env, firstSource, "same-account-id"),
+    ).resolves.toBe(firstAccount);
+    await expect(
+      plaidInvestmentsPositionKey(env, firstAccount, "same-position-id"),
+    ).resolves.toBe(firstPosition);
+  });
+
+  it("domain-separates source, account, and position identities", async () => {
+    const source = await plaidInvestmentsSourceKey(env, "same-provider-id");
+    const account = await plaidInvestmentsAccountKey(
+      env,
+      source,
+      "same-provider-id",
+    );
+    const position = await plaidInvestmentsPositionKey(
+      env,
+      source,
+      "same-provider-id",
+    );
+
+    expect(new Set([source, account, position]).size).toBe(3);
+  });
+
+  it("fails closed on malformed secrets, parents, and raw identifiers", async () => {
+    await expect(
+      plaidInvestmentsSourceKey({} as Env, "synthetic-item"),
+    ).rejects.toThrow();
+    await expect(
+      plaidInvestmentsSourceKey(
+        { CONNECTOR_CREDENTIAL_KEY: "not-base64url!" } as Env,
+        "synthetic-item",
+      ),
+    ).rejects.toThrow();
+    await expect(plaidInvestmentsSourceKey(env, "")).rejects.toThrow();
+    await expect(
+      plaidInvestmentsAccountKey(env, "not-a-protected-key", "account"),
+    ).rejects.toThrow();
+    await expect(
+      plaidInvestmentsPositionKey(env, "a".repeat(64), "x".repeat(513)),
+    ).rejects.toThrow();
+  });
+});

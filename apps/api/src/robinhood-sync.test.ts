@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   connectRobinhood,
   FetchPlaidInvestmentsClient,
+  providerAccountKey,
   syncRobinhood,
   type PlaidInvestmentsClient,
 } from "./robinhood-sync";
@@ -196,6 +197,16 @@ function testEnv(bucket: R2Bucket): Env {
 }
 
 describe("Robinhood Plaid sync", () => {
+  it("keeps the shipped Item fingerprint during the identity cutover", async () => {
+    const storage = memoryBucket();
+
+    await expect(
+      providerAccountKey(testEnv(storage.bucket), "synthetic-item"),
+    ).resolves.toBe(
+      "5e8acfa77955812b53741e6ce7cefb15b00f863a4f29cf0e3218639870c4ad5c",
+    );
+  });
+
   it("does not rebind the Workers runtime fetch receiver", async () => {
     let requestCount = 0;
     const runtimeFetch = function (
