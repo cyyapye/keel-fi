@@ -11,9 +11,22 @@
 7. Synthetic examples demonstrate the product without leaking a real portfolio.
 8. Public-source reliability and model confidence are separate measurements.
 9. A company-level financing signal is not automatically a holding-level mark.
+10. A legal position and its economic exposure are separate records. Each
+    position belongs to one ownership container and may map to multiple
+    exposures.
+11. The same exposure held through different accounts, tax wrappers, or legal
+    vehicles remains separate positions.
+12. A missing observation is scoped to the exact connection and completely
+    covered ownership container. It never implies a sale, closed account, or
+    zero value.
+13. A reviewed baseline counts each accepted position snapshot at most once.
+    Exposure views group positions without merging them or creating additional
+    value.
 
 The interface and copy acceptance criteria live in
-[`ui-and-copy.md`](./ui-and-copy.md).
+[`ui-and-copy.md`](./ui-and-copy.md). The canonical relationship model for
+institutions, accounts, positions, SPVs, and shared exposures lives in
+[ADR 005](../architecture/adr-005-multi-source-holdings-identity.md).
 
 ## Projection contract
 

@@ -4,6 +4,13 @@ Keel's first deployment is a private, single-user alpha, but every canonical
 record is household-scoped so the authorization boundary is explicit from day
 one.
 
+The diagram below describes the shipped architecture. The accepted target model
+for connecting multiple investment institutions, keeping same-security holdings
+separate by account, and keeping same-company SPV interests legally distinct is
+[ADR 005: Multi-source holdings identity](./adr-005-multi-source-holdings-identity.md).
+Its implementation is pending; Robinhood and AngelList remain the currently
+implemented holding sources.
+
 ```mermaid
 flowchart LR
   Browser["React private-alpha UI"] -->|"Access JWT + validated JSON"| API["Hono Worker"]

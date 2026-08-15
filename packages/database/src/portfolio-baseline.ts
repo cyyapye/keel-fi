@@ -16,6 +16,11 @@ import {
   type PortfolioBaselineSummary,
 } from "@keel/domain";
 
+import {
+  projectCashAccountIdentities,
+  type AcceptedCashAccountHistoryRow,
+} from "./cash-account-identity";
+
 type HouseholdIdentity = {
   household_id: string;
   user_id: string;
@@ -37,18 +42,8 @@ type SourcePositionRow = {
   instrument_type: string;
 };
 
-type SourceCashAccountRow = {
-  decision_id: string;
+type SourceCashAccountRow = AcceptedCashAccountHistoryRow & {
   proposal_row_id: string;
-  natural_key_sha256: string;
-  institution_label: string;
-  account_label: string;
-  subtype:
-    "checking" | "savings" | "money market" | "cash management" | "other";
-  value_minor: number | null;
-  value_state: "reported" | "not_reported";
-  refresh_kind: "initial" | "live";
-  observed_at: string;
 };
 
 type PlanningRow = {
@@ -1040,38 +1035,28 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     return all<SourceCashAccountRow>(
       this.db
         .prepare(
-          `WITH accepted AS (
-             SELECT
-               decision.id AS decision_id,
-               row.id AS proposal_row_id,
-               row.natural_key_sha256,
-               row.institution_label,
-               row.account_label,
-               row.subtype,
-               row.value_minor,
-               row.value_state,
-               proposal.refresh_kind,
-               row.observed_at,
-               ROW_NUMBER() OVER (
-                 PARTITION BY row.natural_key_sha256
-                 ORDER BY decision.decided_at DESC, decision.id DESC
-               ) AS recency
-             FROM cash_balance_review_decisions decision
-             JOIN cash_balance_proposal_rows row
-               ON row.id = decision.proposal_row_id
-             JOIN cash_balance_proposals proposal
-               ON proposal.id = decision.proposal_id
-             WHERE decision.household_id = ?
-               AND decision.decision = 'accepted'
-           )
-           SELECT decision_id, proposal_row_id, natural_key_sha256,
-                  institution_label, account_label, subtype, value_minor,
-                  value_state, refresh_kind, observed_at
-           FROM accepted
-           WHERE recency = 1
-           ORDER BY natural_key_sha256`,
+          `SELECT decision.id AS decision_id, row.id AS proposal_row_id,
+                  row.natural_key_sha256, row.item_account_key_sha256,
+                  proposal.connector_account_id, row.institution_label,
+                  row.account_label, row.subtype, row.value_minor,
+                  row.value_state, row.balance_source, proposal.refresh_kind,
+                  row.observed_at, decision.decided_at
+           FROM cash_balance_review_decisions decision
+           JOIN cash_balance_proposal_rows row
+             ON row.id = decision.proposal_row_id
+           JOIN cash_balance_proposals proposal
+             ON proposal.id = decision.proposal_id
+           WHERE decision.household_id = ?
+             AND decision.decision = 'accepted'
+           ORDER BY decision.decided_at, decision.id`,
         )
         .bind(householdId),
+    ).then((rows) =>
+      projectCashAccountIdentities(rows)
+        .acceptedRows.map(({ row }) => row)
+        .sort((left, right) =>
+          left.natural_key_sha256.localeCompare(right.natural_key_sha256),
+        ),
     );
   }
 

@@ -83,10 +83,11 @@ class TestD1Database {
 
 function normalized(
   rows: NormalizedCashAccounts["rows"],
+  observedAt = "2026-08-14T18:00:00.000Z",
 ): NormalizedCashAccounts {
   return {
     normalizedFingerprint: "f".repeat(64),
-    observedAt: "2026-08-14T18:00:00.000Z",
+    observedAt,
     rows,
   };
 }
@@ -158,6 +159,7 @@ describe("reviewed cash accounts", () => {
           reportedRow(),
           reportedRow({
             naturalKeySha256: "b".repeat(64),
+            itemAccountKeySha256: "b".repeat(64),
             accountLabel: "Foreign cash",
             availableMinor: 10_000,
             currentMinor: 10_000,
@@ -351,6 +353,320 @@ describe("reviewed cash accounts", () => {
         }),
       ],
     });
+  });
+
+  it("keeps one lineage when Plaid changes the natural identity but preserves the Item account identity", async () => {
+    const connection = await repository.upsertConnection(
+      "synthetic-access-subject",
+      "First Synthetic Bank",
+      "connector-secrets/synthetic-cash.enc",
+      "3".repeat(64),
+    );
+    const initial = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "initial",
+    );
+    const initialProposal = (
+      await repository.stageProposal("synthetic-access-subject", initial.id, {
+        objectKey: "cash-observations/synthetic-identity-initial.json",
+        sourceSha256: "4".repeat(64),
+        normalized: normalized([
+          reportedRow({
+            naturalKeySha256: "a".repeat(64),
+            itemAccountKeySha256: "c".repeat(64),
+          }),
+        ]),
+      })
+    ).proposal;
+    if (initialProposal === null) {
+      throw new Error("Expected the initial identity proposal.");
+    }
+    await repository.completeRefresh(
+      "synthetic-access-subject",
+      initial.id,
+      initialProposal.id,
+      1,
+    );
+    await repository.applyProposal(
+      "synthetic-access-subject",
+      initialProposal.id,
+      {
+        changeNote: "Accepted the initial synthetic account identity.",
+        decisions: initialProposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted",
+        })),
+      },
+    );
+
+    const live = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "live",
+    );
+    const liveObservedAt = "2026-08-15T18:00:00.000Z";
+    const liveProposal = (
+      await repository.stageProposal("synthetic-access-subject", live.id, {
+        objectKey: "cash-observations/synthetic-identity-live.json",
+        sourceSha256: "5".repeat(64),
+        normalized: normalized(
+          [
+            reportedRow({
+              naturalKeySha256: "b".repeat(64),
+              itemAccountKeySha256: "c".repeat(64),
+              availableMinor: 130_000,
+              currentMinor: 135_000,
+              valueMinor: 130_000,
+              observedAt: liveObservedAt,
+            }),
+          ],
+          liveObservedAt,
+        ),
+      })
+    ).proposal;
+    if (liveProposal === null) {
+      throw new Error("Expected the live identity proposal.");
+    }
+    expect(liveProposal.rows).toEqual([
+      expect.objectContaining({
+        naturalKeySha256: "a".repeat(64),
+        action: "update_balance",
+        priorValueMinor: 120_000,
+        valueMinor: 130_000,
+      }),
+    ]);
+    await repository.completeRefresh(
+      "synthetic-access-subject",
+      live.id,
+      liveProposal.id,
+      1,
+    );
+    await repository.applyProposal(
+      "synthetic-access-subject",
+      liveProposal.id,
+      {
+        changeNote: "Accepted the continued synthetic account identity.",
+        decisions: liveProposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted",
+        })),
+      },
+    );
+
+    const state = await repository.getState("synthetic-access-subject", true);
+    expect(state.acceptedAccounts).toEqual([
+      expect.objectContaining({
+        naturalKeySha256: "a".repeat(64),
+        valueMinor: 130_000,
+        valueState: "reported",
+      }),
+    ]);
+  });
+
+  it("repairs an accepted reported/not-reported split when both lineages share the exact Item account identity", async () => {
+    const connection = await repository.upsertConnection(
+      "synthetic-access-subject",
+      "First Synthetic Bank",
+      "connector-secrets/synthetic-cash.enc",
+      "6".repeat(64),
+    );
+    const initial = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "initial",
+    );
+    const initialProposal = (
+      await repository.stageProposal("synthetic-access-subject", initial.id, {
+        objectKey: "cash-observations/synthetic-repair-initial.json",
+        sourceSha256: "7".repeat(64),
+        normalized: normalized([
+          reportedRow({
+            naturalKeySha256: "a".repeat(64),
+            itemAccountKeySha256: "c".repeat(64),
+          }),
+        ]),
+      })
+    ).proposal;
+    if (initialProposal === null) {
+      throw new Error("Expected the repair fixture's initial proposal.");
+    }
+    await repository.completeRefresh(
+      "synthetic-access-subject",
+      initial.id,
+      initialProposal.id,
+      1,
+    );
+    await repository.applyProposal(
+      "synthetic-access-subject",
+      initialProposal.id,
+      {
+        changeNote: "Accepted the repair fixture's initial account.",
+        decisions: initialProposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted",
+        })),
+      },
+    );
+
+    const live = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "live",
+    );
+    const proposalId = "cash_proposal_identity_split";
+    const reportedRowId = "cash_row_identity_reported";
+    const missingRowId = "cash_row_identity_missing";
+    const observedAt = "2026-08-15T18:00:00.000Z";
+    const decidedAt = "2026-08-16T18:00:00.000Z";
+    sqlite
+      .prepare(
+        `INSERT INTO cash_balance_proposals (
+           id, household_id, connector_account_id, sync_run_id,
+           source_object_key, source_sha256, normalized_fingerprint,
+           refresh_kind, observed_at, retrieved_at, status, created_at
+         ) VALUES (?, 'hh_demo', ?, ?, ?, ?, ?, 'live', ?, ?,
+                   'pending_review', ?)`,
+      )
+      .run(
+        proposalId,
+        connection.id,
+        live.id,
+        "cash-observations/synthetic-identity-split.json",
+        "8".repeat(64),
+        "9".repeat(64),
+        observedAt,
+        observedAt,
+        observedAt,
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO cash_balance_proposal_rows (
+           id, household_id, proposal_id, natural_key_sha256,
+           item_account_key_sha256, institution_label, account_label, subtype,
+           available_minor, current_minor, value_minor, value_state,
+           balance_source, observed_at, issues_json, created_at
+         ) VALUES (?, 'hh_demo', ?, ?, ?, 'First Synthetic Bank',
+                   'Household checking', 'checking', 130000, 135000, 130000,
+                   'reported', 'available', ?, '[]', ?)`,
+      )
+      .run(
+        reportedRowId,
+        proposalId,
+        "b".repeat(64),
+        "c".repeat(64),
+        observedAt,
+        observedAt,
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO cash_balance_proposal_rows (
+           id, household_id, proposal_id, natural_key_sha256,
+           item_account_key_sha256, institution_label, account_label, subtype,
+           available_minor, current_minor, value_minor, value_state,
+           balance_source, observed_at, issues_json, created_at
+         ) VALUES (?, 'hh_demo', ?, ?, NULL, 'First Synthetic Bank',
+                   'Household checking', 'checking', NULL, NULL, NULL,
+                   'not_reported', NULL, ?, ?, ?)`,
+      )
+      .run(
+        missingRowId,
+        proposalId,
+        "a".repeat(64),
+        observedAt,
+        JSON.stringify([
+          "This account was not reported in the latest balance check.",
+        ]),
+        observedAt,
+      );
+    const decision = sqlite.prepare(
+      `INSERT INTO cash_balance_review_decisions (
+         id, household_id, proposal_id, proposal_row_id, reviewer_user_id,
+         decision, change_note, decided_at, immutable
+       ) VALUES (?, 'hh_demo', ?, ?, 'usr_demo', 'accepted', ?, ?, 1)`,
+    );
+    decision.run(
+      "cash_decision_identity_reported",
+      proposalId,
+      reportedRowId,
+      "Accepted the replacement identity.",
+      decidedAt,
+    );
+    decision.run(
+      "cash_decision_identity_missing",
+      proposalId,
+      missingRowId,
+      "Accepted the missing prior identity.",
+      decidedAt,
+    );
+    sqlite
+      .prepare(
+        "UPDATE cash_balance_proposals SET status = 'applied' WHERE id = ?",
+      )
+      .run(proposalId);
+
+    const state = await repository.getState("synthetic-access-subject", true);
+    expect(state.acceptedAccounts).toEqual([
+      expect.objectContaining({
+        naturalKeySha256: "a".repeat(64),
+        valueMinor: 130_000,
+        valueState: "reported",
+      }),
+    ]);
+  });
+
+  it("keeps identically named accounts separate when their provider identities differ", async () => {
+    const connection = await repository.upsertConnection(
+      "synthetic-access-subject",
+      "First Synthetic Bank",
+      "connector-secrets/synthetic-cash.enc",
+      "a".repeat(64),
+    );
+    const run = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "initial",
+    );
+    const proposal = (
+      await repository.stageProposal("synthetic-access-subject", run.id, {
+        objectKey: "cash-observations/synthetic-same-label.json",
+        sourceSha256: "b".repeat(64),
+        normalized: normalized([
+          reportedRow({
+            naturalKeySha256: "c".repeat(64),
+            itemAccountKeySha256: "d".repeat(64),
+          }),
+          reportedRow({
+            naturalKeySha256: "e".repeat(64),
+            itemAccountKeySha256: "f".repeat(64),
+            valueMinor: 80_000,
+          }),
+        ]),
+      })
+    ).proposal;
+    if (proposal === null) {
+      throw new Error("Expected the same-label proposal.");
+    }
+    await repository.completeRefresh(
+      "synthetic-access-subject",
+      run.id,
+      proposal.id,
+      2,
+    );
+    await repository.applyProposal("synthetic-access-subject", proposal.id, {
+      changeNote: "Accepted both distinct synthetic accounts.",
+      decisions: proposal.rows.map((row) => ({
+        rowId: row.id,
+        decision: "accepted",
+      })),
+    });
+
+    const state = await repository.getState("synthetic-access-subject", true);
+    expect(state.acceptedAccounts).toHaveLength(2);
+    expect(
+      new Set(state.acceptedAccounts.map((account) => account.naturalKeySha256))
+        .size,
+    ).toBe(2);
   });
 
   it("counts every live provider attempt and enforces the monthly ceiling", async () => {

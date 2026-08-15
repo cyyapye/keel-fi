@@ -1241,4 +1241,208 @@ describe("reviewed portfolio baseline persistence", () => {
         .run(),
     ).toThrow("immutable");
   });
+
+  it("materializes an exact provider identity rotation as one cash account", async () => {
+    const holding = await holdingImports.stageHoldingImport(
+      "synthetic-access-subject",
+      stageInput("2".repeat(64)),
+    );
+    await holdingImports.applyHoldingImport(
+      "synthetic-access-subject",
+      holding.preview.id,
+      {
+        currency: "USD",
+        decisions: holding.preview.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted" as const,
+          rationale: "Reviewed a synthetic baseline prerequisite.",
+        })),
+      },
+    );
+
+    const connection = await cashAccounts.upsertConnection(
+      "synthetic-access-subject",
+      "First Synthetic Bank",
+      "connector-secrets/synthetic-cash.enc",
+      "3".repeat(64),
+    );
+    const initial = await cashAccounts.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "initial",
+    );
+    const initialProposal = (
+      await cashAccounts.stageProposal("synthetic-access-subject", initial.id, {
+        objectKey: "cash-observations/synthetic-identity-initial.json",
+        sourceSha256: "4".repeat(64),
+        normalized: {
+          normalizedFingerprint: "5".repeat(64),
+          observedAt: "2026-08-14T18:00:00.000Z",
+          rows: [
+            {
+              naturalKeySha256: "6".repeat(64),
+              itemAccountKeySha256: "7".repeat(64),
+              institutionLabel: "First Synthetic Bank",
+              accountLabel: "Household checking",
+              subtype: "checking",
+              availableMinor: 300_000,
+              currentMinor: 300_000,
+              valueMinor: 300_000,
+              valueState: "reported",
+              balanceSource: "available",
+              observedAt: "2026-08-14T18:00:00.000Z",
+              issues: [],
+            },
+          ],
+        },
+      })
+    ).proposal;
+    if (initialProposal === null) {
+      throw new Error("Expected an initial synthetic cash proposal.");
+    }
+    await cashAccounts.completeRefresh(
+      "synthetic-access-subject",
+      initial.id,
+      initialProposal.id,
+      1,
+    );
+    await cashAccounts.applyProposal(
+      "synthetic-access-subject",
+      initialProposal.id,
+      {
+        changeNote: "Accepted the initial synthetic cash identity.",
+        decisions: initialProposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted",
+        })),
+      },
+    );
+
+    const live = await cashAccounts.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "live",
+    );
+    const proposalId = "cash_proposal_baseline_identity_split";
+    const reportedRowId = "cash_row_baseline_identity_reported";
+    const missingRowId = "cash_row_baseline_identity_missing";
+    const observedAt = "2026-08-15T18:00:00.000Z";
+    sqlite
+      .prepare(
+        `INSERT INTO cash_balance_proposals (
+           id, household_id, connector_account_id, sync_run_id,
+           source_object_key, source_sha256, normalized_fingerprint,
+           refresh_kind, observed_at, retrieved_at, status, created_at
+         ) VALUES (?, 'hh_demo', ?, ?, ?, ?, ?, 'live', ?, ?,
+                   'pending_review', ?)`,
+      )
+      .run(
+        proposalId,
+        connection.id,
+        live.id,
+        "cash-observations/synthetic-baseline-identity-split.json",
+        "8".repeat(64),
+        "9".repeat(64),
+        observedAt,
+        observedAt,
+        observedAt,
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO cash_balance_proposal_rows (
+           id, household_id, proposal_id, natural_key_sha256,
+           item_account_key_sha256, institution_label, account_label, subtype,
+           available_minor, current_minor, value_minor, value_state,
+           balance_source, observed_at, issues_json, created_at
+         ) VALUES (?, 'hh_demo', ?, ?, ?, 'First Synthetic Bank',
+                   'Household checking', 'checking', 325000, 325000, 325000,
+                   'reported', 'available', ?, '[]', ?)`,
+      )
+      .run(
+        reportedRowId,
+        proposalId,
+        "a".repeat(64),
+        "7".repeat(64),
+        observedAt,
+        observedAt,
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO cash_balance_proposal_rows (
+           id, household_id, proposal_id, natural_key_sha256,
+           item_account_key_sha256, institution_label, account_label, subtype,
+           available_minor, current_minor, value_minor, value_state,
+           balance_source, observed_at, issues_json, created_at
+         ) VALUES (?, 'hh_demo', ?, ?, NULL, 'First Synthetic Bank',
+                   'Household checking', 'checking', NULL, NULL, NULL,
+                   'not_reported', NULL, ?, ?, ?)`,
+      )
+      .run(
+        missingRowId,
+        proposalId,
+        "6".repeat(64),
+        observedAt,
+        JSON.stringify([
+          "This account was not reported in the latest balance check.",
+        ]),
+        observedAt,
+      );
+    await cashAccounts.completeRefresh(
+      "synthetic-access-subject",
+      live.id,
+      proposalId,
+      2,
+    );
+    await cashAccounts.applyProposal("synthetic-access-subject", proposalId, {
+      changeNote: "Accepted the synthetic provider identity rotation.",
+      decisions: [reportedRowId, missingRowId].map((rowId) => ({
+        rowId,
+        decision: "accepted",
+      })),
+    });
+
+    const state = await baselines.getState("synthetic-access-subject");
+    expect(state).toMatchObject({
+      status: "ready",
+      summary: {
+        cashAccountCount: 1,
+        cashAccountValueMinor: 325_000,
+        unknownCashAccountCount: 0,
+      },
+    });
+    expect(state.cashAccounts).toEqual([
+      expect.objectContaining({
+        accountLabel: "Household checking",
+        valueMinor: 325_000,
+        valueState: "reported",
+        refreshKind: "live",
+      }),
+    ]);
+    if (
+      state.sourceRevision === null ||
+      state.baseForecastSnapshotId === null ||
+      state.baseForecastSnapshotVersion === null
+    ) {
+      throw new Error("Expected a confirmable synthetic baseline.");
+    }
+
+    const confirmed = await baselines.confirm("synthetic-access-subject", {
+      sourceRevision: state.sourceRevision,
+      baseForecastSnapshotId: state.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
+      otherFiEligibleLiquidMinor: state.suggestedOtherFiEligibleLiquidMinor,
+      duplicateReviewConfirmed: true,
+      cashOverlapReviewConfirmed: true,
+      changeNote: "Confirmed the reconciled synthetic cash identity.",
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM portfolio_baseline_cash_items
+           WHERE baseline_id = ?`,
+        )
+        .get(confirmed.baseline.id),
+    ).toEqual({ count: 1 });
+  });
 });
