@@ -83,6 +83,10 @@ contract.
   normalized proposal rows, and append-only review decisions. Routing numbers,
   account numbers, raw Item IDs, and raw Plaid account IDs do not enter D1,
   logs, or browser responses.
+- Keel reconciles an account's protected provider key with its protected
+  Item-scoped key. If the provider rotates one key while preserving the other,
+  the account keeps one reviewed lineage; matching institution or account names
+  alone never merge accounts.
 - A missing previously accepted account becomes an explicit `not_reported` row.
   The user may accept that state to clear the stale balance, but Keel never
   infers closure, withdrawal, or a zero balance.

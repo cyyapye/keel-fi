@@ -110,7 +110,11 @@ obligation policy is captured in
 [deployment runbook](docs/deployment/liabilities.md). Observed cash-flow policy
 is captured in
 [ADR 004](docs/architecture/adr-004-reviewed-observed-cash-flow.md) and its
-[deployment runbook](docs/deployment/observed-cash-flow.md).
+[deployment runbook](docs/deployment/observed-cash-flow.md). The accepted,
+implementation-pending model for Fidelity and other investment institutions,
+multiple accounts holding the same security, and multiple SPVs sharing a company
+exposure is
+[ADR 005](docs/architecture/adr-005-multi-source-holdings-identity.md).
 
 ## Local development
 

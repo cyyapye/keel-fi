@@ -15,6 +15,11 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
+import {
+  projectCashAccountIdentities,
+  type AcceptedCashAccountHistoryRow,
+} from "./cash-account-identity";
+
 const CONNECTOR_TYPE = "plaid-cash";
 const LIVE_REFRESH_LIMIT = 4;
 const SHA256_SCHEMA = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -63,22 +68,6 @@ type ProposalSourceRow = {
   balance_source: "available" | "current" | null;
   observed_at: string;
   issues_json: string;
-};
-
-type AcceptedRow = {
-  decision_id: string;
-  natural_key_sha256: string;
-  connector_account_id: string;
-  institution_label: string;
-  account_label: string;
-  subtype:
-    "checking" | "savings" | "money market" | "cash management" | "other";
-  value_minor: number | null;
-  value_state: "reported" | "not_reported";
-  balance_source: "available" | "current" | null;
-  refresh_kind: "initial" | "live";
-  observed_at: string;
-  decided_at: string;
 };
 
 export type CashAccountConnection = {
@@ -146,10 +135,13 @@ function issuesFromJson(raw: string): string[] {
   return z.array(z.string().min(1).max(240)).max(5).parse(JSON.parse(raw));
 }
 
-function acceptedFromRow(row: AcceptedRow): AcceptedCashAccount {
+function acceptedFromCanonicalRow(
+  row: AcceptedCashAccountHistoryRow,
+  canonicalNaturalKeySha256: string,
+): AcceptedCashAccount {
   return {
     id: row.decision_id,
-    naturalKeySha256: row.natural_key_sha256,
+    naturalKeySha256: canonicalNaturalKeySha256,
     connectionId: row.connector_account_id,
     institutionLabel: row.institution_label,
     accountLabel: row.account_label,
@@ -717,18 +709,44 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         "The cash balance check is no longer active.",
       );
     }
-    const accepted = await this.acceptedAccounts(
+    const acceptedHistory = await this.acceptedAccountRows(
       identity.household_id,
       run.connector_account_id,
+    );
+    const identityProjection = projectCashAccountIdentities(
+      acceptedHistory,
+      input.normalized.rows.map((row) => ({
+        connectorAccountId: run.connector_account_id,
+        naturalKeySha256: row.naturalKeySha256,
+        itemAccountKeySha256: row.itemAccountKeySha256,
+      })),
+    );
+    const accepted = identityProjection.acceptedRows.map(
+      ({ canonicalNaturalKeySha256, row }) =>
+        acceptedFromCanonicalRow(row, canonicalNaturalKeySha256),
     );
     const acceptedByKey = new Map(
       accepted.map((account) => [account.naturalKeySha256, account]),
     );
+    const observedRows = input.normalized.rows.map((row) => ({
+      ...row,
+      naturalKeySha256: identityProjection.canonicalNaturalKeyFor(
+        run.connector_account_id,
+        row.naturalKeySha256,
+        row.itemAccountKeySha256,
+      ),
+    }));
     const observedKeys = new Set(
-      input.normalized.rows.map((row) => row.naturalKeySha256),
+      observedRows.map((row) => row.naturalKeySha256),
     );
+    if (observedKeys.size !== observedRows.length) {
+      throw new CashAccountRepositoryError(
+        "staging_failed",
+        "The provider returned duplicate cash account identities.",
+      );
+    }
     const materialRows: Omit<ProposalSourceRow, "id">[] = [
-      ...input.normalized.rows.map((row) => ({
+      ...observedRows.map((row) => ({
         natural_key_sha256: row.naturalKeySha256,
         item_account_key_sha256: row.itemAccountKeySha256,
         institution_label: row.institutionLabel,
@@ -1115,45 +1133,38 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     householdId: string,
     connectionId?: string,
   ): Promise<AcceptedCashAccount[]> {
-    const rows = await all<AcceptedRow>(
+    const rows = await this.acceptedAccountRows(householdId, connectionId);
+    return projectCashAccountIdentities(rows).acceptedRows.map(
+      ({ canonicalNaturalKeySha256, row }) =>
+        acceptedFromCanonicalRow(row, canonicalNaturalKeySha256),
+    );
+  }
+
+  private async acceptedAccountRows(
+    householdId: string,
+    connectionId?: string,
+  ): Promise<readonly AcceptedCashAccountHistoryRow[]> {
+    const rows = await all<AcceptedCashAccountHistoryRow>(
       this.db
         .prepare(
-          `WITH accepted AS (
-             SELECT
-               decision.id AS decision_id,
-               row.natural_key_sha256,
-               proposal.connector_account_id,
-               row.institution_label,
-               row.account_label,
-               row.subtype,
-               row.value_minor,
-               row.value_state,
-               row.balance_source,
-               proposal.refresh_kind,
-               row.observed_at,
-               decision.decided_at,
-               ROW_NUMBER() OVER (
-                 PARTITION BY row.natural_key_sha256
-                 ORDER BY decision.decided_at DESC, decision.id DESC
-               ) AS recency
-             FROM cash_balance_review_decisions decision
-             JOIN cash_balance_proposal_rows row
-               ON row.id = decision.proposal_row_id
-             JOIN cash_balance_proposals proposal
-               ON proposal.id = decision.proposal_id
-             WHERE decision.household_id = ? AND decision.decision = 'accepted'
-               AND (? IS NULL OR proposal.connector_account_id = ?)
-           )
-           SELECT decision_id, natural_key_sha256, connector_account_id,
-                  institution_label, account_label, subtype, value_minor,
-                  value_state, balance_source, refresh_kind, observed_at,
-                  decided_at
-           FROM accepted WHERE recency = 1
-           ORDER BY institution_label, account_label, natural_key_sha256`,
+          `SELECT decision.id AS decision_id, row.natural_key_sha256,
+                  row.item_account_key_sha256,
+                  proposal.connector_account_id, row.institution_label,
+                  row.account_label, row.subtype, row.value_minor,
+                  row.value_state, row.balance_source, proposal.refresh_kind,
+                  row.observed_at, decision.decided_at
+           FROM cash_balance_review_decisions decision
+           JOIN cash_balance_proposal_rows row
+             ON row.id = decision.proposal_row_id
+           JOIN cash_balance_proposals proposal
+             ON proposal.id = decision.proposal_id
+           WHERE decision.household_id = ? AND decision.decision = 'accepted'
+             AND (? IS NULL OR proposal.connector_account_id = ?)
+           ORDER BY decision.decided_at, decision.id`,
         )
         .bind(householdId, connectionId ?? null, connectionId ?? null),
     );
-    return rows.map(acceptedFromRow);
+    return rows;
   }
 
   private async pendingProposals(
