@@ -404,6 +404,263 @@ export const HoldingSchema = z.object({
   costBasisMinor: NonNegativeMoneyMinorSchema.nullable().default(null),
 });
 
+export const ProtectedIdentityKeySchema = z
+  .string()
+  .length(64)
+  .regex(/^[0-9a-f]+$/u);
+
+export const PrivateObjectReferenceSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(1_024)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u);
+
+export const InvestmentAdapterTypeSchema = z.enum([
+  "plaid-investments",
+  "angellist-import",
+  "manual",
+]);
+
+export const InvestmentConnectionLifecycleSchema = z.enum([
+  "pending",
+  "active",
+  "paused",
+  "disconnected",
+]);
+
+export const InvestmentConnectionSchema = z
+  .object({
+    id: z.string().min(1),
+    householdId: z.string().min(1),
+    adapterType: InvestmentAdapterTypeSchema,
+    protectedSourceKey: ProtectedIdentityKeySchema,
+    institutionKey: z.string().trim().min(1).max(200),
+    institutionLabel: z.string().trim().min(1).max(512),
+    lifecycleState: InvestmentConnectionLifecycleSchema,
+    credentialReference: PrivateObjectReferenceSchema.nullable(),
+    version: z.number().int().positive(),
+    recordedAt: IsoTimestampSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.adapterType !== "manual" &&
+      ["active", "paused"].includes(value.lifecycleState) &&
+      value.credentialReference === null
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["credentialReference"],
+        message: "Active provider connections require a private reference.",
+      });
+    }
+    if (
+      value.lifecycleState === "disconnected" &&
+      value.credentialReference !== null
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["credentialReference"],
+        message: "Disconnected connections cannot retain a private reference.",
+      });
+    }
+  });
+
+export const OwnershipContainerKindSchema = z.enum([
+  "brokerage",
+  "ira",
+  "retirement",
+  "trust",
+  "entity",
+  "unresolved",
+  "other",
+]);
+
+export const OwnershipTaxTreatmentSchema = z.enum([
+  "taxable",
+  "tax_deferred",
+  "tax_exempt",
+  "unknown",
+]);
+
+export const OwnershipContainerSchema = z
+  .object({
+    id: z.string().min(1),
+    householdId: z.string().min(1),
+    connectionId: z.string().min(1),
+    protectedAccountKey: ProtectedIdentityKeySchema,
+    displayLabel: z.string().trim().min(1).max(512),
+    containerKind: OwnershipContainerKindSchema,
+    taxTreatment: OwnershipTaxTreatmentSchema,
+    version: z.number().int().positive(),
+    recordedAt: IsoTimestampSchema,
+  })
+  .strict();
+
+export const OwnedPositionIdentitySchema = z
+  .object({
+    id: z.string().min(1),
+    householdId: z.string().min(1),
+    containerId: z.string().min(1),
+    positionId: z.string().min(1),
+    protectedPositionKey: ProtectedIdentityKeySchema,
+    associationBasis: z.enum([
+      "provider_provenance",
+      "reviewed_legacy",
+      "manual",
+    ]),
+    evidenceSha256: ProtectedIdentityKeySchema,
+    version: z.number().int().positive(),
+    supersedesOwnershipId: z.string().min(1).nullable(),
+    acceptedAt: IsoTimestampSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.version === 1) !== (value.supersedesOwnershipId === null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["supersedesOwnershipId"],
+        message: "Ownership versions must form an explicit chain.",
+      });
+    }
+  });
+
+export const HoldingImportCoverageCompletenessSchema = z.enum([
+  "complete",
+  "partial",
+  "unavailable",
+  "malformed",
+  "failed",
+  "ambiguous",
+]);
+
+export const HoldingImportCoverageSchema = z
+  .object({
+    id: z.string().min(1),
+    householdId: z.string().min(1),
+    importId: z.string().min(1),
+    connectionId: z.string().min(1),
+    containerId: z.string().min(1),
+    completeness: HoldingImportCoverageCompletenessSchema,
+    evidenceSha256: ProtectedIdentityKeySchema,
+    observedAt: IsoTimestampSchema,
+  })
+  .strict();
+
+export const ScaledQuantitySchema = z
+  .object({
+    quantityScaled: z.number().int().safe().nonnegative(),
+    quantityScale: z.number().int().safe().positive(),
+  })
+  .strict();
+
+export const OwnedPositionSnapshotSchema = z
+  .object({
+    id: z.string().min(1),
+    householdId: z.string().min(1),
+    positionId: z.string().min(1),
+    sourceImportRowId: z.string().min(1),
+    acceptedDecisionId: z.string().min(1),
+    effectiveDate: IsoDateSchema,
+    observedAt: IsoTimestampSchema,
+    quantity: ScaledQuantitySchema.nullable(),
+    valueMinor: NonNegativeMoneyMinorSchema.nullable(),
+    valueState: z.enum(["reported", "locked", "not_reported", "unavailable"]),
+    costBasisMinor: NonNegativeMoneyMinorSchema.nullable(),
+    currency: z
+      .string()
+      .length(3)
+      .regex(/^[A-Z]{3}$/u),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.valueState === "reported") !== (value.valueMinor !== null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["valueMinor"],
+        message: "Only reported values can carry money.",
+      });
+    }
+  });
+
+export const CanonicalExposureKindSchema = z.enum([
+  "public_instrument",
+  "private_company",
+  "fund",
+  "unresolved",
+]);
+
+export const CanonicalExposureSchema = z
+  .object({
+    id: z.string().min(1),
+    householdId: z.string().min(1),
+    exposureKind: CanonicalExposureKindSchema,
+    canonicalName: z.string().trim().min(1).max(1_000),
+    protectedIdentityKey: ProtectedIdentityKeySchema.nullable(),
+    companyId: z.string().min(1).nullable(),
+    resolutionMethod: z.enum([
+      "strong_identifier",
+      "reviewed_company",
+      "reviewed_fund",
+      "unresolved",
+    ]),
+    evidenceSha256: ProtectedIdentityKeySchema,
+    createdAt: IsoTimestampSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const valid =
+      (value.exposureKind === "public_instrument" &&
+        value.resolutionMethod === "strong_identifier" &&
+        value.protectedIdentityKey !== null &&
+        value.companyId === null) ||
+      (value.exposureKind === "private_company" &&
+        value.resolutionMethod === "reviewed_company" &&
+        value.companyId !== null) ||
+      (value.exposureKind === "fund" &&
+        value.resolutionMethod === "reviewed_fund" &&
+        value.protectedIdentityKey !== null &&
+        value.companyId === null) ||
+      (value.exposureKind === "unresolved" &&
+        value.resolutionMethod === "unresolved" &&
+        value.protectedIdentityKey === null &&
+        value.companyId === null);
+    if (!valid) {
+      context.addIssue({
+        code: "custom",
+        message: "Exposure identity and resolution method do not match.",
+      });
+    }
+  });
+
+export const PositionExposureMappingSchema = z
+  .object({
+    id: z.string().min(1),
+    householdId: z.string().min(1),
+    positionId: z.string().min(1),
+    exposureId: z.string().min(1),
+    relationshipKind: z.enum(["direct", "look_through"]),
+    allocationPpm: ProbabilityPpmSchema.nullable(),
+    status: z.enum(["active", "withdrawn"]),
+    decisionSource: z.enum(["deterministic_policy", "review"]),
+    decisionReference: z.string().trim().min(1).max(200),
+    evidenceSha256: ProtectedIdentityKeySchema,
+    effectiveAt: IsoTimestampSchema,
+    version: z.number().int().positive(),
+    supersedesMappingId: z.string().min(1).nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.status === "withdrawn" && value.allocationPpm !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["allocationPpm"],
+        message: "Withdrawn mappings cannot carry an allocation.",
+      });
+    }
+  });
+
 export const HoldingImportProviderSchema = z.enum(["angellist", "robinhood"]);
 
 export const HoldingImportRowActionSchema = z.enum([
@@ -2870,6 +3127,16 @@ export type Goal = z.infer<typeof GoalSchema>;
 export type GoalDraftInput = z.infer<typeof GoalDraftInputSchema>;
 export type GoalPreview = z.infer<typeof GoalPreviewSchema>;
 export type Holding = z.infer<typeof HoldingSchema>;
+export type CanonicalExposure = z.infer<typeof CanonicalExposureSchema>;
+export type HoldingImportCoverage = z.infer<typeof HoldingImportCoverageSchema>;
+export type InvestmentConnection = z.infer<typeof InvestmentConnectionSchema>;
+export type OwnedPositionIdentity = z.infer<typeof OwnedPositionIdentitySchema>;
+export type OwnedPositionSnapshot = z.infer<typeof OwnedPositionSnapshotSchema>;
+export type OwnershipContainer = z.infer<typeof OwnershipContainerSchema>;
+export type PositionExposureMapping = z.infer<
+  typeof PositionExposureMappingSchema
+>;
+export type ScaledQuantity = z.infer<typeof ScaledQuantitySchema>;
 export type HoldingImportApplyInput = z.infer<
   typeof HoldingImportApplyInputSchema
 >;

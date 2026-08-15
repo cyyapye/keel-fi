@@ -2475,3 +2475,496 @@ export const portfolioBaselineCashItems = sqliteTable(
     ),
   ],
 );
+
+export const investmentConnections = sqliteTable(
+  "investment_connections",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    adapterType: text("adapter_type").notNull(),
+    protectedSourceKey: text("protected_source_key").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("investment_connections_household_source_unique").on(
+      table.householdId,
+      table.adapterType,
+      table.protectedSourceKey,
+    ),
+    index("investment_connections_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    check(
+      "investment_connections_adapter_check",
+      sql`${table.adapterType} IN ('plaid-investments', 'angellist-import', 'manual')`,
+    ),
+    check(
+      "investment_connections_source_key_check",
+      sql`length(${table.protectedSourceKey}) = 64 AND ${table.protectedSourceKey} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "investment_connections_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const investmentConnectionVersions = sqliteTable(
+  "investment_connection_versions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => investmentConnections.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    institutionKey: text("institution_key").notNull(),
+    institutionLabel: text("institution_label").notNull(),
+    lifecycleState: text("lifecycle_state").notNull(),
+    credentialReference: text("credential_reference"),
+    supersedesVersionId: text("supersedes_version_id"),
+    recordedByUserId: text("recorded_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    recordedAt: timestamp("recorded_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesVersionId],
+      foreignColumns: [table.id],
+      name: "investment_connection_versions_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("investment_connection_versions_supersedes_unique").on(
+      table.supersedesVersionId,
+    ),
+    uniqueIndex("investment_connection_versions_connection_version_unique").on(
+      table.connectionId,
+      table.version,
+    ),
+    index("investment_connection_versions_household_connection_idx").on(
+      table.householdId,
+      table.connectionId,
+      table.version,
+    ),
+    check(
+      "investment_connection_versions_version_check",
+      sql`${table.version} > 0 AND ((${table.version} = 1 AND ${table.supersedesVersionId} IS NULL) OR (${table.version} > 1 AND ${table.supersedesVersionId} IS NOT NULL))`,
+    ),
+    check(
+      "investment_connection_versions_metadata_check",
+      sql`length(${table.institutionKey}) BETWEEN 1 AND 200 AND length(${table.institutionLabel}) BETWEEN 1 AND 512`,
+    ),
+    check(
+      "investment_connection_versions_lifecycle_check",
+      sql`${table.lifecycleState} IN ('pending', 'active', 'paused', 'disconnected')`,
+    ),
+    check(
+      "investment_connection_versions_reference_check",
+      sql`${table.credentialReference} IS NULL OR (length(${table.credentialReference}) BETWEEN 1 AND 1024 AND ${table.credentialReference} NOT GLOB '*[^A-Za-z0-9._/-]*' AND substr(${table.credentialReference}, 1, 1) GLOB '[A-Za-z0-9]')`,
+    ),
+    check(
+      "investment_connection_versions_disconnect_check",
+      sql`${table.lifecycleState} <> 'disconnected' OR ${table.credentialReference} IS NULL`,
+    ),
+    check(
+      "investment_connection_versions_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const ownershipContainers = sqliteTable(
+  "ownership_containers",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => investmentConnections.id, { onDelete: "restrict" }),
+    protectedAccountKey: text("protected_account_key").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("ownership_containers_connection_account_unique").on(
+      table.connectionId,
+      table.protectedAccountKey,
+    ),
+    index("ownership_containers_household_connection_idx").on(
+      table.householdId,
+      table.connectionId,
+      table.createdAt,
+    ),
+    check(
+      "ownership_containers_account_key_check",
+      sql`length(${table.protectedAccountKey}) = 64 AND ${table.protectedAccountKey} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check("ownership_containers_immutable_check", sql`${table.immutable} = 1`),
+  ],
+);
+
+export const ownershipContainerVersions = sqliteTable(
+  "ownership_container_versions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    containerId: text("container_id")
+      .notNull()
+      .references(() => ownershipContainers.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    displayLabel: text("display_label").notNull(),
+    containerKind: text("container_kind").notNull(),
+    taxTreatment: text("tax_treatment").notNull(),
+    supersedesVersionId: text("supersedes_version_id"),
+    recordedByUserId: text("recorded_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    recordedAt: timestamp("recorded_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesVersionId],
+      foreignColumns: [table.id],
+      name: "ownership_container_versions_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("ownership_container_versions_supersedes_unique").on(
+      table.supersedesVersionId,
+    ),
+    uniqueIndex("ownership_container_versions_container_version_unique").on(
+      table.containerId,
+      table.version,
+    ),
+    index("ownership_container_versions_household_container_idx").on(
+      table.householdId,
+      table.containerId,
+      table.version,
+    ),
+    check(
+      "ownership_container_versions_version_check",
+      sql`${table.version} > 0 AND ((${table.version} = 1 AND ${table.supersedesVersionId} IS NULL) OR (${table.version} > 1 AND ${table.supersedesVersionId} IS NOT NULL))`,
+    ),
+    check(
+      "ownership_container_versions_label_check",
+      sql`length(${table.displayLabel}) BETWEEN 1 AND 512`,
+    ),
+    check(
+      "ownership_container_versions_kind_check",
+      sql`${table.containerKind} IN ('brokerage', 'ira', 'retirement', 'trust', 'entity', 'unresolved', 'other')`,
+    ),
+    check(
+      "ownership_container_versions_tax_check",
+      sql`${table.taxTreatment} IN ('taxable', 'tax_deferred', 'tax_exempt', 'unknown')`,
+    ),
+    check(
+      "ownership_container_versions_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const holdingPositionOwnerships = sqliteTable(
+  "holding_position_ownerships",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    containerId: text("container_id")
+      .notNull()
+      .references(() => ownershipContainers.id, { onDelete: "restrict" }),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    protectedPositionKey: text("protected_position_key").notNull(),
+    associationBasis: text("association_basis").notNull(),
+    evidenceSha256: text("evidence_sha256").notNull(),
+    version: integer("version").notNull(),
+    supersedesOwnershipId: text("supersedes_ownership_id"),
+    acceptedByUserId: text("accepted_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    acceptedAt: timestamp("accepted_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesOwnershipId],
+      foreignColumns: [table.id],
+      name: "holding_position_ownerships_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("holding_position_ownerships_supersedes_unique").on(
+      table.supersedesOwnershipId,
+    ),
+    uniqueIndex("holding_position_ownership_roots_unique")
+      .on(table.positionId)
+      .where(sql`${table.supersedesOwnershipId} IS NULL`),
+    uniqueIndex("holding_position_ownerships_position_version_unique").on(
+      table.positionId,
+      table.version,
+    ),
+    uniqueIndex("holding_position_ownerships_container_position_key_unique").on(
+      table.containerId,
+      table.protectedPositionKey,
+    ),
+    index("holding_position_ownerships_household_container_idx").on(
+      table.householdId,
+      table.containerId,
+      table.positionId,
+      table.version,
+    ),
+    check(
+      "holding_position_ownerships_position_key_check",
+      sql`length(${table.protectedPositionKey}) = 64 AND ${table.protectedPositionKey} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "holding_position_ownerships_basis_check",
+      sql`${table.associationBasis} IN ('provider_provenance', 'reviewed_legacy', 'manual')`,
+    ),
+    check(
+      "holding_position_ownerships_evidence_check",
+      sql`length(${table.evidenceSha256}) = 64 AND ${table.evidenceSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "holding_position_ownerships_version_check",
+      sql`${table.version} > 0 AND ((${table.version} = 1 AND ${table.supersedesOwnershipId} IS NULL) OR (${table.version} > 1 AND ${table.supersedesOwnershipId} IS NOT NULL))`,
+    ),
+    check(
+      "holding_position_ownerships_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const holdingImportConnections = sqliteTable(
+  "holding_import_connections",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    importId: text("import_id")
+      .notNull()
+      .references(() => holdingImports.id, { onDelete: "restrict" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => investmentConnections.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("holding_import_connections_import_unique").on(table.importId),
+    index("holding_import_connections_household_connection_idx").on(
+      table.householdId,
+      table.connectionId,
+      table.createdAt,
+    ),
+    check(
+      "holding_import_connections_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const holdingImportRowContainers = sqliteTable(
+  "holding_import_row_containers",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    importRowId: text("import_row_id")
+      .notNull()
+      .references(() => holdingImportRows.id, { onDelete: "restrict" }),
+    containerId: text("container_id")
+      .notNull()
+      .references(() => ownershipContainers.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("holding_import_row_containers_row_unique").on(
+      table.importRowId,
+    ),
+    index("holding_import_row_containers_household_container_idx").on(
+      table.householdId,
+      table.containerId,
+      table.importRowId,
+    ),
+    check(
+      "holding_import_row_containers_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const holdingImportCoverages = sqliteTable(
+  "holding_import_coverages",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    importId: text("import_id")
+      .notNull()
+      .references(() => holdingImports.id, { onDelete: "restrict" }),
+    containerId: text("container_id")
+      .notNull()
+      .references(() => ownershipContainers.id, { onDelete: "restrict" }),
+    completeness: text("completeness").notNull(),
+    evidenceSha256: text("evidence_sha256").notNull(),
+    observedAt: timestamp("observed_at"),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("holding_import_coverages_import_container_unique").on(
+      table.importId,
+      table.containerId,
+    ),
+    index("holding_import_coverages_household_container_idx").on(
+      table.householdId,
+      table.containerId,
+      table.observedAt,
+    ),
+    check(
+      "holding_import_coverages_completeness_check",
+      sql`${table.completeness} IN ('complete', 'partial', 'unavailable', 'malformed', 'failed', 'ambiguous')`,
+    ),
+    check(
+      "holding_import_coverages_evidence_check",
+      sql`length(${table.evidenceSha256}) = 64 AND ${table.evidenceSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "holding_import_coverages_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const canonicalExposures = sqliteTable(
+  "canonical_exposures",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    exposureKind: text("exposure_kind").notNull(),
+    canonicalName: text("canonical_name").notNull(),
+    protectedIdentityKey: text("protected_identity_key"),
+    companyId: text("company_id").references(() => companies.id, {
+      onDelete: "restrict",
+    }),
+    resolutionMethod: text("resolution_method").notNull(),
+    evidenceSha256: text("evidence_sha256").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("canonical_exposures_household_identity_unique")
+      .on(table.householdId, table.protectedIdentityKey)
+      .where(sql`${table.protectedIdentityKey} IS NOT NULL`),
+    uniqueIndex("canonical_exposures_company_unique")
+      .on(table.companyId)
+      .where(sql`${table.companyId} IS NOT NULL`),
+    index("canonical_exposures_household_kind_idx").on(
+      table.householdId,
+      table.exposureKind,
+      table.canonicalName,
+    ),
+    check(
+      "canonical_exposures_name_check",
+      sql`length(${table.canonicalName}) BETWEEN 1 AND 1000`,
+    ),
+    check(
+      "canonical_exposures_identity_key_check",
+      sql`${table.protectedIdentityKey} IS NULL OR (length(${table.protectedIdentityKey}) = 64 AND ${table.protectedIdentityKey} NOT GLOB '*[^0-9a-f]*')`,
+    ),
+    check(
+      "canonical_exposures_identity_check",
+      sql`(${table.exposureKind} = 'public_instrument' AND ${table.resolutionMethod} = 'strong_identifier' AND ${table.protectedIdentityKey} IS NOT NULL AND ${table.companyId} IS NULL) OR (${table.exposureKind} = 'private_company' AND ${table.resolutionMethod} = 'reviewed_company' AND ${table.companyId} IS NOT NULL) OR (${table.exposureKind} = 'fund' AND ${table.resolutionMethod} = 'reviewed_fund' AND ${table.protectedIdentityKey} IS NOT NULL AND ${table.companyId} IS NULL) OR (${table.exposureKind} = 'unresolved' AND ${table.resolutionMethod} = 'unresolved' AND ${table.protectedIdentityKey} IS NULL AND ${table.companyId} IS NULL)`,
+    ),
+    check(
+      "canonical_exposures_evidence_check",
+      sql`length(${table.evidenceSha256}) = 64 AND ${table.evidenceSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check("canonical_exposures_immutable_check", sql`${table.immutable} = 1`),
+  ],
+);
+
+export const holdingPositionExposureMappings = sqliteTable(
+  "holding_position_exposure_mappings",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    exposureId: text("exposure_id")
+      .notNull()
+      .references(() => canonicalExposures.id, { onDelete: "restrict" }),
+    relationshipKind: text("relationship_kind").notNull(),
+    allocationPpm: integer("allocation_ppm"),
+    status: text("status").notNull(),
+    decisionSource: text("decision_source").notNull(),
+    decisionReference: text("decision_reference").notNull(),
+    evidenceSha256: text("evidence_sha256").notNull(),
+    effectiveAt: timestamp("effective_at"),
+    version: integer("version").notNull(),
+    supersedesMappingId: text("supersedes_mapping_id"),
+    acceptedByUserId: text("accepted_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    acceptedAt: timestamp("accepted_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesMappingId],
+      foreignColumns: [table.id],
+      name: "holding_position_exposure_mappings_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("holding_position_exposure_mappings_supersedes_unique").on(
+      table.supersedesMappingId,
+    ),
+    uniqueIndex("holding_position_exposure_mapping_roots_unique")
+      .on(table.positionId, table.exposureId)
+      .where(sql`${table.supersedesMappingId} IS NULL`),
+    index("holding_position_exposure_mappings_household_position_idx").on(
+      table.householdId,
+      table.positionId,
+      table.exposureId,
+      table.version,
+    ),
+    check(
+      "holding_position_exposure_mappings_relationship_check",
+      sql`${table.relationshipKind} IN ('direct', 'look_through')`,
+    ),
+    check(
+      "holding_position_exposure_mappings_allocation_check",
+      sql`${table.allocationPpm} IS NULL OR ${table.allocationPpm} BETWEEN 0 AND 1000000`,
+    ),
+    check(
+      "holding_position_exposure_mappings_status_check",
+      sql`${table.status} IN ('active', 'withdrawn') AND (${table.status} <> 'withdrawn' OR ${table.allocationPpm} IS NULL)`,
+    ),
+    check(
+      "holding_position_exposure_mappings_decision_check",
+      sql`${table.decisionSource} IN ('deterministic_policy', 'review') AND length(${table.decisionReference}) BETWEEN 1 AND 200`,
+    ),
+    check(
+      "holding_position_exposure_mappings_evidence_check",
+      sql`length(${table.evidenceSha256}) = 64 AND ${table.evidenceSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "holding_position_exposure_mappings_version_check",
+      sql`${table.version} > 0 AND ((${table.version} = 1 AND ${table.supersedesMappingId} IS NULL) OR (${table.version} > 1 AND ${table.supersedesMappingId} IS NOT NULL))`,
+    ),
+    check(
+      "holding_position_exposure_mappings_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);

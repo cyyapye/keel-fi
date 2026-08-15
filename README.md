@@ -114,7 +114,10 @@ is captured in
 implementation-pending model for Fidelity and other investment institutions,
 multiple accounts holding the same security, and multiple SPVs sharing a company
 exposure is
-[ADR 005](docs/architecture/adr-005-multi-source-holdings-identity.md).
+[ADR 005](docs/architecture/adr-005-multi-source-holdings-identity.md). Its
+additive persistence and cost boundary is documented in the
+[multi-source holdings runbook](docs/deployment/multi-source-holdings.md);
+legacy association and generic provider behavior remain pending.
 
 ## Local development
 
