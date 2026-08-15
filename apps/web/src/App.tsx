@@ -10,6 +10,7 @@ import {
   type AngelListSignInRefresh,
   type CashAccountsState,
   type CashBalanceProposal,
+  type CashFlowPlanSuggestion,
   type EvidenceInboxItem,
   type Goal,
   type GoalDraftInput,
@@ -82,6 +83,7 @@ import {
 } from "./format";
 import { openPlaidLink } from "./plaid-link";
 import { Obligations } from "./Obligations";
+import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanInputsEditor } from "./PlanInputsEditor";
 
 type Screen =
@@ -5852,6 +5854,10 @@ function Scenarios({
     "idle" | "saving" | "saved" | "error"
   >("idle");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [planSuggestion, setPlanSuggestion] =
+    useState<CashFlowPlanSuggestion | null>(null);
+  const [planSuggestionVersion, setPlanSuggestionVersion] = useState(0);
+  const [cashFlowReloadKey, setCashFlowReloadKey] = useState(0);
   const selected =
     data.scenarios.find((scenario) => scenario.id === selectedId) ??
     data.scenarios.find((scenario) => scenario.name === "FI Underwriting") ??
@@ -6021,7 +6027,23 @@ function Scenarios({
         </Badge>
       </div>
 
-      <PlanInputsEditor onSaved={onPlanSaved} />
+      <ObservedCashFlow
+        onPreparePlanDraft={(suggestion) => {
+          setPlanSuggestion(suggestion);
+          setPlanSuggestionVersion((current) => current + 1);
+        }}
+        reloadKey={cashFlowReloadKey}
+      />
+
+      <PlanInputsEditor
+        onSaved={async () => {
+          await onPlanSaved();
+          setPlanSuggestion(null);
+          setCashFlowReloadKey((current) => current + 1);
+        }}
+        suggestion={planSuggestion}
+        suggestionVersion={planSuggestionVersion}
+      />
 
       <div className="scenario-tabs" role="tablist">
         {data.scenarios.map((scenario) => (

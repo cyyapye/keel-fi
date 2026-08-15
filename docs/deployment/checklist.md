@@ -41,6 +41,14 @@
 - [ ] Upload types, sizes, quarantine, and malware scanning are enforced before
       uploads are enabled.
 - [ ] Imported facts appear as proposals requiring explicit review.
+- [ ] Before Transactions activation, the deployment records its Plaid monthly
+      Item rate, expected sync/mutation volume, Workers/D1 allowances, retention
+      owner, deletion test, and approved incremental monthly cost ceiling.
+- [ ] Transaction pages are discarded after bounded validation; tests confirm
+      zero raw transaction R2 writes and redacted logs/browser responses.
+- [ ] A Sandbox disconnect removes the Plaid Item, encrypted credential,
+      operational cursor, and normalized transaction revisions while preserving
+      reviewed aggregate and plan history.
 
 ## Release evidence
 

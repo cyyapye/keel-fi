@@ -1476,6 +1476,7 @@ export const PlanInputSaveSchema = PlanInputValuesSchema.extend({
   baseForecastSnapshotId: z.string().min(1),
   baseForecastSnapshotVersion: z.number().int().positive(),
   changeNote: z.string().trim().min(1).max(500),
+  cashFlowProposalId: z.string().min(1).optional(),
 });
 
 export const PlanInputSaveResultSchema = z.object({
@@ -1483,6 +1484,261 @@ export const PlanInputSaveResultSchema = z.object({
   priorImpact: PlanInputImpactSchema,
   createdAt: IsoTimestampSchema,
   createdBy: z.string().min(1),
+});
+
+export const CASH_FLOW_POLICY_VERSION = "observed-cash-flow-v1";
+
+export const CashFlowCategorySchema = z.enum([
+  "BANK_FEES",
+  "ENTERTAINMENT",
+  "FOOD_AND_DRINK",
+  "GENERAL_MERCHANDISE",
+  "GENERAL_SERVICES",
+  "GOVERNMENT_AND_NON_PROFIT",
+  "HOME_IMPROVEMENT",
+  "INCOME",
+  "LOAN_PAYMENTS",
+  "MEDICAL",
+  "OTHER",
+  "PERSONAL_CARE",
+  "RENT_AND_UTILITIES",
+  "TRANSFER_IN",
+  "TRANSFER_OUT",
+  "TRANSPORTATION",
+  "TRAVEL",
+]);
+
+export const CashFlowTreatmentSchema = z.enum([
+  "household",
+  "business",
+  "excluded",
+  "debt_payment",
+]);
+
+export const CashFlowPlanningContextSchema = z.object({
+  baseCashFlowPlanId: z.string().min(1),
+  baseForecastSnapshotId: z.string().min(1),
+  baseForecastSnapshotVersion: z.number().int().positive(),
+  householdBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  businessBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  debtPaymentContextMonthlyMinor: NonNegativeMoneyMinorSchema,
+  protectedCashFloorMinor: NonNegativeMoneyMinorSchema,
+  fiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
+});
+
+export const CashFlowComparisonSchema = z.object({
+  observedHouseholdMonthlyMinor: NonNegativeMoneyMinorSchema,
+  observedBusinessMonthlyMinor: NonNegativeMoneyMinorSchema,
+  proposedHouseholdBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  proposedBusinessBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  householdChangeMinor: MoneyMinorSchema,
+  businessChangeMinor: MoneyMinorSchema,
+  totalChangeMinor: MoneyMinorSchema,
+  currentRunwayMonths: z.number().int().nonnegative(),
+  proposedRunwayMonths: z.number().int().nonnegative(),
+  material: z.boolean(),
+});
+
+function materialChangeThreshold(currentMinor: number, floorMinor: number) {
+  const proportional = Number(
+    (BigInt(currentMinor) * 100_000n + 999_999n) / 1_000_000n,
+  );
+  return Math.max(floorMinor, proportional);
+}
+
+export function createCashFlowComparison(
+  rawPlanning: z.input<typeof CashFlowPlanningContextSchema>,
+  rawObservedHouseholdMonthlyMinor: number,
+  rawObservedBusinessMonthlyMinor: number,
+  includeDebtPaymentContext = true,
+): z.infer<typeof CashFlowComparisonSchema> {
+  const planning = CashFlowPlanningContextSchema.parse(rawPlanning);
+  const observedHouseholdMonthlyMinor = NonNegativeMoneyMinorSchema.parse(
+    rawObservedHouseholdMonthlyMinor,
+  );
+  const observedBusinessMonthlyMinor = NonNegativeMoneyMinorSchema.parse(
+    rawObservedBusinessMonthlyMinor,
+  );
+  const proposedHouseholdBurnMonthlyMinor = addMinorUnits(
+    observedHouseholdMonthlyMinor,
+    includeDebtPaymentContext ? planning.debtPaymentContextMonthlyMinor : 0,
+  );
+  const proposedBusinessBurnMonthlyMinor = observedBusinessMonthlyMinor;
+  const householdChangeMinor = subtractMinorUnits(
+    proposedHouseholdBurnMonthlyMinor,
+    planning.householdBurnMonthlyMinor,
+  );
+  const businessChangeMinor = subtractMinorUnits(
+    proposedBusinessBurnMonthlyMinor,
+    planning.businessBurnMonthlyMinor,
+  );
+  const currentTotalMinor = addMinorUnits(
+    planning.householdBurnMonthlyMinor,
+    planning.businessBurnMonthlyMinor,
+  );
+  const proposedTotalMinor = addMinorUnits(
+    proposedHouseholdBurnMonthlyMinor,
+    proposedBusinessBurnMonthlyMinor,
+  );
+  const totalChangeMinor = subtractMinorUnits(
+    proposedTotalMinor,
+    currentTotalMinor,
+  );
+  const runwayBaseMinor = Math.max(
+    subtractMinorUnits(
+      planning.fiEligibleLiquidMinor,
+      planning.protectedCashFloorMinor,
+    ),
+    0,
+  );
+  const runwayFor = (monthlyMinor: number) =>
+    monthlyMinor === 0
+      ? 0
+      : Number(BigInt(runwayBaseMinor) / BigInt(monthlyMinor));
+  const material =
+    Math.abs(householdChangeMinor) >=
+      materialChangeThreshold(planning.householdBurnMonthlyMinor, 25_000) ||
+    Math.abs(businessChangeMinor) >=
+      materialChangeThreshold(planning.businessBurnMonthlyMinor, 25_000) ||
+    Math.abs(totalChangeMinor) >=
+      materialChangeThreshold(currentTotalMinor, 50_000);
+
+  return CashFlowComparisonSchema.parse({
+    observedHouseholdMonthlyMinor,
+    observedBusinessMonthlyMinor,
+    proposedHouseholdBurnMonthlyMinor,
+    proposedBusinessBurnMonthlyMinor,
+    householdChangeMinor,
+    businessChangeMinor,
+    totalChangeMinor,
+    currentRunwayMonths: runwayFor(currentTotalMinor),
+    proposedRunwayMonths: runwayFor(proposedTotalMinor),
+    material,
+  });
+}
+
+export const CashFlowMonthSchema = z.object({
+  month: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/u),
+  outflowMinor: NonNegativeMoneyMinorSchema,
+  transactionCount: z.number().int().nonnegative(),
+});
+
+export const CashFlowProposalCategorySchema = z.object({
+  id: z.string().min(1),
+  category: CashFlowCategorySchema,
+  label: z.string().min(1).max(80),
+  totalMinor: NonNegativeMoneyMinorSchema,
+  averageMonthlyMinor: NonNegativeMoneyMinorSchema,
+  transactionCount: z.number().int().positive(),
+  defaultTreatment: CashFlowTreatmentSchema,
+  reviewedTreatment: CashFlowTreatmentSchema.nullable(),
+});
+
+export const CashFlowPlanSuggestionSchema = PlanInputValuesSchema.pick({
+  householdBurnMonthlyMinor: true,
+  businessBurnMonthlyMinor: true,
+}).extend({
+  proposalId: z.string().min(1),
+  changeNote: z.string().min(1).max(500),
+});
+
+export const CashFlowProposalSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(["pending_review", "ready_for_plan"]),
+  observedAt: IsoTimestampSchema,
+  periodStartMonth: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/u),
+  periodEndMonth: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/u),
+  transactionCount: z.number().int().positive(),
+  pendingExcludedCount: z.number().int().nonnegative(),
+  unsupportedExcludedCount: z.number().int().nonnegative(),
+  unreviewedAccountExcludedCount: z.number().int().nonnegative(),
+  coveredConnectionCount: z.number().int().positive(),
+  planning: CashFlowPlanningContextSchema,
+  comparison: CashFlowComparisonSchema,
+  months: z.array(CashFlowMonthSchema).length(3),
+  categories: z.array(CashFlowProposalCategorySchema).min(1).max(17),
+  planSuggestion: CashFlowPlanSuggestionSchema.nullable(),
+});
+
+export const CashFlowConnectionSchema = z.object({
+  id: z.string().min(1),
+  institutionLabel: z.string().min(1).max(512),
+  status: z.enum([
+    "cash_review_required",
+    "consent_required",
+    "ready",
+    "needs_attention",
+  ]),
+  acceptedAccountCount: z.number().int().nonnegative(),
+  pricingConfirmedAt: IsoTimestampSchema.nullable(),
+  lastCheckedAt: IsoTimestampSchema.nullable(),
+  dailyCheckLimit: z.number().int().positive(),
+  dailyChecksUsed: z.number().int().nonnegative(),
+  dailyChecksRemaining: z.number().int().nonnegative(),
+});
+
+export const CashFlowErrorCodeSchema = z.enum([
+  "configuration_required",
+  "connection_invalid",
+  "consent_required",
+  "daily_limit_reached",
+  "review_required",
+  "provider_not_ready",
+  "provider_unavailable",
+  "response_invalid",
+  "history_incomplete",
+  "coverage_incomplete",
+  "staging_failed",
+  "unexpected_failure",
+]);
+
+export const CashFlowStateSchema = z.object({
+  version: z.literal(1),
+  configured: z.boolean(),
+  status: z.enum([
+    "setup_required",
+    "disconnected",
+    "waiting_for_cash_review",
+    "consent_required",
+    "ready",
+    "review_required",
+    "needs_attention",
+  ]),
+  latestOutcome: z.enum([
+    "never_checked",
+    "history_incomplete",
+    "coverage_incomplete",
+    "no_material_change",
+    "proposal_ready",
+  ]),
+  connections: z.array(CashFlowConnectionSchema),
+  pendingProposals: z.array(CashFlowProposalSchema).max(1),
+  errorCode: CashFlowErrorCodeSchema.nullable(),
+});
+
+export const CashFlowSyncInputSchema = z
+  .object({
+    policyVersion: z.literal(CASH_FLOW_POLICY_VERSION),
+    pricingConfirmed: z.boolean(),
+  })
+  .strict();
+
+export const CashFlowReviewDecisionSchema = z.object({
+  categoryId: z.string().min(1),
+  treatment: CashFlowTreatmentSchema,
+});
+
+export const CashFlowReviewInputSchema = z
+  .object({
+    decisions: z.array(CashFlowReviewDecisionSchema).min(1).max(17),
+    changeNote: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const CashFlowReviewResultSchema = z.object({
+  proposalId: z.string().min(1),
+  comparison: CashFlowComparisonSchema,
+  planSuggestion: CashFlowPlanSuggestionSchema.nullable(),
 });
 
 export const RobinhoodSyncErrorCodeSchema = z.enum([
@@ -2534,6 +2790,26 @@ export type CashAccountSubtype = z.infer<typeof CashAccountSubtypeSchema>;
 export type CashAccountValueState = z.infer<typeof CashAccountValueStateSchema>;
 export type CashBalanceProposal = z.infer<typeof CashBalanceProposalSchema>;
 export type CashBalanceSource = z.infer<typeof CashBalanceSourceSchema>;
+export type CashFlowCategory = z.infer<typeof CashFlowCategorySchema>;
+export type CashFlowComparison = z.infer<typeof CashFlowComparisonSchema>;
+export type CashFlowConnection = z.infer<typeof CashFlowConnectionSchema>;
+export type CashFlowErrorCode = z.infer<typeof CashFlowErrorCodeSchema>;
+export type CashFlowMonth = z.infer<typeof CashFlowMonthSchema>;
+export type CashFlowPlanSuggestion = z.infer<
+  typeof CashFlowPlanSuggestionSchema
+>;
+export type CashFlowPlanningContext = z.infer<
+  typeof CashFlowPlanningContextSchema
+>;
+export type CashFlowProposal = z.infer<typeof CashFlowProposalSchema>;
+export type CashFlowProposalCategory = z.infer<
+  typeof CashFlowProposalCategorySchema
+>;
+export type CashFlowReviewInput = z.infer<typeof CashFlowReviewInputSchema>;
+export type CashFlowReviewResult = z.infer<typeof CashFlowReviewResultSchema>;
+export type CashFlowState = z.infer<typeof CashFlowStateSchema>;
+export type CashFlowSyncInput = z.infer<typeof CashFlowSyncInputSchema>;
+export type CashFlowTreatment = z.infer<typeof CashFlowTreatmentSchema>;
 export type CreateSignalUpdateProposalInput = z.infer<
   typeof CreateSignalUpdateProposalInputSchema
 >;

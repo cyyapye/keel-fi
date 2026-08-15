@@ -123,6 +123,41 @@ export class D1PlanInputsRepository implements PlanInputsRepository {
     ) {
       throw new Error("Plan inputs are already current.");
     }
+    if (input.cashFlowProposalId !== undefined) {
+      const proposal = await this.db
+        .prepare(
+          `SELECT base_cash_flow_plan_id, base_forecast_snapshot_id,
+                  base_forecast_snapshot_version,
+                  suggested_household_burn_monthly_minor,
+                  suggested_business_burn_monthly_minor,
+                  protected_cash_floor_minor
+           FROM cash_flow_proposals
+           WHERE id = ? AND household_id = ? AND status = 'ready_for_plan'`,
+        )
+        .bind(input.cashFlowProposalId, identity.household_id)
+        .first<{
+          base_cash_flow_plan_id: string;
+          base_forecast_snapshot_id: string;
+          base_forecast_snapshot_version: number;
+          suggested_household_burn_monthly_minor: number;
+          suggested_business_burn_monthly_minor: number;
+          protected_cash_floor_minor: number;
+        }>();
+      if (
+        proposal === null ||
+        proposal.base_cash_flow_plan_id !== input.baseCashFlowPlanId ||
+        proposal.base_forecast_snapshot_id !== input.baseForecastSnapshotId ||
+        proposal.base_forecast_snapshot_version !==
+          input.baseForecastSnapshotVersion ||
+        proposal.suggested_household_burn_monthly_minor !==
+          input.householdBurnMonthlyMinor ||
+        proposal.suggested_business_burn_monthly_minor !==
+          input.businessBurnMonthlyMinor ||
+        proposal.protected_cash_floor_minor !== input.protectedCashFloorMinor
+      ) {
+        throw new Error("Observed cash-flow proposal is stale.");
+      }
+    }
 
     const [companyForecasts, curves, outputs] = await Promise.all([
       all<CompanyForecastRow>(
@@ -308,6 +343,23 @@ export class D1PlanInputsRepository implements PlanInputsRepository {
           ),
       );
     });
+    if (input.cashFlowProposalId !== undefined) {
+      statements.push(
+        this.db
+          .prepare(
+            `UPDATE cash_flow_proposals
+             SET status = 'applied', applied_cash_flow_plan_id = ?,
+                 applied_at = ?
+             WHERE id = ? AND household_id = ?`,
+          )
+          .bind(
+            cashFlowPlanId,
+            createdAt,
+            input.cashFlowProposalId,
+            identity.household_id,
+          ),
+      );
+    }
 
     await this.db.batch(statements);
     return PlanInputSaveResultSchema.parse({

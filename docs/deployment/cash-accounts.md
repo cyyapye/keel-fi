@@ -16,8 +16,10 @@ account as closed or empty.
    coverage needed by the private deployment. Keel initializes Link with
    `products: ["auth"]`.
 2. Enable Transactions only as an additional consented product. Keel sends
-   `additional_consented_products: ["transactions"]` so a later milestone can
-   reuse consent, but M6 never requests Transactions data or starts its usage.
+   `additional_consented_products: ["transactions"]`; the balance path never
+   requests transaction data. Observed cash flow activates Transactions only
+   after a separate deployment-price confirmation. See the
+   [observed cash-flow runbook](observed-cash-flow.md).
 3. Register the exact HTTPS Holdings URL as an OAuth redirect, for example
    `https://keel-preview.example.com/holdings`, and set it as
    `PLAID_REDIRECT_URI`.
@@ -111,3 +113,7 @@ artifacts:
 Keep account names, balances, tokens, screenshots of real institutions, raw
 responses, and provider request logs out of GitHub issues, CI artifacts, and
 release notes.
+
+Disconnecting from Observed cash flow removes the shared Plaid Item, so cash
+balance access also ends. Reviewed cash facts remain available for audit and a
+future connection requires a fresh review.

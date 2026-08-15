@@ -8,7 +8,10 @@ import type { CashAccountsState } from "@keel/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  cashProviderKey,
+  cashProviderScopedKey,
   connectCashAccount,
+  disconnectCashAccount,
   FetchPlaidCashClient,
   refreshCashAccount,
   type PlaidCashClient,
@@ -125,6 +128,22 @@ function cashRepository() {
             },
       ),
     ),
+    beginDisconnect: vi.fn((): Promise<CashAccountConnection> => {
+      if (repository.secretReference === null) {
+        return Promise.reject(new Error("not connected"));
+      }
+      return Promise.resolve({
+        id: "synthetic-cash-connection",
+        institutionLabel: "First Synthetic Bank",
+        secretReference: repository.secretReference,
+        providerAccountKey: "a".repeat(64),
+      });
+    }),
+    cancelDisconnect: vi.fn().mockResolvedValue(undefined),
+    completeDisconnect: vi.fn(() => {
+      repository.secretReference = null;
+      return Promise.resolve();
+    }),
     beginRefresh: vi.fn(
       (
         _accessSubject: string,
@@ -187,6 +206,24 @@ function testEnv(bucket: R2Bucket): Env {
 }
 
 describe("Plaid cash account sync", () => {
+  it("scopes provider account and transaction keys to one Plaid Item", async () => {
+    const storage = memoryBucket();
+    const env = testEnv(storage.bucket);
+    const [firstItem, secondItem] = await Promise.all([
+      cashProviderKey(env, "item", "synthetic-item-one"),
+      cashProviderKey(env, "item", "synthetic-item-two"),
+    ]);
+    const [firstAccount, secondAccount, firstTransaction] = await Promise.all([
+      cashProviderScopedKey(env, "account", firstItem, "same-provider-id"),
+      cashProviderScopedKey(env, "account", secondItem, "same-provider-id"),
+      cashProviderScopedKey(env, "transaction", firstItem, "same-provider-id"),
+    ]);
+
+    expect(firstAccount).toMatch(/^[a-f0-9]{64}$/u);
+    expect(firstAccount).not.toBe(secondAccount);
+    expect(firstAccount).not.toBe(firstTransaction);
+  });
+
   it("requests only the cash scope and defers transaction activation", async () => {
     const fetcher = vi.fn(
       (_input: string | URL | Request, init?: RequestInit) => {
@@ -384,5 +421,55 @@ describe("Plaid cash account sync", () => {
       "synthetic-cash-connection",
       "live",
     );
+  });
+
+  it("removes the Plaid Item and encrypted credential before disconnecting", async () => {
+    const storage = memoryBucket();
+    const repository = cashRepository();
+    const removeItem = vi.fn().mockResolvedValue(undefined);
+    const response = syntheticCashResponse();
+    const client: PlaidCashClient = {
+      createLinkToken: vi.fn(),
+      exchangeToken: vi.fn().mockResolvedValue({
+        credential: {
+          version: 1,
+          accessToken: "synthetic-private-access-token",
+          itemId: "synthetic-item",
+          institutionId: "synthetic-bank",
+        },
+        institutionLabel: "First Synthetic Bank",
+      }),
+      getAccounts: vi.fn().mockResolvedValue({
+        bytes: new TextEncoder().encode(JSON.stringify(response)),
+        parsed: response,
+      }),
+      removeItem,
+    };
+    const env = testEnv(storage.bucket);
+    await connectCashAccount({
+      env,
+      repository,
+      client,
+      accessSubject: "synthetic-access-subject",
+      publicToken: "synthetic-public-token",
+    });
+    const secretReference = repository.secretReference;
+    expect(secretReference).not.toBeNull();
+
+    await disconnectCashAccount({
+      env,
+      repository,
+      client,
+      accessSubject: "synthetic-access-subject",
+      connectionId: "synthetic-cash-connection",
+    });
+
+    expect(removeItem).toHaveBeenCalledWith("synthetic-private-access-token");
+    expect(repository.completeDisconnect).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-cash-connection",
+    );
+    expect(storage.values.has(secretReference ?? "")).toBe(false);
+    expect(repository.secretReference).toBeNull();
   });
 });

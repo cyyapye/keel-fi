@@ -27,7 +27,9 @@ const PlaidCashConfigurationSchema = z
   })
   .strict();
 
-type PlaidCashConfiguration = z.infer<typeof PlaidCashConfigurationSchema>;
+export type PlaidCashConfiguration = z.infer<
+  typeof PlaidCashConfigurationSchema
+>;
 
 const PlaidLinkTokenResponseSchema = z
   .object({
@@ -117,7 +119,7 @@ export interface PlaidCashClient {
   removeItem(accessToken: string): Promise<void>;
 }
 
-function configuration(env: Env): PlaidCashConfiguration {
+export function plaidCashConfiguration(env: Env): PlaidCashConfiguration {
   const parsed = PlaidCashConfigurationSchema.safeParse({
     clientId: env.PLAID_CLIENT_ID,
     secret: env.PLAID_SECRET,
@@ -146,7 +148,7 @@ function configuration(env: Env): PlaidCashConfiguration {
 
 export function cashAccountsConfigured(env: Env): boolean {
   try {
-    configuration(env);
+    plaidCashConfiguration(env);
     return true;
   } catch {
     return false;
@@ -182,7 +184,7 @@ function base64UrlDecode(value: string): Uint8Array {
 }
 
 async function credentialKey(env: Env): Promise<CryptoKey> {
-  const key = base64UrlDecode(configuration(env).credentialKey);
+  const key = base64UrlDecode(plaidCashConfiguration(env).credentialKey);
   return crypto.subtle.importKey(
     "raw",
     ownedArrayBuffer(key),
@@ -193,7 +195,7 @@ async function credentialKey(env: Env): Promise<CryptoKey> {
 }
 
 async function cashHmacKey(env: Env, info: string): Promise<CryptoKey> {
-  const key = base64UrlDecode(configuration(env).credentialKey);
+  const key = base64UrlDecode(plaidCashConfiguration(env).credentialKey);
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     ownedArrayBuffer(key),
@@ -217,12 +219,11 @@ async function cashHmacKey(env: Env, info: string): Promise<CryptoKey> {
   );
 }
 
-async function cashProviderKey(
+async function signCashProviderKey(
   env: Env,
-  kind: "item" | "account",
-  rawValue: string,
+  kind: "item" | "account" | "transaction",
+  value: string,
 ): Promise<string> {
-  const value = z.string().min(1).max(512).parse(rawValue);
   const signature = await crypto.subtle.sign(
     "HMAC",
     await cashHmacKey(env, `plaid-${kind}-id`),
@@ -231,6 +232,32 @@ async function cashProviderKey(
   return [...new Uint8Array(signature)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+export async function cashProviderKey(
+  env: Env,
+  kind: "item" | "account" | "transaction",
+  rawValue: string,
+): Promise<string> {
+  return signCashProviderKey(
+    env,
+    kind,
+    z.string().min(1).max(512).parse(rawValue),
+  );
+}
+
+export async function cashProviderScopedKey(
+  env: Env,
+  kind: "account" | "transaction",
+  rawItemKeySha256: string,
+  rawValue: string,
+): Promise<string> {
+  const itemKeySha256 = z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .parse(rawItemKeySha256);
+  const value = z.string().min(1).max(512).parse(rawValue);
+  return signCashProviderKey(env, kind, JSON.stringify([itemKeySha256, value]));
 }
 
 async function encryptCredential(
@@ -313,6 +340,26 @@ async function readCredentialObject(object: R2ObjectBody): Promise<Uint8Array> {
     );
   }
   return new Uint8Array(buffer);
+}
+
+export async function loadCashCredential(
+  env: Env,
+  accessSubject: string,
+  secretReference: string,
+): Promise<CashCredential> {
+  const encrypted = await env.DOCUMENTS.get(secretReference);
+  if (encrypted === null) {
+    throw new PlaidCashClientError(
+      "connection_invalid",
+      "Reconnect this institution to continue.",
+    );
+  }
+  return decryptCredential(
+    env,
+    await readCredentialObject(encrypted),
+    accessSubject,
+    secretReference,
+  );
 }
 
 async function sha256(value: string): Promise<string> {
@@ -588,7 +635,7 @@ export class FetchPlaidCashClient implements PlaidCashClient {
 }
 
 export function createPlaidCashClient(env: Env): PlaidCashClient {
-  return new FetchPlaidCashClient(configuration(env));
+  return new FetchPlaidCashClient(plaidCashConfiguration(env));
 }
 
 function errorCode(error: unknown): CashAccountsErrorCode {
@@ -670,6 +717,60 @@ export async function connectCashAccount(input: {
   return input.repository.getState(input.accessSubject, true);
 }
 
+export async function disconnectCashAccount(input: {
+  env: Env;
+  repository: CashAccountsRepository;
+  client: PlaidCashClient;
+  accessSubject: string;
+  connectionId: string;
+}): Promise<CashAccountsState> {
+  const connection = await input.repository.beginDisconnect(
+    input.accessSubject,
+    input.connectionId,
+  );
+  let providerRemoved = false;
+  try {
+    const object = await input.env.DOCUMENTS.get(connection.secretReference);
+    if (object === null) {
+      throw new PlaidCashClientError(
+        "connection_invalid",
+        "Reconnect this institution before removing access.",
+      );
+    }
+    const credential = await decryptCredential(
+      input.env,
+      await readCredentialObject(object),
+      input.accessSubject,
+      connection.secretReference,
+    );
+    await input.client.removeItem(credential.accessToken);
+    providerRemoved = true;
+    let credentialDeleteError: unknown = null;
+    try {
+      await input.env.DOCUMENTS.delete(connection.secretReference);
+    } catch (error) {
+      credentialDeleteError = error;
+    }
+    await input.repository.completeDisconnect(
+      input.accessSubject,
+      connection.id,
+    );
+    if (credentialDeleteError !== null) {
+      throw new Error("Encrypted credential removal failed.", {
+        cause: credentialDeleteError,
+      });
+    }
+    return input.repository.getState(input.accessSubject, true);
+  } catch (error) {
+    if (!providerRemoved) {
+      await input.repository
+        .cancelDisconnect(input.accessSubject, connection.id)
+        .catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
 export async function refreshCashAccount(input: {
   env: Env;
   repository: CashAccountsRepository;
@@ -711,7 +812,12 @@ export async function refreshCashAccount(input: {
         institutionLabel: run.connection.institutionLabel,
         retrievedAt,
         accountKeyFor: (providerAccountId) =>
-          cashProviderKey(input.env, "account", providerAccountId),
+          cashProviderScopedKey(
+            input.env,
+            "account",
+            run.connection.providerAccountKey,
+            providerAccountId,
+          ),
       });
     } catch {
       throw new PlaidCashClientError(
