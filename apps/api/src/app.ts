@@ -80,7 +80,7 @@ type AppOptions = {
     D1HoldingImportRepository,
     | "stageRobinhoodHoldingImport"
     | "autoAdjudicateRobinhoodHoldingImport"
-    | "hasAcceptedRobinhoodPositions"
+    | "hasAcceptedRobinhoodPlanningPositions"
   >;
   cashAccountsRepository?: CashAccountsRepository;
   cashPlaidClient?: PlaidCashClient;

@@ -231,7 +231,7 @@ describe("Robinhood public-holdings connection state", () => {
       lastSyncedAt: expect.any(String),
       latestAdjudication: {
         importId: staged.preview.id,
-        policyVersion: "robinhood-holdings-auto-v1",
+        policyVersion: "robinhood-holdings-auto-v2",
         autoAppliedCount: 1,
         quarantinedCount: 0,
         preservedPositionCount: 0,

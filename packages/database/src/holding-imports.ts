@@ -1,5 +1,8 @@
 import {
   AngelListInvestmentCsvRowSchema,
+  isRobinhoodFiPlanningSecurityType,
+  isRobinhoodOutsideFiSecurityType,
+  ROBINHOOD_CRYPTO_OUTSIDE_FI_ISSUE,
   RobinhoodHoldingRowSchema,
   type AngelListInvestmentCsvRow,
   type RobinhoodHoldingRow,
@@ -26,8 +29,11 @@ const ANGELLIST_SOURCE_LABEL = "AngelList export";
 const ROBINHOOD_PROVIDER = "robinhood";
 const ROBINHOOD_PARSER_SCHEMA = "plaid_robinhood_holdings_v1";
 const ROBINHOOD_SOURCE_LABEL = "Robinhood via Plaid";
-export const ROBINHOOD_HOLDINGS_POLICY_VERSION = "robinhood-holdings-auto-v1";
-const NON_BLOCKING_ROBINHOOD_ISSUES = new Set(["Cost basis is unavailable."]);
+export const ROBINHOOD_HOLDINGS_POLICY_VERSION = "robinhood-holdings-auto-v2";
+const NON_BLOCKING_ROBINHOOD_ISSUES = new Set([
+  "Cost basis is unavailable.",
+  ROBINHOOD_CRYPTO_OUTSIDE_FI_ISSUE,
+]);
 
 const HoldingImportStageInputSchema = z
   .object({
@@ -181,6 +187,10 @@ type ExistingPositionRow = {
   currency: string;
 };
 
+type RobinhoodExistingPositionRow = ExistingPositionRow & {
+  instrument_type: string;
+};
+
 type ExistingSnapshotRow = {
   id: string;
   position_id: string;
@@ -200,6 +210,7 @@ type RobinhoodAdjudicationRow = {
   id: string;
   position_fingerprint: string;
   snapshot_fingerprint: string;
+  instrument_type: string;
   parse_status: "ready" | "needs_attention";
   cost_basis_minor: number | null;
   issue_codes_json: string;
@@ -685,19 +696,22 @@ export class D1HoldingImportRepository {
     };
   }
 
-  public async hasAcceptedRobinhoodPositions(
+  public async hasAcceptedRobinhoodPlanningPositions(
     accessSubject: string,
   ): Promise<boolean> {
     const identity = await this.findIdentity(accessSubject);
-    const row = await this.db
-      .prepare(
-        `SELECT COUNT(*) AS position_count
+    const rows = await all<{ instrument_type: string }>(
+      this.db
+        .prepare(
+          `SELECT instrument_type
          FROM holding_positions
          WHERE household_id = ? AND provider = 'robinhood'`,
-      )
-      .bind(identity.household_id)
-      .first<{ position_count: number }>();
-    return (row?.position_count ?? 0) > 0;
+        )
+        .bind(identity.household_id),
+    );
+    return rows.some((row) =>
+      isRobinhoodFiPlanningSecurityType(row.instrument_type),
+    );
   }
 
   public async autoAdjudicateRobinhoodHoldingImport(
@@ -719,17 +733,18 @@ export class D1HoldingImportRepository {
           this.db
             .prepare(
               `SELECT id, position_fingerprint, snapshot_fingerprint,
-                    parse_status, cost_basis_minor, issue_codes_json
+                    instrument_type, parse_status, cost_basis_minor,
+                    issue_codes_json
              FROM holding_import_rows
              WHERE import_id = ? AND household_id = ?
              ORDER BY source_row_number`,
             )
             .bind(importId, identity.household_id),
         ),
-        all<ExistingPositionRow>(
+        all<RobinhoodExistingPositionRow>(
           this.db
             .prepare(
-              `SELECT id, position_fingerprint, currency
+              `SELECT id, position_fingerprint, currency, instrument_type
              FROM holding_positions
              WHERE household_id = ? AND provider = 'robinhood'`,
             )
@@ -778,8 +793,11 @@ export class D1HoldingImportRepository {
     const missingPositions = positions.filter(
       (position) => !currentFingerprints.has(position.position_fingerprint),
     );
+    const missingPlanningPositions = missingPositions.filter((position) =>
+      isRobinhoodFiPlanningSecurityType(position.instrument_type),
+    );
     const possibleIdentityChange =
-      positions.length > 0 && missingPositions.length > 0;
+      positions.length > 0 && missingPlanningPositions.length > 0;
     const clearRows: RobinhoodAdjudicationRow[] = [];
     const quarantineStatements: D1PreparedStatement[] = [];
     const createdAt = new Date().toISOString();
@@ -821,7 +839,7 @@ export class D1HoldingImportRepository {
           ),
       );
     });
-    missingPositions.forEach((position) => {
+    missingPlanningPositions.forEach((position) => {
       quarantineStatements.push(
         this.db
           .prepare(
@@ -850,7 +868,9 @@ export class D1HoldingImportRepository {
       const reasonCodesByRow = new Map<string, readonly string[]>();
       clearRows.forEach((row) => {
         reasonCodesByRow.set(row.id, [
-          "supported_usd_long_position",
+          isRobinhoodOutsideFiSecurityType(row.instrument_type)
+            ? "excluded_from_fi_planning"
+            : "supported_usd_long_position",
           positionsByFingerprint.has(row.position_fingerprint)
             ? "existing_position_matched"
             : "new_position_identity_clear",

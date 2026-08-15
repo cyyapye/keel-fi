@@ -781,7 +781,7 @@ export async function syncRobinhood(input: {
     D1HoldingImportRepository,
     | "stageRobinhoodHoldingImport"
     | "autoAdjudicateRobinhoodHoldingImport"
-    | "hasAcceptedRobinhoodPositions"
+    | "hasAcceptedRobinhoodPlanningPositions"
   >;
   portfolioBaselines?: Pick<
     PortfolioBaselineRepository,
@@ -842,7 +842,7 @@ export async function syncRobinhood(input: {
     }
     if (normalized.rows.length === 0) {
       if (
-        await input.holdingImports.hasAcceptedRobinhoodPositions(
+        await input.holdingImports.hasAcceptedRobinhoodPlanningPositions(
           input.accessSubject,
         )
       ) {

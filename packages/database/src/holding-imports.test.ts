@@ -547,6 +547,119 @@ describe("AngelList holding import persistence", () => {
     );
   });
 
+  it("reclassifies legacy crypto without creating an active FI exception", async () => {
+    const legacyInput = robinhoodStageInput("b".repeat(64));
+    legacyInput.objectKey = "holding-imports/synthetic-legacy-crypto.json";
+    legacyInput.sha256 = "bc".repeat(32);
+    legacyInput.rows[0] = {
+      ...legacyInput.rows[0]!,
+      naturalKeySha256: "c".repeat(64),
+      securityName: "Synthetic Digital Asset",
+      ticker: "SDA",
+      securityType: "cryptocurrency",
+      issues: ["cryptocurrency positions are not supported yet."],
+    };
+    const legacy = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      legacyInput,
+    );
+    await expect(
+      repository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        legacy.preview.id,
+      ),
+    ).resolves.toMatchObject({ autoAppliedCount: 0, quarantinedCount: 1 });
+
+    const input = robinhoodStageInput("c".repeat(64));
+    input.rows[0] = {
+      ...input.rows[0]!,
+      naturalKeySha256: "c".repeat(64),
+      securityName: "Synthetic Digital Asset",
+      ticker: "SDA",
+      securityType: "cryptocurrency",
+      issues: ["Crypto is recorded outside the FI plan."],
+    };
+
+    const staged = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      input,
+    );
+    const adjudication = await repository.autoAdjudicateRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      staged.preview.id,
+    );
+
+    expect(adjudication).toEqual({
+      importId: staged.preview.id,
+      policyVersion: "robinhood-holdings-auto-v2",
+      autoAppliedCount: 1,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    await expect(
+      repository.getHoldingImport(
+        "synthetic-access-subject",
+        staged.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      status: "applied",
+      rows: [
+        {
+          ticker: "SDA",
+          adjudicationStatus: "auto_applied",
+          reasonCodes: expect.arrayContaining(["excluded_from_fi_planning"]),
+        },
+      ],
+    });
+
+    const alpha = await new D1AlphaRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    ).getAlphaData("synthetic-access-subject");
+    expect(alpha.holdings).toContainEqual(
+      expect.objectContaining({
+        positionName: "Synthetic Digital Asset",
+        ticker: "SDA",
+        sourceLabel: "Robinhood via Plaid",
+      }),
+    );
+
+    await expect(
+      repository.hasAcceptedRobinhoodPlanningPositions(
+        "synthetic-access-subject",
+      ),
+    ).resolves.toBe(false);
+
+    const laterInput = robinhoodStageInput("d".repeat(64));
+    laterInput.objectKey = "holding-imports/synthetic-later-robinhood.json";
+    laterInput.sha256 = "d".repeat(64);
+    const later = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      laterInput,
+    );
+    await expect(
+      repository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        later.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      autoAppliedCount: 1,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    expect(
+      (
+        sqlite
+          .prepare("SELECT COUNT(*) AS count FROM holding_import_quarantines")
+          .get() as { count: number }
+      ).count,
+    ).toBe(1);
+    await expect(
+      repository.hasAcceptedRobinhoodPlanningPositions(
+        "synthetic-access-subject",
+      ),
+    ).resolves.toBe(true);
+  });
+
   it("auto-applies clear Robinhood rows and quarantines only ambiguous changes", async () => {
     const initialInput = robinhoodStageInput();
     initialInput.rows[0] = {
@@ -576,7 +689,7 @@ describe("AngelList holding import persistence", () => {
       );
     expect(initialAdjudication).toEqual({
       importId: initial.preview.id,
-      policyVersion: "robinhood-holdings-auto-v1",
+      policyVersion: "robinhood-holdings-auto-v2",
       autoAppliedCount: 2,
       quarantinedCount: 0,
       preservedPositionCount: 0,
@@ -629,7 +742,7 @@ describe("AngelList holding import persistence", () => {
       );
     expect(changedAdjudication).toEqual({
       importId: changed.preview.id,
-      policyVersion: "robinhood-holdings-auto-v1",
+      policyVersion: "robinhood-holdings-auto-v2",
       autoAppliedCount: 1,
       quarantinedCount: 2,
       preservedPositionCount: 1,
@@ -783,6 +896,18 @@ describe("reviewed portfolio baseline persistence", () => {
       costBasisMinor: 100_000,
       marketValueMinor: 100_000,
     });
+    robinhoodInput.rows.push({
+      ...robinhoodInput.rows[0]!,
+      rowNumber: 3,
+      naturalKeySha256: "b".repeat(64),
+      securityName: "Synthetic Digital Asset",
+      ticker: "SDA",
+      securityType: "cryptocurrency",
+      quantityMicros: 25_000_000,
+      costBasisMinor: 2_000,
+      marketValueMinor: 2_500,
+      issues: ["Crypto is recorded outside the FI plan."],
+    });
     const robinhood = await holdingImports.stageRobinhoodHoldingImport(
       "synthetic-access-subject",
       robinhoodInput,
@@ -891,6 +1016,9 @@ describe("reviewed portfolio baseline persistence", () => {
     expect(
       state.positions.filter((position) => position.potentialDuplicate),
     ).toHaveLength(2);
+    expect(state.positions).not.toContainEqual(
+      expect.objectContaining({ ticker: "SDA" }),
+    );
     if (
       state.sourceRevision === null ||
       state.baseForecastSnapshotId === null ||

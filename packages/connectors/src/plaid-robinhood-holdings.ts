@@ -61,12 +61,29 @@ export const PlaidInvestmentsHoldingsResponseSchema = z
   })
   .passthrough();
 
-const supportedSecurityTypes = new Set([
+const fiPlanningSecurityTypes = new Set([
   "cash",
   "equity",
   "etf",
   "mutual fund",
 ]);
+
+const outsideFiSecurityTypes = new Set(["cryptocurrency"]);
+
+export const ROBINHOOD_CRYPTO_OUTSIDE_FI_ISSUE =
+  "Crypto is recorded outside the FI plan.";
+
+export function isRobinhoodFiPlanningSecurityType(
+  securityType: string,
+): boolean {
+  return fiPlanningSecurityTypes.has(securityType.trim().toLowerCase());
+}
+
+export function isRobinhoodOutsideFiSecurityType(
+  securityType: string,
+): boolean {
+  return outsideFiSecurityTypes.has(securityType.trim().toLowerCase());
+}
 
 export const RobinhoodHoldingRowSchema = z
   .object({
@@ -202,7 +219,9 @@ function issueMessages(input: {
   if (input.costBasisMinor === null) {
     messages.push("Cost basis is unavailable.");
   }
-  if (!supportedSecurityTypes.has(input.securityType.toLowerCase())) {
+  if (isRobinhoodOutsideFiSecurityType(input.securityType)) {
+    messages.push(ROBINHOOD_CRYPTO_OUTSIDE_FI_ISSUE);
+  } else if (!isRobinhoodFiPlanningSecurityType(input.securityType)) {
     messages.push(`${input.securityType} positions are not supported yet.`);
   }
   return messages;
