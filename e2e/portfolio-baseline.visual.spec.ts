@@ -113,6 +113,45 @@ const confirmationResult = {
   },
 } as const;
 
+const automaticReadyState = {
+  ...readyState,
+  summary: {
+    ...readyState.summary,
+    potentialDuplicateCount: 0,
+  },
+  positions: readyState.positions.map((position) => ({
+    ...position,
+    potentialDuplicate: false,
+    duplicateWith: [],
+  })),
+  suggestedOtherFiEligibleLiquidMinor: 2_500_000,
+  latestBaseline: {
+    ...confirmationResult.baseline,
+    id: "baseline_synthetic_prior",
+    sourceRevision: "b".repeat(64),
+    fiEligibleLiquidMinor: 26_300_000,
+    otherFiEligibleLiquidMinor: 2_500_000,
+    createdAt: "2026-08-10T19:00:00.000Z",
+  },
+  requiresDuplicateReview: false,
+} as const;
+
+const automaticConfirmationResult = {
+  baseline: {
+    ...confirmationResult.baseline,
+    id: "baseline_synthetic_automatic",
+    fiEligibleLiquidMinor: 26_300_000,
+    otherFiEligibleLiquidMinor: 2_500_000,
+    changeNote: "Accepted holdings refreshed automatically.",
+  },
+  impact: {
+    ...confirmationResult.impact,
+    fiEligibleLiquidMinor: 26_300_000,
+    fiEligibleChangeMinor: -156_200_000,
+    fiGapMinor: 298_700_000,
+  },
+} as const;
+
 async function expectNoHorizontalOverflow(page: Page) {
   const widths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -121,7 +160,7 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("reviews synced holdings before refreshing the FI forecast", async ({
+test("sets the initial FI baseline with explicit overlap review", async ({
   page,
 }) => {
   const alphaResponse = await page.request.get("/api/alpha");
@@ -195,7 +234,7 @@ test("reviews synced holdings before refreshing the FI forecast", async ({
   const summary = page.locator(".portfolio-baseline");
   await expect(
     page.getByRole("heading", {
-      name: "Reviewed holdings are ready to replace the FI baseline",
+      name: "Set the FI planning baseline",
     }),
   ).toBeVisible();
   await expect(summary).toHaveScreenshot("portfolio-baseline-ready.png", {
@@ -205,7 +244,7 @@ test("reviews synced holdings before refreshing the FI forecast", async ({
     threshold: 0.25,
   });
 
-  await page.getByRole("button", { name: "Review replacement" }).click();
+  await page.getByRole("button", { name: "Set baseline" }).click();
   await expect(page.getByLabel("Other FI-eligible liquid assets")).toHaveValue(
     "0.00",
   );
@@ -242,4 +281,101 @@ test("reviews synced holdings before refreshing the FI forecast", async ({
     otherFiEligibleLiquidMinor: 0,
     duplicateReviewConfirmed: true,
   });
+});
+
+test("refreshes an existing FI baseline without a second review", async ({
+  page,
+}) => {
+  const alphaResponse = await page.request.get("/api/alpha");
+  expect(alphaResponse.ok()).toBe(true);
+  const alphaFixture = await alphaResponse.json();
+  let baselineState: Record<string, unknown> = automaticReadyState;
+  let confirmationBody: Record<string, unknown> | null = null;
+
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/portfolio-baseline", async (route) => {
+    await route.fulfill({ json: baselineState });
+  });
+  await page.route("**/api/portfolio-baselines", async (route) => {
+    confirmationBody = (await route.request().postDataJSON()) as Record<
+      string,
+      unknown
+    >;
+    baselineState = {
+      ...automaticReadyState,
+      status: "current",
+      baseForecastSnapshotId: "snap_fi_v4",
+      baseForecastSnapshotVersion: 4,
+      planning: {
+        ...automaticReadyState.planning,
+        currentFiEligibleLiquidMinor: 26_300_000,
+      },
+      currentImpact: automaticConfirmationResult.impact,
+      latestBaseline: automaticConfirmationResult.baseline,
+      hasSourceChanges: false,
+      canConfirm: false,
+    };
+    await route.fulfill({ json: automaticConfirmationResult, status: 201 });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "ready",
+        interval: "weekly",
+        runStatus: null,
+        lastSeenAt: "2026-08-13T16:00:00.000Z",
+        lastCompletedAt: "2026-08-13T15:58:00.000Z",
+        nextRunAt: "2026-08-20T16:00:00.000Z",
+        latestImportId: null,
+        errorCode: null,
+      },
+    });
+  });
+  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        status: "ready",
+        lastSyncedAt: "2026-08-13T16:00:00.000Z",
+        automaticUpdatesEnabled: true,
+        latestImportId: null,
+        latestRunStatus: "succeeded",
+        errorCode: null,
+      },
+    });
+  });
+
+  await page.goto("/holdings");
+  await expect(
+    page.getByRole("heading", { name: "Planning baseline is current" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Review replacement" }),
+  ).toHaveCount(0);
+  expect(confirmationBody).toMatchObject({
+    sourceRevision: automaticReadyState.sourceRevision,
+    baseForecastSnapshotId: "snap_fi_v3",
+    baseForecastSnapshotVersion: 3,
+    otherFiEligibleLiquidMinor: 2_500_000,
+    duplicateReviewConfirmed: false,
+    changeNote: "Accepted holdings refreshed automatically.",
+  });
+  const summary = page.locator(".portfolio-baseline");
+  await expect(summary).toContainText(
+    "Accepted holdings update this plan automatically.",
+  );
+  await expect(summary).toHaveScreenshot("portfolio-baseline-automatic.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+  await expectNoHorizontalOverflow(page);
 });

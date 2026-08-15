@@ -18,7 +18,6 @@ import {
   type HoldingImportRowPreview,
   type HoldingImportSummary,
   type PortfolioBaselineConfirmInput,
-  type PortfolioBaselineConfirmResult,
   type PortfolioBaselineState,
   type PublicSourceObservation,
   type RobinhoodSyncStatus,
@@ -3385,10 +3384,8 @@ function PortfolioBaselineSection({
     useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<PortfolioBaselineConfirmResult | null>(
-    null,
-  );
   const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const autoRefreshRevisionRef = useRef<string | null>(null);
 
   const reload = useCallback(async (signal?: AbortSignal) => {
     const next = await loadPortfolioBaseline(signal);
@@ -3420,6 +3417,77 @@ function PortfolioBaselineSection({
       reviewHeadingRef.current?.focus();
     }
   }, [reviewing]);
+
+  useEffect(() => {
+    if (
+      state === null ||
+      state.status !== "ready" ||
+      state.latestBaseline === null ||
+      state.requiresDuplicateReview ||
+      !state.canConfirm ||
+      state.sourceRevision === null ||
+      state.baseForecastSnapshotId === null ||
+      state.baseForecastSnapshotVersion === null ||
+      autoRefreshRevisionRef.current === state.sourceRevision
+    ) {
+      return;
+    }
+
+    const sourceRevision = state.sourceRevision;
+    const input: PortfolioBaselineConfirmInput = {
+      sourceRevision,
+      baseForecastSnapshotId: state.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
+      otherFiEligibleLiquidMinor:
+        state.latestBaseline.otherFiEligibleLiquidMinor,
+      duplicateReviewConfirmed: false,
+      changeNote: "Accepted holdings refreshed automatically.",
+    };
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    autoRefreshRevisionRef.current = sourceRevision;
+    setWorking(true);
+    setError(null);
+
+    void confirmPortfolioBaseline(input)
+      .then(async () => {
+        if (cancelled) {
+          return;
+        }
+        setWorking(false);
+        const reloads = await Promise.allSettled([onConfirmed(), reload()]);
+        if (cancelled || reloads.every((item) => item.status === "fulfilled")) {
+          return;
+        }
+        setError(
+          "The planning baseline updated, but the latest view could not be loaded. Retrying shortly.",
+        );
+        autoRefreshRevisionRef.current = null;
+        retryTimer = window.setTimeout(() => {
+          void reload().catch(() => undefined);
+        }, 5_000);
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setWorking(false);
+        setError(
+          "Keel could not update the planning baseline yet. Retrying shortly.",
+        );
+        autoRefreshRevisionRef.current = null;
+        retryTimer = window.setTimeout(() => {
+          void reload().catch(() => undefined);
+        }, 10_000);
+      });
+
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
+    };
+  }, [onConfirmed, reload, state]);
 
   const proposedOtherLiquidMinor = useMemo(
     () => dollarInputToMinorUnits(otherLiquidInput),
@@ -3483,8 +3551,7 @@ function PortfolioBaselineSection({
     setWorking(true);
     setError(null);
     try {
-      const nextResult = await confirmPortfolioBaseline(input);
-      setResult(nextResult);
+      await confirmPortfolioBaseline(input);
       setReviewing(false);
       try {
         await Promise.all([onConfirmed(), reload()]);
@@ -3751,6 +3818,14 @@ function PortfolioBaselineSection({
   }
 
   const isCurrent = state.status === "current";
+  const isUpdatingAutomatically =
+    !isCurrent &&
+    state.latestBaseline !== null &&
+    !state.requiresDuplicateReview;
+  const requiresOverlapReview =
+    !isCurrent &&
+    state.latestBaseline !== null &&
+    state.requiresDuplicateReview;
   return (
     <section
       aria-labelledby="portfolio-baseline-title"
@@ -3761,19 +3836,21 @@ function PortfolioBaselineSection({
         <h2 id="portfolio-baseline-title">
           {isCurrent
             ? "Planning baseline is current"
-            : "Reviewed holdings are ready to replace the FI baseline"}
+            : isUpdatingAutomatically
+              ? "Updating the planning baseline"
+              : requiresOverlapReview
+                ? "Possible overlaps need review"
+                : "Set the FI planning baseline"}
         </h2>
         <p>
           {isCurrent
-            ? `Confirmed ${formatDate(state.latestBaseline?.createdAt ?? state.observedAt ?? "")}. Source updates will wait for another review.`
-            : "Review the imported liquid total and add any eligible liquid assets held elsewhere. Nothing changes until you confirm."}
+            ? `Updated ${formatDate(state.latestBaseline?.createdAt ?? state.observedAt ?? "")}. Accepted holdings update this plan automatically.`
+            : isUpdatingAutomatically
+              ? "Accepted holdings changed. Keel is updating the FI plan automatically."
+              : requiresOverlapReview
+                ? "Confirm which accepted positions overlap before Keel updates the FI plan."
+                : "Set imported liquid holdings as the FI baseline and add eligible liquid assets held elsewhere."}
         </p>
-        {result !== null && (
-          <p className="portfolio-baseline__success" role="status">
-            FI plan updated to{" "}
-            {formatCompactMoney(result.impact.fiEligibleLiquidMinor)}.
-          </p>
-        )}
         {error !== null && (
           <p className="portfolio-baseline__error" role="status">
             {error}
@@ -3794,9 +3871,9 @@ function PortfolioBaselineSection({
           in the FI plan
         </span>
       </div>
-      {!isCurrent && (
+      {!isCurrent && !isUpdatingAutomatically && (
         <Button onClick={openReview} tone="primary">
-          Review replacement
+          {requiresOverlapReview ? "Review overlaps" : "Set baseline"}
         </Button>
       )}
     </section>
@@ -3866,7 +3943,9 @@ function Holdings({
       try {
         const imports = await onListPendingImports();
         if (!cancelled) {
-          setPendingImports(imports);
+          setPendingImports(
+            imports.filter((item) => item.provider === "angellist"),
+          );
           setPendingImportError(null);
         }
       } catch {
@@ -4030,11 +4109,7 @@ function Holdings({
                     ? "A holding update is ready"
                     : `${pendingImports.length} holding updates are ready`}
                 </h2>
-                <p>
-                  {pendingImports.some((item) => item.provider === "robinhood")
-                    ? "AngelList exports wait for review. Robinhood shows only isolated exceptions."
-                    : "Nothing changes until you review it."}
-                </p>
+                <p>Nothing changes until you review it.</p>
               </div>
               <div className="holding-import-pending__items">
                 {pendingImports.map((item) => (
@@ -4042,20 +4117,15 @@ function Holdings({
                     <span>
                       <strong>{item.rowCount} positions</strong>
                       <small>
-                        {item.provider === "robinhood"
-                          ? "Robinhood snapshot"
-                          : "AngelList export"}{" "}
-                        · {formatDate(item.observedAt)}
+                        AngelList export · {formatDate(item.observedAt)}
                       </small>
                     </span>
                     <Button
-                      aria-label={`${item.provider === "robinhood" ? "View Robinhood exceptions from" : "Review AngelList import dated"} ${formatDate(item.observedAt)}`}
+                      aria-label={`Review AngelList import dated ${formatDate(item.observedAt)}`}
                       onClick={() => reviewPendingImport(item.id)}
                       tone="primary"
                     >
-                      {item.provider === "robinhood"
-                        ? "View exceptions"
-                        : "Review import"}
+                      Review import
                     </Button>
                   </div>
                 ))}
