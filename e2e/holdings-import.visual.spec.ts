@@ -576,7 +576,7 @@ test("connects Robinhood, applies clear rows, and isolates exceptions", async ({
           errorCode: null,
           latestAdjudication: {
             importId: robinhoodImportPreview.id,
-            policyVersion: "robinhood-holdings-auto-v1",
+            policyVersion: "robinhood-holdings-auto-v2",
             autoAppliedCount: 2,
             quarantinedCount: 2,
             preservedPositionCount: 1,
@@ -692,7 +692,7 @@ test("shows one Robinhood exception entry point", async ({ page }) => {
         errorCode: null,
         latestAdjudication: {
           importId: robinhoodImportPreview.id,
-          policyVersion: "robinhood-holdings-auto-v1",
+          policyVersion: "robinhood-holdings-auto-v2",
           autoAppliedCount: 2,
           quarantinedCount: 2,
           preservedPositionCount: 1,
@@ -761,7 +761,7 @@ test("shows automatic Robinhood checks with exception-only review", async ({
         errorCode: null,
         latestAdjudication: {
           importId: "holding_import_synthetic_applied",
-          policyVersion: "robinhood-holdings-auto-v1",
+          policyVersion: "robinhood-holdings-auto-v2",
           autoAppliedCount: 3,
           quarantinedCount: 0,
           preservedPositionCount: 0,
@@ -777,7 +777,7 @@ test("shows automatic Robinhood checks with exception-only review", async ({
   ).toBeVisible();
   await expect(
     page.getByText(
-      "Keel records clear holdings changes automatically. Anything uncertain stays unchanged for you to inspect.",
+      "Keel records clear holdings changes automatically. Crypto stays outside your FI plan; only uncertain records need review.",
     ),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();

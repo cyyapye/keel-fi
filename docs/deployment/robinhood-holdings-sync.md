@@ -73,18 +73,23 @@ bounded setup-required state.
 - Raw brokerage responses and encrypted credentials stay in the private R2
   binding. Public API responses expose only normalized holdings and bounded
   exception details.
-- Supported USD long positions are accepted by `robinhood-holdings-auto-v1`.
+- Supported USD long positions are accepted by `robinhood-holdings-auto-v2`.
   Each decision records the policy version, evidence fingerprint, reason codes,
   and resulting snapshot application.
+- Plaid-classified cryptocurrency is recorded automatically but excluded from FI
+  planning. It does not create an exception.
 - Missing cost basis does not block an otherwise usable market value. It stays
   explicitly unavailable.
 - Unsupported security types and possible identity changes are quarantined at
   the affected row. Non-USD, short, or malformed provider responses fail closed
   before any accepted holding changes.
-- If a previously accepted position is absent, Keel preserves its latest
-  snapshot and records a `position_not_reported` exception. If a new identity
-  appears in the same snapshot, that new row is also isolated so a corporate
-  action cannot silently double-count the portfolio.
+- If a previously accepted FI-relevant position is absent, Keel preserves its
+  latest snapshot and records a `position_not_reported` exception. If a new
+  identity appears in the same snapshot, that new row is also isolated so a
+  corporate action cannot silently double-count the portfolio.
+- A missing cryptocurrency position is preserved without an active exception
+  because it remains outside FI planning. Its absence cannot create an identity
+  conflict for a new FI-relevant holding.
 - Consecutive identical normalized snapshots are deduplicated. A no-change sync
   creates no redundant review, while a later return to an older portfolio state
   still creates a new review.

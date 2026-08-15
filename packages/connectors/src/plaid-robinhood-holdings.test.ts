@@ -125,6 +125,17 @@ describe("Plaid Robinhood holdings normalization", () => {
     ]);
   });
 
+  it("recognizes crypto as recordable evidence outside FI planning", async () => {
+    const result = await normalizeRobinhoodHoldings(
+      syntheticResponse({ securityType: "cryptocurrency" }),
+      "2026-08-10T12:00:00.000Z",
+    );
+
+    expect(result.rows[0]?.issues).toEqual([
+      "Crypto is recorded outside the FI plan.",
+    ]);
+  });
+
   it("fails closed for non-USD and short positions", async () => {
     await expect(
       normalizeRobinhoodHoldings(

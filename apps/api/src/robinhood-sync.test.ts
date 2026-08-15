@@ -401,12 +401,14 @@ describe("Robinhood Plaid sync", () => {
     });
     const autoAdjudicateRobinhoodHoldingImport = vi.fn().mockResolvedValue({
       importId: "synthetic-import",
-      policyVersion: "robinhood-holdings-auto-v1",
+      policyVersion: "robinhood-holdings-auto-v2",
       autoAppliedCount: 1,
       quarantinedCount: 2,
       preservedPositionCount: 1,
     });
-    const hasAcceptedRobinhoodPositions = vi.fn().mockResolvedValue(false);
+    const hasAcceptedRobinhoodPlanningPositions = vi
+      .fn()
+      .mockResolvedValue(false);
     const getState = vi.fn().mockResolvedValue({
       status: "ready",
       sourceRevision: "c".repeat(64),
@@ -426,7 +428,7 @@ describe("Robinhood Plaid sync", () => {
       holdingImports: {
         stageRobinhoodHoldingImport,
         autoAdjudicateRobinhoodHoldingImport,
-        hasAcceptedRobinhoodPositions,
+        hasAcceptedRobinhoodPlanningPositions,
       },
       portfolioBaselines: { getState, confirm },
       client,
@@ -465,7 +467,7 @@ describe("Robinhood Plaid sync", () => {
         proposedCount: 1,
         importId: "synthetic-import",
         adjudication: {
-          policyVersion: "robinhood-holdings-auto-v1",
+          policyVersion: "robinhood-holdings-auto-v2",
           autoAppliedCount: 1,
           quarantinedCount: 2,
           preservedPositionCount: 1,
@@ -520,7 +522,9 @@ describe("Robinhood Plaid sync", () => {
     });
     const stageRobinhoodHoldingImport = vi.fn();
     const autoAdjudicateRobinhoodHoldingImport = vi.fn();
-    const hasAcceptedRobinhoodPositions = vi.fn().mockResolvedValue(false);
+    const hasAcceptedRobinhoodPlanningPositions = vi
+      .fn()
+      .mockResolvedValue(false);
 
     await syncRobinhood({
       env,
@@ -528,7 +532,7 @@ describe("Robinhood Plaid sync", () => {
       holdingImports: {
         stageRobinhoodHoldingImport,
         autoAdjudicateRobinhoodHoldingImport,
-        hasAcceptedRobinhoodPositions,
+        hasAcceptedRobinhoodPlanningPositions,
       },
       client,
       accessSubject: "synthetic-access-subject",
@@ -580,7 +584,9 @@ describe("Robinhood Plaid sync", () => {
     });
     const stageRobinhoodHoldingImport = vi.fn();
     const autoAdjudicateRobinhoodHoldingImport = vi.fn();
-    const hasAcceptedRobinhoodPositions = vi.fn().mockResolvedValue(true);
+    const hasAcceptedRobinhoodPlanningPositions = vi
+      .fn()
+      .mockResolvedValue(true);
 
     await expect(
       syncRobinhood({
@@ -589,7 +595,7 @@ describe("Robinhood Plaid sync", () => {
         holdingImports: {
           stageRobinhoodHoldingImport,
           autoAdjudicateRobinhoodHoldingImport,
-          hasAcceptedRobinhoodPositions,
+          hasAcceptedRobinhoodPlanningPositions,
         },
         client,
         accessSubject: "synthetic-access-subject",

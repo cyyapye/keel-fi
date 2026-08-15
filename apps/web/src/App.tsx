@@ -3277,7 +3277,7 @@ function RobinhoodSyncControl({
                   (autoAppliedCount === 1 ? "position" : "positions") +
                   " and kept uncertain records unchanged."
                 : status?.automaticUpdatesEnabled
-                  ? "Keel records clear holdings changes automatically. Anything uncertain stays unchanged for you to inspect."
+                  ? "Keel records clear holdings changes automatically. Crypto stays outside your FI plan; only uncertain records need review."
                   : "Check Robinhood once to enable automatic updates.";
 
   return (

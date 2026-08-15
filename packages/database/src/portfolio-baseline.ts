@@ -1,3 +1,4 @@
+import { isRobinhoodFiPlanningSecurityType } from "@keel/connectors";
 import {
   addMinorUnits,
   createGoalPreview,
@@ -983,8 +984,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     return identity;
   }
 
-  private getSourceRows(householdId: string) {
-    return all<SourcePositionRow>(
+  private async getSourceRows(householdId: string) {
+    const rows = await all<SourcePositionRow>(
       this.db
         .prepare(
           `SELECT
@@ -1027,6 +1028,11 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
            ORDER BY position.provider, position.id`,
         )
         .bind(householdId),
+    );
+    return rows.filter(
+      (row) =>
+        row.provider !== "robinhood" ||
+        isRobinhoodFiPlanningSecurityType(row.instrument_type),
     );
   }
 
