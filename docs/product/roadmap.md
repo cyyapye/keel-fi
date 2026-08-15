@@ -6,9 +6,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 
 - Last reconciled: 2026-08-14
 - Reconciled product baseline:
-  [`7197f9f`](https://github.com/cyyapye/keel-fi/commit/7197f9fddd49af199b1ffa4b781dab2de63f2225)
+  [`dd8a4ce`](https://github.com/cyyapye/keel-fi/commit/dd8a4ce77e7625a31dcca7aa761c4ddb97ced79a)
 - Baseline release evidence:
-  [`31811740114`](https://github.com/cyyapye/keel-fi/actions/runs/31811740114)
+  [`31855386784`](https://github.com/cyyapye/keel-fi/actions/runs/31855386784)
 
 ## How to use this roadmap
 
@@ -72,62 +72,21 @@ The first unchecked milestone is next. Keep exactly one milestone marked
     [`d87e350`](https://github.com/cyyapye/keel-fi/commit/d87e35052ab39508f4976b6296ca731bac95f5fd)
     and [PR #44](https://github.com/cyyapye/keel-fi/pull/44) at
     [`f86fdc5`](https://github.com/cyyapye/keel-fi/commit/f86fdc5d192f913663d0307a0be69620833a6c90).
+- [x] **M6 — Cash accounts to reviewed liquidity baseline.** Eligible linked
+      balances remain dated proposals until cash review, then require a separate
+      Portfolio Baseline confirmation before they enter FI planning. Missing,
+      unavailable, non-USD, and possible-overlap cases remain explicit, and live
+      balance checks are user-triggered and capped.
+  - Evidence: [PR #50](https://github.com/cyyapye/keel-fi/pull/50) at
+    [`dd8a4ce`](https://github.com/cyyapye/keel-fi/commit/dd8a4ce77e7625a31dcca7aa761c4ddb97ced79a),
+    with exact-SHA verification, protected smokes, and deployment evidence in
+    [run `31855386784`](https://github.com/cyyapye/keel-fi/actions/runs/31855386784).
+    Private acceptance opened Plaid Link without selecting an institution or
+    entering account credentials.
 
 ## Ordered next milestones
 
-### [ ] M6 — Cash accounts to reviewed liquidity baseline — **Active**
-
-**User outcome:** Keel shows reviewed checking, savings, money-market, and other
-cash balances instead of relying on one manually maintained “other liquid
-assets” total. Confirmed cash flows into the FI and runway baseline with visible
-freshness and attribution.
-
-**Trust boundary:** A bank or manual balance is a dated proposal. The user must
-review it before it changes accepted liquidity. Missing accounts or unavailable
-balances never imply zero, closure, or withdrawal.
-
-**Scope:**
-
-- Model cash accounts and dated balance observations with separate current,
-  available, unknown, and unsupported states using integer minor units.
-- Stage supported linked-account observations and retain a manual residual for
-  unsupported or intentionally unlinked cash.
-- Detect possible overlap with brokerage cash and the manual residual before
-  confirmation.
-- Preview FI liquid, protected runway, and goal impact; confirmation appends the
-  accepted cash state and attributed forecast history.
-
-**Non-goals:** Transaction history, spending categorization, liabilities,
-automatic acceptance, or an always-real-time balance requirement.
-
-**Dependency:** M5 supplies the existing Portfolio Baseline and forecast refresh
-boundary.
-
-**Infrastructure-cost gate:** Before implementation, record the chosen provider
-product, consent surface, institution coverage, subscription or per-call price,
-refresh cadence, and expected monthly ceiling. Prefer cached balance snapshots
-for the first slice unless paid real-time retrieval changes a concrete decision.
-Reuse the existing D1, private R2, Queue, and Access boundary where appropriate.
-
-**Exit gates:**
-
-- [x] Provider, consent, freshness, and cost decision is documented.
-- [x] Cash-account domain, D1 migration, proposal lifecycle, and synthetic tests
-      pass.
-- [x] Holdings review and Portfolio Baseline confirmation work at desktop and
-      mobile sizes with no horizontal overflow.
-- [x] Duplicate, stale, unavailable, non-USD, and missing-account cases fail
-      closed or remain reviewable as designed.
-- [ ] Private runtime acceptance verifies the provider boundary without putting
-      private account data in Git, logs, screenshots, or CI artifacts.
-- [ ] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
-      post-merge deployment evidence pass.
-
-Implementation evidence:
-[ADR 002](../architecture/adr-002-reviewed-cash-accounts.md) and the
-[cash-account deployment runbook](../deployment/cash-accounts.md).
-
-### [ ] M7 — Liabilities to reviewed obligation baseline
+### [ ] M7 — Liabilities to reviewed obligation baseline — **Active**
 
 **User outcome:** Keel shows what is owed, when it is due, and which obligations
 affect near-term runway or longer-term planning instead of presenting assets
