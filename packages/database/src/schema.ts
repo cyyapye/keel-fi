@@ -1287,6 +1287,197 @@ export const cashBalanceReviewDecisions = sqliteTable(
   ],
 );
 
+export const liabilityProposals = sqliteTable(
+  "liability_proposals",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    connectorAccountId: text("connector_account_id").references(
+      () => connectorAccounts.id,
+      { onDelete: "restrict" },
+    ),
+    syncRunId: text("sync_run_id").references(() => connectorSyncRuns.id, {
+      onDelete: "restrict",
+    }),
+    source: text("source").notNull(),
+    sourceObjectKey: text("source_object_key"),
+    sourceSha256: text("source_sha256"),
+    normalizedFingerprint: text("normalized_fingerprint").notNull(),
+    refreshKind: text("refresh_kind").notNull(),
+    observedAt: timestamp("observed_at"),
+    retrievedAt: timestamp("retrieved_at"),
+    status: text("status").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("liability_proposals_sync_run_unique").on(table.syncRunId),
+    uniqueIndex("liability_proposals_source_object_unique").on(
+      table.sourceObjectKey,
+    ),
+    index("liability_proposals_household_status_idx").on(
+      table.householdId,
+      table.status,
+      table.createdAt,
+    ),
+    index("liability_proposals_connection_created_idx").on(
+      table.connectorAccountId,
+      table.createdAt,
+    ),
+    check(
+      "liability_proposals_source_check",
+      sql`${table.source} IN ('plaid', 'manual')`,
+    ),
+    check(
+      "liability_proposals_source_sha_check",
+      sql`${table.sourceSha256} IS NULL OR (length(${table.sourceSha256}) = 64 AND ${table.sourceSha256} NOT GLOB '*[^0-9a-f]*')`,
+    ),
+    check(
+      "liability_proposals_fingerprint_check",
+      sql`length(${table.normalizedFingerprint}) = 64 AND ${table.normalizedFingerprint} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "liability_proposals_refresh_kind_check",
+      sql`${table.refreshKind} IN ('initial', 'live', 'manual')`,
+    ),
+    check(
+      "liability_proposals_status_check",
+      sql`${table.status} IN ('pending_review', 'applied')`,
+    ),
+    check(
+      "liability_proposals_boundary_check",
+      sql`(${table.source} = 'plaid' AND ${table.connectorAccountId} IS NOT NULL AND ${table.syncRunId} IS NOT NULL AND ${table.sourceObjectKey} IS NOT NULL AND ${table.sourceSha256} IS NOT NULL AND ${table.refreshKind} IN ('initial', 'live')) OR (${table.source} = 'manual' AND ${table.connectorAccountId} IS NULL AND ${table.syncRunId} IS NULL AND ${table.sourceObjectKey} IS NULL AND ${table.sourceSha256} IS NULL AND ${table.refreshKind} = 'manual')`,
+    ),
+  ],
+);
+
+export const liabilityProposalRows = sqliteTable(
+  "liability_proposal_rows",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => liabilityProposals.id, { onDelete: "restrict" }),
+    naturalKeySha256: text("natural_key_sha256").notNull(),
+    source: text("source").notNull(),
+    institutionLabel: text("institution_label").notNull(),
+    accountLabel: text("account_label").notNull(),
+    kind: text("kind").notNull(),
+    classification: text("classification").notNull(),
+    balanceMinor: integer("balance_minor"),
+    valueState: text("value_state").notNull(),
+    paymentMinor: integer("payment_minor"),
+    interestRatePpm: integer("interest_rate_ppm"),
+    nextPaymentDueDate: text("next_payment_due_date"),
+    isOverdue: integer("is_overdue", { mode: "boolean" }),
+    effectiveDate: text("effective_date").notNull(),
+    observedAt: timestamp("observed_at"),
+    issuesJson: text("issues_json").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("liability_proposal_rows_proposal_key_unique").on(
+      table.proposalId,
+      table.naturalKeySha256,
+    ),
+    index("liability_proposal_rows_proposal_idx").on(
+      table.proposalId,
+      table.naturalKeySha256,
+    ),
+    check(
+      "liability_proposal_rows_key_check",
+      sql`length(${table.naturalKeySha256}) = 64 AND ${table.naturalKeySha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "liability_proposal_rows_source_check",
+      sql`${table.source} IN ('plaid', 'manual')`,
+    ),
+    check(
+      "liability_proposal_rows_kind_check",
+      sql`${table.kind} IN ('credit_card', 'mortgage', 'student_loan', 'other_revolving', 'other_scheduled')`,
+    ),
+    check(
+      "liability_proposal_rows_classification_check",
+      sql`(${table.kind} IN ('credit_card', 'other_revolving') AND ${table.classification} = 'revolving') OR (${table.kind} IN ('mortgage', 'student_loan', 'other_scheduled') AND ${table.classification} = 'scheduled')`,
+    ),
+    check(
+      "liability_proposal_rows_labels_check",
+      sql`length(${table.institutionLabel}) BETWEEN 1 AND 512 AND length(${table.accountLabel}) BETWEEN 1 AND 512`,
+    ),
+    check(
+      "liability_proposal_rows_value_state_check",
+      sql`${table.valueState} IN ('reported', 'unavailable', 'unsupported', 'not_reported')`,
+    ),
+    check(
+      "liability_proposal_rows_value_check",
+      sql`(${table.valueState} = 'reported' AND ${table.balanceMinor} IS NOT NULL AND ${table.balanceMinor} >= 0) OR (${table.valueState} <> 'reported' AND ${table.balanceMinor} IS NULL)`,
+    ),
+    check(
+      "liability_proposal_rows_payment_check",
+      sql`${table.paymentMinor} IS NULL OR ${table.paymentMinor} >= 0`,
+    ),
+    check(
+      "liability_proposal_rows_rate_check",
+      sql`${table.interestRatePpm} IS NULL OR ${table.interestRatePpm} BETWEEN 0 AND 1000000`,
+    ),
+    check(
+      "liability_proposal_rows_issues_check",
+      sql`json_valid(${table.issuesJson}) AND json_type(${table.issuesJson}) = 'array'`,
+    ),
+  ],
+);
+
+export const liabilityReviewDecisions = sqliteTable(
+  "liability_review_decisions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => liabilityProposals.id, { onDelete: "restrict" }),
+    proposalRowId: text("proposal_row_id")
+      .notNull()
+      .references(() => liabilityProposalRows.id, { onDelete: "restrict" }),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    decision: text("decision").notNull(),
+    paymentTreatment: text("payment_treatment"),
+    changeNote: text("change_note").notNull(),
+    decidedAt: timestamp("decided_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("liability_review_decisions_row_unique").on(
+      table.proposalRowId,
+    ),
+    index("liability_review_decisions_household_decided_idx").on(
+      table.householdId,
+      table.decidedAt,
+    ),
+    check(
+      "liability_review_decisions_decision_check",
+      sql`${table.decision} IN ('accepted', 'excluded')`,
+    ),
+    check(
+      "liability_review_decisions_treatment_check",
+      sql`${table.paymentTreatment} IS NULL OR ${table.paymentTreatment} IN ('reserve_from_liquidity', 'add_to_household_burn', 'already_in_plan')`,
+    ),
+    check(
+      "liability_review_decisions_boundary_check",
+      sql`(${table.decision} = 'accepted' AND ${table.paymentTreatment} IS NOT NULL) OR (${table.decision} = 'excluded' AND ${table.paymentTreatment} IS NULL)`,
+    ),
+    check(
+      "liability_review_decisions_note_check",
+      sql`length(${table.changeNote}) BETWEEN 1 AND 500`,
+    ),
+    check(
+      "liability_review_decisions_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
 export const angelListMacAgents = sqliteTable(
   "angellist_mac_agents",
   {

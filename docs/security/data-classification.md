@@ -2,12 +2,12 @@
 
 ## Classes
 
-| Class        | Examples                                                                                                    | Repository          | Storage and handling                                        |
-| ------------ | ----------------------------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------- |
-| Public       | Source code, architecture docs, fabricated companies and values                                             | Allowed             | Normal public Git workflow                                  |
-| Internal     | Unreleased roadmap, non-sensitive operational notes                                                         | Avoid unless needed | Access-controlled collaboration tools                       |
-| Confidential | Holdings, balances, forecasts, identities, account IDs, tax profile, company evidence                       | Forbidden           | D1 or encrypted export with least privilege                 |
-| Restricted   | Source documents, emails, tax/SPV documents, Access assertions, connector tokens, signing material, backups | Forbidden           | Secret binding or private R2; shortest retention and access |
+| Class        | Examples                                                                                                             | Repository          | Storage and handling                                        |
+| ------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------- |
+| Public       | Source code, architecture docs, fabricated companies and values                                                      | Allowed             | Normal public Git workflow                                  |
+| Internal     | Unreleased roadmap, non-sensitive operational notes                                                                  | Avoid unless needed | Access-controlled collaboration tools                       |
+| Confidential | Holdings, cash/debt balances, payments, due dates, forecasts, identities, account IDs, tax profile, company evidence | Forbidden           | D1 or encrypted export with least privilege                 |
+| Restricted   | Source documents, emails, tax/SPV documents, Access assertions, connector tokens, signing material, backups          | Forbidden           | Secret binding or private R2; shortest retention and access |
 
 Synthetic data is Public only when it was created independently for
 demonstration and is not a transformed, rounded, shifted, or anonymized copy of

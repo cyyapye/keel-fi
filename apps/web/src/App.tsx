@@ -81,12 +81,14 @@ import {
   formatProbability,
 } from "./format";
 import { openPlaidLink } from "./plaid-link";
+import { Obligations } from "./Obligations";
 import { PlanInputsEditor } from "./PlanInputsEditor";
 
 type Screen =
   | "dashboard"
   | "goals"
   | "holdings"
+  | "obligations"
   | "watch"
   | "evidence"
   | "scenarios"
@@ -107,21 +109,22 @@ const navigation: readonly {
   },
   { id: "goals", label: "Goals", icon: "02" },
   { id: "holdings", label: "Holdings", icon: "03" },
+  { id: "obligations", label: "Obligations", icon: "04" },
   {
     id: "watch",
     label: "Portfolio Watch",
-    icon: "04",
+    icon: "05",
   },
   {
     id: "evidence",
     label: "Evidence Inbox",
-    icon: "05",
+    icon: "06",
   },
-  { id: "scenarios", label: "Scenarios", icon: "06" },
+  { id: "scenarios", label: "Scenarios", icon: "07" },
   {
     id: "history",
     label: "Forecast History",
-    icon: "07",
+    icon: "08",
   },
 ];
 
@@ -6547,6 +6550,8 @@ export function App() {
             requestedImportId={holdingImportId}
           />
         );
+      case "obligations":
+        return <Obligations />;
       case "watch":
         return (
           <PortfolioWatch

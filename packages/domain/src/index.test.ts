@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   AcceptedCashAccountSchema,
+  AcceptedLiabilitySchema,
+  createLiabilityImpact,
   createPlanInputImpact,
   createPortfolioBaselineImpact,
   createGoalPreview,
@@ -19,6 +21,131 @@ import {
   RobinhoodSyncStatusSchema,
   summarizeLiquidityPaths,
 } from "./index";
+
+describe("reviewed liability planning policy", () => {
+  const acceptedAt = "2026-08-14T18:05:00.000Z";
+  const common = {
+    connectionId: "connection_liability_1",
+    source: "plaid" as const,
+    institutionLabel: "First Synthetic Bank",
+    balanceMinor: 1_000_000,
+    valueState: "reported" as const,
+    interestRatePpm: 125_000,
+    nextPaymentDueDate: "2026-08-28",
+    isOverdue: false,
+    effectiveDate: "2026-08-01",
+    observedAt: "2026-08-14T18:00:00.000Z",
+    retrievedAt: "2026-08-14T18:00:00.000Z",
+    acceptedAt,
+    freshness: "current" as const,
+  };
+
+  it("reserves only a revolving payment and adds only a scheduled payment to burn", () => {
+    const liabilities = [
+      {
+        ...common,
+        id: "decision_card",
+        naturalKeySha256: "a".repeat(64),
+        accountLabel: "Household card",
+        kind: "credit_card" as const,
+        classification: "revolving" as const,
+        balanceMinor: 300_000,
+        paymentMinor: 12_500,
+        paymentTreatment: "reserve_from_liquidity" as const,
+      },
+      {
+        ...common,
+        id: "decision_student",
+        naturalKeySha256: "b".repeat(64),
+        accountLabel: "Student loan",
+        kind: "student_loan" as const,
+        classification: "scheduled" as const,
+        balanceMinor: 4_000_000,
+        paymentMinor: 45_000,
+        paymentTreatment: "add_to_household_burn" as const,
+      },
+      {
+        ...common,
+        id: "decision_mortgage",
+        naturalKeySha256: "c".repeat(64),
+        accountLabel: "Mortgage",
+        kind: "mortgage" as const,
+        classification: "scheduled" as const,
+        balanceMinor: 24_000_000,
+        paymentMinor: 200_000,
+        paymentTreatment: "already_in_plan" as const,
+      },
+    ];
+
+    expect(
+      createLiabilityImpact(
+        {
+          currentFiEligibleLiquidMinor: 20_000_000,
+          protectedCashFloorMinor: 1_000_000,
+          householdBurnMonthlyMinor: 300_000,
+          businessBurnMonthlyMinor: 100_000,
+          fiTargetMinor: 32_500_000,
+        },
+        liabilities,
+      ),
+    ).toEqual({
+      liabilityCount: 3,
+      totalOutstandingMinor: 28_300_000,
+      unknownBalanceCount: 0,
+      unknownPaymentCount: 0,
+      overdueCount: 0,
+      reservedPaymentMinor: 12_500,
+      addedHouseholdBurnMinor: 45_000,
+      netLiquidityMinor: 19_987_500,
+      adjustedHouseholdBurnMonthlyMinor: 345_000,
+      adjustedTotalBurnMonthlyMinor: 445_000,
+      protectedRunwayMonths: 42,
+      obligationAdjustedFiGapMinor: 12_512_500,
+    });
+  });
+
+  it("keeps missing facts unknown and rejects mismatched payment treatment", () => {
+    const unavailable = {
+      ...common,
+      id: "decision_unknown",
+      naturalKeySha256: "d".repeat(64),
+      accountLabel: "Unreported loan",
+      kind: "student_loan" as const,
+      classification: "scheduled" as const,
+      balanceMinor: null,
+      valueState: "not_reported" as const,
+      paymentMinor: null,
+      paymentTreatment: "already_in_plan" as const,
+    };
+    expect(AcceptedLiabilitySchema.safeParse(unavailable).success).toBe(true);
+    expect(
+      createLiabilityImpact(
+        {
+          currentFiEligibleLiquidMinor: 1_000_000,
+          protectedCashFloorMinor: 100_000,
+          householdBurnMonthlyMinor: 100_000,
+          businessBurnMonthlyMinor: 0,
+          fiTargetMinor: 2_000_000,
+        },
+        [unavailable],
+      ),
+    ).toMatchObject({
+      totalOutstandingMinor: 0,
+      unknownBalanceCount: 1,
+      unknownPaymentCount: 1,
+      netLiquidityMinor: 1_000_000,
+    });
+    expect(
+      AcceptedLiabilitySchema.safeParse({
+        ...unavailable,
+        balanceMinor: 50_000,
+        valueState: "reported",
+        paymentMinor: 5_000,
+        paymentTreatment: "reserve_from_liquidity",
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("accepted cash account boundaries", () => {
   const accepted = {

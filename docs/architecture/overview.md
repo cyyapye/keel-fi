@@ -19,6 +19,11 @@ flowchart LR
   PlaidCash --> CashProposal["Dated cash proposal"]
   CashProposal --> CashReview["Cash review"]
   CashReview --> AcceptedCash["Accepted cash facts"]
+  API -->|"explicit liabilities fetch"| PlaidLiability["Plaid liabilities"]
+  PlaidLiability --> LiabilityProposal["Dated obligation proposal"]
+  LiabilityProposal --> LiabilityReview["Obligation review + payment treatment"]
+  LiabilityReview --> AcceptedLiability["Accepted obligation baseline"]
+  AcceptedLiability --> ObligationImpact["Net liquidity, burn, runway, FI gap view"]
   AcceptedHolding --> BaselineReview["Portfolio baseline review"]
   AcceptedCash --> BaselineReview
   BaselineReview --> VersionBundle["New FI plan, forecast, and goal versions"]
@@ -67,6 +72,14 @@ flowchart LR
   integer facts; the raw response and encrypted access token stay in private R2.
   Applying a proposal cannot change the FI plan, and missing or unsupported
   accounts cannot be silently accepted as zero.
+- Liability linking requests only Plaid Liabilities and supported US debt
+  subtypes. Each response or manual entry becomes a proposal. Review classifies
+  revolving versus scheduled debt and chooses whether the next payment reserves
+  liquidity, adds household burn, or is already represented in the plan.
+  Outstanding principal remains debt context rather than an immediate cash
+  subtraction; unknown, stale, missing, unsupported, and overdue states remain
+  explicit. The derived obligation view does not mutate the accepted plan,
+  Portfolio Baseline, goal, or forecast.
 - The Scenarios runway editor changes only household burn, business burn, and
   the protected cash floor. FI-eligible liquid remains owned by reviewed
   Holdings and the FI target remains owned by Goals. Saving appends a cash-flow
@@ -88,6 +101,7 @@ The model intentionally avoids a single overloaded “value” column:
 | External mark             | Latest observed external economic mark     | Evidence input    |
 | FI underwriting           | Conservative policy value                  | FI planning       |
 | Reviewed cash balance     | Accepted dated USD available/current value | Baseline input    |
+| Reviewed obligation       | Accepted dated debt and payment treatment  | Obligation view   |
 | FI-eligible baseline      | Public holdings + cash + manual residual   | FI plan input     |
 | Thesis-weighted value     | Conditional probability-weighted economics | Scenario analysis |
 | Timing-adjusted liquidity | Value discounted for timing/probability    | Forecasting       |
@@ -100,7 +114,8 @@ parts per million. Quantity fields use explicit integer scales.
 
 Cash-flow plans, forecast snapshots, outputs, company forecasts, liquidity
 curves, portfolio baseline records and items, cash-account review decisions,
-other review decisions, and actual-liquidity events are guarded by D1 triggers
-against update or deletion. Accepted marks and accepted evidence cannot be
-deleted. A new provider observation, forecast, Portfolio Baseline, or
-runway-plan save changes the record by appending a new version.
+liability proposal rows and review decisions, other review decisions, and
+actual-liquidity events are guarded by D1 triggers against update or deletion.
+Accepted marks and accepted evidence cannot be deleted. A new provider
+observation, forecast, Portfolio Baseline, or runway-plan save changes the
+record by appending a new version.

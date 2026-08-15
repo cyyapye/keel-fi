@@ -44,6 +44,21 @@ test("loads the database-backed dashboard and primary views", async ({
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(northstarHolding).toBeFocused();
 
+  await navigateToScreen(page, mobile, /Obligations/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Obligations" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Institution import needs Plaid settings. Manual review is available.",
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Add manually" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Add an obligation" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+
   await navigateToScreen(page, mobile, /Watch/);
   await expect(
     page.getByRole("heading", { name: "Portfolio Watch" }),

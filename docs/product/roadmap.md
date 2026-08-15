@@ -111,11 +111,11 @@ fallback before implementation.
 
 **Exit gates:**
 
-- [ ] Debt classification and planning-impact policy is documented with
+- [x] Debt classification and planning-impact policy is documented with
       deterministic examples.
-- [ ] Liability observations, proposals, manual fallback, and synthetic tests
+- [x] Liability observations, proposals, manual fallback, and synthetic tests
       pass.
-- [ ] Review and impact previews cover desktop and mobile, including unknown and
+- [x] Review and impact previews cover desktop and mobile, including unknown and
       stale states.
 - [ ] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.

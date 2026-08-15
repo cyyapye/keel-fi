@@ -8,12 +8,14 @@ import {
   D1AngelListMacAgentRepository,
   D1CashAccountsRepository,
   D1HoldingImportRepository,
+  D1LiabilitiesRepository,
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
   D1PublicHoldingsRepository,
   type AlphaRepository,
   type AngelListMacAgentRepository,
   type CashAccountsRepository,
+  type LiabilitiesRepository,
   type PlanInputsRepository,
   type PortfolioBaselineRepository,
   type PublicHoldingsRepository,
@@ -27,6 +29,10 @@ import {
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
+  LiabilitiesErrorCodeSchema,
+  LiabilityApplyInputSchema,
+  LiabilityExchangeInputSchema,
+  ManualLiabilityInputSchema,
   PlanInputSaveSchema,
   PortfolioBaselineConfirmInputSchema,
   PortfolioWatchScanResultSchema,
@@ -54,6 +60,14 @@ import {
   refreshCashAccount,
   type PlaidCashClient,
 } from "./plaid-cash-sync";
+import {
+  connectLiabilities,
+  createPlaidLiabilitiesClient,
+  disconnectLiabilities,
+  liabilitiesConfigured,
+  refreshLiabilities,
+  type PlaidLiabilitiesClient,
+} from "./plaid-liabilities-sync";
 import {
   connectRobinhood,
   createPlaidInvestmentsClient,
@@ -84,6 +98,8 @@ type AppOptions = {
   >;
   cashAccountsRepository?: CashAccountsRepository;
   cashPlaidClient?: PlaidCashClient;
+  liabilitiesRepository?: LiabilitiesRepository;
+  liabilitiesPlaidClient?: PlaidLiabilitiesClient;
   plaidClient?: PlaidInvestmentsClient;
   planInputsRepository?: PlanInputsRepository;
   portfolioBaselineRepository?: PortfolioBaselineRepository;
@@ -206,6 +222,66 @@ function cashAccountErrorResponse(
   });
 }
 
+function liabilitiesErrorResponse(
+  context: Context<AppEnvironment>,
+  error: unknown,
+) {
+  const rawCode =
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+      ? error.code
+      : "unexpected_failure";
+  const parsedCode = LiabilitiesErrorCodeSchema.safeParse(rawCode);
+  const code = parsedCode.success ? parsedCode.data : "unexpected_failure";
+  console.error(
+    JSON.stringify({
+      event: "liabilities_failed",
+      requestId: context.get("requestId"),
+      errorCode: code,
+    }),
+  );
+  const responses = {
+    configuration_required: {
+      message: "Obligation import is not configured.",
+      status: 503 as const,
+    },
+    connection_invalid: {
+      message: "Reconnect this institution to continue.",
+      status: 409 as const,
+    },
+    monthly_limit_reached: {
+      message: "This institution has used its obligation checks this month.",
+      status: 429 as const,
+    },
+    review_required: {
+      message: "Review the waiting obligations before continuing.",
+      status: 409 as const,
+    },
+    provider_unavailable: {
+      message: "Obligation data is temporarily unavailable.",
+      status: 503 as const,
+    },
+    response_invalid: {
+      message: "Plaid returned unsupported obligation data.",
+      status: 502 as const,
+    },
+    staging_failed: {
+      message: "Keel could not prepare the obligations for review.",
+      status: 503 as const,
+    },
+    unexpected_failure: {
+      message: "Keel could not update obligations.",
+      status: 503 as const,
+    },
+  } as const;
+  const response = responses[code];
+  return context.json({ error: response.message }, response.status, {
+    "Cache-Control": "private, no-store",
+  });
+}
+
 async function sha256Bytes(contents: Uint8Array): Promise<string> {
   const buffer = new ArrayBuffer(contents.byteLength);
   new Uint8Array(buffer).set(contents);
@@ -315,6 +391,12 @@ export function createApp(options: AppOptions = {}) {
     options.cashPlaidClient ?? createPlaidCashClient(env);
   const cashAccountsConfiguredFor = (env: Env) =>
     options.cashPlaidClient !== undefined || cashAccountsConfigured(env);
+  const liabilitiesRepositoryFor = (env: Env) =>
+    options.liabilitiesRepository ?? new D1LiabilitiesRepository(env.DB);
+  const liabilitiesPlaidClientFor = (env: Env) =>
+    options.liabilitiesPlaidClient ?? createPlaidLiabilitiesClient(env);
+  const liabilitiesConfiguredFor = (env: Env) =>
+    options.liabilitiesPlaidClient !== undefined || liabilitiesConfigured(env);
 
   app.use(
     "*",
@@ -786,6 +868,216 @@ export function createApp(options: AppOptions = {}) {
       }
       return context.json(
         { error: "Every cash account needs a valid review decision." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.get("/api/liabilities", async (context) => {
+    try {
+      const state = await liabilitiesRepositoryFor(context.env).getState(
+        context.get("identity").subject,
+        liabilitiesConfiguredFor(context.env),
+      );
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json({ error: "Obligation status is unavailable." }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+  });
+
+  app.post("/api/liabilities/link-token", async (context) => {
+    if (!liabilitiesConfiguredFor(context.env)) {
+      return context.json(
+        { error: "Obligation import is not configured." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const linkToken = await liabilitiesPlaidClientFor(
+        context.env,
+      ).createLinkToken(context.get("identity").subject);
+      return context.json(linkToken, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return liabilitiesErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/liabilities/exchange", async (context) => {
+    if (!liabilitiesConfiguredFor(context.env)) {
+      return context.json(
+        { error: "Obligation import is not configured." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ error: "Obligation connection is invalid." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const parsed = LiabilityExchangeInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json({ error: "Obligation connection is invalid." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    try {
+      const state = await connectLiabilities({
+        env: context.env,
+        repository: liabilitiesRepositoryFor(context.env),
+        client: liabilitiesPlaidClientFor(context.env),
+        accessSubject: context.get("identity").subject,
+        publicToken: parsed.data.publicToken,
+      });
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return liabilitiesErrorResponse(context, error);
+    }
+  });
+
+  app.post(
+    "/api/liabilities/connections/:connectionId/refresh",
+    async (context) => {
+      if (!liabilitiesConfiguredFor(context.env)) {
+        return context.json(
+          { error: "Obligation import is not configured." },
+          503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      try {
+        const state = await refreshLiabilities({
+          env: context.env,
+          repository: liabilitiesRepositoryFor(context.env),
+          client: liabilitiesPlaidClientFor(context.env),
+          accessSubject: context.get("identity").subject,
+          connectionId: context.req.param("connectionId"),
+          refreshKind: "live",
+        });
+        return context.json(state, 200, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        return liabilitiesErrorResponse(context, error);
+      }
+    },
+  );
+
+  app.delete("/api/liabilities/connections/:connectionId", async (context) => {
+    if (!liabilitiesConfiguredFor(context.env)) {
+      return context.json(
+        { error: "Obligation import is not configured." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const state = await disconnectLiabilities({
+        env: context.env,
+        repository: liabilitiesRepositoryFor(context.env),
+        client: liabilitiesPlaidClientFor(context.env),
+        accessSubject: context.get("identity").subject,
+        connectionId: context.req.param("connectionId"),
+      });
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return liabilitiesErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/liability-proposals/manual", async (context) => {
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const parsed = ManualLiabilityInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: "Manual obligation input is invalid.",
+          issues: parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const proposal = await liabilitiesRepositoryFor(
+        context.env,
+      ).stageManualProposal(context.get("identity").subject, parsed.data);
+      return context.json(proposal, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return liabilitiesErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/liability-proposals/:proposalId/apply", async (context) => {
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const parsed = LiabilityApplyInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: "Obligation review input is invalid.",
+          issues: parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const result = await liabilitiesRepositoryFor(context.env).applyProposal(
+        context.get("identity").subject,
+        context.req.param("proposalId"),
+        parsed.data,
+      );
+      return context.json(result, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message.includes("stale") || message.includes("UNIQUE")) {
+        return context.json(
+          { error: "This obligation review is no longer current." },
+          409,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      return context.json(
+        { error: "Every obligation needs a valid review decision." },
         400,
         { "Cache-Control": "private, no-store" },
       );
