@@ -258,10 +258,12 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   await page.goto("/holdings");
   const cashSection = page.locator(".cash-accounts");
   await expect(
-    page.getByRole("heading", { name: "Reviewed cash, on your terms" }),
+    page.getByRole("heading", { name: "Linked cash accounts" }),
   ).toBeVisible();
   await expect(cashSection).toContainText("$75k");
   await expect(cashSection).toContainText("3 live checks left this month");
+  await expect(cashSection).not.toContainText("Review waiting");
+  await expect(cashSection).not.toContainText("ready to review");
   await expect(cashSection).toHaveScreenshot("cash-accounts-ready.png", {
     animations: "disabled",
     caret: "hide",
@@ -269,21 +271,30 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
     threshold: 0.25,
   });
 
-  await page.getByRole("button", { name: "Review balances" }).click();
+  await page.getByRole("button", { name: "Review 3 balances" }).click();
+  const reviewHeading = page.getByRole("heading", {
+    name: "Northstar Demo Bank balances",
+  });
+  await expect(reviewHeading).toBeFocused();
+  await expect
+    .poll(async () => {
+      const top = await reviewHeading.evaluate(
+        (element) => element.getBoundingClientRect().top,
+      );
+      return top >= 0 && top < 160;
+    })
+    .toBe(true);
   await expect(
-    page.getByRole("heading", { name: "Review Northstar Demo Bank" }),
-  ).toBeFocused();
+    page.getByRole("button", { name: "Review 3 balances" }),
+  ).toHaveCount(0);
   await expect(cashSection).toContainText("Only USD cash balances");
   await expect(
-    page.getByRole("checkbox", { name: "Use as reviewed cash" }),
+    page.getByRole("checkbox", { name: "Approve balance" }),
   ).toHaveCount(2);
   const cashReview = page.locator(".cash-review");
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
-  await cashReview.evaluate((element) =>
-    element.scrollIntoView({ block: "start", behavior: "auto" }),
-  );
   await expect(cashReview).toHaveScreenshot("cash-accounts-review.png", {
     animations: "disabled",
     caret: "hide",
@@ -292,9 +303,11 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   });
   await expectNoHorizontalOverflow(page);
 
-  await page.getByRole("button", { name: "Apply cash review" }).click();
+  await page.getByRole("button", { name: "Save decisions" }).click();
   await expect(cashSection).toContainText("$100k");
-  await expect(cashSection).not.toContainText("ready to review");
+  await expect(cashSection).toContainText(
+    "Balance decisions saved. Confirm the FI baseline when ready.",
+  );
   expect(applyBody).toEqual({
     changeNote: "Reviewed Northstar Demo Bank cash balances.",
     decisions: [
