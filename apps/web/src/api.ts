@@ -16,6 +16,13 @@ import {
   HoldingImportApplyResultSchema,
   HoldingImportPreviewSchema,
   HoldingImportSummariesSchema,
+  LiabilitiesStateSchema,
+  LiabilityApplyInputSchema,
+  LiabilityApplyResultSchema,
+  LiabilityExchangeInputSchema,
+  LiabilityLinkTokenSchema,
+  LiabilityProposalSchema,
+  ManualLiabilityInputSchema,
   PlanInputSaveResultSchema,
   PlanInputSaveSchema,
   PlanInputStateSchema,
@@ -43,6 +50,12 @@ import {
   type HoldingImportApplyResult,
   type HoldingImportPreview,
   type HoldingImportSummary,
+  type LiabilitiesState,
+  type LiabilityApplyInput,
+  type LiabilityApplyResult,
+  type LiabilityLinkToken,
+  type LiabilityProposal,
+  type ManualLiabilityInput,
   type PlanInputSave,
   type PlanInputSaveResult,
   type PlanInputState,
@@ -196,6 +209,148 @@ export async function applyCashAccountProposal(
     );
   }
   return CashAccountApplyResultSchema.parse(await response.json());
+}
+
+export async function loadLiabilities(
+  signal?: AbortSignal,
+): Promise<LiabilitiesState> {
+  const response = await fetch("/api/liabilities", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: signal ?? null,
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Obligations returned ${response.status}.`,
+    );
+  }
+  return LiabilitiesStateSchema.parse(await response.json());
+}
+
+export async function createLiabilityLinkToken(): Promise<LiabilityLinkToken> {
+  const response = await fetch("/api/liabilities/link-token", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Obligation connection returned ${response.status}.`,
+    );
+  }
+  return LiabilityLinkTokenSchema.parse(await response.json());
+}
+
+export async function exchangeLiabilityPublicToken(
+  publicToken: string,
+): Promise<LiabilitiesState> {
+  const body = LiabilityExchangeInputSchema.parse({ publicToken });
+  const response = await fetch("/api/liabilities/exchange", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Obligation connection returned ${response.status}.`,
+    );
+  }
+  return LiabilitiesStateSchema.parse(await response.json());
+}
+
+export async function refreshLiabilities(
+  connectionId: string,
+): Promise<LiabilitiesState> {
+  const response = await fetch(
+    `/api/liabilities/connections/${encodeURIComponent(connectionId)}/refresh`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Obligation check returned ${response.status}.`,
+    );
+  }
+  return LiabilitiesStateSchema.parse(await response.json());
+}
+
+export async function disconnectLiabilities(
+  connectionId: string,
+): Promise<LiabilitiesState> {
+  const response = await fetch(
+    `/api/liabilities/connections/${encodeURIComponent(connectionId)}`,
+    {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Obligation disconnect returned ${response.status}.`,
+    );
+  }
+  return LiabilitiesStateSchema.parse(await response.json());
+}
+
+export async function stageManualLiability(
+  input: ManualLiabilityInput,
+): Promise<LiabilityProposal> {
+  const body = ManualLiabilityInputSchema.parse(input);
+  const response = await fetch("/api/liability-proposals/manual", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Manual obligation returned ${response.status}.`,
+    );
+  }
+  return LiabilityProposalSchema.parse(await response.json());
+}
+
+export async function applyLiabilityProposal(
+  proposalId: string,
+  input: LiabilityApplyInput,
+): Promise<LiabilityApplyResult> {
+  const body = LiabilityApplyInputSchema.parse(input);
+  const response = await fetch(
+    `/api/liability-proposals/${encodeURIComponent(proposalId)}/apply`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Obligation review returned ${response.status}.`,
+    );
+  }
+  return LiabilityApplyResultSchema.parse(await response.json());
 }
 
 export async function confirmPortfolioBaseline(

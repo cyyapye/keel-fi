@@ -905,6 +905,357 @@ export const CashAccountApplyResultSchema = z.object({
   acceptedCashMinor: NonNegativeMoneyMinorSchema,
 });
 
+export const LiabilitySourceSchema = z.enum(["plaid", "manual"]);
+
+export const LiabilityKindSchema = z.enum([
+  "credit_card",
+  "mortgage",
+  "student_loan",
+  "other_revolving",
+  "other_scheduled",
+]);
+
+export const LiabilityClassificationSchema = z.enum(["revolving", "scheduled"]);
+
+export function liabilityClassification(
+  kind: z.input<typeof LiabilityKindSchema>,
+): z.infer<typeof LiabilityClassificationSchema> {
+  return LiabilityClassificationSchema.parse(
+    kind === "credit_card" || kind === "other_revolving"
+      ? "revolving"
+      : "scheduled",
+  );
+}
+
+export const LiabilityValueStateSchema = z.enum([
+  "reported",
+  "unavailable",
+  "unsupported",
+  "not_reported",
+]);
+
+export const AcceptedLiabilityValueStateSchema = z.enum([
+  "reported",
+  "unavailable",
+  "not_reported",
+]);
+
+export const LiabilityPaymentTreatmentSchema = z.enum([
+  "reserve_from_liquidity",
+  "add_to_household_burn",
+  "already_in_plan",
+]);
+
+export const LiabilityProposalRowSchema = z
+  .object({
+    id: z.string().min(1),
+    naturalKeySha256: Sha256Schema,
+    source: LiabilitySourceSchema,
+    institutionLabel: z.string().trim().min(1).max(512),
+    accountLabel: z.string().trim().min(1).max(512),
+    kind: LiabilityKindSchema,
+    classification: LiabilityClassificationSchema,
+    balanceMinor: NonNegativeMoneyMinorSchema.nullable(),
+    valueState: LiabilityValueStateSchema,
+    paymentMinor: NonNegativeMoneyMinorSchema.nullable(),
+    interestRatePpm: ProbabilityPpmSchema.nullable(),
+    nextPaymentDueDate: IsoDateSchema.nullable(),
+    isOverdue: z.boolean().nullable(),
+    effectiveDate: IsoDateSchema,
+    observedAt: IsoTimestampSchema,
+    priorBalanceMinor: NonNegativeMoneyMinorSchema.nullable(),
+    priorValueState: LiabilityValueStateSchema.nullable(),
+    action: z.enum([
+      "new_obligation",
+      "update_obligation",
+      "no_change",
+      "not_reported",
+      "needs_attention",
+    ]),
+    issues: z.array(z.string().min(1).max(240)).max(5),
+  })
+  .superRefine((row, context) => {
+    if (row.classification !== liabilityClassification(row.kind)) {
+      context.addIssue({
+        code: "custom",
+        message: "Liability classification does not match its kind.",
+        path: ["classification"],
+      });
+    }
+    const balanceMatchesState =
+      (row.valueState === "reported" && row.balanceMinor !== null) ||
+      (row.valueState !== "reported" && row.balanceMinor === null);
+    if (!balanceMatchesState) {
+      context.addIssue({
+        code: "custom",
+        message: "Liability balance does not match its value state.",
+        path: ["valueState"],
+      });
+    }
+  });
+
+export const LiabilityProposalSummarySchema = z.object({
+  rowCount: z.number().int().positive(),
+  reportedCount: z.number().int().nonnegative(),
+  needsAttentionCount: z.number().int().nonnegative(),
+  notReportedCount: z.number().int().nonnegative(),
+  totalReportedMinor: NonNegativeMoneyMinorSchema,
+});
+
+export const LiabilityProposalSchema = z.object({
+  id: z.string().min(1),
+  connectionId: z.string().min(1).nullable(),
+  institutionLabel: z.string().trim().min(1).max(512),
+  source: LiabilitySourceSchema,
+  status: z.literal("pending_review"),
+  refreshKind: z.enum(["initial", "live", "manual"]),
+  observedAt: IsoTimestampSchema,
+  retrievedAt: IsoTimestampSchema,
+  summary: LiabilityProposalSummarySchema,
+  rows: z.array(LiabilityProposalRowSchema).min(1).max(100),
+});
+
+export const AcceptedLiabilitySchema = z
+  .object({
+    id: z.string().min(1),
+    naturalKeySha256: Sha256Schema,
+    connectionId: z.string().min(1).nullable(),
+    source: LiabilitySourceSchema,
+    institutionLabel: z.string().trim().min(1).max(512),
+    accountLabel: z.string().trim().min(1).max(512),
+    kind: LiabilityKindSchema,
+    classification: LiabilityClassificationSchema,
+    balanceMinor: NonNegativeMoneyMinorSchema.nullable(),
+    valueState: AcceptedLiabilityValueStateSchema,
+    paymentMinor: NonNegativeMoneyMinorSchema.nullable(),
+    paymentTreatment: LiabilityPaymentTreatmentSchema,
+    interestRatePpm: ProbabilityPpmSchema.nullable(),
+    nextPaymentDueDate: IsoDateSchema.nullable(),
+    isOverdue: z.boolean().nullable(),
+    effectiveDate: IsoDateSchema,
+    observedAt: IsoTimestampSchema,
+    retrievedAt: IsoTimestampSchema,
+    acceptedAt: IsoTimestampSchema,
+    freshness: z.enum(["current", "stale"]),
+  })
+  .superRefine((liability, context) => {
+    if (liability.classification !== liabilityClassification(liability.kind)) {
+      context.addIssue({
+        code: "custom",
+        message: "Liability classification does not match its kind.",
+        path: ["classification"],
+      });
+    }
+    const balanceMatchesState =
+      (liability.valueState === "reported" &&
+        liability.balanceMinor !== null) ||
+      (liability.valueState !== "reported" && liability.balanceMinor === null);
+    if (!balanceMatchesState) {
+      context.addIssue({
+        code: "custom",
+        message: "Accepted liability balance does not match its state.",
+        path: ["valueState"],
+      });
+    }
+    const treatmentMatchesClassification =
+      liability.paymentTreatment === "already_in_plan" ||
+      (liability.classification === "revolving" &&
+        liability.paymentTreatment === "reserve_from_liquidity") ||
+      (liability.classification === "scheduled" &&
+        liability.paymentTreatment === "add_to_household_burn");
+    if (!treatmentMatchesClassification || liability.paymentMinor === null) {
+      if (liability.paymentTreatment !== "already_in_plan") {
+        context.addIssue({
+          code: "custom",
+          message: "Payment treatment does not match the reviewed payment.",
+          path: ["paymentTreatment"],
+        });
+      }
+    }
+    if ((liability.source === "manual") !== (liability.connectionId === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Liability source does not match its connection.",
+        path: ["connectionId"],
+      });
+    }
+  });
+
+export const LiabilityConnectionSchema = z.object({
+  id: z.string().min(1),
+  institutionLabel: z.string().trim().min(1).max(512),
+  status: z.enum(["ready", "needs_attention"]),
+  lastCheckedAt: IsoTimestampSchema.nullable(),
+  liveRefreshLimit: z.number().int().positive(),
+  liveRefreshesUsed: z.number().int().nonnegative(),
+  liveRefreshesRemaining: z.number().int().nonnegative(),
+});
+
+export const LiabilityPlanningContextSchema = z.object({
+  currentFiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
+  protectedCashFloorMinor: NonNegativeMoneyMinorSchema,
+  householdBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  businessBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  fiTargetMinor: NonNegativeMoneyMinorSchema,
+});
+
+export const LiabilityImpactSchema = z.object({
+  liabilityCount: z.number().int().nonnegative(),
+  totalOutstandingMinor: NonNegativeMoneyMinorSchema,
+  unknownBalanceCount: z.number().int().nonnegative(),
+  unknownPaymentCount: z.number().int().nonnegative(),
+  overdueCount: z.number().int().nonnegative(),
+  reservedPaymentMinor: NonNegativeMoneyMinorSchema,
+  addedHouseholdBurnMinor: NonNegativeMoneyMinorSchema,
+  netLiquidityMinor: NonNegativeMoneyMinorSchema,
+  adjustedHouseholdBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  adjustedTotalBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
+  protectedRunwayMonths: z.number().int().nonnegative(),
+  obligationAdjustedFiGapMinor: NonNegativeMoneyMinorSchema,
+});
+
+export function createLiabilityImpact(
+  rawContext: z.input<typeof LiabilityPlanningContextSchema>,
+  rawLiabilities: readonly z.input<typeof AcceptedLiabilitySchema>[],
+): z.infer<typeof LiabilityImpactSchema> {
+  const context = LiabilityPlanningContextSchema.parse(rawContext);
+  const liabilities = rawLiabilities.map((liability) =>
+    AcceptedLiabilitySchema.parse(liability),
+  );
+  const totalOutstandingMinor = addMinorUnits(
+    ...liabilities.map((liability) => liability.balanceMinor ?? 0),
+  );
+  const reservedPaymentMinor = addMinorUnits(
+    ...liabilities
+      .filter(
+        (liability) => liability.paymentTreatment === "reserve_from_liquidity",
+      )
+      .map((liability) => liability.paymentMinor ?? 0),
+  );
+  const addedHouseholdBurnMinor = addMinorUnits(
+    ...liabilities
+      .filter(
+        (liability) => liability.paymentTreatment === "add_to_household_burn",
+      )
+      .map((liability) => liability.paymentMinor ?? 0),
+  );
+  const netLiquidityMinor = Math.max(
+    subtractMinorUnits(
+      context.currentFiEligibleLiquidMinor,
+      reservedPaymentMinor,
+    ),
+    0,
+  );
+  const adjustedHouseholdBurnMonthlyMinor = addMinorUnits(
+    context.householdBurnMonthlyMinor,
+    addedHouseholdBurnMinor,
+  );
+  const adjustedTotalBurnMonthlyMinor = addMinorUnits(
+    adjustedHouseholdBurnMonthlyMinor,
+    context.businessBurnMonthlyMinor,
+  );
+  const runwayBaseMinor = Math.max(
+    subtractMinorUnits(netLiquidityMinor, context.protectedCashFloorMinor),
+    0,
+  );
+
+  return LiabilityImpactSchema.parse({
+    liabilityCount: liabilities.length,
+    totalOutstandingMinor,
+    unknownBalanceCount: liabilities.filter(
+      (liability) => liability.balanceMinor === null,
+    ).length,
+    unknownPaymentCount: liabilities.filter(
+      (liability) => liability.paymentMinor === null,
+    ).length,
+    overdueCount: liabilities.filter(
+      (liability) => liability.isOverdue === true,
+    ).length,
+    reservedPaymentMinor,
+    addedHouseholdBurnMinor,
+    netLiquidityMinor,
+    adjustedHouseholdBurnMonthlyMinor,
+    adjustedTotalBurnMonthlyMinor,
+    protectedRunwayMonths:
+      adjustedTotalBurnMonthlyMinor === 0
+        ? 0
+        : Number(
+            BigInt(runwayBaseMinor) / BigInt(adjustedTotalBurnMonthlyMinor),
+          ),
+    obligationAdjustedFiGapMinor: Math.max(
+      subtractMinorUnits(context.fiTargetMinor, netLiquidityMinor),
+      0,
+    ),
+  });
+}
+
+export const LiabilitiesErrorCodeSchema = z.enum([
+  "configuration_required",
+  "connection_invalid",
+  "monthly_limit_reached",
+  "review_required",
+  "provider_unavailable",
+  "response_invalid",
+  "staging_failed",
+  "unexpected_failure",
+]);
+
+export const LiabilitiesStateSchema = z.object({
+  version: z.literal(1),
+  configured: z.boolean(),
+  status: z.enum([
+    "setup_required",
+    "disconnected",
+    "ready",
+    "needs_attention",
+  ]),
+  connections: z.array(LiabilityConnectionSchema).max(20),
+  acceptedLiabilities: z.array(AcceptedLiabilitySchema).max(100),
+  pendingProposals: z.array(LiabilityProposalSchema).max(20),
+  planning: LiabilityPlanningContextSchema,
+  impact: LiabilityImpactSchema,
+  errorCode: LiabilitiesErrorCodeSchema.nullable(),
+});
+
+export const LiabilityLinkTokenSchema = z.object({
+  linkToken: z.string().min(1).max(4_096),
+  expiration: IsoTimestampSchema,
+});
+
+export const LiabilityExchangeInputSchema = z.object({
+  publicToken: z.string().min(1).max(4_096),
+});
+
+export const ManualLiabilityInputSchema = z.object({
+  institutionLabel: z.string().trim().min(1).max(512),
+  accountLabel: z.string().trim().min(1).max(512),
+  kind: LiabilityKindSchema,
+  balanceMinor: NonNegativeMoneyMinorSchema.nullable(),
+  paymentMinor: NonNegativeMoneyMinorSchema.nullable(),
+  interestRatePpm: ProbabilityPpmSchema.nullable(),
+  nextPaymentDueDate: IsoDateSchema.nullable(),
+  isOverdue: z.boolean().nullable(),
+  effectiveDate: IsoDateSchema,
+});
+
+export const LiabilityReviewDecisionSchema = z.object({
+  rowId: z.string().min(1),
+  decision: z.enum(["accepted", "excluded"]),
+  paymentTreatment: LiabilityPaymentTreatmentSchema.nullable(),
+});
+
+export const LiabilityApplyInputSchema = z.object({
+  decisions: z.array(LiabilityReviewDecisionSchema).min(1).max(100),
+  changeNote: z.string().trim().min(1).max(500),
+});
+
+export const LiabilityApplyResultSchema = z.object({
+  proposalId: z.string().min(1),
+  acceptedCount: z.number().int().nonnegative(),
+  excludedCount: z.number().int().nonnegative(),
+  impact: LiabilityImpactSchema,
+});
+
 export const PortfolioBaselineCashAccountSchema = z
   .object({
     id: z.string().min(1),
@@ -2164,6 +2515,7 @@ export const AlphaDataSchema = z.object({
 
 export type AlphaData = z.infer<typeof AlphaDataSchema>;
 export type AcceptedCashAccount = z.infer<typeof AcceptedCashAccountSchema>;
+export type AcceptedLiability = z.infer<typeof AcceptedLiabilitySchema>;
 export type CashAccountApplyInput = z.infer<typeof CashAccountApplyInputSchema>;
 export type CashAccountApplyResult = z.infer<
   typeof CashAccountApplyResultSchema
@@ -2206,6 +2558,28 @@ export type HoldingImportApplyResult = z.infer<
 >;
 export type HoldingImportPreview = z.infer<typeof HoldingImportPreviewSchema>;
 export type HoldingImportSummary = z.infer<typeof HoldingImportSummarySchema>;
+export type LiabilitiesErrorCode = z.infer<typeof LiabilitiesErrorCodeSchema>;
+export type LiabilitiesState = z.infer<typeof LiabilitiesStateSchema>;
+export type LiabilityApplyInput = z.infer<typeof LiabilityApplyInputSchema>;
+export type LiabilityApplyResult = z.infer<typeof LiabilityApplyResultSchema>;
+export type LiabilityClassification = z.infer<
+  typeof LiabilityClassificationSchema
+>;
+export type LiabilityConnection = z.infer<typeof LiabilityConnectionSchema>;
+export type LiabilityExchangeInput = z.infer<
+  typeof LiabilityExchangeInputSchema
+>;
+export type LiabilityImpact = z.infer<typeof LiabilityImpactSchema>;
+export type LiabilityKind = z.infer<typeof LiabilityKindSchema>;
+export type LiabilityLinkToken = z.infer<typeof LiabilityLinkTokenSchema>;
+export type LiabilityPaymentTreatment = z.infer<
+  typeof LiabilityPaymentTreatmentSchema
+>;
+export type LiabilityProposal = z.infer<typeof LiabilityProposalSchema>;
+export type LiabilityProposalRow = z.infer<typeof LiabilityProposalRowSchema>;
+export type LiabilitySource = z.infer<typeof LiabilitySourceSchema>;
+export type LiabilityValueState = z.infer<typeof LiabilityValueStateSchema>;
+export type ManualLiabilityInput = z.infer<typeof ManualLiabilityInputSchema>;
 export type RobinhoodAdjudicationSummary = z.infer<
   typeof RobinhoodAdjudicationSummarySchema
 >;

@@ -56,6 +56,7 @@ export * from "./plan-inputs";
 export * from "./public-holdings";
 export * from "./portfolio-watch";
 export * from "./cash-accounts";
+export * from "./liabilities";
 
 type DashboardRow = {
   as_of_date: string;

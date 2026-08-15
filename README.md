@@ -32,7 +32,8 @@ snapshot.
 ## What is included
 
 - A responsive private-alpha product shell with Overview, Goals, Holdings,
-  Evidence Inbox, Scenarios, and append-only Forecast History views.
+  Obligations, Evidence Inbox, Scenarios, and append-only Forecast History
+  views.
 - Separate administrator NAV, latest external mark, FI-underwriting value,
   thesis-weighted expected value, timing-adjusted liquidity, and actual
   distribution records.
@@ -55,6 +56,10 @@ snapshot.
 - User-initiated Plaid cash-balance checks. Checking, savings, money-market, and
   cash-management observations remain dated proposals until reviewed; missing,
   non-USD, and unavailable balances stay explicit.
+- Reviewed obligations from Plaid Liabilities or manual entry. Credit cards,
+  mortgages, and student loans remain proposals until review; explicit payment
+  treatment previews net liquidity, household burn, runway, and FI gap without
+  subtracting every debt balance from cash or counting a payment twice.
 - A Portfolio Baseline step combines accepted public-market holdings, reviewed
   cash accounts, and a manual residual without double counting. Private paper
   remains outside current liquidity. Confirmation versions the FI plan,
@@ -95,7 +100,10 @@ cash-account policy is captured in
 [ADR 002](docs/architecture/adr-002-reviewed-cash-accounts.md) and its
 [deployment runbook](docs/deployment/cash-accounts.md). The optional AngelList
 workflow is documented in the
-[Mac agent runbook](docs/deployment/angellist-browser-import.md).
+[Mac agent runbook](docs/deployment/angellist-browser-import.md). Reviewed
+obligation policy is captured in
+[ADR 003](docs/architecture/adr-003-reviewed-liabilities.md) and its
+[deployment runbook](docs/deployment/liabilities.md).
 
 ## Local development
 

@@ -4,6 +4,7 @@ const navigationLabels = [
   "Overview",
   "Goals",
   "Holdings",
+  "Obligations",
   "Portfolio Watch",
   "Evidence Inbox",
   "Scenarios",
