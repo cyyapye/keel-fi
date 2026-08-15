@@ -525,7 +525,7 @@ test("connects Robinhood, applies clear rows, and isolates exceptions", async ({
             autoAppliedCount: 2,
             quarantinedCount: 2,
             preservedPositionCount: 1,
-            baselineRefreshStatus: "not_needed",
+            baselineRefreshStatus: "refreshed",
           },
         },
       });
@@ -588,6 +588,84 @@ test("connects Robinhood, applies clear rows, and isolates exceptions", async ({
     page.getByRole("button", { name: "Back to holdings" }),
   ).toBeVisible();
   expect(exchangeBodies).toEqual([{ publicToken: "public-synthetic" }]);
+});
+
+test("shows one Robinhood exception entry point", async ({ page }) => {
+  await page.unroute("**/api/public-holdings/robinhood/status");
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({
+      json: [
+        {
+          id: robinhoodImportPreview.id,
+          provider: "robinhood",
+          status: "quarantined",
+          observedAt: robinhoodImportPreview.observedAt,
+          rowCount: robinhoodImportPreview.summary.rowCount,
+          createdAt: "2026-08-10T16:01:00.000Z",
+        },
+      ],
+    });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "ready",
+        interval: "weekly",
+        runStatus: null,
+        lastSeenAt: "2026-08-09T16:00:00.000Z",
+        lastCompletedAt: "2026-08-03T16:00:00.000Z",
+        nextRunAt: "2026-08-16T16:00:00.000Z",
+        latestImportId: null,
+        errorCode: null,
+      },
+    });
+  });
+  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        status: "ready",
+        lastSyncedAt: "2026-08-10T16:00:00.000Z",
+        automaticUpdatesEnabled: true,
+        latestImportId: robinhoodImportPreview.id,
+        latestRunStatus: "succeeded",
+        errorCode: null,
+        latestAdjudication: {
+          importId: robinhoodImportPreview.id,
+          policyVersion: "robinhood-holdings-auto-v1",
+          autoAppliedCount: 2,
+          quarantinedCount: 2,
+          preservedPositionCount: 1,
+          baselineRefreshStatus: "refreshed",
+        },
+      },
+    });
+  });
+
+  await page.goto("/holdings");
+  await expect(
+    page.getByRole("heading", {
+      name: "2 Robinhood exceptions were isolated",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /View .*exceptions?/u }),
+  ).toHaveCount(1);
+  await expect(page.locator(".holding-import-pending")).toHaveCount(0);
+  await expect(page.locator(".robinhood-sync")).toHaveScreenshot(
+    "holdings-robinhood-single-exception.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
 });
 
 test("shows automatic Robinhood checks with exception-only review", async ({

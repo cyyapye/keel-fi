@@ -737,9 +737,7 @@ async function refreshPortfolioBaseline(input: {
 }> {
   if (
     input.repository === undefined ||
-    input.adjudication.autoAppliedCount === 0 ||
-    input.adjudication.quarantinedCount > 0 ||
-    input.adjudication.preservedPositionCount > 0
+    input.adjudication.autoAppliedCount === 0
   ) {
     return { status: "not_needed", baselineId: null };
   }

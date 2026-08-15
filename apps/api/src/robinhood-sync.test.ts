@@ -338,7 +338,7 @@ describe("Robinhood Plaid sync", () => {
     );
   });
 
-  it("encrypts the access token and stages fetched holdings for review", async () => {
+  it("applies clear holdings and refreshes the baseline alongside isolated exceptions", async () => {
     const storage = memoryBucket();
     const env = testEnv(storage.bucket);
     const repository = publicRepository();
@@ -403,8 +403,8 @@ describe("Robinhood Plaid sync", () => {
       importId: "synthetic-import",
       policyVersion: "robinhood-holdings-auto-v1",
       autoAppliedCount: 1,
-      quarantinedCount: 0,
-      preservedPositionCount: 0,
+      quarantinedCount: 2,
+      preservedPositionCount: 1,
     });
     const hasAcceptedRobinhoodPositions = vi.fn().mockResolvedValue(false);
     const getState = vi.fn().mockResolvedValue({
@@ -465,8 +465,8 @@ describe("Robinhood Plaid sync", () => {
         adjudication: {
           policyVersion: "robinhood-holdings-auto-v1",
           autoAppliedCount: 1,
-          quarantinedCount: 0,
-          preservedPositionCount: 0,
+          quarantinedCount: 2,
+          preservedPositionCount: 1,
           baselineRefreshStatus: "refreshed",
           portfolioBaselineId: "synthetic-auto-baseline",
         },
