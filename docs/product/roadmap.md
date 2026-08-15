@@ -6,9 +6,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 
 - Last reconciled: 2026-08-14
 - Reconciled product baseline:
-  [`dd8a4ce`](https://github.com/cyyapye/keel-fi/commit/dd8a4ce77e7625a31dcca7aa761c4ddb97ced79a)
+  [`8196c94`](https://github.com/cyyapye/keel-fi/commit/8196c947a8cbc3f2029ee34ab9e97642df1f086e)
 - Baseline release evidence:
-  [`31855386784`](https://github.com/cyyapye/keel-fi/actions/runs/31855386784)
+  [`31867504712`](https://github.com/cyyapye/keel-fi/actions/runs/31867504712)
 
 ## How to use this roadmap
 
@@ -83,44 +83,24 @@ The first unchecked milestone is next. Keep exactly one milestone marked
     [run `31855386784`](https://github.com/cyyapye/keel-fi/actions/runs/31855386784).
     Private acceptance opened Plaid Link without selecting an institution or
     entering account credentials.
+- [x] **M7 — Liabilities to reviewed obligation baseline.** Plaid and manual
+      debt facts remain dated proposals until review. Explicit revolving and
+      scheduled payment treatments preview net liquidity, burn, runway, and FI
+      gap without subtracting all principal, double counting payments, or
+      mutating an accepted plan. Missing, unsupported, overdue, and stale states
+      remain visible.
+  - Evidence: [PR #54](https://github.com/cyyapye/keel-fi/pull/54) at
+    [`8196c94`](https://github.com/cyyapye/keel-fi/commit/8196c947a8cbc3f2029ee34ab9e97642df1f086e),
+    with exact-SHA verification, encrypted D1 backup, forward-only migration,
+    protected smokes, and deployment evidence in
+    [run `31867504712`](https://github.com/cyyapye/keel-fi/actions/runs/31867504712).
+    Provider-backed production use remains gated on deployment-specific
+    coverage, pricing, and retention approval; manual review is available
+    without provider retention.
 
 ## Ordered next milestones
 
-### [ ] M7 — Liabilities to reviewed obligation baseline — **Active**
-
-**User outcome:** Keel shows what is owed, when it is due, and which obligations
-affect near-term runway or longer-term planning instead of presenting assets
-without their relevant debt context.
-
-**Trust boundary:** Imported balances, rates, and due dates remain proposals.
-Debt is classified explicitly; Keel does not subtract every liability from
-usable liquidity or mark a missing account as repaid.
-
-**Scope:** Credit cards, mortgages, student loans, and a manual fallback;
-effective and retrieval dates; revolving versus scheduled obligations; and a
-reviewed preview of net-liquidity, burn, and goal effects.
-
-**Non-goals:** Debt payoff optimization, refinancing recommendations, credit
-decisions, payment initiation, or financial advice.
-
-**Dependency:** Reuse M6's account identity, freshness, and review patterns.
-
-**Infrastructure-cost gate:** Record provider coverage, Liabilities product
-billing, update cadence, webhook volume, private-storage growth, and a manual
-fallback before implementation.
-
-**Exit gates:**
-
-- [x] Debt classification and planning-impact policy is documented with
-      deterministic examples.
-- [x] Liability observations, proposals, manual fallback, and synthetic tests
-      pass.
-- [x] Review and impact previews cover desktop and mobile, including unknown and
-      stale states.
-- [ ] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
-      post-merge deployment evidence pass.
-
-### [ ] M8 — Observed cash flow to reviewed burn proposals
+### [ ] M8 — Observed cash flow to reviewed burn proposals — **Active**
 
 **User outcome:** Keel compares accepted household and business burn assumptions
 with observed cash flow and proposes a better runway plan when the evidence is
