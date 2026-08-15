@@ -17,6 +17,7 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
+import { plaidInvestmentsSourceKey } from "./investment-identity";
 import type { Env } from "./types";
 
 const MAX_PLAID_RESPONSE_BYTES = 5 * 1_048_576;
@@ -247,44 +248,14 @@ async function credentialKey(env: Env): Promise<CryptoKey> {
   );
 }
 
-async function providerAccountHmacKey(env: Env): Promise<CryptoKey> {
-  const key = base64UrlDecode(configuration(env).credentialKey);
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    ownedArrayBuffer(key),
-    "HKDF",
-    false,
-    ["deriveKey"],
-  );
-  return crypto.subtle.deriveKey(
-    {
-      name: "HKDF",
-      hash: "SHA-256",
-      salt: ownedArrayBuffer(
-        new TextEncoder().encode("keel-provider-account-key-v1"),
-      ),
-      info: ownedArrayBuffer(new TextEncoder().encode("plaid-item-id")),
-    },
-    keyMaterial,
-    { name: "HMAC", hash: "SHA-256", length: 256 },
-    false,
-    ["sign"],
-  );
-}
-
 export async function providerAccountKey(
   env: Env,
   rawItemId: string,
 ): Promise<string> {
-  const itemId = z.string().min(1).max(512).parse(rawItemId);
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    await providerAccountHmacKey(env),
-    ownedArrayBuffer(new TextEncoder().encode(itemId)),
-  );
-  return [...new Uint8Array(signature)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  // Keep the compatibility export until the provider-neutral Investments
+  // cutover; both names must resolve the exact same stable connection key.
+  configuration(env);
+  return plaidInvestmentsSourceKey(env, rawItemId);
 }
 
 async function encryptCredential(
