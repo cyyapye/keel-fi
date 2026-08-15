@@ -9,6 +9,8 @@ import {
   type AngelListMacAgentOverview,
   type AngelListSignInRefresh,
   type CashAccountsState,
+  type CashAccountIdentityCandidate,
+  type CashAccountIdentityDecision,
   type CashBalanceProposal,
   type CashFlowPlanSuggestion,
   type EvidenceInboxItem,
@@ -65,6 +67,7 @@ import {
   previewAngelListHoldingImport,
   requestAngelListUpdate,
   refreshCashAccount,
+  reviewCashAccountIdentity,
   saveGoalVersion,
   saveScenarioVersion,
   scanPortfolioWatch,
@@ -3717,6 +3720,54 @@ function CashAccountsControl({
     }
   };
 
+  const reviewIdentity = async (
+    candidate: CashAccountIdentityCandidate,
+    decision: CashAccountIdentityDecision,
+  ) => {
+    const actionKey = [
+      "identity",
+      candidate.priorNaturalKeySha256,
+      candidate.reportedNaturalKeySha256,
+      decision,
+    ].join(":");
+    setBusyAction(actionKey);
+    setError(null);
+    setNotice(null);
+    try {
+      const next = await reviewCashAccountIdentity({
+        connectionId: candidate.connectionId,
+        priorNaturalKeySha256: candidate.priorNaturalKeySha256,
+        reportedNaturalKeySha256: candidate.reportedNaturalKeySha256,
+        decision,
+        changeNote:
+          decision === "same_account"
+            ? "Confirmed both records describe the same cash account."
+            : "Confirmed the records describe separate cash accounts.",
+      });
+      setState(next);
+      setNotice(
+        decision === "same_account"
+          ? "Account records combined. Review the FI baseline when ready."
+          : "Account records kept separate.",
+      );
+      try {
+        await onAccepted();
+      } catch {
+        setError(
+          "The account decision was saved, but the planning baseline could not refresh.",
+        );
+      }
+    } catch (reviewError: unknown) {
+      setError(
+        reviewError instanceof Error
+          ? reviewError.message
+          : "The account match could not be saved.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const activeProposal =
     state?.pendingProposals.find(
       (proposal) => proposal.id === activeProposalId,
@@ -3785,6 +3836,73 @@ function CashAccountsControl({
                 </small>
               </span>
             ))}
+          </div>
+        </div>
+      )}
+
+      {state !== null && state.identityCandidates.length > 0 && (
+        <div
+          aria-labelledby="cash-account-identity-title"
+          className="cash-accounts__identity-review"
+        >
+          <div className="cash-accounts__identity-heading">
+            <h3 id="cash-account-identity-title">
+              Possible duplicate accounts
+            </h3>
+            <p>
+              Keel found a new bank record where a prior record disappeared.
+              Confirm each match before the records are combined.
+            </p>
+          </div>
+          <div className="cash-accounts__identity-list">
+            {state.identityCandidates.map((candidate) => {
+              const actionKey = [
+                "identity",
+                candidate.priorNaturalKeySha256,
+                candidate.reportedNaturalKeySha256,
+              ].join(":");
+              const keepingSeparate =
+                busyAction === [actionKey, "separate_accounts"].join(":");
+              const combining =
+                busyAction === [actionKey, "same_account"].join(":");
+              return (
+                <div
+                  key={[
+                    candidate.connectionId,
+                    candidate.priorNaturalKeySha256,
+                    candidate.reportedNaturalKeySha256,
+                  ].join(":")}
+                >
+                  <span>
+                    <strong>{candidate.accountLabel}</strong>
+                    <small>
+                      {candidate.institutionLabel} · new record returned{" "}
+                      {formatDate(candidate.observedAt)}
+                    </small>
+                  </span>
+                  <div>
+                    <Button
+                      disabled={busyAction !== null}
+                      onClick={() =>
+                        void reviewIdentity(candidate, "separate_accounts")
+                      }
+                      tone="quiet"
+                    >
+                      {keepingSeparate ? "Saving…" : "Keep separate"}
+                    </Button>
+                    <Button
+                      disabled={busyAction !== null}
+                      onClick={() =>
+                        void reviewIdentity(candidate, "same_account")
+                      }
+                      tone="primary"
+                    >
+                      {combining ? "Saving…" : "Same account"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

@@ -63,6 +63,16 @@ positive, confirmation requires an explicit overlap acknowledgment. The review
 previews the FI and runway effects, then appends the resulting plan, forecast,
 and goal versions.
 
+Plaid may omit `persistent_account_id` and may rotate `account_id`. When that
+happens, protected provider keys cannot prove whether a newly reported record
+and a missing prior record are the same account. Keel may suggest a possible
+match only when one reported record and one missing record form an unambiguous
+same-label and same-subtype pair in one reviewed proposal. The labels are
+candidate evidence, not identity. The user must choose **Same account** or
+**Keep separate**. That append-only decision either links the protected keys in
+the read projection or records that they remain distinct; accepted source rows
+are never rewritten.
+
 ## Consequences
 
 Positive:
@@ -70,6 +80,8 @@ Positive:
 - provider access is narrower than enabling transaction ingestion early;
 - paid calls are explicit, visible, and bounded;
 - missing accounts cannot be interpreted as withdrawals or spending; and
+- complete provider-identity rotation remains visible until explicitly reviewed;
+  and
 - cash facts pass through the same review-first trust boundary as holdings.
 
 Tradeoffs:

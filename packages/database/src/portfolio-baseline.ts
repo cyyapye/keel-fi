@@ -46,6 +46,12 @@ type SourceCashAccountRow = AcceptedCashAccountHistoryRow & {
   proposal_row_id: string;
 };
 
+type CashAccountIdentityDecisionRow = {
+  connector_account_id: string;
+  natural_key_low_sha256: string;
+  natural_key_high_sha256: string;
+};
+
 type PlanningRow = {
   scenario_id: string;
   forecast_snapshot_id: string;
@@ -1031,11 +1037,13 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     );
   }
 
-  private getSourceCashRows(householdId: string) {
-    return all<SourceCashAccountRow>(
-      this.db
-        .prepare(
-          `SELECT decision.id AS decision_id, row.id AS proposal_row_id,
+  private async getSourceCashRows(householdId: string) {
+    const [rows, identityDecisions] = await Promise.all([
+      all<SourceCashAccountRow>(
+        this.db
+          .prepare(
+            `SELECT decision.id AS decision_id, proposal.id AS proposal_id,
+                  row.id AS proposal_row_id,
                   row.natural_key_sha256, row.item_account_key_sha256,
                   proposal.connector_account_id, row.institution_label,
                   row.account_label, row.subtype, row.value_minor,
@@ -1049,15 +1057,40 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
            WHERE decision.household_id = ?
              AND decision.decision = 'accepted'
            ORDER BY decision.decided_at, decision.id`,
-        )
-        .bind(householdId),
-    ).then((rows) =>
-      projectCashAccountIdentities(rows)
-        .acceptedRows.map(({ row }) => row)
-        .sort((left, right) =>
-          left.natural_key_sha256.localeCompare(right.natural_key_sha256),
-        ),
-    );
+          )
+          .bind(householdId),
+      ),
+      all<CashAccountIdentityDecisionRow>(
+        this.db
+          .prepare(
+            `SELECT decision.connector_account_id,
+                    decision.natural_key_low_sha256,
+                    decision.natural_key_high_sha256
+             FROM cash_account_identity_decisions decision
+             WHERE decision.household_id = ?
+               AND decision.decision = 'same_account'
+               AND NOT EXISTS (
+                 SELECT 1 FROM cash_account_identity_decisions later
+                 WHERE later.supersedes_decision_id = decision.id
+               )
+             ORDER BY decision.decided_at, decision.id`,
+          )
+          .bind(householdId),
+      ),
+    ]);
+    return projectCashAccountIdentities(
+      rows,
+      [],
+      identityDecisions.map((decision) => ({
+        connectorAccountId: decision.connector_account_id,
+        naturalKeyLowSha256: decision.natural_key_low_sha256,
+        naturalKeyHighSha256: decision.natural_key_high_sha256,
+      })),
+    )
+      .acceptedRows.map(({ row }) => row)
+      .sort((left, right) =>
+        left.natural_key_sha256.localeCompare(right.natural_key_sha256),
+      );
   }
 
   private async getPlanningRow(householdId: string): Promise<PlanningRow> {
