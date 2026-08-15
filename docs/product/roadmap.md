@@ -162,7 +162,7 @@ Baseline behavior, and must pass `make verify`, reviewed PR checks, exact-head
 merge, and exact-SHA post-merge evidence before the next slice starts. Keep M9
 marked **Active** until every slice and milestone exit gate is checked.
 
-#### [ ] M9.1 — Canonical persistence and domain contract
+#### [x] M9.1 — Canonical persistence and domain contract
 
 **Outcome:** D1 and the shared domain contracts can represent the complete ADR
 005 relationship model without changing any current accepted value.
@@ -197,6 +197,14 @@ marked **Active** until every slice and milestone exit gate is checked.
 **Slice gate:** Migration replay and synthetic seed checks prove the new records
 are household-scoped, append-only where accepted, and initially have no effect
 on holdings, baseline, goal, or forecast output.
+
+- Evidence: [PR #62](https://github.com/cyyapye/keel-fi/pull/62) at
+  [`93151d2`](https://github.com/cyyapye/keel-fi/commit/93151d22ec88b5bf12d614c14a09b1c96154cfe7)
+  and [PR #61](https://github.com/cyyapye/keel-fi/pull/61) at
+  [`0be5a2d`](https://github.com/cyyapye/keel-fi/commit/0be5a2dddc3c9d9c00e1948713ce5cb7cc602db6),
+  with exact-SHA verification, encrypted D1 backup, forward-only migration,
+  protected smokes, and deployment evidence in
+  [run `31914632676`](https://github.com/cyyapye/keel-fi/actions/runs/31914632676).
 
 #### [ ] M9.2 — Legacy association and compatibility reads
 
