@@ -50,6 +50,8 @@ describe("normalizePlaidCashAccounts", () => {
 
     expect(normalized.rows).toEqual([
       expect.objectContaining({
+        naturalKeySha256: await accountKeyFor("persistent_synthetic_checking"),
+        itemAccountKeySha256: await accountKeyFor("account_synthetic_checking"),
         institutionLabel: "First Synthetic Bank",
         accountLabel: "Household checking",
         subtype: "checking",

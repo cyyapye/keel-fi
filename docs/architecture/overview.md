@@ -24,6 +24,12 @@ flowchart LR
   LiabilityProposal --> LiabilityReview["Obligation review + payment treatment"]
   LiabilityReview --> AcceptedLiability["Accepted obligation baseline"]
   AcceptedLiability --> ObligationImpact["Net liquidity, burn, runway, FI gap view"]
+  API -->|"explicit cursor sync"| PlaidTransactions["Plaid Transactions"]
+  PlaidTransactions --> RedactedMutations["Redacted mutation revisions"]
+  RedactedMutations --> BurnProposal["Three-month burn proposal"]
+  AcceptedLiability --> BurnProposal
+  BurnProposal --> BurnReview["Category review + plan draft"]
+  BurnReview --> PlanEditor
   AcceptedHolding --> BaselineReview["Portfolio baseline review"]
   AcceptedCash --> BaselineReview
   BaselineReview --> VersionBundle["New FI plan, forecast, and goal versions"]
@@ -80,6 +86,14 @@ flowchart LR
   subtraction; unknown, stale, missing, unsupported, and overdue states remain
   explicit. The derived obligation view does not mutate the accepted plan,
   Portfolio Baseline, goal, or forecast.
+- Observed cash flow reuses reviewed Plaid cash Items only after explicit
+  deployment-price confirmation. User-triggered `/transactions/sync` calls
+  retain HMAC keys, dates, integer amounts, pending state, and primary category
+  in D1 while discarding raw pages, descriptions, counterparties, and provider
+  IDs. Three complete months and full reviewed-institution coverage are required
+  before aggregate categories can propose a runway-plan draft. Pending,
+  unsupported, and unreviewed-account activity remains excluded and visible. The
+  accepted plan changes only through the existing explicit save path.
 - The Scenarios runway editor changes only household burn, business burn, and
   the protected cash floor. FI-eligible liquid remains owned by reviewed
   Holdings and the FI target remains owned by Goals. Saving appends a cash-flow
@@ -114,8 +128,10 @@ parts per million. Quantity fields use explicit integer scales.
 
 Cash-flow plans, forecast snapshots, outputs, company forecasts, liquidity
 curves, portfolio baseline records and items, cash-account review decisions,
-liability proposal rows and review decisions, other review decisions, and
-actual-liquidity events are guarded by D1 triggers against update or deletion.
-Accepted marks and accepted evidence cannot be deleted. A new provider
-observation, forecast, Portfolio Baseline, or runway-plan save changes the
-record by appending a new version.
+liability proposal rows and review decisions, cash-flow activation events,
+aggregate burn proposals and reviews, other review decisions, and
+actual-liquidity events are guarded by D1 triggers against rewriting. Accepted
+marks and accepted evidence cannot be deleted. Redacted transaction revisions
+are append-only until the 24-month retention boundary or explicit disconnect
+deletes them. A new provider observation, forecast, Portfolio Baseline, or
+runway-plan save changes the accepted record by appending a new version.

@@ -7,6 +7,7 @@ import {
   D1AlphaRepository,
   D1AngelListMacAgentRepository,
   D1CashAccountsRepository,
+  D1CashFlowRepository,
   D1HoldingImportRepository,
   D1LiabilitiesRepository,
   D1PlanInputsRepository,
@@ -15,6 +16,7 @@ import {
   type AlphaRepository,
   type AngelListMacAgentRepository,
   type CashAccountsRepository,
+  type CashFlowRepository,
   type LiabilitiesRepository,
   type PlanInputsRepository,
   type PortfolioBaselineRepository,
@@ -26,6 +28,9 @@ import {
   CashAccountApplyInputSchema,
   CashAccountExchangeInputSchema,
   CashAccountsErrorCodeSchema,
+  CashFlowErrorCodeSchema,
+  CashFlowReviewInputSchema,
+  CashFlowSyncInputSchema,
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
@@ -54,9 +59,16 @@ import {
 } from "./holding-import-upload";
 import { PlaidWebhookRequestError, receivePlaidWebhook } from "./plaid-webhook";
 import {
+  cashFlowConfigured,
+  createPlaidCashFlowClient,
+  syncObservedCashFlow,
+  type PlaidCashFlowClient,
+} from "./plaid-cash-flow-sync";
+import {
   cashAccountsConfigured,
   connectCashAccount,
   createPlaidCashClient,
+  disconnectCashAccount,
   refreshCashAccount,
   type PlaidCashClient,
 } from "./plaid-cash-sync";
@@ -98,6 +110,8 @@ type AppOptions = {
   >;
   cashAccountsRepository?: CashAccountsRepository;
   cashPlaidClient?: PlaidCashClient;
+  cashFlowRepository?: CashFlowRepository;
+  cashFlowPlaidClient?: PlaidCashFlowClient;
   liabilitiesRepository?: LiabilitiesRepository;
   liabilitiesPlaidClient?: PlaidLiabilitiesClient;
   plaidClient?: PlaidInvestmentsClient;
@@ -213,6 +227,84 @@ function cashAccountErrorResponse(
     },
     unexpected_failure: {
       message: "Keel could not update cash accounts.",
+      status: 503 as const,
+    },
+  } as const;
+  const response = responses[code];
+  return context.json({ error: response.message }, response.status, {
+    "Cache-Control": "private, no-store",
+  });
+}
+
+function cashFlowErrorResponse(
+  context: Context<AppEnvironment>,
+  error: unknown,
+) {
+  const rawCode =
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+      ? error.code
+      : "unexpected_failure";
+  const parsedCode = CashFlowErrorCodeSchema.safeParse(rawCode);
+  const code = parsedCode.success ? parsedCode.data : "unexpected_failure";
+  console.error(
+    JSON.stringify({
+      event: "cash_flow_failed",
+      requestId: context.get("requestId"),
+      errorCode: code,
+    }),
+  );
+  const responses = {
+    configuration_required: {
+      message: "Observed cash flow is not configured.",
+      status: 503 as const,
+    },
+    connection_invalid: {
+      message: "Reconnect this institution to continue.",
+      status: 409 as const,
+    },
+    consent_required: {
+      message:
+        "Review cash accounts and confirm Transactions pricing before starting.",
+      status: 409 as const,
+    },
+    daily_limit_reached: {
+      message: "This institution has used its cash-flow checks for today.",
+      status: 429 as const,
+    },
+    review_required: {
+      message: "Finish the current cash-flow review before checking again.",
+      status: 409 as const,
+    },
+    provider_not_ready: {
+      message:
+        "Plaid is still preparing transaction history. Check again later.",
+      status: 409 as const,
+    },
+    provider_unavailable: {
+      message: "Transaction data is temporarily unavailable.",
+      status: 503 as const,
+    },
+    response_invalid: {
+      message: "Plaid returned unsupported transaction data.",
+      status: 502 as const,
+    },
+    history_incomplete: {
+      message: "Three complete months are not available yet.",
+      status: 409 as const,
+    },
+    coverage_incomplete: {
+      message: "Check every reviewed cash institution before comparing burn.",
+      status: 409 as const,
+    },
+    staging_failed: {
+      message: "Keel could not prepare observed cash flow for review.",
+      status: 503 as const,
+    },
+    unexpected_failure: {
+      message: "Keel could not update observed cash flow.",
       status: 503 as const,
     },
   } as const;
@@ -391,6 +483,12 @@ export function createApp(options: AppOptions = {}) {
     options.cashPlaidClient ?? createPlaidCashClient(env);
   const cashAccountsConfiguredFor = (env: Env) =>
     options.cashPlaidClient !== undefined || cashAccountsConfigured(env);
+  const cashFlowRepositoryFor = (env: Env) =>
+    options.cashFlowRepository ?? new D1CashFlowRepository(env.DB);
+  const cashFlowPlaidClientFor = (env: Env) =>
+    options.cashFlowPlaidClient ?? createPlaidCashFlowClient(env);
+  const cashFlowConfiguredFor = (env: Env) =>
+    options.cashFlowPlaidClient !== undefined || cashFlowConfigured(env);
   const liabilitiesRepositoryFor = (env: Env) =>
     options.liabilitiesRepository ?? new D1LiabilitiesRepository(env.DB);
   const liabilitiesPlaidClientFor = (env: Env) =>
@@ -825,6 +923,35 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.delete(
+    "/api/cash-accounts/connections/:connectionId",
+    async (context) => {
+      if (!cashAccountsConfiguredFor(context.env)) {
+        return context.json(
+          { error: "Cash accounts are not configured." },
+          503,
+          {
+            "Cache-Control": "private, no-store",
+          },
+        );
+      }
+      try {
+        const state = await disconnectCashAccount({
+          env: context.env,
+          repository: cashAccountsRepositoryFor(context.env),
+          client: cashPlaidClientFor(context.env),
+          accessSubject: context.get("identity").subject,
+          connectionId: context.req.param("connectionId"),
+        });
+        return context.json(state, 200, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        return cashAccountErrorResponse(context, error);
+      }
+    },
+  );
+
   app.post("/api/cash-account-proposals/:proposalId/apply", async (context) => {
     let input: unknown;
     try {
@@ -871,6 +998,102 @@ export function createApp(options: AppOptions = {}) {
         400,
         { "Cache-Control": "private, no-store" },
       );
+    }
+  });
+
+  app.get("/api/cash-flow", async (context) => {
+    try {
+      const state = await cashFlowRepositoryFor(context.env).getState(
+        context.get("identity").subject,
+        cashFlowConfiguredFor(context.env),
+      );
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json(
+        { error: "Observed cash-flow status is unavailable." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/cash-flow/connections/:connectionId/sync", async (context) => {
+    if (!cashFlowConfiguredFor(context.env)) {
+      return context.json(
+        { error: "Observed cash flow is not configured." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const parsed = CashFlowSyncInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        { error: "Cash-flow check confirmation is invalid." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const state = await syncObservedCashFlow({
+        env: context.env,
+        repository: cashFlowRepositoryFor(context.env),
+        client: cashFlowPlaidClientFor(context.env),
+        accessSubject: context.get("identity").subject,
+        connectionId: context.req.param("connectionId"),
+        syncInput: parsed.data,
+      });
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return cashFlowErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/cash-flow-proposals/:proposalId/review", async (context) => {
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const parsed = CashFlowReviewInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: "Cash-flow review input is invalid.",
+          issues: parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const result = await cashFlowRepositoryFor(context.env).reviewProposal(
+        context.get("identity").subject,
+        context.req.param("proposalId"),
+        parsed.data,
+      );
+      return context.json(result, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return cashFlowErrorResponse(context, error);
     }
   });
 

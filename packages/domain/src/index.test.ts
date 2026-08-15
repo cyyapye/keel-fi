@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AcceptedCashAccountSchema,
   AcceptedLiabilitySchema,
+  createCashFlowComparison,
   createLiabilityImpact,
   createPlanInputImpact,
   createPortfolioBaselineImpact,
@@ -655,6 +656,75 @@ describe("deterministic financial calculations", () => {
       PlanInputSaveSchema.safeParse({ ...input, baseCashFlowPlanId: "" })
         .success,
     ).toBe(false);
+  });
+
+  it("proposes observed burn with debt already in the plan preserved", () => {
+    expect(
+      createCashFlowComparison(
+        {
+          baseCashFlowPlanId: "cf_fi",
+          baseForecastSnapshotId: "snap_fi_v3",
+          baseForecastSnapshotVersion: 3,
+          householdBurnMonthlyMinor: 300_000,
+          businessBurnMonthlyMinor: 100_000,
+          debtPaymentContextMonthlyMinor: 20_000,
+          protectedCashFloorMinor: 1_000_000,
+          fiEligibleLiquidMinor: 20_000_000,
+        },
+        350_000,
+        80_000,
+      ),
+    ).toEqual({
+      observedHouseholdMonthlyMinor: 350_000,
+      observedBusinessMonthlyMinor: 80_000,
+      proposedHouseholdBurnMonthlyMinor: 370_000,
+      proposedBusinessBurnMonthlyMinor: 80_000,
+      householdChangeMinor: 70_000,
+      businessChangeMinor: -20_000,
+      totalChangeMinor: 50_000,
+      currentRunwayMonths: 47,
+      proposedRunwayMonths: 42,
+      material: true,
+    });
+  });
+
+  it("does not propose noise below the absolute and proportional thresholds", () => {
+    expect(
+      createCashFlowComparison(
+        {
+          baseCashFlowPlanId: "cf_fi",
+          baseForecastSnapshotId: "snap_fi_v3",
+          baseForecastSnapshotVersion: 3,
+          householdBurnMonthlyMinor: 300_000,
+          businessBurnMonthlyMinor: 100_000,
+          debtPaymentContextMonthlyMinor: 20_000,
+          protectedCashFloorMinor: 1_000_000,
+          fiEligibleLiquidMinor: 20_000_000,
+        },
+        285_000,
+        105_000,
+      ).material,
+    ).toBe(false);
+  });
+
+  it("does not add reviewed debt context when observed loan burn represents it", () => {
+    expect(
+      createCashFlowComparison(
+        {
+          baseCashFlowPlanId: "cf_fi",
+          baseForecastSnapshotId: "snap_fi_v3",
+          baseForecastSnapshotVersion: 3,
+          householdBurnMonthlyMinor: 300_000,
+          businessBurnMonthlyMinor: 100_000,
+          debtPaymentContextMonthlyMinor: 20_000,
+          protectedCashFloorMinor: 1_000_000,
+          fiEligibleLiquidMinor: 20_000_000,
+        },
+        320_000,
+        100_000,
+        false,
+      ).proposedHouseholdBurnMonthlyMinor,
+    ).toBe(320_000);
   });
 
   it("does not invent a forecast for an unconfigured goal template", () => {

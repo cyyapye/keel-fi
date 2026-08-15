@@ -53,6 +53,7 @@ export const PlaidCashAccountsResponseSchema = z
 export const NormalizedCashAccountSchema = z
   .object({
     naturalKeySha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    itemAccountKeySha256: z.string().regex(/^[a-f0-9]{64}$/u),
     institutionLabel: z.string().min(1).max(512),
     accountLabel: z.string().min(1).max(512),
     subtype: CashAccountSubtypeSchema,
@@ -224,10 +225,15 @@ export async function normalizePlaidCashAccounts(
         isoCurrencyCode: account.balances.iso_currency_code,
         unofficialCurrencyCode: account.balances.unofficial_currency_code,
       });
-      return NormalizedCashAccountSchema.parse({
-        naturalKeySha256: await input.accountKeyFor(
+      const [naturalKeySha256, itemAccountKeySha256] = await Promise.all([
+        input.accountKeyFor(
           account.persistent_account_id ?? account.account_id,
         ),
+        input.accountKeyFor(account.account_id),
+      ]);
+      return NormalizedCashAccountSchema.parse({
+        naturalKeySha256,
+        itemAccountKeySha256,
         institutionLabel,
         accountLabel: account.name,
         subtype: normalizedSubtype(account.subtype),
@@ -242,6 +248,7 @@ export async function normalizePlaidCashAccounts(
     )
     .map((row) => ({
       naturalKeySha256: row.naturalKeySha256,
+      itemAccountKeySha256: row.itemAccountKeySha256,
       institutionLabel: row.institutionLabel,
       accountLabel: row.accountLabel,
       subtype: row.subtype,

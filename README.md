@@ -60,6 +60,10 @@ snapshot.
   mortgages, and student loans remain proposals until review; explicit payment
   treatment previews net liquidity, household burn, runway, and FI gap without
   subtracting every debt balance from cash or counting a payment twice.
+- Reviewed observed cash flow from incremental Plaid transaction mutations. Raw
+  transaction pages and descriptions are discarded; three complete months become
+  aggregate household/business/debt/excluded categories that can prepare a
+  runway-plan draft without changing the accepted plan.
 - A Portfolio Baseline step combines accepted public-market holdings, reviewed
   cash accounts, and a manual residual without double counting. Private paper
   remains outside current liquidity. Confirmation versions the FI plan,
@@ -103,7 +107,10 @@ workflow is documented in the
 [Mac agent runbook](docs/deployment/angellist-browser-import.md). Reviewed
 obligation policy is captured in
 [ADR 003](docs/architecture/adr-003-reviewed-liabilities.md) and its
-[deployment runbook](docs/deployment/liabilities.md).
+[deployment runbook](docs/deployment/liabilities.md). Observed cash-flow policy
+is captured in
+[ADR 004](docs/architecture/adr-004-reviewed-observed-cash-flow.md) and its
+[deployment runbook](docs/deployment/observed-cash-flow.md).
 
 ## Local development
 

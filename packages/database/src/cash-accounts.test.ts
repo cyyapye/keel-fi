@@ -23,6 +23,8 @@ const migrationFiles = [
   "packages/database/migrations/0013_plaid_holdings_webhooks.sql",
   "packages/database/migrations/0014_robinhood_auto_adjudication.sql",
   "packages/database/migrations/0015_reviewed_cash_accounts.sql",
+  "packages/database/migrations/0016_reviewed_liabilities.sql",
+  "packages/database/migrations/0017_reviewed_cash_flow.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -94,6 +96,7 @@ function reportedRow(
 ) {
   return {
     naturalKeySha256: "a".repeat(64),
+    itemAccountKeySha256: "a".repeat(64),
     institutionLabel: "First Synthetic Bank",
     accountLabel: "Household checking",
     subtype: "checking" as const,

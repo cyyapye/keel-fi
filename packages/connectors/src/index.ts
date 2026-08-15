@@ -6,6 +6,7 @@ export * from "./financing-announcement";
 export * from "./angellist-investments-csv";
 export * from "./plaid-robinhood-holdings";
 export * from "./plaid-cash-accounts";
+export * from "./plaid-cash-flow";
 export * from "./plaid-liabilities";
 
 export const ConnectorTypeSchema = z.enum([

@@ -1193,6 +1193,7 @@ export const cashBalanceProposalRows = sqliteTable(
       .notNull()
       .references(() => cashBalanceProposals.id, { onDelete: "restrict" }),
     naturalKeySha256: text("natural_key_sha256").notNull(),
+    itemAccountKeySha256: text("item_account_key_sha256"),
     institutionLabel: text("institution_label").notNull(),
     accountLabel: text("account_label").notNull(),
     subtype: text("subtype").notNull(),
@@ -1214,9 +1215,16 @@ export const cashBalanceProposalRows = sqliteTable(
       table.proposalId,
       table.naturalKeySha256,
     ),
+    index("cash_balance_proposal_rows_item_account_key_idx").on(
+      table.itemAccountKeySha256,
+    ),
     check(
       "cash_balance_proposal_rows_key_check",
       sql`length(${table.naturalKeySha256}) = 64 AND ${table.naturalKeySha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "cash_balance_proposal_rows_item_account_key_check",
+      sql`${table.itemAccountKeySha256} IS NULL OR (length(${table.itemAccountKeySha256}) = 64 AND ${table.itemAccountKeySha256} NOT GLOB '*[^0-9a-f]*')`,
     ),
     check(
       "cash_balance_proposal_rows_subtype_check",
@@ -1473,6 +1481,321 @@ export const liabilityReviewDecisions = sqliteTable(
     ),
     check(
       "liability_review_decisions_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const cashFlowConnections = sqliteTable(
+  "cash_flow_connections",
+  {
+    connectorAccountId: text("connector_account_id")
+      .primaryKey()
+      .references(() => connectorAccounts.id, { onDelete: "restrict" }),
+    householdId: householdReference(),
+    confirmedByUserId: text("confirmed_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    policyVersion: text("policy_version").notNull(),
+    pricingConfirmedAt: timestamp("pricing_confirmed_at"),
+    plaidCursor: text("plaid_cursor"),
+    lastSyncedAt: text("last_synced_at"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("cash_flow_connections_household_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    check(
+      "cash_flow_connections_policy_check",
+      sql`${table.policyVersion} = 'observed-cash-flow-v1'`,
+    ),
+  ],
+);
+
+export const cashFlowActivationEvents = sqliteTable(
+  "cash_flow_activation_events",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    connectorAccountId: text("connector_account_id")
+      .notNull()
+      .references(() => connectorAccounts.id, { onDelete: "restrict" }),
+    confirmedByUserId: text("confirmed_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    policyVersion: text("policy_version").notNull(),
+    pricingConfirmedAt: timestamp("pricing_confirmed_at"),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("cash_flow_activation_events_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    check(
+      "cash_flow_activation_events_policy_check",
+      sql`${table.policyVersion} = 'observed-cash-flow-v1'`,
+    ),
+    check(
+      "cash_flow_activation_events_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const cashFlowTransactionRevisions = sqliteTable(
+  "cash_flow_transaction_revisions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    connectorAccountId: text("connector_account_id")
+      .notNull()
+      .references(() => connectorAccounts.id, { onDelete: "restrict" }),
+    syncRunId: text("sync_run_id")
+      .notNull()
+      .references(() => connectorSyncRuns.id, { onDelete: "restrict" }),
+    sequence: integer("sequence").notNull(),
+    mutation: text("mutation").notNull(),
+    transactionKeySha256: text("transaction_key_sha256").notNull(),
+    accountKeySha256: text("account_key_sha256"),
+    effectiveDate: text("effective_date"),
+    month: text("month"),
+    amountMinor: integer("amount_minor"),
+    pending: integer("pending", { mode: "boolean" }),
+    category: text("category"),
+    currencySupported: integer("currency_supported", { mode: "boolean" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("cash_flow_revisions_run_sequence_unique").on(
+      table.syncRunId,
+      table.sequence,
+    ),
+    uniqueIndex("cash_flow_revisions_run_transaction_unique").on(
+      table.syncRunId,
+      table.transactionKeySha256,
+    ),
+    index("cash_flow_revisions_household_transaction_idx").on(
+      table.householdId,
+      table.transactionKeySha256,
+      table.createdAt,
+      table.sequence,
+    ),
+    index("cash_flow_revisions_connection_month_idx").on(
+      table.connectorAccountId,
+      table.month,
+      table.createdAt,
+    ),
+    check(
+      "cash_flow_revisions_mutation_check",
+      sql`${table.mutation} IN ('added', 'modified', 'removed')`,
+    ),
+    check(
+      "cash_flow_revisions_transaction_key_check",
+      sql`length(${table.transactionKeySha256}) = 64 AND ${table.transactionKeySha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check("cash_flow_revisions_sequence_check", sql`${table.sequence} > 0`),
+    check("cash_flow_revisions_immutable_check", sql`${table.immutable} = 1`),
+  ],
+);
+
+export const cashFlowProposals = sqliteTable(
+  "cash_flow_proposals",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    triggerSyncRunId: text("trigger_sync_run_id")
+      .notNull()
+      .references(() => connectorSyncRuns.id, { onDelete: "restrict" }),
+    sourceRevision: text("source_revision").notNull(),
+    status: text("status").notNull(),
+    observedAt: timestamp("observed_at"),
+    periodStartMonth: text("period_start_month").notNull(),
+    periodEndMonth: text("period_end_month").notNull(),
+    transactionCount: integer("transaction_count").notNull(),
+    pendingExcludedCount: integer("pending_excluded_count").notNull(),
+    unsupportedExcludedCount: integer("unsupported_excluded_count").notNull(),
+    unreviewedAccountExcludedCount: integer(
+      "unreviewed_account_excluded_count",
+    ).notNull(),
+    coveredConnectionCount: integer("covered_connection_count").notNull(),
+    baseCashFlowPlanId: text("base_cash_flow_plan_id")
+      .notNull()
+      .references(() => cashFlowPlans.id, { onDelete: "restrict" }),
+    baseForecastSnapshotId: text("base_forecast_snapshot_id")
+      .notNull()
+      .references(() => forecastSnapshots.id, { onDelete: "restrict" }),
+    baseForecastSnapshotVersion: integer(
+      "base_forecast_snapshot_version",
+    ).notNull(),
+    householdBurnMonthlyMinor: integer(
+      "household_burn_monthly_minor",
+    ).notNull(),
+    businessBurnMonthlyMinor: integer("business_burn_monthly_minor").notNull(),
+    debtPaymentContextMonthlyMinor: integer(
+      "debt_payment_context_monthly_minor",
+    ).notNull(),
+    protectedCashFloorMinor: integer("protected_cash_floor_minor").notNull(),
+    fiEligibleLiquidMinor: integer("fi_eligible_liquid_minor").notNull(),
+    suggestedHouseholdBurnMonthlyMinor: integer(
+      "suggested_household_burn_monthly_minor",
+    ),
+    suggestedBusinessBurnMonthlyMinor: integer(
+      "suggested_business_burn_monthly_minor",
+    ),
+    reviewedAt: text("reviewed_at"),
+    appliedCashFlowPlanId: text("applied_cash_flow_plan_id").references(
+      () => cashFlowPlans.id,
+      { onDelete: "restrict" },
+    ),
+    appliedAt: text("applied_at"),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("cash_flow_proposals_trigger_run_unique").on(
+      table.triggerSyncRunId,
+    ),
+    uniqueIndex("cash_flow_proposals_household_revision_unique").on(
+      table.householdId,
+      table.sourceRevision,
+    ),
+    uniqueIndex("cash_flow_proposals_household_action_unique")
+      .on(table.householdId)
+      .where(sql`${table.status} IN ('pending_review', 'ready_for_plan')`),
+    index("cash_flow_proposals_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    check(
+      "cash_flow_proposals_status_check",
+      sql`${table.status} IN ('pending_review', 'ready_for_plan', 'reviewed_no_change', 'applied')`,
+    ),
+    check(
+      "cash_flow_proposals_counts_check",
+      sql`${table.transactionCount} > 0 AND ${table.pendingExcludedCount} >= 0 AND ${table.unsupportedExcludedCount} >= 0 AND ${table.unreviewedAccountExcludedCount} >= 0 AND ${table.coveredConnectionCount} > 0`,
+    ),
+  ],
+);
+
+export const cashFlowProposalMonths = sqliteTable(
+  "cash_flow_proposal_months",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => cashFlowProposals.id, { onDelete: "restrict" }),
+    month: text("month").notNull(),
+    outflowMinor: integer("outflow_minor").notNull(),
+    transactionCount: integer("transaction_count").notNull(),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("cash_flow_proposal_months_proposal_month_unique").on(
+      table.proposalId,
+      table.month,
+    ),
+    index("cash_flow_proposal_months_proposal_idx").on(
+      table.proposalId,
+      table.month,
+    ),
+    check(
+      "cash_flow_proposal_months_values_check",
+      sql`${table.outflowMinor} >= 0 AND ${table.transactionCount} > 0`,
+    ),
+    check(
+      "cash_flow_proposal_months_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const cashFlowProposalCategories = sqliteTable(
+  "cash_flow_proposal_categories",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => cashFlowProposals.id, { onDelete: "restrict" }),
+    category: text("category").notNull(),
+    label: text("label").notNull(),
+    totalMinor: integer("total_minor").notNull(),
+    averageMonthlyMinor: integer("average_monthly_minor").notNull(),
+    transactionCount: integer("transaction_count").notNull(),
+    defaultTreatment: text("default_treatment").notNull(),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("cash_flow_proposal_categories_proposal_category_unique").on(
+      table.proposalId,
+      table.category,
+    ),
+    index("cash_flow_proposal_categories_proposal_idx").on(
+      table.proposalId,
+      table.category,
+    ),
+    check(
+      "cash_flow_proposal_categories_values_check",
+      sql`${table.totalMinor} >= 0 AND ${table.averageMonthlyMinor} >= 0 AND ${table.transactionCount} > 0`,
+    ),
+    check(
+      "cash_flow_proposal_categories_treatment_check",
+      sql`${table.defaultTreatment} IN ('household', 'business', 'excluded', 'debt_payment')`,
+    ),
+    check(
+      "cash_flow_proposal_categories_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const cashFlowReviewDecisions = sqliteTable(
+  "cash_flow_review_decisions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => cashFlowProposals.id, { onDelete: "restrict" }),
+    proposalCategoryId: text("proposal_category_id")
+      .notNull()
+      .references(() => cashFlowProposalCategories.id, {
+        onDelete: "restrict",
+      }),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    treatment: text("treatment").notNull(),
+    changeNote: text("change_note").notNull(),
+    decidedAt: timestamp("decided_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("cash_flow_review_decisions_category_unique").on(
+      table.proposalCategoryId,
+    ),
+    index("cash_flow_review_decisions_household_decided_idx").on(
+      table.householdId,
+      table.decidedAt,
+    ),
+    check(
+      "cash_flow_review_decisions_treatment_check",
+      sql`${table.treatment} IN ('household', 'business', 'excluded', 'debt_payment')`,
+    ),
+    check(
+      "cash_flow_review_decisions_note_check",
+      sql`length(${table.changeNote}) BETWEEN 1 AND 500`,
+    ),
+    check(
+      "cash_flow_review_decisions_immutable_check",
       sql`${table.immutable} = 1`,
     ),
   ],

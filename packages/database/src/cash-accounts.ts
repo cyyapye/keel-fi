@@ -51,6 +51,7 @@ type ProposalRow = {
 type ProposalSourceRow = {
   id: string;
   natural_key_sha256: string;
+  item_account_key_sha256: string | null;
   institution_label: string;
   account_label: string;
   subtype:
@@ -236,6 +237,15 @@ export interface CashAccountsRepository {
     accessSubject: string,
     connectionId: string,
   ): Promise<CashAccountConnection | null>;
+  beginDisconnect(
+    accessSubject: string,
+    connectionId: string,
+  ): Promise<CashAccountConnection>;
+  cancelDisconnect(accessSubject: string, connectionId: string): Promise<void>;
+  completeDisconnect(
+    accessSubject: string,
+    connectionId: string,
+  ): Promise<void>;
   beginRefresh(
     accessSubject: string,
     connectionId: string,
@@ -392,6 +402,13 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
       };
     }
 
+    if (existing.status !== "revoked") {
+      throw new CashAccountRepositoryError(
+        "connection_invalid",
+        "Disconnect this institution before connecting it again.",
+      );
+    }
+
     if (
       await this.hasPendingProposalOrActiveRefresh(
         identity.household_id,
@@ -458,6 +475,126 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
       secretReference: row.secret_reference,
       providerAccountKey: row.provider_account_key,
     };
+  }
+
+  public async beginDisconnect(
+    accessSubject: string,
+    rawConnectionId: string,
+  ): Promise<CashAccountConnection> {
+    const connectionId = z.string().min(1).parse(rawConnectionId);
+    const connection = await this.getConnection(accessSubject, connectionId);
+    if (connection === null) {
+      throw new CashAccountRepositoryError(
+        "connection_invalid",
+        "This institution is no longer connected.",
+      );
+    }
+    const identity = await findIdentity(this.db, accessSubject);
+    const result = await this.db
+      .prepare(
+        `UPDATE connector_accounts AS account SET status = 'paused'
+         WHERE account.id = ? AND account.household_id = ?
+           AND account.connector_type = ? AND account.status = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM connector_sync_runs run
+             WHERE run.connector_account_id = account.id
+               AND run.status IN ('queued', 'running')
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM cash_balance_proposals proposal
+             WHERE proposal.connector_account_id = account.id
+               AND proposal.status = 'pending_review'
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM cash_flow_proposals proposal
+             JOIN connector_sync_runs run
+               ON run.id = proposal.trigger_sync_run_id
+             WHERE run.connector_account_id = account.id
+               AND proposal.status IN ('pending_review', 'ready_for_plan')
+           )`,
+      )
+      .bind(connectionId, identity.household_id, CONNECTOR_TYPE)
+      .run();
+    if (result.meta.changes !== 1) {
+      throw new CashAccountRepositoryError(
+        "review_required",
+        "Finish the waiting review or check before disconnecting.",
+      );
+    }
+    return connection;
+  }
+
+  public async cancelDisconnect(
+    accessSubject: string,
+    rawConnectionId: string,
+  ): Promise<void> {
+    const connectionId = z.string().min(1).parse(rawConnectionId);
+    const identity = await findIdentity(this.db, accessSubject);
+    await this.db
+      .prepare(
+        `UPDATE connector_accounts SET status = 'active'
+         WHERE id = ? AND household_id = ? AND connector_type = ?
+           AND status = 'paused'`,
+      )
+      .bind(connectionId, identity.household_id, CONNECTOR_TYPE)
+      .run();
+  }
+
+  public async completeDisconnect(
+    accessSubject: string,
+    rawConnectionId: string,
+  ): Promise<void> {
+    const connectionId = z.string().min(1).parse(rawConnectionId);
+    const identity = await findIdentity(this.db, accessSubject);
+    const paused = `EXISTS (
+      SELECT 1 FROM connector_accounts account
+      WHERE account.id = ? AND account.household_id = ?
+        AND account.connector_type = ? AND account.status = 'paused'
+    )`;
+    await this.db.batch([
+      this.db
+        .prepare(
+          `DELETE FROM cash_flow_transaction_revisions
+           WHERE connector_account_id = ? AND ${paused}`,
+        )
+        .bind(
+          connectionId,
+          connectionId,
+          identity.household_id,
+          CONNECTOR_TYPE,
+        ),
+      this.db
+        .prepare(
+          `DELETE FROM cash_flow_connections
+           WHERE connector_account_id = ? AND ${paused}`,
+        )
+        .bind(
+          connectionId,
+          connectionId,
+          identity.household_id,
+          CONNECTOR_TYPE,
+        ),
+      this.db
+        .prepare(
+          `UPDATE connector_accounts SET status = 'revoked'
+           WHERE id = ? AND household_id = ? AND connector_type = ?
+             AND status = 'paused'`,
+        )
+        .bind(connectionId, identity.household_id, CONNECTOR_TYPE),
+    ]);
+    const result = await this.db
+      .prepare(
+        `SELECT status FROM connector_accounts
+         WHERE id = ? AND household_id = ? AND connector_type = ?`,
+      )
+      .bind(connectionId, identity.household_id, CONNECTOR_TYPE)
+      .first<{ status: ConnectionRow["status"] }>();
+    if (result?.status !== "revoked") {
+      throw new CashAccountRepositoryError(
+        "connection_invalid",
+        "This institution could not be disconnected.",
+      );
+    }
   }
 
   public async beginRefresh(
@@ -593,6 +730,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     const materialRows: Omit<ProposalSourceRow, "id">[] = [
       ...input.normalized.rows.map((row) => ({
         natural_key_sha256: row.naturalKeySha256,
+        item_account_key_sha256: row.itemAccountKeySha256,
         institution_label: row.institutionLabel,
         account_label: row.accountLabel,
         subtype: row.subtype,
@@ -608,6 +746,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         .filter((account) => !observedKeys.has(account.naturalKeySha256))
         .map((account) => ({
           natural_key_sha256: account.naturalKeySha256,
+          item_account_key_sha256: null,
           institution_label: account.institutionLabel,
           account_label: account.accountLabel,
           subtype: account.subtype,
@@ -661,16 +800,18 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
           .prepare(
             `INSERT INTO cash_balance_proposal_rows (
                id, household_id, proposal_id, natural_key_sha256,
+               item_account_key_sha256,
                institution_label, account_label, subtype, available_minor,
                current_minor, value_minor, value_state, balance_source,
                observed_at, issues_json, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             row.id,
             identity.household_id,
             proposalId,
             row.natural_key_sha256,
+            row.item_account_key_sha256,
             row.institution_label,
             row.account_label,
             row.subtype,
@@ -816,7 +957,8 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     const rows = await all<ProposalSourceRow>(
       this.db
         .prepare(
-          `SELECT row.id, row.natural_key_sha256, row.institution_label,
+          `SELECT row.id, row.natural_key_sha256,
+                  row.item_account_key_sha256, row.institution_label,
                   row.account_label, row.subtype, row.available_minor,
                   row.current_minor, row.value_minor, row.value_state,
                   row.balance_source, row.observed_at, row.issues_json
@@ -1042,7 +1184,8 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         const sourceRows = await all<ProposalSourceRow>(
           this.db
             .prepare(
-              `SELECT id, natural_key_sha256, institution_label,
+              `SELECT id, natural_key_sha256, item_account_key_sha256,
+                      institution_label,
                       account_label, subtype, available_minor, current_minor,
                       value_minor, value_state, balance_source, observed_at,
                       issues_json

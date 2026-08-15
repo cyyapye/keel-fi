@@ -36,6 +36,9 @@ function repository(
     getState: vi.fn().mockResolvedValue(cashState),
     upsertConnection: vi.fn(),
     getConnection: vi.fn(),
+    beginDisconnect: vi.fn(),
+    cancelDisconnect: vi.fn(),
+    completeDisconnect: vi.fn(),
     beginRefresh: vi.fn(),
     stageProposal: vi.fn(),
     completeRefresh: vi.fn(),
@@ -196,5 +199,29 @@ describe("cash account API", () => {
         "Review the waiting balances before checking this institution again.",
     });
     expect(getAccounts).not.toHaveBeenCalled();
+  });
+
+  it("blocks disconnect before Plaid while a review is waiting", async () => {
+    const removeItem = vi.fn();
+    const response = await createApp({
+      cashAccountsRepository: repository({
+        beginDisconnect: vi
+          .fn()
+          .mockRejectedValue(
+            new CashAccountRepositoryError(
+              "review_required",
+              "synthetic internal detail",
+            ),
+          ),
+      }),
+      cashPlaidClient: client({ removeItem }),
+    }).request(
+      "/api/cash-accounts/connections/synthetic-cash-connection",
+      { method: "DELETE" },
+      env(),
+    );
+
+    expect(response.status).toBe(409);
+    expect(removeItem).not.toHaveBeenCalled();
   });
 });

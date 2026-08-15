@@ -1,10 +1,11 @@
 import {
   createPlanInputImpact,
+  type CashFlowPlanSuggestion,
   type PlanInputSave,
   type PlanInputState,
 } from "@keel/domain";
 import { Badge, Button, Panel } from "@keel/ui";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { loadPlanInputs, savePlanInputs } from "./api";
 import { formatCompactMoney, formatDate } from "./format";
@@ -50,8 +51,12 @@ function runwayLabel(months: number, totalMonthlyBurnMinor: number): string {
 
 export function PlanInputsEditor({
   onSaved,
+  suggestion,
+  suggestionVersion,
 }: {
   onSaved: () => Promise<void>;
+  suggestion: CashFlowPlanSuggestion | null;
+  suggestionVersion: number;
 }) {
   const [plan, setPlan] = useState<PlanInputState | null>(null);
   const [draft, setDraft] = useState<PlanInputDraft | null>(null);
@@ -62,6 +67,10 @@ export function PlanInputsEditor({
     "idle" | "saving" | "saved" | "error"
   >("idle");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [cashFlowProposalId, setCashFlowProposalId] = useState<string | null>(
+    null,
+  );
+  const appliedSuggestionVersion = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,6 +79,7 @@ export function PlanInputsEditor({
         setPlan(nextPlan);
         setDraft(draftFromPlan(nextPlan));
         setChangeNote(null);
+        setCashFlowProposalId(null);
         setSaveState("idle");
         setSaveMessage(null);
       })
@@ -84,6 +94,31 @@ export function PlanInputsEditor({
       });
     return () => controller.abort();
   }, [reloadKey]);
+
+  useEffect(() => {
+    if (
+      plan === null ||
+      draft === null ||
+      suggestion === null ||
+      suggestionVersion <= appliedSuggestionVersion.current
+    ) {
+      return;
+    }
+    appliedSuggestionVersion.current = suggestionVersion;
+    setDraft({
+      householdBurnMonthly: moneyInputValue(
+        suggestion.householdBurnMonthlyMinor,
+      ),
+      businessBurnMonthly: moneyInputValue(suggestion.businessBurnMonthlyMinor),
+      protectedCashFloor: moneyInputValue(plan.values.protectedCashFloorMinor),
+    });
+    setChangeNote(suggestion.changeNote);
+    setCashFlowProposalId(suggestion.proposalId);
+    setSaveState("idle");
+    setSaveMessage(
+      "Observed burn is loaded as a draft. Review it before saving.",
+    );
+  }, [draft, plan, suggestion, suggestionVersion]);
 
   const parsedValues = useMemo(() => {
     if (draft === null) {
@@ -161,6 +196,7 @@ export function PlanInputsEditor({
     );
     setSaveState("idle");
     setSaveMessage(null);
+    setCashFlowProposalId(null);
   };
 
   const reloadLatest = () => {
@@ -176,6 +212,7 @@ export function PlanInputsEditor({
     }
     setDraft(draftFromPlan(plan));
     setChangeNote(null);
+    setCashFlowProposalId(null);
     setSaveState("idle");
     setSaveMessage(null);
   };
@@ -198,11 +235,13 @@ export function PlanInputsEditor({
       baseForecastSnapshotVersion: plan.baseForecastSnapshotVersion,
       ...parsedValues,
       changeNote: effectiveChangeNote,
+      ...(cashFlowProposalId === null ? {} : { cashFlowProposalId }),
     };
     setSaveState("saving");
     setSaveMessage(null);
     void savePlanInputs(input)
       .then(async (result) => {
+        setCashFlowProposalId(null);
         setPlan(result.plan);
         setDraft(draftFromPlan(result.plan));
         setChangeNote(null);

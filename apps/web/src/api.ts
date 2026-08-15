@@ -10,6 +10,10 @@ import {
   CashAccountExchangeInputSchema,
   CashAccountLinkTokenSchema,
   CashAccountsStateSchema,
+  CASH_FLOW_POLICY_VERSION,
+  CashFlowReviewInputSchema,
+  CashFlowReviewResultSchema,
+  CashFlowStateSchema,
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
@@ -44,6 +48,9 @@ import {
   type CashAccountApplyResult,
   type CashAccountLinkToken,
   type CashAccountsState,
+  type CashFlowReviewInput,
+  type CashFlowReviewResult,
+  type CashFlowState,
   type CreateSignalUpdateProposalInput,
   type GoalDraftInput,
   type HoldingImportApplyInput,
@@ -128,6 +135,77 @@ export async function loadCashAccounts(
   return CashAccountsStateSchema.parse(await response.json());
 }
 
+export async function loadCashFlow(
+  signal?: AbortSignal,
+): Promise<CashFlowState> {
+  const response = await fetch("/api/cash-flow", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: signal ?? null,
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Observed cash flow returned ${response.status}.`,
+    );
+  }
+  return CashFlowStateSchema.parse(await response.json());
+}
+
+export async function syncCashFlow(
+  connectionId: string,
+  pricingConfirmed: boolean,
+): Promise<CashFlowState> {
+  const response = await fetch(
+    `/api/cash-flow/connections/${encodeURIComponent(connectionId)}/sync`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        policyVersion: CASH_FLOW_POLICY_VERSION,
+        pricingConfirmed,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Observed cash-flow check returned ${response.status}.`,
+    );
+  }
+  return CashFlowStateSchema.parse(await response.json());
+}
+
+export async function reviewCashFlow(
+  proposalId: string,
+  input: CashFlowReviewInput,
+): Promise<CashFlowReviewResult> {
+  const body = CashFlowReviewInputSchema.parse(input);
+  const response = await fetch(
+    `/api/cash-flow-proposals/${encodeURIComponent(proposalId)}/review`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Observed cash-flow review returned ${response.status}.`,
+    );
+  }
+  return CashFlowReviewResultSchema.parse(await response.json());
+}
+
 export async function createCashAccountLinkToken(): Promise<CashAccountLinkToken> {
   const response = await fetch("/api/cash-accounts/link-token", {
     method: "POST",
@@ -180,6 +258,26 @@ export async function refreshCashAccount(
     throw await responseError(
       response,
       `Cash balance check returned ${response.status}.`,
+    );
+  }
+  return CashAccountsStateSchema.parse(await response.json());
+}
+
+export async function disconnectCashAccount(
+  connectionId: string,
+): Promise<CashAccountsState> {
+  const response = await fetch(
+    `/api/cash-accounts/connections/${encodeURIComponent(connectionId)}`,
+    {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Cash account disconnect returned ${response.status}.`,
     );
   }
   return CashAccountsStateSchema.parse(await response.json());
