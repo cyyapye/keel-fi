@@ -24,6 +24,14 @@ verifies both Worker version IDs and Git SHA. It never runs a remote seed
 command. Encrypted backup artifacts are retained for 14 days; non-sensitive
 release evidence is retained for 90 days.
 
+Until the M9.2 canonical-only cutover is recorded, a manual dispatch exposes one
+explicit `restore-pre-m9-canonical-cutover` action. It restores the synthetic
+preview to the last verified Time Travel point before migration `0019`, and only
+after the encrypted backup has uploaded. Ordinary pushes and the default
+`migrate-forward` dispatch never restore D1. Remove this one-time action in the
+M9.2 evidence change; it is forbidden once any environment retains real user
+data.
+
 ## GitHub `preview` environment
 
 Create a repository environment named `preview`, restrict its deployment branch

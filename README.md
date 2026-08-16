@@ -111,13 +111,12 @@ obligation policy is captured in
 is captured in
 [ADR 004](docs/architecture/adr-004-reviewed-observed-cash-flow.md) and its
 [deployment runbook](docs/deployment/observed-cash-flow.md). The accepted,
-implementation-pending model for Fidelity and other investment institutions,
+implementation-in-progress model for Fidelity and other investment institutions,
 multiple accounts holding the same security, and multiple SPVs sharing a company
 exposure is
 [ADR 005](docs/architecture/adr-005-multi-source-holdings-identity.md). Its
-additive persistence, legacy compatibility boundary, and cost model are
-documented in the
-[multi-source holdings runbook](docs/deployment/multi-source-holdings.md);
+canonical persistence, pre-live reset boundary, and cost model are documented in
+the [multi-source holdings runbook](docs/deployment/multi-source-holdings.md);
 container-scoped ingestion and generic provider behavior remain pending.
 
 ## Local development

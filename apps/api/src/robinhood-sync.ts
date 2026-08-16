@@ -248,16 +248,6 @@ async function credentialKey(env: Env): Promise<CryptoKey> {
   );
 }
 
-export async function providerAccountKey(
-  env: Env,
-  rawItemId: string,
-): Promise<string> {
-  // Keep the compatibility export until the provider-neutral Investments
-  // cutover; both names must resolve the exact same stable connection key.
-  configuration(env);
-  return plaidInvestmentsSourceKey(env, rawItemId);
-}
-
 async function encryptCredential(
   env: Env,
   rawCredential: RobinhoodCredential,
@@ -670,7 +660,7 @@ export async function connectRobinhood(input: {
     const connection = await input.repository.upsertConnection(
       input.accessSubject,
       objectKey,
-      await providerAccountKey(input.env, credential.itemId),
+      await plaidInvestmentsSourceKey(input.env, credential.itemId),
     );
     if (
       connection.previousSecretReference !== null &&
@@ -794,7 +784,7 @@ export async function syncRobinhood(input: {
       await input.repository.bindProviderAccountKey(
         input.accessSubject,
         run.connection.id,
-        await providerAccountKey(input.env, credential.itemId),
+        await plaidInvestmentsSourceKey(input.env, credential.itemId),
       );
     }
     const retrievedAt = new Date().toISOString();

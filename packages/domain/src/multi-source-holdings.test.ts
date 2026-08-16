@@ -93,20 +93,25 @@ describe("multi-source holdings domain contract", () => {
   });
 
   it("keeps position identity, quantity scale, and unknown value explicit", () => {
+    const identity = {
+      id: "holding_position_ownership_synthetic",
+      householdId: "hh_demo",
+      containerId: "ownership_container_synthetic",
+      positionId: "holding_position_synthetic",
+      protectedPositionKey: "c".repeat(64),
+      associationBasis: "reviewed_import",
+      evidenceSha256: "d".repeat(64),
+      version: 1,
+      supersedesOwnershipId: null,
+      acceptedAt: recordedAt,
+    };
+    expect(OwnedPositionIdentitySchema.safeParse(identity).success).toBe(true);
     expect(
       OwnedPositionIdentitySchema.safeParse({
-        id: "holding_position_ownership_synthetic",
-        householdId: "hh_demo",
-        containerId: "ownership_container_synthetic",
-        positionId: "holding_position_synthetic",
-        protectedPositionKey: "c".repeat(64),
+        ...identity,
         associationBasis: "reviewed_legacy",
-        evidenceSha256: "d".repeat(64),
-        version: 1,
-        supersedesOwnershipId: null,
-        acceptedAt: recordedAt,
       }).success,
-    ).toBe(true);
+    ).toBe(false);
 
     const snapshot = {
       id: "holding_position_snapshot_synthetic",

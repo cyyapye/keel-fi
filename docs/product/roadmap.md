@@ -137,8 +137,8 @@ legal positions or add value to the reviewed baseline.
 [ADR 005](../architecture/adr-005-multi-source-holdings-identity.md):
 provider-neutral investment connections, first-class ownership containers,
 container-scoped imports and coverage, position-to-exposure mappings,
-institution/account position views, an exposure rollup, additive legacy
-migration, and Fidelity as the first additional institution proving the
+institution/account position views, an exposure rollup, a pre-live canonical
+cutover, and Fidelity as the first additional institution proving the
 generalized Plaid Investments path.
 
 **Non-goals:** Trading or transfers, tax-lot accounting, universal institution
@@ -169,10 +169,10 @@ marked **Active** until every slice and milestone exit gate is checked.
 
 **Required changes:**
 
-- Add or compatibly map the logical investment connection, ownership container,
-  import coverage, canonical exposure, and position-exposure records defined in
-  ADR 005. Reusing `connector_accounts` is acceptable only if its contracts stop
-  treating an institution-specific provider value or display name as identity.
+- Add the logical investment connection, ownership container, import coverage,
+  canonical exposure, and position-exposure records defined in ADR 005. Reusing
+  `connector_accounts` is acceptable only if its contracts stop treating an
+  institution-specific provider value or display name as identity.
 - Give every connection a household, adapter type, institution metadata,
   protected stable source key, lifecycle state, and private credential
   reference.
@@ -206,41 +206,35 @@ on holdings, baseline, goal, or forecast output.
   protected smokes, and deployment evidence in
   [run `31914632676`](https://github.com/cyyapye/keel-fi/actions/runs/31914632676).
 
-#### [x] M9.2 — Legacy association and compatibility reads
+#### [ ] M9.2 — Pre-live canonical-only cutover
 
-**Outcome:** Every shipped Robinhood and AngelList position participates in the
-canonical model without changing its ID, history, accepted snapshot, or planning
-treatment.
+**Outcome:** Keel carries one holdings schema and one read path before any real
+data exists. Disposable synthetic state is rebuilt instead of preserving a
+transitional representation.
 
 **Required changes:**
 
-- Associate existing positions with additive legacy connection and container
-  records. Backfill a precise account/container only when retained provenance
-  proves it; never reverse or guess an opaque fingerprint.
-- Put an ambiguous legacy position in an explicit unresolved legacy container.
-  It remains reviewable and keeps its accepted facts, but it cannot participate
-  in container-scoped omission inference until a review or complete new sync
-  resolves it.
-- Preserve existing AngelList legal positions. Use reviewed owner/investment
-  entity provenance for containers where available; never replace an SPV
-  interest with the underlying portfolio company.
-- Introduce compatibility reads before changing writes. During transition,
-  legacy and canonical representations may describe the same position, but only
-  the existing position/snapshot can contribute money to a baseline.
-- Compare synthetic pre-migration and post-migration position IDs, latest
-  snapshots, public/private totals, unknown counts, Portfolio Baselines, FI
-  plans, goals, and forecast snapshots. Every value and version reference must
-  remain identical.
+- Remove the holdings backfill migration, association triggers, transitional
+  views, read-source flag, dual-read repository plumbing, and obsolete internal
+  identity export.
+- Remove migration-only contract values. Reviewed imports use a canonical
+  `reviewed_import` association basis; unresolved remains a valid current state,
+  not a historical-data category.
+- Keep `holding_positions` and accepted snapshots as the sole financial read
+  path until M9.3 writes the full canonical connection/container relationship in
+  the same reviewed ingestion transaction.
+- Rebuild every synthetic environment that applied the removed schema from the
+  checked-in migration chain. This reset authority ends before any environment
+  may retain real user data.
+- Reserve the next migration number for the first direct container-scoped write
+  contract instead of an unused transition layer.
 
-**Slice gate:** Forward migration, fresh migration, seed replay, compatibility,
-and feature-disable checks pass with zero orphaned positions, zero multiply
-assigned positions, zero household mismatches, and zero planning-value drift.
-
-- Evidence: [PR #64](https://github.com/cyyapye/keel-fi/pull/64) at
-  [`2533c91`](https://github.com/cyyapye/keel-fi/commit/2533c9196207d4ba22ee7a98a99e9be883581b4d),
-  with exact-SHA verification, encrypted D1 backup, forward-only migration,
-  protected smokes, and deployment evidence in
-  [run `31916501272`](https://github.com/cyyapye/keel-fi/actions/runs/31916501272).
+**Slice gate:** Fresh migration replay, synthetic seed, focused contract tests,
+and `make verify` pass. A bounded production-source/schema/config scan finds no
+M9 holdings backfill view, trigger, feature flag, dual-read mode, or
+migration-only association support; negative contract tests reject the removed
+value. The exact-SHA preview is rebuilt before protected smoke evidence is
+accepted.
 
 #### [ ] M9.3 — Container-scoped ingestion, coverage, and omissions
 
@@ -323,9 +317,9 @@ host another institution without regressing its shipped behavior.
 - Preserve byte/page/time limits, Zod validation, integer conversions, private
   R2 credential/raw-response storage, policy decision provenance, reconnect
   behavior, and fail-closed authentication.
-- Keep compatibility routes and visible Robinhood behavior until the generic
-  route passes parity tests. Never read both legacy and generic holdings into a
-  baseline as separate positions.
+- Replace Robinhood-only routes and exports in one reviewed cutover after the
+  generic route passes parity tests. Do not ship duplicate endpoints or read
+  paths, and never load the same position twice into a baseline.
 - Preserve the cash boundary: Plaid-classified cash inside an investment account
   remains a brokerage cash position. Depository checking, savings, money-market,
   or cash-management balances remain separate `plaid-cash` connections with
@@ -478,9 +472,9 @@ artifacts.
 - [ ] M9.1 through M9.8 are checked in order with their evidence recorded.
 - [ ] Every required proof-matrix scenario passes in domain, repository, API,
       and browser coverage where applicable.
-- [ ] Additive migrations and compatibility reads preserve every accepted
-      position, snapshot, decision, baseline, goal, and forecast without value
-      or identity drift.
+- [ ] Fresh canonical migration replay and every direct-ingestion cutover keep
+      each accepted position, snapshot, decision, baseline, goal, and forecast
+      on one authoritative path without value or identity drift.
 - [ ] Position totals count each accepted snapshot at most once; exposure views
       preserve legal drill-down and cannot duplicate allocated or unallocated
       value.

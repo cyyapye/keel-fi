@@ -3,7 +3,6 @@ import {
   D1HoldingImportRepository,
   D1PortfolioBaselineRepository,
   D1PublicHoldingsRepository,
-  holdingPositionReadModeFromFlag,
   type PublicHoldingsRepository,
 } from "@keel/database";
 import { decodeProtectedHeader, importJWK, jwtVerify } from "jose";
@@ -12,11 +11,11 @@ import { z } from "zod";
 import {
   createPlaidInvestmentsClient,
   PlaidClientError,
-  providerAccountKey,
   syncRobinhood,
   type PlaidInvestmentsClient,
   type PlaidWebhookVerificationKey,
 } from "./robinhood-sync";
+import { plaidInvestmentsSourceKey } from "./investment-identity";
 import type { Env } from "./types";
 
 const MAX_PLAID_WEBHOOK_BYTES = 64 * 1_024;
@@ -308,7 +307,10 @@ export async function receivePlaidWebhook(input: {
 
   let accountKey: string;
   try {
-    accountKey = await providerAccountKey(input.env, webhook.data.item_id);
+    accountKey = await plaidInvestmentsSourceKey(
+      input.env,
+      webhook.data.item_id,
+    );
   } catch {
     throw new PlaidWebhookRequestError(503, "configuration_invalid");
   }
@@ -364,11 +366,7 @@ export async function processPlaidHoldingsWebhookJob(
       env,
       repository,
       holdingImports: new D1HoldingImportRepository(env.DB),
-      portfolioBaselines: new D1PortfolioBaselineRepository(env.DB, {
-        holdingPositionReadMode: holdingPositionReadModeFromFlag(
-          env.MULTI_SOURCE_HOLDINGS_COMPATIBILITY_READS,
-        ),
-      }),
+      portfolioBaselines: new D1PortfolioBaselineRepository(env.DB),
       client: createPlaidInvestmentsClient(env),
       accessSubject: delivery.accessSubject,
     });

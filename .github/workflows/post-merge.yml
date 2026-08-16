@@ -5,6 +5,15 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      preview_database_action:
+        description: Preview D1 action after the encrypted backup
+        required: true
+        default: migrate-forward
+        type: choice
+        options:
+          - migrate-forward
+          - restore-pre-m9-canonical-cutover
 
 permissions:
   contents: read
@@ -163,6 +172,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+      - name: Restore synthetic preview before the M9 canonical cutover
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.preview_database_action == 'restore-pre-m9-canonical-cutover'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          KEEL_PREVIEW_D1_NAME: ${{ secrets.KEEL_PREVIEW_D1_NAME }}
+        run: |
+          pnpm exec wrangler d1 time-travel restore \
+            "$KEEL_PREVIEW_D1_NAME" \
+            --timestamp "2026-08-15T23:27:50Z" \
+            --config apps/api/wrangler.preview.jsonc \
+            --json
       - name: Apply forward-only D1 migrations
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -175,6 +198,33 @@ jobs:
           pnpm exec wrangler d1 migrations list "$KEEL_PREVIEW_D1_NAME" \
             --remote \
             --config apps/api/wrangler.preview.jsonc
+      - name: Verify canonical-only preview schema after reset
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.preview_database_action == 'restore-pre-m9-canonical-cutover'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          KEEL_PREVIEW_D1_NAME: ${{ secrets.KEEL_PREVIEW_D1_NAME }}
+        run: |
+          schema_json="$(
+            pnpm exec wrangler d1 execute "$KEEL_PREVIEW_D1_NAME" \
+              --remote \
+              --config apps/api/wrangler.preview.jsonc \
+              --json \
+              --command "SELECT COUNT(*) AS migration_count, MAX(name) AS latest_migration FROM d1_migrations; SELECT COUNT(*) AS transition_object_count FROM sqlite_master WHERE name IN ('holding_position_compatibility', 'legacy_holding_position_connection_provenance', 'legacy_robinhood_application_association_insert', 'legacy_angellist_application_association_insert', 'current_holding_position_ownerships', 'current_ownership_container_versions', 'current_investment_connection_versions') OR name LIKE 'legacy_%_association%'; SELECT COUNT(*) AS removed_basis_contract_count FROM sqlite_master WHERE sql LIKE '%reviewed_legacy%';"
+          )"
+          jq -e '
+            length == 3 and
+            .[0].success == true and
+            .[0].results[0].migration_count == 19 and
+            .[0].results[0].latest_migration ==
+              "0019_multi_source_holdings_contract.sql" and
+            .[1].success == true and
+            .[1].results[0].transition_object_count == 0 and
+            .[2].success == true and
+            .[2].results[0].removed_basis_contract_count == 0
+          ' <<<"$schema_json"
       - name: Deploy private API Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
