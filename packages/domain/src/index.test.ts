@@ -16,6 +16,8 @@ import {
   InvestmentConnectionsStateSchema,
   InvestmentConnectionStatusSchema,
   multiplyMinorByPpm,
+  PrivateExposureResolutionInputSchema,
+  PrivateExposureReviewStateSchema,
   PortfolioBaselineConfirmInputSchema,
   PortfolioBaselineCashAccountSchema,
   PlanInputSaveSchema,
@@ -59,6 +61,54 @@ describe("reviewed holding exposure identity", () => {
     const missingIdentity: Record<string, unknown> = { ...holding };
     Reflect.deleteProperty(missingIdentity, "companyId");
     expect(HoldingSchema.safeParse(missingIdentity).success).toBe(false);
+  });
+
+  it("requires an explicit reviewed company choice instead of display text", () => {
+    expect(
+      PrivateExposureResolutionInputSchema.safeParse({
+        expectedSnapshotId: "snapshot_synthetic_spv",
+        company: { legalName: "Synthetic Harbor Health" },
+      }).success,
+    ).toBe(false);
+    expect(
+      PrivateExposureResolutionInputSchema.parse({
+        expectedSnapshotId: "snapshot_synthetic_spv",
+        company: {
+          mode: "existing",
+          companyId: "company_synthetic_shared",
+        },
+      }),
+    ).toEqual({
+      expectedSnapshotId: "snapshot_synthetic_spv",
+      company: {
+        mode: "existing",
+        companyId: "company_synthetic_shared",
+      },
+    });
+    expect(
+      PrivateExposureReviewStateSchema.parse({
+        version: 1,
+        positions: [
+          {
+            positionId: "holding_synthetic_spv",
+            snapshotId: "snapshot_synthetic_spv",
+            legalVehicleName: "Synthetic Beacon SPV",
+            reportedExposureName: "Synthetic Harbor Health",
+            positionKind: "spv_interest",
+            ownerLabel: "Synthetic Family LLC",
+            observedAt: "2026-08-16T12:00:00.000Z",
+          },
+        ],
+        companies: [
+          {
+            id: "company_synthetic_shared",
+            legalName: "Synthetic Harbor Health",
+            websiteHost: "harbor.example",
+            status: "active",
+          },
+        ],
+      }).positions,
+    ).toHaveLength(1);
   });
 });
 

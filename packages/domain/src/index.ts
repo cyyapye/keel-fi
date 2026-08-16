@@ -809,6 +809,82 @@ export const PositionExposureMappingSchema = z
     }
   });
 
+export const PrivateExposureWebsiteHostSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(253)
+  .regex(
+    /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/iu,
+    "Enter a domain such as company.example.",
+  );
+
+export const PrivateExposureCompanySchema = z
+  .object({
+    id: z.string().min(1),
+    legalName: z.string().trim().min(1).max(1_000),
+    websiteHost: PrivateExposureWebsiteHostSchema.nullable(),
+    status: z.enum(["active", "exited", "written_off"]),
+  })
+  .strict();
+
+export const PrivateExposureReviewPositionSchema = z
+  .object({
+    positionId: z.string().min(1),
+    snapshotId: z.string().min(1),
+    legalVehicleName: z.string().trim().min(1).max(1_000),
+    reportedExposureName: z.string().trim().min(1).max(1_000).nullable(),
+    positionKind: z.enum(["direct", "spv_interest"]),
+    ownerLabel: z.string().trim().min(1).max(1_000),
+    observedAt: IsoTimestampSchema,
+  })
+  .strict();
+
+export const PrivateExposureReviewStateSchema = z
+  .object({
+    version: z.literal(1),
+    positions: z.array(PrivateExposureReviewPositionSchema).max(500),
+    companies: z.array(PrivateExposureCompanySchema).max(1_000),
+  })
+  .strict();
+
+export const PrivateExposureCompanySelectionSchema = z.discriminatedUnion(
+  "mode",
+  [
+    z
+      .object({
+        mode: z.literal("existing"),
+        companyId: z.string().min(1),
+      })
+      .strict(),
+    z
+      .object({
+        mode: z.literal("new"),
+        legalName: z.string().trim().min(1).max(1_000),
+        websiteHost: PrivateExposureWebsiteHostSchema.nullable(),
+      })
+      .strict(),
+  ],
+);
+
+export const PrivateExposureResolutionInputSchema = z
+  .object({
+    expectedSnapshotId: z.string().min(1),
+    company: PrivateExposureCompanySelectionSchema,
+  })
+  .strict();
+
+export const PrivateExposureResolutionResultSchema = z
+  .object({
+    version: z.literal(1),
+    positionId: z.string().min(1),
+    companyId: z.string().min(1),
+    companyName: z.string().trim().min(1).max(1_000),
+    exposureId: z.string().min(1),
+    mappingId: z.string().min(1),
+  })
+  .strict();
+
 export const HoldingImportProviderSchema = z.enum([
   "angellist",
   "plaid_investments",
@@ -3321,6 +3397,21 @@ export type OwnedPositionSnapshot = z.infer<typeof OwnedPositionSnapshotSchema>;
 export type OwnershipContainer = z.infer<typeof OwnershipContainerSchema>;
 export type PositionExposureMapping = z.infer<
   typeof PositionExposureMappingSchema
+>;
+export type PrivateExposureCompany = z.infer<
+  typeof PrivateExposureCompanySchema
+>;
+export type PrivateExposureReviewPosition = z.infer<
+  typeof PrivateExposureReviewPositionSchema
+>;
+export type PrivateExposureReviewState = z.infer<
+  typeof PrivateExposureReviewStateSchema
+>;
+export type PrivateExposureResolutionInput = z.infer<
+  typeof PrivateExposureResolutionInputSchema
+>;
+export type PrivateExposureResolutionResult = z.infer<
+  typeof PrivateExposureResolutionResultSchema
 >;
 export type ScaledQuantity = z.infer<typeof ScaledQuantitySchema>;
 export type HoldingImportApplyInput = z.infer<

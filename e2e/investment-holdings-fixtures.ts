@@ -76,7 +76,7 @@ function recordFromHolding(
   };
 }
 
-function reviewedExposure(holding: Holding, index: number): CanonicalExposure {
+function reviewedExposure(holding: Holding): CanonicalExposure {
   const publicPosition = holding.ticker !== null;
   return {
     id: `exposure_${holding.id}`,
@@ -84,7 +84,7 @@ function reviewedExposure(holding: Holding, index: number): CanonicalExposure {
     exposureKind: publicPosition ? "public_instrument" : "private_company",
     canonicalName: holding.exposureName ?? holding.positionName,
     protectedIdentityKey: publicPosition ? fingerprint("f") : null,
-    companyId: publicPosition ? null : `company_synthetic_${index}`,
+    companyId: publicPosition ? null : holding.companyId,
     resolutionMethod: publicPosition ? "strong_identifier" : "reviewed_company",
     evidenceSha256: fingerprint("e"),
     createdAt: "2026-08-15T12:00:00.000Z",
@@ -101,7 +101,8 @@ function directMapping(
     householdId,
     positionId: holding.id,
     exposureId: exposure.id,
-    relationshipKind: "direct",
+    relationshipKind:
+      holding.positionKind === "direct" ? "direct" : "look_through",
     allocationPpm: 1_000_000,
     status: "active",
     decisionSource: holding.ticker === null ? "review" : "deterministic_policy",
@@ -179,8 +180,11 @@ export function investmentHoldingsViewFor(
     });
   }
   const positionView: InvestmentPositionView = { asOf, connections };
-  const exposures = holdings.map(reviewedExposure);
-  const mappings = holdings.map((holding, index) =>
+  const resolvedHoldings = holdings.filter(
+    (holding) => holding.ticker !== null || holding.companyId !== null,
+  );
+  const exposures = resolvedHoldings.map(reviewedExposure);
+  const mappings = resolvedHoldings.map((holding, index) =>
     directMapping(holding, exposures[index]!, index),
   );
   return InvestmentHoldingsViewSchema.parse({

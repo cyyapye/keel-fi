@@ -191,6 +191,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 test("leads with the investment and opens a truthful holding detail", async ({
   page,
 }, testInfo) => {
+  let exposureResolved = false;
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
@@ -223,12 +224,80 @@ test("leads with the investment and opens a truthful holding detail", async ({
     });
   });
   await page.route("**/api/investment-holdings", async (route) => {
+    const unresolvedHolding = alphaFixture.holdings.find(
+      (holding) => holding.id === "holding_demo_locked",
+    )!;
+    const publicHolding = alphaFixture.holdings.find(
+      (holding) => holding.id === "holding_demo_robinhood",
+    )!;
     await route.fulfill({
-      json: investmentHoldingsViewFor(
-        alphaFixture.holdings.filter((holding) => holding.ticker !== null),
-      ),
+      json: investmentHoldingsViewFor([
+        {
+          ...unresolvedHolding,
+          companyId: exposureResolved ? "company_lattice_synthetic" : null,
+        },
+        publicHolding,
+      ]),
     });
   });
+  await page.route("**/api/private-exposure-reviews", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        positions: exposureResolved
+          ? []
+          : [
+              {
+                positionId: "holding_demo_locked",
+                snapshotId: "snapshot_holding_demo_locked",
+                legalVehicleName: "Ridge Demo SPV",
+                reportedExposureName: "Lattice Grove Energy",
+                positionKind: "spv_interest",
+                ownerLabel: "Demo Operator",
+                observedAt: "2026-06-14T12:00:00.000Z",
+              },
+            ],
+        companies: [
+          {
+            id: "company_harbor_synthetic",
+            legalName: "Harbor Health Systems",
+            websiteHost: "harbor-health.example",
+            status: "active",
+          },
+          {
+            id: "company_lattice_synthetic",
+            legalName: "Lattice Grove Energy",
+            websiteHost: "lattice-grove.example",
+            status: "active",
+          },
+        ],
+      },
+    });
+  });
+  await page.route(
+    "**/api/private-exposure-reviews/*/assign",
+    async (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        expectedSnapshotId: "snapshot_holding_demo_locked",
+        company: {
+          mode: "existing",
+          companyId: "company_lattice_synthetic",
+        },
+      });
+      exposureResolved = true;
+      await route.fulfill({
+        status: 201,
+        json: {
+          version: 1,
+          positionId: "holding_demo_locked",
+          companyId: "company_lattice_synthetic",
+          companyName: "Lattice Grove Energy",
+          exposureId: "exposure_holding_demo_locked",
+          mappingId: "mapping_holding_demo_locked",
+        },
+      });
+    },
+  );
   await page.route("**/api/cash-accounts", async (route) => {
     await route.fulfill({
       json: {
@@ -356,11 +425,13 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
   ).toBeVisible();
-  await expect(
-    page
-      .locator(".unallocated-positions")
-      .getByText("Exposure unresolved", { exact: true }),
-  ).toBeVisible();
+  await expect(page.locator(".unallocated-positions__status")).toContainText(
+    "Exposure unresolved",
+  );
+  const chooseCompany = page.getByRole("button", {
+    name: "Choose company for Ridge Demo SPV",
+  });
+  await expect(chooseCompany).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "holdings-reviewed-private-exposures.png",
@@ -371,6 +442,46 @@ test("leads with the investment and opens a truthful holding detail", async ({
       threshold: 0.25,
     },
   );
+  await chooseCompany.click();
+  const exposureReview = page.getByRole("form", {
+    name: "Assign Ridge Demo SPV exposure",
+  });
+  await expect(
+    exposureReview.getByRole("heading", {
+      name: "Choose the underlying company",
+    }),
+  ).toBeVisible();
+  await expect(exposureReview).toContainText(
+    "The legal position and value stay unchanged.",
+  );
+  await exposureReview
+    .getByRole("combobox", { name: "Company", exact: true })
+    .selectOption("company_lattice_synthetic");
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-private-exposure-review.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  await exposureReview.getByRole("button", { name: "Assign company" }).click();
+  await expect(
+    page.getByText(
+      "Ridge Demo SPV now groups under Lattice Grove Energy. The legal position is unchanged.",
+    ),
+  ).toBeVisible();
+  const latticeExposure = page.locator(".exposure-group").filter({
+    has: page.getByText("Lattice Grove Energy", { exact: true }),
+  });
+  await expect(latticeExposure).toContainText("1 position");
+  await latticeExposure.locator("summary").click();
+  await expect(latticeExposure.getByText("Ridge Demo SPV")).toBeVisible();
+  await expect(
+    page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
+  ).toHaveCount(0);
   await page.getByRole("tab", { name: "Positions" }).click();
 
   await harborAction.click();

@@ -641,20 +641,54 @@ export class D1AlphaRepository implements AlphaRepository {
 
                SELECT
                  position.id,
-                 (
-                   SELECT MAX(exposure.company_id)
-                   FROM holding_position_exposures exposure
-                   WHERE exposure.position_id = position.id
-                   HAVING COUNT(*) = 1
-                     AND COUNT(exposure.company_id) = 1
+                 COALESCE(
+                   (
+                     SELECT MAX(canonical.company_id)
+                     FROM holding_position_exposure_mappings mapping
+                     JOIN canonical_exposures canonical
+                       ON canonical.id = mapping.exposure_id
+                     WHERE mapping.position_id = position.id
+                       AND mapping.status = 'active'
+                       AND canonical.company_id IS NOT NULL
+                       AND NOT EXISTS (
+                         SELECT 1
+                         FROM holding_position_exposure_mappings later
+                         WHERE later.supersedes_mapping_id = mapping.id
+                       )
+                     HAVING COUNT(DISTINCT canonical.company_id) = 1
+                   ),
+                   (
+                     SELECT MAX(exposure.company_id)
+                     FROM holding_position_exposures exposure
+                     WHERE exposure.position_id = position.id
+                     HAVING COUNT(*) = 1
+                       AND COUNT(exposure.company_id) = 1
+                   )
                  ) AS company_id,
                  position.legal_vehicle_name AS position_name,
-                 (
-                   SELECT exposure.exposure_label
-                   FROM holding_position_exposures exposure
-                   WHERE exposure.position_id = position.id
-                   ORDER BY exposure.created_at, exposure.id
-                   LIMIT 1
+                 COALESCE(
+                   (
+                     SELECT MAX(canonical.canonical_name)
+                     FROM holding_position_exposure_mappings mapping
+                     JOIN canonical_exposures canonical
+                       ON canonical.id = mapping.exposure_id
+                     WHERE mapping.position_id = position.id
+                       AND mapping.status = 'active'
+                       AND canonical.company_id IS NOT NULL
+                       AND NOT EXISTS (
+                         SELECT 1
+                         FROM holding_position_exposure_mappings later
+                         WHERE later.supersedes_mapping_id = mapping.id
+                       )
+                     HAVING COUNT(DISTINCT canonical.company_id) = 1
+                   ),
+                   (
+                     SELECT exposure.exposure_label
+                     FROM holding_position_exposures exposure
+                     WHERE exposure.position_id = position.id
+                     ORDER BY exposure.created_at, exposure.id
+                     LIMIT 1
+                   )
                  ) AS exposure_name,
                  position.owner_label,
                  position.position_kind,

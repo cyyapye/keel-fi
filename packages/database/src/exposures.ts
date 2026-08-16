@@ -2,9 +2,15 @@ import {
   CanonicalExposureSchema,
   IsoTimestampSchema,
   PositionExposureMappingSchema,
+  PrivateExposureResolutionInputSchema,
+  PrivateExposureResolutionResultSchema,
+  PrivateExposureReviewStateSchema,
   ProtectedIdentityKeySchema,
   type CanonicalExposure,
   type PositionExposureMapping,
+  type PrivateExposureResolutionInput,
+  type PrivateExposureResolutionResult,
+  type PrivateExposureReviewState,
 } from "@keel/domain";
 import type { InvestmentExposureView } from "@keel/domain/exposure-read-model";
 import { z } from "zod";
@@ -136,6 +142,60 @@ type DeterministicPublicRow = {
   effective_at: string;
 };
 
+type PrivateExposureReviewPositionRow = {
+  position_id: string;
+  snapshot_id: string;
+  legal_vehicle_name: string;
+  reported_exposure_name: string | null;
+  position_kind: "direct" | "spv_interest";
+  owner_label: string;
+  observed_at: string;
+};
+
+type PrivateExposureCompanyRow = {
+  id: string;
+  legal_name: string;
+  website_host: string | null;
+  status: "active" | "exited" | "written_off";
+};
+
+type PrivateExposureReviewEvidenceRow = PrivateExposureReviewPositionRow & {
+  evidence_sha256: string;
+};
+
+type CurrentExposureMappingRow = PositionExposureMappingRow & {
+  exposure_kind:
+    "public_instrument" | "private_company" | "fund" | "unresolved";
+};
+
+export type PrivateExposureReviewErrorCode =
+  | "already_resolved"
+  | "company_conflict"
+  | "invalid_company"
+  | "not_found"
+  | "stale";
+
+export class PrivateExposureReviewError extends Error {
+  public constructor(
+    public readonly code: PrivateExposureReviewErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PrivateExposureReviewError";
+  }
+}
+
+export interface PrivateExposureReviewRepository {
+  getPrivateExposureReviewState(
+    accessSubject: string,
+  ): Promise<PrivateExposureReviewState>;
+  assignPrivateCompanyExposure(
+    accessSubject: string,
+    positionId: string,
+    input: PrivateExposureResolutionInput,
+  ): Promise<PrivateExposureResolutionResult>;
+}
+
 function canonicalExposureFrom(row: CanonicalExposureRow): CanonicalExposure {
   return CanonicalExposureSchema.parse({
     id: row.id,
@@ -180,6 +240,387 @@ export class D1ExposureRepository {
       db,
     ),
   ) {}
+
+  public async getPrivateExposureReviewState(
+    accessSubject: string,
+  ): Promise<PrivateExposureReviewState> {
+    const identity = await this.findIdentity(accessSubject);
+    const [positions, companies] = await Promise.all([
+      all<PrivateExposureReviewPositionRow>(
+        this.db
+          .prepare(
+            `SELECT
+               position.id AS position_id,
+               snapshot.id AS snapshot_id,
+               position.legal_vehicle_name,
+               (
+                 SELECT reported.exposure_label
+                 FROM holding_position_exposures reported
+                 WHERE reported.position_id = position.id
+                 ORDER BY reported.created_at, reported.id
+                 LIMIT 1
+               ) AS reported_exposure_name,
+               position.position_kind,
+               position.owner_label,
+               snapshot.observed_at
+             FROM holding_positions position
+             JOIN holding_import_applications application
+               ON application.id = (
+                 SELECT latest.id
+                 FROM holding_import_applications latest
+                 WHERE latest.position_id = position.id
+                 ORDER BY latest.applied_at DESC, latest.id DESC
+                 LIMIT 1
+               )
+             JOIN holding_position_snapshots snapshot
+               ON snapshot.id = application.snapshot_id
+              AND snapshot.position_id = position.id
+             WHERE position.household_id = ?
+               AND position.provider = 'angellist'
+               AND position.position_kind IN ('direct', 'spv_interest')
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM holding_position_exposure_mappings mapping
+                 JOIN canonical_exposures exposure
+                   ON exposure.id = mapping.exposure_id
+                 WHERE mapping.position_id = position.id
+                   AND mapping.household_id = position.household_id
+                   AND mapping.status = 'active'
+                   AND exposure.exposure_kind <> 'unresolved'
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM holding_position_exposure_mappings later
+                     WHERE later.supersedes_mapping_id = mapping.id
+                   )
+               )
+             ORDER BY
+               lower(COALESCE(reported_exposure_name, position.legal_vehicle_name)),
+               lower(position.legal_vehicle_name),
+               position.id
+             LIMIT 500`,
+          )
+          .bind(identity.household_id),
+      ),
+      all<PrivateExposureCompanyRow>(
+        this.db
+          .prepare(
+            `SELECT id, legal_name, website_host, status
+             FROM companies
+             WHERE household_id = ?
+             ORDER BY lower(legal_name), id
+             LIMIT 1000`,
+          )
+          .bind(identity.household_id),
+      ),
+    ]);
+
+    return PrivateExposureReviewStateSchema.parse({
+      version: 1,
+      positions: positions.map((position) => ({
+        positionId: position.position_id,
+        snapshotId: position.snapshot_id,
+        legalVehicleName: position.legal_vehicle_name,
+        reportedExposureName: position.reported_exposure_name,
+        positionKind: position.position_kind,
+        ownerLabel: position.owner_label,
+        observedAt: position.observed_at,
+      })),
+      companies: companies.map((company) => ({
+        id: company.id,
+        legalName: company.legal_name,
+        websiteHost: company.website_host,
+        status: company.status,
+      })),
+    });
+  }
+
+  public async assignPrivateCompanyExposure(
+    accessSubject: string,
+    positionId: string,
+    rawInput: PrivateExposureResolutionInput,
+  ): Promise<PrivateExposureResolutionResult> {
+    const input = PrivateExposureResolutionInputSchema.parse(rawInput);
+    const identity = await this.findIdentity(accessSubject);
+    const position = await this.db
+      .prepare(
+        `SELECT
+           position.id AS position_id,
+           snapshot.id AS snapshot_id,
+           position.legal_vehicle_name,
+           (
+             SELECT reported.exposure_label
+             FROM holding_position_exposures reported
+             WHERE reported.position_id = position.id
+             ORDER BY reported.created_at, reported.id
+             LIMIT 1
+           ) AS reported_exposure_name,
+           position.position_kind,
+           position.owner_label,
+           snapshot.observed_at,
+           document.sha256 AS evidence_sha256
+         FROM holding_positions position
+         JOIN holding_import_applications application
+           ON application.id = (
+             SELECT latest.id
+             FROM holding_import_applications latest
+             WHERE latest.position_id = position.id
+             ORDER BY latest.applied_at DESC, latest.id DESC
+             LIMIT 1
+           )
+         JOIN holding_position_snapshots snapshot
+           ON snapshot.id = application.snapshot_id
+          AND snapshot.position_id = position.id
+         JOIN source_documents document
+           ON document.id = snapshot.source_document_id
+         WHERE position.id = ?
+           AND position.household_id = ?
+           AND position.provider = 'angellist'
+           AND position.position_kind IN ('direct', 'spv_interest')`,
+      )
+      .bind(positionId, identity.household_id)
+      .first<PrivateExposureReviewEvidenceRow>();
+    if (position === null) {
+      throw new PrivateExposureReviewError(
+        "not_found",
+        "Private position was not found for review.",
+      );
+    }
+    if (position.snapshot_id !== input.expectedSnapshotId) {
+      throw new PrivateExposureReviewError(
+        "stale",
+        "The reviewed position changed before exposure assignment.",
+      );
+    }
+
+    const currentMappings = await all<CurrentExposureMappingRow>(
+      this.db
+        .prepare(
+          `SELECT
+             mapping.id, mapping.household_id, mapping.position_id,
+             mapping.exposure_id, mapping.relationship_kind,
+             mapping.allocation_ppm, mapping.status,
+             mapping.decision_source, mapping.decision_reference,
+             mapping.evidence_sha256, mapping.effective_at,
+             mapping.version, mapping.supersedes_mapping_id,
+             exposure.exposure_kind
+           FROM holding_position_exposure_mappings mapping
+           JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
+           WHERE mapping.household_id = ?
+             AND mapping.position_id = ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM holding_position_exposure_mappings later
+               WHERE later.supersedes_mapping_id = mapping.id
+             )
+           ORDER BY mapping.exposure_id`,
+        )
+        .bind(identity.household_id, positionId),
+    );
+    if (
+      currentMappings.some(
+        (mapping) =>
+          mapping.status === "active" && mapping.exposure_kind !== "unresolved",
+      )
+    ) {
+      throw new PrivateExposureReviewError(
+        "already_resolved",
+        "This position already has a reviewed exposure.",
+      );
+    }
+
+    let company: PrivateExposureCompanyRow;
+    let createCompany = false;
+    if (input.company.mode === "existing") {
+      const existing = await this.db
+        .prepare(
+          `SELECT id, legal_name, website_host, status
+           FROM companies
+           WHERE id = ? AND household_id = ?`,
+        )
+        .bind(input.company.companyId, identity.household_id)
+        .first<PrivateExposureCompanyRow>();
+      if (existing === null) {
+        throw new PrivateExposureReviewError(
+          "invalid_company",
+          "Reviewed company was not found for this household.",
+        );
+      }
+      company = existing;
+    } else {
+      const conflicting = await this.db
+        .prepare(
+          `SELECT id
+           FROM companies
+           WHERE household_id = ?
+             AND trim(legal_name) = trim(?) COLLATE NOCASE`,
+        )
+        .bind(identity.household_id, input.company.legalName)
+        .first<{ id: string }>();
+      if (conflicting !== null) {
+        throw new PrivateExposureReviewError(
+          "company_conflict",
+          "A reviewed company with this name already exists.",
+        );
+      }
+      company = {
+        id: crypto.randomUUID(),
+        legal_name: input.company.legalName,
+        website_host:
+          input.company.websiteHost === null
+            ? null
+            : input.company.websiteHost.toLowerCase(),
+        status: "active",
+      };
+      createCompany = true;
+    }
+
+    const existingExposure = await this.db
+      .prepare(
+        `SELECT
+           id, household_id, exposure_kind, canonical_name,
+           protected_identity_key, company_id, resolution_method,
+           evidence_sha256, created_at
+         FROM canonical_exposures
+         WHERE household_id = ? AND company_id = ?`,
+      )
+      .bind(identity.household_id, company.id)
+      .first<CanonicalExposureRow>();
+    const exposureId = existingExposure?.id ?? crypto.randomUUID();
+    const mappingId = crypto.randomUUID();
+    const acceptedAt = new Date().toISOString();
+    const statements: D1PreparedStatement[] = [];
+    if (createCompany) {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO companies (
+               id, household_id, legal_name, website_host, status,
+               created_at, updated_at
+             ) VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+          )
+          .bind(
+            company.id,
+            identity.household_id,
+            company.legal_name,
+            company.website_host,
+            acceptedAt,
+            acceptedAt,
+          ),
+      );
+    }
+    if (existingExposure === null) {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO canonical_exposures (
+               id, household_id, exposure_kind, canonical_name,
+               protected_identity_key, company_id, resolution_method,
+               evidence_sha256, created_by_user_id, created_at, immutable
+             ) VALUES (?, ?, 'private_company', ?, NULL, ?,
+               'reviewed_company', ?, ?, ?, 1)`,
+          )
+          .bind(
+            exposureId,
+            identity.household_id,
+            company.legal_name,
+            company.id,
+            position.evidence_sha256,
+            identity.user_id,
+            acceptedAt,
+          ),
+      );
+    }
+
+    for (const mapping of currentMappings.filter(
+      (candidate) =>
+        candidate.status === "active" &&
+        candidate.exposure_kind === "unresolved",
+    )) {
+      const effectiveAt =
+        mapping.effective_at > acceptedAt ? mapping.effective_at : acceptedAt;
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO holding_position_exposure_mappings (
+               id, household_id, position_id, exposure_id, relationship_kind,
+               allocation_ppm, status, decision_source, decision_reference,
+               evidence_sha256, effective_at, version, supersedes_mapping_id,
+               accepted_by_user_id, accepted_at, immutable
+             ) VALUES (?, ?, ?, ?, ?, NULL, 'withdrawn', 'review', ?, ?, ?, ?,
+               ?, ?, ?, 1)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            positionId,
+            mapping.exposure_id,
+            mapping.relationship_kind,
+            "Replaced by reviewed company assignment",
+            position.evidence_sha256,
+            effectiveAt,
+            mapping.version + 1,
+            mapping.id,
+            identity.user_id,
+            acceptedAt,
+          ),
+      );
+    }
+
+    const currentTarget = currentMappings.find(
+      (mapping) => mapping.exposure_id === exposureId,
+    );
+    const mappingEffectiveAt =
+      currentTarget !== undefined && currentTarget.effective_at > acceptedAt
+        ? currentTarget.effective_at
+        : acceptedAt;
+    statements.push(
+      this.db
+        .prepare(
+          `INSERT INTO holding_position_exposure_mappings (
+             id, household_id, position_id, exposure_id, relationship_kind,
+             allocation_ppm, status, decision_source, decision_reference,
+             evidence_sha256, effective_at, version, supersedes_mapping_id,
+             accepted_by_user_id, accepted_at, immutable
+           ) VALUES (?, ?, ?, ?, ?, 1000000, 'active', 'review', ?, ?, ?, ?, ?,
+             ?, ?, 1)`,
+        )
+        .bind(
+          mappingId,
+          identity.household_id,
+          positionId,
+          exposureId,
+          position.position_kind === "direct" ? "direct" : "look_through",
+          "Reviewed company assignment",
+          position.evidence_sha256,
+          mappingEffectiveAt,
+          (currentTarget?.version ?? 0) + 1,
+          currentTarget?.id ?? null,
+          identity.user_id,
+          acceptedAt,
+        ),
+    );
+
+    try {
+      await this.db.batch(statements);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("UNIQUE")) {
+        throw new PrivateExposureReviewError(
+          "stale",
+          "This exposure review is no longer current.",
+        );
+      }
+      throw error;
+    }
+
+    return PrivateExposureResolutionResultSchema.parse({
+      version: 1,
+      positionId,
+      companyId: company.id,
+      companyName: company.legal_name,
+      exposureId,
+      mappingId,
+    });
+  }
 
   public async resolveExposure(
     accessSubject: string,
