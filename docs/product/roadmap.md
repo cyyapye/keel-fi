@@ -206,7 +206,7 @@ on holdings, baseline, goal, or forecast output.
   protected smokes, and deployment evidence in
   [run `31914632676`](https://github.com/cyyapye/keel-fi/actions/runs/31914632676).
 
-#### [ ] M9.2 — Pre-live canonical-only cutover
+#### [x] M9.2 — Pre-live canonical-only cutover
 
 **Outcome:** Keel carries one holdings schema and one read path before any real
 data exists. Disposable synthetic state is rebuilt instead of preserving a
@@ -235,6 +235,22 @@ M9 holdings backfill view, trigger, feature flag, dual-read mode, or
 migration-only association support; negative contract tests reject the removed
 value. The exact-SHA preview is rebuilt before protected smoke evidence is
 accepted.
+
+**Evidence:** Delivered in [PR #66](https://github.com/cyyapye/keel-fi/pull/66)
+at exact checked head
+[`a87c911`](https://github.com/cyyapye/keel-fi/commit/a87c911cfb6ea988f1bd813d4c1731c990d87b52)
+and merge commit
+[`4af6dff`](https://github.com/cyyapye/keel-fi/commit/4af6dff35a8cf483d788e278fcc6cd8be882977f).
+Fresh migration replay, the synthetic seed, 396 tests, 44 browser flows, and the
+bounded removed-symbol scan passed. The ordinary exact-SHA deployment passed in
+[run `31919018427`](https://github.com/cyyapye/keel-fi/actions/runs/31919018427).
+The approved synthetic preview rebuild then retained its encrypted backup,
+restored the pre-transition point, applied migrations `0001` through `0019`,
+proved zero removed transition objects and contract values, deployed the same
+exact SHA, and passed protected smokes in
+[run `31919271581`](https://github.com/cyyapye/keel-fi/actions/runs/31919271581).
+The one-time reset authority was removed immediately afterward. Incremental
+provider spend remains $0.
 
 #### [ ] M9.3 — Container-scoped ingestion, coverage, and omissions
 

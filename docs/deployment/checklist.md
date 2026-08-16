@@ -22,8 +22,7 @@
 - [ ] D1 migration and seed pass locally.
 - [ ] Preview migration and production build pass.
 - [ ] Preview deployment contains no remote seed, reset, import, or restore
-      command, except the explicitly approved one-time synthetic M9.2 Time
-      Travel action before it is removed by the evidence change.
+      command.
 - [ ] Encrypted pre-migration preview backup uploads before migrations begin.
 - [ ] Missing and invalid Access assertions return `401` in production mode.
 - [ ] Household authorization tests pass.
