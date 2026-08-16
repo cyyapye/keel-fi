@@ -390,7 +390,7 @@ Robinhood institution can complete Link exchange and staging only when
 Investments support is validated; unsupported institutions fail before storing
 credentials or creating accepted facts.
 
-#### [ ] M9.6a — Authoritative position read model
+#### [x] M9.6a — Authoritative position read model
 
 **Outcome:** Database consumers can read one household-scoped institution →
 connection → container → legal-position projection without joining exposure
@@ -427,6 +427,24 @@ institution authorization belongs in M9.6a; those remain in later slices.
 one institution, and several containers appear once under their exact legal
 lineage. Only accepted snapshots are selected, unresolved values remain
 explicit, and cross-household or cross-container leakage is impossible.
+
+**Evidence:** Delivered in [PR #73](https://github.com/cyyapye/keel-fi/pull/73)
+at exact checked head
+[`bbcb04e`](https://github.com/cyyapye/keel-fi/commit/bbcb04e28432cac2e020f14bee5ae56f3e0a2bde)
+and merge commit
+[`fa77bd3`](https://github.com/cyyapye/keel-fi/commit/fa77bd352ae7bb2e8d93daf36186baf7a675bc46),
+with the explicit second-institution slice-gate proof completed in
+[PR #74](https://github.com/cyyapye/keel-fi/pull/74) at exact checked head
+[`eb0171e`](https://github.com/cyyapye/keel-fi/commit/eb0171e7792342aa2fa9e7c67e6eeb68c2a0c74b)
+and merge commit
+[`ae36cb0`](https://github.com/cyyapye/keel-fi/commit/ae36cb01b9a45e230cbe7de1b50812fca7a044f1).
+The final release passed 417 tests and 44 desktop/mobile browser flows, retained
+an encrypted D1 backup, applied all forward-only migrations, deployed and read
+back both Worker versions, passed protected smokes, and retained exact-SHA
+evidence in
+[run `31929487255`](https://github.com/cyyapye/keel-fi/actions/runs/31929487255).
+The read model adds no provider, network, Queue, storage, schedule, webhook, or
+database write path and no migration; incremental provider spend remains $0.
 
 #### [ ] M9.6b — Exposure read model and planning integration
 
