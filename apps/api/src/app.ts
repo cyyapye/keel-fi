@@ -12,6 +12,7 @@ import {
   D1HoldingImportRepository,
   D1InvestmentExposureViewRepository,
   D1LiabilitiesRepository,
+  D1PlanActualMonitoringRepository,
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
   D1InvestmentConnectionsRepository,
@@ -21,6 +22,7 @@ import {
   type CashAccountsRepository,
   type CashFlowRepository,
   type LiabilitiesRepository,
+  type PlanActualMonitoringRepository,
   type PlanInputsRepository,
   type PortfolioBaselineRepository,
   type InvestmentConnectionsRepository,
@@ -52,6 +54,7 @@ import {
   ScenarioDraftInputSchema,
 } from "@keel/domain";
 import { InvestmentHoldingsViewSchema } from "@keel/domain/investment-holdings-view";
+import { PlanActualSnoozeInputSchema } from "@keel/domain/plan-actual-monitoring";
 import { ReviewInputSchema } from "@keel/evidence";
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -126,6 +129,7 @@ type AppOptions = {
   liabilitiesRepository?: LiabilitiesRepository;
   liabilitiesPlaidClient?: PlaidLiabilitiesClient;
   plaidClient?: PlaidInvestmentsClient;
+  planActualMonitoringRepository?: PlanActualMonitoringRepository;
   planInputsRepository?: PlanInputsRepository;
   portfolioBaselineRepository?: PortfolioBaselineRepository;
   investmentConnectionsRepository?: InvestmentConnectionsRepository;
@@ -500,6 +504,9 @@ export function createApp(options: AppOptions = {}) {
     new D1PortfolioBaselineRepository(env.DB);
   const planInputsRepositoryFor = (env: Env) =>
     options.planInputsRepository ?? new D1PlanInputsRepository(env.DB);
+  const planActualMonitoringRepositoryFor = (env: Env) =>
+    options.planActualMonitoringRepository ??
+    new D1PlanActualMonitoringRepository(env.DB);
   const holdingImportRepositoryFor = (env: Env) =>
     options.holdingImportRepository ?? new D1HoldingImportRepository(env.DB);
   const plaidClientFor = (env: Env) =>
@@ -843,6 +850,70 @@ export function createApp(options: AppOptions = {}) {
       }
       return context.json(
         { error: "The runway plan could not be saved." },
+        500,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.get("/api/plan-actual-monitoring", async (context) => {
+    try {
+      const state = await planActualMonitoringRepositoryFor(
+        context.env,
+      ).getState(context.get("identity").subject);
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json(
+        { error: "Keel could not compare the plan with reviewed actuals." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/plan-actual-monitoring/snooze", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const result = PlanActualSnoozeInputSchema.safeParse(rawInput);
+    if (!result.success) {
+      return context.json(
+        {
+          error: "Monitoring reminder input is invalid.",
+          issues: result.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const state = await planActualMonitoringRepositoryFor(context.env).snooze(
+        context.get("identity").subject,
+        result.data,
+      );
+      return context.json(state, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      if (errorMessage(error).includes("changed or is already deferred")) {
+        return context.json(
+          { error: "This decision changed. Review the latest comparison." },
+          409,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      return context.json(
+        { error: "Keel could not defer this decision." },
         500,
         { "Cache-Control": "private, no-store" },
       );

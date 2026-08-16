@@ -61,6 +61,7 @@ export * from "./liabilities";
 export * from "./exposures";
 export * from "./exposure-read-model";
 export * from "./position-read-model";
+export * from "./plan-actual-monitoring";
 
 type DashboardRow = {
   as_of_date: string;

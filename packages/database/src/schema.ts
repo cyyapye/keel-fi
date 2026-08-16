@@ -3086,3 +3086,43 @@ export const holdingPositionExposureMappings = sqliteTable(
     ),
   ],
 );
+
+export const planActualMonitoringCooldowns = sqliteTable(
+  "plan_actual_monitoring_cooldowns",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    itemKey: text("item_key").notNull(),
+    sourceRevision: text("source_revision").notNull(),
+    snoozedUntil: timestamp("snoozed_until"),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("plan_actual_monitoring_cooldowns_household_item_idx").on(
+      table.householdId,
+      table.itemKey,
+      table.sourceRevision,
+      table.createdAt,
+    ),
+    check(
+      "plan_actual_monitoring_cooldowns_item_check",
+      sql`${table.itemKey} IN ('cash_review', 'cash_freshness', 'cash_drift', 'debt_review', 'debt_overdue', 'debt_freshness', 'debt_drift', 'burn_review', 'burn_freshness', 'burn_drift', 'runway_drift')`,
+    ),
+    check(
+      "plan_actual_monitoring_cooldowns_revision_check",
+      sql`length(${table.sourceRevision}) = 64 AND ${table.sourceRevision} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "plan_actual_monitoring_cooldowns_time_check",
+      sql`${table.snoozedUntil} > ${table.createdAt}`,
+    ),
+    check(
+      "plan_actual_monitoring_cooldowns_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);

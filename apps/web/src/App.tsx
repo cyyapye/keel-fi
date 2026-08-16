@@ -83,6 +83,7 @@ import { openPlaidLink } from "./plaid-link";
 import { InvestmentHoldings } from "./InvestmentHoldings";
 import { Obligations } from "./Obligations";
 import { ObservedCashFlow } from "./ObservedCashFlow";
+import { PlanActualMonitoring } from "./PlanActualMonitoring";
 import { PlanInputsEditor } from "./PlanInputsEditor";
 
 type Screen =
@@ -551,6 +552,8 @@ function Dashboard({
           </small>
         </div>
       </section>
+
+      <PlanActualMonitoring onNavigate={onNavigate} />
 
       <div className="metrics-grid">
         <MetricCard

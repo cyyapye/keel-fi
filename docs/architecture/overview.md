@@ -15,7 +15,9 @@ workflow `31960175926`. Because every environment is synthetic and disposable,
 Keel retains no holdings backfill, dual-read, or transitional association layer.
 Additional-institution authorization remains fail-closed until private coverage
 and pricing approval; Robinhood and AngelList remain the operated holding
-sources.
+sources. The deterministic comparison between saved plans and reviewed actuals
+is defined by
+[ADR 006: Plan versus actual monitoring](./adr-006-plan-actual-monitoring.md).
 
 ```mermaid
 flowchart LR
@@ -43,6 +45,14 @@ flowchart LR
   AcceptedLiability --> BurnProposal
   BurnProposal --> BurnReview["Category review + plan draft"]
   BurnReview --> PlanEditor
+  AcceptedCash --> Monitoring["Plan versus actual projection"]
+  AcceptedLiability --> Monitoring
+  BurnReview --> Monitoring
+  PlanVersion --> Monitoring
+  VersionBundle --> Monitoring
+  Monitoring --> ActionQueue["Overview decision queue"]
+  ActionQueue --> Cooldown["Exact-source review later"]
+  Cooldown --> D1
   AcceptedHolding --> BaselineReview["Portfolio baseline review"]
   AcceptedCash --> BaselineReview
   BaselineReview --> VersionBundle["New FI plan, forecast, and goal versions"]
@@ -122,6 +132,15 @@ flowchart LR
   before aggregate categories can propose a runway-plan draft. Pending,
   unsupported, and unreviewed-account activity remains excluded and visible. The
   accepted plan changes only through the existing explicit save path.
+- Plan-versus-actual monitoring reads the current saved runway plan, latest
+  accepted Portfolio Baseline cash, accepted cash accounts and obligations, and
+  latest reviewed burn. A deterministic projection emits at most one item for
+  each of cash, debt, burn, and runway after review, overdue, and freshness
+  priority. It never changes a plan or accepted fact. Seven-day review-later
+  decisions are household-scoped, append-only, and valid only for the exact
+  source revision. There is no monitoring schedule or external notification
+  channel. See the
+  [monitoring runbook](../deployment/plan-actual-monitoring.md).
 - The Scenarios runway editor changes only household burn, business burn, and
   the protected cash floor. FI-eligible liquid remains owned by reviewed
   Holdings and the FI target remains owned by Goals. Saving appends a cash-flow
@@ -158,11 +177,12 @@ Cash-flow plans, forecast snapshots, outputs, company forecasts, liquidity
 curves, portfolio baseline records and items, cash-account review decisions,
 liability proposal rows and review decisions, cash-flow activation events,
 aggregate burn proposals and reviews, other review decisions, and
-actual-liquidity events are guarded by D1 triggers against rewriting. Investment
-connections and containers use immutable identities plus versioned metadata;
-accepted position ownership, coverage, exposure identities, and mapping versions
-are also append-only. Accepted marks and accepted evidence cannot be deleted.
-Redacted transaction revisions are append-only until the 24-month retention
-boundary or explicit disconnect deletes them. A new provider observation,
-forecast, Portfolio Baseline, or runway-plan save changes the accepted record by
-appending a new version.
+actual-liquidity events are guarded by D1 triggers against rewriting. Monitoring
+cooldowns are also append-only and cannot rewrite the plan or reviewed actuals.
+Investment connections and containers use immutable identities plus versioned
+metadata; accepted position ownership, coverage, exposure identities, and
+mapping versions are also append-only. Accepted marks and accepted evidence
+cannot be deleted. Redacted transaction revisions are append-only until the
+24-month retention boundary or explicit disconnect deletes them. A new provider
+observation, forecast, Portfolio Baseline, or runway-plan save changes the
+accepted record by appending a new version.
