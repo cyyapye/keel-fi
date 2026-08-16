@@ -7,6 +7,7 @@ import {
 import type { Env } from "./types";
 
 const RawProviderIdentifierSchema = z.string().min(1).max(512);
+const StrongSecurityIdentifierKindSchema = z.enum(["cusip", "isin", "sedol"]);
 const AngelListOwnershipLabelSchema = z.string().trim().min(1).max(1_000);
 const INVESTMENT_KEY_SALT = "keel-provider-account-key-v1";
 const ANGELLIST_SOURCE_ID = "angellist-investments-export";
@@ -59,6 +60,23 @@ export async function plaidInvestmentsPositionKey(
     salt: INVESTMENT_KEY_SALT,
     info: "plaid-investments-position-id",
     value: scopedValue(accountKey, rawPositionId),
+  });
+}
+
+/** Canonicalize one checksum-validated public identifier across connections. */
+export async function plaidInvestmentsExposureKey(
+  env: Env,
+  kind: "cusip" | "isin" | "sedol",
+  normalizedIdentifier: string,
+): Promise<string> {
+  return deriveProtectedProviderKey({
+    credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+    salt: INVESTMENT_KEY_SALT,
+    info: "public-security-exposure-id",
+    value: JSON.stringify([
+      StrongSecurityIdentifierKindSchema.parse(kind),
+      RawProviderIdentifierSchema.parse(normalizedIdentifier),
+    ]),
   });
 }
 

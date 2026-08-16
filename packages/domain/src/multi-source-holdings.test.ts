@@ -185,6 +185,18 @@ describe("multi-source holdings domain contract", () => {
       }).success,
     ).toBe(false);
     expect(
+      PositionExposureMappingSchema.safeParse({
+        ...mapping,
+        allocationPpm: 500_000,
+      }).success,
+    ).toBe(false);
+    expect(
+      PositionExposureMappingSchema.safeParse({
+        ...mapping,
+        version: 2,
+      }).success,
+    ).toBe(false);
+    expect(
       CanonicalExposureSchema.safeParse({
         ...exposure,
         protectedIdentityKey: null,
@@ -246,6 +258,18 @@ describe("multi-source holdings domain contract", () => {
     expect(HoldingImportCanonicalScopeSchema.safeParse(scope).success).toBe(
       true,
     );
+    expect(
+      HoldingImportCanonicalScopeSchema.safeParse({
+        ...scope,
+        rows: [
+          {
+            ...scope.rows[0],
+            publicExposureIdentityKind: "cusip",
+            protectedExposureKey: null,
+          },
+        ],
+      }).success,
+    ).toBe(false);
     expect(
       HoldingImportCanonicalScopeSchema.safeParse({
         ...scope,

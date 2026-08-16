@@ -193,17 +193,120 @@ function accountLabel(subtype: string | null): string {
   return "Robinhood brokerage";
 }
 
+export type PlaidStrongSecurityIdentifier = {
+  readonly kind: "cusip" | "isin" | "sedol";
+  readonly value: string;
+};
+
+function identifierCharacterValue(character: string): number {
+  if (/^[0-9]$/u.test(character)) {
+    return Number(character);
+  }
+  if (/^[A-Z]$/u.test(character)) {
+    return character.charCodeAt(0) - 55;
+  }
+  if (character === "*") {
+    return 36;
+  }
+  if (character === "@") {
+    return 37;
+  }
+  if (character === "#") {
+    return 38;
+  }
+  return -1;
+}
+
+function validCusip(value: string): boolean {
+  if (!/^[0-9A-Z*@#]{8}[0-9]$/u.test(value)) {
+    return false;
+  }
+  const sum = [...value.slice(0, 8)].reduce((total, character, index) => {
+    const weighted =
+      identifierCharacterValue(character) * (index % 2 === 0 ? 1 : 2);
+    return total + Math.floor(weighted / 10) + (weighted % 10);
+  }, 0);
+  return (10 - (sum % 10)) % 10 === Number(value.at(-1));
+}
+
+function validIsin(value: string): boolean {
+  if (!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/u.test(value)) {
+    return false;
+  }
+  const digits = [...value]
+    .map((character) => String(identifierCharacterValue(character)))
+    .join("");
+  let sum = 0;
+  let double = false;
+  for (let index = digits.length - 1; index >= 0; index -= 1) {
+    const parsed = Number(digits[index]);
+    const weighted = double ? parsed * 2 : parsed;
+    sum += Math.floor(weighted / 10) + (weighted % 10);
+    double = !double;
+  }
+  return sum % 10 === 0;
+}
+
+function validSedol(value: string): boolean {
+  if (!/^[0-9BCDFGHJKLMNPQRSTVWXYZ]{6}[0-9]$/u.test(value)) {
+    return false;
+  }
+  const weights = [1, 3, 1, 7, 3, 9, 1] as const;
+  return (
+    [...value].reduce(
+      (sum, character, index) =>
+        sum + identifierCharacterValue(character) * (weights[index] ?? 0),
+      0,
+    ) %
+      10 ===
+    0
+  );
+}
+
+/** Return only checksum-valid identifiers that are safe to canonicalize. */
+export function plaidInvestmentStrongSecurityIdentifier(
+  security: z.infer<typeof PlaidSecuritySchema>,
+): PlaidStrongSecurityIdentifier | null {
+  const candidates: readonly PlaidStrongSecurityIdentifier[] = [
+    ...(security.cusip == null
+      ? []
+      : [
+          {
+            kind: "cusip" as const,
+            value: security.cusip.trim().toUpperCase(),
+          },
+        ]),
+    ...(security.isin == null
+      ? []
+      : [{ kind: "isin" as const, value: security.isin.trim().toUpperCase() }]),
+    ...(security.sedol == null
+      ? []
+      : [
+          {
+            kind: "sedol" as const,
+            value: security.sedol.trim().toUpperCase(),
+          },
+        ]),
+  ];
+  return (
+    candidates.find((candidate) => {
+      if (candidate.kind === "cusip") {
+        return validCusip(candidate.value);
+      }
+      if (candidate.kind === "isin") {
+        return validIsin(candidate.value);
+      }
+      return validSedol(candidate.value);
+    }) ?? null
+  );
+}
+
 export function plaidInvestmentSecurityIdentity(
   security: z.infer<typeof PlaidSecuritySchema>,
 ): string {
-  if (security.cusip != null) {
-    return `cusip:${security.cusip.toUpperCase()}`;
-  }
-  if (security.isin != null) {
-    return `isin:${security.isin.toUpperCase()}`;
-  }
-  if (security.sedol != null) {
-    return `sedol:${security.sedol.toUpperCase()}`;
+  const strongIdentifier = plaidInvestmentStrongSecurityIdentifier(security);
+  if (strongIdentifier !== null) {
+    return `${strongIdentifier.kind}:${strongIdentifier.value}`;
   }
   if (security.ticker_symbol != null && security.type != null) {
     return `ticker:${security.ticker_symbol.toUpperCase()}:${security.type.toLowerCase()}`;

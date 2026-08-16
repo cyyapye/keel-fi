@@ -5,6 +5,7 @@ import {
   angelListOwnershipContainerKey,
   angelListPositionKey,
   plaidInvestmentsAccountKey,
+  plaidInvestmentsExposureKey,
   plaidInvestmentsPositionKey,
   plaidInvestmentsSourceKey,
 } from "./investment-identity";
@@ -73,6 +74,20 @@ describe("protected investment identity", () => {
     );
 
     expect(new Set([source, account, position]).size).toBe(3);
+  });
+
+  it("shares a protected public exposure identity across connections", async () => {
+    const first = await plaidInvestmentsExposureKey(env, "cusip", "67066G104");
+    const second = await plaidInvestmentsExposureKey(env, "cusip", "67066G104");
+    const differentKind = await plaidInvestmentsExposureKey(
+      env,
+      "isin",
+      "US67066G1040",
+    );
+
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[a-f0-9]{64}$/u);
+    expect(differentKind).not.toBe(first);
   });
 
   it("scopes AngelList ownership and positions without retaining labels", async () => {

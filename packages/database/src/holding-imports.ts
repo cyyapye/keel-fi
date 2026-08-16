@@ -23,6 +23,8 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
+import { D1ExposureRepository } from "./exposures";
+
 const MAX_IMPORT_BYTES = 1_048_576;
 const MAX_IMPORT_ROWS = 500;
 const ANGELLIST_PROVIDER = "angellist";
@@ -62,7 +64,7 @@ const HoldingImportStageInputSchema = z
     }
   });
 
-export type HoldingImportStageInput = z.infer<
+export type HoldingImportStageInput = z.input<
   typeof HoldingImportStageInputSchema
 >;
 
@@ -103,7 +105,7 @@ const RobinhoodHoldingImportStageInputSchema = z
     }
   });
 
-export type RobinhoodHoldingImportStageInput = z.infer<
+export type RobinhoodHoldingImportStageInput = z.input<
   typeof RobinhoodHoldingImportStageInputSchema
 >;
 
@@ -225,6 +227,8 @@ type ApplyImportRow = {
   quantity_micros: number | null;
   ticker: string | null;
   cost_basis_minor: number | null;
+  public_exposure_identity_kind: "cusip" | "isin" | "sedol" | null;
+  protected_exposure_key: string | null;
   currency_hint: string | null;
   parse_status: "ready" | "needs_attention";
   source_document_id: string;
@@ -901,9 +905,11 @@ export class D1HoldingImportRepository {
                unrealized_value_state, realized_value_minor, net_value_minor,
                net_value_state, instrument_type, currency_hint, parse_status,
                issue_codes_json, position_kind, quantity_micros, ticker,
-               cost_basis_minor, created_at
+               cost_basis_minor, public_exposure_identity_kind,
+               protected_exposure_key, created_at
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?,
-               'reported', 0, ?, 'reported', ?, 'USD', ?, ?, 'direct', ?, ?, ?, ?)`,
+               'reported', 0, ?, 'reported', ?, 'USD', ?, ?, 'direct', ?, ?,
+               ?, ?, ?, ?)`,
           )
           .bind(
             rowId,
@@ -930,6 +936,8 @@ export class D1HoldingImportRepository {
             row.quantityMicros,
             row.ticker,
             row.costBasisMinor,
+            scope.publicExposureIdentityKind,
+            scope.protectedExposureKey,
             createdAt,
           ),
         this.db
@@ -1490,6 +1498,8 @@ export class D1HoldingImportRepository {
              row.quantity_micros,
              row.ticker,
              row.cost_basis_minor,
+             row.public_exposure_identity_kind,
+             row.protected_exposure_key,
              row.currency_hint,
              row.parse_status,
              import.source_document_id,
@@ -1564,6 +1574,9 @@ export class D1HoldingImportRepository {
       if (!exactRetry) {
         throw new Error("Holding import was already reviewed differently.");
       }
+      await new D1ExposureRepository(
+        this.db,
+      ).reconcileDeterministicPublicImport(accessSubject, importId);
       return this.getApplyResult(identity.household_id, importId);
     }
     if (
@@ -1922,6 +1935,10 @@ export class D1HoldingImportRepository {
         ),
     );
     await this.db.batch(statements);
+    await new D1ExposureRepository(this.db).reconcileDeterministicPublicImport(
+      accessSubject,
+      importId,
+    );
     return this.getApplyResult(identity.household_id, importId);
   }
 

@@ -33,6 +33,7 @@ const migrationFiles = [
   "packages/database/migrations/0018_reviewed_cash_account_identities.sql",
   "packages/database/migrations/0019_multi_source_holdings_contract.sql",
   "packages/database/migrations/0020_container_scoped_holding_ingestion.sql",
+  "packages/database/migrations/0021_canonical_exposure_resolution.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -238,6 +239,8 @@ function robinhoodStageInput(
           sourceRowNumber: 1,
           protectedAccountKey: robinhoodAccountKey,
           protectedPositionKey: robinhoodPositionKey,
+          publicExposureIdentityKind: "cusip",
+          protectedExposureKey: "6".repeat(64),
         },
       ],
     },
@@ -532,12 +535,30 @@ describe("AngelList holding import persistence", () => {
       ticker: string;
       cost_basis_minor: number;
     };
+    const exposure = sqlite
+      .prepare(
+        `SELECT
+           canonical.exposure_kind, canonical.resolution_method,
+           mapping.relationship_kind, mapping.allocation_ppm,
+           mapping.decision_source
+         FROM canonical_exposures canonical
+         JOIN holding_position_exposure_mappings mapping
+           ON mapping.exposure_id = canonical.id`,
+      )
+      .get();
     expect(stored).toEqual({
       position_kind: "direct",
       opened_on: null,
       quantity_micros: 12_345_678,
       ticker: "SYN",
       cost_basis_minor: 100_000,
+    });
+    expect(exposure).toEqual({
+      exposure_kind: "public_instrument",
+      resolution_method: "strong_identifier",
+      relationship_kind: "direct",
+      allocation_ppm: 1_000_000,
+      decision_source: "deterministic_policy",
     });
 
     const alpha = await new D1AlphaRepository(
@@ -630,6 +651,14 @@ describe("AngelList holding import persistence", () => {
         effectiveDate: "2026-08-10",
       }),
     );
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_exposure_mappings`,
+        )
+        .get(),
+    ).toEqual({ count: 1 });
   });
 
   it("retains a complete zero-row account observation", async () => {

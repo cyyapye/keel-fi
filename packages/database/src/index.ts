@@ -58,6 +58,7 @@ export * from "./portfolio-watch";
 export * from "./cash-accounts";
 export * from "./cash-flow";
 export * from "./liabilities";
+export * from "./exposures";
 
 type DashboardRow = {
   as_of_date: string;
