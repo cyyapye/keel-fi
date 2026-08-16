@@ -14,6 +14,7 @@ import {
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
   D1PublicHoldingsRepository,
+  holdingPositionReadModeFromFlag,
   type AlphaRepository,
   type AngelListMacAgentRepository,
   type CashAccountsRepository,
@@ -462,7 +463,12 @@ export function createApp(options: AppOptions = {}) {
   const app = new Hono<AppEnvironment>();
   const verifier = options.verifyAccess ?? verifyAccessToken;
   const repositoryFor = (env: Env) =>
-    options.repository ?? new D1AlphaRepository(env.DB);
+    options.repository ??
+    new D1AlphaRepository(env.DB, {
+      holdingPositionReadMode: holdingPositionReadModeFromFlag(
+        env.MULTI_SOURCE_HOLDINGS_COMPATIBILITY_READS,
+      ),
+    });
   const angelListMacAgentRepositoryFor = (env: Env) =>
     options.angelListMacAgentRepository ??
     new D1AngelListMacAgentRepository(env.DB);
@@ -470,7 +476,11 @@ export function createApp(options: AppOptions = {}) {
     options.publicHoldingsRepository ?? new D1PublicHoldingsRepository(env.DB);
   const portfolioBaselineRepositoryFor = (env: Env) =>
     options.portfolioBaselineRepository ??
-    new D1PortfolioBaselineRepository(env.DB);
+    new D1PortfolioBaselineRepository(env.DB, {
+      holdingPositionReadMode: holdingPositionReadModeFromFlag(
+        env.MULTI_SOURCE_HOLDINGS_COMPATIBILITY_READS,
+      ),
+    });
   const planInputsRepositoryFor = (env: Env) =>
     options.planInputsRepository ?? new D1PlanInputsRepository(env.DB);
   const holdingImportRepositoryFor = (env: Env) =>

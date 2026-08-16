@@ -48,9 +48,14 @@ import {
   type HoldingImportStageInput,
   type HoldingImportStageResult,
 } from "./holding-imports";
+import {
+  holdingPositionReadSource,
+  type HoldingPositionReadOptions,
+} from "./holding-position-compatibility";
 
 export * from "./holding-imports";
 export * from "./angellist-mac-agent";
+export * from "./holding-position-compatibility";
 export * from "./portfolio-baseline";
 export * from "./plan-inputs";
 export * from "./public-holdings";
@@ -527,7 +532,17 @@ function parseMinorValue(serialized: string, key: string): number {
 }
 
 export class D1AlphaRepository implements AlphaRepository {
-  public constructor(private readonly db: D1Database) {}
+  private readonly holdingPositionsReadSource:
+    "holding_positions" | "holding_position_compatibility";
+
+  public constructor(
+    private readonly db: D1Database,
+    options: HoldingPositionReadOptions = {},
+  ) {
+    this.holdingPositionsReadSource = holdingPositionReadSource(
+      options.holdingPositionReadMode,
+    );
+  }
 
   public async getAlphaData(accessSubject: string): Promise<AlphaData> {
     const identity = await this.findIdentity(accessSubject);
@@ -675,7 +690,7 @@ export class D1AlphaRepository implements AlphaRepository {
                  snapshot.ticker,
                  snapshot.quantity_micros,
                  snapshot.cost_basis_minor
-               FROM holding_positions position
+               FROM ${this.holdingPositionsReadSource} position
                JOIN holding_position_snapshots snapshot
                  ON snapshot.id = (
                    SELECT latest.id

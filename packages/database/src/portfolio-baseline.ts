@@ -20,6 +20,10 @@ import {
   projectCashAccountIdentities,
   type AcceptedCashAccountHistoryRow,
 } from "./cash-account-identity";
+import {
+  holdingPositionReadSource,
+  type HoldingPositionReadOptions,
+} from "./holding-position-compatibility";
 
 type HouseholdIdentity = {
   household_id: string;
@@ -383,7 +387,17 @@ export interface PortfolioBaselineRepository {
 }
 
 export class D1PortfolioBaselineRepository implements PortfolioBaselineRepository {
-  public constructor(private readonly db: D1Database) {}
+  private readonly holdingPositionsReadSource:
+    "holding_positions" | "holding_position_compatibility";
+
+  public constructor(
+    private readonly db: D1Database,
+    options: HoldingPositionReadOptions = {},
+  ) {
+    this.holdingPositionsReadSource = holdingPositionReadSource(
+      options.holdingPositionReadMode,
+    );
+  }
 
   public async getState(
     accessSubject: string,
@@ -1008,7 +1022,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
              snapshot.observed_at,
              snapshot.ticker,
              position.instrument_type
-           FROM holding_positions position
+           FROM ${this.holdingPositionsReadSource} position
            JOIN holding_position_snapshots snapshot
              ON snapshot.id = (
                SELECT latest.id

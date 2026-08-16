@@ -5,6 +5,7 @@ import {
   index,
   integer,
   sqliteTable,
+  sqliteView,
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
@@ -2968,3 +2969,39 @@ export const holdingPositionExposureMappings = sqliteTable(
     ),
   ],
 );
+
+export const holdingPositionCompatibility = sqliteView(
+  "holding_position_compatibility",
+  {
+    id: text("id").notNull(),
+    householdId: text("household_id").notNull(),
+    provider: text("provider").notNull(),
+    positionFingerprint: text("position_fingerprint").notNull(),
+    legalVehicleName: text("legal_vehicle_name").notNull(),
+    ownerLabel: text("owner_label").notNull(),
+    positionKind: text("position_kind").notNull(),
+    instrumentType: text("instrument_type").notNull(),
+    openedOn: text("opened_on"),
+    currency: text("currency").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull(),
+    ownershipId: text("ownership_id").notNull(),
+    associationBasis: text("association_basis").notNull(),
+    ownershipEvidenceSha256: text("ownership_evidence_sha256").notNull(),
+    containerId: text("container_id").notNull(),
+    protectedAccountKey: text("protected_account_key").notNull(),
+    containerLabel: text("container_label").notNull(),
+    containerKind: text("container_kind").notNull(),
+    taxTreatment: text("tax_treatment").notNull(),
+    connectionId: text("connection_id").notNull(),
+    adapterType: text("adapter_type").notNull(),
+    protectedSourceKey: text("protected_source_key").notNull(),
+    institutionKey: text("institution_key").notNull(),
+    institutionLabel: text("institution_label").notNull(),
+    lifecycleState: text("lifecycle_state").notNull(),
+    associationState: text("association_state").notNull(),
+    omissionEligible: integer("omission_eligible", {
+      mode: "boolean",
+    }).notNull(),
+  },
+).existing();

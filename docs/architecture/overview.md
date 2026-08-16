@@ -9,9 +9,10 @@ for connecting multiple investment institutions, keeping same-security holdings
 separate by account, and keeping same-company SPV interests legally distinct is
 [ADR 005: Multi-source holdings identity](./adr-005-multi-source-holdings-identity.md).
 Its additive connection, container, coverage, and exposure persistence contract
-is present but initially empty. Legacy association, generic ingestion, and
-additional-institution authorization remain pending; Robinhood and AngelList are
-still the implemented holding sources.
+is present. Shipped Robinhood and AngelList positions have one-to-one
+compatibility associations without changing their existing facts or planning
+value. Generic ingestion and additional-institution authorization remain
+pending; Robinhood and AngelList are still the implemented holding sources.
 
 ```mermaid
 flowchart LR
@@ -83,9 +84,12 @@ flowchart LR
   primary FI goal version in one D1 batch.
 - Multi-source investment identity uses HMAC-derived connection, container, and
   position keys. Institution and account labels are versioned metadata rather
-  than identity. The additive M9 tables initially contain no legacy association
-  and cannot contribute value to a Portfolio Baseline; later slices must prove
-  compatibility before changing any holding write or read path. See the
+  than identity. A retained Robinhood sync chain can associate a legacy position
+  with one proven Item, but legacy rows did not retain protected account IDs.
+  Those positions and reviewed AngelList SPVs therefore remain in explicit
+  per-position unresolved containers that cannot support omission inference.
+  Compatibility reads join this ownership context one-for-one while the existing
+  position snapshot remains the only source of Portfolio Baseline value. See the
   [multi-source holdings runbook](../deployment/multi-source-holdings.md).
 - Cash-account linking requests only Plaid Auth and eligible US depository
   subtypes. The initial cached account response and every explicit live balance
