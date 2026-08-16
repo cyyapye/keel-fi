@@ -15,9 +15,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 - Check a milestone only after its reviewed PR is merged, terminal checks pass,
   and the merge is contained in an exact-SHA release that passes the post-merge
   deployment workflow.
-- When an active milestone contains ordered delivery slices, the first unchecked
-  slice is next. Do not begin or publish a later slice while an earlier slice is
-  unchecked.
+- Follow the active milestone's delivery rule. Numeric ordering is the default:
+  the first unchecked slice is next unless the milestone explicitly permits
+  dependency-gated parallel development.
 - Check an exit gate when its evidence exists. A checked implementation gate
   does not make the milestone delivered before its release gate passes.
 - Preserve completed milestones and their evidence when priorities change. Add a
@@ -155,12 +155,16 @@ deployment-specific aggregation-provider coverage, per-Item/product pricing,
 webhook volume, D1 growth, and retention before authorizing a real additional
 institution.
 
-**Delivery rule:** Complete the M9 slices below in order. The first unchecked M9
-slice is the next unit of work. Each slice must be independently mergeable, must
-preserve the currently shipped Robinhood, AngelList, cash-account, and Portfolio
-Baseline behavior, and must pass `make verify`, reviewed PR checks, exact-head
-merge, and exact-SHA post-merge evidence before the next slice starts. Keep M9
-marked **Active** until every slice and milestone exit gate is checked.
+**Delivery rule:** M9 permits dependency-gated parallel development while merges
+and releases remain serialized and dependency ordered. A sibling slice may start
+only from all released prerequisites named in that slice, and it may merge only
+after those prerequisites have exact-SHA release evidence. After any sibling
+merges, every still-open branch must rebase onto released `origin/main` and
+rerun `make verify` before its PR can merge. Each slice must be independently
+mergeable, preserve the currently shipped Robinhood, AngelList, cash-account,
+and Portfolio Baseline behavior, and pass reviewed PR checks, exact-head merge,
+and exact-SHA post-merge evidence. Keep M9 marked **Active** until every slice
+and milestone exit gate is checked.
 
 #### [x] M9.1 — Canonical persistence and domain contract
 
@@ -305,7 +309,7 @@ in
 No provider or runtime calls were added; incremental provider spend remains $0,
 with only bounded D1 and encrypted-backup growth.
 
-#### [ ] M9.4 — Canonical exposure resolution and aggregation
+#### [x] M9.4 — Canonical exposure resolution and aggregation
 
 **Outcome:** Keel can group shared economic exposure while preserving every
 legal position and preventing look-through double counting.
@@ -335,6 +339,22 @@ legal position and preventing look-through double counting.
 exposure but remain three positions. Two Anthropic SPVs resolve to one company
 exposure but remain two positions. A multi-company SPV with unknown allocations
 shows relationships without manufacturing exposure value.
+
+**Evidence:** Delivered in [PR #71](https://github.com/cyyapye/keel-fi/pull/71)
+at exact checked head
+[`71ee30e`](https://github.com/cyyapye/keel-fi/commit/71ee30ebe02dfe66795113df2e23a421003ac17f)
+and merge commit
+[`18c7951`](https://github.com/cyyapye/keel-fi/commit/18c795153b99535ac249bac7105033211e18e25d).
+Migration `0021_canonical_exposure_resolution.sql`, 411 tests, and 44
+desktop/mobile browser flows cover checksum-valid public identity, reviewed
+private and fund resolution, append-only mapping corrections, the allocation
+ceiling, deterministic retry, accepted-snapshot aggregation, and all three
+synthetic slice-gate cases. The exact-SHA release retained an encrypted D1
+backup, applied migration `0021`, deployed API and web Workers, read back both
+versions, passed protected smokes, and retained release evidence in
+[run `31928019480`](https://github.com/cyyapye/keel-fi/actions/runs/31928019480).
+No provider, network, schedule, Queue, or webhook call was added; incremental
+provider spend remains $0, with only bounded D1 and encrypted-backup growth.
 
 #### [ ] M9.5 — Provider-neutral Investments connection and Robinhood cutover
 
@@ -370,16 +390,54 @@ Robinhood institution can complete Link exchange and staging only when
 Investments support is validated; unsupported institutions fail before storing
 credentials or creating accepted facts.
 
-#### [ ] M9.6 — Canonical read models and planning integration
+#### [ ] M9.6a — Authoritative position read model
 
-**Outcome:** Position, exposure, and planning views use the canonical model with
-one authoritative monetary path.
+**Outcome:** Database consumers can read one household-scoped institution →
+connection → container → legal-position projection without joining exposure
+rollups or creating a second monetary path.
+
+**Dependencies and ownership:** This slice depends only on released M9.3 and may
+develop in parallel under the M9 delivery rule. Its implementation ownership is
+limited to a new `packages/database/src/position-read-model.ts` module, its
+focused test file, and the required database package export. M9.4 owns canonical
+exposure identity, mapping, aggregation, and this roadmap. This slice must
+rebase onto every sibling release and rerun `make verify` before merge; it
+remains unchecked until its own exact-SHA release evidence exists.
 
 **Required changes:**
 
-- Add a position read model grouped by institution, container, and legal
-  position, with exact accepted snapshot, source freshness, value state,
-  quantity, cost basis, tax treatment, and review status.
+- Project institution metadata, exact connection identity, ownership container,
+  and legal position without using institution label, account text, ticker, or
+  exposure name as identity.
+- Select the exact latest accepted position snapshot and expose source
+  freshness, value state, quantity, cost basis, tax treatment, and review status
+  without converting locked, unavailable, or not-reported values to zero.
+- Keep each legal position exactly once in its container and preserve distinct
+  connections at the same institution. Household, connection, and container
+  boundaries must fail closed.
+- Add repository invariant tests using only synthetic M9.3 connection,
+  container, ownership, application, and snapshot records.
+
+**Non-goals:** No canonical exposure repository or API, exposure aggregation,
+Portfolio Baseline integration, UI route, provider cutover, or additional
+institution authorization belongs in M9.6a; those remain in later slices.
+
+**Slice gate:** Synthetic positions across two institutions, two connections at
+one institution, and several containers appear once under their exact legal
+lineage. Only accepted snapshots are selected, unresolved values remain
+explicit, and cross-household or cross-container leakage is impossible.
+
+#### [ ] M9.6b — Exposure read model and planning integration
+
+**Outcome:** Exposure and planning views consume the authoritative position
+projection and preserve one monetary path.
+
+**Dependencies:** Released M9.4, M9.5, and M9.6a.
+
+**Required changes:**
+
+- Consume the released M9.6a position read model; do not add a second position
+  repository, position query path, or competing monetary projection.
 - Add an exposure read model grouped by canonical exposure with drill-down to
   every contributing position, mapping provenance, allocated value, and explicit
   unallocated/unknown value.
@@ -461,10 +519,10 @@ from unsupported, partial, stale, or disconnected states.
 - Keep ADR 005 marked `implementation pending` until every M9 exit gate and the
   exact-SHA release pass. Then update its status and the README/architecture
   current-state copy with the release evidence that materialized the model.
-- Keep additional-institution authorization unavailable until M9.1 through M9.7
-  are released and the proof matrix below passes. Roll back by disabling new
-  authorization and generic writes, never by deleting or rewriting accepted
-  records.
+- Keep additional-institution authorization unavailable until M9.1 through M9.7,
+  including M9.6a and M9.6b, are released and the proof matrix below passes.
+  Roll back by disabling new authorization and generic writes, never by deleting
+  or rewriting accepted records.
 
 **Slice gate:** Desktop and mobile visual review, accessibility checks,
 protected preview smoke, private owner acceptance, migration/backup evidence,
@@ -490,7 +548,8 @@ artifacts.
 
 **Rollout and cost evidence:**
 
-- M9.1 through M9.6 use synthetic provider data and add no real provider calls.
+- M9.1 through M9.6b, including M9.6a, use synthetic provider data and add no
+  real provider calls.
 - Before M9.7 private authorization, record the selected institution variant's
   Investments coverage, Item/product price, expected webhook volume, and any
   reconnect or refresh charge from the private provider contract.
@@ -508,7 +567,8 @@ artifacts.
 
 **Exit gates:**
 
-- [ ] M9.1 through M9.8 are checked in order with their evidence recorded.
+- [ ] M9.1 through M9.8, including M9.6a and M9.6b, are checked in dependency
+      order with their evidence recorded.
 - [ ] Every required proof-matrix scenario passes in domain, repository, API,
       and browser coverage where applicable.
 - [ ] Fresh canonical migration replay and every direct-ingestion cutover keep
