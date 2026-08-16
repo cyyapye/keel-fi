@@ -3,6 +3,10 @@ import {
   type Holding,
   type InvestmentConnectionStatus,
   type InvestmentConnectionsState,
+  type PrivateExposureCompany,
+  type PrivateExposureResolutionInput,
+  type PrivateExposureReviewPosition,
+  type PrivateExposureReviewState,
 } from "@keel/domain";
 import type { InvestmentExposurePosition } from "@keel/domain/exposure-read-model";
 import type { InvestmentHoldingsView } from "@keel/domain/investment-holdings-view";
@@ -13,9 +17,18 @@ import type {
   InvestmentPositionRecord,
 } from "@keel/domain/position-read-model";
 import { Badge, Button } from "@keel/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
+  assignPrivateCompanyExposure,
   changeInvestmentConnectionLifecycle,
   createInvestmentLinkToken,
   createInvestmentReconnectLinkToken,
@@ -23,6 +36,7 @@ import {
   exchangeInvestmentPublicToken,
   loadInvestmentConnections,
   loadInvestmentHoldings,
+  loadPrivateExposureReviews,
   syncInvestmentHoldings,
 } from "./api";
 import { formatCompactCurrency, formatDate } from "./format";
@@ -366,16 +380,187 @@ function InstitutionActions({
   );
 }
 
+function companyStatusLabel(status: PrivateExposureCompany["status"]): string {
+  return {
+    active: "Active",
+    exited: "Exited",
+    written_off: "Written off",
+  }[status];
+}
+
+function PrivateExposureAssignmentForm({
+  busy,
+  companies,
+  error,
+  onCancel,
+  onSubmit,
+  position,
+}: {
+  busy: boolean;
+  companies: readonly PrivateExposureCompany[];
+  error: string | null;
+  onCancel: () => void;
+  onSubmit: (input: PrivateExposureResolutionInput) => void;
+  position: PrivateExposureReviewPosition;
+}) {
+  const [mode, setMode] = useState<"existing" | "new">(
+    companies.length > 0 ? "existing" : "new",
+  );
+  const [companyId, setCompanyId] = useState("");
+  const [legalName, setLegalName] = useState(
+    position.reportedExposureName ?? "",
+  );
+  const [websiteHost, setWebsiteHost] = useState("");
+  const canSubmit =
+    !busy &&
+    (mode === "existing" ? companyId.length > 0 : legalName.trim().length > 0);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canSubmit) {
+      return;
+    }
+    onSubmit({
+      expectedSnapshotId: position.snapshotId,
+      company:
+        mode === "existing"
+          ? { mode, companyId }
+          : {
+              mode,
+              legalName: legalName.trim(),
+              websiteHost:
+                websiteHost.trim().length === 0 ? null : websiteHost.trim(),
+            },
+    });
+  };
+
+  return (
+    <form
+      aria-label={"Assign " + position.legalVehicleName + " exposure"}
+      className="private-exposure-review"
+      onSubmit={submit}
+    >
+      <div className="private-exposure-review__heading">
+        <div>
+          <p className="eyebrow">Exposure review</p>
+          <h4>Choose the underlying company</h4>
+        </div>
+        <p>
+          {position.reportedExposureName === null
+            ? "The import did not name a company."
+            : "Reported as " + position.reportedExposureName + "."}{" "}
+          The legal position and value stay unchanged.
+        </p>
+      </div>
+      <fieldset>
+        <legend>Company identity</legend>
+        {companies.length > 0 && (
+          <label className="private-exposure-review__choice">
+            <input
+              checked={mode === "existing"}
+              disabled={busy}
+              name={"company-mode-" + position.positionId}
+              onChange={() => setMode("existing")}
+              type="radio"
+            />
+            Choose a reviewed company
+          </label>
+        )}
+        {mode === "existing" && companies.length > 0 && (
+          <label>
+            Company
+            <select
+              disabled={busy}
+              onChange={(event) => setCompanyId(event.target.value)}
+              value={companyId}
+            >
+              <option value="">Select a company</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.legalName} ·{" "}
+                  {company.websiteHost ?? companyStatusLabel(company.status)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="private-exposure-review__choice">
+          <input
+            checked={mode === "new"}
+            disabled={busy}
+            name={"company-mode-" + position.positionId}
+            onChange={() => setMode("new")}
+            type="radio"
+          />
+          Create a reviewed company
+        </label>
+        {mode === "new" && (
+          <div className="private-exposure-review__new-company">
+            <label>
+              Company name
+              <input
+                disabled={busy}
+                maxLength={1_000}
+                onChange={(event) => setLegalName(event.target.value)}
+                required
+                value={legalName}
+              />
+            </label>
+            <label>
+              Website domain <small>Optional</small>
+              <input
+                autoCapitalize="none"
+                disabled={busy}
+                maxLength={253}
+                onChange={(event) => setWebsiteHost(event.target.value)}
+                placeholder="company.example"
+                spellCheck={false}
+                value={websiteHost}
+              />
+            </label>
+          </div>
+        )}
+      </fieldset>
+      {error !== null && <p role="alert">{error}</p>}
+      <div className="private-exposure-review__actions">
+        <Button disabled={busy} onClick={onCancel} tone="quiet">
+          Cancel
+        </Button>
+        <Button disabled={!canSubmit} tone="primary" type="submit">
+          {busy ? "Assigning…" : "Assign company"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function PositionViews({
   data,
+  exposureReviewBusyPositionId,
+  exposureReviewError,
+  exposureReviewPositionId,
+  exposureReviewState,
   openableHoldingIds,
+  onBeginExposureReview,
+  onCancelExposureReview,
   onOpenHolding,
+  onSubmitExposureReview,
   reviewedHoldings,
   view,
 }: {
   data: InvestmentHoldingsView;
+  exposureReviewBusyPositionId: string | null;
+  exposureReviewError: string | null;
+  exposureReviewPositionId: string | null;
+  exposureReviewState: PrivateExposureReviewState | null;
   openableHoldingIds: ReadonlySet<string>;
+  onBeginExposureReview: (positionId: string) => void;
+  onCancelExposureReview: () => void;
   onOpenHolding: (holdingId: string) => void;
+  onSubmitExposureReview: (
+    position: PrivateExposureReviewPosition,
+    input: PrivateExposureResolutionInput,
+  ) => void;
   reviewedHoldings: readonly Holding[];
   view: ViewMode;
 }) {
@@ -534,6 +719,12 @@ function PositionViews({
       (position.unallocatedValueMinor ?? 0) > 0 ||
       position.mappedExposureIds.length === 0,
   );
+  const reviewPositionById = new Map(
+    exposureReviewState?.positions.map((position) => [
+      position.positionId,
+      position,
+    ]) ?? [],
+  );
   const reviewedByCompanyId = new Map<string, Holding[]>();
   const unresolvedReviewed = reviewedHoldings.filter(
     (holding) => holding.companyId === null,
@@ -682,27 +873,58 @@ function PositionViews({
             <p className="eyebrow">Not assigned to an exposure total</p>
             <h3>Unallocated or unresolved value</h3>
           </div>
-          {canonicalUnallocated.map((position) => (
-            <article key={position.id}>
-              <span>
-                <strong>{position.legalVehicleName}</strong>
-                <small>
-                  {position.institutionLabel} · {position.containerLabel}
-                </small>
-              </span>
-              <span>{exposurePositionValue(position)}</span>
-              <span>
-                {position.hasUnknownAllocation
-                  ? "Allocation unknown"
-                  : position.mappedExposureIds.length === 0
-                    ? "Exposure unresolved"
-                    : formatCompactCurrency(
-                        position.unallocatedValueMinor ?? 0,
-                        position.currency,
-                      )}
-              </span>
-            </article>
-          ))}
+          {canonicalUnallocated.map((position) => {
+            const reviewPosition = reviewPositionById.get(position.id) ?? null;
+            const reviewOpen = exposureReviewPositionId === position.id;
+            return (
+              <Fragment key={position.id}>
+                <article>
+                  <span>
+                    <strong>{position.legalVehicleName}</strong>
+                    <small>
+                      {position.institutionLabel} · {position.containerLabel}
+                    </small>
+                  </span>
+                  <span>{exposurePositionValue(position)}</span>
+                  <span className="unallocated-positions__status">
+                    {position.hasUnknownAllocation
+                      ? "Allocation unknown"
+                      : position.mappedExposureIds.length === 0
+                        ? "Exposure unresolved"
+                        : formatCompactCurrency(
+                            position.unallocatedValueMinor ?? 0,
+                            position.currency,
+                          )}
+                    {reviewPosition !== null && !reviewOpen && (
+                      <Button
+                        aria-label={
+                          "Choose company for " + position.legalVehicleName
+                        }
+                        className="private-exposure-review__open"
+                        onClick={() => onBeginExposureReview(position.id)}
+                        tone="secondary"
+                      >
+                        Choose company
+                      </Button>
+                    )}
+                  </span>
+                </article>
+                {reviewPosition !== null && reviewOpen && (
+                  <PrivateExposureAssignmentForm
+                    busy={exposureReviewBusyPositionId === position.id}
+                    companies={exposureReviewState?.companies ?? []}
+                    error={exposureReviewError}
+                    key={position.id}
+                    onCancel={onCancelExposureReview}
+                    onSubmit={(input) =>
+                      onSubmitExposureReview(reviewPosition, input)
+                    }
+                    position={reviewPosition}
+                  />
+                )}
+              </Fragment>
+            );
+          })}
           {unresolvedReviewed.map((holding) => (
             <article key={holding.id}>
               <span>
@@ -749,10 +971,12 @@ function reviewedHoldingValue(holding: Holding): string {
 
 export function InvestmentHoldings({
   holdings,
+  onExposureResolved,
   onOpenHolding,
   onReviewImport,
 }: {
   holdings: readonly Holding[];
+  onExposureResolved: () => Promise<void>;
   onOpenHolding: (holdingId: string) => void;
   onReviewImport: (importId: string) => void;
 }) {
@@ -766,6 +990,22 @@ export function InvestmentHoldings({
   const [error, setError] = useState<string | null>(initialInvestmentError);
   const [viewError, setViewError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [exposureReviewState, setExposureReviewState] =
+    useState<PrivateExposureReviewState | null>(null);
+  const [exposureReviewPositionId, setExposureReviewPositionId] = useState<
+    string | null
+  >(null);
+  const [exposureReviewBusyPositionId, setExposureReviewBusyPositionId] =
+    useState<string | null>(null);
+  const [exposureReviewError, setExposureReviewError] = useState<string | null>(
+    null,
+  );
+  const [exposureReviewLoadError, setExposureReviewLoadError] = useState<
+    string | null
+  >(null);
+  const [exposureReviewNotice, setExposureReviewNotice] = useState<
+    string | null
+  >(null);
   const [view, setView] = useState<ViewMode>("positions");
   const oauthStarted = useRef(false);
   const knownHoldingIds = useMemo(
@@ -811,9 +1051,25 @@ export function InvestmentHoldings({
     }
   }, []);
 
+  const reloadExposureReviews = useCallback(async () => {
+    try {
+      setExposureReviewState(await loadPrivateExposureReviews());
+      setExposureReviewLoadError(null);
+    } catch {
+      setExposureReviewLoadError(
+        "Keel could not load company choices for unresolved exposures.",
+      );
+    }
+  }, []);
+
   const reload = useCallback(
-    () => Promise.all([reloadConnections(), reloadHoldings()]),
-    [reloadConnections, reloadHoldings],
+    () =>
+      Promise.all([
+        reloadConnections(),
+        reloadHoldings(),
+        reloadExposureReviews(),
+      ]),
+    [reloadConnections, reloadExposureReviews, reloadHoldings],
   );
 
   useEffect(() => {
@@ -1041,6 +1297,60 @@ export function InvestmentHoldings({
     }
   };
 
+  const beginExposureReview = (positionId: string) => {
+    setExposureReviewPositionId(positionId);
+    setExposureReviewError(null);
+    setExposureReviewNotice(null);
+  };
+
+  const cancelExposureReview = () => {
+    if (exposureReviewBusyPositionId !== null) {
+      return;
+    }
+    setExposureReviewPositionId(null);
+    setExposureReviewError(null);
+  };
+
+  const submitExposureReview = async (
+    position: PrivateExposureReviewPosition,
+    input: PrivateExposureResolutionInput,
+  ) => {
+    setExposureReviewBusyPositionId(position.positionId);
+    setExposureReviewError(null);
+    setExposureReviewNotice(null);
+    try {
+      const result = await assignPrivateCompanyExposure(
+        position.positionId,
+        input,
+      );
+      setExposureReviewPositionId(null);
+      setExposureReviewNotice(
+        position.legalVehicleName +
+          " now groups under " +
+          result.companyName +
+          ". The legal position is unchanged.",
+      );
+      const refreshes = await Promise.allSettled([
+        reloadHoldings(),
+        reloadExposureReviews(),
+        onExposureResolved(),
+      ]);
+      if (refreshes.some((refresh) => refresh.status === "rejected")) {
+        setExposureReviewLoadError(
+          "The company assignment was saved, but the latest view could not be loaded.",
+        );
+      }
+    } catch (reviewError) {
+      setExposureReviewError(
+        reviewError instanceof Error
+          ? reviewError.message
+          : "Keel could not assign this exposure.",
+      );
+    } finally {
+      setExposureReviewBusyPositionId(null);
+    }
+  };
+
   const statusById = new Map(
     connectionState?.connections.map((status) => [
       status.connectionId,
@@ -1234,6 +1544,24 @@ export function InvestmentHoldings({
             Exposures
           </button>
         </div>
+        {view === "exposures" && exposureReviewNotice !== null && (
+          <p className="private-exposure-review__notice" role="status">
+            {exposureReviewNotice}
+          </p>
+        )}
+        {view === "exposures" && exposureReviewLoadError !== null && (
+          <div className="investment-views__error" role="alert">
+            <p>
+              {exposureReviewLoadError} Reviewed positions were not changed.
+            </p>
+            <Button
+              onClick={() => void reloadExposureReviews()}
+              tone="secondary"
+            >
+              Try again
+            </Button>
+          </div>
+        )}
         {data === null && viewError === null ? (
           <p className="investment-views__loading" role="status">
             Loading reviewed positions…
@@ -1251,8 +1579,17 @@ export function InvestmentHoldings({
             {(data !== null || reviewedHoldings.length > 0) && (
               <PositionViews
                 data={data ?? EMPTY_INVESTMENT_HOLDINGS_VIEW}
+                exposureReviewBusyPositionId={exposureReviewBusyPositionId}
+                exposureReviewError={exposureReviewError}
+                exposureReviewPositionId={exposureReviewPositionId}
+                exposureReviewState={exposureReviewState}
                 openableHoldingIds={knownHoldingIds}
+                onBeginExposureReview={beginExposureReview}
+                onCancelExposureReview={cancelExposureReview}
                 onOpenHolding={onOpenHolding}
+                onSubmitExposureReview={(position, input) =>
+                  void submitExposureReview(position, input)
+                }
                 reviewedHoldings={reviewedHoldings}
                 view={view}
               />

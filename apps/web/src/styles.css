@@ -2867,6 +2867,134 @@ h1,
   letter-spacing: -0.035em;
 }
 
+.unallocated-positions__status {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.private-exposure-review__open.button {
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.private-exposure-review {
+  display: grid;
+  gap: 18px;
+  padding: 22px 0 26px 22px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.private-exposure-review__heading {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(260px, 1fr);
+  align-items: end;
+  gap: 24px;
+}
+
+.private-exposure-review__heading h4 {
+  margin: 3px 0 0;
+  font-size: 16px;
+  letter-spacing: -0.03em;
+}
+
+.private-exposure-review__heading > p,
+.private-exposure-review > p,
+.private-exposure-review__notice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.private-exposure-review > p[role="alert"] {
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.private-exposure-review fieldset {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.private-exposure-review legend {
+  margin-bottom: 6px;
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.private-exposure-review label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.private-exposure-review__choice {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  min-height: 32px;
+}
+
+.private-exposure-review__choice input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+.private-exposure-review select,
+.private-exposure-review__new-company input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 10px;
+  background: transparent;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+}
+
+.private-exposure-review select:focus-visible,
+.private-exposure-review input:focus-visible,
+.private-exposure-review__open:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.private-exposure-review__new-company {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.7fr);
+  gap: 16px;
+}
+
+.private-exposure-review label small {
+  color: var(--faint);
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.private-exposure-review__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.private-exposure-review__notice {
+  padding: 16px 0 2px;
+  color: var(--ink);
+  font-weight: 750;
+}
+
 .angellist-agent {
   display: grid;
   grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
@@ -6144,6 +6272,26 @@ h1,
     grid-template-columns: 1fr;
     gap: 7px;
     padding-left: 0;
+  }
+
+  .private-exposure-review {
+    padding-left: 0;
+  }
+
+  .private-exposure-review__heading,
+  .private-exposure-review__new-company {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .private-exposure-review__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .private-exposure-review__actions .button,
+  .private-exposure-review__open.button {
+    width: 100%;
   }
 
   .investment-views__error {

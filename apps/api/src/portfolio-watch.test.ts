@@ -36,6 +36,14 @@ const migrationFiles = [
   "packages/database/migrations/0013_plaid_holdings_webhooks.sql",
   "packages/database/migrations/0014_robinhood_auto_adjudication.sql",
   "packages/database/migrations/0015_reviewed_cash_accounts.sql",
+  "packages/database/migrations/0016_reviewed_liabilities.sql",
+  "packages/database/migrations/0017_reviewed_cash_flow.sql",
+  "packages/database/migrations/0018_reviewed_cash_account_identities.sql",
+  "packages/database/migrations/0019_multi_source_holdings_contract.sql",
+  "packages/database/migrations/0020_container_scoped_holding_ingestion.sql",
+  "packages/database/migrations/0021_canonical_exposure_resolution.sql",
+  "packages/database/migrations/0022_provider_neutral_investments.sql",
+  "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

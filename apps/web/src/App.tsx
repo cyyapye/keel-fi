@@ -4353,6 +4353,7 @@ function PortfolioBaselineSection({
 function Holdings({
   data,
   onBaselineConfirmed,
+  onExposureResolved,
   onApplyImport,
   onImportRouteChange,
   onListPendingImports,
@@ -4362,6 +4363,7 @@ function Holdings({
 }: {
   data: AlphaData;
   onBaselineConfirmed: () => Promise<void>;
+  onExposureResolved: () => Promise<void>;
   onApplyImport: (
     importId: string,
     input: HoldingImportApplyInput,
@@ -4585,6 +4587,7 @@ function Holdings({
           />
           <InvestmentHoldings
             holdings={data.holdings}
+            onExposureResolved={onExposureResolved}
             onOpenHolding={setSelectedHoldingId}
             onReviewImport={reviewPendingImport}
           />
@@ -6351,6 +6354,7 @@ export function App() {
           <Holdings
             data={data}
             onBaselineConfirmed={async () => setData(await loadAlphaData())}
+            onExposureResolved={async () => setData(await loadAlphaData())}
             onApplyImport={async (importId, input) => {
               const result = await applyHoldingImport(importId, input);
               setData(await loadAlphaData());

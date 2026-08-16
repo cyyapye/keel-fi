@@ -9,12 +9,14 @@ import {
   D1AngelListMacAgentRepository,
   D1CashAccountsRepository,
   D1CashFlowRepository,
+  D1ExposureRepository,
   D1HoldingImportRepository,
   D1InvestmentExposureViewRepository,
   D1LiabilitiesRepository,
   D1PlanActualMonitoringRepository,
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
+  PrivateExposureReviewError,
   D1InvestmentConnectionsRepository,
   D1InvestmentPositionViewRepository,
   type AlphaRepository,
@@ -25,6 +27,7 @@ import {
   type PlanActualMonitoringRepository,
   type PlanInputsRepository,
   type PortfolioBaselineRepository,
+  type PrivateExposureReviewRepository,
   type InvestmentConnectionsRepository,
   type InvestmentExposureViewRepository,
   type InvestmentPositionViewRepository,
@@ -47,6 +50,9 @@ import {
   LiabilityExchangeInputSchema,
   ManualLiabilityInputSchema,
   PlanInputSaveSchema,
+  PrivateExposureResolutionInputSchema,
+  PrivateExposureResolutionResultSchema,
+  PrivateExposureReviewStateSchema,
   PortfolioBaselineConfirmInputSchema,
   PortfolioWatchScanResultSchema,
   InvestmentConnectionLifecycleActionInputSchema,
@@ -135,6 +141,7 @@ type AppOptions = {
   investmentConnectionsRepository?: InvestmentConnectionsRepository;
   investmentExposureViewRepository?: InvestmentExposureViewRepository;
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
+  privateExposureReviewRepository?: PrivateExposureReviewRepository;
   additionalInvestmentAuthorizationAvailable?: boolean;
   repository?: AlphaRepository;
   verifyAccess?: AccessVerifier;
@@ -499,6 +506,8 @@ export function createApp(options: AppOptions = {}) {
   const investmentExposureViewRepositoryFor = (env: Env) =>
     options.investmentExposureViewRepository ??
     new D1InvestmentExposureViewRepository(env.DB);
+  const privateExposureReviewRepositoryFor = (env: Env) =>
+    options.privateExposureReviewRepository ?? new D1ExposureRepository(env.DB);
   const portfolioBaselineRepositoryFor = (env: Env) =>
     options.portfolioBaselineRepository ??
     new D1PortfolioBaselineRepository(env.DB);
@@ -1513,6 +1522,98 @@ export function createApp(options: AppOptions = {}) {
       );
     }
   });
+
+  app.get("/api/private-exposure-reviews", async (context) => {
+    try {
+      const state = await privateExposureReviewRepositoryFor(
+        context.env,
+      ).getPrivateExposureReviewState(context.get("identity").subject);
+      return context.json(PrivateExposureReviewStateSchema.parse(state), 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json(
+        { error: "Private exposure reviews are unavailable." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post(
+    "/api/private-exposure-reviews/:positionId/assign",
+    async (context) => {
+      let input: unknown;
+      try {
+        input = await context.req.json();
+      } catch {
+        return context.json(
+          { error: "A JSON request body is required." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      const parsed = PrivateExposureResolutionInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return context.json(
+          { error: "Choose a valid reviewed company." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      try {
+        const result = await privateExposureReviewRepositoryFor(
+          context.env,
+        ).assignPrivateCompanyExposure(
+          context.get("identity").subject,
+          context.req.param("positionId"),
+          parsed.data,
+        );
+        return context.json(
+          PrivateExposureResolutionResultSchema.parse(result),
+          201,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        if (error instanceof PrivateExposureReviewError) {
+          if (error.code === "not_found") {
+            return context.json(
+              { error: "This position is not available for exposure review." },
+              404,
+              { "Cache-Control": "private, no-store" },
+            );
+          }
+          if (error.code === "invalid_company") {
+            return context.json(
+              { error: "Choose a company from this household." },
+              400,
+              { "Cache-Control": "private, no-store" },
+            );
+          }
+          if (error.code === "company_conflict") {
+            return context.json(
+              {
+                error:
+                  "That reviewed company already exists. Choose it from the list.",
+              },
+              409,
+              { "Cache-Control": "private, no-store" },
+            );
+          }
+          return context.json(
+            { error: "This exposure review is no longer current." },
+            409,
+            { "Cache-Control": "private, no-store" },
+          );
+        }
+        return context.json(
+          { error: "Keel could not assign this exposure." },
+          503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
 
   app.post("/api/investment-connections/link-token", async (context) => {
     if (!investmentsConfiguredFor(context.env)) {

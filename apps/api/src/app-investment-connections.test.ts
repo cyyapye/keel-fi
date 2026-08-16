@@ -2,7 +2,9 @@ import type {
   InvestmentConnectionsRepository,
   InvestmentExposureViewRepository,
   InvestmentPositionViewRepository,
+  PrivateExposureReviewRepository,
 } from "@keel/database";
+import { PrivateExposureReviewError } from "@keel/database";
 import type {
   InvestmentConnectionStatus,
   InvestmentConnectionsState,
@@ -98,6 +100,42 @@ function client() {
     getWebhookVerificationKey: vi.fn(),
     getHoldings: vi.fn(),
   } satisfies PlaidInvestmentsClient;
+  return value;
+}
+
+function privateExposureReviewRepository() {
+  const value = {
+    getPrivateExposureReviewState: vi.fn().mockResolvedValue({
+      version: 1,
+      positions: [
+        {
+          positionId: "position_synthetic_spv",
+          snapshotId: "snapshot_synthetic_spv",
+          legalVehicleName: "Synthetic Beacon SPV",
+          reportedExposureName: "Synthetic Harbor Health",
+          positionKind: "spv_interest",
+          ownerLabel: "Synthetic Family LLC",
+          observedAt: "2026-08-16T12:00:00.000Z",
+        },
+      ],
+      companies: [
+        {
+          id: "company_synthetic_harbor",
+          legalName: "Synthetic Harbor Health",
+          websiteHost: "harbor.example",
+          status: "active",
+        },
+      ],
+    }),
+    assignPrivateCompanyExposure: vi.fn().mockResolvedValue({
+      version: 1,
+      positionId: "position_synthetic_spv",
+      companyId: "company_synthetic_harbor",
+      companyName: "Synthetic Harbor Health",
+      exposureId: "exposure_synthetic_harbor",
+      mappingId: "mapping_synthetic_spv_harbor",
+    }),
+  } satisfies PrivateExposureReviewRepository;
   return value;
 }
 
@@ -209,6 +247,111 @@ describe("investment-connections API", () => {
       expect.any(String),
       positionView,
     );
+  });
+
+  it("loads and records an explicit private-company exposure review", async () => {
+    const privateExposureReviewRepositoryValue =
+      privateExposureReviewRepository();
+    const app = createApp({
+      privateExposureReviewRepository: privateExposureReviewRepositoryValue,
+    });
+
+    const stateResponse = await app.request(
+      "/api/private-exposure-reviews",
+      undefined,
+      env(),
+    );
+    expect(stateResponse.status).toBe(200);
+    expect(stateResponse.headers.get("Cache-Control")).toBe(
+      "private, no-store",
+    );
+    await expect(stateResponse.json()).resolves.toMatchObject({
+      version: 1,
+      positions: [{ positionId: "position_synthetic_spv" }],
+      companies: [{ id: "company_synthetic_harbor" }],
+    });
+
+    const input = {
+      expectedSnapshotId: "snapshot_synthetic_spv",
+      company: {
+        mode: "existing" as const,
+        companyId: "company_synthetic_harbor",
+      },
+    };
+    const assignResponse = await app.request(
+      "/api/private-exposure-reviews/position_synthetic_spv/assign",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+      env(),
+    );
+    expect(assignResponse.status).toBe(201);
+    expect(
+      privateExposureReviewRepositoryValue.assignPrivateCompanyExposure,
+    ).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "position_synthetic_spv",
+      input,
+    );
+    await expect(assignResponse.json()).resolves.toMatchObject({
+      companyId: "company_synthetic_harbor",
+      mappingId: "mapping_synthetic_spv_harbor",
+    });
+  });
+
+  it("rejects text-only or stale private exposure assignments", async () => {
+    const assignPrivateCompanyExposure = vi
+      .fn()
+      .mockRejectedValue(
+        new PrivateExposureReviewError(
+          "company_conflict",
+          "Synthetic duplicate company.",
+        ),
+      );
+    const app = createApp({
+      privateExposureReviewRepository: {
+        ...privateExposureReviewRepository(),
+        assignPrivateCompanyExposure,
+      },
+    });
+
+    const invalidResponse = await app.request(
+      "/api/private-exposure-reviews/position_synthetic_spv/assign",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedSnapshotId: "snapshot_synthetic_spv",
+          company: { legalName: "Synthetic Harbor Health" },
+        }),
+      },
+      env(),
+    );
+    expect(invalidResponse.status).toBe(400);
+    expect(assignPrivateCompanyExposure).not.toHaveBeenCalled();
+
+    const conflictResponse = await app.request(
+      "/api/private-exposure-reviews/position_synthetic_spv/assign",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedSnapshotId: "snapshot_synthetic_spv",
+          company: {
+            mode: "new",
+            legalName: "Synthetic Harbor Health",
+            websiteHost: "harbor.example",
+          },
+        }),
+      },
+      env(),
+    );
+    expect(conflictResponse.status).toBe(409);
+    await expect(conflictResponse.json()).resolves.toEqual({
+      error: "That reviewed company already exists. Choose it from the list.",
+    });
   });
 
   it("does not open new authorization before provider approval", async () => {

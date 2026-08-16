@@ -31,6 +31,9 @@ import {
   PlanInputSaveResultSchema,
   PlanInputSaveSchema,
   PlanInputStateSchema,
+  PrivateExposureResolutionInputSchema,
+  PrivateExposureResolutionResultSchema,
+  PrivateExposureReviewStateSchema,
   PortfolioWatchScanResultSchema,
   PortfolioBaselineConfirmInputSchema,
   PortfolioBaselineConfirmResultSchema,
@@ -70,6 +73,9 @@ import {
   type PlanInputSave,
   type PlanInputSaveResult,
   type PlanInputState,
+  type PrivateExposureResolutionInput,
+  type PrivateExposureResolutionResult,
+  type PrivateExposureReviewState,
   type PortfolioWatchScanResult,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineConfirmResult,
@@ -846,6 +852,46 @@ export async function loadInvestmentHoldings(): Promise<InvestmentHoldingsView> 
     );
   }
   return InvestmentHoldingsViewSchema.parse(await response.json());
+}
+
+export async function loadPrivateExposureReviews(): Promise<PrivateExposureReviewState> {
+  const response = await fetch("/api/private-exposure-reviews", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Private exposure reviews returned ${response.status}.`,
+    );
+  }
+  return PrivateExposureReviewStateSchema.parse(await response.json());
+}
+
+export async function assignPrivateCompanyExposure(
+  positionId: string,
+  input: PrivateExposureResolutionInput,
+): Promise<PrivateExposureResolutionResult> {
+  const body = PrivateExposureResolutionInputSchema.parse(input);
+  const response = await fetch(
+    `/api/private-exposure-reviews/${encodeURIComponent(positionId)}/assign`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Private exposure review returned ${response.status}.`,
+    );
+  }
+  return PrivateExposureResolutionResultSchema.parse(await response.json());
 }
 
 export async function createInvestmentLinkToken(): Promise<InvestmentLinkToken> {

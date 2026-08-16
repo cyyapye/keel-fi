@@ -121,7 +121,7 @@ identity could create false missing-position signals or double counts when a
 second institution is added. M9 establishes the account-scoped identity and
 aggregation boundary first.
 
-### [x] M9 — Multi-source investment ownership
+### [ ] M9 — Multi-source investment ownership — **Active**
 
 **User outcome:** The owner can connect Robinhood, Fidelity, and later
 investment institutions; keep the same security separate in every brokerage or
@@ -754,6 +754,45 @@ incremental external spend remains `$0`.
 - [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
+### [ ] M9.10 — Self-serve reviewed private exposure assignment
+
+**User outcome:** An unresolved AngelList position can be assigned to an
+existing reviewed company or a newly reviewed company. Different SPVs assigned
+to that company remain separate legal positions and appear together as one
+economic exposure.
+
+**Trust boundary:** Provider text can prefill a proposed company name but never
+selects or creates a canonical identity by itself. The owner must confirm the
+company against the exact current accepted snapshot. The accepted assignment is
+append-only and cannot alter the position, value, baseline, goal, or forecast.
+
+**Scope:** Add a household-scoped exposure-review state, an authenticated review
+endpoint, and an inline Holdings action for eligible unresolved AngelList direct
+and SPV positions. Allow an explicit choice of an existing company or creation
+of a new reviewed company, supersede any current unresolved mapping, and record
+one full direct or look-through mapping to the reviewed company exposure.
+
+**Non-goals:** Fuzzy or automatic name matching, bulk assignment without
+per-position review, fund look-through allocation, merging SPV histories,
+rewriting provider labels, or changing planning value.
+
+**Dependencies:** Released M9.4 canonical exposures and mappings, M9.6 read
+models, and M9.9's separate Positions and Exposures experience.
+
+**Infrastructure-cost gate:** Use existing authenticated API, D1 records, and
+accepted source-document evidence. Add no provider request, paid product,
+polling schedule, Queue message, R2 object, notification channel, or recurring
+work; approved incremental external spend remains `$0`.
+
+**Slice gate:** Synthetic database, API, and browser coverage proves that two
+differently named SPVs explicitly assigned to one company render as two
+positions and one exposure; a matching text label alone creates no mapping;
+duplicate-company creation, stale snapshots, and cross-household choices fail
+closed; and the desktop/mobile review form remains accessible and free of
+horizontal overflow.
+
+**Evidence:** Implementation and exact-SHA release evidence pending.
+
 ### [x] M10 — Plan versus actual monitoring
 
 **User outcome:** Keel identifies meaningful drift in cash, debt, burn, and
@@ -812,7 +851,7 @@ or external notification was added; approved incremental external spend remains
 - [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
-### [ ] M11 — Actual distributions and forecast reconciliation — **Active**
+### [ ] M11 — Actual distributions and forecast reconciliation
 
 **User outcome:** When a private holding produces cash, Keel records what became
 usable, reconciles it with the prior forecast, and shows the resulting FI and

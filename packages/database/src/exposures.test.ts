@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { D1ExposureRepository } from "./exposures";
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
+import { D1AlphaRepository } from "./index";
 
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
@@ -72,6 +73,23 @@ class TestD1Database {
   public prepare(sql: string): TestD1Statement {
     return new TestD1Statement(this.database, sql);
   }
+
+  public async batch(
+    statements: TestD1Statement[],
+  ): Promise<{ meta: { changes: number } }[]> {
+    this.database.exec("BEGIN");
+    try {
+      const results = [];
+      for (const statement of statements) {
+        results.push(await statement.run());
+      }
+      this.database.exec("COMMIT");
+      return results;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 function hash(value: string): string {
@@ -104,6 +122,8 @@ function seedAcceptedPosition(
   input: {
     id: string;
     label: string;
+    provider?: "angellist" | "manual";
+    reportedExposureName?: string;
     positionKind: "direct" | "spv_interest" | "fund_interest";
     valueMinor: number | null;
     valueState: "reported" | "locked" | "not_reported";
@@ -208,7 +228,7 @@ function seedAcceptedPosition(
       positionFingerprint,
       snapshotFingerprint,
       input.label,
-      input.label,
+      input.reportedExposureName ?? input.label,
       input.valueMinor,
       input.valueState,
       input.valueMinor,
@@ -230,15 +250,29 @@ function seedAcceptedPosition(
          id, household_id, provider, position_fingerprint, legal_vehicle_name,
          owner_label, position_kind, instrument_type, opened_on, currency,
          created_by, created_at
-       ) VALUES (?, 'hh_demo', 'manual', ?, ?, 'Synthetic owner', ?, ?, NULL,
+       ) VALUES (?, 'hh_demo', ?, ?, ?, 'Synthetic owner', ?, ?, NULL,
          'USD', 'usr_demo', ?)`,
     )
     .run(
       input.id,
+      input.provider ?? "manual",
       positionFingerprint,
       input.label,
       input.positionKind,
       input.positionKind === "direct" ? "equity" : "private interest",
+      recordedAt,
+    );
+  database
+    .prepare(
+      `INSERT INTO holding_position_exposures (
+         id, household_id, position_id, exposure_label, exposure_kind,
+         company_id, created_at
+       ) VALUES (?, 'hh_demo', ?, ?, 'unresolved', NULL, ?)`,
+    )
+    .run(
+      `reported_exposure_${input.id}`,
+      input.id,
+      input.reportedExposureName ?? input.label,
       recordedAt,
     );
   database
@@ -675,5 +709,229 @@ describe("canonical exposure resolution and aggregation", () => {
         )
         .get(fund.id),
     ).toEqual({ count: 2 });
+  });
+
+  it("assigns two reviewed AngelList SPVs to one company exposure", async () => {
+    seedAcceptedPosition(sqlite, {
+      id: "position_synthetic_beacon_spv",
+      label: "Synthetic Beacon SPV",
+      provider: "angellist",
+      reportedExposureName: "Harbor Health Systems",
+      positionKind: "spv_interest",
+      valueMinor: 4_000_000,
+      valueState: "reported",
+    });
+    seedAcceptedPosition(sqlite, {
+      id: "position_synthetic_summit_spv",
+      label: "Synthetic Summit SPV",
+      provider: "angellist",
+      reportedExposureName: "Harbor Health Systems",
+      positionKind: "spv_interest",
+      valueMinor: 6_000_000,
+      valueState: "reported",
+    });
+
+    const pending =
+      await repository.getPrivateExposureReviewState(accessSubject);
+    expect(pending.positions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          positionId: "position_synthetic_beacon_spv",
+          reportedExposureName: "Harbor Health Systems",
+        }),
+        expect.objectContaining({
+          positionId: "position_synthetic_summit_spv",
+          reportedExposureName: "Harbor Health Systems",
+        }),
+      ]),
+    );
+    expect(pending.companies).toContainEqual(
+      expect.objectContaining({
+        id: "co_harbor",
+        legalName: "Harbor Health Systems",
+      }),
+    );
+
+    for (const positionId of [
+      "position_synthetic_beacon_spv",
+      "position_synthetic_summit_spv",
+    ]) {
+      await repository.assignPrivateCompanyExposure(accessSubject, positionId, {
+        expectedSnapshotId: `snapshot_${positionId}`,
+        company: { mode: "existing", companyId: "co_harbor" },
+      });
+    }
+
+    const projection = await readModel.list(
+      accessSubject,
+      "2026-08-16T12:00:00.000Z",
+    );
+    const harbor = projection.exposures.find(
+      (group) => group.exposure.companyId === "co_harbor",
+    );
+    expect(harbor).toMatchObject({
+      exposure: {
+        canonicalName: "Harbor Health Systems",
+        resolutionMethod: "reviewed_company",
+      },
+      contributions: [
+        { relationshipKind: "look_through", allocationPpm: 1_000_000 },
+        { relationshipKind: "look_through", allocationPpm: 1_000_000 },
+      ],
+      totals: [{ allocatedValueMinor: 10_000_000 }],
+    });
+    expect(
+      projection.positions.filter((position) =>
+        position.mappedExposureIds.includes(harbor?.exposure.id ?? ""),
+      ),
+    ).toHaveLength(2);
+    await expect(
+      repository.getPrivateExposureReviewState(accessSubject),
+    ).resolves.toMatchObject({ positions: [] });
+
+    const alpha = await new D1AlphaRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    ).getAlphaData(accessSubject);
+    expect(
+      alpha.holdings
+        .filter((holding) => holding.id.startsWith("position_synthetic_"))
+        .map((holding) => holding.companyId),
+    ).toEqual(["co_harbor", "co_harbor"]);
+  });
+
+  it("never treats matching provider text as a company decision", async () => {
+    seedAcceptedPosition(sqlite, {
+      id: "position_synthetic_unresolved_spv",
+      label: "Synthetic Horizon SPV",
+      provider: "angellist",
+      reportedExposureName: "Harbor Health Systems",
+      positionKind: "spv_interest",
+      valueMinor: null,
+      valueState: "locked",
+    });
+
+    await expect(
+      repository.assignPrivateCompanyExposure(
+        accessSubject,
+        "position_synthetic_unresolved_spv",
+        {
+          expectedSnapshotId: "stale_snapshot",
+          company: { mode: "existing", companyId: "co_harbor" },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "stale" });
+    await expect(
+      repository.assignPrivateCompanyExposure(
+        accessSubject,
+        "position_synthetic_unresolved_spv",
+        {
+          expectedSnapshotId: "snapshot_position_synthetic_unresolved_spv",
+          company: {
+            mode: "new",
+            legalName: "Harbor Health Systems",
+            websiteHost: "harbor-health.example",
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "company_conflict" });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_exposure_mappings
+           WHERE position_id = 'position_synthetic_unresolved_spv'`,
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+
+    sqlite
+      .prepare(
+        `INSERT INTO users (
+           id, access_subject, email, display_name, created_at
+         ) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "usr_other_household",
+        "synthetic-other-access-subject",
+        "other-household@example.test",
+        "Other household owner",
+        recordedAt,
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO households (
+           id, owner_user_id, name, base_currency, created_at
+         ) VALUES (?, ?, ?, 'USD', ?)`,
+      )
+      .run(
+        "hh_other_household",
+        "usr_other_household",
+        "Other synthetic household",
+        recordedAt,
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO companies (
+           id, household_id, legal_name, website_host, status,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+      )
+      .run(
+        "co_other_household",
+        "hh_other_household",
+        "Other Household Company",
+        "other-household.example",
+        recordedAt,
+        recordedAt,
+      );
+    await expect(
+      repository.assignPrivateCompanyExposure(
+        accessSubject,
+        "position_synthetic_unresolved_spv",
+        {
+          expectedSnapshotId: "snapshot_position_synthetic_unresolved_spv",
+          company: { mode: "existing", companyId: "co_other_household" },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "invalid_company" });
+
+    const created = await repository.assignPrivateCompanyExposure(
+      accessSubject,
+      "position_synthetic_unresolved_spv",
+      {
+        expectedSnapshotId: "snapshot_position_synthetic_unresolved_spv",
+        company: {
+          mode: "new",
+          legalName: "Synthetic Horizon Labs",
+          websiteHost: "horizon-labs.example",
+        },
+      },
+    );
+    expect(created).toMatchObject({
+      positionId: "position_synthetic_unresolved_spv",
+      companyName: "Synthetic Horizon Labs",
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT legal_name, website_host
+           FROM companies
+           WHERE id = ?`,
+        )
+        .get(created.companyId),
+    ).toEqual({
+      legal_name: "Synthetic Horizon Labs",
+      website_host: "horizon-labs.example",
+    });
+    await expect(
+      repository.assignPrivateCompanyExposure(
+        accessSubject,
+        "position_synthetic_unresolved_spv",
+        {
+          expectedSnapshotId: "snapshot_position_synthetic_unresolved_spv",
+          company: { mode: "existing", companyId: "co_harbor" },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "already_resolved" });
   });
 });
