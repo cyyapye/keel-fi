@@ -606,6 +606,16 @@ describe("reviewed cash accounts", () => {
         })),
       },
     );
+    const initialDecision = sqlite
+      .prepare(
+        `SELECT decided_at
+         FROM cash_balance_review_decisions
+         WHERE proposal_id = ?`,
+      )
+      .get(initialProposal.id) as { decided_at: string } | undefined;
+    if (initialDecision === undefined) {
+      throw new Error("Expected the repair fixture's initial decision.");
+    }
 
     const live = await repository.beginRefresh(
       "synthetic-access-subject",
@@ -616,7 +626,9 @@ describe("reviewed cash accounts", () => {
     const reportedRowId = "cash_row_identity_reported";
     const missingRowId = "cash_row_identity_missing";
     const observedAt = "2026-08-15T18:00:00.000Z";
-    const decidedAt = "2026-08-16T18:00:00.000Z";
+    const decidedAt = new Date(
+      Date.parse(initialDecision.decided_at) + 1,
+    ).toISOString();
     sqlite
       .prepare(
         `INSERT INTO cash_balance_proposals (
