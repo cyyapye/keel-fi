@@ -70,6 +70,22 @@
 - [ ] Investments Refresh, a polling schedule, external notifications, and new
       paid products remain disabled unless separately approved.
 
+## Plan versus actual monitoring
+
+- [ ] Policy version, thresholds, freshness, precedence, deduplication, and
+      seven-day exact-source cooldown match ADR 006.
+- [ ] Clear, limited, deferred, review-required, stale, overdue, material-drift,
+      and changed-source cases pass deterministic tests.
+- [ ] Monitoring GET and review-later POST are household-scoped, Zod-validated,
+      `private, no-store`, and fail closed on a stale source revision.
+- [ ] Desktop and mobile action queues pass keyboard, focus-restoration,
+      44-pixel-target, and no-horizontal-overflow checks with synthetic data.
+- [ ] No provider request, polling schedule, Queue message, R2 object, or
+      external notification channel was added; incremental approved external
+      spend remains `$0`.
+- [ ] Rollback disables the surface or restores prior Workers without deleting
+      cooldowns or reversing migration `0024`.
+
 ## Release evidence
 
 - [ ] Git commit, CI run, migration names, Worker versions, and reviewer are

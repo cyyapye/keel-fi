@@ -85,6 +85,13 @@ import {
   InvestmentHoldingsViewSchema,
   type InvestmentHoldingsView,
 } from "@keel/domain/investment-holdings-view";
+import {
+  PLAN_ACTUAL_COOLDOWN_DAYS,
+  PlanActualMonitoringStateSchema,
+  PlanActualSnoozeInputSchema,
+  type PlanActualMonitoringState,
+  type PlanActualSnoozeInput,
+} from "@keel/domain/plan-actual-monitoring";
 
 async function responseError(
   response: Response,
@@ -159,6 +166,48 @@ export async function loadCashFlow(
     );
   }
   return CashFlowStateSchema.parse(await response.json());
+}
+
+export async function loadPlanActualMonitoring(
+  signal?: AbortSignal,
+): Promise<PlanActualMonitoringState> {
+  const response = await fetch("/api/plan-actual-monitoring", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: signal ?? null,
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Plan versus actual monitoring returned ${response.status}.`,
+    );
+  }
+  return PlanActualMonitoringStateSchema.parse(await response.json());
+}
+
+export async function snoozePlanActualMonitoring(
+  input: Pick<PlanActualSnoozeInput, "itemKey" | "sourceRevision">,
+): Promise<PlanActualMonitoringState> {
+  const body = PlanActualSnoozeInputSchema.parse({
+    ...input,
+    durationDays: PLAN_ACTUAL_COOLDOWN_DAYS,
+  });
+  const response = await fetch("/api/plan-actual-monitoring/snooze", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Review-later update returned ${response.status}.`,
+    );
+  }
+  return PlanActualMonitoringStateSchema.parse(await response.json());
 }
 
 export async function syncCashFlow(

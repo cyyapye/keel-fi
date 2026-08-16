@@ -378,6 +378,199 @@ h1,
   font-size: 9px;
 }
 
+.plan-monitoring {
+  min-width: 0;
+  padding: 30px 0 6px;
+}
+
+.plan-monitoring--loading,
+.plan-monitoring--error {
+  min-height: 154px;
+}
+
+.plan-monitoring__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 28px;
+}
+
+.plan-monitoring__header h2,
+.plan-monitoring--loading h2,
+.plan-monitoring--error h2 {
+  max-width: 760px;
+  margin-bottom: 11px;
+  font-size: clamp(25px, 3vw, 36px);
+  font-weight: 620;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+
+.plan-monitoring__header h2:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: 5px;
+}
+
+.plan-monitoring__copy {
+  max-width: 720px;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.plan-monitoring--error .button {
+  min-height: 44px;
+  margin-top: 18px;
+}
+
+.plan-monitoring__coverage {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 25px 0 0;
+  padding: 18px 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.plan-monitoring__coverage > div {
+  min-width: 0;
+}
+
+.plan-monitoring__coverage dt,
+.plan-monitoring__coverage dd {
+  margin: 0;
+}
+
+.plan-monitoring__coverage dt,
+.plan-monitoring__item-copy > span,
+.plan-monitoring__values dt,
+.plan-monitoring__deferred span {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.plan-monitoring__coverage dd {
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.plan-monitoring__list,
+.plan-monitoring__deferred {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.plan-monitoring__item {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.35fr) minmax(230px, 0.8fr) auto;
+  align-items: start;
+  gap: 34px;
+  padding: 30px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.plan-monitoring__item-copy {
+  min-width: 0;
+}
+
+.plan-monitoring__item-copy h3 {
+  margin: 7px 0 9px;
+  font-size: 17px;
+  font-weight: 680;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+
+.plan-monitoring__item-copy p {
+  max-width: 620px;
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.plan-monitoring__item-copy small,
+.plan-monitoring__deferred small {
+  color: var(--faint);
+  font-size: 8px;
+}
+
+.plan-monitoring__values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 22px;
+  min-width: 0;
+  margin: 0;
+}
+
+.plan-monitoring__values div {
+  min-width: 0;
+}
+
+.plan-monitoring__values dt,
+.plan-monitoring__values dd {
+  margin: 0;
+}
+
+.plan-monitoring__values dd {
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-monitoring__actions {
+  display: grid;
+  width: 180px;
+  gap: 7px;
+}
+
+.plan-monitoring__actions .button {
+  width: 100%;
+  min-height: 44px;
+}
+
+.plan-monitoring__deferred {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.plan-monitoring__deferred li {
+  min-width: 0;
+}
+
+.plan-monitoring__deferred strong,
+.plan-monitoring__deferred small {
+  display: block;
+}
+
+.plan-monitoring__deferred strong {
+  margin: 7px 0 5px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.plan-monitoring__notice {
+  margin: 18px 0 0;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 680;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -5275,6 +5468,19 @@ h1,
     grid-template-columns: 1fr;
   }
 
+  .plan-monitoring__item {
+    grid-template-columns: minmax(0, 1fr) 180px;
+  }
+
+  .plan-monitoring__values {
+    grid-column: 1;
+  }
+
+  .plan-monitoring__actions {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
   .goal-workspace {
     display: block;
     width: 100%;
@@ -5422,6 +5628,45 @@ h1,
 }
 
 @media (max-width: 620px) {
+  .plan-monitoring {
+    padding-top: 20px;
+  }
+
+  .plan-monitoring__header {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+
+  .plan-monitoring__header .badge {
+    width: max-content;
+  }
+
+  .plan-monitoring__coverage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 22px;
+  }
+
+  .plan-monitoring__item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+    padding: 26px 0;
+  }
+
+  .plan-monitoring__values,
+  .plan-monitoring__actions {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .plan-monitoring__actions {
+    width: 100%;
+  }
+
+  .plan-monitoring__deferred {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
   .obligations-page .page-intro {
     align-items: stretch;
     flex-direction: column;

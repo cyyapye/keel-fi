@@ -66,6 +66,10 @@ snapshot.
   transaction pages and descriptions are discarded; three complete months become
   aggregate household/business/debt/excluded categories that can prepare a
   runway-plan draft without changing the accepted plan.
+- Deterministic plan-versus-actual monitoring on Overview. Reviewed cash, debt,
+  burn, and derived runway produce at most one decision per metric; freshness,
+  exact-source review-later, clear, and limited states never change the saved
+  plan or forecast.
 - A Portfolio Baseline step combines accepted public-market holdings, reviewed
   cash accounts, and a manual residual without double counting. Private paper
   remains outside current liquidity. Confirmation versions the FI plan,
@@ -122,6 +126,9 @@ container-scoped ingestion, canonical position and exposure views, the
 provider-neutral Investments cutover, and multi-institution operations shipped
 in M9. Additional-institution authorization remains fail-closed until private
 provider coverage, pricing, and owner acceptance are recorded.
+Plan-versus-actual policy is captured in
+[ADR 006](docs/architecture/adr-006-plan-actual-monitoring.md) and its
+[deployment runbook](docs/deployment/plan-actual-monitoring.md).
 
 ## Local development
 

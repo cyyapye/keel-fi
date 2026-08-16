@@ -19,6 +19,11 @@ test("loads the database-backed dashboard and primary views", async ({
     }),
   ).toBeVisible();
   await expect(page.getByText("Private · Access protected")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", {
+      name: "Monitoring is ready for connected actuals",
+    }),
+  ).toBeVisible();
 
   await page
     .getByRole("button", { name: /2031 liquidity range/ })
