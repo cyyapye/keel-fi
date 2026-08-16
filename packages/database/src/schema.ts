@@ -1998,6 +1998,8 @@ export const holdingImportRows = sqliteTable(
     quantityMicros: integer("quantity_micros"),
     ticker: text("ticker"),
     costBasisMinor: integer("cost_basis_minor"),
+    publicExposureIdentityKind: text("public_exposure_identity_kind"),
+    protectedExposureKey: text("protected_exposure_key"),
     createdAt: timestamp("created_at"),
   },
   (table) => [
@@ -2013,6 +2015,9 @@ export const holdingImportRows = sqliteTable(
       table.householdId,
       table.positionFingerprint,
     ),
+    index("holding_import_rows_protected_exposure_idx")
+      .on(table.householdId, table.protectedExposureKey)
+      .where(sql`${table.protectedExposureKey} IS NOT NULL`),
     check(
       "holding_import_rows_provider_status_check",
       sql`${table.providerStatus} IN ('live', 'realized')`,
@@ -2032,6 +2037,10 @@ export const holdingImportRows = sqliteTable(
     check(
       "holding_import_rows_public_values_check",
       sql`(${table.quantityMicros} IS NULL OR ${table.quantityMicros} >= 0) AND (${table.costBasisMinor} IS NULL OR ${table.costBasisMinor} >= 0) AND (${table.ticker} IS NULL OR length(${table.ticker}) BETWEEN 1 AND 32)`,
+    ),
+    check(
+      "holding_import_rows_exposure_identity_check",
+      sql`((${table.publicExposureIdentityKind} IS NULL) = (${table.protectedExposureKey} IS NULL)) AND (${table.publicExposureIdentityKind} IS NULL OR ${table.publicExposureIdentityKind} IN ('cusip', 'isin', 'sedol')) AND (${table.protectedExposureKey} IS NULL OR (length(${table.protectedExposureKey}) = 64 AND ${table.protectedExposureKey} NOT GLOB '*[^0-9a-f]*'))`,
     ),
   ],
 );

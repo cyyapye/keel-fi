@@ -255,6 +255,30 @@ describe("Robinhood Plaid sync", () => {
     expect(changed.rows[0]?.protectedPositionKey).toBe(
       first.rows[0]?.protectedPositionKey,
     );
+    expect(changed.rows[0]?.protectedExposureKey).toBe(
+      first.rows[0]?.protectedExposureKey,
+    );
+
+    const tickerOnly = await buildRobinhoodCanonicalScope({
+      env,
+      connectionId: "synthetic-investment-connection",
+      expectedSourceKey,
+      response: {
+        ...firstResponse,
+        securities: [
+          {
+            ...firstResponse.securities[0]!,
+            cusip: "not-a-cusip",
+            isin: null,
+            sedol: null,
+          },
+        ],
+      },
+    });
+    expect(tickerOnly.rows[0]).toMatchObject({
+      publicExposureIdentityKind: null,
+      protectedExposureKey: null,
+    });
   });
 
   it("does not rebind the Workers runtime fetch receiver", async () => {
@@ -512,6 +536,8 @@ describe("Robinhood Plaid sync", () => {
               sourceRowNumber: 1,
               protectedAccountKey: expect.stringMatching(/^[a-f0-9]{64}$/u),
               protectedPositionKey: expect.stringMatching(/^[a-f0-9]{64}$/u),
+              publicExposureIdentityKind: "cusip",
+              protectedExposureKey: expect.stringMatching(/^[a-f0-9]{64}$/u),
             }),
           ],
         },

@@ -1,6 +1,7 @@
 import {
   normalizeRobinhoodHoldings,
   plaidInvestmentSecurityIdentity,
+  plaidInvestmentStrongSecurityIdentifier,
   PlaidInvestmentsHoldingsResponseSchema,
   type PlaidInvestmentsHoldingsResponse,
 } from "@keel/connectors";
@@ -22,6 +23,7 @@ import { z } from "zod";
 
 import {
   plaidInvestmentsAccountKey,
+  plaidInvestmentsExposureKey,
   plaidInvestmentsPositionKey,
   plaidInvestmentsSourceKey,
 } from "./investment-identity";
@@ -860,6 +862,8 @@ export async function buildRobinhoodCanonicalScope(input: {
       if (accountScope === undefined || security === undefined) {
         throw new Error("Plaid holding scope could not be resolved.");
       }
+      const strongIdentifier =
+        plaidInvestmentStrongSecurityIdentifier(security);
       return {
         sourceRowNumber: index + 1,
         protectedAccountKey: accountScope.protectedAccountKey,
@@ -868,6 +872,15 @@ export async function buildRobinhoodCanonicalScope(input: {
           accountScope.protectedAccountKey,
           plaidInvestmentSecurityIdentity(security),
         ),
+        publicExposureIdentityKind: strongIdentifier?.kind ?? null,
+        protectedExposureKey:
+          strongIdentifier === null
+            ? null
+            : await plaidInvestmentsExposureKey(
+                input.env,
+                strongIdentifier.kind,
+                strongIdentifier.value,
+              ),
       };
     }),
   );

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeRobinhoodHoldings,
   plaidDecimalToScaledInteger,
+  plaidInvestmentSecurityIdentity,
+  plaidInvestmentStrongSecurityIdentifier,
 } from "./plaid-robinhood-holdings";
 
 function syntheticResponse(
@@ -98,6 +100,33 @@ describe("Plaid Robinhood holdings normalization", () => {
     expect(JSON.stringify(result)).not.toContain("synthetic-account-id");
     expect(JSON.stringify(result)).not.toContain("synthetic-security-id");
     expect(JSON.stringify(result)).not.toContain("synthetic-item-id");
+  });
+
+  it("canonicalizes only checksum-valid strong security identifiers", () => {
+    const security = syntheticResponse().securities[0]!;
+    expect(plaidInvestmentStrongSecurityIdentifier(security)).toEqual({
+      kind: "cusip",
+      value: "000000000",
+    });
+
+    const tickerOnly = {
+      ...security,
+      cusip: "invalid",
+      isin: null,
+      sedol: null,
+    };
+    expect(plaidInvestmentStrongSecurityIdentifier(tickerOnly)).toBeNull();
+    expect(plaidInvestmentSecurityIdentity(tickerOnly)).toBe(
+      "ticker:SYN:equity",
+    );
+
+    expect(
+      plaidInvestmentStrongSecurityIdentifier({
+        ...security,
+        cusip: null,
+        isin: "US67066G1040",
+      }),
+    ).toEqual({ kind: "isin", value: "US67066G1040" });
   });
 
   it("deduplicates unchanged holdings despite request metadata changes", async () => {

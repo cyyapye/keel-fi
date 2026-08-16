@@ -3,9 +3,11 @@
 Migration `0019_multi_source_holdings_contract.sql` defines Keel's only
 connection, ownership-container, import-coverage, and exposure relationship
 contract. Migration `0020_container_scoped_holding_ingestion.sql` makes the
-Robinhood and AngelList writers populate that contract directly. Neither
-migration authorizes another provider or changes the reviewed value in a
-Portfolio Baseline, plan, goal, or forecast.
+Robinhood and AngelList writers populate that contract directly. Migration
+`0021_canonical_exposure_resolution.sql` carries only protected,
+checksum-validated public identifiers into that contract and enforces the
+direct-allocation boundary. None of these migrations authorizes another provider
+or changes the reviewed value in a Portfolio Baseline, plan, goal, or forecast.
 
 Keel has no live user data. A short-lived synthetic transition experiment was
 removed instead of becoming a permanent backfill and dual-read surface. The next
@@ -22,6 +24,13 @@ holding ingestion migration must write this canonical contract directly.
 - A position association is unique to one container and a protected position
   key. `provider_provenance`, `reviewed_import`, and `manual` are the supported
   association bases.
+- A public canonical exposure is shared across connections only through a
+  checksum-valid CUSIP, ISIN, or SEDOL protected with the deployment identity
+  key. A ticker, provider security ID, or display label may still help identify
+  a position but cannot create a canonical exposure.
+- A private-company exposure resolves to an existing reviewed company record.
+  Fund and unresolved identities require recorded review evidence. Exposure
+  identity never replaces the connection, container, or legal position.
 - `unresolved` is a current, reviewable container state for observations whose
   identity is ambiguous. It is not permission to reconstruct missing identifiers
   from labels or opaque fingerprints, and it cannot support omission inference.
@@ -69,13 +78,26 @@ holding ingestion migration must write this canonical contract directly.
   exception ends. Deployed migrations then become forward-only, database resets
   require incident or recovery authorization, and accepted history remains
   append-only.
+- Applying an accepted Robinhood row with a validated strong identifier creates
+  or reuses one household-level public exposure and records a full direct
+  mapping under the deterministic policy. Reapplying the same decision is a
+  no-op. Missing or invalid strong identifiers leave the position unmapped.
+- Direct mappings carry exactly 1,000,000 ppm. Look-through mappings may carry a
+  reviewed allocation or `NULL` when only the relationship is known. Current
+  known allocations for one position cannot exceed 1,000,000 ppm; corrections
+  append a superseding version.
+- Exposure totals read only current accepted mappings and accepted position
+  snapshots. A relationship with unknown allocation contributes no monetary
+  value to an exposure total, while the position retains its full unallocated
+  value.
 
 ## Cost and activation gate
 
-Container-scoped ingestion adds no network call, R2 object, Queue message,
+Canonical exposure resolution adds no network call, R2 object, Queue message,
 schedule, webhook, or paid provider product. It reuses the shipped Robinhood and
-AngelList paths. Its only incremental cost is D1 storage and backup volume for
-canonical scope and lifecycle rows.
+AngelList paths. Its only incremental cost is bounded D1 storage and backup
+volume for two nullable import-row fields, canonical exposure rows, and
+append-only mapping versions.
 
 For a deployment with `C` connections, `O` ownership containers, `P` accepted
 positions, `I` imports, `R` import rows, `E` canonical exposures, and `M`
@@ -107,22 +129,25 @@ incremental provider spend.
 
 ## Verification
 
-Before accepting the M9.3 release:
+Before accepting the M9.4 release:
 
-1. Replay migrations `0001` through
-   `0020_container_scoped_holding_ingestion.sql`, apply the synthetic seed, and
-   verify that a retained pre-`0020` import row keeps a valid foreign key.
-2. Verify a complete zero-row container, partial multi-account response, failed
-   connection beside a healthy connection, stable reconnect, changed provider
-   identifiers, concurrent sync attempts, webhook replay, and disconnect.
-3. Verify no cross-connection or uncovered-container omission can be stored, and
-   no import application can match a position in another container.
-4. Verify raw Item, account, security, and position identifiers remain outside
+1. Replay migrations `0001` through `0021_canonical_exposure_resolution.sql` and
+   apply the synthetic seed.
+2. Verify checksum-valid CUSIP, ISIN, and SEDOL handling, cross-connection key
+   stability, and fail-closed ticker-only or invalid-identifier behavior.
+3. Verify three synthetic NVDA positions remain distinct while aggregating to
+   one exposure, and two reviewed Anthropic SPVs remain distinct while
+   aggregating to one company exposure.
+4. Verify a multi-company SPV with unknown allocations shows both relationships,
+   contributes zero duplicated value, and retains its full value at the legal
+   position.
+5. Verify append-only correction chains, full direct allocations, the
+   1,000,000-ppm sum ceiling, deterministic retry behavior, and household
+   isolation at both the domain and D1 boundaries.
+6. Verify raw Item, account, security, and position identifiers remain outside
    D1, API responses, logs, screenshots, and repository artifacts.
-5. Inspect Holdings at desktop and mobile sizes, including the disconnect
-   confirmation and no-horizontal-overflow contract.
-6. Run `make verify`, reviewed PR checks, exact-head merge verification, and the
-   exact-SHA protected preview workflow before marking M9.3 complete.
+7. Run `make verify`, reviewed PR checks, exact-head merge verification, and the
+   exact-SHA protected preview workflow before marking M9.4 complete.
 
-Canonical exposure resolution, provider-neutral connection writes, and
-additional-institution authorization remain later ordered M9 slices.
+Provider-neutral connection writes and additional-institution authorization
+remain later ordered M9 slices.

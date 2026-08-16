@@ -619,8 +619,26 @@ export const HoldingImportRowScopeSchema = z
     sourceRowNumber: z.number().int().positive().max(500),
     protectedAccountKey: ProtectedIdentityKeySchema,
     protectedPositionKey: ProtectedIdentityKeySchema,
+    publicExposureIdentityKind: z
+      .enum(["cusip", "isin", "sedol"])
+      .nullable()
+      .default(null),
+    protectedExposureKey: ProtectedIdentityKeySchema.nullable().default(null),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      (value.publicExposureIdentityKind === null) !==
+      (value.protectedExposureKey === null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["protectedExposureKey"],
+        message:
+          "A public exposure key requires one validated strong identifier kind.",
+      });
+    }
+  });
 
 export const HoldingImportCanonicalScopeSchema = z
   .object({
@@ -763,11 +781,29 @@ export const PositionExposureMappingSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    if ((value.version === 1) !== (value.supersedesMappingId === null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["supersedesMappingId"],
+        message: "Exposure mapping versions must form an explicit chain.",
+      });
+    }
     if (value.status === "withdrawn" && value.allocationPpm !== null) {
       context.addIssue({
         code: "custom",
         path: ["allocationPpm"],
         message: "Withdrawn mappings cannot carry an allocation.",
+      });
+    }
+    if (
+      value.status === "active" &&
+      value.relationshipKind === "direct" &&
+      value.allocationPpm !== 1_000_000
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["allocationPpm"],
+        message: "Active direct mappings require full allocation.",
       });
     }
   });
