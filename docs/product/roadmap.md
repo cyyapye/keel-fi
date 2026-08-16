@@ -356,7 +356,7 @@ versions, passed protected smokes, and retained release evidence in
 No provider, network, schedule, Queue, or webhook call was added; incremental
 provider spend remains $0, with only bounded D1 and encrypted-backup growth.
 
-#### [ ] M9.5 — Provider-neutral Investments connection and Robinhood cutover
+#### [x] M9.5 — Provider-neutral Investments connection and Robinhood cutover
 
 **Outcome:** Robinhood runs through a generic Investments path that can safely
 host another institution without regressing its shipped behavior.
@@ -389,6 +389,25 @@ desktop, and mobile tests pass through the generic path. A synthetic non-
 Robinhood institution can complete Link exchange and staging only when
 Investments support is validated; unsupported institutions fail before storing
 credentials or creating accepted facts.
+
+**Evidence:** Delivered in [PR #76](https://github.com/cyyapye/keel-fi/pull/76)
+at exact checked head
+[`bcebddc`](https://github.com/cyyapye/keel-fi/commit/bcebddc5abb98877fd067a8cf9129a38599eeb19)
+and merge commit
+[`8ef342f`](https://github.com/cyyapye/keel-fi/commit/8ef342f9643d357fd4909dd11aedcefd7b445c6a).
+Migration `0022_provider_neutral_investments.sql`, 422 tests, and 44
+desktop/mobile browser flows cover validated generic Link exchange, a synthetic
+non-Robinhood institution, fail-before-storage rejection, multiple Items per
+household, multiple accounts per Item, exact-connection sync/webhook/Queue and
+disconnect routing, legacy credential compatibility, and preservation of
+accepted import, position, snapshot, and baseline values. The exact-SHA release
+retained and verified an encrypted D1 backup, applied migration `0022`, deployed
+and read back both Worker versions, passed protected smokes, and retained
+release evidence in
+[run `31933239325`](https://github.com/cyyapye/keel-fi/actions/runs/31933239325).
+No additional institution or paid Plaid product was activated; incremental
+provider spend remains $0, with only bounded storage and Queue growth when a
+later-authorized connection is used.
 
 #### [x] M9.6a — Authoritative position read model
 
