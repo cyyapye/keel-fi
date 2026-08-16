@@ -41,6 +41,20 @@ function apply(database: DatabaseSync, files: readonly string[]) {
   }
 }
 
+function applyInsideD1StyleTransaction(
+  database: DatabaseSync,
+  files: readonly string[],
+) {
+  database.exec("BEGIN");
+  try {
+    apply(database, files);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 const planningTables = [
   "holding_positions",
   "holding_position_snapshots",
@@ -203,7 +217,7 @@ describe("multi-source holdings persistence contract", () => {
     });
   });
 
-  it("upgrades retained import rows and accepts complete zero-row observations", () => {
+  it("rebuilds inside a D1-style transaction and accepts zero-row observations", () => {
     apply(database, [...priorMigrationFiles, canonicalMigrationFile, seedFile]);
     database.exec(`
       INSERT INTO source_documents (
@@ -243,7 +257,7 @@ describe("multi-source holdings persistence contract", () => {
       );
     `);
 
-    apply(database, [containerScopedMigrationFile]);
+    applyInsideD1StyleTransaction(database, [containerScopedMigrationFile]);
 
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     expect(
