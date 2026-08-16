@@ -1,7 +1,9 @@
 # ADR 005: Multi-source holdings identity
 
-- Status: Accepted; M9 implementation in progress
+- Status: Accepted; released in M9
 - Date: 2026-08-15
+- Release: PR #82, merge `66f157aa8143e6eff09d03b14ae915c17d4c1025`, exact-SHA
+  workflow `31960175926`
 
 ## Context
 
@@ -28,9 +30,9 @@ flow validated only Robinhood, a position had no first-class ownership-container
 relationship, and missing-position reconciliation ranged across a provider
 instead of an explicitly covered connection and account. Adding `fidelity` to
 the provider enum would therefore have been insufficient and could have created
-false missing positions or accidental merges. M9.3 through M9.6a now materialize
-the canonical foundation, provider-neutral Investments path, and position
-projection while the remaining M9 gates stay in progress.
+false missing positions or accidental merges. M9.1 through M9.8 materialized the
+canonical foundation, provider-neutral Investments path, authoritative position
+and exposure projections, and multi-institution owner experience.
 
 This ADR defines the canonical logical and persistence model. Keel has no live
 user data, so implementation uses one direct pre-live cutover instead of
@@ -297,10 +299,12 @@ Once any environment is authorized to retain real user data, database resets and
 deployed-migration rewrites are prohibited. From that point, schema changes must
 be forward-only and accepted history remains append-only.
 
-Until the remaining gates ship, Robinhood and AngelList remain the operated
-holding sources. The provider-neutral adapter is implemented, but this ADR must
-not be read as evidence that Fidelity authorization or the multi-institution
-owner experience is available.
+Robinhood and AngelList remain the operated holding sources. The released
+multi-institution experience and provider-neutral adapter are proven with
+synthetic Fidelity fixtures, while real additional-institution authorization
+remains fail-closed until private provider coverage, pricing, and owner
+acceptance are recorded. This release is not evidence that a real Fidelity Item
+was authorized.
 
 ## Consequences
 

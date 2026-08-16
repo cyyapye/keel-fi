@@ -222,7 +222,7 @@ release evidence:
 
 ## Canonical contract verification
 
-Before accepting the M9.6b release:
+Before accepting the M9 canonical release:
 
 1. Replay migrations `0001` through
    `0023_authoritative_portfolio_baselines.sql`, apply the synthetic seed, and
