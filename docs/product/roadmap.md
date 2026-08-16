@@ -252,7 +252,7 @@ exact SHA, and passed protected smokes in
 The one-time reset authority was removed immediately afterward. Incremental
 provider spend remains $0.
 
-#### [ ] M9.3 — Container-scoped ingestion, coverage, and omissions
+#### [x] M9.3 — Container-scoped ingestion, coverage, and omissions
 
 **Outcome:** An observation can affect only the connection and ownership
 containers it completely and unambiguously covers.
@@ -281,6 +281,29 @@ multi-account responses, one failed institution beside one healthy institution,
 reconnect to a stable account, changed provider identifiers, concurrent runs,
 replayed webhooks, and disconnect. No case can mark a different connection or
 uncovered container as missing.
+
+**Evidence:** Delivered in [PR #68](https://github.com/cyyapye/keel-fi/pull/68)
+at exact checked head
+[`47f1950`](https://github.com/cyyapye/keel-fi/commit/47f1950aa0bb823d0a91b37da4194298ad5380d3)
+and merge commit
+[`0552540`](https://github.com/cyyapye/keel-fi/commit/0552540f5b6e659fb7d8ad0e8ebb02b86e0d9f26).
+Migration `0020_container_scoped_holding_ingestion.sql`, 406 tests, and 44
+desktop/mobile browser flows cover connection/container scope, complete zero-row
+and incomplete observations, omission isolation, stable reconnect, changed
+identifiers, concurrent and replayed work, and disconnect history. The first
+post-merge run retained its encrypted backup and stopped before either Worker
+deployed when D1 rejected the table rebuild.
+[PR #69](https://github.com/cyyapye/keel-fi/pull/69) corrected the rebuild for
+D1's implicit transaction at exact checked head
+[`f4618e1`](https://github.com/cyyapye/keel-fi/commit/f4618e111438cc5b3a73d78fbc0d92258feb14e4)
+and merge commit
+[`bdc1392`](https://github.com/cyyapye/keel-fi/commit/bdc13922ec6f40144451cab924292159df2ed31e).
+The final exact-SHA release retained an encrypted D1 backup, applied migrations
+`0001` through `0020`, deployed API and web Workers, and passed protected smokes
+in
+[run `31925513342`](https://github.com/cyyapye/keel-fi/actions/runs/31925513342).
+No provider or runtime calls were added; incremental provider spend remains $0,
+with only bounded D1 and encrypted-backup growth.
 
 #### [ ] M9.4 — Canonical exposure resolution and aggregation
 
