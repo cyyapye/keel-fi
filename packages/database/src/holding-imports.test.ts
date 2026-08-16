@@ -368,9 +368,16 @@ describe("AngelList holding import persistence", () => {
       new TestD1Database(sqlite) as unknown as D1Database,
     ).getAlphaData("synthetic-access-subject");
     expect(alpha.holdings).toHaveLength(4);
+    expect(
+      alpha.holdings.find((holding) => holding.id === "lot_harbor_spv"),
+    ).toMatchObject({
+      companyId: "co_harbor",
+      exposureName: "Harbor Health Systems",
+    });
     expect(alpha.holdings).toContainEqual(
       expect.objectContaining({
         id: expect.any(String),
+        companyId: null,
         positionName: "Synthetic Navigation SPV",
         exposureName: "Synthetic Navigation Systems",
         ownerLabel: "Synthetic Family Trust",

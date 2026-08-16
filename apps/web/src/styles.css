@@ -2857,89 +2857,6 @@ h1,
   padding-top: 24px;
 }
 
-.company-holdings {
-  padding-top: 44px;
-  border-top: 1px solid var(--ink);
-}
-
-.company-holdings__heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 28px;
-}
-
-.company-holdings__heading > div {
-  max-width: 680px;
-}
-
-.company-holdings__heading h2 {
-  margin-top: 7px;
-  font-size: 28px;
-  letter-spacing: -0.045em;
-}
-
-.company-holdings__heading > div > p:last-child {
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 9px;
-  line-height: 1.55;
-}
-
-.company-holdings__heading > span {
-  color: var(--faint);
-  font-size: 8px;
-  text-transform: uppercase;
-}
-
-.company-holdings__heading > span strong {
-  color: var(--ink);
-  font-size: 20px;
-}
-
-.company-holdings__list {
-  margin-top: 22px;
-  border-top: 1px solid var(--line);
-}
-
-.company-holdings__list article {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.35fr) auto;
-  align-items: center;
-  gap: 28px;
-  min-height: 76px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.company-holdings__list strong,
-.company-holdings__list small {
-  display: block;
-}
-
-.company-holdings__list strong {
-  font-size: 11px;
-}
-
-.company-holdings__list small {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 8px;
-  line-height: 1.45;
-}
-
-.company-holdings__action {
-  min-height: 44px;
-  padding: 0 4px;
-  color: var(--muted);
-  font-size: 8px;
-  font-weight: 800;
-  background: transparent;
-  border: 0;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
 .unallocated-positions > div {
   margin-bottom: 14px;
 }
@@ -6236,30 +6153,6 @@ h1,
 
   .investment-views__error .button {
     width: 100%;
-  }
-
-  .company-holdings {
-    padding-top: 30px;
-  }
-
-  .company-holdings__heading,
-  .company-holdings__list article {
-    grid-template-columns: 1fr;
-  }
-
-  .company-holdings__heading {
-    gap: 14px;
-  }
-
-  .company-holdings__list article {
-    gap: 12px;
-    padding: 20px 0;
-  }
-
-  .company-holdings__action {
-    width: 100%;
-    padding: 0;
-    text-align: left;
   }
 
   .angellist-agent {

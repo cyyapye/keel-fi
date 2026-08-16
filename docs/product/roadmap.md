@@ -691,6 +691,55 @@ remains $0.
       committing institution credentials or holdings; real provider acceptance
       remains an activation gate.
 
+### [ ] M9.9 — Reviewed private positions and exposures — **Active**
+
+**User outcome:** Every reviewed private holding appears once as a legal
+position, while multiple SPVs into the same reviewed company appear together as
+one economic exposure with each legal position still available for drill-down.
+
+**Trust boundary:** Exposure grouping uses a stable reviewed company identity,
+never a text-label match. A holding without that identity remains explicitly
+unresolved, and changing the view does not alter an accepted holding, value,
+baseline, goal, or forecast.
+
+**Scope:** Bring accepted manual asset lots and reviewed AngelList imports into
+the Positions view, group them with connected positions in the Exposures view by
+reviewed company ID, preserve legal vehicle and owner provenance, remove the
+duplicate legacy company-record projection, and keep unavailable values and
+unresolved exposure identity visible.
+
+**Non-goals:** Fuzzy company-name consolidation, automatic acceptance of a
+company match, merging SPV histories or values, provider activation, or any
+baseline or forecast mutation.
+
+**Dependencies:** M9's canonical position and exposure read models remain the
+authority for connected sources. Existing reviewed company IDs on manual asset
+lots and accepted import mappings provide the private exposure identity.
+
+**Infrastructure-cost gate:** Implement as an authenticated read-model and UI
+correction. Add no provider request, paid product, polling schedule, Queue
+message, R2 object, notification channel, or recurring work; approved
+incremental external spend remains `$0`.
+
+**Slice gate:** Synthetic coverage proves two differently named SPVs with one
+reviewed company ID render as two positions and one exposure, while a position
+without a reviewed company ID stays unresolved. Desktop and mobile visual,
+accessibility, detail-focus, no-overflow, `make verify`, reviewed PR, exact-head
+merge, and exact-SHA deployment checks pass without private data in repository
+or CI artifacts.
+
+**Exit gates:**
+
+- [x] Reviewed manual and imported holdings appear exactly once in Positions;
+      the legacy duplicate company-record section is gone.
+- [x] Exposures consolidate only by stable reviewed company ID, preserve every
+      legal SPV drill-down, and keep unresolved identity and unavailable value
+      explicit.
+- [x] Database, domain, API, and browser tests cover shared-company SPVs,
+      unresolved identity, value states, detail focus, and mobile no-overflow.
+- [ ] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
+      post-merge deployment evidence pass.
+
 ### [x] M10 — Plan versus actual monitoring
 
 **User outcome:** Keel identifies meaningful drift in cash, debt, burn, and
@@ -749,7 +798,7 @@ or external notification was added; approved incremental external spend remains
 - [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
-### [ ] M11 — Actual distributions and forecast reconciliation — **Active**
+### [ ] M11 — Actual distributions and forecast reconciliation
 
 **User outcome:** When a private holding produces cash, Keel records what became
 usable, reconciles it with the prior forecast, and shows the resulting FI and

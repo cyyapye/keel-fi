@@ -11,6 +11,7 @@ import {
   estimateThresholdProbabilityPpm,
   FinancingAnnouncementFactsSchema,
   FinancingMoneyFactSchema,
+  HoldingSchema,
   HttpsSourceUrlSchema,
   InvestmentConnectionsStateSchema,
   InvestmentConnectionStatusSchema,
@@ -23,6 +24,43 @@ import {
   reconcileFinancingSignals,
   summarizeLiquidityPaths,
 } from "./index";
+
+describe("reviewed holding exposure identity", () => {
+  const holding = {
+    id: "holding_synthetic_spv",
+    companyId: "company_synthetic_shared",
+    positionName: "Synthetic Beacon SPV",
+    exposureName: "Synthetic Harbor Health",
+    ownerLabel: "Synthetic Family LLC",
+    positionKind: "spv_interest" as const,
+    administratorNavMinor: 1_000_000,
+    administratorNavState: "reported" as const,
+    externalMarkMinor: null,
+    underwritingValueMinor: null,
+    scenarioValueMinor: null,
+    usableLiquidityMinor: null,
+    sourceStatus: "verified" as const,
+    sourceLabel: "Synthetic reviewed source",
+    effectiveDate: "2026-08-16",
+    retrievedAt: "2026-08-16T12:00:00.000Z",
+    confidencePpm: null,
+    ticker: null,
+    quantityMicros: null,
+    costBasisMinor: null,
+  };
+
+  it("requires a stable company ID or an explicit unresolved state", () => {
+    expect(HoldingSchema.parse(holding).companyId).toBe(
+      "company_synthetic_shared",
+    );
+    expect(
+      HoldingSchema.parse({ ...holding, companyId: null }).companyId,
+    ).toBeNull();
+    const missingIdentity: Record<string, unknown> = { ...holding };
+    Reflect.deleteProperty(missingIdentity, "companyId");
+    expect(HoldingSchema.safeParse(missingIdentity).success).toBe(false);
+  });
+});
 
 describe("reviewed liability planning policy", () => {
   const acceptedAt = "2026-08-14T18:05:00.000Z";
