@@ -465,7 +465,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   });
   await expect(chooseCompany).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expect.soft(page.locator(".screen-stack")).toHaveScreenshot(
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "holdings-reviewed-private-exposures.png",
     {
       animations: "disabled",
@@ -490,7 +490,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     .getByRole("combobox", { name: "Company", exact: true })
     .selectOption("company_lattice_synthetic");
   await expectNoHorizontalOverflow(page);
-  await expect.soft(page.locator(".screen-stack")).toHaveScreenshot(
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "holdings-private-exposure-review.png",
     {
       animations: "disabled",
