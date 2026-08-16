@@ -24,6 +24,7 @@ import type {
 import { z } from "zod";
 
 import { angelListExportDate } from "./holding-import-upload";
+import { buildAngelListCanonicalScope } from "./holding-import-scope";
 import type { Env } from "./types";
 
 const ANGELLIST_ORIGIN = "https://venture.angellist.com";
@@ -1284,8 +1285,14 @@ async function stageExport(input: {
     throw new AngelListAutomationError("staging_failed");
   }
   try {
+    const accessSubject = configuredSubject(input.env);
+    const canonicalScope = await buildAngelListCanonicalScope({
+      env: input.env,
+      accessSubject,
+      rows: parsed.rows,
+    });
     const staged = await new D1AlphaRepository(input.env.DB).stageHoldingImport(
-      configuredSubject(input.env),
+      accessSubject,
       {
         objectKey,
         sha256: await sha256Bytes(input.bytes),
@@ -1293,6 +1300,7 @@ async function stageExport(input: {
         effectiveDate: angelListExportDate(input.filename, input.retrievedAt),
         retrievedAt: input.retrievedAt,
         rows: parsed.rows,
+        canonicalScope,
       },
     );
     if (!staged.created) {

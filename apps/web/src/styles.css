@@ -2207,6 +2207,13 @@ h1,
   font-size: 9px;
 }
 
+.robinhood-sync__controls > small {
+  flex: 1;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
 .robinhood-sync__checking {
   color: var(--muted);
   font-size: 10px;

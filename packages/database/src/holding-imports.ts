@@ -9,12 +9,14 @@ import {
 } from "@keel/connectors";
 import {
   HoldingImportApplyInputSchema,
+  HoldingImportCanonicalScopeSchema,
   HoldingImportProviderSchema,
   HoldingImportSummariesSchema,
   IsoDateSchema,
   IsoTimestampSchema,
   type HoldingImportApplyInput,
   type HoldingImportApplyResult,
+  type HoldingImportCanonicalScope,
   type HoldingImportPreview,
   type HoldingImportRowPreview,
   type HoldingImportSummary,
@@ -43,8 +45,22 @@ const HoldingImportStageInputSchema = z
     effectiveDate: IsoDateSchema,
     retrievedAt: IsoTimestampSchema,
     rows: z.array(AngelListInvestmentCsvRowSchema).min(1).max(MAX_IMPORT_ROWS),
+    canonicalScope: HoldingImportCanonicalScopeSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const rowNumbers = value.rows.map((row) => row.rowNumber).sort();
+    const scopedRows = value.canonicalScope.rows
+      .map((row) => row.sourceRowNumber)
+      .sort();
+    if (JSON.stringify(rowNumbers) !== JSON.stringify(scopedRows)) {
+      context.addIssue({
+        code: "custom",
+        path: ["canonicalScope", "rows"],
+        message: "Every AngelList row requires one canonical row scope.",
+      });
+    }
+  });
 
 export type HoldingImportStageInput = z.infer<
   typeof HoldingImportStageInputSchema
@@ -62,9 +78,30 @@ const RobinhoodHoldingImportStageInputSchema = z
     normalizedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
     effectiveDate: IsoDateSchema,
     retrievedAt: IsoTimestampSchema,
-    rows: z.array(RobinhoodHoldingRowSchema).min(1).max(MAX_IMPORT_ROWS),
+    rows: z.array(RobinhoodHoldingRowSchema).max(MAX_IMPORT_ROWS),
+    canonicalScope: HoldingImportCanonicalScopeSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const rowNumbers = value.rows.map((row) => row.rowNumber).sort();
+    const scopedRows = value.canonicalScope.rows
+      .map((row) => row.sourceRowNumber)
+      .sort();
+    if (JSON.stringify(rowNumbers) !== JSON.stringify(scopedRows)) {
+      context.addIssue({
+        code: "custom",
+        path: ["canonicalScope", "rows"],
+        message: "Every Robinhood row requires one canonical row scope.",
+      });
+    }
+    if (value.canonicalScope.connection.mode !== "existing") {
+      context.addIssue({
+        code: "custom",
+        path: ["canonicalScope", "connection"],
+        message: "Robinhood imports require an active canonical connection.",
+      });
+    }
+  });
 
 export type RobinhoodHoldingImportStageInput = z.infer<
   typeof RobinhoodHoldingImportStageInputSchema
@@ -108,12 +145,26 @@ type ImportIdentityRow = {
   row_count: number;
   effective_date: string | null;
   retrieved_at: string;
+  review_status: "pending_review" | "accepted" | "rejected";
   decision_count: number;
   accepted_count: number;
   application_count: number;
   auto_applied_count: number;
   quarantined_count: number;
   preserved_position_count: number;
+};
+
+type ImportCoveragePreviewRow = {
+  container_id: string;
+  display_label: string;
+  completeness:
+    | "complete"
+    | "partial"
+    | "unavailable"
+    | "malformed"
+    | "failed"
+    | "ambiguous";
+  reported_row_count: number;
 };
 
 type ImportPreviewRow = {
@@ -179,12 +230,14 @@ type ApplyImportRow = {
   source_document_id: string;
   effective_date: string | null;
   retrieved_at: string;
+  container_id: string;
 };
 
 type ExistingPositionRow = {
   id: string;
   position_fingerprint: string;
   currency: string;
+  container_id: string;
 };
 
 type RobinhoodExistingPositionRow = ExistingPositionRow & {
@@ -214,10 +267,49 @@ type RobinhoodAdjudicationRow = {
   parse_status: "ready" | "needs_attention";
   cost_basis_minor: number | null;
   issue_codes_json: string;
+  container_id: string;
 };
 
 type RobinhoodAdjudicationImport = {
   normalized_fingerprint: string;
+  connection_id: string;
+  coverage_count: number;
+  complete_coverage_count: number;
+};
+
+type CanonicalConnectionRow = {
+  id: string;
+  adapter_type: "plaid-investments" | "angellist-import" | "manual";
+  protected_source_key: string;
+  version_id: string;
+  version: number;
+  institution_key: string;
+  institution_label: string;
+  lifecycle_state: "pending" | "active" | "paused" | "disconnected";
+  credential_reference: string | null;
+};
+
+type CanonicalContainerRow = {
+  id: string;
+  protected_account_key: string;
+  version_id: string;
+  version: number;
+  display_label: string;
+  container_kind:
+    | "brokerage"
+    | "ira"
+    | "retirement"
+    | "trust"
+    | "entity"
+    | "unresolved"
+    | "other";
+  tax_treatment: "taxable" | "tax_deferred" | "tax_exempt" | "unknown";
+};
+
+type PreparedCanonicalScope = {
+  readonly connectionId: string;
+  readonly containersByKey: ReadonlyMap<string, CanonicalContainerRow>;
+  readonly statements: readonly D1PreparedStatement[];
 };
 
 type ApplySummaryRow = {
@@ -245,11 +337,12 @@ async function sha256(value: string): Promise<string> {
 
 async function snapshotFingerprint(
   row: AngelListInvestmentCsvRow,
+  protectedPositionKey: string,
 ): Promise<string> {
   return sha256(
     JSON.stringify([
       "angellist-position-snapshot-v1",
-      row.naturalKeySha256,
+      protectedPositionKey,
       row.status,
       row.investedMinor,
       row.dealMetadata.allocationMinor,
@@ -266,11 +359,12 @@ async function snapshotFingerprint(
 async function robinhoodSnapshotFingerprint(
   row: RobinhoodHoldingRow,
   retrievedAt: string,
+  protectedPositionKey: string,
 ): Promise<string> {
   return sha256(
     JSON.stringify([
       "robinhood-position-snapshot-v1",
-      row.naturalKeySha256,
+      protectedPositionKey,
       retrievedAt,
       row.observedOn,
       row.quantityMicros,
@@ -313,6 +407,13 @@ function actionFor(row: ImportPreviewRow): HoldingImportRowPreview["action"] {
     return "create_position";
   }
   return row.existing_snapshot_id === null ? "append_snapshot" : "no_change";
+}
+
+function containerPositionKey(
+  containerId: string,
+  protectedPositionKey: string,
+): string {
+  return JSON.stringify([containerId, protectedPositionKey]);
 }
 
 export class D1HoldingImportRepository {
@@ -370,6 +471,7 @@ export class D1HoldingImportRepository {
 
   public async findHoldingImportBySourceHash(
     accessSubject: string,
+    connectionId: string,
     documentSha256: string,
   ): Promise<HoldingImportPreview | null> {
     const sha = z
@@ -383,9 +485,11 @@ export class D1HoldingImportRepository {
          FROM holding_imports import
          JOIN source_documents document
            ON document.id = import.source_document_id
-         WHERE import.household_id = ? AND document.sha256 = ?`,
+         JOIN holding_import_connections scope ON scope.import_id = import.id
+         WHERE import.household_id = ? AND scope.connection_id = ?
+           AND document.sha256 = ?`,
       )
-      .bind(identity.household_id, sha)
+      .bind(identity.household_id, connectionId, sha)
       .first<{ id: string }>();
     return existing === null
       ? null
@@ -397,33 +501,52 @@ export class D1HoldingImportRepository {
     rawInput: HoldingImportStageInput,
   ): Promise<HoldingImportStageResult> {
     const input = HoldingImportStageInputSchema.parse(rawInput);
+    const identity = await this.findIdentity(accessSubject);
+    const createdAt = new Date().toISOString();
+    const canonical = await this.prepareCanonicalScope(
+      identity,
+      input.canonicalScope,
+      createdAt,
+    );
     const existing = await this.findHoldingImportBySourceHash(
       accessSubject,
+      canonical.connectionId,
       input.sha256,
     );
     if (existing !== null) {
       return { created: false, preview: existing };
     }
-
-    const identity = await this.findIdentity(accessSubject);
+    const rowScopes = new Map(
+      input.canonicalScope.rows.map((scope) => [scope.sourceRowNumber, scope]),
+    );
     const duplicateCounts = new Map<string, number>();
-    input.rows.forEach((row) => {
+    input.canonicalScope.rows.forEach((row) => {
       duplicateCounts.set(
-        row.naturalKeySha256,
-        (duplicateCounts.get(row.naturalKeySha256) ?? 0) + 1,
+        row.protectedPositionKey,
+        (duplicateCounts.get(row.protectedPositionKey) ?? 0) + 1,
       );
     });
     const preparedRows = await Promise.all(
-      input.rows.map(async (row) => ({
-        row,
-        snapshotFingerprint: await snapshotFingerprint(row),
-        duplicate: (duplicateCounts.get(row.naturalKeySha256) ?? 0) > 1,
-      })),
+      input.rows.map(async (row) => {
+        const scope = rowScopes.get(row.rowNumber);
+        if (scope === undefined) {
+          throw new Error("AngelList row scope was not found.");
+        }
+        return {
+          row,
+          scope,
+          snapshotFingerprint: await snapshotFingerprint(
+            row,
+            scope.protectedPositionKey,
+          ),
+          duplicate: (duplicateCounts.get(scope.protectedPositionKey) ?? 0) > 1,
+        };
+      }),
     );
     const importId = crypto.randomUUID();
     const sourceDocumentId = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
     const statements: D1PreparedStatement[] = [
+      ...canonical.statements,
       this.db
         .prepare(
           `INSERT INTO source_documents (
@@ -461,11 +584,59 @@ export class D1HoldingImportRepository {
           identity.user_id,
           createdAt,
         ),
+      this.db
+        .prepare(
+          `INSERT INTO holding_import_connections (
+             id, household_id, import_id, connection_id, created_at, immutable
+           ) VALUES (?, ?, ?, ?, ?, 1)`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          identity.household_id,
+          importId,
+          canonical.connectionId,
+          createdAt,
+        ),
     ];
 
+    input.canonicalScope.containers.forEach((containerScope) => {
+      const container = canonical.containersByKey.get(
+        containerScope.protectedAccountKey,
+      );
+      if (container === undefined) {
+        throw new Error("AngelList ownership container was not found.");
+      }
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO holding_import_coverages (
+               id, household_id, import_id, container_id, completeness,
+               evidence_sha256, observed_at, created_at, immutable
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            importId,
+            container.id,
+            containerScope.completeness,
+            input.sha256,
+            input.retrievedAt,
+            createdAt,
+          ),
+      );
+    });
+
     preparedRows.forEach(
-      ({ row, snapshotFingerprint: fingerprint, duplicate }) => {
+      ({ row, scope, snapshotFingerprint: fingerprint, duplicate }) => {
         const issueCodes = duplicate ? ["duplicate_natural_key"] : [];
+        const rowId = crypto.randomUUID();
+        const container = canonical.containersByKey.get(
+          scope.protectedAccountKey,
+        );
+        if (container === undefined) {
+          throw new Error("AngelList row ownership container was not found.");
+        }
         statements.push(
           this.db
             .prepare(
@@ -481,11 +652,11 @@ export class D1HoldingImportRepository {
                'USD', ?, ?, ?)`,
             )
             .bind(
-              crypto.randomUUID(),
+              rowId,
               identity.household_id,
               importId,
               row.rowNumber,
-              row.naturalKeySha256,
+              scope.protectedPositionKey,
               fingerprint,
               row.fundName,
               row.investmentEntity,
@@ -504,6 +675,20 @@ export class D1HoldingImportRepository {
               JSON.stringify(issueCodes),
               createdAt,
             ),
+          this.db
+            .prepare(
+              `INSERT INTO holding_import_row_containers (
+                 id, household_id, import_row_id, container_id, created_at,
+                 immutable
+               ) VALUES (?, ?, ?, ?, ?, 1)`,
+            )
+            .bind(
+              crypto.randomUUID(),
+              identity.household_id,
+              rowId,
+              container.id,
+              createdAt,
+            ),
         );
       },
     );
@@ -513,6 +698,7 @@ export class D1HoldingImportRepository {
     } catch (error) {
       const raced = await this.findHoldingImportBySourceHash(
         accessSubject,
+        canonical.connectionId,
         input.sha256,
       );
       if (raced !== null) {
@@ -529,6 +715,7 @@ export class D1HoldingImportRepository {
 
   public async findRobinhoodHoldingImportByFingerprint(
     accessSubject: string,
+    connectionId: string,
     normalizedFingerprint: string,
   ): Promise<HoldingImportPreview | null> {
     const fingerprint = z
@@ -540,19 +727,25 @@ export class D1HoldingImportRepository {
       .prepare(
         `SELECT candidate.id
          FROM holding_imports candidate
+         JOIN holding_import_connections candidate_scope
+           ON candidate_scope.import_id = candidate.id
          WHERE candidate.household_id = ?
+           AND candidate_scope.connection_id = ?
            AND candidate.provider = 'robinhood'
            AND candidate.normalized_fingerprint = ?
            AND candidate.id = (
              SELECT latest.id
              FROM holding_imports latest
+             JOIN holding_import_connections latest_scope
+               ON latest_scope.import_id = latest.id
              WHERE latest.household_id = candidate.household_id
                AND latest.provider = candidate.provider
+               AND latest_scope.connection_id = candidate_scope.connection_id
              ORDER BY latest.created_at DESC, latest.id DESC
              LIMIT 1
            )`,
       )
-      .bind(identity.household_id, fingerprint)
+      .bind(identity.household_id, connectionId, fingerprint)
       .first<{ id: string }>();
     return existing === null
       ? null
@@ -564,28 +757,45 @@ export class D1HoldingImportRepository {
     rawInput: RobinhoodHoldingImportStageInput,
   ): Promise<HoldingImportStageResult> {
     const input = RobinhoodHoldingImportStageInputSchema.parse(rawInput);
+    const identity = await this.findIdentity(accessSubject);
+    const createdAt = new Date().toISOString();
+    const canonical = await this.prepareCanonicalScope(
+      identity,
+      input.canonicalScope,
+      createdAt,
+    );
     const existing = await this.findRobinhoodHoldingImportByFingerprint(
       accessSubject,
+      canonical.connectionId,
       input.normalizedFingerprint,
     );
     if (existing !== null) {
       return { created: false, preview: existing };
     }
-
-    const identity = await this.findIdentity(accessSubject);
+    const rowScopes = new Map(
+      input.canonicalScope.rows.map((scope) => [scope.sourceRowNumber, scope]),
+    );
     const preparedRows = await Promise.all(
-      input.rows.map(async (row) => ({
-        row,
-        snapshotFingerprint: await robinhoodSnapshotFingerprint(
+      input.rows.map(async (row) => {
+        const scope = rowScopes.get(row.rowNumber);
+        if (scope === undefined) {
+          throw new Error("Robinhood row scope was not found.");
+        }
+        return {
           row,
-          input.retrievedAt,
-        ),
-      })),
+          scope,
+          snapshotFingerprint: await robinhoodSnapshotFingerprint(
+            row,
+            input.retrievedAt,
+            scope.protectedPositionKey,
+          ),
+        };
+      }),
     );
     const importId = crypto.randomUUID();
     const sourceDocumentId = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
     const statements: D1PreparedStatement[] = [
+      ...canonical.statements,
       this.db
         .prepare(
           `INSERT INTO source_documents (
@@ -624,14 +834,62 @@ export class D1HoldingImportRepository {
           identity.user_id,
           createdAt,
         ),
+      this.db
+        .prepare(
+          `INSERT INTO holding_import_connections (
+             id, household_id, import_id, connection_id, created_at, immutable
+           ) VALUES (?, ?, ?, ?, ?, 1)`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          identity.household_id,
+          importId,
+          canonical.connectionId,
+          createdAt,
+        ),
     ];
 
-    preparedRows.forEach(({ row, snapshotFingerprint: fingerprint }) => {
+    input.canonicalScope.containers.forEach((containerScope) => {
+      const container = canonical.containersByKey.get(
+        containerScope.protectedAccountKey,
+      );
+      if (container === undefined) {
+        throw new Error("Robinhood ownership container was not found.");
+      }
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO holding_import_coverages (
+               id, household_id, import_id, container_id, completeness,
+               evidence_sha256, observed_at, created_at, immutable
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            importId,
+            container.id,
+            containerScope.completeness,
+            input.sha256,
+            input.retrievedAt,
+            createdAt,
+          ),
+      );
+    });
+
+    preparedRows.forEach(({ row, scope, snapshotFingerprint: fingerprint }) => {
       const exposureLabel =
         row.ticker === null
           ? row.securityName
           : `${row.ticker} · ${row.securityName}`;
       const costBasisPlaceholder = row.costBasisMinor ?? 0;
+      const rowId = crypto.randomUUID();
+      const container = canonical.containersByKey.get(
+        scope.protectedAccountKey,
+      );
+      if (container === undefined) {
+        throw new Error("Robinhood row ownership container was not found.");
+      }
       statements.push(
         this.db
           .prepare(
@@ -648,11 +906,11 @@ export class D1HoldingImportRepository {
                'reported', 0, ?, 'reported', ?, 'USD', ?, ?, 'direct', ?, ?, ?, ?)`,
           )
           .bind(
-            crypto.randomUUID(),
+            rowId,
             identity.household_id,
             importId,
             row.rowNumber,
-            row.naturalKeySha256,
+            scope.protectedPositionKey,
             fingerprint,
             row.securityName,
             row.accountLabel,
@@ -674,6 +932,20 @@ export class D1HoldingImportRepository {
             row.costBasisMinor,
             createdAt,
           ),
+        this.db
+          .prepare(
+            `INSERT INTO holding_import_row_containers (
+               id, household_id, import_row_id, container_id, created_at,
+               immutable
+             ) VALUES (?, ?, ?, ?, ?, 1)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            rowId,
+            container.id,
+            createdAt,
+          ),
       );
     });
 
@@ -682,6 +954,7 @@ export class D1HoldingImportRepository {
     } catch (error) {
       const raced = await this.findRobinhoodHoldingImportByFingerprint(
         accessSubject,
+        canonical.connectionId,
         input.normalizedFingerprint,
       );
       if (raced !== null) {
@@ -696,24 +969,6 @@ export class D1HoldingImportRepository {
     };
   }
 
-  public async hasAcceptedRobinhoodPlanningPositions(
-    accessSubject: string,
-  ): Promise<boolean> {
-    const identity = await this.findIdentity(accessSubject);
-    const rows = await all<{ instrument_type: string }>(
-      this.db
-        .prepare(
-          `SELECT instrument_type
-         FROM holding_positions
-         WHERE household_id = ? AND provider = 'robinhood'`,
-        )
-        .bind(identity.household_id),
-    );
-    return rows.some((row) =>
-      isRobinhoodFiPlanningSecurityType(row.instrument_type),
-    );
-  }
-
   public async autoAdjudicateRobinhoodHoldingImport(
     accessSubject: string,
     importId: string,
@@ -723,32 +978,69 @@ export class D1HoldingImportRepository {
       await Promise.all([
         this.db
           .prepare(
-            `SELECT normalized_fingerprint
-           FROM holding_imports
-           WHERE id = ? AND household_id = ? AND provider = 'robinhood'`,
+            `SELECT
+               import.normalized_fingerprint,
+               scope.connection_id,
+               (SELECT COUNT(*)
+                FROM holding_import_coverages coverage
+                WHERE coverage.import_id = import.id) AS coverage_count,
+               (SELECT COUNT(*)
+                FROM holding_import_coverages coverage
+                WHERE coverage.import_id = import.id
+                  AND coverage.completeness = 'complete')
+                 AS complete_coverage_count
+             FROM holding_imports import
+             JOIN holding_import_connections scope ON scope.import_id = import.id
+             WHERE import.id = ? AND import.household_id = ?
+               AND import.provider = 'robinhood'`,
           )
           .bind(importId, identity.household_id)
           .first<RobinhoodAdjudicationImport>(),
         all<RobinhoodAdjudicationRow>(
           this.db
             .prepare(
-              `SELECT id, position_fingerprint, snapshot_fingerprint,
-                    instrument_type, parse_status, cost_basis_minor,
-                    issue_codes_json
-             FROM holding_import_rows
-             WHERE import_id = ? AND household_id = ?
-             ORDER BY source_row_number`,
+              `SELECT
+                 row.id,
+                 row.position_fingerprint,
+                 row.snapshot_fingerprint,
+                 row.instrument_type,
+                 row.parse_status,
+                 row.cost_basis_minor,
+                 row.issue_codes_json,
+                 scope.container_id
+               FROM holding_import_rows row
+               JOIN holding_import_row_containers scope
+                 ON scope.import_row_id = row.id
+               WHERE row.import_id = ? AND row.household_id = ?
+               ORDER BY row.source_row_number`,
             )
             .bind(importId, identity.household_id),
         ),
         all<RobinhoodExistingPositionRow>(
           this.db
             .prepare(
-              `SELECT id, position_fingerprint, currency, instrument_type
-             FROM holding_positions
-             WHERE household_id = ? AND provider = 'robinhood'`,
+              `SELECT
+                 position.id,
+                 ownership.protected_position_key AS position_fingerprint,
+                 position.currency,
+                 position.instrument_type,
+                 ownership.container_id
+               FROM holding_import_coverages coverage
+               JOIN holding_position_ownerships ownership
+                 ON ownership.container_id = coverage.container_id
+               JOIN holding_positions position
+                 ON position.id = ownership.position_id
+               WHERE coverage.import_id = ?
+                 AND coverage.household_id = ?
+                 AND coverage.completeness = 'complete'
+                 AND position.provider = 'robinhood'
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM holding_position_ownerships later
+                   WHERE later.supersedes_ownership_id = ownership.id
+                 )`,
             )
-            .bind(identity.household_id),
+            .bind(importId, identity.household_id),
         ),
         all<{ decision_source: "manual" | "policy" }>(
           this.db
@@ -761,7 +1053,7 @@ export class D1HoldingImportRepository {
             .bind(importId, identity.household_id),
         ),
       ]);
-    if (importRecord === null || rows.length === 0) {
+    if (importRecord === null || importRecord.coverage_count === 0) {
       throw new Error("Robinhood holding import not found.");
     }
     if (
@@ -784,20 +1076,35 @@ export class D1HoldingImportRepository {
       };
     }
 
-    const currentFingerprints = new Set(
-      rows.map((row) => row.position_fingerprint),
+    const currentPositionKeys = new Set(
+      rows.map((row) =>
+        containerPositionKey(row.container_id, row.position_fingerprint),
+      ),
     );
-    const positionsByFingerprint = new Map(
-      positions.map((position) => [position.position_fingerprint, position]),
+    const positionsByKey = new Map(
+      positions.map((position) => [
+        containerPositionKey(
+          position.container_id,
+          position.position_fingerprint,
+        ),
+        position,
+      ]),
     );
     const missingPositions = positions.filter(
-      (position) => !currentFingerprints.has(position.position_fingerprint),
+      (position) =>
+        !currentPositionKeys.has(
+          containerPositionKey(
+            position.container_id,
+            position.position_fingerprint,
+          ),
+        ),
     );
     const missingPlanningPositions = missingPositions.filter((position) =>
       isRobinhoodFiPlanningSecurityType(position.instrument_type),
     );
-    const possibleIdentityChange =
-      positions.length > 0 && missingPlanningPositions.length > 0;
+    const containersWithMissingPlanningPositions = new Set(
+      missingPlanningPositions.map((position) => position.container_id),
+    );
     const clearRows: RobinhoodAdjudicationRow[] = [];
     const quarantineStatements: D1PreparedStatement[] = [];
     const createdAt = new Date().toISOString();
@@ -805,8 +1112,10 @@ export class D1HoldingImportRepository {
     rows.forEach((row) => {
       const rowValidationFailed = row.parse_status === "needs_attention";
       const identityChanged =
-        possibleIdentityChange &&
-        !positionsByFingerprint.has(row.position_fingerprint);
+        containersWithMissingPlanningPositions.has(row.container_id) &&
+        !positionsByKey.has(
+          containerPositionKey(row.container_id, row.position_fingerprint),
+        );
       if (!rowValidationFailed && !identityChanged) {
         clearRows.push(row);
         return;
@@ -871,7 +1180,9 @@ export class D1HoldingImportRepository {
           isRobinhoodOutsideFiSecurityType(row.instrument_type)
             ? "excluded_from_fi_planning"
             : "supported_usd_long_position",
-          positionsByFingerprint.has(row.position_fingerprint)
+          positionsByKey.has(
+            containerPositionKey(row.container_id, row.position_fingerprint),
+          )
             ? "existing_position_matched"
             : "new_position_identity_clear",
           ...(row.cost_basis_minor === null ? ["cost_basis_unavailable"] : []),
@@ -897,6 +1208,25 @@ export class D1HoldingImportRepository {
       );
     }
 
+    if (
+      rows.length === 0 &&
+      missingPlanningPositions.length === 0 &&
+      importRecord.coverage_count === importRecord.complete_coverage_count
+    ) {
+      await this.db
+        .prepare(
+          `UPDATE source_documents
+           SET review_status = 'accepted'
+           WHERE id = (
+             SELECT source_document_id
+             FROM holding_imports
+             WHERE id = ? AND household_id = ?
+           ) AND review_status = 'pending_review'`,
+        )
+        .bind(importId, identity.household_id)
+        .run();
+    }
+
     const preview = await this.getHoldingImport(accessSubject, importId);
     return {
       importId,
@@ -920,6 +1250,7 @@ export class D1HoldingImportRepository {
            import.row_count,
            document.effective_date,
            document.retrieved_at,
+           document.review_status,
            (SELECT COUNT(*) FROM holding_import_row_decisions decision
             JOIN holding_import_rows row ON row.id = decision.import_row_id
             WHERE row.import_id = import.id) AS decision_count,
@@ -983,10 +1314,20 @@ export class D1HoldingImportRepository {
              quarantine.reason_code AS quarantine_reason_code
            FROM holding_import_rows row
            JOIN holding_imports import ON import.id = row.import_id
+           JOIN holding_import_row_containers row_scope
+             ON row_scope.import_row_id = row.id
+           LEFT JOIN holding_position_ownerships ownership
+             ON ownership.container_id = row_scope.container_id
+             AND ownership.protected_position_key = row.position_fingerprint
+             AND NOT EXISTS (
+               SELECT 1
+               FROM holding_position_ownerships later
+               WHERE later.supersedes_ownership_id = ownership.id
+             )
            LEFT JOIN holding_positions position
-             ON position.household_id = row.household_id
+             ON position.id = ownership.position_id
+             AND position.household_id = row.household_id
              AND position.provider = import.provider
-             AND position.position_fingerprint = row.position_fingerprint
            LEFT JOIN holding_position_snapshots snapshot
              ON snapshot.position_id = position.id
              AND snapshot.snapshot_fingerprint = row.snapshot_fingerprint
@@ -998,6 +1339,33 @@ export class D1HoldingImportRepository {
              ON quarantine.import_row_id = row.id
            WHERE row.import_id = ? AND row.household_id = ?
            ORDER BY row.source_row_number`,
+        )
+        .bind(importId, identity.household_id),
+    );
+    const coverage = await all<ImportCoveragePreviewRow>(
+      this.db
+        .prepare(
+          `SELECT
+             coverage.container_id,
+             version.display_label,
+             coverage.completeness,
+             (SELECT COUNT(*)
+              FROM holding_import_rows row
+              JOIN holding_import_row_containers row_scope
+                ON row_scope.import_row_id = row.id
+              WHERE row.import_id = coverage.import_id
+                AND row_scope.container_id = coverage.container_id)
+               AS reported_row_count
+           FROM holding_import_coverages coverage
+           JOIN ownership_container_versions version
+             ON version.container_id = coverage.container_id
+            AND NOT EXISTS (
+              SELECT 1
+              FROM ownership_container_versions later
+              WHERE later.supersedes_version_id = version.id
+            )
+           WHERE coverage.import_id = ? AND coverage.household_id = ?
+           ORDER BY version.display_label, coverage.container_id`,
         )
         .bind(importId, identity.household_id),
     );
@@ -1038,8 +1406,7 @@ export class D1HoldingImportRepository {
     const status =
       importRow.quarantined_count > 0
         ? "quarantined"
-        : importRow.decision_count === importRow.row_count &&
-            importRow.application_count === importRow.accepted_count
+        : importRow.review_status !== "pending_review"
           ? "applied"
           : "pending_review";
 
@@ -1069,6 +1436,12 @@ export class D1HoldingImportRepository {
         quarantinedCount: importRow.quarantined_count,
         preservedPositionCount: importRow.preserved_position_count,
       },
+      coverage: coverage.map((record) => ({
+        containerId: record.container_id,
+        displayLabel: record.display_label,
+        completeness: record.completeness,
+        reportedRowCount: record.reported_row_count,
+      })),
       rows: previewRows,
     };
   }
@@ -1121,10 +1494,13 @@ export class D1HoldingImportRepository {
              row.parse_status,
              import.source_document_id,
              document.effective_date,
-             document.retrieved_at
+             document.retrieved_at,
+             row_scope.container_id
            FROM holding_import_rows row
            JOIN holding_imports import ON import.id = row.import_id
            JOIN source_documents document ON document.id = import.source_document_id
+           JOIN holding_import_row_containers row_scope
+             ON row_scope.import_row_id = row.id
            WHERE import.id = ?
              AND import.household_id = ?
              AND import.provider = ?
@@ -1210,9 +1586,20 @@ export class D1HoldingImportRepository {
     const positions = await all<ExistingPositionRow>(
       this.db
         .prepare(
-          `SELECT id, position_fingerprint, currency
-           FROM holding_positions
-           WHERE household_id = ? AND provider = ?`,
+          `SELECT
+             position.id,
+             ownership.protected_position_key AS position_fingerprint,
+             position.currency,
+             ownership.container_id
+           FROM holding_position_ownerships ownership
+           JOIN holding_positions position ON position.id = ownership.position_id
+           WHERE ownership.household_id = ?
+             AND position.provider = ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM holding_position_ownerships later
+               WHERE later.supersedes_ownership_id = ownership.id
+             )`,
         )
         .bind(identity.household_id, provider),
     );
@@ -1226,8 +1613,14 @@ export class D1HoldingImportRepository {
         )
         .bind(identity.household_id, provider),
     );
-    const positionsByFingerprint = new Map(
-      positions.map((position) => [position.position_fingerprint, position]),
+    const positionsByKey = new Map(
+      positions.map((position) => [
+        containerPositionKey(
+          position.container_id,
+          position.position_fingerprint,
+        ),
+        position,
+      ]),
     );
     const positionsById = new Map(
       positions.map((position) => [position.id, position]),
@@ -1271,14 +1664,17 @@ export class D1HoldingImportRepository {
       const requestedMatch = decision.matchedPositionId ?? null;
       let position =
         requestedMatch === null
-          ? positionsByFingerprint.get(row.position_fingerprint)
+          ? positionsByKey.get(
+              containerPositionKey(row.container_id, row.position_fingerprint),
+            )
           : positionsById.get(requestedMatch);
       if (requestedMatch !== null && position === undefined) {
         throw new Error("Matched holding position not found.");
       }
       if (
         requestedMatch !== null &&
-        position?.position_fingerprint !== row.position_fingerprint
+        (position?.position_fingerprint !== row.position_fingerprint ||
+          position.container_id !== row.container_id)
       ) {
         throw new Error(
           "Matched holding position does not represent this row.",
@@ -1293,14 +1689,20 @@ export class D1HoldingImportRepository {
       }
 
       let outcome: "created_position" | "appended_snapshot" | "no_change";
+      let createdPosition = false;
       if (decision.decision === "accepted" && position === undefined) {
         position = {
           id: crypto.randomUUID(),
           position_fingerprint: row.position_fingerprint,
           currency: input.currency,
+          container_id: row.container_id,
         };
-        positionsByFingerprint.set(row.position_fingerprint, position);
+        positionsByKey.set(
+          containerPositionKey(row.container_id, row.position_fingerprint),
+          position,
+        );
         positionsById.set(position.id, position);
+        createdPosition = true;
         statements.push(
           this.db
             .prepare(
@@ -1374,6 +1776,29 @@ export class D1HoldingImportRepository {
 
       if (decision.decision === "rejected" || position === undefined) {
         continue;
+      }
+      if (createdPosition) {
+        statements.push(
+          this.db
+            .prepare(
+              `INSERT INTO holding_position_ownerships (
+                 id, household_id, container_id, position_id,
+                 protected_position_key, association_basis, evidence_sha256,
+                 version, supersedes_ownership_id, accepted_by_user_id,
+                 accepted_at, immutable
+               ) VALUES (?, ?, ?, ?, ?, 'reviewed_import', ?, 1, NULL, ?, ?, 1)`,
+            )
+            .bind(
+              crypto.randomUUID(),
+              identity.household_id,
+              row.container_id,
+              position.id,
+              row.position_fingerprint,
+              row.snapshot_fingerprint,
+              identity.user_id,
+              createdAt,
+            ),
+        );
       }
       const snapshotKey = `${position.id}:${row.snapshot_fingerprint}`;
       let snapshot = snapshotsByPositionAndFingerprint.get(snapshotKey);
@@ -1498,6 +1923,313 @@ export class D1HoldingImportRepository {
     );
     await this.db.batch(statements);
     return this.getApplyResult(identity.household_id, importId);
+  }
+
+  private async prepareCanonicalScope(
+    identity: HouseholdIdentity,
+    rawScope: HoldingImportCanonicalScope,
+    recordedAt: string,
+  ): Promise<PreparedCanonicalScope> {
+    const scope = HoldingImportCanonicalScopeSchema.parse(rawScope);
+    const statements: D1PreparedStatement[] = [];
+    let connection: CanonicalConnectionRow | null;
+
+    if (scope.connection.mode === "existing") {
+      connection = await this.findCanonicalConnection(
+        identity.household_id,
+        scope.connection.connectionId,
+      );
+      if (
+        connection === null ||
+        connection.adapter_type !== "plaid-investments" ||
+        connection.lifecycle_state !== "active"
+      ) {
+        throw new Error("Active investment connection was not found.");
+      }
+    } else {
+      connection = await this.db
+        .prepare(
+          `SELECT
+             connection.id,
+             connection.adapter_type,
+             connection.protected_source_key,
+             version.id AS version_id,
+             version.version,
+             version.institution_key,
+             version.institution_label,
+             version.lifecycle_state,
+             version.credential_reference
+           FROM investment_connections connection
+           JOIN investment_connection_versions version
+             ON version.connection_id = connection.id
+           WHERE connection.household_id = ?
+             AND connection.adapter_type = ?
+             AND connection.protected_source_key = ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM investment_connection_versions later
+               WHERE later.supersedes_version_id = version.id
+             )`,
+        )
+        .bind(
+          identity.household_id,
+          scope.connection.adapterType,
+          scope.connection.protectedSourceKey,
+        )
+        .first<CanonicalConnectionRow>();
+
+      if (connection === null) {
+        const connectionId = crypto.randomUUID();
+        const versionId = crypto.randomUUID();
+        statements.push(
+          this.db
+            .prepare(
+              `INSERT INTO investment_connections (
+                 id, household_id, adapter_type, protected_source_key,
+                 created_by_user_id, created_at, immutable
+               ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+            )
+            .bind(
+              connectionId,
+              identity.household_id,
+              scope.connection.adapterType,
+              scope.connection.protectedSourceKey,
+              identity.user_id,
+              recordedAt,
+            ),
+          this.db
+            .prepare(
+              `INSERT INTO investment_connection_versions (
+                 id, household_id, connection_id, version, institution_key,
+                 institution_label, lifecycle_state, credential_reference,
+                 supersedes_version_id, recorded_by_user_id, recorded_at,
+                 immutable
+               ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, NULL, ?, ?, 1)`,
+            )
+            .bind(
+              versionId,
+              identity.household_id,
+              connectionId,
+              scope.connection.institutionKey,
+              scope.connection.institutionLabel,
+              scope.connection.lifecycleState,
+              scope.connection.credentialReference,
+              identity.user_id,
+              recordedAt,
+            ),
+        );
+        connection = {
+          id: connectionId,
+          adapter_type: scope.connection.adapterType,
+          protected_source_key: scope.connection.protectedSourceKey,
+          version_id: versionId,
+          version: 1,
+          institution_key: scope.connection.institutionKey,
+          institution_label: scope.connection.institutionLabel,
+          lifecycle_state: scope.connection.lifecycleState,
+          credential_reference: scope.connection.credentialReference,
+        };
+      } else if (
+        connection.institution_key !== scope.connection.institutionKey ||
+        connection.institution_label !== scope.connection.institutionLabel ||
+        connection.lifecycle_state !== scope.connection.lifecycleState ||
+        connection.credential_reference !== scope.connection.credentialReference
+      ) {
+        const versionId = crypto.randomUUID();
+        statements.push(
+          this.db
+            .prepare(
+              `INSERT INTO investment_connection_versions (
+                 id, household_id, connection_id, version, institution_key,
+                 institution_label, lifecycle_state, credential_reference,
+                 supersedes_version_id, recorded_by_user_id, recorded_at,
+                 immutable
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+            )
+            .bind(
+              versionId,
+              identity.household_id,
+              connection.id,
+              connection.version + 1,
+              scope.connection.institutionKey,
+              scope.connection.institutionLabel,
+              scope.connection.lifecycleState,
+              scope.connection.credentialReference,
+              connection.version_id,
+              identity.user_id,
+              recordedAt,
+            ),
+        );
+        connection = {
+          ...connection,
+          version_id: versionId,
+          version: connection.version + 1,
+          institution_key: scope.connection.institutionKey,
+          institution_label: scope.connection.institutionLabel,
+          lifecycle_state: scope.connection.lifecycleState,
+          credential_reference: scope.connection.credentialReference,
+        };
+      }
+    }
+
+    const containersByKey = new Map<string, CanonicalContainerRow>();
+    for (const containerScope of scope.containers) {
+      const existing = await this.db
+        .prepare(
+          `SELECT
+             container.id,
+             container.protected_account_key,
+             version.id AS version_id,
+             version.version,
+             version.display_label,
+             version.container_kind,
+             version.tax_treatment
+           FROM ownership_containers container
+           JOIN ownership_container_versions version
+             ON version.container_id = container.id
+           WHERE container.household_id = ?
+             AND container.connection_id = ?
+             AND container.protected_account_key = ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM ownership_container_versions later
+               WHERE later.supersedes_version_id = version.id
+             )`,
+        )
+        .bind(
+          identity.household_id,
+          connection.id,
+          containerScope.protectedAccountKey,
+        )
+        .first<CanonicalContainerRow>();
+      if (existing === null) {
+        const containerId = crypto.randomUUID();
+        const versionId = crypto.randomUUID();
+        statements.push(
+          this.db
+            .prepare(
+              `INSERT INTO ownership_containers (
+                 id, household_id, connection_id, protected_account_key,
+                 created_by_user_id, created_at, immutable
+               ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+            )
+            .bind(
+              containerId,
+              identity.household_id,
+              connection.id,
+              containerScope.protectedAccountKey,
+              identity.user_id,
+              recordedAt,
+            ),
+          this.db
+            .prepare(
+              `INSERT INTO ownership_container_versions (
+                 id, household_id, container_id, version, display_label,
+                 container_kind, tax_treatment, supersedes_version_id,
+                 recorded_by_user_id, recorded_at, immutable
+               ) VALUES (?, ?, ?, 1, ?, ?, ?, NULL, ?, ?, 1)`,
+            )
+            .bind(
+              versionId,
+              identity.household_id,
+              containerId,
+              containerScope.displayLabel,
+              containerScope.containerKind,
+              containerScope.taxTreatment,
+              identity.user_id,
+              recordedAt,
+            ),
+        );
+        containersByKey.set(containerScope.protectedAccountKey, {
+          id: containerId,
+          protected_account_key: containerScope.protectedAccountKey,
+          version_id: versionId,
+          version: 1,
+          display_label: containerScope.displayLabel,
+          container_kind: containerScope.containerKind,
+          tax_treatment: containerScope.taxTreatment,
+        });
+        continue;
+      }
+
+      if (
+        existing.display_label === containerScope.displayLabel &&
+        existing.container_kind === containerScope.containerKind &&
+        existing.tax_treatment === containerScope.taxTreatment
+      ) {
+        containersByKey.set(containerScope.protectedAccountKey, existing);
+        continue;
+      }
+
+      const versionId = crypto.randomUUID();
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO ownership_container_versions (
+               id, household_id, container_id, version, display_label,
+               container_kind, tax_treatment, supersedes_version_id,
+               recorded_by_user_id, recorded_at, immutable
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          )
+          .bind(
+            versionId,
+            identity.household_id,
+            existing.id,
+            existing.version + 1,
+            containerScope.displayLabel,
+            containerScope.containerKind,
+            containerScope.taxTreatment,
+            existing.version_id,
+            identity.user_id,
+            recordedAt,
+          ),
+      );
+      containersByKey.set(containerScope.protectedAccountKey, {
+        ...existing,
+        version_id: versionId,
+        version: existing.version + 1,
+        display_label: containerScope.displayLabel,
+        container_kind: containerScope.containerKind,
+        tax_treatment: containerScope.taxTreatment,
+      });
+    }
+
+    return {
+      connectionId: connection.id,
+      containersByKey,
+      statements,
+    };
+  }
+
+  private async findCanonicalConnection(
+    householdId: string,
+    connectionId: string,
+  ): Promise<CanonicalConnectionRow | null> {
+    return this.db
+      .prepare(
+        `SELECT
+           connection.id,
+           connection.adapter_type,
+           connection.protected_source_key,
+           version.id AS version_id,
+           version.version,
+           version.institution_key,
+           version.institution_label,
+           version.lifecycle_state,
+           version.credential_reference
+         FROM investment_connections connection
+         JOIN investment_connection_versions version
+           ON version.connection_id = connection.id
+         WHERE connection.id = ?
+           AND connection.household_id = ?
+           AND NOT EXISTS (
+             SELECT 1
+             FROM investment_connection_versions later
+             WHERE later.supersedes_version_id = version.id
+           )`,
+      )
+      .bind(connectionId, householdId)
+      .first<CanonicalConnectionRow>();
   }
 
   private async findIdentity(

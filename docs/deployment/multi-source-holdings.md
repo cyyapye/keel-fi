@@ -2,8 +2,10 @@
 
 Migration `0019_multi_source_holdings_contract.sql` defines Keel's only
 connection, ownership-container, import-coverage, and exposure relationship
-contract. It does not authorize another provider or change the reviewed value in
-a Portfolio Baseline, plan, goal, or forecast.
+contract. Migration `0020_container_scoped_holding_ingestion.sql` makes the
+Robinhood and AngelList writers populate that contract directly. Neither
+migration authorizes another provider or changes the reviewed value in a
+Portfolio Baseline, plan, goal, or forecast.
 
 Keel has no live user data. A short-lived synthetic transition experiment was
 removed instead of becoming a permanent backfill and dual-read surface. The next
@@ -33,14 +35,31 @@ holding ingestion migration must write this canonical contract directly.
   money. Relationship and exposure records cannot create, duplicate, or alter
   Portfolio Baseline value.
 
-## Pre-live cutover boundary
+## Direct-ingestion boundary
 
 - There is no holdings backfill migration, compatibility view, association
   trigger, runtime read-source flag, or dual repository path.
-- Current canonical relationship tables may remain empty until M9.3. An upgraded
-  writer must create its connection, container, coverage, and position
-  association directly in the reviewed ingestion flow; it cannot rely on a later
-  reconstruction pass.
+- Robinhood creates one canonical `plaid-investments` connection per protected
+  Item identity. Every sync run and webhook delivery records that exact
+  connection even if the operational connector is later reauthorized.
+- AngelList uses one protected household export connection. Its ownership labels
+  become protected trust or entity containers; every parsed row is scoped to one
+  of those containers before matching.
+- Every import records its connection and container coverage in the same D1
+  batch as its rows. A row cannot be stored without declared coverage for its
+  container, and an unresolved container cannot claim complete coverage.
+- A complete covered container may contain zero rows. `partial`, `unavailable`,
+  `malformed`, `failed`, and `ambiguous` coverage remain explicit and cannot
+  support an omission exception.
+- Position matching uses the pair of container ID and protected position key.
+  Only a prior FI-planning position in a complete container covered by that
+  exact import may receive `position_not_reported`; its accepted value remains
+  unchanged. Missing cryptocurrency remains outside the active FI exception
+  path.
+- Reconnects with the same protected Item reuse the canonical connection and
+  append state. A changed Item receives a distinct connection; the prior
+  connection becomes disconnected. Disconnect revokes future retrieval and the
+  credential reference while retaining accepted holdings and baselines.
 - Any synthetic environment that applied the removed transition experiment must
   be rebuilt from the checked-in migration chain before it can provide release
   evidence. Applying only later migrations to that database is not proof of the
@@ -53,15 +72,18 @@ holding ingestion migration must write this canonical contract directly.
 
 ## Cost and activation gate
 
-The canonical foundation adds no network call, R2 object, Queue message,
-schedule, webhook, or paid provider product. Its only incremental cost is D1
-storage and backup volume for rows that later M9 slices explicitly create.
+Container-scoped ingestion adds no network call, R2 object, Queue message,
+schedule, webhook, or paid provider product. It reuses the shipped Robinhood and
+AngelList paths. Its only incremental cost is D1 storage and backup volume for
+canonical scope and lifecycle rows.
 
 For a deployment with `C` connections, `O` ownership containers, `P` accepted
 positions, `I` imports, `R` import rows, `E` canonical exposures, and `M`
 accepted exposure-mapping versions, the initial upper-bound row growth is:
 
 - `C` connection identities plus one connection-state version per connection;
+- one operational connector-link version per authorization or changed Item, one
+  connection association per sync run, and one per accepted webhook delivery;
 - `O` container identities plus one metadata version per container;
 - at most `P` position/container associations;
 - at most `I` import/connection associations, `R` row/container associations,
@@ -85,25 +107,22 @@ incremental provider spend.
 
 ## Verification
 
-Before accepting the M9.2 replacement release:
+Before accepting the M9.3 release:
 
-1. Confirm the migration directory ends at
-   `0019_multi_source_holdings_contract.sql`; the next direct ingestion slice
-   owns the next migration number.
-2. Replay every migration against an empty database, apply the synthetic seed,
-   and verify household, protected-key, uniqueness, append-only, supersession,
-   and allocation-parts-per-million invariants.
-3. Verify the schema contains no holdings transition view or trigger and rejects
-   the removed migration-only association value.
-4. Verify Holdings and Portfolio Baseline repositories read `holding_positions`
-   directly and expose no read-source configuration.
-5. Run a bounded source, schema, migration, and deployment-config scan for the
-   removed holdings transition symbols.
-6. Run `make verify`, reviewed PR checks, and exact-head merge verification.
-7. Rebuild the synthetic preview D1 from the checked-in migrations, deploy the
-   exact merge SHA, and require the protected smoke workflow to prove that SHA
-   before marking M9.2 complete.
+1. Replay migrations `0001` through
+   `0020_container_scoped_holding_ingestion.sql`, apply the synthetic seed, and
+   verify that a retained pre-`0020` import row keeps a valid foreign key.
+2. Verify a complete zero-row container, partial multi-account response, failed
+   connection beside a healthy connection, stable reconnect, changed provider
+   identifiers, concurrent sync attempts, webhook replay, and disconnect.
+3. Verify no cross-connection or uncovered-container omission can be stored, and
+   no import application can match a position in another container.
+4. Verify raw Item, account, security, and position identifiers remain outside
+   D1, API responses, logs, screenshots, and repository artifacts.
+5. Inspect Holdings at desktop and mobile sizes, including the disconnect
+   confirmation and no-horizontal-overflow contract.
+6. Run `make verify`, reviewed PR checks, exact-head merge verification, and the
+   exact-SHA protected preview workflow before marking M9.3 complete.
 
-Container-scoped ingestion, canonical exposure resolution, provider-neutral
-connection writes, and additional-institution authorization remain later ordered
-M9 slices.
+Canonical exposure resolution, provider-neutral connection writes, and
+additional-institution authorization remain later ordered M9 slices.

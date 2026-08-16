@@ -7,7 +7,9 @@ import {
 import type { Env } from "./types";
 
 const RawProviderIdentifierSchema = z.string().min(1).max(512);
+const AngelListOwnershipLabelSchema = z.string().trim().min(1).max(1_000);
 const INVESTMENT_KEY_SALT = "keel-provider-account-key-v1";
+const ANGELLIST_SOURCE_ID = "angellist-investments-export";
 
 function scopedValue(parentKey: string, rawIdentifier: string): string {
   return JSON.stringify([
@@ -57,5 +59,59 @@ export async function plaidInvestmentsPositionKey(
     salt: INVESTMENT_KEY_SALT,
     info: "plaid-investments-position-id",
     value: scopedValue(accountKey, rawPositionId),
+  });
+}
+
+/** Identify the household's AngelList export stream without retaining identity. */
+export async function angelListInvestmentsSourceKey(
+  env: Env,
+  accessSubject: string,
+): Promise<string> {
+  return deriveProtectedProviderKey({
+    credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+    salt: INVESTMENT_KEY_SALT,
+    info: "angellist-investments-source",
+    value: scopedValue(
+      await deriveProtectedProviderKey({
+        credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+        salt: INVESTMENT_KEY_SALT,
+        info: "keel-access-subject",
+        value: RawProviderIdentifierSchema.parse(accessSubject),
+      }),
+      ANGELLIST_SOURCE_ID,
+    ),
+  });
+}
+
+/** Protect an AngelList ownership label before it becomes container identity. */
+export async function angelListOwnershipContainerKey(
+  env: Env,
+  sourceKey: string,
+  ownershipLabel: string,
+): Promise<string> {
+  const normalizedLabel =
+    AngelListOwnershipLabelSchema.parse(ownershipLabel).toLowerCase();
+  return deriveProtectedProviderKey({
+    credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+    salt: INVESTMENT_KEY_SALT,
+    info: "angellist-ownership-container",
+    value: JSON.stringify([
+      ProtectedProviderKeySchema.parse(sourceKey),
+      normalizedLabel,
+    ]),
+  });
+}
+
+/** Scope one AngelList position identity to its declared ownership container. */
+export async function angelListPositionKey(
+  env: Env,
+  accountKey: string,
+  naturalKeySha256: string,
+): Promise<string> {
+  return deriveProtectedProviderKey({
+    credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+    salt: INVESTMENT_KEY_SALT,
+    info: "angellist-position-id",
+    value: scopedValue(accountKey, naturalKeySha256),
   });
 }

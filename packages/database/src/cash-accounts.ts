@@ -270,10 +270,12 @@ function identityCandidates(
             missingRow.natural_key_sha256,
           ]),
         ) ?? [];
+      // Back-to-back reviews can share a millisecond timestamp. Proposal
+      // lineage still distinguishes an earlier accepted observation.
       const priorReportedExists = missingHistory.some(
         (row) =>
           row.value_state === "reported" &&
-          row.decided_at.localeCompare(reportedRow.decided_at) < 0,
+          row.proposal_id !== reportedRow.proposal_id,
       );
       const alreadySameIdentity =
         projection.canonicalNaturalKeyForNatural(

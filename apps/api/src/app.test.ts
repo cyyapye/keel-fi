@@ -104,6 +104,7 @@ const holdingImportPreview: HoldingImportPreview = {
     quarantinedCount: 0,
     preservedPositionCount: 0,
   },
+  coverage: [],
   rows: [
     {
       id: "import_row_synthetic",
@@ -164,6 +165,10 @@ function syntheticAngelListCsv(): string {
 
 function testEnv(environment: Env["ENVIRONMENT"]): Env {
   return {
+    CONNECTOR_CREDENTIAL_KEY: btoa("k".repeat(32))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/u, ""),
     DB: {} as D1Database,
     DOCUMENTS: {} as R2Bucket,
     ENVIRONMENT: environment,
@@ -756,6 +761,18 @@ describe("Keel API", () => {
       expect.objectContaining({
         byteSize: new TextEncoder().encode(syntheticAngelListCsv()).byteLength,
         effectiveDate: "2026-06-14",
+        canonicalScope: expect.objectContaining({
+          connection: expect.objectContaining({
+            mode: "ensure",
+            adapterType: "angellist-import",
+          }),
+          containers: [
+            expect.objectContaining({
+              displayLabel: "Synthetic Demo LLC",
+              completeness: "complete",
+            }),
+          ],
+        }),
         rows: [
           expect.objectContaining({
             companyOrFund: "Synthetic Finch Labs",

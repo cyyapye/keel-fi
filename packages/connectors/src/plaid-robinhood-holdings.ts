@@ -193,7 +193,7 @@ function accountLabel(subtype: string | null): string {
   return "Robinhood brokerage";
 }
 
-function securityIdentity(
+export function plaidInvestmentSecurityIdentity(
   security: z.infer<typeof PlaidSecuritySchema>,
 ): string {
   if (security.cusip != null) {
@@ -299,7 +299,7 @@ export async function normalizeRobinhoodHoldings(
           JSON.stringify([
             "robinhood-position-v1",
             accountIdentity,
-            securityIdentity(security),
+            plaidInvestmentSecurityIdentity(security),
           ]),
         );
         const issues = issueMessages({ costBasisMinor, securityType });

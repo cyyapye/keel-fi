@@ -726,6 +726,7 @@ test("shows one Robinhood exception entry point", async ({ page }) => {
 test("shows automatic Robinhood checks with exception-only review", async ({
   page,
 }) => {
+  let disconnectCalls = 0;
   await page.unroute("**/api/public-holdings/robinhood/status");
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
@@ -770,6 +771,23 @@ test("shows automatic Robinhood checks with exception-only review", async ({
       },
     });
   });
+  await page.route("**/api/public-holdings/robinhood", async (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    disconnectCalls += 1;
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        status: "disconnected",
+        lastSyncedAt: null,
+        automaticUpdatesEnabled: false,
+        latestImportId: null,
+        latestRunStatus: null,
+        errorCode: null,
+        latestAdjudication: null,
+      },
+    });
+  });
 
   await page.goto("/holdings");
   await expect(
@@ -781,6 +799,25 @@ test("shows automatic Robinhood checks with exception-only review", async ({
     ),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();
+  await page.getByRole("button", { name: "Disconnect" }).click();
+  await expect(
+    page.getByText(
+      "This removes Plaid access. Reviewed holdings stay in Keel.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Keep connected" }),
+  ).toBeVisible();
+  await expect(page.locator(".robinhood-sync")).toHaveScreenshot(
+    "holdings-robinhood-disconnect-confirmation.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  await page.getByRole("button", { name: "Keep connected" }).click();
   await expect(page.getByText(/Last checked/)).toBeVisible();
 
   const viewportWidths = await page.evaluate(() => ({
@@ -805,6 +842,16 @@ test("shows automatic Robinhood checks with exception-only review", async ({
       threshold: 0.25,
     },
   );
+
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await expect(
+    page.getByText("Robinhood disconnected. Reviewed holdings remain visible."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Connect Robinhood" }),
+  ).toBeVisible();
+  expect(disconnectCalls).toBe(1);
 });
 
 test("requests a Mac AngelList update from the phone-safe Holdings flow", async ({

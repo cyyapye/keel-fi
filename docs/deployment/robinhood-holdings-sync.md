@@ -73,6 +73,12 @@ bounded setup-required state.
 - Raw brokerage responses and encrypted credentials stay in the private R2
   binding. Public API responses expose only normalized holdings and bounded
   exception details.
+- Each protected Plaid Item is one canonical investment connection. Each
+  investment account is one ownership container, and every row is assigned to
+  its container before position matching.
+- Coverage is stored separately from rows. A complete account observation may
+  contain zero holdings; partial, unavailable, malformed, failed, or ambiguous
+  account coverage cannot imply that a position is missing.
 - Supported USD long positions are accepted by `robinhood-holdings-auto-v2`.
   Each decision records the policy version, evidence fingerprint, reason codes,
   and resulting snapshot application.
@@ -83,26 +89,28 @@ bounded setup-required state.
 - Unsupported security types and possible identity changes are quarantined at
   the affected row. Non-USD, short, or malformed provider responses fail closed
   before any accepted holding changes.
-- If a previously accepted FI-relevant position is absent, Keel preserves its
-  latest snapshot and records a `position_not_reported` exception. If a new
-  identity appears in the same snapshot, that new row is also isolated so a
-  corporate action cannot silently double-count the portfolio.
+- If a previously accepted FI-relevant position is absent from its exact
+  completely covered account, Keel preserves its latest snapshot and records a
+  `position_not_reported` exception. If a new identity appears in that same
+  account observation, the new row is also isolated so a corporate action cannot
+  silently double-count the portfolio.
 - A missing cryptocurrency position is preserved without an active exception
   because it remains outside FI planning. Its absence cannot create an identity
   conflict for a new FI-relevant holding.
-- Consecutive identical normalized snapshots are deduplicated. A no-change sync
-  creates no redundant review, while a later return to an older portfolio state
-  still creates a new review.
-- Link registers the exact webhook URL. Existing connections register it during
-  their next manual check, after which Holdings reports automatic updates as
-  enabled.
+- Consecutive identical normalized snapshots are deduplicated within the exact
+  connection. A no-change sync creates no redundant review, while a later return
+  to an older portfolio state still creates a new review.
+- Link registers the exact webhook URL. A stable Item reconnect keeps its
+  connection lineage; a changed Item starts a distinct lineage and cannot
+  inherit the prior Item's run, import, or omission state.
 - Keel accepts only `HOLDINGS: DEFAULT_UPDATE` on the dedicated webhook host.
   The API verifies Plaid's `ES256` JWT, fetches the exact `kid`, rejects keys or
   deliveries outside their time bounds, and compares the signed SHA-256 claim
   with the exact bounded request body before parsing it.
 - A valid delivery is replay-deduplicated by its signature hash and queued by an
-  opaque delivery ID. Unknown Items are acknowledged without revealing whether a
-  connection exists. Raw bodies, bearer values, Item IDs, and user IDs are
+  opaque delivery ID bound to the exact current connection. Replayed, replaced,
+  disconnected, and unknown Items cannot start a sync and do not reveal whether
+  a connection exists. Raw bodies, bearer values, Item IDs, and user IDs are
   absent from D1, Queue messages, and logs.
 - Queue processing uses the same policy as a manual check. Clear rows are
   applied automatically; exceptions stay unchanged and visible in Holdings.
@@ -113,6 +121,9 @@ bounded setup-required state.
 - Keel relies on Plaid's periodic Investments refresh and `DEFAULT_UPDATE`
   notification. The optional on-demand Investments Refresh add-on is not
   required for this flow; “Check now” remains a manual fallback.
+- Disconnect removes the Plaid Item and encrypted R2 credential, appends a
+  disconnected canonical state, and preserves accepted holdings, baselines, and
+  prior run/import provenance.
 
 Reference the official
 [Plaid Investments overview](https://plaid.com/docs/investments/),

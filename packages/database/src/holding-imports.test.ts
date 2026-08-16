@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   D1HoldingImportRepository,
@@ -31,8 +31,14 @@ const migrationFiles = [
   "packages/database/migrations/0016_reviewed_liabilities.sql",
   "packages/database/migrations/0017_reviewed_cash_flow.sql",
   "packages/database/migrations/0018_reviewed_cash_account_identities.sql",
+  "packages/database/migrations/0019_multi_source_holdings_contract.sql",
+  "packages/database/migrations/0020_container_scoped_holding_ingestion.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
+
+const robinhoodConnectionId = "connection_synthetic_robinhood";
+const robinhoodAccountKey = "6".repeat(64);
+const robinhoodPositionKey = "7".repeat(64);
 
 class TestD1Statement {
   public constructor(
@@ -87,6 +93,32 @@ class TestD1Database {
   }
 }
 
+function seedRobinhoodInvestmentConnection(
+  sqlite: DatabaseSync,
+  connectionId = robinhoodConnectionId,
+  sourceKey = "5".repeat(64),
+  versionId = "connection_version_synthetic_robinhood",
+): void {
+  sqlite
+    .prepare(
+      `INSERT INTO investment_connections (
+         id, household_id, adapter_type, protected_source_key,
+         created_by_user_id, created_at, immutable
+       ) VALUES (?, 'hh_demo', 'plaid-investments', ?, 'usr_demo', ?, 1)`,
+    )
+    .run(connectionId, sourceKey, "2026-08-01T12:00:00.000Z");
+  sqlite
+    .prepare(
+      `INSERT INTO investment_connection_versions (
+         id, household_id, connection_id, version, institution_key,
+         institution_label, lifecycle_state, credential_reference,
+         supersedes_version_id, recorded_by_user_id, recorded_at, immutable
+       ) VALUES (?, 'hh_demo', ?, 1, 'robinhood', 'Robinhood', 'active',
+         'connector-secrets/synthetic.enc', NULL, 'usr_demo', ?, 1)`,
+    )
+    .run(versionId, connectionId, "2026-08-01T12:00:00.000Z");
+}
+
 function stageInput(
   documentFingerprint: string,
   changes: Partial<HoldingImportStageInput["rows"][number]> = {},
@@ -131,6 +163,33 @@ function stageInput(
         ...changes,
       },
     ],
+    canonicalScope: {
+      connection: {
+        mode: "ensure",
+        adapterType: "angellist-import",
+        protectedSourceKey: "b".repeat(64),
+        institutionKey: "angellist",
+        institutionLabel: "AngelList",
+        lifecycleState: "pending",
+        credentialReference: null,
+      },
+      containers: [
+        {
+          protectedAccountKey: "c".repeat(64),
+          displayLabel: "Ownership pending review",
+          containerKind: "unresolved",
+          taxTreatment: "unknown",
+          completeness: "ambiguous",
+        },
+      ],
+      rows: [
+        {
+          sourceRowNumber: 3,
+          protectedAccountKey: "c".repeat(64),
+          protectedPositionKey: "a".repeat(64),
+        },
+      ],
+    },
   };
 }
 
@@ -160,6 +219,28 @@ function robinhoodStageInput(
         issues: [],
       },
     ],
+    canonicalScope: {
+      connection: {
+        mode: "existing",
+        connectionId: robinhoodConnectionId,
+      },
+      containers: [
+        {
+          protectedAccountKey: robinhoodAccountKey,
+          displayLabel: "Robinhood brokerage",
+          containerKind: "brokerage",
+          taxTreatment: "taxable",
+          completeness: "complete",
+        },
+      ],
+      rows: [
+        {
+          sourceRowNumber: 1,
+          protectedAccountKey: robinhoodAccountKey,
+          protectedPositionKey: robinhoodPositionKey,
+        },
+      ],
+    },
   };
 }
 
@@ -172,6 +253,7 @@ describe("AngelList holding import persistence", () => {
     migrationFiles.forEach((file) => {
       sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
     });
+    seedRobinhoodInvestmentConnection(sqlite);
     repository = new D1HoldingImportRepository(
       new TestD1Database(sqlite) as unknown as D1Database,
     );
@@ -550,6 +632,47 @@ describe("AngelList holding import persistence", () => {
     );
   });
 
+  it("retains a complete zero-row account observation", async () => {
+    const input = robinhoodStageInput("0".repeat(64));
+    input.objectKey = "holding-imports/synthetic-empty-robinhood.json";
+    input.sha256 = "0".repeat(64);
+    input.rows = [];
+    input.canonicalScope.rows = [];
+
+    const staged = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      input,
+    );
+    expect(staged.created).toBe(true);
+    expect(staged.preview).toMatchObject({
+      status: "pending_review",
+      summary: { rowCount: 0 },
+      coverage: [
+        expect.objectContaining({
+          completeness: "complete",
+          reportedRowCount: 0,
+        }),
+      ],
+    });
+
+    await expect(
+      repository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        staged.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      autoAppliedCount: 0,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    await expect(
+      repository.getHoldingImport(
+        "synthetic-access-subject",
+        staged.preview.id,
+      ),
+    ).resolves.toMatchObject({ status: "applied", summary: { rowCount: 0 } });
+  });
+
   it("reclassifies legacy crypto without creating an active FI exception", async () => {
     const legacyInput = robinhoodStageInput("b".repeat(64));
     legacyInput.objectKey = "holding-imports/synthetic-legacy-crypto.json";
@@ -626,15 +749,30 @@ describe("AngelList holding import persistence", () => {
       }),
     );
 
+    const omittedCryptoInput = robinhoodStageInput("d".repeat(64));
+    omittedCryptoInput.objectKey =
+      "holding-imports/synthetic-omitted-crypto.json";
+    omittedCryptoInput.sha256 = "de".repeat(32);
+    omittedCryptoInput.rows = [];
+    omittedCryptoInput.canonicalScope.rows = [];
+    const omittedCrypto = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      omittedCryptoInput,
+    );
     await expect(
-      repository.hasAcceptedRobinhoodPlanningPositions(
+      repository.autoAdjudicateRobinhoodHoldingImport(
         "synthetic-access-subject",
+        omittedCrypto.preview.id,
       ),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({
+      autoAppliedCount: 0,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
 
-    const laterInput = robinhoodStageInput("d".repeat(64));
+    const laterInput = robinhoodStageInput("e".repeat(64));
     laterInput.objectKey = "holding-imports/synthetic-later-robinhood.json";
-    laterInput.sha256 = "d".repeat(64);
+    laterInput.sha256 = "e".repeat(64);
     const later = await repository.stageRobinhoodHoldingImport(
       "synthetic-access-subject",
       laterInput,
@@ -656,11 +794,6 @@ describe("AngelList holding import persistence", () => {
           .get() as { count: number }
       ).count,
     ).toBe(1);
-    await expect(
-      repository.hasAcceptedRobinhoodPlanningPositions(
-        "synthetic-access-subject",
-      ),
-    ).resolves.toBe(true);
   });
 
   it("auto-applies clear Robinhood rows and quarantines only ambiguous changes", async () => {
@@ -680,6 +813,11 @@ describe("AngelList holding import persistence", () => {
       costBasisMinor: 18_000,
       marketValueMinor: 20_000,
       issues: [],
+    });
+    initialInput.canonicalScope.rows.push({
+      sourceRowNumber: 2,
+      protectedAccountKey: robinhoodAccountKey,
+      protectedPositionKey: "8".repeat(64),
     });
     const initial = await repository.stageRobinhoodHoldingImport(
       "synthetic-access-subject",
@@ -733,6 +871,11 @@ describe("AngelList holding import persistence", () => {
       securityName: "Synthetic Renamed Fund",
       ticker: "SRF",
       marketValueMinor: 21_000,
+    });
+    changedInput.canonicalScope.rows.push({
+      sourceRowNumber: 2,
+      protectedAccountKey: robinhoodAccountKey,
+      protectedPositionKey: "9".repeat(64),
     });
     const changed = await repository.stageRobinhoodHoldingImport(
       "synthetic-access-subject",
@@ -816,6 +959,190 @@ describe("AngelList holding import persistence", () => {
       ),
     ).resolves.toEqual(changedAdjudication);
   });
+
+  it("limits omissions to complete containers on the exact connection", async () => {
+    const retirementAccountKey = "4".repeat(64);
+    const retirementPositionKey = "3".repeat(64);
+    const initialInput = robinhoodStageInput("e".repeat(64));
+    initialInput.objectKey = "holding-imports/synthetic-multi-account.json";
+    initialInput.sha256 = "e".repeat(64);
+    initialInput.rows.push({
+      ...initialInput.rows[0]!,
+      rowNumber: 2,
+      naturalKeySha256: "3".repeat(64),
+      securityName: "Synthetic Retirement Fund",
+      ticker: "SRF",
+      accountLabel: "Robinhood Roth IRA",
+      quantityMicros: 2_000_000,
+      costBasisMinor: 18_000,
+      marketValueMinor: 20_000,
+    });
+    initialInput.canonicalScope.containers.push({
+      protectedAccountKey: retirementAccountKey,
+      displayLabel: "Robinhood Roth IRA",
+      containerKind: "ira",
+      taxTreatment: "tax_exempt",
+      completeness: "complete",
+    });
+    initialInput.canonicalScope.rows.push({
+      sourceRowNumber: 2,
+      protectedAccountKey: retirementAccountKey,
+      protectedPositionKey: retirementPositionKey,
+    });
+    const initial = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      initialInput,
+    );
+    await expect(
+      repository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        initial.preview.id,
+      ),
+    ).resolves.toMatchObject({ autoAppliedCount: 2, quarantinedCount: 0 });
+
+    const laterInput = robinhoodStageInput("f".repeat(64));
+    laterInput.objectKey = "holding-imports/synthetic-partial-account.json";
+    laterInput.sha256 = "f".repeat(64);
+    laterInput.effectiveDate = "2026-08-12";
+    laterInput.retrievedAt = "2026-08-12T12:00:00.000Z";
+    laterInput.rows = [
+      {
+        ...initialInput.rows[1]!,
+        rowNumber: 1,
+        observedOn: "2026-08-12",
+        marketValueMinor: 21_000,
+      },
+    ];
+    laterInput.canonicalScope.containers = [
+      {
+        ...initialInput.canonicalScope.containers[0]!,
+        completeness: "complete",
+      },
+      {
+        ...initialInput.canonicalScope.containers[1]!,
+        completeness: "partial",
+      },
+    ];
+    laterInput.canonicalScope.rows = [
+      {
+        sourceRowNumber: 1,
+        protectedAccountKey: retirementAccountKey,
+        protectedPositionKey: retirementPositionKey,
+      },
+    ];
+    const later = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      laterInput,
+    );
+    await expect(
+      repository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        later.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      autoAppliedCount: 1,
+      quarantinedCount: 1,
+      preservedPositionCount: 1,
+    });
+    await expect(
+      repository.getHoldingImport("synthetic-access-subject", later.preview.id),
+    ).resolves.toMatchObject({
+      coverage: expect.arrayContaining([
+        {
+          containerId: expect.any(String),
+          displayLabel: "Robinhood brokerage",
+          completeness: "complete",
+          reportedRowCount: 0,
+        },
+        {
+          containerId: expect.any(String),
+          displayLabel: "Robinhood Roth IRA",
+          completeness: "partial",
+          reportedRowCount: 1,
+        },
+      ]),
+    });
+    const omitted = sqlite
+      .prepare(
+        `SELECT ownership.container_id
+         FROM holding_import_quarantines quarantine
+         JOIN holding_position_ownerships ownership
+           ON ownership.position_id = quarantine.position_id
+         WHERE quarantine.import_id = ?
+           AND quarantine.reason_code = 'position_not_reported'`,
+      )
+      .all(later.preview.id) as Array<{ container_id: string }>;
+    expect(omitted).toHaveLength(1);
+    const brokerageContainer = sqlite
+      .prepare(
+        `SELECT id FROM ownership_containers
+         WHERE connection_id = ? AND protected_account_key = ?`,
+      )
+      .get(robinhoodConnectionId, robinhoodAccountKey) as { id: string };
+    expect(omitted[0]?.container_id).toBe(brokerageContainer.id);
+
+    const failedConnectionId = "connection_synthetic_failed_institution";
+    seedRobinhoodInvestmentConnection(
+      sqlite,
+      failedConnectionId,
+      "2".repeat(64),
+      "connection_version_synthetic_failed_institution",
+    );
+    const failedInput = robinhoodStageInput("1".repeat(64));
+    failedInput.objectKey = "holding-imports/synthetic-failed-institution.json";
+    failedInput.sha256 = "1".repeat(64);
+    failedInput.rows = [];
+    failedInput.canonicalScope = {
+      connection: { mode: "existing", connectionId: failedConnectionId },
+      containers: [
+        {
+          protectedAccountKey: "1".repeat(64),
+          displayLabel: "Synthetic failed brokerage",
+          containerKind: "brokerage",
+          taxTreatment: "taxable",
+          completeness: "failed",
+        },
+      ],
+      rows: [],
+    };
+    const failed = await repository.stageRobinhoodHoldingImport(
+      "synthetic-access-subject",
+      failedInput,
+    );
+    await expect(
+      repository.autoAdjudicateRobinhoodHoldingImport(
+        "synthetic-access-subject",
+        failed.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      autoAppliedCount: 0,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    await expect(
+      repository.getHoldingImport(
+        "synthetic-access-subject",
+        failed.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      status: "pending_review",
+      coverage: [
+        expect.objectContaining({
+          completeness: "failed",
+          reportedRowCount: 0,
+        }),
+      ],
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_import_quarantines
+           WHERE import_id = ?`,
+        )
+        .get(failed.preview.id),
+    ).toEqual({ count: 0 });
+  });
 });
 
 describe("reviewed portfolio baseline persistence", () => {
@@ -830,6 +1157,7 @@ describe("reviewed portfolio baseline persistence", () => {
     migrationFiles.forEach((file) => {
       sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
     });
+    seedRobinhoodInvestmentConnection(sqlite);
     database = new TestD1Database(sqlite);
     holdingImports = new D1HoldingImportRepository(
       database as unknown as D1Database,
@@ -843,6 +1171,7 @@ describe("reviewed portfolio baseline persistence", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     sqlite.close();
   });
 
@@ -868,6 +1197,11 @@ describe("reviewed portfolio baseline persistence", () => {
       netValueMinor: null,
       netValueState: "locked",
       multiplePpm: null,
+    });
+    angelListInput.canonicalScope.rows.push({
+      sourceRowNumber: 4,
+      protectedAccountKey: "c".repeat(64),
+      protectedPositionKey: "d".repeat(64),
     });
 
     const angelList = await holdingImports.stageHoldingImport(
@@ -899,6 +1233,11 @@ describe("reviewed portfolio baseline persistence", () => {
       costBasisMinor: 100_000,
       marketValueMinor: 100_000,
     });
+    robinhoodInput.canonicalScope.rows.push({
+      sourceRowNumber: 2,
+      protectedAccountKey: robinhoodAccountKey,
+      protectedPositionKey: "8".repeat(64),
+    });
     robinhoodInput.rows.push({
       ...robinhoodInput.rows[0]!,
       rowNumber: 3,
@@ -910,6 +1249,11 @@ describe("reviewed portfolio baseline persistence", () => {
       costBasisMinor: 2_000,
       marketValueMinor: 2_500,
       issues: ["Crypto is recorded outside the FI plan."],
+    });
+    robinhoodInput.canonicalScope.rows.push({
+      sourceRowNumber: 3,
+      protectedAccountKey: robinhoodAccountKey,
+      protectedPositionKey: "9".repeat(64),
     });
     const robinhood = await holdingImports.stageRobinhoodHoldingImport(
       "synthetic-access-subject",
@@ -1244,6 +1588,8 @@ describe("reviewed portfolio baseline persistence", () => {
   });
 
   it("materializes a reviewed opaque identity rotation as one cash account", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-15T19:00:00.000Z"));
     const holding = await holdingImports.stageHoldingImport(
       "synthetic-access-subject",
       stageInput("2".repeat(64)),
