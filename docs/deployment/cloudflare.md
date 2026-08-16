@@ -68,21 +68,16 @@ smoke or exact-version mismatch fails the deployment. Cloudflare D1 also keeps
 Time Travel history and captures a backup when migrations apply; the encrypted
 export is the separate release artifact.
 
-### One-time pre-live M9 cutover
+### Completed pre-live M9 cutover
 
-Before M9.2 is marked complete, an explicitly selected manual dispatch may use
-the `restore-pre-m9-canonical-cutover` action. After the encrypted export is
-verified and retained, it restores the fully synthetic preview to
-`2026-08-15T23:27:50Z`, the last verified instant before migration `0019` was
-applied by
-[run `31914535025`](https://github.com/cyyapye/keel-fi/actions/runs/31914535025).
-The workflow then applies the checked-in canonical migration chain and performs
-the normal exact-SHA deploy and protected smokes.
-
-This is a one-time pre-live exception, not a recovery shortcut. It requires
-explicit owner approval, discards all later synthetic D1 state, and must be
-removed in the M9.2 evidence change. It is prohibited once any environment
-retains real user data.
+The M9.2 canonical-only cutover completed against fully synthetic preview state
+in
+[run `31919271581`](https://github.com/cyyapye/keel-fi/actions/runs/31919271581).
+The run retained an encrypted backup, rebuilt D1 through migration `0019`,
+proved the removed transition objects and contract value were absent, deployed
+the exact merge SHA, and passed the protected smokes. The temporary reset action
+was then removed. Current preview workflows only apply forward migrations and
+never seed, reset, import, or restore remote D1.
 
 Configure the GitHub environment and Access service policy as documented in
 [the workflow README](../../.github/workflows/README.md). Cloudflare account,

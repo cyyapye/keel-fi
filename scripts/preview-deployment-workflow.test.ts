@@ -24,22 +24,16 @@ describe("post-merge preview deployment workflow", () => {
     expect(deployment).not.toMatch(/db:seed|seed:local|synthetic\.sql/);
     expect(deployment).not.toContain("environment:\n      name: production");
     expect(deployment).not.toContain("KEEL_PREVIEW_ANGELLIST_");
-    expect(workflow).toContain("preview_database_action:");
-    expect(workflow).toContain("default: migrate-forward");
-    expect(workflow).toContain("restore-pre-m9-canonical-cutover");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).not.toContain("preview_database_action:");
+    expect(workflow).not.toContain("wrangler d1 time-travel restore");
 
     const backup = deployment.indexOf("wrangler d1 export");
     const backupVerification = deployment.indexOf("cmp --silent");
     const backupUpload = deployment.indexOf(
       "Retain encrypted pre-migration D1 backup",
     );
-    const canonicalRestore = deployment.indexOf(
-      "wrangler d1 time-travel restore",
-    );
     const migrations = deployment.indexOf("wrangler d1 migrations apply");
-    const canonicalSchemaVerification = deployment.indexOf(
-      "Verify canonical-only preview schema after reset",
-    );
     const apiDeploy = deployment.indexOf("Deploy private API Worker");
     const webDeploy = deployment.indexOf("Build and deploy web Worker");
     const smokes = deployment.indexOf("Run protected post-deploy smokes");
@@ -48,18 +42,8 @@ describe("post-merge preview deployment workflow", () => {
     expect(backup).toBeGreaterThan(-1);
     expect(backupVerification).toBeGreaterThan(backup);
     expect(backupUpload).toBeGreaterThan(backupVerification);
-    expect(canonicalRestore).toBeGreaterThan(backupUpload);
-    expect(canonicalRestore).toBeLessThan(migrations);
-    expect(deployment).toMatch(
-      /github\.event_name == 'workflow_dispatch' &&\s+inputs\.preview_database_action == 'restore-pre-m9-canonical-cutover'/u,
-    );
-    expect(deployment).toContain('timestamp "2026-08-15T23:27:50Z"');
     expect(migrations).toBeGreaterThan(backupUpload);
-    expect(canonicalSchemaVerification).toBeGreaterThan(migrations);
-    expect(deployment).toContain("transition_object_count");
-    expect(deployment).toContain("removed_basis_contract_count");
-    expect(deployment).toContain("0019_multi_source_holdings_contract.sql");
-    expect(apiDeploy).toBeGreaterThan(canonicalSchemaVerification);
+    expect(apiDeploy).toBeGreaterThan(migrations);
     expect(webDeploy).toBeGreaterThan(apiDeploy);
     expect(smokes).toBeGreaterThan(webDeploy);
     expect(evidence).toBeGreaterThan(smokes);
