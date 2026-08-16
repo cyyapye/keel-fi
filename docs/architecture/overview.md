@@ -86,11 +86,14 @@ flowchart LR
 - Multi-source investment identity uses HMAC-derived connection, container, and
   position keys. Institution and account labels are versioned metadata rather
   than identity. `holding_positions` and their accepted snapshots remain the
-  only source of Portfolio Baseline value. Direct ingestion writes connections,
-  containers, coverage, and position associations without reconstructing them
-  from labels or older records. Any synthetic environment that applied the
-  removed transition experiment must be rebuilt from the checked-in migration
-  chain before release. See the
+  only source of Portfolio Baseline value. Position, exposure, and baseline
+  views consume one authoritative accepted-position projection; exposure
+  mappings add grouping provenance and integer allocation but never another copy
+  of value. Direct ingestion writes connections, containers, coverage, and
+  position associations without reconstructing them from labels or older
+  records. Any synthetic environment that applied the removed transition
+  experiment must be rebuilt from the checked-in migration chain before release.
+  See the
   [multi-source holdings runbook](../deployment/multi-source-holdings.md).
 - Cash-account linking requests only Plaid Auth and eligible US depository
   subtypes. The initial cached account response and every explicit live balance

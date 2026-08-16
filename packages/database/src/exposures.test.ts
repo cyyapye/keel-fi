@@ -5,6 +5,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { D1ExposureRepository } from "./exposures";
+import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
@@ -29,6 +30,7 @@ const migrationFiles = [
   "packages/database/migrations/0020_container_scoped_holding_ingestion.sql",
   "packages/database/migrations/0021_canonical_exposure_resolution.sql",
   "packages/database/migrations/0022_provider_neutral_investments.sql",
+  "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -316,6 +318,7 @@ function seedAcceptedPosition(
 describe("canonical exposure resolution and aggregation", () => {
   let sqlite: DatabaseSync;
   let repository: D1ExposureRepository;
+  let readModel: D1InvestmentExposureViewRepository;
 
   beforeEach(() => {
     sqlite = new DatabaseSync(":memory:");
@@ -324,9 +327,9 @@ describe("canonical exposure resolution and aggregation", () => {
       sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
     });
     seedManualConnection(sqlite);
-    repository = new D1ExposureRepository(
-      new TestD1Database(sqlite) as unknown as D1Database,
-    );
+    const database = new TestD1Database(sqlite) as unknown as D1Database;
+    repository = new D1ExposureRepository(database);
+    readModel = new D1InvestmentExposureViewRepository(database);
   });
 
   afterEach(() => sqlite.close());
@@ -389,7 +392,10 @@ describe("canonical exposure resolution and aggregation", () => {
       });
     }
 
-    const projection = await repository.getProjection(accessSubject);
+    const projection = await readModel.list(
+      accessSubject,
+      "2026-08-16T12:00:00.000Z",
+    );
     const grouped = projection.exposures.find(
       (candidate) => candidate.exposure.id === exposure.id,
     );
@@ -413,6 +419,21 @@ describe("canonical exposure resolution and aggregation", () => {
         position.mappedExposureIds.includes(exposure.id),
       ),
     ).toHaveLength(3);
+    expect(
+      projection.positions.find(
+        (position) => position.id === "position_nvda_fidelity_ira",
+      ),
+    ).toMatchObject({
+      connectionId: "connection_exposure_test",
+      containerKind: "ira",
+      snapshotId: "snapshot_position_nvda_fidelity_ira",
+      mappings: [
+        {
+          decisionSource: "deterministic_policy",
+          decisionReference: "public-strong-identifier-v1:cusip",
+        },
+      ],
+    });
   });
 
   it("groups reviewed SPVs and leaves unknown fund allocations on the position", async () => {
@@ -497,7 +518,10 @@ describe("canonical exposure resolution and aggregation", () => {
       });
     }
 
-    const projection = await repository.getProjection(accessSubject);
+    const projection = await readModel.list(
+      accessSubject,
+      "2026-08-16T12:00:00.000Z",
+    );
     expect(
       projection.exposures.find(
         (candidate) => candidate.exposure.id === anthropic.id,

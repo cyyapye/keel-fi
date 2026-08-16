@@ -1,14 +1,18 @@
 import {
   CanonicalExposureSchema,
   IsoTimestampSchema,
-  NonNegativeMoneyMinorSchema,
   PositionExposureMappingSchema,
   ProtectedIdentityKeySchema,
-  multiplyMinorByScalePpm,
   type CanonicalExposure,
   type PositionExposureMapping,
 } from "@keel/domain";
+import type { InvestmentExposureView } from "@keel/domain/exposure-read-model";
 import { z } from "zod";
+
+import {
+  D1InvestmentExposureViewRepository,
+  type InvestmentExposureViewRepository,
+} from "./exposure-read-model";
 
 const CanonicalExposureResolutionInputSchema = z.discriminatedUnion(
   "exposureKind",
@@ -123,16 +127,6 @@ type PositionExposureMappingRow = {
   supersedes_mapping_id: string | null;
 };
 
-type PositionRow = {
-  id: string;
-  legal_vehicle_name: string;
-  position_kind: "direct" | "spv_interest" | "fund_interest";
-  currency: string;
-  value_minor: number | null;
-  value_state: "reported" | "locked" | "not_reported";
-  observed_at: string;
-};
-
 type DeterministicPublicRow = {
   position_id: string;
   canonical_name: string;
@@ -140,43 +134,6 @@ type DeterministicPublicRow = {
   protected_exposure_key: string;
   evidence_sha256: string;
   effective_at: string;
-};
-
-export type ExposureContribution = {
-  readonly positionId: string;
-  readonly exposureId: string;
-  readonly relationshipKind: "direct" | "look_through";
-  readonly currency: string;
-  readonly positionValueMinor: number | null;
-  readonly allocationPpm: number | null;
-  readonly allocatedValueMinor: number | null;
-};
-
-export type ExposureProjection = {
-  readonly positions: readonly {
-    readonly id: string;
-    readonly legalVehicleName: string;
-    readonly positionKind: "direct" | "spv_interest" | "fund_interest";
-    readonly currency: string;
-    readonly observedAt: string;
-    readonly valueMinor: number | null;
-    readonly valueState: "reported" | "locked" | "not_reported";
-    readonly mappedExposureIds: readonly string[];
-    readonly knownAllocationPpm: number;
-    readonly hasUnknownAllocation: boolean;
-    readonly allocatedValueMinor: number | null;
-    readonly unallocatedValueMinor: number | null;
-  }[];
-  readonly exposures: readonly {
-    readonly exposure: CanonicalExposure;
-    readonly contributions: readonly ExposureContribution[];
-    readonly totals: readonly {
-      readonly currency: string;
-      readonly allocatedValueMinor: number;
-      readonly knownValuePositionCount: number;
-      readonly unknownValuePositionCount: number;
-    }[];
-  }[];
 };
 
 function canonicalExposureFrom(row: CanonicalExposureRow): CanonicalExposure {
@@ -216,13 +173,13 @@ async function all<T>(statement: D1PreparedStatement): Promise<T[]> {
   return result.results;
 }
 
-function safeMinorSum(values: readonly number[]): number {
-  const result = values.reduce((sum, value) => sum + BigInt(value), 0n);
-  return NonNegativeMoneyMinorSchema.parse(Number(result));
-}
-
 export class D1ExposureRepository {
-  public constructor(private readonly db: D1Database) {}
+  public constructor(
+    private readonly db: D1Database,
+    private readonly readModel: InvestmentExposureViewRepository = new D1InvestmentExposureViewRepository(
+      db,
+    ),
+  ) {}
 
   public async resolveExposure(
     accessSubject: string,
@@ -507,76 +464,8 @@ export class D1ExposureRepository {
 
   public async getProjection(
     accessSubject: string,
-  ): Promise<ExposureProjection> {
-    const identity = await this.findIdentity(accessSubject);
-    const [exposureRows, mappingRows, positionRows] = await Promise.all([
-      all<CanonicalExposureRow>(
-        this.db
-          .prepare(
-            `SELECT
-               id, household_id, exposure_kind, canonical_name,
-               protected_identity_key, company_id, resolution_method,
-               evidence_sha256, created_at
-             FROM canonical_exposures
-             WHERE household_id = ?
-             ORDER BY canonical_name, id`,
-          )
-          .bind(identity.household_id),
-      ),
-      all<PositionExposureMappingRow>(
-        this.db
-          .prepare(
-            `SELECT
-               mapping.id, mapping.household_id, mapping.position_id,
-               mapping.exposure_id, mapping.relationship_kind,
-               mapping.allocation_ppm, mapping.status,
-               mapping.decision_source, mapping.decision_reference,
-               mapping.evidence_sha256, mapping.effective_at,
-               mapping.version, mapping.supersedes_mapping_id
-             FROM holding_position_exposure_mappings mapping
-             WHERE mapping.household_id = ?
-               AND mapping.status = 'active'
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM holding_position_exposure_mappings later
-                 WHERE later.supersedes_mapping_id = mapping.id
-               )
-             ORDER BY mapping.position_id, mapping.exposure_id`,
-          )
-          .bind(identity.household_id),
-      ),
-      all<PositionRow>(
-        this.db
-          .prepare(
-            `SELECT
-               position.id, position.legal_vehicle_name,
-               position.position_kind, position.currency,
-               snapshot.unrealized_value_minor AS value_minor,
-               snapshot.unrealized_value_state AS value_state,
-               snapshot.observed_at
-             FROM holding_positions position
-             JOIN holding_position_snapshots snapshot
-               ON snapshot.id = (
-                 SELECT latest.id
-                 FROM holding_position_snapshots latest
-                 WHERE latest.position_id = position.id
-                   AND EXISTS (
-                     SELECT 1
-                     FROM holding_import_applications application
-                     WHERE application.position_id = position.id
-                       AND application.snapshot_id = latest.id
-                   )
-                 ORDER BY latest.observed_at DESC, latest.created_at DESC,
-                          latest.id DESC
-                 LIMIT 1
-               )
-             WHERE position.household_id = ?
-             ORDER BY position.id`,
-          )
-          .bind(identity.household_id),
-      ),
-    ]);
-    return projectExposures(exposureRows, mappingRows, positionRows);
+  ): Promise<InvestmentExposureView> {
+    return this.readModel.list(accessSubject);
   }
 
   private async findIdentity(
@@ -646,127 +535,4 @@ export class D1ExposureRepository {
       .bind(householdId, exposureId)
       .first<CanonicalExposureRow>();
   }
-}
-
-function projectExposures(
-  exposureRows: readonly CanonicalExposureRow[],
-  mappingRows: readonly PositionExposureMappingRow[],
-  positionRows: readonly PositionRow[],
-): ExposureProjection {
-  const exposures = exposureRows.map(canonicalExposureFrom);
-  const exposureById = new Map(
-    exposures.map((exposure) => [exposure.id, exposure]),
-  );
-  const mappings = mappingRows.map(mappingFrom);
-  const mappingsByPosition = new Map<string, PositionExposureMapping[]>();
-  mappings.forEach((mapping) => {
-    if (!exposureById.has(mapping.exposureId)) {
-      throw new Error("Exposure projection references an unknown exposure.");
-    }
-    const existing = mappingsByPosition.get(mapping.positionId) ?? [];
-    existing.push(mapping);
-    mappingsByPosition.set(mapping.positionId, existing);
-  });
-
-  const contributionsByExposure = new Map<string, ExposureContribution[]>();
-  const projectedPositions = positionRows.map((position) => {
-    const valueMinor =
-      position.value_state === "reported"
-        ? NonNegativeMoneyMinorSchema.parse(position.value_minor)
-        : null;
-    const positionMappings = mappingsByPosition.get(position.id) ?? [];
-    const knownAllocationPpm = positionMappings.reduce(
-      (sum, mapping) => sum + (mapping.allocationPpm ?? 0),
-      0,
-    );
-    if (knownAllocationPpm > 1_000_000) {
-      throw new Error(
-        "Exposure projection allocations exceed one million ppm.",
-      );
-    }
-    const allocatedValues: number[] = [];
-    positionMappings.forEach((mapping) => {
-      const allocatedValueMinor =
-        valueMinor === null || mapping.allocationPpm === null
-          ? null
-          : multiplyMinorByScalePpm(valueMinor, mapping.allocationPpm);
-      if (allocatedValueMinor !== null) {
-        allocatedValues.push(allocatedValueMinor);
-      }
-      const contributions =
-        contributionsByExposure.get(mapping.exposureId) ?? [];
-      contributions.push({
-        positionId: position.id,
-        exposureId: mapping.exposureId,
-        relationshipKind: mapping.relationshipKind,
-        currency: position.currency,
-        positionValueMinor: valueMinor,
-        allocationPpm: mapping.allocationPpm,
-        allocatedValueMinor,
-      });
-      contributionsByExposure.set(mapping.exposureId, contributions);
-    });
-    const allocatedValueMinor =
-      valueMinor === null ? null : safeMinorSum(allocatedValues);
-    return {
-      id: position.id,
-      legalVehicleName: position.legal_vehicle_name,
-      positionKind: position.position_kind,
-      currency: position.currency,
-      observedAt: IsoTimestampSchema.parse(position.observed_at),
-      valueMinor,
-      valueState: position.value_state,
-      mappedExposureIds: positionMappings.map((mapping) => mapping.exposureId),
-      knownAllocationPpm,
-      hasUnknownAllocation: positionMappings.some(
-        (mapping) => mapping.allocationPpm === null,
-      ),
-      allocatedValueMinor,
-      unallocatedValueMinor:
-        valueMinor === null || allocatedValueMinor === null
-          ? null
-          : NonNegativeMoneyMinorSchema.parse(valueMinor - allocatedValueMinor),
-    };
-  });
-
-  return {
-    positions: projectedPositions,
-    exposures: exposures.map((exposure) => {
-      const contributions = contributionsByExposure.get(exposure.id) ?? [];
-      const totalsByCurrency = new Map<
-        string,
-        {
-          allocatedValues: number[];
-          knownValuePositionCount: number;
-          unknownValuePositionCount: number;
-        }
-      >();
-      contributions.forEach((contribution) => {
-        const total = totalsByCurrency.get(contribution.currency) ?? {
-          allocatedValues: [],
-          knownValuePositionCount: 0,
-          unknownValuePositionCount: 0,
-        };
-        if (contribution.allocatedValueMinor === null) {
-          total.unknownValuePositionCount += 1;
-        } else {
-          total.allocatedValues.push(contribution.allocatedValueMinor);
-          total.knownValuePositionCount += 1;
-        }
-        totalsByCurrency.set(contribution.currency, total);
-      });
-      return {
-        exposure,
-        contributions,
-        totals: [...totalsByCurrency.entries()]
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([currency, total]) => ({
-            currency,
-            allocatedValueMinor: safeMinorSum(total.allocatedValues),
-            knownValuePositionCount: total.knownValuePositionCount,
-            unknownValuePositionCount: total.unknownValuePositionCount,
-          })),
-      };
-    }),
-  };
 }
