@@ -925,18 +925,51 @@ function PositionViews({
               </Fragment>
             );
           })}
-          {unresolvedReviewed.map((holding) => (
-            <article key={holding.id}>
-              <span>
-                <strong>{holding.positionName}</strong>
-                <small>
-                  {holding.sourceLabel} · {holding.ownerLabel}
-                </small>
-              </span>
-              <span>{reviewedHoldingValue(holding)}</span>
-              <span>Exposure unresolved</span>
-            </article>
-          ))}
+          {unresolvedReviewed.map((holding) => {
+            const reviewPosition = reviewPositionById.get(holding.id) ?? null;
+            const reviewOpen = exposureReviewPositionId === holding.id;
+            return (
+              <Fragment key={holding.id}>
+                <article>
+                  <span>
+                    <strong>{holding.positionName}</strong>
+                    <small>
+                      {holding.sourceLabel} · {holding.ownerLabel}
+                    </small>
+                  </span>
+                  <span>{reviewedHoldingValue(holding)}</span>
+                  <span className="unallocated-positions__status">
+                    Exposure unresolved
+                    {reviewPosition !== null && !reviewOpen && (
+                      <Button
+                        aria-label={
+                          "Choose company for " + holding.positionName
+                        }
+                        className="private-exposure-review__open"
+                        onClick={() => onBeginExposureReview(holding.id)}
+                        tone="secondary"
+                      >
+                        Choose company
+                      </Button>
+                    )}
+                  </span>
+                </article>
+                {reviewPosition !== null && reviewOpen && (
+                  <PrivateExposureAssignmentForm
+                    busy={exposureReviewBusyPositionId === holding.id}
+                    companies={exposureReviewState?.companies ?? []}
+                    error={exposureReviewError}
+                    key={holding.id}
+                    onCancel={onCancelExposureReview}
+                    onSubmit={(input) =>
+                      onSubmitExposureReview(reviewPosition, input)
+                    }
+                    position={reviewPosition}
+                  />
+                )}
+              </Fragment>
+            );
+          })}
         </section>
       )}
     </div>

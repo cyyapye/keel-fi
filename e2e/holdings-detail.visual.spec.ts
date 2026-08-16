@@ -192,8 +192,23 @@ test("leads with the investment and opens a truthful holding detail", async ({
   page,
 }, testInfo) => {
   let exposureResolved = false;
+  let useLegacyExposureView = false;
   await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
+    await route.fulfill({
+      json: {
+        ...alphaFixture,
+        holdings: alphaFixture.holdings.map((holding) =>
+          holding.id === "holding_demo_locked"
+            ? {
+                ...holding,
+                companyId: exposureResolved
+                  ? "company_lattice_synthetic"
+                  : null,
+              }
+            : holding,
+        ),
+      },
+    });
   });
   await page.route("**/api/automation/angellist/status", async (route) => {
     await route.fulfill({
@@ -232,10 +247,16 @@ test("leads with the investment and opens a truthful holding detail", async ({
     )!;
     await route.fulfill({
       json: investmentHoldingsViewFor([
-        {
-          ...unresolvedHolding,
-          companyId: exposureResolved ? "company_lattice_synthetic" : null,
-        },
+        ...(useLegacyExposureView
+          ? []
+          : [
+              {
+                ...unresolvedHolding,
+                companyId: exposureResolved
+                  ? "company_lattice_synthetic"
+                  : null,
+              },
+            ]),
         publicHolding,
       ]),
     });
@@ -408,6 +429,17 @@ test("leads with the investment and opens a truthful holding detail", async ({
     },
   );
 
+  useLegacyExposureView = true;
+  await page.reload();
+  await navigateToScreen(page, mobile, /Holdings/);
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
   const exposureTab = page.getByRole("tab", { name: "Exposures" });
   await exposureTab.click();
   const harborExposure = page.locator(".exposure-group").filter({
@@ -433,7 +465,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   });
   await expect(chooseCompany).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+  await expect.soft(page.locator(".screen-stack")).toHaveScreenshot(
     "holdings-reviewed-private-exposures.png",
     {
       animations: "disabled",
@@ -458,7 +490,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     .getByRole("combobox", { name: "Company", exact: true })
     .selectOption("company_lattice_synthetic");
   await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+  await expect.soft(page.locator(".screen-stack")).toHaveScreenshot(
     "holdings-private-exposure-review.png",
     {
       animations: "disabled",
