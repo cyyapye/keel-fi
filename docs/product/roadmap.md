@@ -398,11 +398,12 @@ rollups or creating a second monetary path.
 
 **Dependencies and ownership:** This slice depends only on released M9.3 and may
 develop in parallel under the M9 delivery rule. Its implementation ownership is
-limited to a new `packages/database/src/position-read-model.ts` module, its
-focused test file, and the required database package export. M9.4 owns canonical
-exposure identity, mapping, aggregation, and this roadmap. This slice must
-rebase onto every sibling release and rerun `make verify` before merge; it
-remains unchecked until its own exact-SHA release evidence exists.
+limited to new `position-read-model.ts` contract and repository modules, their
+focused tests, and explicit subpath exports in `packages/domain` and
+`packages/database`. M9.4 owns canonical exposure identity, mapping, and
+aggregation. This slice must rebase onto every sibling release and rerun
+`make verify` before merge; it remains unchecked until its own exact-SHA release
+evidence exists.
 
 **Required changes:**
 
