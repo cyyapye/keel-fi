@@ -586,7 +586,7 @@ describe("canonical investment position view", () => {
     ).rejects.toThrow(/Household not found/u);
   });
 
-  it("keeps same-security positions separate and selects exact current versions and accepted snapshots", async () => {
+  it("keeps positions separate across institutions, logins, and containers while selecting exact accepted snapshots", async () => {
     addConnection(sqlite, demoHousehold, {
       id: "connection_primary",
       protectedSourceKey: digest("a"),
@@ -598,6 +598,12 @@ describe("canonical investment position view", () => {
       protectedSourceKey: digest("b"),
       institutionKey: "ins_synthetic",
       institutionLabel: "Synthetic Brokerage",
+    });
+    addConnection(sqlite, demoHousehold, {
+      id: "connection_other_institution",
+      protectedSourceKey: digest("0"),
+      institutionKey: "ins_other_synthetic",
+      institutionLabel: "Other Synthetic Custodian",
     });
     addContainer(sqlite, demoHousehold, {
       id: "container_taxable",
@@ -628,6 +634,14 @@ describe("canonical investment position view", () => {
       connectionId: "connection_second_login",
       protectedAccountKey: digest("f"),
       label: "Synthetic Empty Account",
+      kind: "brokerage",
+      taxTreatment: "taxable",
+    });
+    addContainer(sqlite, demoHousehold, {
+      id: "container_other_institution",
+      connectionId: "connection_other_institution",
+      protectedAccountKey: digest("a"),
+      label: "Other Synthetic Brokerage",
       kind: "brokerage",
       taxTreatment: "taxable",
     });
@@ -757,6 +771,25 @@ describe("canonical investment position view", () => {
       createPosition: true,
       acceptObservation: true,
     });
+    addPositionObservation(sqlite, {
+      household: demoHousehold,
+      connectionId: "connection_other_institution",
+      containerId: "container_other_institution",
+      positionId: "position_other_institution_syn",
+      positionFingerprint: digest("b"),
+      observationId: "other_institution_v1",
+      observationDigest: digest("6"),
+      observedAt: "2026-08-13T12:00:00.000Z",
+      retrievedAt: "2026-08-13T12:05:00.000Z",
+      acceptedAt: "2026-08-13T12:10:00.000Z",
+      completeness: "complete",
+      unrealizedValueMinor: 110_000,
+      unrealizedValueState: "reported",
+      netValueMinor: 110_000,
+      netValueState: "reported",
+      createPosition: true,
+      acceptObservation: true,
+    });
 
     sqlite.exec(`
       INSERT INTO investment_connection_versions (
@@ -786,8 +819,9 @@ describe("canonical investment position view", () => {
       "2026-08-16T12:00:00.000Z",
     );
 
-    expect(view.connections).toHaveLength(2);
+    expect(view.connections).toHaveLength(3);
     expect(view.connections.map((connection) => connection.id)).toEqual([
+      "connection_other_institution",
       "connection_second_login",
       "connection_primary",
     ]);
@@ -842,7 +876,21 @@ describe("canonical investment position view", () => {
       view.connections.flatMap((connection) =>
         connection.containers.flatMap((container) => container.positions),
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
+    expect(
+      view.connections.find(
+        (connection) => connection.id === "connection_other_institution",
+      ),
+    ).toMatchObject({
+      institutionKey: "ins_other_synthetic",
+      institutionLabel: "Other Synthetic Custodian",
+      containers: [
+        {
+          id: "container_other_institution",
+          positions: [{ id: "position_other_institution_syn" }],
+        },
+      ],
+    });
     const secondLogin = view.connections.find(
       (connection) => connection.id === "connection_second_login",
     );
