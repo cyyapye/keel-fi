@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   D1HoldingImportRepository,
@@ -1171,6 +1171,7 @@ describe("reviewed portfolio baseline persistence", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     sqlite.close();
   });
 
@@ -1587,6 +1588,8 @@ describe("reviewed portfolio baseline persistence", () => {
   });
 
   it("materializes a reviewed opaque identity rotation as one cash account", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-15T19:00:00.000Z"));
     const holding = await holdingImports.stageHoldingImport(
       "synthetic-access-subject",
       stageInput("2".repeat(64)),
