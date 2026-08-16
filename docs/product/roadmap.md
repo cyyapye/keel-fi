@@ -510,7 +510,7 @@ versions, passed protected smokes, and retained exact-SHA evidence in
 The authoritative read path adds no provider call, Queue message, R2 object,
 schedule, or webhook; incremental provider spend remains $0.
 
-#### [ ] M9.7 — Fidelity proving institution
+#### [x] M9.7 — Fidelity proving institution
 
 **Outcome:** Fidelity proves that the generic model supports another institution
 and several account containers without institution-specific holdings logic.
@@ -539,6 +539,29 @@ real connection, record private provider coverage and pricing. The private
 runtime check may validate Link and a review-ready import but must not write
 credentials, account labels, holdings, balances, or screenshots to public
 artifacts.
+
+**Evidence:** Delivered in [PR #80](https://github.com/cyyapye/keel-fi/pull/80)
+at exact checked head
+[`07d6ddc`](https://github.com/cyyapye/keel-fi/commit/07d6ddcb86213982d571423d20ed8d7678c3917d)
+and merge commit
+[`788c033`](https://github.com/cyyapye/keel-fi/commit/788c033bead361d7d073d472088e9af6cd04be2e).
+Synthetic Fidelity brokerage and IRA fixtures proved three distinct NVDA
+positions and accepted snapshots under their exact accounts, one canonical
+exposure, one-value-path Portfolio Baselines, stable reconnect identity,
+connection-scoped webhooks, append-only pause/resume, retained history after
+disconnect, and fail-closed banking and unsupported-product boundaries. Any
+incomplete account coverage now remains review-pending without changing an
+accepted position, baseline, or forecast. All 429 tests and 44 desktop/mobile
+browser flows passed; the first PR browser attempt lost its local Wrangler
+process after 43 passing flows, and the unchanged-head rerun passed without a
+code change. The release retained an encrypted D1 backup, applied the existing
+forward-only migration chain, deployed and read back both Worker versions,
+passed protected smokes, and retained exact-SHA evidence in
+[run `31956046446`](https://github.com/cyyapye/keel-fi/actions/runs/31956046446).
+This slice adds no migration, polling schedule, Queue message, notification
+channel, or paid product. Private Fidelity coverage and pricing were not
+provided, so no real authorization or private provider call was performed and
+approved incremental provider spend remains $0.
 
 #### [ ] M9.8 — Holdings experience, operations, and release
 
