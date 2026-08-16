@@ -17,7 +17,9 @@ Additional-institution authorization remains fail-closed until private coverage
 and pricing approval; Robinhood and AngelList remain the operated holding
 sources. The deterministic comparison between saved plans and reviewed actuals
 is defined by
-[ADR 006: Plan versus actual monitoring](./adr-006-plan-actual-monitoring.md).
+[ADR 006: Plan versus actual monitoring](./adr-006-plan-actual-monitoring.md)
+and shipped in M10 through PR #84, release merge `a5d7890`, and exact-SHA
+workflow `31963952670`.
 
 ```mermaid
 flowchart LR

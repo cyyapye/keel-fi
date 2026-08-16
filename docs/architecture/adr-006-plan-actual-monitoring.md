@@ -1,7 +1,9 @@
 # ADR 006: Plan versus actual monitoring
 
-- Status: Accepted; implementation pending exact-SHA M10 release
+- Status: Accepted; released in M10
 - Date: 2026-08-16
+- Release: PR #84, release merge `a5d789016c3887b7bc9e4851201eaa7c999ca3d1`,
+  exact-SHA workflow `31963952670`
 
 ## Context
 

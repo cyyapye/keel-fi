@@ -4,11 +4,11 @@ This is Keel's canonical product sequence for the owner-operated private alpha.
 The first unchecked milestone is next. Keep exactly one milestone marked
 **Active** so delivery does not split across partially finished product slices.
 
-- Last reconciled: 2026-08-15
+- Last reconciled: 2026-08-16
 - Reconciled product baseline:
-  [`7bb5257`](https://github.com/cyyapye/keel-fi/commit/7bb5257010f0f5d76f27aea913d689a52e56c9aa)
+  [`a5d7890`](https://github.com/cyyapye/keel-fi/commit/a5d789016c3887b7bc9e4851201eaa7c999ca3d1)
 - Baseline release evidence:
-  [`31893835608`](https://github.com/cyyapye/keel-fi/actions/runs/31893835608)
+  [`31963952670`](https://github.com/cyyapye/keel-fi/actions/runs/31963952670)
 
 ## How to use this roadmap
 
@@ -691,7 +691,7 @@ remains $0.
       committing institution credentials or holdings; real provider acceptance
       remains an activation gate.
 
-### [ ] M10 — Plan versus actual monitoring — **Active**
+### [x] M10 — Plan versus actual monitoring
 
 **User outcome:** Keel identifies meaningful drift in cash, debt, burn, and
 runway and presents the next decision without requiring the user to compare
@@ -714,16 +714,42 @@ connection-scoped holding identity.
 work. Price and approve any external notification channel separately before it
 is added.
 
+**Evidence:** Implemented in
+[PR #84](https://github.com/cyyapye/keel-fi/pull/84) at exact checked head
+[`5041780`](https://github.com/cyyapye/keel-fi/commit/50417807907a830b16b5516e0ed84ff6f05d3f19)
+and merge commit
+[`49a9d5e`](https://github.com/cyyapye/keel-fi/commit/49a9d5e3e5a3e1d4b978544f215c181dfc1f6bb0).
+The first exact-merge gate correctly skipped deployment when a cash-identity
+test fixture's fixed review time ceased to be later than its real-clock setup.
+[PR #85](https://github.com/cyyapye/keel-fi/pull/85) derived that test-only time
+from the fixture's first decision, passed all required checks at exact head
+[`ee4ec11`](https://github.com/cyyapye/keel-fi/commit/ee4ec11a630e7ae126bab16abca52f046dbb8a30),
+and merged as the released commit
+[`a5d7890`](https://github.com/cyyapye/keel-fi/commit/a5d789016c3887b7bc9e4851201eaa7c999ca3d1).
+The released projection prioritizes review, overdue, and freshness work before
+material cash, debt, burn, or runway drift; emits at most one action per metric;
+and keeps clear, limited, and exact-source seven-day cooldown states distinct.
+It reads only accepted plans and reviewed actuals, and the only write is an
+append-only cooldown from migration `0024_plan_actual_monitoring.sql`. All 446
+tests, 48 desktop/mobile browser flows, fresh migration replay, synthetic seed,
+builds, and public-data checks passed. The release retained an encrypted D1
+backup, applied migration `0024`, deployed and read back both Worker versions,
+passed protected smokes, and retained exact-SHA evidence in
+[run `31963952670`](https://github.com/cyyapye/keel-fi/actions/runs/31963952670).
+No provider request, paid product, polling schedule, Queue message, R2 object,
+or external notification was added; approved incremental external spend remains
+`$0`.
+
 **Exit gates:**
 
-- [ ] Materiality, freshness, deduplication, and cooldown policy is documented.
-- [ ] Deterministic alert/proposal generation and no-action cases pass tests.
-- [ ] The action queue is usable at desktop and mobile sizes and explains why
+- [x] Materiality, freshness, deduplication, and cooldown policy is documented.
+- [x] Deterministic alert/proposal generation and no-action cases pass tests.
+- [x] The action queue is usable at desktop and mobile sizes and explains why
       each item matters.
-- [ ] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
+- [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
-### [ ] M11 — Actual distributions and forecast reconciliation
+### [ ] M11 — Actual distributions and forecast reconciliation — **Active**
 
 **User outcome:** When a private holding produces cash, Keel records what became
 usable, reconciles it with the prior forecast, and shows the resulting FI and
