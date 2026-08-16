@@ -121,6 +121,7 @@ type GoalIdentityRow = {
 
 type HoldingRow = {
   id: string;
+  company_id: string | null;
   position_name: string;
   exposure_name: string | null;
   owner_label: string;
@@ -558,6 +559,7 @@ export class D1AlphaRepository implements AlphaRepository {
             `SELECT * FROM (
                SELECT
                  lot.id,
+                 company.id AS company_id,
                  lot.lot_label AS position_name,
                  company.legal_name AS exposure_name,
                  account.name AS owner_label,
@@ -639,6 +641,13 @@ export class D1AlphaRepository implements AlphaRepository {
 
                SELECT
                  position.id,
+                 (
+                   SELECT MAX(exposure.company_id)
+                   FROM holding_position_exposures exposure
+                   WHERE exposure.position_id = position.id
+                   HAVING COUNT(*) = 1
+                     AND COUNT(exposure.company_id) = 1
+                 ) AS company_id,
                  position.legal_vehicle_name AS position_name,
                  (
                    SELECT exposure.exposure_label
@@ -936,6 +945,7 @@ export class D1AlphaRepository implements AlphaRepository {
       goals,
       holdings: holdings.map((row) => ({
         id: row.id,
+        companyId: row.company_id,
         positionName: row.position_name,
         exposureName: row.exposure_name,
         ownerLabel: row.owner_label,

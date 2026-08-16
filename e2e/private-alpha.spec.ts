@@ -41,10 +41,10 @@ test("loads the database-backed dashboard and primary views", async ({
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(page.getByText("Northstar Robotics")).toBeVisible();
   const northstarHolding = page.getByRole("button", {
-    name: "View Northstar Robotics holding details",
+    name: "View Seed preferred holding details",
   });
   await northstarHolding.click();
   await expect(

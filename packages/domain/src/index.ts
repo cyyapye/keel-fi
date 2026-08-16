@@ -378,6 +378,7 @@ export function createGoalPreview(
 
 export const HoldingSchema = z.object({
   id: z.string().min(1),
+  companyId: z.string().min(1).nullable(),
   positionName: z.string().min(1),
   exposureName: z.string().min(1).nullable(),
   ownerLabel: z.string().min(1),

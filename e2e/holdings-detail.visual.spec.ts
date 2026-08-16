@@ -63,6 +63,7 @@ const alphaFixture = {
   holdings: [
     {
       id: "holding_demo_spv",
+      companyId: "company_harbor_synthetic",
       positionName: "Beacon Demo SPV",
       exposureName: "Harbor Health Systems",
       ownerLabel: "Demo Family LLC",
@@ -83,7 +84,30 @@ const alphaFixture = {
       costBasisMinor: null,
     },
     {
+      id: "holding_demo_spv_second",
+      companyId: "company_harbor_synthetic",
+      positionName: "Summit Demo SPV",
+      exposureName: "Harbor Health Systems",
+      ownerLabel: "Demo Family LLC",
+      positionKind: "spv_interest",
+      administratorNavMinor: 8_500_000,
+      administratorNavState: "reported",
+      externalMarkMinor: null,
+      underwritingValueMinor: null,
+      scenarioValueMinor: null,
+      usableLiquidityMinor: null,
+      sourceStatus: "verified",
+      sourceLabel: "AngelList export",
+      effectiveDate: "2026-06-14",
+      retrievedAt: "2026-06-14T12:00:00.000Z",
+      confidencePpm: null,
+      ticker: null,
+      quantityMicros: null,
+      costBasisMinor: null,
+    },
+    {
       id: "holding_demo_direct",
+      companyId: "company_northstar_synthetic",
       positionName: "Seed preferred",
       exposureName: "Northstar Robotics",
       ownerLabel: "Demo Brokerage",
@@ -105,6 +129,7 @@ const alphaFixture = {
     },
     {
       id: "holding_demo_locked",
+      companyId: null,
       positionName: "Ridge Demo SPV",
       exposureName: "Lattice Grove Energy",
       ownerLabel: "Demo Operator",
@@ -126,6 +151,7 @@ const alphaFixture = {
     },
     {
       id: "holding_demo_robinhood",
+      companyId: null,
       positionName: "SYN · Synthetic Public Company",
       exposureName: "Synthetic Public Company",
       ownerLabel: "Robinhood individual account",
@@ -199,9 +225,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.route("**/api/investment-holdings", async (route) => {
     await route.fulfill({
       json: investmentHoldingsViewFor(
-        alphaFixture.holdings.filter(
-          (holding) => holding.id !== "holding_demo_direct",
-        ),
+        alphaFixture.holdings.filter((holding) => holding.ticker !== null),
       ),
     });
   });
@@ -267,24 +291,29 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await navigateToScreen(page, mobile, /Holdings/);
 
   const harborAction = page.getByRole("button", {
-    name: "View Harbor Health Systems holding details",
+    name: "View Beacon Demo SPV holding details",
   });
   await expect(harborAction.getByText("View details →")).toBeVisible();
   await expect(
     page.getByText("Beacon Demo SPV", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("Exposure: Harbor Health Systems")).toBeVisible();
+  await expect(page.getByText("Exposure: Harbor Health Systems")).toHaveCount(
+    2,
+  );
   await expect(harborAction).not.toContainText("Demo Family LLC");
   await expect(
     page.getByRole("button", {
-      name: "View Northstar Robotics holding details",
+      name: "View Seed preferred holding details",
     }),
   ).toContainText("View details →");
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
+  await expect(page.locator(".investment-views__heading")).toContainText(
+    "5 positions",
+  );
   await expect(
-    page.getByText("Legal position: Seed preferred", { exact: true }),
+    page.getByText("Exposure: Northstar Robotics", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("Administrator-reported value as of the source date."),
@@ -309,6 +338,40 @@ test("leads with the investment and opens a truthful holding detail", async ({
       threshold: 0.25,
     },
   );
+
+  const exposureTab = page.getByRole("tab", { name: "Exposures" });
+  await exposureTab.click();
+  const harborExposure = page.locator(".exposure-group").filter({
+    has: page.getByText("Harbor Health Systems", { exact: true }),
+  });
+  await expect(harborExposure).toContainText("2 positions");
+  await harborExposure.locator("summary").click();
+  await expect(harborExposure.getByText("Beacon Demo SPV")).toBeVisible();
+  await expect(harborExposure.getByText("Summit Demo SPV")).toBeVisible();
+  await expect(
+    page.locator(".exposure-group").filter({
+      has: page.getByText("Lattice Grove Energy", { exact: true }),
+    }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator(".unallocated-positions")
+      .getByText("Exposure unresolved", { exact: true }),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-reviewed-private-exposures.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  await page.getByRole("tab", { name: "Positions" }).click();
 
   await harborAction.click();
   const detailHeading = page.getByRole("heading", {
@@ -340,7 +403,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
 
   await page
     .getByRole("button", {
-      name: "View Lattice Grove Energy holding details",
+      name: "View Ridge Demo SPV holding details",
     })
     .click();
   await expect(page.getByText("Locked by AngelList")).toBeVisible();
@@ -352,7 +415,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await page
     .getByRole("button", {
-      name: "View Synthetic Public Company holding details",
+      name: "View SYN · Synthetic Public Company holding details",
     })
     .click();
   await expect(page.getByText("Brokerage source")).toBeVisible();

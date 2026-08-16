@@ -63,6 +63,12 @@ const alphaFixture = {
   ],
   holdings: holdingsView.exposureView.positions.map((position) => ({
     id: position.id,
+    companyId:
+      holdingsView.exposureView.exposures.find((group) =>
+        group.contributions.some(
+          (contribution) => contribution.positionId === position.id,
+        ),
+      )?.exposure.companyId ?? null,
     positionName: position.legalVehicleName,
     exposureName: position.reportedExposureName,
     ownerLabel: position.containerLabel,
