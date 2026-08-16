@@ -9,6 +9,7 @@
   "vars": {
     "ENVIRONMENT": "preview",
     "DEPLOYED_GIT_SHA": "REPLACE_WITH_FULL_DEPLOYED_GIT_SHA",
+    "MULTI_SOURCE_HOLDINGS_COMPATIBILITY_READS": "true",
     "PLAID_WEBHOOK_URL": "https://REPLACE_WITH_PREVIEW_WEBHOOK_HOSTNAME/webhooks/plaid",
   },
   "secrets": {

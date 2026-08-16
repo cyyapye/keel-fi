@@ -3,6 +3,7 @@ import {
   D1HoldingImportRepository,
   D1PortfolioBaselineRepository,
   D1PublicHoldingsRepository,
+  holdingPositionReadModeFromFlag,
   type PublicHoldingsRepository,
 } from "@keel/database";
 import { decodeProtectedHeader, importJWK, jwtVerify } from "jose";
@@ -363,7 +364,11 @@ export async function processPlaidHoldingsWebhookJob(
       env,
       repository,
       holdingImports: new D1HoldingImportRepository(env.DB),
-      portfolioBaselines: new D1PortfolioBaselineRepository(env.DB),
+      portfolioBaselines: new D1PortfolioBaselineRepository(env.DB, {
+        holdingPositionReadMode: holdingPositionReadModeFromFlag(
+          env.MULTI_SOURCE_HOLDINGS_COMPATIBILITY_READS,
+        ),
+      }),
       client: createPlaidInvestmentsClient(env),
       accessSubject: delivery.accessSubject,
     });

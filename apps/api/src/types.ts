@@ -18,6 +18,7 @@ export interface Env {
   ENVIRONMENT: Environment;
   INGESTION_QUEUE: Queue;
   CONNECTOR_CREDENTIAL_KEY?: string;
+  MULTI_SOURCE_HOLDINGS_COMPATIBILITY_READS?: string;
   PLAID_CLIENT_ID?: string;
   PLAID_ENVIRONMENT?: string;
   PLAID_REDIRECT_URI?: string;
