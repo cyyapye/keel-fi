@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./exposure-read-model": "./src/exposure-read-model.ts",
     "./position-read-model": "./src/position-read-model.ts",
     "./schema": "./src/schema.ts"
   },

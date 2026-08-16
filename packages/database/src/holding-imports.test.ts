@@ -10,6 +10,7 @@ import {
 } from "./holding-imports";
 import { D1AlphaRepository } from "./index";
 import { D1CashAccountsRepository } from "./cash-accounts";
+import { D1ExposureRepository } from "./exposures";
 import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
 
 const migrationFiles = [
@@ -35,6 +36,7 @@ const migrationFiles = [
   "packages/database/migrations/0020_container_scoped_holding_ingestion.sql",
   "packages/database/migrations/0021_canonical_exposure_resolution.sql",
   "packages/database/migrations/0022_provider_neutral_investments.sql",
+  "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -1499,6 +1501,110 @@ describe("reviewed portfolio baseline persistence", () => {
       crossing_ppm: 683_190,
       latest_goal_version: 2,
     });
+    expect(() =>
+      sqlite.exec(`
+        INSERT INTO portfolio_baseline_items (
+          id, household_id, baseline_id, position_id, snapshot_id, provider,
+          classification, value_minor, value_state, observed_at, duplicate_key,
+          created_at
+        )
+        SELECT
+          'duplicate_baseline_item', household_id, baseline_id, position_id,
+          snapshot_id, provider, classification, value_minor, value_state,
+          observed_at, duplicate_key, created_at
+        FROM portfolio_baseline_items
+        WHERE baseline_id = '${confirmed.baseline.id}'
+        LIMIT 1
+      `),
+    ).toThrow(/UNIQUE constraint failed/u);
+    sqlite.exec(`
+      INSERT INTO holding_import_rows (
+        id, household_id, import_id, source_row_number, position_fingerprint,
+        snapshot_fingerprint, legal_vehicle_name, owner_label, exposure_label,
+        provider_status, invested_on, invested_minor, allocation_minor,
+        unrealized_value_minor, unrealized_value_state, realized_value_minor,
+        net_value_minor, net_value_state, instrument_type, currency_hint,
+        parse_status, issue_codes_json, position_kind, quantity_micros, ticker,
+        cost_basis_minor, created_at
+      )
+      SELECT
+        'unaccepted_baseline_row', household_id, import_id, 99,
+        '${"5".repeat(64)}', '${"6".repeat(64)}',
+        'Synthetic unaccepted position', owner_label, exposure_label,
+        provider_status, invested_on, invested_minor, allocation_minor,
+        unrealized_value_minor, unrealized_value_state, realized_value_minor,
+        net_value_minor, net_value_state, instrument_type, currency_hint,
+        parse_status, issue_codes_json, position_kind, quantity_micros, ticker,
+        cost_basis_minor, created_at
+      FROM holding_import_rows
+      WHERE import_id IN (
+        SELECT id FROM holding_imports WHERE provider = 'angellist'
+      )
+      LIMIT 1;
+
+      INSERT INTO holding_positions (
+        id, household_id, provider, position_fingerprint, legal_vehicle_name,
+        owner_label, position_kind, instrument_type, opened_on, currency,
+        created_by, created_at
+      )
+      SELECT
+        'unaccepted_baseline_position', household_id, provider,
+        '${"5".repeat(64)}', 'Synthetic unaccepted position', owner_label,
+        position_kind, instrument_type, opened_on, currency, created_by,
+        created_at
+      FROM holding_positions
+      WHERE provider = 'angellist'
+      LIMIT 1;
+
+      INSERT INTO holding_position_snapshots (
+        id, household_id, position_id, source_document_id,
+        source_import_row_id, snapshot_fingerprint, provider_status,
+        invested_minor, allocation_minor, unrealized_value_minor,
+        unrealized_value_state, realized_value_minor, net_value_minor,
+        net_value_state, instrument_type, currency, observed_at, created_at,
+        quantity_micros, ticker, cost_basis_minor
+      )
+      SELECT
+        'unaccepted_baseline_snapshot', row.household_id,
+        'unaccepted_baseline_position', import.source_document_id,
+        'unaccepted_baseline_row', '${"6".repeat(64)}',
+        snapshot.provider_status, snapshot.invested_minor,
+        snapshot.allocation_minor, snapshot.unrealized_value_minor,
+        snapshot.unrealized_value_state, snapshot.realized_value_minor,
+        snapshot.net_value_minor, snapshot.net_value_state,
+        snapshot.instrument_type, snapshot.currency, snapshot.observed_at,
+        snapshot.created_at, snapshot.quantity_micros, snapshot.ticker,
+        snapshot.cost_basis_minor
+      FROM holding_import_rows row
+      JOIN holding_imports import ON import.id = row.import_id
+      JOIN holding_import_rows accepted_row
+        ON accepted_row.import_id = row.import_id
+       AND accepted_row.id <> row.id
+      JOIN holding_position_snapshots snapshot
+        ON snapshot.source_import_row_id = accepted_row.id
+      WHERE row.id = 'unaccepted_baseline_row'
+      LIMIT 1;
+    `);
+    expect(() =>
+      sqlite
+        .prepare(
+          `INSERT INTO portfolio_baseline_items (
+             id, household_id, baseline_id, position_id, snapshot_id, provider,
+             classification, value_minor, value_state, observed_at,
+             duplicate_key, created_at
+           )
+           SELECT
+             'unaccepted_baseline_item', 'hh_demo', ?, position.id, snapshot.id,
+             'angellist', 'private_paper', snapshot.unrealized_value_minor,
+             snapshot.unrealized_value_state, snapshot.observed_at, NULL,
+             snapshot.created_at
+           FROM holding_positions position
+           JOIN holding_position_snapshots snapshot
+             ON snapshot.position_id = position.id
+           WHERE position.id = 'unaccepted_baseline_position'`,
+        )
+        .run(confirmed.baseline.id),
+    ).toThrow(/not an accepted snapshot/u);
 
     const alpha = await new D1AlphaRepository(
       database as unknown as D1Database,
@@ -1536,6 +1642,91 @@ describe("reviewed portfolio baseline persistence", () => {
       suggestedOtherFiEligibleLiquidMinor: 199_476_543,
       latestBaseline: { id: confirmed.baseline.id },
     });
+
+    const angelListPosition = state.positions.find(
+      (position) => position.provider === "angellist",
+    );
+    if (angelListPosition === undefined) {
+      throw new Error("Expected a synthetic AngelList position.");
+    }
+    const exposureRepository = new D1ExposureRepository(
+      database as unknown as D1Database,
+    );
+    const unresolvedExposure = await exposureRepository.resolveExposure(
+      "synthetic-access-subject",
+      {
+        exposureKind: "unresolved",
+        canonicalName: "Synthetic unresolved look-through",
+        evidenceSha256: "3".repeat(64),
+      },
+    );
+    await exposureRepository.recordMapping("synthetic-access-subject", {
+      positionId: angelListPosition.id,
+      exposureId: unresolvedExposure.id,
+      relationshipKind: "look_through",
+      allocationPpm: null,
+      status: "active",
+      decisionSource: "review",
+      decisionReference: "synthetic relationship; allocation unknown",
+      evidenceSha256: "4".repeat(64),
+      effectiveAt: "2026-08-16T01:00:00.000Z",
+    });
+    const connectionVersion = sqlite
+      .prepare(
+        `SELECT id, version, institution_key, lifecycle_state,
+                credential_reference
+         FROM investment_connection_versions version
+         WHERE connection_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM investment_connection_versions later
+             WHERE later.supersedes_version_id = version.id
+           )`,
+      )
+      .get(robinhoodConnectionId) as {
+      id: string;
+      version: number;
+      institution_key: string;
+      lifecycle_state: string;
+      credential_reference: string | null;
+    };
+    sqlite
+      .prepare(
+        `INSERT INTO investment_connection_versions (
+           id, household_id, connection_id, version, institution_key,
+           institution_label, lifecycle_state, credential_reference,
+           supersedes_version_id, recorded_by_user_id, recorded_at, immutable
+         ) VALUES (?, 'hh_demo', ?, ?, ?, ?, ?, ?, ?, 'usr_demo', ?, 1)`,
+      )
+      .run(
+        "synthetic_connection_label_change",
+        robinhoodConnectionId,
+        connectionVersion.version + 1,
+        connectionVersion.institution_key,
+        "Synthetic Brokerage Renamed",
+        connectionVersion.lifecycle_state,
+        connectionVersion.credential_reference,
+        connectionVersion.id,
+        "2026-08-16T01:05:00.000Z",
+      );
+
+    await expect(
+      baselines.getState("synthetic-access-subject"),
+    ).resolves.toMatchObject({
+      status: "current",
+      sourceRevision: confirmed.baseline.sourceRevision,
+      hasSourceChanges: false,
+      canConfirm: false,
+      latestBaseline: { id: confirmed.baseline.id },
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS forecast_count
+           FROM forecast_snapshots
+           WHERE scenario_id = 'scn_fi'`,
+        )
+        .get(),
+    ).toEqual({ forecast_count: stored.latest_forecast_version });
 
     const updatedCashRun = await cashAccounts.beginRefresh(
       "synthetic-access-subject",

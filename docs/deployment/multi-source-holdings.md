@@ -9,9 +9,12 @@ checksum-validated public identifiers into that contract and enforces the
 direct-allocation boundary. Migration `0022_provider_neutral_investments.sql`
 cuts the institution-enumerated public provider value over to
 `plaid_investments`, preserves existing position and baseline identities, and
-replaces the Robinhood-only integrity checks. None of these migrations
-authorizes another live institution or changes the reviewed value in a Portfolio
-Baseline, plan, goal, or forecast.
+replaces the Robinhood-only integrity checks. Migration
+`0023_authoritative_portfolio_baselines.sql` makes every newly confirmed
+Portfolio Baseline item reference the exact position and snapshot accepted by a
+review decision. It adds no data rewrite. None of these migrations authorizes
+another live institution or changes the reviewed value in a Portfolio Baseline,
+plan, goal, or forecast.
 
 Keel has no live user data. A short-lived synthetic transition experiment was
 removed instead of becoming a permanent backfill and dual-read surface. The next
@@ -97,6 +100,9 @@ holding ingestion migration must write this canonical contract directly.
   snapshots. A relationship with unknown allocation contributes no monetary
   value to an exposure total, while the position retains its full unallocated
   value.
+- Position, exposure, and Portfolio Baseline reads share one authoritative
+  position projection. Exposure rows explain allocation and provenance; they do
+  not create another baseline item or monetary path.
 
 ## Cost and activation gate
 
@@ -136,12 +142,12 @@ incremental provider spend.
 
 ## Verification
 
-Before accepting the M9.5 release:
+Before accepting the M9.6b release:
 
-1. Replay migrations `0001` through `0022_provider_neutral_investments.sql`,
-   apply the synthetic seed, and verify the former public provider values read
-   as `plaid_investments` without changing position IDs or accepted baseline
-   items.
+1. Replay migrations `0001` through
+   `0023_authoritative_portfolio_baselines.sql`, apply the synthetic seed, and
+   verify the former public provider values read as `plaid_investments` without
+   changing position IDs or accepted baseline items, goals, plans, or forecasts.
 2. Verify two protected Items create two connection lineages, including Items
    with different validated institution metadata. Reconnecting one stable Item
    must append only its state; syncing or disconnecting one connection must not
@@ -156,12 +162,19 @@ Before accepting the M9.5 release:
 5. Verify the generic `/api/investment-connections` routes replace the former
    Robinhood-only routes, which must return `404`; no duplicate provider read or
    baseline path may remain.
-6. Verify raw Item, account, security, and position identifiers remain outside
+6. Verify positions appear exactly once under their connection and container;
+   exposure groups preserve the exact contributing position, accepted snapshot,
+   mapping version, allocation, and explicit unknown or unallocated value.
+7. Verify a Portfolio Baseline can include each accepted position only once and
+   rejects any snapshot without its exact accepted application. Reconnects,
+   institution-label changes, and exposure mapping versions must leave the
+   accepted baseline source revision, plan, goal, and forecast unchanged.
+8. Verify raw Item, account, security, and position identifiers remain outside
    D1, API responses, logs, screenshots, and repository artifacts. Preserve
    integer money/quantity conversion, response bounds, encrypted R2 storage,
    append-only decisions, and fail-closed Access authentication.
-7. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
+9. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
    exact-head merge, and exact-SHA protected preview gates before marking M9.5
-   complete.
+   and M9.6b complete.
 
 Additional-institution authorization remains a later ordered M9 gate.

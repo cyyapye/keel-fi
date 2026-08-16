@@ -8,6 +8,7 @@ import {
 const basePosition = {
   id: "position_synthetic",
   legalVehicleName: "Synthetic Public Security",
+  reportedExposureName: "Synthetic Public Security",
   kind: "direct" as const,
   openedOn: "2026-01-15",
   reviewStatus: "accepted" as const,
@@ -22,6 +23,7 @@ const basePosition = {
   },
   snapshot: {
     id: "snapshot_synthetic",
+    fingerprint: "a".repeat(64),
     observedAt: "2026-08-15T11:45:00.000Z",
     providerStatus: "live" as const,
     investedMinor: 100_000,

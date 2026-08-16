@@ -32,6 +32,8 @@ const exposureResolutionMigrationFile =
   "packages/database/migrations/0021_canonical_exposure_resolution.sql";
 const providerNeutralMigrationFile =
   "packages/database/migrations/0022_provider_neutral_investments.sql";
+const authoritativeBaselineMigrationFile =
+  "packages/database/migrations/0023_authoritative_portfolio_baselines.sql";
 const contractMigrationFiles = [
   canonicalMigrationFile,
   containerScopedMigrationFile,
@@ -433,8 +435,24 @@ describe("multi-source holdings persistence contract", () => {
       .get();
 
     applyInsideD1StyleTransaction(database, [providerNeutralMigrationFile]);
+    const beforeAuthoritativeBaselineCutover = planningState(database);
+    applyInsideD1StyleTransaction(database, [
+      authoritativeBaselineMigrationFile,
+    ]);
 
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    expect(planningState(database)).toEqual(beforeAuthoritativeBaselineCutover);
+    expect(
+      database
+        .prepare(
+          `SELECT sql FROM sqlite_master
+           WHERE type = 'trigger'
+             AND name = 'portfolio_baseline_items_integrity_insert'`,
+        )
+        .get(),
+    ).toEqual({
+      sql: expect.stringContaining("holding_import_applications"),
+    });
     expect(
       database
         .prepare(

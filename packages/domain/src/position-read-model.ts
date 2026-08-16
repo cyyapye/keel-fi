@@ -34,6 +34,7 @@ export const InvestmentSourceFreshnessSchema = z.enum(["current", "stale"]);
 
 export const InvestmentPositionSnapshotSchema = z.object({
   id: z.string().min(1),
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
   observedAt: IsoTimestampSchema,
   providerStatus: z.enum(["live", "realized"]),
   investedMinor: NonNegativeIntegerSchema,
@@ -51,6 +52,7 @@ export const InvestmentPositionSnapshotSchema = z.object({
 export const InvestmentPositionRecordSchema = z.object({
   id: z.string().min(1),
   legalVehicleName: z.string().trim().min(1).max(1_000),
+  reportedExposureName: z.string().trim().min(1).max(1_000).nullable(),
   kind: z.enum(["direct", "spv_interest", "fund_interest"]),
   openedOn: IsoDateSchema.nullable(),
   reviewStatus: z.literal("accepted"),

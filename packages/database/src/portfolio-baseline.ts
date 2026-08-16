@@ -15,11 +15,16 @@ import {
   type PortfolioBaselineState,
   type PortfolioBaselineSummary,
 } from "@keel/domain";
+import type { InvestmentExposureView } from "@keel/domain/exposure-read-model";
 
 import {
   projectCashAccountIdentities,
   type AcceptedCashAccountHistoryRow,
 } from "./cash-account-identity";
+import {
+  D1InvestmentExposureViewRepository,
+  type InvestmentExposureViewRepository,
+} from "./exposure-read-model";
 
 type HouseholdIdentity = {
   household_id: string;
@@ -308,6 +313,46 @@ function sourcePositions(
   });
 }
 
+function sourcePositionRows(view: InvestmentExposureView): SourcePositionRow[] {
+  return view.positions
+    .flatMap((position): SourcePositionRow[] => {
+      const provider =
+        position.adapterType === "plaid-investments"
+          ? "plaid_investments"
+          : position.adapterType === "angellist-import"
+            ? "angellist"
+            : null;
+      if (
+        provider === null ||
+        (provider === "plaid_investments" &&
+          !isPlaidInvestmentsFiPlanningSecurityType(position.instrumentType))
+      ) {
+        return [];
+      }
+      return [
+        {
+          position_id: position.id,
+          snapshot_id: position.snapshotId,
+          snapshot_fingerprint: position.snapshotFingerprint,
+          provider,
+          legal_vehicle_name: position.legalVehicleName,
+          owner_label: position.containerLabel,
+          exposure_label: position.reportedExposureName,
+          unrealized_value_minor: position.valueMinor,
+          unrealized_value_state: position.valueState,
+          observed_at: position.observedAt,
+          ticker: position.ticker,
+          instrument_type: position.instrumentType,
+        },
+      ];
+    })
+    .sort(
+      (left, right) =>
+        left.provider.localeCompare(right.provider) ||
+        left.position_id.localeCompare(right.position_id),
+    );
+}
+
 function summarizePositions(
   positions: readonly PortfolioBaselinePosition[],
   cashAccounts: readonly PortfolioBaselineCashAccount[],
@@ -388,18 +433,25 @@ export interface PortfolioBaselineRepository {
 }
 
 export class D1PortfolioBaselineRepository implements PortfolioBaselineRepository {
-  public constructor(private readonly db: D1Database) {}
+  public constructor(
+    private readonly db: D1Database,
+    private readonly exposures: InvestmentExposureViewRepository = new D1InvestmentExposureViewRepository(
+      db,
+    ),
+  ) {}
 
   public async getState(
     accessSubject: string,
   ): Promise<PortfolioBaselineState> {
     const identity = await this.findIdentity(accessSubject);
-    const [rows, cashRows, planning, latestBaseline] = await Promise.all([
-      this.getSourceRows(identity.household_id),
-      this.getSourceCashRows(identity.household_id),
-      this.getPlanningRow(identity.household_id),
-      this.getLatestBaseline(identity.household_id),
-    ]);
+    const [exposureView, cashRows, planning, latestBaseline] =
+      await Promise.all([
+        this.exposures.list(accessSubject),
+        this.getSourceCashRows(identity.household_id),
+        this.getPlanningRow(identity.household_id),
+        this.getLatestBaseline(identity.household_id),
+      ]);
+    const rows = sourcePositionRows(exposureView);
     const positions = sourcePositions(rows);
     const cashAccounts = sourceCashAccounts(cashRows);
     const planningContext = {
@@ -530,7 +582,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
 
     const identity = await this.findIdentity(accessSubject);
     const [
-      sourceRows,
+      exposureView,
       sourceCashRows,
       planning,
       companyForecasts,
@@ -538,7 +590,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       outputs,
       goal,
     ] = await Promise.all([
-      this.getSourceRows(identity.household_id),
+      this.exposures.list(accessSubject),
       this.getSourceCashRows(identity.household_id),
       this.getPlanningRow(identity.household_id),
       all<CompanyForecastRow>(
@@ -577,6 +629,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       ),
       this.getFinancialIndependenceGoal(identity.household_id),
     ]);
+    const sourceRows = sourcePositionRows(exposureView);
     const currentPositions = sourcePositions(sourceRows);
     const currentCashAccounts = sourceCashAccounts(sourceCashRows);
     const currentSourceRevision = await sourceRevision(
@@ -990,58 +1043,6 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       throw new Error("No household is provisioned for this identity.");
     }
     return identity;
-  }
-
-  private async getSourceRows(householdId: string) {
-    const rows = await all<SourcePositionRow>(
-      this.db
-        .prepare(
-          `SELECT
-             position.id AS position_id,
-             snapshot.id AS snapshot_id,
-             snapshot.snapshot_fingerprint,
-             position.provider,
-             position.legal_vehicle_name,
-             position.owner_label,
-             (
-               SELECT exposure.exposure_label
-               FROM holding_position_exposures exposure
-               WHERE exposure.position_id = position.id
-               ORDER BY exposure.created_at, exposure.id
-               LIMIT 1
-             ) AS exposure_label,
-             snapshot.unrealized_value_minor,
-             snapshot.unrealized_value_state,
-             snapshot.observed_at,
-             snapshot.ticker,
-             position.instrument_type
-           FROM holding_positions position
-           JOIN holding_position_snapshots snapshot
-             ON snapshot.id = (
-               SELECT latest.id
-               FROM holding_position_snapshots latest
-               WHERE latest.position_id = position.id
-               ORDER BY latest.observed_at DESC, latest.created_at DESC,
-                        latest.id DESC
-               LIMIT 1
-             )
-           WHERE position.household_id = ?
-             AND position.provider IN ('angellist', 'plaid_investments')
-             AND EXISTS (
-               SELECT 1
-               FROM holding_import_applications application
-               WHERE application.position_id = position.id
-                 AND application.snapshot_id = snapshot.id
-             )
-           ORDER BY position.provider, position.id`,
-        )
-        .bind(householdId),
-    );
-    return rows.filter(
-      (row) =>
-        row.provider !== "plaid_investments" ||
-        isPlaidInvestmentsFiPlanningSecurityType(row.instrument_type),
-    );
   }
 
   private async getSourceCashRows(householdId: string) {

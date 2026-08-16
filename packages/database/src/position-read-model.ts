@@ -41,11 +41,13 @@ type InvestmentPositionRow = {
   container_id: string;
   position_id: string;
   legal_vehicle_name: string;
+  reported_exposure_name: string | null;
   position_kind: "direct" | "spv_interest" | "fund_interest";
   opened_on: string | null;
   ownership_version: number;
   association_basis: "provider_provenance" | "reviewed_import" | "manual";
   snapshot_id: string;
+  snapshot_fingerprint: string;
   snapshot_observed_at: string;
   provider_status: "live" | "realized";
   invested_minor: number;
@@ -83,6 +85,7 @@ function positionFromRow(
   return {
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
+    reportedExposureName: row.reported_exposure_name,
     kind: row.position_kind,
     openedOn: row.opened_on,
     reviewStatus: "accepted",
@@ -97,6 +100,7 @@ function positionFromRow(
     },
     snapshot: {
       id: row.snapshot_id,
+      fingerprint: row.snapshot_fingerprint,
       observedAt: row.snapshot_observed_at,
       providerStatus: row.provider_status,
       investedMinor: row.invested_minor,
@@ -264,11 +268,13 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ownership.container_id,
              position.id AS position_id,
              position.legal_vehicle_name,
+             accepted_row.exposure_label AS reported_exposure_name,
              position.position_kind,
              position.opened_on,
              ownership.version AS ownership_version,
              ownership.association_basis,
              snapshot.id AS snapshot_id,
+             snapshot.snapshot_fingerprint,
              snapshot.observed_at AS snapshot_observed_at,
              snapshot.provider_status,
              snapshot.invested_minor,
