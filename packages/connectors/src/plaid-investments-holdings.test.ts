@@ -211,4 +211,24 @@ describe("Plaid Investments holdings normalization", () => {
       ),
     ).rejects.toThrow("Short investment positions");
   });
+
+  it("fails closed before importing a banking or cash-management account", async () => {
+    const response = syntheticResponse();
+    response.accounts.push({
+      account_id: "synthetic-cash-management-id",
+      persistent_account_id: "synthetic-cash-management-persistent-id",
+      name: "Synthetic Cash Management",
+      official_name: "Synthetic Cash Management Account",
+      subtype: "cash management",
+      type: "depository",
+    });
+
+    await expect(
+      normalizePlaidInvestmentsHoldings(
+        response,
+        "2026-08-10T12:00:00.000Z",
+        "Synthetic Fidelity",
+      ),
+    ).rejects.toThrow("non-investment account");
+  });
 });

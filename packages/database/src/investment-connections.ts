@@ -114,6 +114,7 @@ export interface InvestmentConnectionsRepository {
   getConnection(
     accessSubject: string,
     connectionId: string,
+    includePaused?: boolean,
   ): Promise<InvestmentConnection | null>;
   upsertConnection(
     accessSubject: string,
@@ -125,6 +126,11 @@ export interface InvestmentConnectionsRepository {
   disconnectConnection(
     accessSubject: string,
     connectionId: string,
+  ): Promise<void>;
+  setConnectionPaused(
+    accessSubject: string,
+    connectionId: string,
+    paused: boolean,
   ): Promise<void>;
   claimPlaidWebhookDelivery(input: {
     providerAccountKey: string;
@@ -230,9 +236,9 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
     connection: ConnectionRow,
   ): Promise<InvestmentConnectionStatus> {
     if (
-      connection.status !== "active" ||
+      connection.status === "revoked" ||
       connection.investment_connection_id === null ||
-      connection.investment_lifecycle_state !== "active" ||
+      connection.investment_lifecycle_state === "disconnected" ||
       connection.institution_key === null ||
       connection.institution_label === null
     ) {
@@ -250,6 +256,32 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
         errorCode: null,
         latestAdjudication: null,
       });
+    }
+
+    if (
+      connection.status === "paused" &&
+      connection.investment_lifecycle_state === "paused"
+    ) {
+      return InvestmentConnectionStatusSchema.parse({
+        version: 1,
+        connectionId: connection.investment_connection_id,
+        institutionKey: connection.institution_key,
+        institutionLabel: connection.institution_label,
+        status: "paused",
+        lastSyncedAt: connection.last_synced_at,
+        automaticUpdatesEnabled: false,
+        latestImportId: null,
+        latestRunStatus: null,
+        errorCode: null,
+        latestAdjudication: null,
+      });
+    }
+
+    if (
+      connection.status !== "active" ||
+      connection.investment_lifecycle_state !== "active"
+    ) {
+      throw new Error("Investment connection lifecycle is inconsistent.");
     }
 
     const [latestRun, latestPendingImport, latestLinkedImport] =
@@ -357,6 +389,7 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
   public async getConnection(
     accessSubject: string,
     rawConnectionId: string,
+    includePaused = false,
   ): Promise<InvestmentConnection | null> {
     const connectionId = z.string().min(1).parse(rawConnectionId);
     const identity = await findIdentity(this.db, accessSubject);
@@ -366,9 +399,15 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
     );
     if (
       connection === null ||
-      connection.status !== "active" ||
+      !(
+        connection.status === "active" ||
+        (includePaused && connection.status === "paused")
+      ) ||
       connection.investment_connection_id === null ||
-      connection.investment_lifecycle_state !== "active" ||
+      !(
+        connection.investment_lifecycle_state === "active" ||
+        (includePaused && connection.investment_lifecycle_state === "paused")
+      ) ||
       connection.institution_key === null ||
       connection.institution_label === null
     ) {
@@ -382,6 +421,111 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
       institutionKey: connection.institution_key,
       institutionLabel: connection.institution_label,
     };
+  }
+
+  public async setConnectionPaused(
+    accessSubject: string,
+    rawConnectionId: string,
+    rawPaused: boolean,
+  ): Promise<void> {
+    const connectionId = z.string().min(1).parse(rawConnectionId);
+    const paused = z.boolean().parse(rawPaused);
+    const identity = await findIdentity(this.db, accessSubject);
+    const connection = await this.findConnection(
+      identity.household_id,
+      connectionId,
+    );
+    if (connection === null) {
+      throw new Error("Investment connection was not found.");
+    }
+    if (
+      connection.investment_connection_id === null ||
+      connection.investment_version_id === null ||
+      connection.investment_version === null ||
+      connection.investment_credential_reference === null ||
+      connection.institution_key === null ||
+      connection.institution_label === null
+    ) {
+      throw new Error("Canonical investment connection was not found.");
+    }
+    if (
+      connection.status === "revoked" ||
+      connection.investment_lifecycle_state === "disconnected"
+    ) {
+      throw new Error("Disconnected investment connections cannot be changed.");
+    }
+
+    const lifecycleState = paused ? "paused" : "active";
+    const connectorStatus = paused ? "paused" : "active";
+    if (
+      connection.investment_lifecycle_state === lifecycleState &&
+      connection.status === connectorStatus
+    ) {
+      return;
+    }
+    if (
+      (connection.status !== "active" && connection.status !== "paused") ||
+      (connection.investment_lifecycle_state !== "active" &&
+        connection.investment_lifecycle_state !== "paused")
+    ) {
+      throw new Error("Investment connection lifecycle is inconsistent.");
+    }
+    if (paused) {
+      const activeRun = await this.db
+        .prepare(
+          `SELECT run.id
+           FROM connector_sync_runs run
+           JOIN connector_sync_investment_connections scope
+             ON scope.sync_run_id = run.id
+           WHERE run.connector_account_id = ?
+             AND run.household_id = ?
+             AND scope.connection_id = ?
+             AND run.status IN ('queued', 'running')
+           LIMIT 1`,
+        )
+        .bind(
+          connection.id,
+          identity.household_id,
+          connection.investment_connection_id,
+        )
+        .first<{ id: string }>();
+      if (activeRun !== null) {
+        throw new Error("Investment connection check is in progress.");
+      }
+    }
+
+    const recordedAt = new Date().toISOString();
+    await this.db.batch([
+      this.db
+        .prepare(
+          `UPDATE connector_accounts
+           SET status = ?
+           WHERE id = ? AND household_id = ?`,
+        )
+        .bind(connectorStatus, connection.id, identity.household_id),
+      this.db
+        .prepare(
+          `INSERT INTO investment_connection_versions (
+             id, household_id, connection_id, version, institution_key,
+             institution_label, lifecycle_state, credential_reference,
+             supersedes_version_id, recorded_by_user_id, recorded_at,
+             immutable
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          identity.household_id,
+          connection.investment_connection_id,
+          connection.investment_version + 1,
+          connection.institution_key,
+          connection.institution_label,
+          lifecycleState,
+          connection.investment_credential_reference,
+          connection.investment_version_id,
+          identity.user_id,
+          recordedAt,
+        ),
+    ]);
   }
 
   public async upsertConnection(

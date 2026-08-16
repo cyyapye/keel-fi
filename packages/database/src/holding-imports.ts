@@ -275,6 +275,13 @@ type PlaidInvestmentsAdjudicationRow = {
   cost_basis_minor: number | null;
   issue_codes_json: string;
   container_id: string;
+  coverage_completeness:
+    | "complete"
+    | "partial"
+    | "unavailable"
+    | "malformed"
+    | "failed"
+    | "ambiguous";
 };
 
 type PlaidInvestmentsAdjudicationImport = {
@@ -1021,10 +1028,14 @@ export class D1HoldingImportRepository {
                  row.parse_status,
                  row.cost_basis_minor,
                  row.issue_codes_json,
-                 scope.container_id
+                 scope.container_id,
+                 coverage.completeness AS coverage_completeness
                FROM holding_import_rows row
                JOIN holding_import_row_containers scope
                  ON scope.import_row_id = row.id
+               JOIN holding_import_coverages coverage
+                 ON coverage.import_id = row.import_id
+                AND coverage.container_id = scope.container_id
                WHERE row.import_id = ? AND row.household_id = ?
                ORDER BY row.source_row_number`,
             )
@@ -1104,15 +1115,19 @@ export class D1HoldingImportRepository {
         position,
       ]),
     );
-    const missingPositions = positions.filter(
-      (position) =>
-        !currentPositionKeys.has(
-          containerPositionKey(
-            position.container_id,
-            position.position_fingerprint,
-          ),
-        ),
-    );
+    const hasIncompleteCoverage =
+      importRecord.coverage_count !== importRecord.complete_coverage_count;
+    const missingPositions = hasIncompleteCoverage
+      ? []
+      : positions.filter(
+          (position) =>
+            !currentPositionKeys.has(
+              containerPositionKey(
+                position.container_id,
+                position.position_fingerprint,
+              ),
+            ),
+        );
     const missingPlanningPositions = missingPositions.filter((position) =>
       isPlaidInvestmentsFiPlanningSecurityType(position.instrument_type),
     );
@@ -1124,6 +1139,9 @@ export class D1HoldingImportRepository {
     const createdAt = new Date().toISOString();
 
     rows.forEach((row) => {
+      if (hasIncompleteCoverage || row.coverage_completeness !== "complete") {
+        return;
+      }
       const rowValidationFailed = row.parse_status === "needs_attention";
       const identityChanged =
         containersWithMissingPlanningPositions.has(row.container_id) &&

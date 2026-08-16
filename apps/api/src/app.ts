@@ -43,6 +43,7 @@ import {
   PlanInputSaveSchema,
   PortfolioBaselineConfirmInputSchema,
   PortfolioWatchScanResultSchema,
+  InvestmentConnectionLifecycleActionInputSchema,
   InvestmentExchangeInputSchema,
   ScenarioDraftInputSchema,
 } from "@keel/domain";
@@ -1491,6 +1492,62 @@ export function createApp(options: AppOptions = {}) {
         });
       } catch (error) {
         return investmentsErrorResponse(context, error);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/investment-connections/:connectionId/lifecycle",
+    async (context) => {
+      const connectionId = z
+        .uuid()
+        .safeParse(context.req.param("connectionId"));
+      if (!connectionId.success) {
+        return context.json(
+          { error: "Investment connection is invalid." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      let input: unknown;
+      try {
+        input = await context.req.json();
+      } catch {
+        return context.json(
+          { error: "Investment connection action is invalid." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      const parsed =
+        InvestmentConnectionLifecycleActionInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return context.json(
+          { error: "Investment connection action is invalid." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      try {
+        const repository = investmentConnectionsRepositoryFor(context.env);
+        await repository.setConnectionPaused(
+          context.get("identity").subject,
+          connectionId.data,
+          parsed.data.action === "pause",
+        );
+        const status = await repository.getConnectionStatus(
+          context.get("identity").subject,
+          connectionId.data,
+        );
+        return context.json(status, 200, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch {
+        return context.json(
+          { error: "Investment connection state could not be changed." },
+          409,
+          { "Cache-Control": "private, no-store" },
+        );
       }
     },
   );
