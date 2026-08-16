@@ -206,7 +206,7 @@ on holdings, baseline, goal, or forecast output.
   protected smokes, and deployment evidence in
   [run `31914632676`](https://github.com/cyyapye/keel-fi/actions/runs/31914632676).
 
-#### [ ] M9.2 — Legacy association and compatibility reads
+#### [x] M9.2 — Legacy association and compatibility reads
 
 **Outcome:** Every shipped Robinhood and AngelList position participates in the
 canonical model without changing its ID, history, accepted snapshot, or planning
@@ -235,6 +235,12 @@ treatment.
 **Slice gate:** Forward migration, fresh migration, seed replay, compatibility,
 and feature-disable checks pass with zero orphaned positions, zero multiply
 assigned positions, zero household mismatches, and zero planning-value drift.
+
+- Evidence: [PR #64](https://github.com/cyyapye/keel-fi/pull/64) at
+  [`2533c91`](https://github.com/cyyapye/keel-fi/commit/2533c9196207d4ba22ee7a98a99e9be883581b4d),
+  with exact-SHA verification, encrypted D1 backup, forward-only migration,
+  protected smokes, and deployment evidence in
+  [run `31916501272`](https://github.com/cyyapye/keel-fi/actions/runs/31916501272).
 
 #### [ ] M9.3 — Container-scoped ingestion, coverage, and omissions
 
