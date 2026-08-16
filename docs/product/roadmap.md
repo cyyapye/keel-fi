@@ -465,7 +465,7 @@ evidence in
 The read model adds no provider, network, Queue, storage, schedule, webhook, or
 database write path and no migration; incremental provider spend remains $0.
 
-#### [ ] M9.6b — Exposure read model and planning integration
+#### [x] M9.6b — Exposure read model and planning integration
 
 **Outcome:** Exposure and planning views consume the authoritative position
 projection and preserve one monetary path.
@@ -496,6 +496,19 @@ projection and preserve one monetary path.
 exposure allocation invariants pass; initial or ambiguous baselines remain
 review-gated; and an already accepted clean refresh can update only the exact
 position lineage allowed by existing policy.
+
+**Evidence:** Delivered in [PR #78](https://github.com/cyyapye/keel-fi/pull/78)
+at exact checked head
+[`8454c2e`](https://github.com/cyyapye/keel-fi/commit/8454c2e9887524858245f575410885dfbe1ffaa7)
+and merge commit
+[`2fd3672`](https://github.com/cyyapye/keel-fi/commit/2fd3672f494670f9179c790f11d76f1047a95bb3).
+Migration `0023` replayed without rewriting accepted history; 425 tests and 44
+desktop/mobile browser flows passed. The release retained an encrypted D1
+backup, applied the forward-only migration, deployed and read back both Worker
+versions, passed protected smokes, and retained exact-SHA evidence in
+[run `31954053677`](https://github.com/cyyapye/keel-fi/actions/runs/31954053677).
+The authoritative read path adds no provider call, Queue message, R2 object,
+schedule, or webhook; incremental provider spend remains $0.
 
 #### [ ] M9.7 — Fidelity proving institution
 
