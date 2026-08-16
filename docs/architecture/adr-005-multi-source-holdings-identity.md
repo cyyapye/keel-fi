@@ -18,16 +18,19 @@ The shipped model already provides important foundations:
 - `holding_position_exposures` keeps an underlying company or fund separate from
   that legal asset;
 - `holding_position_snapshots` and review decisions are append-only; and
-- the Robinhood natural key includes both account identity and security
-  identity, so the same security in two Robinhood accounts can remain separate.
+- the protected Plaid Investments position key includes both account identity
+  and security identity, so the same security in two accounts can remain
+  separate.
 
-However, the public-holdings path is still institution-specific. The accepted
-provider contract enumerates Robinhood and AngelList, the Plaid flow validates
-only Robinhood, a position has no first-class ownership-container relationship,
-and missing-position reconciliation currently ranges across a provider instead
-of an explicitly covered connection and account. Adding `fidelity` to the
-provider enum would therefore be insufficient and could create false missing
-positions or accidental merges.
+At the time of this decision, the public-holdings path was institution-specific:
+the accepted provider contract enumerated Robinhood and AngelList, the Plaid
+flow validated only Robinhood, a position had no first-class ownership-container
+relationship, and missing-position reconciliation ranged across a provider
+instead of an explicitly covered connection and account. Adding `fidelity` to
+the provider enum would therefore have been insufficient and could have created
+false missing positions or accidental merges. M9.3 through M9.6a now materialize
+the canonical foundation, provider-neutral Investments path, and position
+projection while the remaining M9 gates stay in progress.
 
 This ADR defines the canonical logical and persistence model. Keel has no live
 user data, so implementation uses one direct pre-live cutover instead of
@@ -294,9 +297,10 @@ Once any environment is authorized to retain real user data, database resets and
 deployed-migration rewrites are prohibited. From that point, schema changes must
 be forward-only and accepted history remains append-only.
 
-Until those gates ship, Robinhood and AngelList remain the implemented holding
-sources. This ADR must not be read as evidence that Fidelity or generic
-multi-institution linking is already available.
+Until the remaining gates ship, Robinhood and AngelList remain the operated
+holding sources. The provider-neutral adapter is implemented, but this ADR must
+not be read as evidence that Fidelity authorization or the multi-institution
+owner experience is available.
 
 ## Consequences
 
@@ -311,8 +315,8 @@ Positive:
 
 Tradeoffs:
 
-- the model adds connection and container identity that the current UI and
-  provider-specific repositories do not yet expose;
+- the model adds connection, container, and exposure identity that the current
+  Robinhood-focused UI does not yet fully expose;
 - synthetic environments that received an abandoned pre-live schema must be
   rebuilt before they can prove the canonical release;
 - direct cutover creates a sequencing dependency: a writer cannot be enabled

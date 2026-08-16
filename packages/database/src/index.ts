@@ -53,7 +53,7 @@ export * from "./holding-imports";
 export * from "./angellist-mac-agent";
 export * from "./portfolio-baseline";
 export * from "./plan-inputs";
-export * from "./public-holdings";
+export * from "./investment-connections";
 export * from "./portfolio-watch";
 export * from "./cash-accounts";
 export * from "./cash-flow";
@@ -664,7 +664,7 @@ export class D1AlphaRepository implements AlphaRepository {
                    ELSE 'verified'
                  END AS source_status,
                  CASE position.provider
-                   WHEN 'robinhood' THEN 'Robinhood via Plaid'
+                   WHEN 'plaid_investments' THEN 'Plaid Investments'
                    ELSE 'AngelList export'
                  END AS source_label,
                  COALESCE(

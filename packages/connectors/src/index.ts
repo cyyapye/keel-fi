@@ -4,7 +4,7 @@ import { z } from "zod";
 export * from "./official-company-web";
 export * from "./financing-announcement";
 export * from "./angellist-investments-csv";
-export * from "./plaid-robinhood-holdings";
+export * from "./plaid-investments-holdings";
 export * from "./plaid-cash-accounts";
 export * from "./plaid-cash-flow";
 export * from "./plaid-liabilities";

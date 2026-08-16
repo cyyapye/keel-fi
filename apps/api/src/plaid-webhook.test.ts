@@ -1,4 +1,4 @@
-import type { PublicHoldingsRepository } from "@keel/database";
+import type { InvestmentConnectionsRepository } from "@keel/database";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,7 +10,7 @@ import {
 import type {
   PlaidInvestmentsClient,
   PlaidWebhookVerificationKey,
-} from "./robinhood-sync";
+} from "./plaid-investments-sync";
 import type { Env } from "./types";
 
 const now = new Date("2026-08-14T12:00:00.000Z");
@@ -73,7 +73,7 @@ async function signer() {
 
 function testRepository(
   claim: Awaited<
-    ReturnType<PublicHoldingsRepository["claimPlaidWebhookDelivery"]>
+    ReturnType<InvestmentConnectionsRepository["claimPlaidWebhookDelivery"]>
   > = { status: "claimed", deliveryId },
 ) {
   const claimPlaidWebhookDelivery = vi.fn().mockResolvedValue(claim);
@@ -82,17 +82,18 @@ function testRepository(
     claimPlaidWebhookDelivery,
     markPlaidWebhookDelivery,
     repository: {
-      getStatus: vi.fn(),
+      getState: vi.fn(),
+      getConnectionStatus: vi.fn(),
       getConnection: vi.fn(),
       upsertConnection: vi.fn(),
-      bindProviderAccountKey: vi.fn(),
+      disconnectConnection: vi.fn(),
       claimPlaidWebhookDelivery,
       getPlaidWebhookDelivery: vi.fn(),
       markPlaidWebhookDelivery,
       beginSync: vi.fn(),
       completeSync: vi.fn(),
       failSync: vi.fn(),
-    } as unknown as PublicHoldingsRepository,
+    } as unknown as InvestmentConnectionsRepository,
   };
 }
 
@@ -116,7 +117,7 @@ function testClient(
 ): PlaidInvestmentsClient {
   return {
     createLinkToken: vi.fn(),
-    exchangeRobinhoodToken: vi.fn(),
+    exchangeInvestmentToken: vi.fn(),
     removeItem: vi.fn(),
     updateItemWebhook: vi.fn(),
     getWebhookVerificationKey: vi.fn().mockResolvedValue(verificationKey),

@@ -279,16 +279,26 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
       },
     });
   });
-  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+  await page.route("**/api/investment-connections", async (route) => {
     await route.fulfill({
       json: {
         version: 1,
         configured: true,
-        status: "ready",
-        lastSyncedAt: "2026-08-14T15:00:00.000Z",
-        automaticUpdatesEnabled: true,
-        latestImportId: null,
-        latestRunStatus: "succeeded",
+        connections: [
+          {
+            version: 1,
+            connectionId: "11111111-1111-4111-8111-111111111111",
+            institutionKey: "ins_robinhood",
+            institutionLabel: "Robinhood",
+            status: "ready",
+            lastSyncedAt: "2026-08-14T15:00:00.000Z",
+            automaticUpdatesEnabled: true,
+            latestImportId: null,
+            latestRunStatus: "succeeded",
+            errorCode: null,
+            latestAdjudication: null,
+          },
+        ],
         errorCode: null,
       },
     });

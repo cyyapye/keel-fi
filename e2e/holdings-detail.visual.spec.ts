@@ -126,7 +126,7 @@ const alphaFixture = {
       scenarioValueMinor: null,
       usableLiquidityMinor: null,
       sourceStatus: "verified",
-      sourceLabel: "Robinhood via Plaid",
+      sourceLabel: "Plaid Investments",
       effectiveDate: "2026-08-10",
       retrievedAt: "2026-08-10T16:00:00.000Z",
       confidencePpm: null,
@@ -175,16 +175,12 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.route("**/api/holding-imports", async (route) => {
     await route.fulfill({ json: [] });
   });
-  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+  await page.route("**/api/investment-connections", async (route) => {
     await route.fulfill({
       json: {
         version: 1,
         configured: true,
-        status: "disconnected",
-        lastSyncedAt: null,
-        automaticUpdatesEnabled: false,
-        latestImportId: null,
-        latestRunStatus: null,
+        connections: [],
         errorCode: null,
       },
     });

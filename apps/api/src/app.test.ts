@@ -210,7 +210,7 @@ const portfolioBaselineState: PortfolioBaselineState = {
       positionName: "Synthetic Public Company",
       ownerLabel: "Demo Brokerage",
       sourceLabel: "Robinhood",
-      provider: "robinhood",
+      provider: "plaid_investments",
       classification: "public_market",
       valueMinor: 23_800_000,
       valueState: "reported",

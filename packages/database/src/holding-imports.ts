@@ -1,11 +1,11 @@
 import {
   AngelListInvestmentCsvRowSchema,
-  isRobinhoodFiPlanningSecurityType,
-  isRobinhoodOutsideFiSecurityType,
-  ROBINHOOD_CRYPTO_OUTSIDE_FI_ISSUE,
-  RobinhoodHoldingRowSchema,
+  isPlaidInvestmentsFiPlanningSecurityType,
+  isPlaidInvestmentsOutsideFiSecurityType,
+  PLAID_INVESTMENTS_CRYPTO_OUTSIDE_FI_ISSUE,
+  PlaidInvestmentHoldingRowSchema,
   type AngelListInvestmentCsvRow,
-  type RobinhoodHoldingRow,
+  type PlaidInvestmentHoldingRow,
 } from "@keel/connectors";
 import {
   HoldingImportApplyInputSchema,
@@ -30,13 +30,14 @@ const MAX_IMPORT_ROWS = 500;
 const ANGELLIST_PROVIDER = "angellist";
 const ANGELLIST_PARSER_SCHEMA = "angellist_investments_v1";
 const ANGELLIST_SOURCE_LABEL = "AngelList export";
-const ROBINHOOD_PROVIDER = "robinhood";
-const ROBINHOOD_PARSER_SCHEMA = "plaid_robinhood_holdings_v1";
-const ROBINHOOD_SOURCE_LABEL = "Robinhood via Plaid";
-export const ROBINHOOD_HOLDINGS_POLICY_VERSION = "robinhood-holdings-auto-v2";
-const NON_BLOCKING_ROBINHOOD_ISSUES = new Set([
+const PLAID_INVESTMENTS_PROVIDER = "plaid_investments";
+const PLAID_INVESTMENTS_PARSER_SCHEMA = "plaid_investments_holdings_v1";
+const PLAID_INVESTMENTS_SOURCE_LABEL = "Plaid Investments";
+export const PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION =
+  "plaid-investments-holdings-auto-v3";
+const NON_BLOCKING_PLAID_INVESTMENTS_ISSUES = new Set([
   "Cost basis is unavailable.",
-  ROBINHOOD_CRYPTO_OUTSIDE_FI_ISSUE,
+  PLAID_INVESTMENTS_CRYPTO_OUTSIDE_FI_ISSUE,
 ]);
 
 const HoldingImportStageInputSchema = z
@@ -68,7 +69,7 @@ export type HoldingImportStageInput = z.input<
   typeof HoldingImportStageInputSchema
 >;
 
-const RobinhoodHoldingImportStageInputSchema = z
+const PlaidInvestmentsHoldingImportStageInputSchema = z
   .object({
     objectKey: z.string().min(1).max(1_024),
     sha256: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -80,7 +81,7 @@ const RobinhoodHoldingImportStageInputSchema = z
     normalizedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
     effectiveDate: IsoDateSchema,
     retrievedAt: IsoTimestampSchema,
-    rows: z.array(RobinhoodHoldingRowSchema).max(MAX_IMPORT_ROWS),
+    rows: z.array(PlaidInvestmentHoldingRowSchema).max(MAX_IMPORT_ROWS),
     canonicalScope: HoldingImportCanonicalScopeSchema,
   })
   .strict()
@@ -93,20 +94,22 @@ const RobinhoodHoldingImportStageInputSchema = z
       context.addIssue({
         code: "custom",
         path: ["canonicalScope", "rows"],
-        message: "Every Robinhood row requires one canonical row scope.",
+        message:
+          "Every Plaid Investments row requires one canonical row scope.",
       });
     }
     if (value.canonicalScope.connection.mode !== "existing") {
       context.addIssue({
         code: "custom",
         path: ["canonicalScope", "connection"],
-        message: "Robinhood imports require an active canonical connection.",
+        message:
+          "Plaid Investments imports require an active canonical connection.",
       });
     }
   });
 
-export type RobinhoodHoldingImportStageInput = z.input<
-  typeof RobinhoodHoldingImportStageInputSchema
+export type PlaidInvestmentsHoldingImportStageInput = z.input<
+  typeof PlaidInvestmentsHoldingImportStageInputSchema
 >;
 
 export type HoldingImportStageResult = {
@@ -114,9 +117,9 @@ export type HoldingImportStageResult = {
   readonly preview: HoldingImportPreview;
 };
 
-export type RobinhoodImportAdjudication = {
+export type PlaidInvestmentsImportAdjudication = {
   readonly importId: string;
-  readonly policyVersion: typeof ROBINHOOD_HOLDINGS_POLICY_VERSION;
+  readonly policyVersion: typeof PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION;
   readonly autoAppliedCount: number;
   readonly quarantinedCount: number;
   readonly preservedPositionCount: number;
@@ -244,7 +247,7 @@ type ExistingPositionRow = {
   container_id: string;
 };
 
-type RobinhoodExistingPositionRow = ExistingPositionRow & {
+type PlaidInvestmentsExistingPositionRow = ExistingPositionRow & {
   instrument_type: string;
 };
 
@@ -263,7 +266,7 @@ type ExistingDecisionRow = {
   decision_source: "manual" | "policy";
 };
 
-type RobinhoodAdjudicationRow = {
+type PlaidInvestmentsAdjudicationRow = {
   id: string;
   position_fingerprint: string;
   snapshot_fingerprint: string;
@@ -274,7 +277,7 @@ type RobinhoodAdjudicationRow = {
   container_id: string;
 };
 
-type RobinhoodAdjudicationImport = {
+type PlaidInvestmentsAdjudicationImport = {
   normalized_fingerprint: string;
   connection_id: string;
   coverage_count: number;
@@ -360,14 +363,14 @@ async function snapshotFingerprint(
   );
 }
 
-async function robinhoodSnapshotFingerprint(
-  row: RobinhoodHoldingRow,
+async function plaidInvestmentsSnapshotFingerprint(
+  row: PlaidInvestmentHoldingRow,
   retrievedAt: string,
   protectedPositionKey: string,
 ): Promise<string> {
   return sha256(
     JSON.stringify([
-      "robinhood-position-snapshot-v1",
+      "plaid-investments-position-snapshot-v1",
       protectedPositionKey,
       retrievedAt,
       row.observedOn,
@@ -448,7 +451,7 @@ export class D1HoldingImportRepository {
            JOIN source_documents document
              ON document.id = import.source_document_id
            WHERE import.household_id = ?
-             AND import.provider IN ('angellist', 'robinhood')
+             AND import.provider IN ('angellist', 'plaid_investments')
              AND document.review_status = 'pending_review'
            ORDER BY import.created_at DESC
            LIMIT 20`,
@@ -460,7 +463,8 @@ export class D1HoldingImportRepository {
         id: row.id,
         provider: row.provider,
         status:
-          row.provider === ROBINHOOD_PROVIDER && row.quarantined_count > 0
+          row.provider === PLAID_INVESTMENTS_PROVIDER &&
+          row.quarantined_count > 0
             ? "quarantined"
             : "pending_review",
         observedAt:
@@ -717,7 +721,7 @@ export class D1HoldingImportRepository {
     };
   }
 
-  public async findRobinhoodHoldingImportByFingerprint(
+  public async findPlaidInvestmentsHoldingImportByFingerprint(
     accessSubject: string,
     connectionId: string,
     normalizedFingerprint: string,
@@ -735,7 +739,7 @@ export class D1HoldingImportRepository {
            ON candidate_scope.import_id = candidate.id
          WHERE candidate.household_id = ?
            AND candidate_scope.connection_id = ?
-           AND candidate.provider = 'robinhood'
+           AND candidate.provider = 'plaid_investments'
            AND candidate.normalized_fingerprint = ?
            AND candidate.id = (
              SELECT latest.id
@@ -756,11 +760,11 @@ export class D1HoldingImportRepository {
       : this.getHoldingImport(accessSubject, existing.id);
   }
 
-  public async stageRobinhoodHoldingImport(
+  public async stagePlaidInvestmentsHoldingImport(
     accessSubject: string,
-    rawInput: RobinhoodHoldingImportStageInput,
+    rawInput: PlaidInvestmentsHoldingImportStageInput,
   ): Promise<HoldingImportStageResult> {
-    const input = RobinhoodHoldingImportStageInputSchema.parse(rawInput);
+    const input = PlaidInvestmentsHoldingImportStageInputSchema.parse(rawInput);
     const identity = await this.findIdentity(accessSubject);
     const createdAt = new Date().toISOString();
     const canonical = await this.prepareCanonicalScope(
@@ -768,7 +772,7 @@ export class D1HoldingImportRepository {
       input.canonicalScope,
       createdAt,
     );
-    const existing = await this.findRobinhoodHoldingImportByFingerprint(
+    const existing = await this.findPlaidInvestmentsHoldingImportByFingerprint(
       accessSubject,
       canonical.connectionId,
       input.normalizedFingerprint,
@@ -783,12 +787,12 @@ export class D1HoldingImportRepository {
       input.rows.map(async (row) => {
         const scope = rowScopes.get(row.rowNumber);
         if (scope === undefined) {
-          throw new Error("Robinhood row scope was not found.");
+          throw new Error("Plaid Investments row scope was not found.");
         }
         return {
           row,
           scope,
-          snapshotFingerprint: await robinhoodSnapshotFingerprint(
+          snapshotFingerprint: await plaidInvestmentsSnapshotFingerprint(
             row,
             input.retrievedAt,
             scope.protectedPositionKey,
@@ -806,7 +810,7 @@ export class D1HoldingImportRepository {
              id, household_id, object_key, file_name, content_type, byte_size,
              sha256, effective_date, retrieved_at, source_label, review_status,
              created_at
-           ) VALUES (?, ?, ?, 'robinhood-holdings.json', 'application/json', ?,
+           ) VALUES (?, ?, ?, 'plaid-investments-holdings.json', 'application/json', ?,
              ?, ?, ?, ?, 'pending_review', ?)`,
         )
         .bind(
@@ -817,7 +821,7 @@ export class D1HoldingImportRepository {
           input.sha256,
           input.effectiveDate,
           input.retrievedAt,
-          ROBINHOOD_SOURCE_LABEL,
+          PLAID_INVESTMENTS_SOURCE_LABEL,
           createdAt,
         ),
       this.db
@@ -831,8 +835,8 @@ export class D1HoldingImportRepository {
           importId,
           identity.household_id,
           sourceDocumentId,
-          ROBINHOOD_PROVIDER,
-          ROBINHOOD_PARSER_SCHEMA,
+          PLAID_INVESTMENTS_PROVIDER,
+          PLAID_INVESTMENTS_PARSER_SCHEMA,
           input.normalizedFingerprint,
           preparedRows.length,
           identity.user_id,
@@ -858,7 +862,7 @@ export class D1HoldingImportRepository {
         containerScope.protectedAccountKey,
       );
       if (container === undefined) {
-        throw new Error("Robinhood ownership container was not found.");
+        throw new Error("Plaid Investments ownership container was not found.");
       }
       statements.push(
         this.db
@@ -892,7 +896,9 @@ export class D1HoldingImportRepository {
         scope.protectedAccountKey,
       );
       if (container === undefined) {
-        throw new Error("Robinhood row ownership container was not found.");
+        throw new Error(
+          "Plaid Investments row ownership container was not found.",
+        );
       }
       statements.push(
         this.db
@@ -928,7 +934,7 @@ export class D1HoldingImportRepository {
             row.marketValueMinor,
             row.securityType,
             row.issues.every((issue) =>
-              NON_BLOCKING_ROBINHOOD_ISSUES.has(issue),
+              NON_BLOCKING_PLAID_INVESTMENTS_ISSUES.has(issue),
             )
               ? "ready"
               : "needs_attention",
@@ -960,7 +966,7 @@ export class D1HoldingImportRepository {
     try {
       await this.db.batch(statements);
     } catch (error) {
-      const raced = await this.findRobinhoodHoldingImportByFingerprint(
+      const raced = await this.findPlaidInvestmentsHoldingImportByFingerprint(
         accessSubject,
         canonical.connectionId,
         input.normalizedFingerprint,
@@ -977,10 +983,10 @@ export class D1HoldingImportRepository {
     };
   }
 
-  public async autoAdjudicateRobinhoodHoldingImport(
+  public async autoAdjudicatePlaidInvestmentsHoldingImport(
     accessSubject: string,
     importId: string,
-  ): Promise<RobinhoodImportAdjudication> {
+  ): Promise<PlaidInvestmentsImportAdjudication> {
     const identity = await this.findIdentity(accessSubject);
     const [importRecord, rows, positions, recordedDecisions] =
       await Promise.all([
@@ -1000,11 +1006,11 @@ export class D1HoldingImportRepository {
              FROM holding_imports import
              JOIN holding_import_connections scope ON scope.import_id = import.id
              WHERE import.id = ? AND import.household_id = ?
-               AND import.provider = 'robinhood'`,
+               AND import.provider = 'plaid_investments'`,
           )
           .bind(importId, identity.household_id)
-          .first<RobinhoodAdjudicationImport>(),
-        all<RobinhoodAdjudicationRow>(
+          .first<PlaidInvestmentsAdjudicationImport>(),
+        all<PlaidInvestmentsAdjudicationRow>(
           this.db
             .prepare(
               `SELECT
@@ -1024,7 +1030,7 @@ export class D1HoldingImportRepository {
             )
             .bind(importId, identity.household_id),
         ),
-        all<RobinhoodExistingPositionRow>(
+        all<PlaidInvestmentsExistingPositionRow>(
           this.db
             .prepare(
               `SELECT
@@ -1041,7 +1047,7 @@ export class D1HoldingImportRepository {
                WHERE coverage.import_id = ?
                  AND coverage.household_id = ?
                  AND coverage.completeness = 'complete'
-                 AND position.provider = 'robinhood'
+                 AND position.provider = 'plaid_investments'
                  AND NOT EXISTS (
                    SELECT 1
                    FROM holding_position_ownerships later
@@ -1062,7 +1068,7 @@ export class D1HoldingImportRepository {
         ),
       ]);
     if (importRecord === null || importRecord.coverage_count === 0) {
-      throw new Error("Robinhood holding import not found.");
+      throw new Error("Plaid Investments holding import not found.");
     }
     if (
       recordedDecisions.some(
@@ -1070,14 +1076,14 @@ export class D1HoldingImportRepository {
       )
     ) {
       throw new Error(
-        "Robinhood holding import was already reviewed manually.",
+        "Plaid Investments holding import was already reviewed manually.",
       );
     }
     if (recordedDecisions.length > 0) {
       const preview = await this.getHoldingImport(accessSubject, importId);
       return {
         importId,
-        policyVersion: ROBINHOOD_HOLDINGS_POLICY_VERSION,
+        policyVersion: PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
         autoAppliedCount: preview.summary.autoAppliedCount,
         quarantinedCount: preview.summary.quarantinedCount,
         preservedPositionCount: preview.summary.preservedPositionCount,
@@ -1108,12 +1114,12 @@ export class D1HoldingImportRepository {
         ),
     );
     const missingPlanningPositions = missingPositions.filter((position) =>
-      isRobinhoodFiPlanningSecurityType(position.instrument_type),
+      isPlaidInvestmentsFiPlanningSecurityType(position.instrument_type),
     );
     const containersWithMissingPlanningPositions = new Set(
       missingPlanningPositions.map((position) => position.container_id),
     );
-    const clearRows: RobinhoodAdjudicationRow[] = [];
+    const clearRows: PlaidInvestmentsAdjudicationRow[] = [];
     const quarantineStatements: D1PreparedStatement[] = [];
     const createdAt = new Date().toISOString();
 
@@ -1144,7 +1150,7 @@ export class D1HoldingImportRepository {
             rowValidationFailed
               ? "row_validation_failed"
               : "possible_identity_change",
-            ROBINHOOD_HOLDINGS_POLICY_VERSION,
+            PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
             row.snapshot_fingerprint,
             rowValidationFailed
               ? (
@@ -1170,9 +1176,9 @@ export class D1HoldingImportRepository {
             identity.household_id,
             importId,
             position.id,
-            ROBINHOOD_HOLDINGS_POLICY_VERSION,
+            PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
             importRecord.normalized_fingerprint,
-            "Robinhood did not report this prior position. Keel preserved its last accepted value and did not infer a sale.",
+            "This investment account did not report the prior position. Keel preserved its last accepted value and did not infer a sale.",
             createdAt,
           ),
       );
@@ -1185,7 +1191,7 @@ export class D1HoldingImportRepository {
       const reasonCodesByRow = new Map<string, readonly string[]>();
       clearRows.forEach((row) => {
         reasonCodesByRow.set(row.id, [
-          isRobinhoodOutsideFiSecurityType(row.instrument_type)
+          isPlaidInvestmentsOutsideFiSecurityType(row.instrument_type)
             ? "excluded_from_fi_planning"
             : "supported_usd_long_position",
           positionsByKey.has(
@@ -1204,12 +1210,12 @@ export class D1HoldingImportRepository {
           decisions: clearRows.map((row) => ({
             rowId: row.id,
             decision: "accepted" as const,
-            rationale: `Automatically accepted by ${ROBINHOOD_HOLDINGS_POLICY_VERSION}.`,
+            rationale: `Automatically accepted by ${PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION}.`,
           })),
         },
         {
           source: "policy",
-          policyVersion: ROBINHOOD_HOLDINGS_POLICY_VERSION,
+          policyVersion: PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
           allowPartial: true,
           reasonCodesByRow,
         },
@@ -1238,7 +1244,7 @@ export class D1HoldingImportRepository {
     const preview = await this.getHoldingImport(accessSubject, importId);
     return {
       importId,
-      policyVersion: ROBINHOOD_HOLDINGS_POLICY_VERSION,
+      policyVersion: PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
       autoAppliedCount: preview.summary.autoAppliedCount,
       quarantinedCount: preview.summary.quarantinedCount,
       preservedPositionCount: preview.summary.preservedPositionCount,

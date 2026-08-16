@@ -10,9 +10,10 @@ separate by account, and keeping same-company SPV interests legally distinct is
 [ADR 005: Multi-source holdings identity](./adr-005-multi-source-holdings-identity.md).
 Its additive connection, container, coverage, and exposure persistence contract
 is present. Because every environment is synthetic and disposable, Keel retains
-no holdings backfill, dual-read, or transitional association layer. Generic
-ingestion and additional-institution authorization remain pending; Robinhood and
-AngelList are still the implemented holding sources.
+no holdings backfill, dual-read, or transitional association layer. The generic
+Plaid Investments ingestion path is present; additional-institution
+authorization remains pending. Robinhood and AngelList remain the operated
+holding sources.
 
 ```mermaid
 flowchart LR
@@ -74,22 +75,22 @@ flowchart LR
   registry; Queue jobs contain only internal source IDs. Real public sources are
   exercised by an opt-in runtime acceptance command while all checked-in
   portfolio data remains fabricated.
-- Accepted Robinhood, AngelList, and cash-account observations remain source
-  facts until the user confirms a Portfolio Baseline. The baseline records the
-  exact reviewed source revision, keeps unavailable values unknown, requires
-  overlap checks for cross-provider positions and linked cash versus the manual
-  residual, and proposes reviewed public-market holdings plus reviewed cash and
-  the residual as the FI-eligible replacement. Private paper remains outside
-  current liquidity. Confirmation writes the new FI cash plan, forecast, and
-  primary FI goal version in one D1 batch.
+- Accepted Plaid Investments, AngelList, and cash-account observations remain
+  source facts until the user confirms a Portfolio Baseline. The baseline
+  records the exact reviewed source revision, keeps unavailable values unknown,
+  requires overlap checks for cross-provider positions and linked cash versus
+  the manual residual, and proposes reviewed public-market holdings plus
+  reviewed cash and the residual as the FI-eligible replacement. Private paper
+  remains outside current liquidity. Confirmation writes the new FI cash plan,
+  forecast, and primary FI goal version in one D1 batch.
 - Multi-source investment identity uses HMAC-derived connection, container, and
   position keys. Institution and account labels are versioned metadata rather
   than identity. `holding_positions` and their accepted snapshots remain the
-  only source of Portfolio Baseline value. The canonical relationship tables
-  start empty; M9.3 must write connections, containers, coverage, and position
-  associations directly rather than reconstructing them from older records. Any
-  synthetic environment that applied the removed transition experiment must be
-  rebuilt from the checked-in migration chain before release. See the
+  only source of Portfolio Baseline value. Direct ingestion writes connections,
+  containers, coverage, and position associations without reconstructing them
+  from labels or older records. Any synthetic environment that applied the
+  removed transition experiment must be rebuilt from the checked-in migration
+  chain before release. See the
   [multi-source holdings runbook](../deployment/multi-source-holdings.md).
 - Cash-account linking requests only Plaid Auth and eligible US depository
   subtypes. The initial cached account response and every explicit live balance
@@ -121,8 +122,8 @@ flowchart LR
 - Plaid's dedicated webhook hostname exposes exactly one POST route. The web
   Worker forwards it through the private API service binding; the API verifies
   the signed raw body and queues only an opaque internal delivery ID. Processing
-  stages a holding proposal and stops at the same review boundary as a manual
-  Robinhood check.
+  stages a holding proposal for the exact investment connection and stops at the
+  same review boundary as a manual investment check.
 
 ## Value semantics
 

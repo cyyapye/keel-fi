@@ -12,6 +12,8 @@ import {
   FinancingAnnouncementFactsSchema,
   FinancingMoneyFactSchema,
   HttpsSourceUrlSchema,
+  InvestmentConnectionsStateSchema,
+  InvestmentConnectionStatusSchema,
   multiplyMinorByPpm,
   PortfolioBaselineConfirmInputSchema,
   PortfolioBaselineCashAccountSchema,
@@ -19,7 +21,6 @@ import {
   projectScenario,
   probabilityMeetingThresholdPpm,
   reconcileFinancingSignals,
-  RobinhoodSyncStatusSchema,
   summarizeLiquidityPaths,
 } from "./index";
 
@@ -195,36 +196,42 @@ describe("accepted cash account boundaries", () => {
   });
 });
 
-describe("Robinhood sync status", () => {
+describe("investment connection status", () => {
   it("rejects inconsistent configuration and run states", () => {
     const base = {
       version: 1 as const,
-      configured: true,
+      connectionId: "connection_investments_1",
+      institutionKey: "ins_synthetic_brokerage",
+      institutionLabel: "Synthetic Brokerage",
       status: "ready" as const,
       lastSyncedAt: null,
+      automaticUpdatesEnabled: false,
       latestImportId: null,
       latestRunStatus: null,
       errorCode: null,
     };
-    expect(RobinhoodSyncStatusSchema.safeParse(base).success).toBe(true);
-    expect(RobinhoodSyncStatusSchema.parse(base).automaticUpdatesEnabled).toBe(
-      false,
-    );
+    expect(InvestmentConnectionStatusSchema.safeParse(base).success).toBe(true);
     expect(
-      RobinhoodSyncStatusSchema.safeParse({
+      InvestmentConnectionStatusSchema.safeParse({
         ...base,
-        configured: false,
-        status: "ready",
         errorCode: "configuration_required",
       }).success,
     ).toBe(false);
     expect(
-      RobinhoodSyncStatusSchema.safeParse({
+      InvestmentConnectionStatusSchema.safeParse({
         ...base,
         status: "syncing",
         latestRunStatus: "succeeded",
       }).success,
     ).toBe(false);
+    expect(
+      InvestmentConnectionsStateSchema.safeParse({
+        version: 1,
+        configured: false,
+        connections: [base],
+        errorCode: "configuration_required",
+      }).success,
+    ).toBe(true);
   });
 });
 

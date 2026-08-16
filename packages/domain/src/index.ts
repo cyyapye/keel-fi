@@ -808,7 +808,10 @@ export const PositionExposureMappingSchema = z
     }
   });
 
-export const HoldingImportProviderSchema = z.enum(["angellist", "robinhood"]);
+export const HoldingImportProviderSchema = z.enum([
+  "angellist",
+  "plaid_investments",
+]);
 
 export const HoldingImportRowActionSchema = z.enum([
   "create_position",
@@ -2193,7 +2196,7 @@ export const CashFlowReviewResultSchema = z.object({
   planSuggestion: CashFlowPlanSuggestionSchema.nullable(),
 });
 
-export const RobinhoodSyncErrorCodeSchema = z.enum([
+export const InvestmentSyncErrorCodeSchema = z.enum([
   "configuration_required",
   "connection_invalid",
   "provider_unavailable",
@@ -2203,7 +2206,7 @@ export const RobinhoodSyncErrorCodeSchema = z.enum([
   "unexpected_failure",
 ]);
 
-export const RobinhoodAdjudicationSummarySchema = z
+export const InvestmentAdjudicationSummarySchema = z
   .object({
     importId: z.string().min(1),
     policyVersion: z.string().min(1).max(100),
@@ -2218,45 +2221,28 @@ export const RobinhoodAdjudicationSummarySchema = z
   })
   .strict();
 
-export const RobinhoodSyncStatusSchema = z
+export const InvestmentConnectionStatusSchema = z
   .object({
     version: z.literal(1),
-    configured: z.boolean(),
-    status: z.enum([
-      "setup_required",
-      "disconnected",
-      "ready",
-      "syncing",
-      "needs_attention",
-    ]),
+    connectionId: z.string().min(1),
+    institutionKey: z.string().min(1).max(200),
+    institutionLabel: z.string().min(1).max(512),
+    status: z.enum(["disconnected", "ready", "syncing", "needs_attention"]),
     lastSyncedAt: IsoTimestampSchema.nullable(),
     automaticUpdatesEnabled: z.boolean().default(false),
     latestImportId: z.string().min(1).nullable(),
     latestRunStatus: z.enum(["running", "succeeded", "failed"]).nullable(),
-    errorCode: RobinhoodSyncErrorCodeSchema.nullable(),
+    errorCode: InvestmentSyncErrorCodeSchema.nullable(),
     latestAdjudication:
-      RobinhoodAdjudicationSummarySchema.nullable().default(null),
+      InvestmentAdjudicationSummarySchema.nullable().default(null),
   })
   .strict()
   .superRefine((value, context) => {
-    if (
-      !value.configured &&
-      (value.status !== "setup_required" ||
-        value.errorCode !== "configuration_required")
-    ) {
+    if (value.errorCode === "configuration_required") {
       context.addIssue({
         code: "custom",
-        message: "Unconfigured Robinhood sync must require setup.",
-      });
-    }
-    if (
-      value.configured &&
-      (value.status === "setup_required" ||
-        value.errorCode === "configuration_required")
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "Configured Robinhood sync cannot require setup.",
+        message:
+          "Connection status cannot carry the deployment configuration error.",
       });
     }
     if (
@@ -2265,7 +2251,7 @@ export const RobinhoodSyncStatusSchema = z
     ) {
       context.addIssue({
         code: "custom",
-        message: "Robinhood running state is inconsistent.",
+        message: "Investment running state is inconsistent.",
       });
     }
     if (
@@ -2274,25 +2260,42 @@ export const RobinhoodSyncStatusSchema = z
     ) {
       context.addIssue({
         code: "custom",
-        message: "Robinhood failure state is inconsistent.",
+        message: "Investment failure state is inconsistent.",
       });
     }
     if (value.status === "needs_attention" && value.errorCode === null) {
       context.addIssue({
         code: "custom",
-        message: "Robinhood failure state requires an error code.",
+        message: "Investment failure state requires an error code.",
       });
     }
   });
 
-export const RobinhoodLinkTokenSchema = z
+export const InvestmentConnectionsStateSchema = z
+  .object({
+    version: z.literal(1),
+    configured: z.boolean(),
+    connections: z.array(InvestmentConnectionStatusSchema).max(50),
+    errorCode: z.literal("configuration_required").nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.configured !== (value.errorCode === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Investments configuration state is inconsistent.",
+      });
+    }
+  });
+
+export const InvestmentLinkTokenSchema = z
   .object({
     linkToken: z.string().min(1).max(4_096),
     expiration: IsoTimestampSchema,
   })
   .strict();
 
-export const RobinhoodExchangeInputSchema = z
+export const InvestmentExchangeInputSchema = z
   .object({
     publicToken: z.string().min(1).max(4_096),
   })
@@ -3337,8 +3340,8 @@ export type LiabilityProposalRow = z.infer<typeof LiabilityProposalRowSchema>;
 export type LiabilitySource = z.infer<typeof LiabilitySourceSchema>;
 export type LiabilityValueState = z.infer<typeof LiabilityValueStateSchema>;
 export type ManualLiabilityInput = z.infer<typeof ManualLiabilityInputSchema>;
-export type RobinhoodAdjudicationSummary = z.infer<
-  typeof RobinhoodAdjudicationSummarySchema
+export type InvestmentAdjudicationSummary = z.infer<
+  typeof InvestmentAdjudicationSummarySchema
 >;
 export type PortfolioBaselineConfirmInput = z.infer<
   typeof PortfolioBaselineConfirmInputSchema
@@ -3369,14 +3372,19 @@ export type PlanInputSave = z.infer<typeof PlanInputSaveSchema>;
 export type PlanInputSaveResult = z.infer<typeof PlanInputSaveResultSchema>;
 export type PlanInputState = z.infer<typeof PlanInputStateSchema>;
 export type PlanInputValues = z.infer<typeof PlanInputValuesSchema>;
-export type RobinhoodExchangeInput = z.infer<
-  typeof RobinhoodExchangeInputSchema
+export type InvestmentExchangeInput = z.infer<
+  typeof InvestmentExchangeInputSchema
 >;
-export type RobinhoodLinkToken = z.infer<typeof RobinhoodLinkTokenSchema>;
-export type RobinhoodSyncErrorCode = z.infer<
-  typeof RobinhoodSyncErrorCodeSchema
+export type InvestmentLinkToken = z.infer<typeof InvestmentLinkTokenSchema>;
+export type InvestmentSyncErrorCode = z.infer<
+  typeof InvestmentSyncErrorCodeSchema
 >;
-export type RobinhoodSyncStatus = z.infer<typeof RobinhoodSyncStatusSchema>;
+export type InvestmentConnectionStatus = z.infer<
+  typeof InvestmentConnectionStatusSchema
+>;
+export type InvestmentConnectionsState = z.infer<
+  typeof InvestmentConnectionsStateSchema
+>;
 export type AngelListBrowserStorageState = z.infer<
   typeof AngelListBrowserStorageStateSchema
 >;

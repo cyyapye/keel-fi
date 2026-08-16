@@ -3,11 +3,15 @@
 Migration `0019_multi_source_holdings_contract.sql` defines Keel's only
 connection, ownership-container, import-coverage, and exposure relationship
 contract. Migration `0020_container_scoped_holding_ingestion.sql` makes the
-Robinhood and AngelList writers populate that contract directly. Migration
-`0021_canonical_exposure_resolution.sql` carries only protected,
+Plaid Investments and AngelList writers populate that contract directly.
+Migration `0021_canonical_exposure_resolution.sql` carries only protected,
 checksum-validated public identifiers into that contract and enforces the
-direct-allocation boundary. None of these migrations authorizes another provider
-or changes the reviewed value in a Portfolio Baseline, plan, goal, or forecast.
+direct-allocation boundary. Migration `0022_provider_neutral_investments.sql`
+cuts the institution-enumerated public provider value over to
+`plaid_investments`, preserves existing position and baseline identities, and
+replaces the Robinhood-only integrity checks. None of these migrations
+authorizes another live institution or changes the reviewed value in a Portfolio
+Baseline, plan, goal, or forecast.
 
 Keel has no live user data. A short-lived synthetic transition experiment was
 removed instead of becoming a permanent backfill and dual-read surface. The next
@@ -48,9 +52,11 @@ holding ingestion migration must write this canonical contract directly.
 
 - There is no holdings backfill migration, compatibility view, association
   trigger, runtime read-source flag, or dual repository path.
-- Robinhood creates one canonical `plaid-investments` connection per protected
-  Item identity. Every sync run and webhook delivery records that exact
-  connection even if the operational connector is later reauthorized.
+- Plaid Investments creates one canonical `plaid-investments` connection per
+  protected Item identity. A household may retain several Items, including two
+  Items with the same institution label. Every sync run and webhook delivery
+  records one exact connection even if its operational credential is later
+  reauthorized.
 - AngelList uses one protected household export connection. Its ownership labels
   become protected trust or entity containers; every parsed row is scoped to one
   of those containers before matching.
@@ -66,9 +72,10 @@ holding ingestion migration must write this canonical contract directly.
   unchanged. Missing cryptocurrency remains outside the active FI exception
   path.
 - Reconnects with the same protected Item reuse the canonical connection and
-  append state. A changed Item receives a distinct connection; the prior
-  connection becomes disconnected. Disconnect revokes future retrieval and the
-  credential reference while retaining accepted holdings and baselines.
+  append state. A different Item receives a distinct connection without
+  replacing or disconnecting another Item. Disconnect revokes future retrieval
+  and the credential reference for only the selected connection while retaining
+  accepted holdings, other connections, and baselines.
 - Any synthetic environment that applied the removed transition experiment must
   be rebuilt from the checked-in migration chain before it can provide release
   evidence. Applying only later migrations to that database is not proof of the
@@ -78,10 +85,10 @@ holding ingestion migration must write this canonical contract directly.
   exception ends. Deployed migrations then become forward-only, database resets
   require incident or recovery authorization, and accepted history remains
   append-only.
-- Applying an accepted Robinhood row with a validated strong identifier creates
-  or reuses one household-level public exposure and records a full direct
-  mapping under the deterministic policy. Reapplying the same decision is a
-  no-op. Missing or invalid strong identifiers leave the position unmapped.
+- Applying an accepted Plaid Investments row with a validated strong identifier
+  creates or reuses one household-level public exposure and records a full
+  direct mapping under the deterministic policy. Reapplying the same decision is
+  a no-op. Missing or invalid strong identifiers leave the position unmapped.
 - Direct mappings carry exactly 1,000,000 ppm. Look-through mappings may carry a
   reviewed allocation or `NULL` when only the relationship is known. Current
   known allocations for one position cannot exceed 1,000,000 ppm; corrections
@@ -93,11 +100,11 @@ holding ingestion migration must write this canonical contract directly.
 
 ## Cost and activation gate
 
-Canonical exposure resolution adds no network call, R2 object, Queue message,
-schedule, webhook, or paid provider product. It reuses the shipped Robinhood and
-AngelList paths. Its only incremental cost is bounded D1 storage and backup
-volume for two nullable import-row fields, canonical exposure rows, and
-append-only mapping versions.
+The provider-neutral cutover adds no network call, R2 object, Queue message,
+schedule, webhook, or paid provider product. It reuses the shipped Plaid
+Investments and AngelList paths. Its incremental cost is bounded D1 storage and
+backup volume for connection metadata, exact sync/webhook associations,
+canonical exposure rows, and append-only mapping versions.
 
 For a deployment with `C` connections, `O` ownership containers, `P` accepted
 positions, `I` imports, `R` import rows, `E` canonical exposures, and `M`
@@ -124,30 +131,37 @@ institution variant:
 6. rollback by disabling new authorization and writes while preserving accepted
    history.
 
-M9.1 through M9.6 use synthetic provider data and therefore have zero approved
+M9.1 through M9.6b use synthetic provider data and therefore have zero approved
 incremental provider spend.
 
 ## Verification
 
-Before accepting the M9.4 release:
+Before accepting the M9.5 release:
 
-1. Replay migrations `0001` through `0021_canonical_exposure_resolution.sql` and
-   apply the synthetic seed.
-2. Verify checksum-valid CUSIP, ISIN, and SEDOL handling, cross-connection key
-   stability, and fail-closed ticker-only or invalid-identifier behavior.
-3. Verify three synthetic NVDA positions remain distinct while aggregating to
-   one exposure, and two reviewed Anthropic SPVs remain distinct while
-   aggregating to one company exposure.
-4. Verify a multi-company SPV with unknown allocations shows both relationships,
-   contributes zero duplicated value, and retains its full value at the legal
-   position.
-5. Verify append-only correction chains, full direct allocations, the
-   1,000,000-ppm sum ceiling, deterministic retry behavior, and household
-   isolation at both the domain and D1 boundaries.
+1. Replay migrations `0001` through `0022_provider_neutral_investments.sql`,
+   apply the synthetic seed, and verify the former public provider values read
+   as `plaid_investments` without changing position IDs or accepted baseline
+   items.
+2. Verify two protected Items create two connection lineages, including Items
+   with different validated institution metadata. Reconnecting one stable Item
+   must append only its state; syncing or disconnecting one connection must not
+   alter the other.
+3. Verify Link exchange accepts a synthetic non-Robinhood institution only when
+   its metadata includes Investments. An unsupported institution must have its
+   Plaid Item removed before Keel stores a credential or creates an accepted
+   fact.
+4. Verify several investment accounts returned by one Item become distinct
+   ownership containers and every row, omission decision, run, and webhook stays
+   on that exact connection/container lineage.
+5. Verify the generic `/api/investment-connections` routes replace the former
+   Robinhood-only routes, which must return `404`; no duplicate provider read or
+   baseline path may remain.
 6. Verify raw Item, account, security, and position identifiers remain outside
-   D1, API responses, logs, screenshots, and repository artifacts.
-7. Run `make verify`, reviewed PR checks, exact-head merge verification, and the
-   exact-SHA protected preview workflow before marking M9.4 complete.
+   D1, API responses, logs, screenshots, and repository artifacts. Preserve
+   integer money/quantity conversion, response bounds, encrypted R2 storage,
+   append-only decisions, and fail-closed Access authentication.
+7. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
+   exact-head merge, and exact-SHA protected preview gates before marking M9.5
+   complete.
 
-Provider-neutral connection writes and additional-institution authorization
-remain later ordered M9 slices.
+Additional-institution authorization remains a later ordered M9 gate.

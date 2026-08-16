@@ -2,19 +2,19 @@ import { PlaidHoldingsWebhookJobMessageSchema } from "@keel/connectors";
 import {
   D1HoldingImportRepository,
   D1PortfolioBaselineRepository,
-  D1PublicHoldingsRepository,
-  type PublicHoldingsRepository,
+  D1InvestmentConnectionsRepository,
+  type InvestmentConnectionsRepository,
 } from "@keel/database";
 import { decodeProtectedHeader, importJWK, jwtVerify } from "jose";
 import { z } from "zod";
 
 import {
   createPlaidInvestmentsClient,
-  PlaidClientError,
-  syncRobinhood,
+  PlaidInvestmentsClientError,
+  syncInvestmentConnection,
   type PlaidInvestmentsClient,
   type PlaidWebhookVerificationKey,
-} from "./robinhood-sync";
+} from "./plaid-investments-sync";
 import { plaidInvestmentsSourceKey } from "./investment-identity";
 import type { Env } from "./types";
 
@@ -171,7 +171,7 @@ async function verificationKey(
     jwk = await client.getWebhookVerificationKey(keyId);
   } catch (error) {
     if (
-      error instanceof PlaidClientError &&
+      error instanceof PlaidInvestmentsClientError &&
       (error.code === "configuration_required" ||
         error.code === "provider_unavailable")
     ) {
@@ -256,7 +256,7 @@ export async function receivePlaidWebhook(input: {
   client: PlaidInvestmentsClient;
   env: Env;
   now?: () => Date;
-  repository: PublicHoldingsRepository;
+  repository: InvestmentConnectionsRepository;
   request: Request;
 }): Promise<PlaidWebhookReceipt> {
   const contentType = input.request.headers
@@ -349,7 +349,7 @@ export async function processPlaidHoldingsWebhookJob(
   env: Env,
 ): Promise<"processed" | "retry"> {
   const message = PlaidHoldingsWebhookJobMessageSchema.parse(rawMessage);
-  const repository = new D1PublicHoldingsRepository(env.DB);
+  const repository = new D1InvestmentConnectionsRepository(env.DB);
   const delivery = await repository.getPlaidWebhookDelivery(message.deliveryId);
   if (delivery === null || delivery.status === "processed") {
     return "processed";
@@ -362,13 +362,14 @@ export async function processPlaidHoldingsWebhookJob(
     return "processed";
   }
   try {
-    const status = await syncRobinhood({
+    const status = await syncInvestmentConnection({
       env,
       repository,
       holdingImports: new D1HoldingImportRepository(env.DB),
       portfolioBaselines: new D1PortfolioBaselineRepository(env.DB),
       client: createPlaidInvestmentsClient(env),
       accessSubject: delivery.accessSubject,
+      connectionId: delivery.connectionId,
     });
     if (status.status === "syncing") {
       return "retry";
