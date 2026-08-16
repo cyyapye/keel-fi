@@ -6,9 +6,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 
 - Last reconciled: 2026-08-16
 - Reconciled product baseline:
-  [`6457502`](https://github.com/cyyapye/keel-fi/commit/6457502d55c7e2f3b51ead67a0d78dfdf86c96e8)
+  [`8a5902a`](https://github.com/cyyapye/keel-fi/commit/8a5902ab42f84822fdb4a659f404bf2df97d85c7)
 - Baseline release evidence:
-  [`31971076869`](https://github.com/cyyapye/keel-fi/actions/runs/31971076869)
+  [`31976492257`](https://github.com/cyyapye/keel-fi/actions/runs/31976492257)
 
 ## How to use this roadmap
 
@@ -121,7 +121,7 @@ identity could create false missing-position signals or double counts when a
 second institution is added. M9 establishes the account-scoped identity and
 aggregation boundary first.
 
-### [ ] M9 — Multi-source investment ownership — **Active**
+### [x] M9 — Multi-source investment ownership
 
 **User outcome:** The owner can connect Robinhood, Fidelity, and later
 investment institutions; keep the same security separate in every brokerage or
@@ -754,7 +754,7 @@ incremental external spend remains `$0`.
 - [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
-### [ ] M9.10 — Self-serve reviewed private exposure assignment
+### [x] M9.10 — Self-serve reviewed private exposure assignment
 
 **User outcome:** An unresolved AngelList position can be assigned to an
 existing reviewed company or a newly reviewed company. Different SPVs assigned
@@ -791,7 +791,23 @@ duplicate-company creation, stale snapshots, and cross-household choices fail
 closed; and the desktop/mobile review form remains accessible and free of
 horizontal overflow.
 
-**Evidence:** Implementation and exact-SHA release evidence pending.
+**Evidence:** Implemented in
+[PR #89](https://github.com/cyyapye/keel-fi/pull/89) at exact checked head
+[`3c222a4`](https://github.com/cyyapye/keel-fi/commit/3c222a44b76d784e85192a9f5eaab7650aac5916)
+and merged as released commit
+[`8a5902a`](https://github.com/cyyapye/keel-fi/commit/8a5902ab42f84822fdb4a659f404bf2df97d85c7).
+All 452 tests, 48 desktop/mobile browser flows, fresh migration replay,
+synthetic seed, builds, public-data checks, and secret scans passed. Synthetic
+proof covers two differently named SPVs explicitly assigned to one stable
+reviewed company ID rendering as two positions and one exposure; matching text
+alone creates no mapping, while stale snapshots, duplicate-company creation, and
+cross-household choices fail closed. The release retained an encrypted D1
+backup, applied the current migration set, deployed and read back both Worker
+versions, passed protected smokes, and retained exact-SHA evidence in
+[run `31976492257`](https://github.com/cyyapye/keel-fi/actions/runs/31976492257).
+No migration, provider request, paid product, polling schedule, Queue message,
+R2 object, notification channel, or recurring work was added; approved
+incremental external spend remains `$0`.
 
 ### [x] M10 — Plan versus actual monitoring
 
@@ -851,7 +867,7 @@ or external notification was added; approved incremental external spend remains
 - [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
-### [ ] M11 — Actual distributions and forecast reconciliation
+### [ ] M11 — Actual distributions and forecast reconciliation — **Active**
 
 **User outcome:** When a private holding produces cash, Keel records what became
 usable, reconciles it with the prior forecast, and shows the resulting FI and
