@@ -396,6 +396,22 @@ describe("multi-source holdings persistence contract", () => {
 
     expect(() =>
       database.exec(`
+        INSERT INTO holding_position_ownerships (
+          id, household_id, container_id, position_id, protected_position_key,
+          association_basis, evidence_sha256, version,
+          supersedes_ownership_id, accepted_by_user_id, accepted_at, immutable
+        ) VALUES (
+          'holding_position_ownership_rejected_transition', 'hh_demo',
+          'ownership_container_synthetic', 'holding_position_synthetic_fund',
+          '${"7".repeat(64)}', 'reviewed_legacy', '${"8".repeat(64)}', 2,
+          'holding_position_ownership_synthetic', 'usr_demo',
+          '2026-08-15T21:00:00.000Z', 1
+        )
+      `),
+    ).toThrow(/association_basis/u);
+
+    expect(() =>
+      database.exec(`
         UPDATE ownership_container_versions
         SET display_label = 'Changed label'
         WHERE id = 'ownership_container_version_synthetic'
@@ -426,7 +442,7 @@ describe("multi-source holdings persistence contract", () => {
       ) VALUES (
         'holding_position_ownership_synthetic_v2', 'hh_demo',
         'ownership_container_corrected', 'holding_position_synthetic_fund',
-        '${"d".repeat(64)}', 'reviewed_legacy', '${"8".repeat(64)}', 2,
+        '${"d".repeat(64)}', 'reviewed_import', '${"8".repeat(64)}', 2,
         'holding_position_ownership_synthetic', 'usr_demo',
         '2026-08-15T21:00:00.000Z', 1
       );

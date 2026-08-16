@@ -1,6 +1,6 @@
 # ADR 005: Multi-source holdings identity
 
-- Status: Accepted design; implementation pending
+- Status: Accepted; M9 implementation in progress
 - Date: 2026-08-15
 
 ## Context
@@ -29,9 +29,10 @@ of an explicitly covered connection and account. Adding `fidelity` to the
 provider enum would therefore be insufficient and could create false missing
 positions or accidental merges.
 
-This ADR defines the canonical logical model. Physical schema names may remain
-compatible with existing tables during an additive migration, but the
-relationships and invariants below are normative.
+This ADR defines the canonical logical and persistence model. Keel has no live
+user data, so implementation uses one direct pre-live cutover instead of
+carrying parallel schemas, backfills, or read paths. The relationships and
+invariants below are normative.
 
 ## Decision
 
@@ -263,28 +264,35 @@ exposures contributes allocated values only when the allocations are reviewed
 and sum to at most 1,000,000 parts per million. Unallocated value stays visible
 at the position level and is not manufactured in the exposure view.
 
-### Migration and implementation boundary
+### Pre-live cutover and implementation boundary
 
-Implementation must be additive and preserve existing accepted history:
+Every current environment is synthetic and disposable. Implementation therefore
+must establish the canonical model directly:
 
 1. add the canonical connection, ownership-container, import-coverage, and
-   exposure identities or compatible association tables;
-2. associate existing immutable positions with reviewed legacy containers rather
-   than rewriting position or snapshot records;
-3. backfill only identities that can be proven from retained source provenance;
-   ambiguous legacy accounts remain in an explicit unresolved container until a
-   review or a new complete sync resolves them;
-4. generalize the Plaid Investments adapter, API contracts, and UI from
+   exposure identities as the only relationship contract;
+2. rebuild any pre-live D1 database from the checked-in migration chain rather
+   than backfilling provider-specific records or retaining a second read path;
+3. require each upgraded ingestion writer to resolve the exact connection and
+   ownership container before it writes an accepted position association;
+4. keep `holding_positions` and accepted snapshots authoritative for money;
+   canonical relationship and exposure records cannot manufacture baseline
+   value;
+5. generalize the Plaid Investments adapter, API contracts, and UI from
    Robinhood-specific naming to institution metadata, then prove the model with
    at least one additional institution such as Fidelity;
-5. scope imports, omissions, refreshes, disconnects, and webhook processing to
+6. scope imports, omissions, refreshes, disconnects, and webhook processing to
    the exact connection and covered containers;
-6. preserve the existing review boundary, integer money arithmetic, synthetic
+7. preserve the existing review boundary, integer money arithmetic, synthetic
    fixtures, and append-only baselines; and
-7. add invariant tests for same-exposure/different-account positions,
+8. add invariant tests for same-exposure/different-account positions,
    same-company/different-SPV positions, partial coverage, reconnects,
    aggregation, and double-count prevention before enabling another real
    institution.
+
+Once any environment is authorized to retain real user data, database resets and
+deployed-migration rewrites are prohibited. From that point, schema changes must
+be forward-only and accepted history remains append-only.
 
 Until those gates ship, Robinhood and AngelList remain the implemented holding
 sources. This ADR must not be read as evidence that Fidelity or generic
@@ -305,8 +313,10 @@ Tradeoffs:
 
 - the model adds connection and container identity that the current UI and
   provider-specific repositories do not yet expose;
-- legacy records without reconstructible stable account identity require a
-  reviewable unresolved container;
+- synthetic environments that received an abandoned pre-live schema must be
+  rebuilt before they can prove the canonical release;
+- direct cutover creates a sequencing dependency: a writer cannot be enabled
+  until it emits the complete canonical identity chain;
 - canonical exposure resolution needs its own review and supersession path; and
 - look-through funds and SPVs cannot show precise exposure value until an
   allocation is supported by evidence.

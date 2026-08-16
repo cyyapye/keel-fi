@@ -9,10 +9,10 @@ for connecting multiple investment institutions, keeping same-security holdings
 separate by account, and keeping same-company SPV interests legally distinct is
 [ADR 005: Multi-source holdings identity](./adr-005-multi-source-holdings-identity.md).
 Its additive connection, container, coverage, and exposure persistence contract
-is present. Shipped Robinhood and AngelList positions have one-to-one
-compatibility associations without changing their existing facts or planning
-value. Generic ingestion and additional-institution authorization remain
-pending; Robinhood and AngelList are still the implemented holding sources.
+is present. Because every environment is synthetic and disposable, Keel retains
+no holdings backfill, dual-read, or transitional association layer. Generic
+ingestion and additional-institution authorization remain pending; Robinhood and
+AngelList are still the implemented holding sources.
 
 ```mermaid
 flowchart LR
@@ -84,12 +84,12 @@ flowchart LR
   primary FI goal version in one D1 batch.
 - Multi-source investment identity uses HMAC-derived connection, container, and
   position keys. Institution and account labels are versioned metadata rather
-  than identity. A retained Robinhood sync chain can associate a legacy position
-  with one proven Item, but legacy rows did not retain protected account IDs.
-  Those positions and reviewed AngelList SPVs therefore remain in explicit
-  per-position unresolved containers that cannot support omission inference.
-  Compatibility reads join this ownership context one-for-one while the existing
-  position snapshot remains the only source of Portfolio Baseline value. See the
+  than identity. `holding_positions` and their accepted snapshots remain the
+  only source of Portfolio Baseline value. The canonical relationship tables
+  start empty; M9.3 must write connections, containers, coverage, and position
+  associations directly rather than reconstructing them from older records. Any
+  synthetic environment that applied the removed transition experiment must be
+  rebuilt from the checked-in migration chain before release. See the
   [multi-source holdings runbook](../deployment/multi-source-holdings.md).
 - Cash-account linking requests only Plaid Auth and eligible US depository
   subtypes. The initial cached account response and every explicit live balance

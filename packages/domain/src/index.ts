@@ -507,7 +507,7 @@ export const OwnedPositionIdentitySchema = z
     protectedPositionKey: ProtectedIdentityKeySchema,
     associationBasis: z.enum([
       "provider_provenance",
-      "reviewed_legacy",
+      "reviewed_import",
       "manual",
     ]),
     evidenceSha256: ProtectedIdentityKeySchema,

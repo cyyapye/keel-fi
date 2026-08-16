@@ -8,7 +8,6 @@
   "preview_urls": false,
   "vars": {
     "ENVIRONMENT": "production",
-    "MULTI_SOURCE_HOLDINGS_COMPATIBILITY_READS": "true",
   },
   "d1_databases": [
     {
@@ -48,7 +47,6 @@
       "name": "keel-api-local",
       "vars": {
         "ENVIRONMENT": "local",
-        "MULTI_SOURCE_HOLDINGS_COMPATIBILITY_READS": "true",
       },
       "d1_databases": [
         {

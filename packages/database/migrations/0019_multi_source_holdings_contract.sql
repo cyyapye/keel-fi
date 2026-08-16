@@ -279,7 +279,7 @@ CREATE TABLE holding_position_ownerships (
     AND protected_position_key NOT GLOB '*[^0-9a-f]*'
   ),
   association_basis TEXT NOT NULL CHECK (
-    association_basis IN ('provider_provenance', 'reviewed_legacy', 'manual')
+    association_basis IN ('provider_provenance', 'reviewed_import', 'manual')
   ),
   evidence_sha256 TEXT NOT NULL CHECK (
     length(evidence_sha256) = 64
