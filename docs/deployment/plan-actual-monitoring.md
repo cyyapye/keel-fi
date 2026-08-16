@@ -7,6 +7,12 @@ or an automatic plan updater.
 The normative policy is
 [ADR 006](../architecture/adr-006-plan-actual-monitoring.md).
 
+M10 shipped through implementation PR #84 and release merge
+`a5d789016c3887b7bc9e4851201eaa7c999ca3d1`. Exact-SHA workflow `31963952670`
+retained the encrypted pre-migration backup, applied migration `0024`, read back
+both deployed Worker versions, passed protected smokes, and retained the release
+evidence artifact.
+
 ## Release contract
 
 - Migration `0024_plan_actual_monitoring.sql` adds only append-only monitoring

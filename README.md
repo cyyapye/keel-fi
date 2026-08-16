@@ -125,10 +125,12 @@ the [multi-source holdings runbook](docs/deployment/multi-source-holdings.md);
 container-scoped ingestion, canonical position and exposure views, the
 provider-neutral Investments cutover, and multi-institution operations shipped
 in M9. Additional-institution authorization remains fail-closed until private
-provider coverage, pricing, and owner acceptance are recorded.
-Plan-versus-actual policy is captured in
+provider coverage, pricing, and owner acceptance are recorded. The released
+plan-versus-actual policy is captured in
 [ADR 006](docs/architecture/adr-006-plan-actual-monitoring.md) and its
-[deployment runbook](docs/deployment/plan-actual-monitoring.md).
+[deployment runbook](docs/deployment/plan-actual-monitoring.md). The in-app
+decision queue shipped in M10 without a monitoring schedule, provider request,
+or external notification channel.
 
 ## Local development
 
