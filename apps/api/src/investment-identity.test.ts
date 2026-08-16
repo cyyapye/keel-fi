@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  angelListInvestmentsSourceKey,
+  angelListOwnershipContainerKey,
+  angelListPositionKey,
   plaidInvestmentsAccountKey,
   plaidInvestmentsPositionKey,
   plaidInvestmentsSourceKey,
@@ -72,6 +75,34 @@ describe("protected investment identity", () => {
     expect(new Set([source, account, position]).size).toBe(3);
   });
 
+  it("scopes AngelList ownership and positions without retaining labels", async () => {
+    const source = await angelListInvestmentsSourceKey(
+      env,
+      "synthetic-access-subject",
+    );
+    const firstContainer = await angelListOwnershipContainerKey(
+      env,
+      source,
+      "Demo Family Trust",
+    );
+    const normalizedContainer = await angelListOwnershipContainerKey(
+      env,
+      source,
+      "  demo family trust  ",
+    );
+    const position = await angelListPositionKey(
+      env,
+      firstContainer,
+      "a".repeat(64),
+    );
+
+    expect(firstContainer).toBe(normalizedContainer);
+    expect(new Set([source, firstContainer, position]).size).toBe(3);
+    for (const key of [source, firstContainer, position]) {
+      expect(key).toMatch(/^[a-f0-9]{64}$/u);
+    }
+  });
+
   it("fails closed on malformed secrets, parents, and raw identifiers", async () => {
     await expect(
       plaidInvestmentsSourceKey({} as Env, "synthetic-item"),
@@ -88,6 +119,9 @@ describe("protected investment identity", () => {
     ).rejects.toThrow();
     await expect(
       plaidInvestmentsPositionKey(env, "a".repeat(64), "x".repeat(513)),
+    ).rejects.toThrow();
+    await expect(
+      angelListOwnershipContainerKey(env, "a".repeat(64), "x".repeat(1_001)),
     ).rejects.toThrow();
   });
 });

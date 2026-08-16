@@ -1,5 +1,6 @@
 import {
   normalizeRobinhoodHoldings,
+  plaidInvestmentSecurityIdentity,
   PlaidInvestmentsHoldingsResponseSchema,
   type PlaidInvestmentsHoldingsResponse,
 } from "@keel/connectors";
@@ -10,14 +11,20 @@ import type {
   RobinhoodImportAdjudication,
 } from "@keel/database";
 import {
+  HoldingImportCanonicalScopeSchema,
   RobinhoodLinkTokenSchema,
+  type HoldingImportCanonicalScope,
   type RobinhoodLinkToken,
   type RobinhoodSyncErrorCode,
   type RobinhoodSyncStatus,
 } from "@keel/domain";
 import { z } from "zod";
 
-import { plaidInvestmentsSourceKey } from "./investment-identity";
+import {
+  plaidInvestmentsAccountKey,
+  plaidInvestmentsPositionKey,
+  plaidInvestmentsSourceKey,
+} from "./investment-identity";
 import type { Env } from "./types";
 
 const MAX_PLAID_RESPONSE_BYTES = 5 * 1_048_576;
@@ -550,9 +557,7 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
   }
 
   public async removeItem(accessToken: string): Promise<void> {
-    await this.request("/item/remove", { access_token: accessToken }).catch(
-      () => undefined,
-    );
+    await this.request("/item/remove", { access_token: accessToken });
   }
 
   private async post<T>(
@@ -680,6 +685,42 @@ export async function connectRobinhood(input: {
   return input.repository.getStatus(input.accessSubject, true);
 }
 
+export async function disconnectRobinhood(input: {
+  env: Env;
+  repository: PublicHoldingsRepository;
+  client: PlaidInvestmentsClient;
+  accessSubject: string;
+}): Promise<RobinhoodSyncStatus> {
+  const connection = await input.repository.getConnection(input.accessSubject);
+  if (connection === null) {
+    const status = await input.repository.getStatus(input.accessSubject, true);
+    if (status.status === "disconnected") {
+      return status;
+    }
+    throw new PlaidClientError(
+      "connection_invalid",
+      "Robinhood is no longer connected.",
+    );
+  }
+
+  const encrypted = await input.env.DOCUMENTS.get(connection.secretReference);
+  if (encrypted !== null) {
+    const credential = await decryptCredential(
+      input.env,
+      await readR2Bytes(encrypted),
+      input.accessSubject,
+      connection.secretReference,
+    );
+    await input.client.removeItem(credential.accessToken);
+  }
+  await input.repository.disconnectConnection(
+    input.accessSubject,
+    connection.id,
+  );
+  await input.env.DOCUMENTS.delete(connection.secretReference);
+  return input.repository.getStatus(input.accessSubject, true);
+}
+
 function syncErrorCode(error: unknown): RobinhoodSyncErrorCode {
   if (error instanceof PlaidClientError) {
     return error.code;
@@ -735,14 +776,121 @@ async function refreshPortfolioBaseline(input: {
   }
 }
 
+function robinhoodContainerPresentation(subtype: string | null): {
+  displayLabel: string;
+  containerKind: "brokerage" | "ira";
+  taxTreatment: "taxable" | "tax_deferred" | "tax_exempt";
+} {
+  const normalized = subtype?.trim().toLowerCase() ?? "";
+  if (normalized.includes("roth")) {
+    return {
+      displayLabel: "Robinhood Roth IRA",
+      containerKind: "ira",
+      taxTreatment: "tax_exempt",
+    };
+  }
+  if (normalized.includes("ira")) {
+    return {
+      displayLabel: "Robinhood IRA",
+      containerKind: "ira",
+      taxTreatment: "tax_deferred",
+    };
+  }
+  return {
+    displayLabel: "Robinhood brokerage",
+    containerKind: "brokerage",
+    taxTreatment: "taxable",
+  };
+}
+
+export async function buildRobinhoodCanonicalScope(input: {
+  env: Env;
+  connectionId: string;
+  expectedSourceKey: string;
+  response: PlaidInvestmentsHoldingsResponse;
+}): Promise<HoldingImportCanonicalScope> {
+  const observedSourceKey = await plaidInvestmentsSourceKey(
+    input.env,
+    input.response.item.item_id,
+  );
+  if (observedSourceKey !== input.expectedSourceKey) {
+    throw new Error("Plaid returned holdings for a different Item.");
+  }
+  if (input.response.accounts.length === 0) {
+    throw new Error("Plaid returned no investment account coverage.");
+  }
+
+  const accountScopes = await Promise.all(
+    input.response.accounts.map(async (account) => {
+      if (account.type.trim().toLowerCase() !== "investment") {
+        throw new Error("Plaid returned a non-investment account.");
+      }
+      const protectedAccountKey = await plaidInvestmentsAccountKey(
+        input.env,
+        observedSourceKey,
+        account.persistent_account_id ?? account.account_id,
+      );
+      return {
+        account,
+        protectedAccountKey,
+        ...robinhoodContainerPresentation(account.subtype),
+      };
+    }),
+  );
+  if (
+    new Set(accountScopes.map((scope) => scope.protectedAccountKey)).size !==
+    accountScopes.length
+  ) {
+    throw new Error("Plaid returned duplicate investment account identities.");
+  }
+
+  const accountScopesByProviderId = new Map(
+    accountScopes.map((scope) => [scope.account.account_id, scope]),
+  );
+  const securitiesByProviderId = new Map(
+    input.response.securities.map((security) => [
+      security.security_id,
+      security,
+    ]),
+  );
+  const rows = await Promise.all(
+    input.response.holdings.map(async (holding, index) => {
+      const accountScope = accountScopesByProviderId.get(holding.account_id);
+      const security = securitiesByProviderId.get(holding.security_id);
+      if (accountScope === undefined || security === undefined) {
+        throw new Error("Plaid holding scope could not be resolved.");
+      }
+      return {
+        sourceRowNumber: index + 1,
+        protectedAccountKey: accountScope.protectedAccountKey,
+        protectedPositionKey: await plaidInvestmentsPositionKey(
+          input.env,
+          accountScope.protectedAccountKey,
+          plaidInvestmentSecurityIdentity(security),
+        ),
+      };
+    }),
+  );
+
+  return HoldingImportCanonicalScopeSchema.parse({
+    connection: { mode: "existing", connectionId: input.connectionId },
+    containers: accountScopes.map((scope) => ({
+      protectedAccountKey: scope.protectedAccountKey,
+      displayLabel: scope.displayLabel,
+      containerKind: scope.containerKind,
+      taxTreatment: scope.taxTreatment,
+      completeness: "complete",
+    })),
+    rows,
+  });
+}
+
 export async function syncRobinhood(input: {
   env: Env;
   repository: PublicHoldingsRepository;
   holdingImports: Pick<
     D1HoldingImportRepository,
-    | "stageRobinhoodHoldingImport"
-    | "autoAdjudicateRobinhoodHoldingImport"
-    | "hasAcceptedRobinhoodPlanningPositions"
+    "stageRobinhoodHoldingImport" | "autoAdjudicateRobinhoodHoldingImport"
   >;
   portfolioBaselines?: Pick<
     PortfolioBaselineRepository,
@@ -779,14 +927,6 @@ export async function syncRobinhood(input: {
       input.accessSubject,
       run.connection.secretReference,
     );
-    if (run.connection.providerAccountKey === null) {
-      await input.client.updateItemWebhook(credential.accessToken);
-      await input.repository.bindProviderAccountKey(
-        input.accessSubject,
-        run.connection.id,
-        await plaidInvestmentsSourceKey(input.env, credential.itemId),
-      );
-    }
     const retrievedAt = new Date().toISOString();
     const holdings = await input.client.getHoldings(credential.accessToken);
     let normalized: Awaited<ReturnType<typeof normalizeRobinhoodHoldings>>;
@@ -801,23 +941,22 @@ export async function syncRobinhood(input: {
         "Robinhood returned an unsupported holdings response.",
       );
     }
-    if (normalized.rows.length === 0) {
-      if (
-        await input.holdingImports.hasAcceptedRobinhoodPlanningPositions(
-          input.accessSubject,
-        )
-      ) {
-        throw new PlaidClientError(
-          "holdings_incomplete",
-          "Robinhood returned an empty snapshot while accepted positions remain. Their prior values were preserved.",
-        );
+    let canonicalScope: HoldingImportCanonicalScope;
+    try {
+      if (run.connection.providerAccountKey === null) {
+        throw new Error("Canonical Plaid Item identity is unavailable.");
       }
-      await input.repository.completeSync(input.accessSubject, run.id, {
-        discoveredCount: 0,
-        proposedCount: 0,
-        importId: null,
+      canonicalScope = await buildRobinhoodCanonicalScope({
+        env: input.env,
+        connectionId: run.connection.investmentConnectionId,
+        expectedSourceKey: run.connection.providerAccountKey,
+        response: holdings.parsed,
       });
-      return input.repository.getStatus(input.accessSubject, true);
+    } catch {
+      throw new PlaidClientError(
+        "holdings_incomplete",
+        "Robinhood did not return complete account coverage. Prior accepted positions were preserved.",
+      );
     }
 
     stagedObjectKey = `holding-imports/${crypto.randomUUID()}.json`;
@@ -838,6 +977,7 @@ export async function syncRobinhood(input: {
           effectiveDate: normalized.effectiveDate,
           retrievedAt,
           rows: normalized.rows,
+          canonicalScope,
         },
       );
     } catch {

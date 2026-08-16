@@ -53,6 +53,7 @@ import {
   createCashAccountLinkToken,
   createRobinhoodLinkToken,
   createSignalUpdateProposal as submitSignalUpdateProposal,
+  disconnectRobinhood,
   getAngelListSignInRefresh,
   exchangeCashAccountPublicToken,
   exchangeRobinhoodPublicToken,
@@ -3086,8 +3087,9 @@ function RobinhoodSyncControl({
 }) {
   const [status, setStatus] = useState<RobinhoodSyncStatus | null>(null);
   const [busyAction, setBusyAction] = useState<
-    "connect" | "exchange" | "sync" | null
+    "connect" | "disconnect" | "exchange" | "sync" | null
   >(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [error, setError] = useState<string | null>(initialRobinhoodSyncError);
   const [notice, setNotice] = useState<string | null>(null);
   const oauthStarted = useRef(false);
@@ -3238,6 +3240,22 @@ function RobinhoodSyncControl({
     }
   };
 
+  const disconnect = async () => {
+    setBusyAction("disconnect");
+    setError(null);
+    setNotice(null);
+    try {
+      setStatus(await disconnectRobinhood());
+      setConfirmDisconnect(false);
+      window.sessionStorage.removeItem(ROBINHOOD_LINK_TOKEN_STORAGE_KEY);
+      setNotice("Robinhood disconnected. Reviewed holdings remain visible.");
+    } catch {
+      setError("Robinhood could not be disconnected. Try again shortly.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const setupRequired = status?.status === "setup_required";
   const disconnected = status?.status === "disconnected";
   const syncing = status?.status === "syncing";
@@ -3316,31 +3334,69 @@ function RobinhoodSyncControl({
           </Button>
         ) : (
           <div className="robinhood-sync__controls">
-            {status?.lastSyncedAt !== null &&
+            {!confirmDisconnect &&
+              status?.lastSyncedAt !== null &&
               status?.lastSyncedAt !== undefined && (
                 <span>Last checked {formatDate(status.lastSyncedAt)}</span>
               )}
-            {status.latestImportId !== null && quarantinedCount > 0 && (
-              <Button
-                onClick={() => onReviewImport(status.latestImportId!)}
-                tone="primary"
-              >
-                {quarantinedCount === 1
-                  ? "View exception"
-                  : "View " + quarantinedCount + " exceptions"}
-              </Button>
+            {!confirmDisconnect &&
+              status.latestImportId !== null &&
+              quarantinedCount > 0 && (
+                <Button
+                  onClick={() => onReviewImport(status.latestImportId!)}
+                  tone="primary"
+                >
+                  {quarantinedCount === 1
+                    ? "View exception"
+                    : "View " + quarantinedCount + " exceptions"}
+                </Button>
+              )}
+            {confirmDisconnect ? (
+              <>
+                <small>
+                  This removes Plaid access. Reviewed holdings stay in Keel.
+                </small>
+                <Button
+                  disabled={busyAction !== null}
+                  onClick={() => setConfirmDisconnect(false)}
+                  tone="quiet"
+                >
+                  Keep connected
+                </Button>
+                <Button
+                  disabled={busyAction !== null}
+                  onClick={() => void disconnect()}
+                  tone="danger"
+                >
+                  {busyAction === "disconnect"
+                    ? "Disconnecting…"
+                    : "Disconnect"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  disabled={busyAction !== null || syncing}
+                  onClick={() => setConfirmDisconnect(true)}
+                  tone="quiet"
+                >
+                  Disconnect
+                </Button>
+                <Button
+                  disabled={busyAction !== null || syncing}
+                  onClick={() => void sync()}
+                  tone={
+                    status.automaticUpdatesEnabled ? "secondary" : "primary"
+                  }
+                >
+                  {busyAction === "sync" || syncing
+                    ? "Checking…"
+                    : status.automaticUpdatesEnabled
+                      ? "Check now"
+                      : "Turn on automatic updates"}
+                </Button>
+              </>
             )}
-            <Button
-              disabled={busyAction !== null || syncing}
-              onClick={() => void sync()}
-              tone={status.automaticUpdatesEnabled ? "secondary" : "primary"}
-            >
-              {busyAction === "sync" || syncing
-                ? "Checking…"
-                : status.automaticUpdatesEnabled
-                  ? "Check now"
-                  : "Turn on automatic updates"}
-            </Button>
           </div>
         )}
         {notice !== null && (

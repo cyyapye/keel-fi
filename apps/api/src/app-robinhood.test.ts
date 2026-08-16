@@ -26,6 +26,7 @@ function repository() {
     getConnection: vi.fn().mockResolvedValue(null),
     upsertConnection: vi.fn().mockResolvedValue({
       id: "synthetic-connection",
+      investmentConnectionId: "synthetic-investment-connection",
       secretReference: "synthetic-reference",
       providerAccountKey: "a".repeat(64),
       previousSecretReference: null,
@@ -35,6 +36,7 @@ function repository() {
       created: false,
       connection: {
         id: "synthetic-connection",
+        investmentConnectionId: "synthetic-investment-connection",
         secretReference: "synthetic-reference",
         providerAccountKey: "a".repeat(64),
       },
@@ -42,6 +44,7 @@ function repository() {
     completeSync: vi.fn().mockResolvedValue(undefined),
     failSync: vi.fn().mockResolvedValue(undefined),
     bindProviderAccountKey: vi.fn().mockResolvedValue(undefined),
+    disconnectConnection: vi.fn().mockResolvedValue(undefined),
     claimPlaidWebhookDelivery: vi.fn(),
     getPlaidWebhookDelivery: vi.fn(),
     markPlaidWebhookDelivery: vi.fn(),
@@ -148,5 +151,35 @@ describe("Robinhood public-holdings API", () => {
 
     expect(response.status).toBe(400);
     expect(plaidClient.exchangeRobinhoodToken).not.toHaveBeenCalled();
+  });
+
+  it("treats an already disconnected Robinhood connection as an idempotent delete", async () => {
+    const publicHoldingsRepository = repository();
+    publicHoldingsRepository.getStatus.mockResolvedValue({
+      ...readyStatus,
+      status: "disconnected",
+      lastSyncedAt: null,
+      automaticUpdatesEnabled: false,
+      latestRunStatus: null,
+    });
+    const app = createApp({
+      publicHoldingsRepository,
+      plaidClient: client(),
+    });
+
+    const response = await app.request(
+      "/api/public-holdings/robinhood",
+      { method: "DELETE" },
+      env(),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "disconnected",
+      automaticUpdatesEnabled: false,
+    });
+    expect(
+      publicHoldingsRepository.disconnectConnection,
+    ).not.toHaveBeenCalled();
   });
 });

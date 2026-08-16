@@ -26,6 +26,12 @@ const priorMigrationFiles = [
 
 const canonicalMigrationFile =
   "packages/database/migrations/0019_multi_source_holdings_contract.sql";
+const containerScopedMigrationFile =
+  "packages/database/migrations/0020_container_scoped_holding_ingestion.sql";
+const contractMigrationFiles = [
+  canonicalMigrationFile,
+  containerScopedMigrationFile,
+] as const;
 const seedFile = "packages/database/seed/synthetic.sql";
 const recordedAt = "2026-08-15T20:00:00.000Z";
 
@@ -172,7 +178,7 @@ describe("multi-source holdings persistence contract", () => {
     apply(database, [seedFile]);
     const before = planningState(database);
 
-    apply(database, [canonicalMigrationFile]);
+    apply(database, contractMigrationFiles);
 
     expect(planningState(database)).toEqual(before);
     expect(
@@ -197,8 +203,87 @@ describe("multi-source holdings persistence contract", () => {
     });
   });
 
-  it("replays from an empty database and accepts the complete relationship model", () => {
+  it("upgrades retained import rows and accepts complete zero-row observations", () => {
     apply(database, [...priorMigrationFiles, canonicalMigrationFile, seedFile]);
+    database.exec(`
+      INSERT INTO source_documents (
+        id, household_id, object_key, file_name, content_type, byte_size,
+        sha256, effective_date, retrieved_at, source_label, review_status,
+        created_at
+      ) VALUES (
+        'source_document_before_m9_3', 'hh_demo',
+        'holding-imports/before-m9-3.json', 'before-m9-3.json',
+        'application/json', 512, '${"01".repeat(32)}', '2026-08-15',
+        '${recordedAt}', 'Synthetic Investments', 'pending_review',
+        '${recordedAt}'
+      );
+      INSERT INTO holding_imports (
+        id, household_id, source_document_id, provider, parser_schema,
+        normalized_fingerprint, row_count, created_by, created_at
+      ) VALUES (
+        'holding_import_before_m9_3', 'hh_demo',
+        'source_document_before_m9_3', 'robinhood', 'synthetic-v1',
+        '${"b".repeat(64)}', 1, 'usr_demo', '${recordedAt}'
+      );
+      INSERT INTO holding_import_rows (
+        id, household_id, import_id, source_row_number, position_fingerprint,
+        snapshot_fingerprint, legal_vehicle_name, owner_label, exposure_label,
+        provider_status, invested_on, invested_minor, allocation_minor,
+        unrealized_value_minor, unrealized_value_state, realized_value_minor,
+        net_value_minor, net_value_state, instrument_type, currency_hint,
+        parse_status, issue_codes_json, position_kind, quantity_micros, ticker,
+        cost_basis_minor, created_at
+      ) VALUES (
+        'holding_import_row_before_m9_3', 'hh_demo',
+        'holding_import_before_m9_3', 1, '${"c".repeat(64)}',
+        '${"d".repeat(64)}', 'Synthetic Security', 'Synthetic Brokerage',
+        'Synthetic Exposure', 'live', '2026-08-15', 100000, 100000,
+        125000, 'reported', 0, 125000, 'reported', 'equity', 'USD', 'ready',
+        '[]', 'direct', 1000000, 'SYN', 100000, '${recordedAt}'
+      );
+    `);
+
+    apply(database, [containerScopedMigrationFile]);
+
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    expect(
+      database
+        .prepare(
+          `SELECT import_id FROM holding_import_rows
+           WHERE id = 'holding_import_row_before_m9_3'`,
+        )
+        .get(),
+    ).toEqual({ import_id: "holding_import_before_m9_3" });
+    expect(() =>
+      database.exec(`
+        INSERT INTO source_documents (
+          id, household_id, object_key, file_name, content_type, byte_size,
+          sha256, effective_date, retrieved_at, source_label, review_status,
+          created_at
+        ) VALUES (
+          'source_document_zero_row', 'hh_demo',
+          'holding-imports/zero-row.json', 'zero-row.json', 'application/json',
+          256, '${"e".repeat(64)}', '2026-08-15', '${recordedAt}',
+          'Synthetic Investments', 'pending_review', '${recordedAt}'
+        );
+        INSERT INTO holding_imports (
+          id, household_id, source_document_id, provider, parser_schema,
+          normalized_fingerprint, row_count, created_by, created_at
+        ) VALUES (
+          'holding_import_zero_row', 'hh_demo', 'source_document_zero_row',
+          'robinhood', 'synthetic-v1', '${"f".repeat(64)}', 0, 'usr_demo',
+          '${recordedAt}'
+        );
+      `),
+    ).not.toThrow();
+  });
+
+  it("replays from an empty database and accepts the complete relationship model", () => {
+    apply(database, [
+      ...priorMigrationFiles,
+      ...contractMigrationFiles,
+      seedFile,
+    ]);
     insertCanonicalStructure(database);
 
     expect(
@@ -240,7 +325,11 @@ describe("multi-source holdings persistence contract", () => {
   });
 
   it("binds import rows and coverage to the exact connection and container", () => {
-    apply(database, [...priorMigrationFiles, canonicalMigrationFile, seedFile]);
+    apply(database, [
+      ...priorMigrationFiles,
+      ...contractMigrationFiles,
+      seedFile,
+    ]);
     insertCanonicalStructure(database);
     database.exec(`
       INSERT INTO source_documents (
@@ -286,13 +375,21 @@ describe("multi-source holdings persistence contract", () => {
         'holding_import_canonical_synthetic', 'investment_connection_synthetic',
         '${recordedAt}', 1
       );
-      INSERT INTO holding_import_row_containers (
-        id, household_id, import_row_id, container_id, created_at, immutable
-      ) VALUES (
-        'holding_import_row_container_synthetic', 'hh_demo',
-        'holding_import_row_canonical_synthetic',
-        'ownership_container_synthetic', '${recordedAt}', 1
-      );
+    `);
+
+    expect(() =>
+      database.exec(`
+        INSERT INTO holding_import_row_containers (
+          id, household_id, import_row_id, container_id, created_at, immutable
+        ) VALUES (
+          'holding_import_row_container_without_coverage', 'hh_demo',
+          'holding_import_row_canonical_synthetic',
+          'ownership_container_synthetic', '${recordedAt}', 1
+        )
+      `),
+    ).toThrow(/holding import row coverage missing/u);
+
+    database.exec(`
       INSERT INTO holding_import_coverages (
         id, household_id, import_id, container_id, completeness,
         evidence_sha256, observed_at, created_at, immutable
@@ -300,6 +397,13 @@ describe("multi-source holdings persistence contract", () => {
         'holding_import_coverage_synthetic', 'hh_demo',
         'holding_import_canonical_synthetic', 'ownership_container_synthetic',
         'complete', '${"9".repeat(64)}', '${recordedAt}', '${recordedAt}', 1
+      );
+      INSERT INTO holding_import_row_containers (
+        id, household_id, import_row_id, container_id, created_at, immutable
+      ) VALUES (
+        'holding_import_row_container_synthetic', 'hh_demo',
+        'holding_import_row_canonical_synthetic',
+        'ownership_container_synthetic', '${recordedAt}', 1
       );
     `);
 
@@ -319,7 +423,11 @@ describe("multi-source holdings persistence contract", () => {
   });
 
   it("fails closed on raw identifiers and cross-household associations", () => {
-    apply(database, [...priorMigrationFiles, canonicalMigrationFile, seedFile]);
+    apply(database, [
+      ...priorMigrationFiles,
+      ...contractMigrationFiles,
+      seedFile,
+    ]);
     insertCanonicalStructure(database);
     database.exec(`
       INSERT INTO users (
@@ -391,7 +499,11 @@ describe("multi-source holdings persistence contract", () => {
   });
 
   it("keeps accepted records append-only and bounds current allocations", () => {
-    apply(database, [...priorMigrationFiles, canonicalMigrationFile, seedFile]);
+    apply(database, [
+      ...priorMigrationFiles,
+      ...contractMigrationFiles,
+      seedFile,
+    ]);
     insertCanonicalStructure(database);
 
     expect(() =>

@@ -1962,7 +1962,7 @@ export const holdingImports = sqliteTable(
     ),
     check(
       "holding_imports_row_count_check",
-      sql`${table.rowCount} BETWEEN 1 AND 500`,
+      sql`${table.rowCount} BETWEEN 0 AND 500`,
     ),
   ],
 );
@@ -2838,6 +2838,115 @@ export const holdingImportCoverages = sqliteTable(
     ),
     check(
       "holding_import_coverages_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const connectorInvestmentConnectionVersions = sqliteTable(
+  "connector_investment_connection_versions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    connectorAccountId: text("connector_account_id")
+      .notNull()
+      .references(() => connectorAccounts.id, { onDelete: "restrict" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => investmentConnections.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    supersedesLinkId: text("supersedes_link_id"),
+    recordedAt: timestamp("recorded_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesLinkId],
+      foreignColumns: [table.id],
+      name: "connector_investment_connection_versions_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex(
+      "connector_investment_connection_versions_supersedes_unique",
+    ).on(table.supersedesLinkId),
+    uniqueIndex("connector_investment_connection_roots_unique")
+      .on(table.connectorAccountId)
+      .where(sql`${table.supersedesLinkId} IS NULL`),
+    uniqueIndex("connector_investment_connection_account_version_unique").on(
+      table.connectorAccountId,
+      table.version,
+    ),
+    index("connector_investment_connection_household_idx").on(
+      table.householdId,
+      table.connectorAccountId,
+      table.connectionId,
+      table.version,
+    ),
+    check(
+      "connector_investment_connection_version_check",
+      sql`${table.version} > 0 AND ((${table.version} = 1 AND ${table.supersedesLinkId} IS NULL) OR (${table.version} > 1 AND ${table.supersedesLinkId} IS NOT NULL))`,
+    ),
+    check(
+      "connector_investment_connection_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const connectorSyncInvestmentConnections = sqliteTable(
+  "connector_sync_investment_connections",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    syncRunId: text("sync_run_id")
+      .notNull()
+      .references(() => connectorSyncRuns.id, { onDelete: "restrict" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => investmentConnections.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("connector_sync_investment_connections_run_unique").on(
+      table.syncRunId,
+    ),
+    index("connector_sync_investment_connections_household_idx").on(
+      table.householdId,
+      table.connectionId,
+      table.createdAt,
+    ),
+    check(
+      "connector_sync_investment_connections_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const plaidWebhookInvestmentConnections = sqliteTable(
+  "plaid_webhook_investment_connections",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    deliveryId: text("delivery_id")
+      .notNull()
+      .references(() => plaidWebhookDeliveries.id, { onDelete: "restrict" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => investmentConnections.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("plaid_webhook_investment_connections_delivery_unique").on(
+      table.deliveryId,
+    ),
+    index("plaid_webhook_investment_connections_household_idx").on(
+      table.householdId,
+      table.connectionId,
+      table.createdAt,
+    ),
+    check(
+      "plaid_webhook_investment_connections_immutable_check",
       sql`${table.immutable} = 1`,
     ),
   ],

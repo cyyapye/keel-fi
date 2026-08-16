@@ -830,6 +830,21 @@ export async function syncRobinhoodHoldings(): Promise<RobinhoodSyncStatus> {
   return RobinhoodSyncStatusSchema.parse(await response.json());
 }
 
+export async function disconnectRobinhood(): Promise<RobinhoodSyncStatus> {
+  const response = await fetch("/api/public-holdings/robinhood", {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Robinhood disconnect returned ${response.status}.`,
+    );
+  }
+  return RobinhoodSyncStatusSchema.parse(await response.json());
+}
+
 export async function loadHoldingImport(
   importId: string,
 ): Promise<HoldingImportPreview> {

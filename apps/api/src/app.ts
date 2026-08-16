@@ -59,6 +59,7 @@ import {
   HoldingImportUploadError,
   readAngelListCsvUpload,
 } from "./holding-import-upload";
+import { buildAngelListCanonicalScope } from "./holding-import-scope";
 import { PlaidWebhookRequestError, receivePlaidWebhook } from "./plaid-webhook";
 import {
   cashFlowConfigured,
@@ -85,6 +86,7 @@ import {
 import {
   connectRobinhood,
   createPlaidInvestmentsClient,
+  disconnectRobinhood,
   PlaidClientError,
   robinhoodSyncConfigured,
   syncRobinhood,
@@ -106,9 +108,7 @@ type AppOptions = {
   angelListMacAgentRepository?: AngelListMacAgentRepository;
   holdingImportRepository?: Pick<
     D1HoldingImportRepository,
-    | "stageRobinhoodHoldingImport"
-    | "autoAdjudicateRobinhoodHoldingImport"
-    | "hasAcceptedRobinhoodPlanningPositions"
+    "stageRobinhoodHoldingImport" | "autoAdjudicateRobinhoodHoldingImport"
   >;
   cashAccountsRepository?: CashAccountsRepository;
   cashPlaidClient?: PlaidCashClient;
@@ -437,6 +437,11 @@ async function stageAngelListUpload(
   }
 
   try {
+    const canonicalScope = await buildAngelListCanonicalScope({
+      env,
+      accessSubject,
+      rows: parsed.rows,
+    });
     const staged = await repository.stageHoldingImport(accessSubject, {
       objectKey,
       sha256: await sha256Bytes(upload.bytes),
@@ -444,6 +449,7 @@ async function stageAngelListUpload(
       effectiveDate: upload.effectiveDate,
       retrievedAt: upload.retrievedAt,
       rows: parsed.rows,
+      canonicalScope,
     });
     if (!staged.created) {
       await discardPrivateObject(env.DOCUMENTS, objectKey);
@@ -1451,6 +1457,27 @@ export function createApp(options: AppOptions = {}) {
         repository: publicHoldingsRepositoryFor(context.env),
         holdingImports: holdingImportRepositoryFor(context.env),
         portfolioBaselines: portfolioBaselineRepositoryFor(context.env),
+        client: plaidClientFor(context.env),
+        accessSubject: context.get("identity").subject,
+      });
+      return context.json(status, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return robinhoodErrorResponse(context, error);
+    }
+  });
+
+  app.delete("/api/public-holdings/robinhood", async (context) => {
+    if (!robinhoodConfiguredFor(context.env)) {
+      return context.json({ error: "Robinhood sync is not configured." }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    try {
+      const status = await disconnectRobinhood({
+        env: context.env,
+        repository: publicHoldingsRepositoryFor(context.env),
         client: plaidClientFor(context.env),
         accessSubject: context.get("identity").subject,
       });

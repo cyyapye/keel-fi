@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CanonicalExposureSchema,
+  HoldingImportCanonicalScopeSchema,
   HoldingImportCoverageSchema,
   InvestmentConnectionSchema,
   OwnedPositionIdentitySchema,
@@ -214,6 +215,58 @@ describe("multi-source holdings domain contract", () => {
       HoldingImportCoverageSchema.safeParse({
         ...coverage,
         completeness: "missing_means_sold",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires every import row to use a declared resolved coverage container", () => {
+    const scope = {
+      connection: {
+        mode: "existing" as const,
+        connectionId: "investment_connection_synthetic",
+      },
+      containers: [
+        {
+          protectedAccountKey: "2".repeat(64),
+          displayLabel: "Synthetic brokerage",
+          containerKind: "brokerage" as const,
+          taxTreatment: "taxable" as const,
+          completeness: "partial" as const,
+        },
+      ],
+      rows: [
+        {
+          sourceRowNumber: 1,
+          protectedAccountKey: "2".repeat(64),
+          protectedPositionKey: "3".repeat(64),
+        },
+      ],
+    };
+
+    expect(HoldingImportCanonicalScopeSchema.safeParse(scope).success).toBe(
+      true,
+    );
+    expect(
+      HoldingImportCanonicalScopeSchema.safeParse({
+        ...scope,
+        rows: [
+          {
+            ...scope.rows[0],
+            protectedAccountKey: "4".repeat(64),
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      HoldingImportCanonicalScopeSchema.safeParse({
+        ...scope,
+        containers: [
+          {
+            ...scope.containers[0],
+            containerKind: "unresolved",
+            completeness: "complete",
+          },
+        ],
       }).success,
     ).toBe(false);
   });

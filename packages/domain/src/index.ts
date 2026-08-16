@@ -548,6 +548,117 @@ export const HoldingImportCoverageSchema = z
   })
   .strict();
 
+export const HoldingImportConnectionScopeSchema = z.discriminatedUnion("mode", [
+  z
+    .object({
+      mode: z.literal("existing"),
+      connectionId: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("ensure"),
+      adapterType: InvestmentAdapterTypeSchema,
+      protectedSourceKey: ProtectedIdentityKeySchema,
+      institutionKey: z.string().trim().min(1).max(200),
+      institutionLabel: z.string().trim().min(1).max(512),
+      lifecycleState: InvestmentConnectionLifecycleSchema,
+      credentialReference: PrivateObjectReferenceSchema.nullable(),
+    })
+    .strict()
+    .superRefine((value, context) => {
+      if (
+        value.adapterType !== "manual" &&
+        ["active", "paused"].includes(value.lifecycleState) &&
+        value.credentialReference === null
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["credentialReference"],
+          message: "Active provider connections require a private reference.",
+        });
+      }
+      if (
+        value.lifecycleState === "disconnected" &&
+        value.credentialReference !== null
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["credentialReference"],
+          message:
+            "Disconnected connections cannot retain a private reference.",
+        });
+      }
+    }),
+]);
+
+export const HoldingImportContainerScopeSchema = z
+  .object({
+    protectedAccountKey: ProtectedIdentityKeySchema,
+    displayLabel: z.string().trim().min(1).max(512),
+    containerKind: OwnershipContainerKindSchema,
+    taxTreatment: OwnershipTaxTreatmentSchema,
+    completeness: HoldingImportCoverageCompletenessSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.containerKind === "unresolved" &&
+      value.completeness === "complete"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["completeness"],
+        message: "Unresolved containers cannot claim complete coverage.",
+      });
+    }
+  });
+
+export const HoldingImportRowScopeSchema = z
+  .object({
+    sourceRowNumber: z.number().int().positive().max(500),
+    protectedAccountKey: ProtectedIdentityKeySchema,
+    protectedPositionKey: ProtectedIdentityKeySchema,
+  })
+  .strict();
+
+export const HoldingImportCanonicalScopeSchema = z
+  .object({
+    connection: HoldingImportConnectionScopeSchema,
+    containers: z.array(HoldingImportContainerScopeSchema).min(1).max(100),
+    rows: z.array(HoldingImportRowScopeSchema).max(500),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const accountKeys = value.containers.map(
+      (container) => container.protectedAccountKey,
+    );
+    if (new Set(accountKeys).size !== accountKeys.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["containers"],
+        message: "Holding import containers must be unique.",
+      });
+    }
+    const sourceRows = value.rows.map((row) => row.sourceRowNumber);
+    if (new Set(sourceRows).size !== sourceRows.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["rows"],
+        message: "Holding import row scopes must be unique.",
+      });
+    }
+    value.rows.forEach((row, index) => {
+      if (!accountKeys.includes(row.protectedAccountKey)) {
+        context.addIssue({
+          code: "custom",
+          path: ["rows", index, "protectedAccountKey"],
+          message: "Holding import rows require a declared container.",
+        });
+      }
+    });
+  });
+
 export const ScaledQuantitySchema = z
   .object({
     quantityScaled: z.number().int().safe().nonnegative(),
@@ -711,7 +822,7 @@ export const HoldingImportSummarySchema = z.object({
   provider: HoldingImportProviderSchema,
   status: z.enum(["pending_review", "quarantined"]),
   observedAt: IsoTimestampSchema,
-  rowCount: z.number().int().positive(),
+  rowCount: z.number().int().nonnegative(),
   createdAt: IsoTimestampSchema,
 });
 
@@ -958,6 +1069,19 @@ export const HoldingImportPreviewSchema = z.object({
     quarantinedCount: z.number().int().nonnegative().default(0),
     preservedPositionCount: z.number().int().nonnegative().default(0),
   }),
+  coverage: z
+    .array(
+      z
+        .object({
+          containerId: z.string().min(1),
+          displayLabel: z.string().min(1),
+          completeness: HoldingImportCoverageCompletenessSchema,
+          reportedRowCount: z.number().int().nonnegative(),
+        })
+        .strict(),
+    )
+    .max(100)
+    .default([]),
   rows: z.array(HoldingImportRowPreviewSchema),
 });
 
@@ -3128,7 +3252,17 @@ export type GoalDraftInput = z.infer<typeof GoalDraftInputSchema>;
 export type GoalPreview = z.infer<typeof GoalPreviewSchema>;
 export type Holding = z.infer<typeof HoldingSchema>;
 export type CanonicalExposure = z.infer<typeof CanonicalExposureSchema>;
+export type HoldingImportCanonicalScope = z.infer<
+  typeof HoldingImportCanonicalScopeSchema
+>;
+export type HoldingImportConnectionScope = z.infer<
+  typeof HoldingImportConnectionScopeSchema
+>;
+export type HoldingImportContainerScope = z.infer<
+  typeof HoldingImportContainerScopeSchema
+>;
 export type HoldingImportCoverage = z.infer<typeof HoldingImportCoverageSchema>;
+export type HoldingImportRowScope = z.infer<typeof HoldingImportRowScopeSchema>;
 export type InvestmentConnection = z.infer<typeof InvestmentConnectionSchema>;
 export type OwnedPositionIdentity = z.infer<typeof OwnedPositionIdentitySchema>;
 export type OwnedPositionSnapshot = z.infer<typeof OwnedPositionSnapshotSchema>;
