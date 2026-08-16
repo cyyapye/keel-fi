@@ -10,10 +10,12 @@ import {
   D1CashAccountsRepository,
   D1CashFlowRepository,
   D1HoldingImportRepository,
+  D1InvestmentExposureViewRepository,
   D1LiabilitiesRepository,
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
   D1InvestmentConnectionsRepository,
+  D1InvestmentPositionViewRepository,
   type AlphaRepository,
   type AngelListMacAgentRepository,
   type CashAccountsRepository,
@@ -22,6 +24,8 @@ import {
   type PlanInputsRepository,
   type PortfolioBaselineRepository,
   type InvestmentConnectionsRepository,
+  type InvestmentExposureViewRepository,
+  type InvestmentPositionViewRepository,
 } from "@keel/database";
 import {
   AngelListMacAgentConfigInputSchema,
@@ -47,6 +51,7 @@ import {
   InvestmentExchangeInputSchema,
   ScenarioDraftInputSchema,
 } from "@keel/domain";
+import { InvestmentHoldingsViewSchema } from "@keel/domain/investment-holdings-view";
 import { ReviewInputSchema } from "@keel/evidence";
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -87,6 +92,7 @@ import {
 } from "./plaid-liabilities-sync";
 import {
   connectInvestmentConnection,
+  createInvestmentReconnectLinkToken,
   createPlaidInvestmentsClient,
   disconnectInvestmentConnection,
   PlaidInvestmentsClientError,
@@ -123,6 +129,9 @@ type AppOptions = {
   planInputsRepository?: PlanInputsRepository;
   portfolioBaselineRepository?: PortfolioBaselineRepository;
   investmentConnectionsRepository?: InvestmentConnectionsRepository;
+  investmentExposureViewRepository?: InvestmentExposureViewRepository;
+  investmentPositionViewRepository?: InvestmentPositionViewRepository;
+  additionalInvestmentAuthorizationAvailable?: boolean;
   repository?: AlphaRepository;
   verifyAccess?: AccessVerifier;
 };
@@ -480,6 +489,12 @@ export function createApp(options: AppOptions = {}) {
   const investmentConnectionsRepositoryFor = (env: Env) =>
     options.investmentConnectionsRepository ??
     new D1InvestmentConnectionsRepository(env.DB);
+  const investmentPositionViewRepositoryFor = (env: Env) =>
+    options.investmentPositionViewRepository ??
+    new D1InvestmentPositionViewRepository(env.DB);
+  const investmentExposureViewRepositoryFor = (env: Env) =>
+    options.investmentExposureViewRepository ??
+    new D1InvestmentExposureViewRepository(env.DB);
   const portfolioBaselineRepositoryFor = (env: Env) =>
     options.portfolioBaselineRepository ??
     new D1PortfolioBaselineRepository(env.DB);
@@ -491,6 +506,9 @@ export function createApp(options: AppOptions = {}) {
     options.plaidClient ?? createPlaidInvestmentsClient(env);
   const investmentsConfiguredFor = (env: Env) =>
     options.plaidClient !== undefined || investmentsSyncConfigured(env);
+  const additionalInvestmentAuthorizationAvailableFor = (env: Env) =>
+    options.additionalInvestmentAuthorizationAvailable ??
+    env.INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED === "true";
   const cashAccountsRepositoryFor = (env: Env) =>
     options.cashAccountsRepository ?? new D1CashAccountsRepository(env.DB);
   const cashPlaidClientFor = (env: Env) =>
@@ -1392,11 +1410,54 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get("/api/investment-holdings", async (context) => {
+    const accessSubject = context.get("identity").subject;
+    const asOf = new Date().toISOString();
+    try {
+      const positionView = await investmentPositionViewRepositoryFor(
+        context.env,
+      ).list(accessSubject, asOf);
+      const exposureView = await investmentExposureViewRepositoryFor(
+        context.env,
+      ).list(accessSubject, asOf, positionView);
+      return context.json(
+        InvestmentHoldingsViewSchema.parse({
+          version: 1,
+          authorizationStatus: !investmentsConfiguredFor(context.env)
+            ? "configuration_required"
+            : additionalInvestmentAuthorizationAvailableFor(context.env)
+              ? "available"
+              : "provider_approval_required",
+          positionView,
+          exposureView,
+        }),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch {
+      return context.json(
+        { error: "Investment holdings are unavailable." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
   app.post("/api/investment-connections/link-token", async (context) => {
     if (!investmentsConfiguredFor(context.env)) {
       return context.json(
         { error: "Investment sync is not configured." },
         503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    if (!additionalInvestmentAuthorizationAvailableFor(context.env)) {
+      return context.json(
+        {
+          error:
+            "Additional investment institutions require approved provider coverage and pricing.",
+        },
+        409,
         { "Cache-Control": "private, no-store" },
       );
     }
@@ -1411,6 +1472,43 @@ export function createApp(options: AppOptions = {}) {
       return investmentsErrorResponse(context, error);
     }
   });
+
+  app.post(
+    "/api/investment-connections/:connectionId/link-token",
+    async (context) => {
+      if (!investmentsConfiguredFor(context.env)) {
+        return context.json(
+          { error: "Investment sync is not configured." },
+          503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      const connectionId = z
+        .uuid()
+        .safeParse(context.req.param("connectionId"));
+      if (!connectionId.success) {
+        return context.json(
+          { error: "Investment connection is invalid." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      try {
+        const linkToken = await createInvestmentReconnectLinkToken({
+          env: context.env,
+          repository: investmentConnectionsRepositoryFor(context.env),
+          client: plaidClientFor(context.env),
+          accessSubject: context.get("identity").subject,
+          connectionId: connectionId.data,
+        });
+        return context.json(linkToken, 200, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        return investmentsErrorResponse(context, error);
+      }
+    },
+  );
 
   app.post("/api/investment-connections/exchange", async (context) => {
     if (!investmentsConfiguredFor(context.env)) {

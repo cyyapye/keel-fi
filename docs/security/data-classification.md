@@ -24,6 +24,15 @@ a real portfolio.
   D1 and Queue messages use only keyed or internal opaque identifiers.
 - Browser responses contain only the minimum household view required for the
   current decision surface.
+- Canonical investment browser responses may contain only internal connection,
+  container, position, snapshot, and exposure IDs plus reviewed display labels,
+  coverage, freshness, lifecycle state, and normalized integer facts needed by
+  Holdings. They remain Confidential in a real deployment. Raw Item, account,
+  security, position, request, and access-token values remain prohibited.
+- Screenshots and browser traces from a real deployment are Confidential or
+  Restricted artifacts and never enter public Git or CI. Public visual baselines
+  must use independently fabricated institutions, accounts, positions,
+  exposures, and values.
 - Logs use an explicit metadata allowlist and must not contain Confidential or
   Restricted fields.
 - Raw transaction pages may exist only in bounded Worker memory during

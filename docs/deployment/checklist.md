@@ -50,6 +50,26 @@
       operational cursor, and normalized transaction revisions while preserving
       reviewed aggregate and plan history.
 
+## Investment institutions
+
+- [ ] Additional-investment authorization remains disabled until every prior M9
+      slice and its exact-SHA evidence have shipped.
+- [ ] The exact institution variant's Investments and account-type coverage,
+      unsupported cases, Item/product price, reconnect charge, expected manual
+      checks and webhook volume, and approved monthly ceiling are recorded
+      privately.
+- [ ] Expected connection, container, coverage, position, exposure-mapping,
+      snapshot, D1, and encrypted-backup growth remain inside the approved
+      retention and cost boundary.
+- [ ] A private Sandbox or provider-approved acceptance run proves several
+      accounts, stable reconnect, same-label Items, partial coverage, and scoped
+      disconnect without putting identifiers, holdings, values, or screenshots
+      in Git or CI.
+- [ ] New authorization can be disabled without deleting or rewriting accepted
+      positions, decisions, baselines, plans, goals, or forecasts.
+- [ ] Investments Refresh, a polling schedule, external notifications, and new
+      paid products remain disabled unless separately approved.
+
 ## Release evidence
 
 - [ ] Git commit, CI run, migration names, Worker versions, and reviewer are

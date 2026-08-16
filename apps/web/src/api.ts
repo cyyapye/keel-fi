@@ -36,6 +36,7 @@ import {
   PortfolioBaselineConfirmResultSchema,
   PortfolioBaselineStateSchema,
   InvestmentConnectionStatusSchema,
+  InvestmentConnectionLifecycleActionInputSchema,
   InvestmentConnectionsStateSchema,
   InvestmentExchangeInputSchema,
   InvestmentLinkTokenSchema,
@@ -80,6 +81,10 @@ import {
   SignalUpdateProposalSchema,
   type SignalUpdateProposal,
 } from "@keel/domain";
+import {
+  InvestmentHoldingsViewSchema,
+  type InvestmentHoldingsView,
+} from "@keel/domain/investment-holdings-view";
 
 async function responseError(
   response: Response,
@@ -780,6 +785,20 @@ export async function loadInvestmentConnections(): Promise<InvestmentConnections
   return InvestmentConnectionsStateSchema.parse(await response.json());
 }
 
+export async function loadInvestmentHoldings(): Promise<InvestmentHoldingsView> {
+  const response = await fetch("/api/investment-holdings", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Investment holdings returned ${response.status}.`,
+    );
+  }
+  return InvestmentHoldingsViewSchema.parse(await response.json());
+}
+
 export async function createInvestmentLinkToken(): Promise<InvestmentLinkToken> {
   const response = await fetch("/api/investment-connections/link-token", {
     method: "POST",
@@ -790,6 +809,26 @@ export async function createInvestmentLinkToken(): Promise<InvestmentLinkToken> 
     throw await responseError(
       response,
       `Investment connection returned ${response.status}.`,
+    );
+  }
+  return InvestmentLinkTokenSchema.parse(await response.json());
+}
+
+export async function createInvestmentReconnectLinkToken(
+  connectionId: string,
+): Promise<InvestmentLinkToken> {
+  const response = await fetch(
+    `/api/investment-connections/${encodeURIComponent(connectionId)}/link-token`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Investment reconnect returned ${response.status}.`,
     );
   }
   return InvestmentLinkTokenSchema.parse(await response.json());
@@ -852,6 +891,32 @@ export async function disconnectInvestmentConnection(
     throw await responseError(
       response,
       `Investment disconnect returned ${response.status}.`,
+    );
+  }
+  return InvestmentConnectionStatusSchema.parse(await response.json());
+}
+
+export async function changeInvestmentConnectionLifecycle(
+  connectionId: string,
+  action: "pause" | "resume",
+): Promise<InvestmentConnectionStatus> {
+  const body = InvestmentConnectionLifecycleActionInputSchema.parse({ action });
+  const response = await fetch(
+    `/api/investment-connections/${encodeURIComponent(connectionId)}/lifecycle`,
+    {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Investment connection action returned ${response.status}.`,
     );
   }
   return InvestmentConnectionStatusSchema.parse(await response.json());

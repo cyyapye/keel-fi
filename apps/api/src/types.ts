@@ -17,6 +17,7 @@ export interface Env {
   DOCUMENTS: R2Bucket;
   ENVIRONMENT: Environment;
   INGESTION_QUEUE: Queue;
+  INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED?: string;
   CONNECTOR_CREDENTIAL_KEY?: string;
   PLAID_CLIENT_ID?: string;
   PLAID_ENVIRONMENT?: string;

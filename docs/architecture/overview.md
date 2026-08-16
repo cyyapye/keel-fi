@@ -8,12 +8,13 @@ The diagram below describes the shipped architecture. The accepted target model
 for connecting multiple investment institutions, keeping same-security holdings
 separate by account, and keeping same-company SPV interests legally distinct is
 [ADR 005: Multi-source holdings identity](./adr-005-multi-source-holdings-identity.md).
-Its additive connection, container, coverage, and exposure persistence contract
-is present. Because every environment is synthetic and disposable, Keel retains
-no holdings backfill, dual-read, or transitional association layer. The generic
-Plaid Investments ingestion path is present; additional-institution
-authorization remains pending. Robinhood and AngelList remain the operated
-holding sources.
+Its additive connection, container, coverage, and exposure persistence contract,
+provider-neutral ingestion path, canonical position/exposure reads, and
+multi-institution Holdings operations are present. Because every environment is
+synthetic and disposable, Keel retains no holdings backfill, dual-read, or
+transitional association layer. Additional-institution authorization remains
+fail-closed until private coverage and pricing approval; Robinhood and AngelList
+remain the operated holding sources.
 
 ```mermaid
 flowchart LR
@@ -93,7 +94,10 @@ flowchart LR
   position associations without reconstructing them from labels or older
   records. Any synthetic environment that applied the removed transition
   experiment must be rebuilt from the checked-in migration chain before release.
-  See the
+  Holdings reads those canonical projections, defaults to exact-account
+  positions, and exposes grouped exposure drill-down without another value path.
+  Add, check, reconnect, pause, and disconnect actions remain scoped to one
+  connection. See the
   [multi-source holdings runbook](../deployment/multi-source-holdings.md).
 - Cash-account linking requests only Plaid Auth and eligible US depository
   subtypes. The initial cached account response and every explicit live balance

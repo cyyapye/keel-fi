@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { AlphaData } from "../packages/domain/src/index";
 
+import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { navigateToScreen } from "./navigation";
 
 const alphaFixture = {
@@ -76,6 +78,9 @@ const alphaFixture = {
       effectiveDate: "2026-06-14",
       retrievedAt: "2026-06-14T12:00:00.000Z",
       confidencePpm: null,
+      ticker: null,
+      quantityMicros: null,
+      costBasisMinor: null,
     },
     {
       id: "holding_demo_direct",
@@ -94,6 +99,9 @@ const alphaFixture = {
       effectiveDate: "2026-07-18",
       retrievedAt: "2026-07-18T09:00:00.000Z",
       confidencePpm: 760_000,
+      ticker: null,
+      quantityMicros: null,
+      costBasisMinor: null,
     },
     {
       id: "holding_demo_locked",
@@ -112,6 +120,9 @@ const alphaFixture = {
       effectiveDate: "2026-06-14",
       retrievedAt: "2026-06-14T12:00:00.000Z",
       confidencePpm: null,
+      ticker: null,
+      quantityMicros: null,
+      costBasisMinor: null,
     },
     {
       id: "holding_demo_robinhood",
@@ -141,7 +152,7 @@ const alphaFixture = {
   signalReconciliations: [],
   signalUpdateProposals: [],
   forecastHistory: [],
-};
+} satisfies AlphaData;
 
 async function expectNoHorizontalOverflow(page: Page) {
   const widths = await page.evaluate(() => ({
@@ -183,6 +194,15 @@ test("leads with the investment and opens a truthful holding detail", async ({
         connections: [],
         errorCode: null,
       },
+    });
+  });
+  await page.route("**/api/investment-holdings", async (route) => {
+    await route.fulfill({
+      json: investmentHoldingsViewFor(
+        alphaFixture.holdings.filter(
+          (holding) => holding.id !== "holding_demo_direct",
+        ),
+      ),
     });
   });
   await page.route("**/api/cash-accounts", async (route) => {
@@ -249,14 +269,23 @@ test("leads with the investment and opens a truthful holding detail", async ({
   const harborAction = page.getByRole("button", {
     name: "View Harbor Health Systems holding details",
   });
-  await expect(harborAction.getByText("Harbor Health Systems")).toBeVisible();
-  await expect(harborAction).not.toContainText("Beacon Demo SPV");
+  await expect(harborAction.getByText("View details →")).toBeVisible();
+  await expect(
+    page.getByText("Beacon Demo SPV", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Exposure: Harbor Health Systems")).toBeVisible();
   await expect(harborAction).not.toContainText("Demo Family LLC");
   await expect(
     page.getByRole("button", {
       name: "View Northstar Robotics holding details",
     }),
-  ).not.toContainText("Seed preferred");
+  ).toContainText("View details →");
+  await expect(
+    page.getByRole("heading", { name: "Company holdings" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Legal position: Seed preferred", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByText("Administrator-reported value as of the source date."),
   ).toHaveCount(0);
