@@ -6,9 +6,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 
 - Last reconciled: 2026-08-16
 - Reconciled product baseline:
-  [`8a5902a`](https://github.com/cyyapye/keel-fi/commit/8a5902ab42f84822fdb4a659f404bf2df97d85c7)
+  [`dd589d8`](https://github.com/cyyapye/keel-fi/commit/dd589d8f915c955e215ff82905fc8d340003d78b)
 - Baseline release evidence:
-  [`31976492257`](https://github.com/cyyapye/keel-fi/actions/runs/31976492257)
+  [`31979180654`](https://github.com/cyyapye/keel-fi/actions/runs/31979180654)
 
 ## How to use this roadmap
 
@@ -808,6 +808,24 @@ versions, passed protected smokes, and retained exact-SHA evidence in
 No migration, provider request, paid product, polling schedule, Queue message,
 R2 object, notification channel, or recurring work was added; approved
 incremental external spend remains `$0`.
+
+A follow-up in [PR #91](https://github.com/cyyapye/keel-fi/pull/91) at exact
+checked head
+[`87ca790`](https://github.com/cyyapye/keel-fi/commit/87ca79082f1ab9065a99acf28862e455a0f7b40f)
+and released merge
+[`dd589d8`](https://github.com/cyyapye/keel-fi/commit/dd589d8f915c955e215ff82905fc8d340003d78b)
+made the same explicit company-assignment action available to eligible legacy
+AngelList positions that render outside the provider-neutral position view. The
+action still resolves only by reviewed company ID; provider text does not select
+or merge a company. All 452 tests and 48 desktop/mobile browser flows passed,
+including the legacy fallback action, assignment form, regrouping, and
+no-overflow coverage. The release retained an encrypted D1 backup, deployed and
+read back both Worker versions, passed protected smokes, and retained exact-SHA
+evidence in
+[run `31979180654`](https://github.com/cyyapye/keel-fi/actions/runs/31979180654).
+The live diagnosis was read-only, and the follow-up added no migration, provider
+request, paid product, polling schedule, Queue message, R2 object, notification
+channel, recurring work, or incremental external spend.
 
 ### [x] M10 — Plan versus actual monitoring
 
