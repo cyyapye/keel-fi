@@ -1903,7 +1903,7 @@ h1,
   font-weight: 650;
 }
 
-.portfolio-baseline + .robinhood-sync {
+.portfolio-baseline + .investment-sync {
   border-top: 0;
 }
 
@@ -2160,7 +2160,7 @@ h1,
   gap: 10px;
 }
 
-.robinhood-sync {
+.investment-sync {
   display: grid;
   grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
   gap: 48px;
@@ -2169,24 +2169,24 @@ h1,
   border-bottom: 1px solid var(--line);
 }
 
-.robinhood-sync__heading h2 {
+.investment-sync__heading h2 {
   margin-bottom: 8px;
   font-size: clamp(20px, 2.4vw, 28px);
   font-weight: 630;
   letter-spacing: -0.04em;
 }
 
-.robinhood-sync__heading > p:last-child,
-.robinhood-sync__action > small,
-.robinhood-sync__notice,
-.robinhood-sync__error {
+.investment-sync__heading > p:last-child,
+.investment-sync__action > small,
+.investment-sync__notice,
+.investment-sync__error {
   margin: 0;
   color: var(--muted);
   font-size: 10px;
   line-height: 1.6;
 }
 
-.robinhood-sync__action {
+.investment-sync__action {
   display: grid;
   min-width: 0;
   align-content: center;
@@ -2194,7 +2194,7 @@ h1,
   gap: 12px;
 }
 
-.robinhood-sync__controls {
+.investment-sync__controls {
   display: flex;
   width: min(100%, 440px);
   align-items: center;
@@ -2202,34 +2202,34 @@ h1,
   gap: 18px;
 }
 
-.robinhood-sync__controls > span {
+.investment-sync__controls > span {
   color: var(--faint);
   font-size: 9px;
 }
 
-.robinhood-sync__controls > small {
+.investment-sync__controls > small {
   flex: 1;
   color: var(--muted);
   font-size: 9px;
   line-height: 1.5;
 }
 
-.robinhood-sync__checking {
+.investment-sync__checking {
   color: var(--muted);
   font-size: 10px;
 }
 
-.robinhood-sync__notice,
-.robinhood-sync__error {
+.investment-sync__notice,
+.investment-sync__error {
   width: min(100%, 440px);
   text-align: right;
 }
 
-.robinhood-sync__error {
+.investment-sync__error {
   color: var(--ink);
 }
 
-.robinhood-sync + .angellist-agent {
+.investment-sync + .angellist-agent {
   border-top: 0;
 }
 
@@ -5329,37 +5329,37 @@ h1,
     width: 100%;
   }
 
-  .robinhood-sync {
+  .investment-sync {
     grid-template-columns: 1fr;
     gap: 16px;
     padding: 20px 0;
   }
 
-  .robinhood-sync__action,
-  .robinhood-sync__controls,
-  .robinhood-sync__notice,
-  .robinhood-sync__error {
+  .investment-sync__action,
+  .investment-sync__controls,
+  .investment-sync__notice,
+  .investment-sync__error {
     width: 100%;
   }
 
-  .robinhood-sync__action {
+  .investment-sync__action {
     justify-items: stretch;
   }
 
-  .robinhood-sync__controls {
+  .investment-sync__controls {
     display: grid;
     grid-template-columns: 1fr;
     justify-items: stretch;
     gap: 10px;
   }
 
-  .robinhood-sync__controls .button,
-  .robinhood-sync__action > .button {
+  .investment-sync__controls .button,
+  .investment-sync__action > .button {
     width: 100%;
   }
 
-  .robinhood-sync__notice,
-  .robinhood-sync__error {
+  .investment-sync__notice,
+  .investment-sync__error {
     text-align: left;
   }
 

@@ -28,6 +28,10 @@ const canonicalMigrationFile =
   "packages/database/migrations/0019_multi_source_holdings_contract.sql";
 const containerScopedMigrationFile =
   "packages/database/migrations/0020_container_scoped_holding_ingestion.sql";
+const exposureResolutionMigrationFile =
+  "packages/database/migrations/0021_canonical_exposure_resolution.sql";
+const providerNeutralMigrationFile =
+  "packages/database/migrations/0022_provider_neutral_investments.sql";
 const contractMigrationFiles = [
   canonicalMigrationFile,
   containerScopedMigrationFile,
@@ -236,7 +240,7 @@ describe("multi-source holdings persistence contract", () => {
         normalized_fingerprint, row_count, created_by, created_at
       ) VALUES (
         'holding_import_before_m9_3', 'hh_demo',
-        'source_document_before_m9_3', 'robinhood', 'synthetic-v1',
+        'source_document_before_m9_3', 'plaid_investments', 'synthetic-v1',
         '${"b".repeat(64)}', 1, 'usr_demo', '${recordedAt}'
       );
       INSERT INTO holding_import_rows (
@@ -285,11 +289,191 @@ describe("multi-source holdings persistence contract", () => {
           normalized_fingerprint, row_count, created_by, created_at
         ) VALUES (
           'holding_import_zero_row', 'hh_demo', 'source_document_zero_row',
-          'robinhood', 'synthetic-v1', '${"f".repeat(64)}', 0, 'usr_demo',
+          'plaid_investments', 'synthetic-v1', '${"f".repeat(64)}', 0, 'usr_demo',
           '${recordedAt}'
         );
       `),
     ).not.toThrow();
+  });
+
+  it("preserves accepted Robinhood observations while changing only provider metadata", () => {
+    apply(database, [
+      ...priorMigrationFiles,
+      ...contractMigrationFiles,
+      exposureResolutionMigrationFile,
+      seedFile,
+    ]);
+    database.exec(`
+      INSERT INTO source_documents (
+        id, household_id, object_key, file_name, content_type, byte_size,
+        sha256, effective_date, retrieved_at, source_label, review_status,
+        created_at
+      ) VALUES (
+        'source_document_before_m9_5', 'hh_demo',
+        'holding-imports/before-m9-5.json', 'before-m9-5.json',
+        'application/json', 512, '${"ab".repeat(32)}', '2026-08-15',
+        '${recordedAt}', 'Synthetic Robinhood', 'accepted', '${recordedAt}'
+      );
+      INSERT INTO holding_imports (
+        id, household_id, source_document_id, provider, parser_schema,
+        normalized_fingerprint, row_count, created_by, created_at
+      ) VALUES (
+        'holding_import_before_m9_5', 'hh_demo',
+        'source_document_before_m9_5', 'robinhood',
+        'plaid_robinhood_holdings_v1', '${"b".repeat(64)}', 1, 'usr_demo',
+        '${recordedAt}'
+      );
+      INSERT INTO holding_import_rows (
+        id, household_id, import_id, source_row_number, position_fingerprint,
+        snapshot_fingerprint, legal_vehicle_name, owner_label, exposure_label,
+        provider_status, invested_on, invested_minor, allocation_minor,
+        unrealized_value_minor, unrealized_value_state, realized_value_minor,
+        net_value_minor, net_value_state, instrument_type, currency_hint,
+        parse_status, issue_codes_json, position_kind, quantity_micros, ticker,
+        cost_basis_minor, created_at
+      ) VALUES (
+        'holding_import_row_before_m9_5', 'hh_demo',
+        'holding_import_before_m9_5', 1, '${"c".repeat(64)}',
+        '${"d".repeat(64)}', 'Synthetic Index Fund', 'Synthetic Robinhood',
+        'Synthetic Index Fund', 'live', '2026-08-15', 100000, 100000,
+        125000, 'reported', 0, 125000, 'reported', 'equity', 'USD', 'ready',
+        '[]', 'direct', 1000000, 'SYN', 100000, '${recordedAt}'
+      );
+      INSERT INTO holding_positions (
+        id, household_id, provider, position_fingerprint, legal_vehicle_name,
+        owner_label, position_kind, instrument_type, opened_on, currency,
+        created_by, created_at
+      ) VALUES (
+        'holding_position_before_m9_5', 'hh_demo', 'robinhood',
+        '${"c".repeat(64)}', 'Synthetic Index Fund', 'Synthetic Robinhood',
+        'direct', 'equity', '2026-08-15', 'USD', 'usr_demo', '${recordedAt}'
+      );
+      INSERT INTO holding_position_snapshots (
+        id, household_id, position_id, source_document_id,
+        source_import_row_id, snapshot_fingerprint, provider_status,
+        invested_minor, allocation_minor, unrealized_value_minor,
+        unrealized_value_state, realized_value_minor, net_value_minor,
+        net_value_state, instrument_type, currency, observed_at, created_at,
+        quantity_micros, ticker, cost_basis_minor
+      ) VALUES (
+        'holding_snapshot_before_m9_5', 'hh_demo',
+        'holding_position_before_m9_5', 'source_document_before_m9_5',
+        'holding_import_row_before_m9_5', '${"d".repeat(64)}', 'live',
+        100000, 100000, 125000, 'reported', 0, 125000, 'reported', 'equity',
+        'USD', '${recordedAt}', '${recordedAt}', 1000000, 'SYN', 100000
+      );
+      INSERT INTO cash_flow_plans (
+        id, household_id, scenario_id, household_burn_monthly_minor,
+        business_burn_monthly_minor, fi_eligible_liquid_minor,
+        protected_cash_floor_minor, fi_target_minor, effective_date, provenance,
+        created_at
+      ) VALUES (
+        'cf_fi_before_m9_5', 'hh_demo', 'scn_fi', 2850000, 1250000,
+        182500000, 10300000, 325000000, '2026-08-15',
+        'Synthetic migration fixture', '${recordedAt}'
+      );
+      INSERT INTO forecast_snapshots (
+        id, household_id, scenario_id, version, input_hash, created_at,
+        created_by, trigger, attributed_change, immutable
+      ) VALUES (
+        'snap_fi_v4_before_m9_5', 'hh_demo', 'scn_fi', 4,
+        'synthetic-fi-v4-before-m9-5-input-hash', '${recordedAt}',
+        'Demo Operator', 'Portfolio baseline', 'Synthetic migration fixture', 1
+      );
+      INSERT INTO portfolio_baselines (
+        id, household_id, source_revision, source_observed_at, position_count,
+        public_market_value_minor, private_paper_value_minor, cash_account_count,
+        cash_account_value_minor, unknown_cash_account_count,
+        unknown_value_count, potential_duplicate_count,
+        prior_fi_eligible_liquid_minor, fi_eligible_liquid_minor,
+        base_forecast_snapshot_id, cash_flow_plan_id, forecast_snapshot_id,
+        goal_version_id, change_note, created_by_user_id, created_at, immutable
+      ) VALUES (
+        'portfolio_baseline_before_m9_5', 'hh_demo', '${"e".repeat(64)}',
+        '${recordedAt}', 1, 125000, 0, 0, 0, 0, 0, 0, 182500000,
+        182500000, 'snap_fi_v3', 'cf_fi_before_m9_5',
+        'snap_fi_v4_before_m9_5', NULL, 'Synthetic migration fixture',
+        'usr_demo', '${recordedAt}', 1
+      );
+      INSERT INTO portfolio_baseline_items (
+        id, household_id, baseline_id, position_id, snapshot_id, provider,
+        classification, value_minor, value_state, observed_at, duplicate_key,
+        created_at
+      ) VALUES (
+        'portfolio_baseline_item_before_m9_5', 'hh_demo',
+        'portfolio_baseline_before_m9_5', 'holding_position_before_m9_5',
+        'holding_snapshot_before_m9_5', 'robinhood', 'public_market', 125000,
+        'reported', '${recordedAt}', NULL, '${recordedAt}'
+      );
+    `);
+
+    const before = database
+      .prepare(
+        `SELECT
+           import.id AS import_id,
+           import.provider AS import_provider,
+           import.parser_schema,
+           position.id AS position_id,
+           position.provider AS position_provider,
+           snapshot.id AS snapshot_id,
+           snapshot.net_value_minor,
+           item.id AS baseline_item_id,
+           item.provider AS baseline_item_provider,
+           item.value_minor AS baseline_item_value_minor
+         FROM holding_imports import
+         JOIN holding_import_rows row ON row.import_id = import.id
+         JOIN holding_positions position
+           ON position.position_fingerprint = row.position_fingerprint
+         JOIN holding_position_snapshots snapshot
+           ON snapshot.source_import_row_id = row.id
+         JOIN portfolio_baseline_items item
+           ON item.snapshot_id = snapshot.id
+         WHERE import.id = 'holding_import_before_m9_5'`,
+      )
+      .get();
+
+    applyInsideD1StyleTransaction(database, [providerNeutralMigrationFile]);
+
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    expect(
+      database
+        .prepare(
+          `SELECT
+             import.id AS import_id,
+             import.provider AS import_provider,
+             import.parser_schema,
+             position.id AS position_id,
+             position.provider AS position_provider,
+             snapshot.id AS snapshot_id,
+             snapshot.net_value_minor,
+             item.id AS baseline_item_id,
+             item.provider AS baseline_item_provider,
+             item.value_minor AS baseline_item_value_minor
+           FROM holding_imports import
+           JOIN holding_import_rows row ON row.import_id = import.id
+           JOIN holding_positions position
+             ON position.position_fingerprint = row.position_fingerprint
+           JOIN holding_position_snapshots snapshot
+             ON snapshot.source_import_row_id = row.id
+           JOIN portfolio_baseline_items item
+             ON item.snapshot_id = snapshot.id
+           WHERE import.id = 'holding_import_before_m9_5'`,
+        )
+        .get(),
+    ).toEqual({
+      ...before,
+      import_provider: "plaid_investments",
+      parser_schema: "plaid_investments_holdings_v1",
+      position_provider: "plaid_investments",
+      baseline_item_provider: "plaid_investments",
+    });
+    expect(() =>
+      database.exec(`
+        UPDATE portfolio_baseline_items
+        SET value_minor = 125001
+        WHERE id = 'portfolio_baseline_item_before_m9_5'
+      `),
+    ).toThrow(/portfolio baseline items are immutable/u);
   });
 
   it("replays from an empty database and accepts the complete relationship model", () => {
@@ -362,7 +546,7 @@ describe("multi-source holdings persistence contract", () => {
         normalized_fingerprint, row_count, created_by, created_at
       ) VALUES (
         'holding_import_canonical_synthetic', 'hh_demo',
-        'source_document_canonical_synthetic', 'robinhood',
+        'source_document_canonical_synthetic', 'plaid_investments',
         'synthetic-canonical-v1', '${"6".repeat(64)}', 1, 'usr_demo',
         '${recordedAt}'
       );

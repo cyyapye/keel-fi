@@ -1,13 +1,24 @@
 import {
-  RobinhoodSyncErrorCodeSchema,
-  RobinhoodSyncStatusSchema,
-  type RobinhoodSyncErrorCode,
-  type RobinhoodSyncStatus,
+  InvestmentConnectionStatusSchema,
+  InvestmentConnectionsStateSchema,
+  InvestmentSyncErrorCodeSchema,
+  type InvestmentConnectionStatus,
+  type InvestmentConnectionsState,
+  type InvestmentSyncErrorCode,
 } from "@keel/domain";
 import { z } from "zod";
 
 const CONNECTOR_TYPE = "plaid-investments";
-const DISPLAY_LABEL = "Robinhood";
+
+function connectorAccountDisplayLabel(
+  institutionLabel: string,
+  providerAccountKey: string,
+): string {
+  // connector_accounts predates canonical investment connections and has a
+  // label-based unique key. Include the protected Item key so two Items at the
+  // same institution remain distinct without treating display text as identity.
+  return `${institutionLabel} [${providerAccountKey}]`;
+}
 
 type HouseholdIdentity = {
   household_id: string;
@@ -16,6 +27,8 @@ type HouseholdIdentity = {
 
 type ConnectionRow = {
   id: string;
+  display_label: string;
+  created_at: string;
   secret_reference: string;
   status: "active" | "paused" | "revoked";
   last_synced_at: string | null;
@@ -27,6 +40,8 @@ type ConnectionRow = {
   investment_lifecycle_state:
     "pending" | "active" | "paused" | "disconnected" | null;
   investment_credential_reference: string | null;
+  institution_key: string | null;
+  institution_label: string | null;
   connector_link_id: string | null;
   connector_link_version: number | null;
 };
@@ -49,22 +64,26 @@ type InvestmentConnectionRow = {
   version: number;
   lifecycle_state: "pending" | "active" | "paused" | "disconnected";
   credential_reference: string | null;
+  institution_key: string;
+  institution_label: string;
 };
 
-export type RobinhoodConnection = {
+export type InvestmentConnection = {
   readonly id: string;
-  readonly investmentConnectionId: string;
+  readonly connectorAccountId: string;
   readonly secretReference: string;
   readonly providerAccountKey: string | null;
+  readonly institutionKey: string;
+  readonly institutionLabel: string;
 };
 
-export type RobinhoodConnectionUpdate = RobinhoodConnection & {
+export type InvestmentConnectionUpdate = InvestmentConnection & {
   readonly previousSecretReference: string | null;
 };
 
-export type RobinhoodSyncRun = {
+export type InvestmentSyncRun = {
   readonly id: string;
-  readonly connection: RobinhoodConnection;
+  readonly connection: InvestmentConnection;
   readonly created: boolean;
 };
 
@@ -76,28 +95,33 @@ export type PlaidWebhookDeliveryClaim =
 export type PlaidWebhookDelivery = {
   readonly id: string;
   readonly accessSubject: string;
+  readonly connectionId: string;
   readonly status:
     "received" | "queued" | "processing" | "processed" | "failed";
 };
 
 const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/u);
 
-export interface PublicHoldingsRepository {
-  getStatus(
+export interface InvestmentConnectionsRepository {
+  getState(
     accessSubject: string,
     configured: boolean,
-  ): Promise<RobinhoodSyncStatus>;
-  getConnection(accessSubject: string): Promise<RobinhoodConnection | null>;
+  ): Promise<InvestmentConnectionsState>;
+  getConnectionStatus(
+    accessSubject: string,
+    connectionId: string,
+  ): Promise<InvestmentConnectionStatus>;
+  getConnection(
+    accessSubject: string,
+    connectionId: string,
+  ): Promise<InvestmentConnection | null>;
   upsertConnection(
     accessSubject: string,
     secretReference: string,
     providerAccountKey: string,
-  ): Promise<RobinhoodConnectionUpdate>;
-  bindProviderAccountKey(
-    accessSubject: string,
-    connectionId: string,
-    providerAccountKey: string,
-  ): Promise<void>;
+    institutionKey: string,
+    institutionLabel: string,
+  ): Promise<InvestmentConnectionUpdate>;
   disconnectConnection(
     accessSubject: string,
     connectionId: string,
@@ -116,7 +140,10 @@ export interface PublicHoldingsRepository {
     deliveryId: string,
     status: "queued" | "processing" | "processed" | "failed",
   ): Promise<boolean>;
-  beginSync(accessSubject: string): Promise<RobinhoodSyncRun>;
+  beginSync(
+    accessSubject: string,
+    connectionId: string,
+  ): Promise<InvestmentSyncRun>;
   completeSync(
     accessSubject: string,
     runId: string,
@@ -137,7 +164,7 @@ export interface PublicHoldingsRepository {
   failSync(
     accessSubject: string,
     runId: string,
-    errorCode: RobinhoodSyncErrorCode,
+    errorCode: InvestmentSyncErrorCode,
   ): Promise<void>;
 }
 
@@ -160,41 +187,63 @@ async function findIdentity(
   return identity;
 }
 
-export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
+export class D1InvestmentConnectionsRepository implements InvestmentConnectionsRepository {
   public constructor(private readonly db: D1Database) {}
 
-  public async getStatus(
+  public async getState(
     accessSubject: string,
     configured: boolean,
-  ): Promise<RobinhoodSyncStatus> {
+  ): Promise<InvestmentConnectionsState> {
     const identity = await findIdentity(this.db, accessSubject);
-    const connection = await this.findConnection(identity.household_id);
-    if (!configured) {
-      return RobinhoodSyncStatusSchema.parse({
-        version: 1,
-        configured: false,
-        status: "setup_required",
-        lastSyncedAt: connection?.last_synced_at ?? null,
-        automaticUpdatesEnabled:
-          connection?.provider_account_key !== null &&
-          connection?.provider_account_key !== undefined,
-        latestImportId: null,
-        latestRunStatus: null,
-        errorCode: "configuration_required",
-        latestAdjudication: null,
-      });
+    const connections = await this.findConnections(identity.household_id);
+    const statuses = await Promise.all(
+      connections.map((connection) =>
+        this.connectionStatus(identity, connection),
+      ),
+    );
+    return InvestmentConnectionsStateSchema.parse({
+      version: 1,
+      configured,
+      connections: statuses,
+      errorCode: configured ? null : "configuration_required",
+    });
+  }
+
+  public async getConnectionStatus(
+    accessSubject: string,
+    rawConnectionId: string,
+  ): Promise<InvestmentConnectionStatus> {
+    const connectionId = z.string().min(1).parse(rawConnectionId);
+    const identity = await findIdentity(this.db, accessSubject);
+    const connection = await this.findConnection(
+      identity.household_id,
+      connectionId,
+    );
+    if (connection === null) {
+      throw new Error("Investment connection was not found.");
     }
+    return this.connectionStatus(identity, connection);
+  }
+
+  private async connectionStatus(
+    identity: HouseholdIdentity,
+    connection: ConnectionRow,
+  ): Promise<InvestmentConnectionStatus> {
     if (
-      connection === null ||
       connection.status !== "active" ||
       connection.investment_connection_id === null ||
-      connection.investment_lifecycle_state !== "active"
+      connection.investment_lifecycle_state !== "active" ||
+      connection.institution_key === null ||
+      connection.institution_label === null
     ) {
-      return RobinhoodSyncStatusSchema.parse({
+      return InvestmentConnectionStatusSchema.parse({
         version: 1,
-        configured: true,
+        connectionId: connection.investment_connection_id ?? connection.id,
+        institutionKey: connection.institution_key ?? "unresolved",
+        institutionLabel:
+          connection.institution_label ?? connection.display_label,
         status: "disconnected",
-        lastSyncedAt: null,
+        lastSyncedAt: connection.last_synced_at,
         automaticUpdatesEnabled: false,
         latestImportId: null,
         latestRunStatus: null,
@@ -265,7 +314,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
     const errorCode =
       latestRun?.error_code === null || latestRun?.error_code === undefined
         ? null
-        : RobinhoodSyncErrorCodeSchema.parse(latestRun.error_code);
+        : InvestmentSyncErrorCodeSchema.parse(latestRun.error_code);
     const adjudicationImportId =
       latestRun?.holding_import_id ?? latestLinkedImport?.id ?? null;
     const latestAdjudication =
@@ -282,9 +331,11 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
             baselineRefreshStatus: latestRun.baseline_refresh_status,
           };
 
-    return RobinhoodSyncStatusSchema.parse({
+    return InvestmentConnectionStatusSchema.parse({
       version: 1,
-      configured: true,
+      connectionId: connection.investment_connection_id,
+      institutionKey: connection.institution_key,
+      institutionLabel: connection.institution_label,
       status:
         runStatus === "running"
           ? "syncing"
@@ -305,22 +356,31 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
 
   public async getConnection(
     accessSubject: string,
-  ): Promise<RobinhoodConnection | null> {
+    rawConnectionId: string,
+  ): Promise<InvestmentConnection | null> {
+    const connectionId = z.string().min(1).parse(rawConnectionId);
     const identity = await findIdentity(this.db, accessSubject);
-    const connection = await this.findConnection(identity.household_id);
+    const connection = await this.findConnection(
+      identity.household_id,
+      connectionId,
+    );
     if (
       connection === null ||
       connection.status !== "active" ||
       connection.investment_connection_id === null ||
-      connection.investment_lifecycle_state !== "active"
+      connection.investment_lifecycle_state !== "active" ||
+      connection.institution_key === null ||
+      connection.institution_label === null
     ) {
       return null;
     }
     return {
-      id: connection.id,
-      investmentConnectionId: connection.investment_connection_id,
+      id: connection.investment_connection_id,
+      connectorAccountId: connection.id,
       secretReference: connection.secret_reference,
       providerAccountKey: connection.provider_account_key,
+      institutionKey: connection.institution_key,
+      institutionLabel: connection.institution_label,
     };
   }
 
@@ -328,17 +388,45 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
     accessSubject: string,
     rawSecretReference: string,
     rawProviderAccountKey: string,
-  ): Promise<RobinhoodConnectionUpdate> {
+    rawInstitutionKey: string,
+    rawInstitutionLabel: string,
+  ): Promise<InvestmentConnectionUpdate> {
     const secretReference = z
       .string()
       .min(1)
       .max(1_024)
       .parse(rawSecretReference);
     const providerAccountKey = Sha256Schema.parse(rawProviderAccountKey);
+    const institutionKey = z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .parse(rawInstitutionKey);
+    const institutionLabel = z
+      .string()
+      .trim()
+      .min(1)
+      .max(512)
+      .parse(rawInstitutionLabel);
     const identity = await findIdentity(this.db, accessSubject);
-    const existing = await this.findConnection(identity.household_id);
+    const existing = await this.findConnectionBySourceKey(
+      identity.household_id,
+      providerAccountKey,
+    );
+    if (
+      existing?.institution_key !== null &&
+      existing?.institution_key !== undefined &&
+      existing.institution_key !== institutionKey
+    ) {
+      throw new Error("Investment connection institution identity changed.");
+    }
     const now = new Date().toISOString();
     const connectorAccountId = existing?.id ?? crypto.randomUUID();
+    const displayLabel = connectorAccountDisplayLabel(
+      institutionLabel,
+      providerAccountKey,
+    );
     const statements: D1PreparedStatement[] = [];
     if (existing === null) {
       statements.push(
@@ -354,7 +442,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
             connectorAccountId,
             identity.household_id,
             CONNECTOR_TYPE,
-            DISPLAY_LABEL,
+            displayLabel,
             secretReference,
             providerAccountKey,
             now,
@@ -366,16 +454,12 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
           .prepare(
             `UPDATE connector_accounts
              SET secret_reference = ?,
-                 last_synced_at = CASE
-                   WHEN provider_account_key = ? THEN last_synced_at
-                   ELSE NULL
-                 END,
-                 provider_account_key = ?, status = 'active'
+                 display_label = ?, provider_account_key = ?, status = 'active'
              WHERE id = ? AND household_id = ?`,
           )
           .bind(
             secretReference,
-            providerAccountKey,
+            displayLabel,
             providerAccountKey,
             connectorAccountId,
             identity.household_id,
@@ -396,6 +480,8 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
             version: existing.investment_version,
             lifecycle_state: existing.investment_lifecycle_state,
             credential_reference: existing.investment_credential_reference,
+            institution_key: existing.institution_key ?? institutionKey,
+            institution_label: existing.institution_label ?? institutionLabel,
           }
         : await this.findInvestmentConnectionBySourceKey(
             identity.household_id,
@@ -403,6 +489,13 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
           );
     const linkedInvestmentConnectionId =
       existing?.investment_connection_id ?? null;
+
+    if (
+      investmentConnection !== null &&
+      investmentConnection.institution_key !== institutionKey
+    ) {
+      throw new Error("Investment connection institution identity changed.");
+    }
 
     if (investmentConnection === null) {
       const investmentConnectionId = crypto.randomUUID();
@@ -429,13 +522,14 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
                institution_label, lifecycle_state, credential_reference,
                supersedes_version_id, recorded_by_user_id, recorded_at,
                immutable
-             ) VALUES (?, ?, ?, 1, 'robinhood', ?, 'active', ?, NULL, ?, ?, 1)`,
+             ) VALUES (?, ?, ?, 1, ?, ?, 'active', ?, NULL, ?, ?, 1)`,
           )
           .bind(
             versionId,
             identity.household_id,
             investmentConnectionId,
-            DISPLAY_LABEL,
+            institutionKey,
+            institutionLabel,
             secretReference,
             identity.user_id,
             now,
@@ -448,10 +542,13 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         version: 1,
         lifecycle_state: "active",
         credential_reference: secretReference,
+        institution_key: institutionKey,
+        institution_label: institutionLabel,
       };
     } else if (
       investmentConnection.lifecycle_state !== "active" ||
-      investmentConnection.credential_reference !== secretReference
+      investmentConnection.credential_reference !== secretReference ||
+      investmentConnection.institution_label !== institutionLabel
     ) {
       const versionId = crypto.randomUUID();
       statements.push(
@@ -462,14 +559,15 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
                institution_label, lifecycle_state, credential_reference,
                supersedes_version_id, recorded_by_user_id, recorded_at,
                immutable
-             ) VALUES (?, ?, ?, ?, 'robinhood', ?, 'active', ?, ?, ?, ?, 1)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 1)`,
           )
           .bind(
             versionId,
             identity.household_id,
             investmentConnection.id,
             investmentConnection.version + 1,
-            DISPLAY_LABEL,
+            institutionKey,
+            institutionLabel,
             secretReference,
             investmentConnection.version_id,
             identity.user_id,
@@ -482,60 +580,9 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
         version: investmentConnection.version + 1,
         lifecycle_state: "active",
         credential_reference: secretReference,
+        institution_key: institutionKey,
+        institution_label: institutionLabel,
       };
-    }
-
-    const replacesInvestmentConnection =
-      existing?.investment_connection_id !== null &&
-      existing?.investment_connection_id !== undefined &&
-      existing.investment_connection_id !== investmentConnection.id;
-    if (
-      replacesInvestmentConnection &&
-      existing.investment_version_id !== null &&
-      existing.investment_version !== null &&
-      existing.investment_lifecycle_state !== "disconnected"
-    ) {
-      statements.push(
-        this.db
-          .prepare(
-            `INSERT INTO investment_connection_versions (
-               id, household_id, connection_id, version, institution_key,
-               institution_label, lifecycle_state, credential_reference,
-               supersedes_version_id, recorded_by_user_id, recorded_at,
-               immutable
-             ) VALUES (?, ?, ?, ?, 'robinhood', ?, 'disconnected', NULL, ?, ?, ?, 1)`,
-          )
-          .bind(
-            crypto.randomUUID(),
-            identity.household_id,
-            existing.investment_connection_id,
-            existing.investment_version + 1,
-            DISPLAY_LABEL,
-            existing.investment_version_id,
-            identity.user_id,
-            now,
-          ),
-        this.db
-          .prepare(
-            `UPDATE connector_sync_runs
-             SET status = 'failed', finished_at = ?,
-                 error_code = 'connection_invalid'
-             WHERE connector_account_id = ? AND household_id = ?
-               AND status IN ('queued', 'running')
-               AND id IN (
-                 SELECT sync_run_id
-                 FROM connector_sync_investment_connections
-                 WHERE connection_id = ? AND household_id = ?
-               )`,
-          )
-          .bind(
-            now,
-            connectorAccountId,
-            identity.household_id,
-            existing.investment_connection_id,
-            identity.household_id,
-          ),
-      );
     }
 
     if (
@@ -565,35 +612,14 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
 
     await this.db.batch(statements);
     return {
-      id: connectorAccountId,
-      investmentConnectionId: investmentConnection.id,
+      id: investmentConnection.id,
+      connectorAccountId,
       secretReference,
       providerAccountKey,
+      institutionKey,
+      institutionLabel,
       previousSecretReference: existing?.secret_reference ?? null,
     };
-  }
-
-  public async bindProviderAccountKey(
-    accessSubject: string,
-    rawConnectionId: string,
-    rawProviderAccountKey: string,
-  ): Promise<void> {
-    const connectionId = z.string().min(1).parse(rawConnectionId);
-    const providerAccountKey = Sha256Schema.parse(rawProviderAccountKey);
-    const identity = await findIdentity(this.db, accessSubject);
-    const connection = await this.findConnection(identity.household_id);
-    if (
-      connection === null ||
-      connection.id !== connectionId ||
-      connection.status !== "active"
-    ) {
-      throw new Error("Active Robinhood connection was not found.");
-    }
-    await this.upsertConnection(
-      accessSubject,
-      connection.secret_reference,
-      providerAccountKey,
-    );
   }
 
   public async disconnectConnection(
@@ -602,9 +628,12 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
   ): Promise<void> {
     const connectionId = z.string().min(1).parse(rawConnectionId);
     const identity = await findIdentity(this.db, accessSubject);
-    const connection = await this.findConnection(identity.household_id);
-    if (connection === null || connection.id !== connectionId) {
-      throw new Error("Robinhood connection was not found.");
+    const connection = await this.findConnection(
+      identity.household_id,
+      connectionId,
+    );
+    if (connection === null) {
+      throw new Error("Investment connection was not found.");
     }
     if (
       connection.status === "revoked" &&
@@ -615,9 +644,11 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
     if (
       connection.investment_connection_id === null ||
       connection.investment_version_id === null ||
-      connection.investment_version === null
+      connection.investment_version === null ||
+      connection.institution_key === null ||
+      connection.institution_label === null
     ) {
-      throw new Error("Canonical Robinhood connection was not found.");
+      throw new Error("Canonical investment connection was not found.");
     }
     const recordedAt = new Date().toISOString();
     await this.db.batch([
@@ -627,7 +658,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
            SET status = 'revoked'
            WHERE id = ? AND household_id = ? AND status <> 'revoked'`,
         )
-        .bind(connectionId, identity.household_id),
+        .bind(connection.id, identity.household_id),
       this.db
         .prepare(
           `INSERT INTO investment_connection_versions (
@@ -635,14 +666,15 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
              institution_label, lifecycle_state, credential_reference,
              supersedes_version_id, recorded_by_user_id, recorded_at,
              immutable
-           ) VALUES (?, ?, ?, ?, 'robinhood', ?, 'disconnected', NULL, ?, ?, ?, 1)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, 'disconnected', NULL, ?, ?, ?, 1)`,
         )
         .bind(
           crypto.randomUUID(),
           identity.household_id,
           connection.investment_connection_id,
           connection.investment_version + 1,
-          DISPLAY_LABEL,
+          connection.institution_key,
+          connection.institution_label,
           connection.investment_version_id,
           identity.user_id,
           recordedAt,
@@ -777,7 +809,8 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
     const deliveryId = z.uuid().parse(rawDeliveryId);
     const row = await this.db
       .prepare(
-        `SELECT delivery.id, user.access_subject, delivery.status
+        `SELECT delivery.id, user.access_subject, delivery.status,
+                webhook_scope.connection_id
          FROM plaid_webhook_deliveries delivery
          JOIN connector_accounts account
            ON account.id = delivery.connector_account_id
@@ -809,11 +842,17 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
       .first<{
         id: string;
         access_subject: string;
+        connection_id: string;
         status: PlaidWebhookDelivery["status"];
       }>();
     return row === null
       ? null
-      : { id: row.id, accessSubject: row.access_subject, status: row.status };
+      : {
+          id: row.id,
+          accessSubject: row.access_subject,
+          connectionId: row.connection_id,
+          status: row.status,
+        };
   }
 
   public async markPlaidWebhookDelivery(
@@ -842,16 +881,25 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
     return result.meta.changes > 0;
   }
 
-  public async beginSync(accessSubject: string): Promise<RobinhoodSyncRun> {
+  public async beginSync(
+    accessSubject: string,
+    rawConnectionId: string,
+  ): Promise<InvestmentSyncRun> {
+    const connectionId = z.string().min(1).parse(rawConnectionId);
     const identity = await findIdentity(this.db, accessSubject);
-    const connection = await this.findConnection(identity.household_id);
+    const connection = await this.findConnection(
+      identity.household_id,
+      connectionId,
+    );
     if (
       connection === null ||
       connection.status !== "active" ||
       connection.investment_connection_id === null ||
-      connection.investment_lifecycle_state !== "active"
+      connection.investment_lifecycle_state !== "active" ||
+      connection.institution_key === null ||
+      connection.institution_label === null
     ) {
-      throw new Error("Robinhood is not connected.");
+      throw new Error("Investment connection is not active.");
     }
     const active = await this.db
       .prepare(
@@ -876,10 +924,12 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
       return {
         id: active.id,
         connection: {
-          id: connection.id,
-          investmentConnectionId: connection.investment_connection_id,
+          id: connection.investment_connection_id,
+          connectorAccountId: connection.id,
           secretReference: connection.secret_reference,
           providerAccountKey: connection.provider_account_key,
+          institutionKey: connection.institution_key,
+          institutionLabel: connection.institution_label,
         },
         created: false,
       };
@@ -939,10 +989,12 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
       return {
         id: raced.id,
         connection: {
-          id: connection.id,
-          investmentConnectionId: connection.investment_connection_id,
+          id: connection.investment_connection_id,
+          connectorAccountId: connection.id,
           secretReference: connection.secret_reference,
           providerAccountKey: connection.provider_account_key,
+          institutionKey: connection.institution_key,
+          institutionLabel: connection.institution_label,
         },
         created: false,
       };
@@ -950,10 +1002,12 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
     return {
       id: runId,
       connection: {
-        id: connection.id,
-        investmentConnectionId: connection.investment_connection_id,
+        id: connection.investment_connection_id,
+        connectorAccountId: connection.id,
         secretReference: connection.secret_reference,
         providerAccountKey: connection.provider_account_key,
+        institutionKey: connection.institution_key,
+        institutionLabel: connection.institution_label,
       },
       created: true,
     };
@@ -1073,9 +1127,9 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
   public async failSync(
     accessSubject: string,
     runId: string,
-    rawErrorCode: RobinhoodSyncErrorCode,
+    rawErrorCode: InvestmentSyncErrorCode,
   ): Promise<void> {
-    const errorCode = RobinhoodSyncErrorCodeSchema.parse(rawErrorCode);
+    const errorCode = InvestmentSyncErrorCodeSchema.parse(rawErrorCode);
     const identity = await findIdentity(this.db, accessSubject);
     await this.db
       .prepare(
@@ -1089,10 +1143,12 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
 
   private async findConnection(
     householdId: string,
+    connectionId: string,
   ): Promise<ConnectionRow | null> {
     return this.db
       .prepare(
-        `SELECT account.id, account.secret_reference, account.status,
+        `SELECT account.id, account.display_label, account.created_at,
+                account.secret_reference, account.status,
                 account.last_synced_at, account.provider_account_key,
                 connection.id AS investment_connection_id,
                 connection.protected_source_key AS investment_source_key,
@@ -1100,6 +1156,7 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
                 state.version AS investment_version,
                 state.lifecycle_state AS investment_lifecycle_state,
                 state.credential_reference AS investment_credential_reference,
+                state.institution_key, state.institution_label,
                 link.id AS connector_link_id,
                 link.version AS connector_link_version
          FROM connector_accounts account
@@ -1124,10 +1181,100 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
           )
          WHERE account.household_id = ?
            AND account.connector_type = ?
-           AND account.display_label = ?`,
+           AND connection.id = ?`,
       )
-      .bind(householdId, CONNECTOR_TYPE, DISPLAY_LABEL)
+      .bind(householdId, CONNECTOR_TYPE, connectionId)
       .first<ConnectionRow>();
+  }
+
+  private async findConnectionBySourceKey(
+    householdId: string,
+    sourceKey: string,
+  ): Promise<ConnectionRow | null> {
+    return this.db
+      .prepare(
+        `SELECT account.id, account.display_label, account.created_at,
+                account.secret_reference, account.status,
+                account.last_synced_at, account.provider_account_key,
+                connection.id AS investment_connection_id,
+                connection.protected_source_key AS investment_source_key,
+                state.id AS investment_version_id,
+                state.version AS investment_version,
+                state.lifecycle_state AS investment_lifecycle_state,
+                state.credential_reference AS investment_credential_reference,
+                state.institution_key, state.institution_label,
+                link.id AS connector_link_id,
+                link.version AS connector_link_version
+         FROM connector_accounts account
+         LEFT JOIN connector_investment_connection_versions link
+           ON link.connector_account_id = account.id
+          AND link.household_id = account.household_id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM connector_investment_connection_versions later
+            WHERE later.supersedes_link_id = link.id
+          )
+         LEFT JOIN investment_connections connection
+           ON connection.id = link.connection_id
+          AND connection.household_id = account.household_id
+         LEFT JOIN investment_connection_versions state
+           ON state.connection_id = connection.id
+          AND state.household_id = account.household_id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM investment_connection_versions later
+            WHERE later.supersedes_version_id = state.id
+          )
+         WHERE account.household_id = ?
+           AND account.connector_type = ?
+           AND account.provider_account_key = ?`,
+      )
+      .bind(householdId, CONNECTOR_TYPE, sourceKey)
+      .first<ConnectionRow>();
+  }
+
+  private async findConnections(householdId: string): Promise<ConnectionRow[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT account.id, account.display_label, account.created_at,
+                account.secret_reference, account.status,
+                account.last_synced_at, account.provider_account_key,
+                connection.id AS investment_connection_id,
+                connection.protected_source_key AS investment_source_key,
+                state.id AS investment_version_id,
+                state.version AS investment_version,
+                state.lifecycle_state AS investment_lifecycle_state,
+                state.credential_reference AS investment_credential_reference,
+                state.institution_key, state.institution_label,
+                link.id AS connector_link_id,
+                link.version AS connector_link_version
+         FROM connector_accounts account
+         LEFT JOIN connector_investment_connection_versions link
+           ON link.connector_account_id = account.id
+          AND link.household_id = account.household_id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM connector_investment_connection_versions later
+            WHERE later.supersedes_link_id = link.id
+          )
+         LEFT JOIN investment_connections connection
+           ON connection.id = link.connection_id
+          AND connection.household_id = account.household_id
+         LEFT JOIN investment_connection_versions state
+           ON state.connection_id = connection.id
+          AND state.household_id = account.household_id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM investment_connection_versions later
+            WHERE later.supersedes_version_id = state.id
+          )
+         WHERE account.household_id = ?
+           AND account.connector_type = ?
+         ORDER BY account.created_at, account.id`,
+      )
+      .bind(householdId, CONNECTOR_TYPE)
+      .all<ConnectionRow>();
+    return rows.results;
   }
 
   private async findInvestmentConnectionBySourceKey(
@@ -1138,7 +1285,8 @@ export class D1PublicHoldingsRepository implements PublicHoldingsRepository {
       .prepare(
         `SELECT connection.id, connection.protected_source_key,
                 state.id AS version_id, state.version,
-                state.lifecycle_state, state.credential_reference
+                state.lifecycle_state, state.credential_reference,
+                state.institution_key, state.institution_label
          FROM investment_connections connection
          JOIN investment_connection_versions state
            ON state.connection_id = connection.id

@@ -13,7 +13,7 @@ import {
   D1LiabilitiesRepository,
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
-  D1PublicHoldingsRepository,
+  D1InvestmentConnectionsRepository,
   type AlphaRepository,
   type AngelListMacAgentRepository,
   type CashAccountsRepository,
@@ -21,7 +21,7 @@ import {
   type LiabilitiesRepository,
   type PlanInputsRepository,
   type PortfolioBaselineRepository,
-  type PublicHoldingsRepository,
+  type InvestmentConnectionsRepository,
 } from "@keel/database";
 import {
   AngelListMacAgentConfigInputSchema,
@@ -43,12 +43,13 @@ import {
   PlanInputSaveSchema,
   PortfolioBaselineConfirmInputSchema,
   PortfolioWatchScanResultSchema,
-  RobinhoodExchangeInputSchema,
+  InvestmentExchangeInputSchema,
   ScenarioDraftInputSchema,
 } from "@keel/domain";
 import { ReviewInputSchema } from "@keel/evidence";
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
+import { z } from "zod";
 
 import { verifyAccessToken, type AccessVerifier } from "./auth";
 import {
@@ -84,14 +85,14 @@ import {
   type PlaidLiabilitiesClient,
 } from "./plaid-liabilities-sync";
 import {
-  connectRobinhood,
+  connectInvestmentConnection,
   createPlaidInvestmentsClient,
-  disconnectRobinhood,
-  PlaidClientError,
-  robinhoodSyncConfigured,
-  syncRobinhood,
+  disconnectInvestmentConnection,
+  PlaidInvestmentsClientError,
+  investmentsSyncConfigured,
+  syncInvestmentConnection,
   type PlaidInvestmentsClient,
-} from "./robinhood-sync";
+} from "./plaid-investments-sync";
 import type { AccessIdentity, Env } from "./types";
 
 type Variables = {
@@ -108,7 +109,8 @@ type AppOptions = {
   angelListMacAgentRepository?: AngelListMacAgentRepository;
   holdingImportRepository?: Pick<
     D1HoldingImportRepository,
-    "stageRobinhoodHoldingImport" | "autoAdjudicateRobinhoodHoldingImport"
+    | "stagePlaidInvestmentsHoldingImport"
+    | "autoAdjudicatePlaidInvestmentsHoldingImport"
   >;
   cashAccountsRepository?: CashAccountsRepository;
   cashPlaidClient?: PlaidCashClient;
@@ -119,7 +121,7 @@ type AppOptions = {
   plaidClient?: PlaidInvestmentsClient;
   planInputsRepository?: PlanInputsRepository;
   portfolioBaselineRepository?: PortfolioBaselineRepository;
-  publicHoldingsRepository?: PublicHoldingsRepository;
+  investmentConnectionsRepository?: InvestmentConnectionsRepository;
   repository?: AlphaRepository;
   verifyAccess?: AccessVerifier;
 };
@@ -128,47 +130,49 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unexpected error";
 }
 
-function robinhoodErrorResponse(
+function investmentsErrorResponse(
   context: Context<AppEnvironment>,
   error: unknown,
 ) {
   const code =
-    error instanceof PlaidClientError ? error.code : "unexpected_failure";
+    error instanceof PlaidInvestmentsClientError
+      ? error.code
+      : "unexpected_failure";
   console.error(
     JSON.stringify({
-      event: "robinhood_sync_failed",
+      event: "investment_sync_failed",
       requestId: context.get("requestId"),
       errorCode: code,
     }),
   );
   const response = {
     configuration_required: {
-      message: "Robinhood sync is not configured.",
+      message: "Investment sync is not configured.",
       status: 503 as const,
     },
     connection_invalid: {
-      message: "Reconnect Robinhood to continue syncing.",
+      message: "Reconnect this institution to continue syncing.",
       status: 409 as const,
     },
     provider_unavailable: {
-      message: "Robinhood sync is temporarily unavailable.",
+      message: "Investment sync is temporarily unavailable.",
       status: 503 as const,
     },
     response_invalid: {
-      message: "Robinhood returned an unsupported holdings response.",
+      message: "The institution returned unsupported holdings data.",
       status: 502 as const,
     },
     holdings_incomplete: {
       message:
-        "Robinhood returned an incomplete holdings snapshot. Prior positions were preserved.",
+        "The institution returned incomplete holdings. Prior positions were preserved.",
       status: 409 as const,
     },
     staging_failed: {
-      message: "Keel could not safely prepare the Robinhood update.",
+      message: "Keel could not safely prepare the investment update.",
       status: 503 as const,
     },
     unexpected_failure: {
-      message: "Keel could not sync Robinhood.",
+      message: "Keel could not sync this institution.",
       status: 503 as const,
     },
   }[code];
@@ -472,8 +476,9 @@ export function createApp(options: AppOptions = {}) {
   const angelListMacAgentRepositoryFor = (env: Env) =>
     options.angelListMacAgentRepository ??
     new D1AngelListMacAgentRepository(env.DB);
-  const publicHoldingsRepositoryFor = (env: Env) =>
-    options.publicHoldingsRepository ?? new D1PublicHoldingsRepository(env.DB);
+  const investmentConnectionsRepositoryFor = (env: Env) =>
+    options.investmentConnectionsRepository ??
+    new D1InvestmentConnectionsRepository(env.DB);
   const portfolioBaselineRepositoryFor = (env: Env) =>
     options.portfolioBaselineRepository ??
     new D1PortfolioBaselineRepository(env.DB);
@@ -483,8 +488,8 @@ export function createApp(options: AppOptions = {}) {
     options.holdingImportRepository ?? new D1HoldingImportRepository(env.DB);
   const plaidClientFor = (env: Env) =>
     options.plaidClient ?? createPlaidInvestmentsClient(env);
-  const robinhoodConfiguredFor = (env: Env) =>
-    options.plaidClient !== undefined || robinhoodSyncConfigured(env);
+  const investmentsConfiguredFor = (env: Env) =>
+    options.plaidClient !== undefined || investmentsSyncConfigured(env);
   const cashAccountsRepositoryFor = (env: Env) =>
     options.cashAccountsRepository ?? new D1CashAccountsRepository(env.DB);
   const cashPlaidClientFor = (env: Env) =>
@@ -550,14 +555,14 @@ export function createApp(options: AppOptions = {}) {
   );
 
   app.post("/webhooks/plaid", async (context) => {
-    if (!robinhoodConfiguredFor(context.env)) {
+    if (!investmentsConfiguredFor(context.env)) {
       return context.body(null, 503, { "Cache-Control": "no-store" });
     }
     try {
       const result = await receivePlaidWebhook({
         request: context.req.raw,
         env: context.env,
-        repository: publicHoldingsRepositoryFor(context.env),
+        repository: investmentConnectionsRepositoryFor(context.env),
         client: plaidClientFor(context.env),
       });
       console.info(
@@ -1366,29 +1371,33 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/api/public-holdings/robinhood/status", async (context) => {
+  app.get("/api/investment-connections", async (context) => {
     try {
-      const status = await publicHoldingsRepositoryFor(context.env).getStatus(
+      const state = await investmentConnectionsRepositoryFor(
+        context.env,
+      ).getState(
         context.get("identity").subject,
-        robinhoodConfiguredFor(context.env),
+        investmentsConfiguredFor(context.env),
       );
-      return context.json(status, 200, {
+      return context.json(state, 200, {
         "Cache-Control": "private, no-store",
       });
     } catch {
       return context.json(
-        { error: "Robinhood sync status is unavailable." },
+        { error: "Investment connection status is unavailable." },
         503,
         { "Cache-Control": "private, no-store" },
       );
     }
   });
 
-  app.post("/api/public-holdings/robinhood/link-token", async (context) => {
-    if (!robinhoodConfiguredFor(context.env)) {
-      return context.json({ error: "Robinhood sync is not configured." }, 503, {
-        "Cache-Control": "private, no-store",
-      });
+  app.post("/api/investment-connections/link-token", async (context) => {
+    if (!investmentsConfiguredFor(context.env)) {
+      return context.json(
+        { error: "Investment sync is not configured." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
     }
     try {
       const linkToken = await plaidClientFor(context.env).createLinkToken(
@@ -1398,94 +1407,119 @@ export function createApp(options: AppOptions = {}) {
         "Cache-Control": "private, no-store",
       });
     } catch (error) {
-      return robinhoodErrorResponse(context, error);
+      return investmentsErrorResponse(context, error);
     }
   });
 
-  app.post("/api/public-holdings/robinhood/exchange", async (context) => {
-    if (!robinhoodConfiguredFor(context.env)) {
-      return context.json({ error: "Robinhood sync is not configured." }, 503, {
-        "Cache-Control": "private, no-store",
-      });
+  app.post("/api/investment-connections/exchange", async (context) => {
+    if (!investmentsConfiguredFor(context.env)) {
+      return context.json(
+        { error: "Investment sync is not configured." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
     }
     let input: unknown;
     try {
       input = await context.req.json();
     } catch {
-      return context.json({ error: "Robinhood connection is invalid." }, 400);
+      return context.json({ error: "Investment connection is invalid." }, 400);
     }
-    const parsed = RobinhoodExchangeInputSchema.safeParse(input);
+    const parsed = InvestmentExchangeInputSchema.safeParse(input);
     if (!parsed.success) {
-      return context.json({ error: "Robinhood connection is invalid." }, 400);
+      return context.json({ error: "Investment connection is invalid." }, 400);
     }
     const accessSubject = context.get("identity").subject;
     try {
-      const repository = publicHoldingsRepositoryFor(context.env);
+      const repository = investmentConnectionsRepositoryFor(context.env);
       const client = plaidClientFor(context.env);
-      await connectRobinhood({
+      const connection = await connectInvestmentConnection({
         env: context.env,
         repository,
         client,
         accessSubject,
         publicToken: parsed.data.publicToken,
       });
-      const status = await syncRobinhood({
+      const status = await syncInvestmentConnection({
         env: context.env,
         repository,
         holdingImports: holdingImportRepositoryFor(context.env),
         portfolioBaselines: portfolioBaselineRepositoryFor(context.env),
         client,
         accessSubject,
+        connectionId: connection.connectionId,
       });
       return context.json(status, 200, {
         "Cache-Control": "private, no-store",
       });
     } catch (error) {
-      return robinhoodErrorResponse(context, error);
+      return investmentsErrorResponse(context, error);
     }
   });
 
-  app.post("/api/public-holdings/robinhood/sync", async (context) => {
-    if (!robinhoodConfiguredFor(context.env)) {
-      return context.json({ error: "Robinhood sync is not configured." }, 503, {
-        "Cache-Control": "private, no-store",
-      });
-    }
-    try {
-      const status = await syncRobinhood({
-        env: context.env,
-        repository: publicHoldingsRepositoryFor(context.env),
-        holdingImports: holdingImportRepositoryFor(context.env),
-        portfolioBaselines: portfolioBaselineRepositoryFor(context.env),
-        client: plaidClientFor(context.env),
-        accessSubject: context.get("identity").subject,
-      });
-      return context.json(status, 200, {
-        "Cache-Control": "private, no-store",
-      });
-    } catch (error) {
-      return robinhoodErrorResponse(context, error);
-    }
-  });
+  app.post(
+    "/api/investment-connections/:connectionId/sync",
+    async (context) => {
+      if (!investmentsConfiguredFor(context.env)) {
+        return context.json(
+          { error: "Investment sync is not configured." },
+          503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      const connectionId = z
+        .uuid()
+        .safeParse(context.req.param("connectionId"));
+      if (!connectionId.success) {
+        return context.json(
+          { error: "Investment connection is invalid." },
+          400,
+        );
+      }
+      try {
+        const status = await syncInvestmentConnection({
+          env: context.env,
+          repository: investmentConnectionsRepositoryFor(context.env),
+          holdingImports: holdingImportRepositoryFor(context.env),
+          portfolioBaselines: portfolioBaselineRepositoryFor(context.env),
+          client: plaidClientFor(context.env),
+          accessSubject: context.get("identity").subject,
+          connectionId: connectionId.data,
+        });
+        return context.json(status, 200, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        return investmentsErrorResponse(context, error);
+      }
+    },
+  );
 
-  app.delete("/api/public-holdings/robinhood", async (context) => {
-    if (!robinhoodConfiguredFor(context.env)) {
-      return context.json({ error: "Robinhood sync is not configured." }, 503, {
-        "Cache-Control": "private, no-store",
-      });
+  app.delete("/api/investment-connections/:connectionId", async (context) => {
+    if (!investmentsConfiguredFor(context.env)) {
+      return context.json(
+        { error: "Investment sync is not configured." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    const connectionId = z.uuid().safeParse(context.req.param("connectionId"));
+    if (!connectionId.success) {
+      return context.json({ error: "Investment connection is invalid." }, 400);
     }
     try {
-      const status = await disconnectRobinhood({
+      const status = await disconnectInvestmentConnection({
         env: context.env,
-        repository: publicHoldingsRepositoryFor(context.env),
+        repository: investmentConnectionsRepositoryFor(context.env),
         client: plaidClientFor(context.env),
         accessSubject: context.get("identity").subject,
+        connectionId: connectionId.data,
       });
       return context.json(status, 200, {
         "Cache-Control": "private, no-store",
       });
     } catch (error) {
-      return robinhoodErrorResponse(context, error);
+      return investmentsErrorResponse(context, error);
     }
   });
 

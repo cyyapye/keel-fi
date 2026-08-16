@@ -1,5 +1,6 @@
 import {
-  normalizeRobinhoodHoldings,
+  normalizePlaidInvestmentsHoldings,
+  plaidInvestmentAccountPresentation,
   plaidInvestmentSecurityIdentity,
   plaidInvestmentStrongSecurityIdentifier,
   PlaidInvestmentsHoldingsResponseSchema,
@@ -8,16 +9,16 @@ import {
 import type {
   D1HoldingImportRepository,
   PortfolioBaselineRepository,
-  PublicHoldingsRepository,
-  RobinhoodImportAdjudication,
+  InvestmentConnectionsRepository,
+  PlaidInvestmentsImportAdjudication,
 } from "@keel/database";
 import {
   HoldingImportCanonicalScopeSchema,
-  RobinhoodLinkTokenSchema,
+  InvestmentLinkTokenSchema,
   type HoldingImportCanonicalScope,
-  type RobinhoodLinkToken,
-  type RobinhoodSyncErrorCode,
-  type RobinhoodSyncStatus,
+  type InvestmentLinkToken,
+  type InvestmentSyncErrorCode,
+  type InvestmentConnectionStatus,
 } from "@keel/domain";
 import { z } from "zod";
 
@@ -123,7 +124,7 @@ const PlaidInstitutionResponseSchema = z
   .object({
     institution: z
       .object({
-        institution_id: z.string().min(1).max(512),
+        institution_id: z.string().min(1).max(200),
         name: z.string().min(1).max(512),
         products: z.array(z.string().min(1).max(128)).max(100),
       })
@@ -132,7 +133,17 @@ const PlaidInstitutionResponseSchema = z
   })
   .passthrough();
 
-const RobinhoodCredentialSchema = z
+const InvestmentCredentialSchema = z
+  .object({
+    version: z.literal(1),
+    accessToken: z.string().min(1).max(4_096),
+    itemId: z.string().min(1).max(512),
+    institutionKey: z.string().min(1).max(200),
+    institutionLabel: z.string().min(1).max(512),
+  })
+  .strict();
+
+const LegacyRobinhoodCredentialSchema = z
   .object({
     version: z.literal(1),
     accessToken: z.string().min(1).max(4_096),
@@ -149,9 +160,9 @@ const EncryptedCredentialSchema = z
   })
   .strict();
 
-type RobinhoodCredential = z.infer<typeof RobinhoodCredentialSchema>;
+type InvestmentCredential = z.infer<typeof InvestmentCredentialSchema>;
 
-export class PlaidClientError extends Error {
+export class PlaidInvestmentsClientError extends Error {
   public constructor(
     public readonly code:
       | "configuration_required"
@@ -163,13 +174,13 @@ export class PlaidClientError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = "PlaidClientError";
+    this.name = "PlaidInvestmentsClientError";
   }
 }
 
 export interface PlaidInvestmentsClient {
-  createLinkToken(clientUserId: string): Promise<RobinhoodLinkToken>;
-  exchangeRobinhoodToken(publicToken: string): Promise<RobinhoodCredential>;
+  createLinkToken(clientUserId: string): Promise<InvestmentLinkToken>;
+  exchangeInvestmentToken(publicToken: string): Promise<InvestmentCredential>;
   removeItem(accessToken: string): Promise<void>;
   updateItemWebhook(accessToken: string): Promise<void>;
   getWebhookVerificationKey(
@@ -191,9 +202,9 @@ function configuration(env: Env): PlaidConfiguration {
     webhookUrl: env.PLAID_WEBHOOK_URL,
   });
   if (!parsed.success) {
-    throw new PlaidClientError(
+    throw new PlaidInvestmentsClientError(
       "configuration_required",
-      "Robinhood sync is not configured.",
+      "Investment sync is not configured.",
     );
   }
   try {
@@ -201,15 +212,15 @@ function configuration(env: Env): PlaidConfiguration {
       throw new Error("invalid key");
     }
   } catch {
-    throw new PlaidClientError(
+    throw new PlaidInvestmentsClientError(
       "configuration_required",
-      "Robinhood sync is not configured.",
+      "Investment sync is not configured.",
     );
   }
   return parsed.data;
 }
 
-export function robinhoodSyncConfigured(env: Env): boolean {
+export function investmentsSyncConfigured(env: Env): boolean {
   try {
     configuration(env);
     return true;
@@ -259,11 +270,11 @@ async function credentialKey(env: Env): Promise<CryptoKey> {
 
 async function encryptCredential(
   env: Env,
-  rawCredential: RobinhoodCredential,
+  rawCredential: InvestmentCredential,
   accessSubject: string,
   objectKey: string,
 ): Promise<Uint8Array> {
-  const credential = RobinhoodCredentialSchema.parse(rawCredential);
+  const credential = InvestmentCredentialSchema.parse(rawCredential);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = new TextEncoder().encode(JSON.stringify(credential));
   const ciphertext = await crypto.subtle.encrypt(
@@ -272,7 +283,11 @@ async function encryptCredential(
       iv: ownedArrayBuffer(iv),
       additionalData: ownedArrayBuffer(
         new TextEncoder().encode(
-          JSON.stringify(["robinhood-credential-v1", accessSubject, objectKey]),
+          JSON.stringify([
+            "plaid-investments-credential-v1",
+            accessSubject,
+            objectKey,
+          ]),
         ),
       ),
     },
@@ -293,51 +308,61 @@ async function decryptCredential(
   encrypted: Uint8Array,
   accessSubject: string,
   objectKey: string,
-): Promise<RobinhoodCredential> {
+): Promise<Pick<InvestmentCredential, "accessToken" | "itemId">> {
+  let envelope: z.infer<typeof EncryptedCredentialSchema>;
   try {
-    const envelope = EncryptedCredentialSchema.parse(
+    envelope = EncryptedCredentialSchema.parse(
       JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(encrypted)),
     );
+  } catch {
+    throw new PlaidInvestmentsClientError(
+      "connection_invalid",
+      "Reconnect this institution to continue syncing.",
+    );
+  }
+  const key = await credentialKey(env);
+  const decryptWithContext = async (context: string): Promise<unknown> => {
     const plaintext = await crypto.subtle.decrypt(
       {
         name: "AES-GCM",
         iv: ownedArrayBuffer(base64UrlDecode(envelope.iv)),
         additionalData: ownedArrayBuffer(
           new TextEncoder().encode(
-            JSON.stringify([
-              "robinhood-credential-v1",
-              accessSubject,
-              objectKey,
-            ]),
+            JSON.stringify([context, accessSubject, objectKey]),
           ),
         ),
       },
-      await credentialKey(env),
+      key,
       ownedArrayBuffer(base64UrlDecode(envelope.ciphertext)),
     );
-    return RobinhoodCredentialSchema.parse(
-      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(plaintext)),
+    return JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(plaintext),
     );
-  } catch (error) {
-    if (
-      error instanceof PlaidClientError &&
-      error.code === "configuration_required"
-    ) {
-      throw error;
+  };
+  try {
+    return InvestmentCredentialSchema.parse(
+      await decryptWithContext("plaid-investments-credential-v1"),
+    );
+  } catch {
+    try {
+      return LegacyRobinhoodCredentialSchema.parse(
+        await decryptWithContext("robinhood-credential-v1"),
+      );
+    } catch {
+      throw new PlaidInvestmentsClientError(
+        "connection_invalid",
+        "Reconnect this institution to continue syncing.",
+      );
     }
-    throw new PlaidClientError(
-      "connection_invalid",
-      "Reconnect Robinhood to continue syncing.",
-    );
   }
 }
 
 async function readR2Bytes(object: R2ObjectBody): Promise<Uint8Array> {
   const buffer = await object.arrayBuffer();
   if (buffer.byteLength === 0 || buffer.byteLength > 16_384) {
-    throw new PlaidClientError(
+    throw new PlaidInvestmentsClientError(
       "connection_invalid",
-      "Reconnect Robinhood to continue syncing.",
+      "Reconnect this institution to continue syncing.",
     );
   }
   return new Uint8Array(buffer);
@@ -364,7 +389,7 @@ async function readBoundedPlaidResponse(
   response: Response,
 ): Promise<Uint8Array> {
   if (response.body === null) {
-    throw new PlaidClientError(
+    throw new PlaidInvestmentsClientError(
       "response_invalid",
       "Plaid returned an empty response.",
     );
@@ -381,7 +406,7 @@ async function readBoundedPlaidResponse(
       byteLength += value.byteLength;
       if (byteLength > MAX_PLAID_RESPONSE_BYTES) {
         await reader.cancel().catch(() => undefined);
-        throw new PlaidClientError(
+        throw new PlaidInvestmentsClientError(
           "response_invalid",
           "Plaid returned an oversized response.",
         );
@@ -389,18 +414,18 @@ async function readBoundedPlaidResponse(
       chunks.push(value);
     }
   } catch (error) {
-    if (error instanceof PlaidClientError) {
+    if (error instanceof PlaidInvestmentsClientError) {
       throw error;
     }
-    throw new PlaidClientError(
+    throw new PlaidInvestmentsClientError(
       "provider_unavailable",
-      "Robinhood sync is temporarily unavailable.",
+      "Investment sync is temporarily unavailable.",
     );
   } finally {
     reader.releaseLock();
   }
   if (byteLength === 0) {
-    throw new PlaidClientError(
+    throw new PlaidInvestmentsClientError(
       "response_invalid",
       "Plaid returned an invalid response size.",
     );
@@ -423,7 +448,7 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
 
   public async createLinkToken(
     clientUserId: string,
-  ): Promise<RobinhoodLinkToken> {
+  ): Promise<InvestmentLinkToken> {
     const response = await this.post(
       "/link/token/create",
       {
@@ -440,15 +465,15 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
       },
       PlaidLinkTokenResponseSchema,
     );
-    return RobinhoodLinkTokenSchema.parse({
+    return InvestmentLinkTokenSchema.parse({
       linkToken: response.link_token,
       expiration: response.expiration,
     });
   }
 
-  public async exchangeRobinhoodToken(
+  public async exchangeInvestmentToken(
     publicToken: string,
-  ): Promise<RobinhoodCredential> {
+  ): Promise<InvestmentCredential> {
     const token = z.string().min(1).max(4_096).parse(publicToken);
     const exchange = await this.post(
       "/item/public_token/exchange",
@@ -462,9 +487,9 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
         PlaidItemResponseSchema,
       );
       if (item.item.institution_id === null) {
-        throw new PlaidClientError(
+        throw new PlaidInvestmentsClientError(
           "connection_invalid",
-          "Choose Robinhood in the connection window.",
+          "Choose an institution that supports Investments.",
         );
       }
       const institution = await this.post(
@@ -476,19 +501,23 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
         PlaidInstitutionResponseSchema,
       );
       if (
-        !/^Robinhood(?:\s|$)/iu.test(institution.institution.name) ||
-        !institution.institution.products.includes("investments")
+        item.item.item_id !== exchange.item_id ||
+        institution.institution.institution_id !== item.item.institution_id ||
+        !institution.institution.products.some(
+          (product) => product.trim().toLowerCase() === "investments",
+        )
       ) {
-        throw new PlaidClientError(
+        throw new PlaidInvestmentsClientError(
           "connection_invalid",
-          "Choose Robinhood in the connection window.",
+          "The selected institution does not support Investments.",
         );
       }
-      return RobinhoodCredentialSchema.parse({
+      return InvestmentCredentialSchema.parse({
         version: 1,
         accessToken: exchange.access_token,
         itemId: exchange.item_id,
-        institutionId: institution.institution.institution_id,
+        institutionKey: institution.institution.institution_id,
+        institutionLabel: institution.institution.name,
       });
     } catch (error) {
       await this.removeItem(exchange.access_token);
@@ -510,16 +539,16 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
         new TextDecoder("utf-8", { fatal: true }).decode(response),
       );
     } catch {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "response_invalid",
-        "Robinhood returned an unreadable holdings response.",
+        "The institution returned an unreadable holdings response.",
       );
     }
     const parsed = PlaidInvestmentsHoldingsResponseSchema.safeParse(decoded);
     if (!parsed.success) {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "response_invalid",
-        "Robinhood returned an unsupported holdings response.",
+        "The institution returned an unsupported holdings response.",
       );
     }
     return { bytes: response, parsed: parsed.data };
@@ -533,9 +562,9 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
       PlaidItemWebhookUpdateResponseSchema,
     );
     if (response.item.webhook !== this.config.webhookUrl) {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "provider_unavailable",
-        "Robinhood automatic updates could not be enabled.",
+        "Investment automatic updates could not be enabled.",
       );
     }
   }
@@ -550,7 +579,7 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
       PlaidWebhookVerificationKeyResponseSchema,
     );
     if (response.key.kid !== keyId) {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "response_invalid",
         "Plaid returned an unsupported verification key.",
       );
@@ -574,14 +603,14 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
         new TextDecoder("utf-8", { fatal: true }).decode(bytes),
       );
     } catch {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "response_invalid",
         "Plaid returned an unreadable response.",
       );
     }
     const parsed = schema.safeParse(decoded);
     if (!parsed.success) {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "response_invalid",
         "Plaid returned an unsupported response.",
       );
@@ -608,9 +637,9 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
         },
       );
     } catch {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "provider_unavailable",
-        "Robinhood sync is temporarily unavailable.",
+        "Investment sync is temporarily unavailable.",
       );
     }
     const contentLength = response.headers.get("Content-Length");
@@ -619,20 +648,20 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
       (/^\d+$/u.test(contentLength) === false ||
         BigInt(contentLength) > BigInt(MAX_PLAID_RESPONSE_BYTES))
     ) {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "response_invalid",
         "Plaid returned an oversized response.",
       );
     }
     const bytes = await readBoundedPlaidResponse(response);
     if (!response.ok) {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         response.status === 400 || response.status === 401
           ? "connection_invalid"
           : "provider_unavailable",
         response.status === 400 || response.status === 401
-          ? "Reconnect Robinhood to continue syncing."
-          : "Robinhood sync is temporarily unavailable.",
+          ? "Reconnect this institution to continue syncing."
+          : "Investment sync is temporarily unavailable.",
       );
     }
     return bytes;
@@ -643,17 +672,18 @@ export function createPlaidInvestmentsClient(env: Env): PlaidInvestmentsClient {
   return new FetchPlaidInvestmentsClient(configuration(env));
 }
 
-export async function connectRobinhood(input: {
+export async function connectInvestmentConnection(input: {
   env: Env;
-  repository: PublicHoldingsRepository;
+  repository: InvestmentConnectionsRepository;
   client: PlaidInvestmentsClient;
   accessSubject: string;
   publicToken: string;
-}): Promise<RobinhoodSyncStatus> {
-  const credential = await input.client.exchangeRobinhoodToken(
+}): Promise<InvestmentConnectionStatus> {
+  const credential = await input.client.exchangeInvestmentToken(
     input.publicToken,
   );
   const objectKey = `connector-secrets/${crypto.randomUUID()}.json.enc`;
+  let connectionId: string;
   try {
     const encrypted = await encryptCredential(
       input.env,
@@ -668,7 +698,10 @@ export async function connectRobinhood(input: {
       input.accessSubject,
       objectKey,
       await plaidInvestmentsSourceKey(input.env, credential.itemId),
+      credential.institutionKey,
+      credential.institutionLabel,
     );
+    connectionId = connection.id;
     if (
       connection.previousSecretReference !== null &&
       connection.previousSecretReference !== objectKey
@@ -684,24 +717,27 @@ export async function connectRobinhood(input: {
       .catch(() => undefined);
     throw error;
   }
-  return input.repository.getStatus(input.accessSubject, true);
+  return input.repository.getConnectionStatus(
+    input.accessSubject,
+    connectionId,
+  );
 }
 
-export async function disconnectRobinhood(input: {
+export async function disconnectInvestmentConnection(input: {
   env: Env;
-  repository: PublicHoldingsRepository;
+  repository: InvestmentConnectionsRepository;
   client: PlaidInvestmentsClient;
   accessSubject: string;
-}): Promise<RobinhoodSyncStatus> {
-  const connection = await input.repository.getConnection(input.accessSubject);
+  connectionId: string;
+}): Promise<InvestmentConnectionStatus> {
+  const connection = await input.repository.getConnection(
+    input.accessSubject,
+    input.connectionId,
+  );
   if (connection === null) {
-    const status = await input.repository.getStatus(input.accessSubject, true);
-    if (status.status === "disconnected") {
-      return status;
-    }
-    throw new PlaidClientError(
-      "connection_invalid",
-      "Robinhood is no longer connected.",
+    return input.repository.getConnectionStatus(
+      input.accessSubject,
+      input.connectionId,
     );
   }
 
@@ -720,11 +756,14 @@ export async function disconnectRobinhood(input: {
     connection.id,
   );
   await input.env.DOCUMENTS.delete(connection.secretReference);
-  return input.repository.getStatus(input.accessSubject, true);
+  return input.repository.getConnectionStatus(
+    input.accessSubject,
+    input.connectionId,
+  );
 }
 
-function syncErrorCode(error: unknown): RobinhoodSyncErrorCode {
-  if (error instanceof PlaidClientError) {
+function syncErrorCode(error: unknown): InvestmentSyncErrorCode {
+  if (error instanceof PlaidInvestmentsClientError) {
     return error.code;
   }
   return "unexpected_failure";
@@ -734,7 +773,7 @@ async function refreshPortfolioBaseline(input: {
   repository:
     Pick<PortfolioBaselineRepository, "getState" | "confirm"> | undefined;
   accessSubject: string;
-  adjudication: RobinhoodImportAdjudication;
+  adjudication: PlaidInvestmentsImportAdjudication;
 }): Promise<{
   status: "not_needed" | "refreshed" | "manual_required";
   baselineId: string | null;
@@ -770,7 +809,7 @@ async function refreshPortfolioBaseline(input: {
         state.latestBaseline.otherFiEligibleLiquidMinor,
       duplicateReviewConfirmed: false,
       cashOverlapReviewConfirmed: false,
-      changeNote: "Robinhood holdings refreshed automatically.",
+      changeNote: "Investment holdings refreshed automatically.",
     });
     return { status: "refreshed", baselineId: result.baseline.id };
   } catch {
@@ -778,37 +817,12 @@ async function refreshPortfolioBaseline(input: {
   }
 }
 
-function robinhoodContainerPresentation(subtype: string | null): {
-  displayLabel: string;
-  containerKind: "brokerage" | "ira";
-  taxTreatment: "taxable" | "tax_deferred" | "tax_exempt";
-} {
-  const normalized = subtype?.trim().toLowerCase() ?? "";
-  if (normalized.includes("roth")) {
-    return {
-      displayLabel: "Robinhood Roth IRA",
-      containerKind: "ira",
-      taxTreatment: "tax_exempt",
-    };
-  }
-  if (normalized.includes("ira")) {
-    return {
-      displayLabel: "Robinhood IRA",
-      containerKind: "ira",
-      taxTreatment: "tax_deferred",
-    };
-  }
-  return {
-    displayLabel: "Robinhood brokerage",
-    containerKind: "brokerage",
-    taxTreatment: "taxable",
-  };
-}
-
-export async function buildRobinhoodCanonicalScope(input: {
+export async function buildPlaidInvestmentsCanonicalScope(input: {
   env: Env;
   connectionId: string;
   expectedSourceKey: string;
+  institutionKey: string;
+  institutionLabel: string;
   response: PlaidInvestmentsHoldingsResponse;
 }): Promise<HoldingImportCanonicalScope> {
   const observedSourceKey = await plaidInvestmentsSourceKey(
@@ -817,6 +831,9 @@ export async function buildRobinhoodCanonicalScope(input: {
   );
   if (observedSourceKey !== input.expectedSourceKey) {
     throw new Error("Plaid returned holdings for a different Item.");
+  }
+  if (input.response.item.institution_id !== input.institutionKey) {
+    throw new Error("Plaid returned holdings for a different institution.");
   }
   if (input.response.accounts.length === 0) {
     throw new Error("Plaid returned no investment account coverage.");
@@ -835,7 +852,10 @@ export async function buildRobinhoodCanonicalScope(input: {
       return {
         account,
         protectedAccountKey,
-        ...robinhoodContainerPresentation(account.subtype),
+        ...plaidInvestmentAccountPresentation({
+          institutionLabel: input.institutionLabel,
+          subtype: account.subtype,
+        }),
       };
     }),
   );
@@ -898,12 +918,13 @@ export async function buildRobinhoodCanonicalScope(input: {
   });
 }
 
-export async function syncRobinhood(input: {
+export async function syncInvestmentConnection(input: {
   env: Env;
-  repository: PublicHoldingsRepository;
+  repository: InvestmentConnectionsRepository;
   holdingImports: Pick<
     D1HoldingImportRepository,
-    "stageRobinhoodHoldingImport" | "autoAdjudicateRobinhoodHoldingImport"
+    | "stagePlaidInvestmentsHoldingImport"
+    | "autoAdjudicatePlaidInvestmentsHoldingImport"
   >;
   portfolioBaselines?: Pick<
     PortfolioBaselineRepository,
@@ -911,16 +932,28 @@ export async function syncRobinhood(input: {
   >;
   client: PlaidInvestmentsClient;
   accessSubject: string;
-}): Promise<RobinhoodSyncStatus> {
-  if ((await input.repository.getConnection(input.accessSubject)) === null) {
-    throw new PlaidClientError(
+  connectionId: string;
+}): Promise<InvestmentConnectionStatus> {
+  if (
+    (await input.repository.getConnection(
+      input.accessSubject,
+      input.connectionId,
+    )) === null
+  ) {
+    throw new PlaidInvestmentsClientError(
       "connection_invalid",
-      "Reconnect Robinhood to continue syncing.",
+      "Reconnect this institution to continue syncing.",
     );
   }
-  const run = await input.repository.beginSync(input.accessSubject);
+  const run = await input.repository.beginSync(
+    input.accessSubject,
+    input.connectionId,
+  );
   if (!run.created) {
-    return input.repository.getStatus(input.accessSubject, true);
+    return input.repository.getConnectionStatus(
+      input.accessSubject,
+      input.connectionId,
+    );
   }
 
   let stagedObjectKey: string | null = null;
@@ -929,9 +962,9 @@ export async function syncRobinhood(input: {
       run.connection.secretReference,
     );
     if (encrypted === null) {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "connection_invalid",
-        "Reconnect Robinhood to continue syncing.",
+        "Reconnect this institution to continue syncing.",
       );
     }
     const credential = await decryptCredential(
@@ -942,16 +975,19 @@ export async function syncRobinhood(input: {
     );
     const retrievedAt = new Date().toISOString();
     const holdings = await input.client.getHoldings(credential.accessToken);
-    let normalized: Awaited<ReturnType<typeof normalizeRobinhoodHoldings>>;
+    let normalized: Awaited<
+      ReturnType<typeof normalizePlaidInvestmentsHoldings>
+    >;
     try {
-      normalized = await normalizeRobinhoodHoldings(
+      normalized = await normalizePlaidInvestmentsHoldings(
         holdings.parsed,
         retrievedAt,
+        run.connection.institutionLabel,
       );
     } catch {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "response_invalid",
-        "Robinhood returned an unsupported holdings response.",
+        "The institution returned an unsupported holdings response.",
       );
     }
     let canonicalScope: HoldingImportCanonicalScope;
@@ -959,16 +995,18 @@ export async function syncRobinhood(input: {
       if (run.connection.providerAccountKey === null) {
         throw new Error("Canonical Plaid Item identity is unavailable.");
       }
-      canonicalScope = await buildRobinhoodCanonicalScope({
+      canonicalScope = await buildPlaidInvestmentsCanonicalScope({
         env: input.env,
-        connectionId: run.connection.investmentConnectionId,
+        connectionId: run.connection.id,
         expectedSourceKey: run.connection.providerAccountKey,
+        institutionKey: run.connection.institutionKey,
+        institutionLabel: run.connection.institutionLabel,
         response: holdings.parsed,
       });
     } catch {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "holdings_incomplete",
-        "Robinhood did not return complete account coverage. Prior accepted positions were preserved.",
+        "The institution did not return complete account coverage. Prior accepted positions were preserved.",
       );
     }
 
@@ -977,10 +1015,12 @@ export async function syncRobinhood(input: {
       httpMetadata: { contentType: "application/json" },
     });
     let staged: Awaited<
-      ReturnType<D1HoldingImportRepository["stageRobinhoodHoldingImport"]>
+      ReturnType<
+        D1HoldingImportRepository["stagePlaidInvestmentsHoldingImport"]
+      >
     >;
     try {
-      staged = await input.holdingImports.stageRobinhoodHoldingImport(
+      staged = await input.holdingImports.stagePlaidInvestmentsHoldingImport(
         input.accessSubject,
         {
           objectKey: stagedObjectKey,
@@ -994,9 +1034,9 @@ export async function syncRobinhood(input: {
         },
       );
     } catch {
-      throw new PlaidClientError(
+      throw new PlaidInvestmentsClientError(
         "staging_failed",
-        "Keel could not safely prepare the Robinhood update.",
+        "Keel could not safely prepare the investment update.",
       );
     }
     if (!staged.created) {
@@ -1009,7 +1049,7 @@ export async function syncRobinhood(input: {
     }
     const adjudication =
       staged.created || staged.preview.status !== "applied"
-        ? await input.holdingImports.autoAdjudicateRobinhoodHoldingImport(
+        ? await input.holdingImports.autoAdjudicatePlaidInvestmentsHoldingImport(
             input.accessSubject,
             staged.preview.id,
           )
@@ -1038,7 +1078,10 @@ export async function syncRobinhood(input: {
               portfolioBaselineId: baselineRefresh.baselineId,
             },
     });
-    return input.repository.getStatus(input.accessSubject, true);
+    return input.repository.getConnectionStatus(
+      input.accessSubject,
+      input.connectionId,
+    );
   } catch (error) {
     if (stagedObjectKey !== null) {
       await input.env.DOCUMENTS.delete(stagedObjectKey).catch(() => undefined);

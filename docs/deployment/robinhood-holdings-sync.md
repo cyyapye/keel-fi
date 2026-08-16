@@ -1,11 +1,13 @@
-# Robinhood holdings sync
+# Plaid Investments sync: Robinhood adapter
 
-Keel reads current Robinhood positions through Plaid Investments and stages each
-snapshot as a holding import. The versioned holdings policy automatically
-applies supported USD long positions with deterministic identities. Anything
-uncertain is isolated from accepted holdings with an immutable policy decision
-or quarantine record. A position omitted from a later snapshot keeps its last
-accepted value and is never treated as sold or closed.
+Keel's provider-neutral Plaid Investments adapter reads current brokerage
+positions and stages each snapshot as a holding import. Robinhood is the current
+operated institution and this file retains its setup notes. The versioned
+holdings policy automatically applies supported USD long positions with
+deterministic identities. Anything uncertain is isolated from accepted holdings
+with an immutable policy decision or quarantine record. A position omitted from
+a later snapshot keeps its last accepted value and is never treated as sold or
+closed.
 
 Robinhood's downloadable
 [account-activity report](https://robinhood.com/us/en/support/articles/finding-your-account-documents/)
@@ -47,8 +49,8 @@ binding. D1 retains only an opaque object reference and an HMAC-derived account
 key; it never stores Plaid's raw Item ID.
 
 Changing `CONNECTOR_CREDENTIAL_KEY` makes existing encrypted connections
-unreadable. Plan a Robinhood reconnect immediately after an intentional key
-rotation.
+unreadable. Plan a reconnect for every affected investment connection
+immediately after an intentional key rotation.
 
 For the automatic preview deployment, add the corresponding GitHub environment
 secrets with the `KEEL_PREVIEW_` prefix:
@@ -65,8 +67,10 @@ bounded setup-required state.
 
 ## Sync contract
 
-- Link is restricted to an institution whose Plaid identity is Robinhood and
-  whose enabled products include Investments.
+- Link accepts validated institution metadata only when the selected institution
+  advertises Investments. The generic adapter does not authorize another live
+  institution: follow the roadmap's coverage, pricing, private-acceptance, and
+  release gates before enabling one.
 - Plaid responses are size-bounded and schema-validated before use.
 - Money is converted from Plaid decimal strings to integer minor units without
   JavaScript floating-point arithmetic. Quantities use integer millionths.
@@ -79,9 +83,10 @@ bounded setup-required state.
 - Coverage is stored separately from rows. A complete account observation may
   contain zero holdings; partial, unavailable, malformed, failed, or ambiguous
   account coverage cannot imply that a position is missing.
-- Supported USD long positions are accepted by `robinhood-holdings-auto-v2`.
-  Each decision records the policy version, evidence fingerprint, reason codes,
-  and resulting snapshot application.
+- Supported USD long positions are accepted by
+  `plaid-investments-holdings-auto-v3`. Each decision records the policy
+  version, evidence fingerprint, reason codes, and resulting snapshot
+  application.
 - Plaid-classified cryptocurrency is recorded automatically but excluded from FI
   planning. It does not create an exception.
 - Missing cost basis does not block an otherwise usable market value. It stays
@@ -101,8 +106,9 @@ bounded setup-required state.
   connection. A no-change sync creates no redundant review, while a later return
   to an older portfolio state still creates a new review.
 - Link registers the exact webhook URL. A stable Item reconnect keeps its
-  connection lineage; a changed Item starts a distinct lineage and cannot
-  inherit the prior Item's run, import, or omission state.
+  connection lineage; a different Item starts a distinct lineage and cannot
+  inherit another Item's run, import, or omission state. Several Items may stay
+  connected at once, even when their institution labels match.
 - Keel accepts only `HOLDINGS: DEFAULT_UPDATE` on the dedicated webhook host.
   The API verifies Plaid's `ES256` JWT, fetches the exact `kid`, rejects keys or
   deliveries outside their time bounds, and compares the signed SHA-256 claim
@@ -124,6 +130,9 @@ bounded setup-required state.
 - Disconnect removes the Plaid Item and encrypted R2 credential, appends a
   disconnected canonical state, and preserves accepted holdings, baselines, and
   prior run/import provenance.
+- Browser and API operations use only `/api/investment-connections` plus an
+  exact connection ID for sync or disconnect. The removed
+  `/api/public-holdings/robinhood` endpoints must stay unavailable.
 
 Reference the official
 [Plaid Investments overview](https://plaid.com/docs/investments/),

@@ -1,5 +1,35 @@
 import { expect, test } from "@playwright/test";
 
+const investmentConnectionId = "11111111-1111-4111-8111-111111111111";
+
+function investmentStatus(overrides: Record<string, unknown> = {}) {
+  return {
+    version: 1,
+    connectionId: investmentConnectionId,
+    institutionKey: "ins_robinhood",
+    institutionLabel: "Robinhood",
+    status: "ready",
+    lastSyncedAt: "2026-08-10T16:00:00.000Z",
+    automaticUpdatesEnabled: true,
+    latestImportId: null,
+    latestRunStatus: "succeeded",
+    errorCode: null,
+    latestAdjudication: null,
+    ...overrides,
+  };
+}
+
+function investmentState(
+  connections: readonly ReturnType<typeof investmentStatus>[],
+) {
+  return {
+    version: 1,
+    configured: true,
+    connections,
+    errorCode: null,
+  };
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/cash-accounts", async (route) => {
     await route.fulfill({
@@ -56,16 +86,12 @@ test.beforeEach(async ({ page }) => {
       },
     });
   });
-  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+  await page.route("**/api/investment-connections", async (route) => {
     await route.fulfill({
       json: {
         version: 1,
         configured: false,
-        status: "setup_required",
-        lastSyncedAt: null,
-        automaticUpdatesEnabled: false,
-        latestImportId: null,
-        latestRunStatus: null,
+        connections: [],
         errorCode: "configuration_required",
       },
     });
@@ -211,7 +237,7 @@ const importPreview = {
 
 const robinhoodImportPreview = {
   id: "holding_import_synthetic_robinhood",
-  provider: "robinhood",
+  provider: "plaid_investments",
   status: "quarantined",
   observedAt: "2026-08-10T16:00:00.000Z",
   summary: {
@@ -492,11 +518,11 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
   );
 });
 
-test("connects Robinhood, applies clear rows, and isolates exceptions", async ({
+test("connects Robinhood through Investments and isolates exceptions", async ({
   page,
 }) => {
   const exchangeBodies: unknown[] = [];
-  await page.unroute("**/api/public-holdings/robinhood/status");
+  await page.unroute("**/api/investment-connections");
   await page.addInitScript(() => {
     (
       window as unknown as {
@@ -535,22 +561,11 @@ test("connects Robinhood, applies clear rows, and isolates exceptions", async ({
       },
     });
   });
-  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "disconnected",
-        lastSyncedAt: null,
-        automaticUpdatesEnabled: false,
-        latestImportId: null,
-        latestRunStatus: null,
-        errorCode: null,
-      },
-    });
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({ json: investmentState([]) });
   });
   await page.route(
-    "**/api/public-holdings/robinhood/link-token",
+    "**/api/investment-connections/link-token",
     async (route) => {
       await route.fulfill({
         json: {
@@ -560,32 +575,23 @@ test("connects Robinhood, applies clear rows, and isolates exceptions", async ({
       });
     },
   );
-  await page.route(
-    "**/api/public-holdings/robinhood/exchange",
-    async (route) => {
-      exchangeBodies.push(route.request().postDataJSON());
-      await route.fulfill({
-        json: {
-          version: 1,
-          configured: true,
-          status: "ready",
-          lastSyncedAt: "2026-08-10T16:00:00.000Z",
-          automaticUpdatesEnabled: true,
-          latestImportId: robinhoodImportPreview.id,
-          latestRunStatus: "succeeded",
-          errorCode: null,
-          latestAdjudication: {
-            importId: robinhoodImportPreview.id,
-            policyVersion: "robinhood-holdings-auto-v2",
-            autoAppliedCount: 2,
-            quarantinedCount: 2,
-            preservedPositionCount: 1,
-            baselineRefreshStatus: "refreshed",
-          },
+  await page.route("**/api/investment-connections/exchange", async (route) => {
+    exchangeBodies.push(route.request().postDataJSON());
+    await route.fulfill({
+      json: investmentStatus({
+        lastSyncedAt: "2026-08-10T16:00:00.000Z",
+        latestImportId: robinhoodImportPreview.id,
+        latestAdjudication: {
+          importId: robinhoodImportPreview.id,
+          policyVersion: "plaid-investments-holdings-auto-v3",
+          autoAppliedCount: 2,
+          quarantinedCount: 2,
+          preservedPositionCount: 1,
+          baselineRefreshStatus: "refreshed",
         },
-      });
-    },
-  );
+      }),
+    });
+  });
   await page.route(
     /\/api\/holding-imports\/holding_import_synthetic_robinhood$/,
     async (route) => {
@@ -646,7 +652,7 @@ test("connects Robinhood, applies clear rows, and isolates exceptions", async ({
 });
 
 test("shows one Robinhood exception entry point", async ({ page }) => {
-  await page.unroute("**/api/public-holdings/robinhood/status");
+  await page.unroute("**/api/investment-connections");
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
@@ -655,7 +661,7 @@ test("shows one Robinhood exception entry point", async ({ page }) => {
       json: [
         {
           id: robinhoodImportPreview.id,
-          provider: "robinhood",
+          provider: "plaid_investments",
           status: "quarantined",
           observedAt: robinhoodImportPreview.observedAt,
           rowCount: robinhoodImportPreview.summary.rowCount,
@@ -679,26 +685,21 @@ test("shows one Robinhood exception entry point", async ({ page }) => {
       },
     });
   });
-  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+  await page.route("**/api/investment-connections", async (route) => {
     await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "ready",
-        lastSyncedAt: "2026-08-10T16:00:00.000Z",
-        automaticUpdatesEnabled: true,
-        latestImportId: robinhoodImportPreview.id,
-        latestRunStatus: "succeeded",
-        errorCode: null,
-        latestAdjudication: {
-          importId: robinhoodImportPreview.id,
-          policyVersion: "robinhood-holdings-auto-v2",
-          autoAppliedCount: 2,
-          quarantinedCount: 2,
-          preservedPositionCount: 1,
-          baselineRefreshStatus: "refreshed",
-        },
-      },
+      json: investmentState([
+        investmentStatus({
+          latestImportId: robinhoodImportPreview.id,
+          latestAdjudication: {
+            importId: robinhoodImportPreview.id,
+            policyVersion: "plaid-investments-holdings-auto-v3",
+            autoAppliedCount: 2,
+            quarantinedCount: 2,
+            preservedPositionCount: 1,
+            baselineRefreshStatus: "refreshed",
+          },
+        }),
+      ]),
     });
   });
 
@@ -712,7 +713,7 @@ test("shows one Robinhood exception entry point", async ({ page }) => {
     page.getByRole("button", { name: /View .*exceptions?/u }),
   ).toHaveCount(1);
   await expect(page.locator(".holding-import-pending")).toHaveCount(0);
-  await expect(page.locator(".robinhood-sync")).toHaveScreenshot(
+  await expect(page.locator(".investment-sync")).toHaveScreenshot(
     "holdings-robinhood-single-exception.png",
     {
       animations: "disabled",
@@ -727,7 +728,7 @@ test("shows automatic Robinhood checks with exception-only review", async ({
   page,
 }) => {
   let disconnectCalls = 0;
-  await page.unroute("**/api/public-holdings/robinhood/status");
+  await page.unroute("**/api/investment-connections");
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
@@ -749,45 +750,38 @@ test("shows automatic Robinhood checks with exception-only review", async ({
       },
     });
   });
-  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
+  await page.route("**/api/investment-connections", async (route) => {
     await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "ready",
-        lastSyncedAt: "2026-08-14T16:00:00.000Z",
-        automaticUpdatesEnabled: true,
-        latestImportId: null,
-        latestRunStatus: "succeeded",
-        errorCode: null,
-        latestAdjudication: {
-          importId: "holding_import_synthetic_applied",
-          policyVersion: "robinhood-holdings-auto-v2",
-          autoAppliedCount: 3,
-          quarantinedCount: 0,
-          preservedPositionCount: 0,
-          baselineRefreshStatus: "refreshed",
-        },
-      },
+      json: investmentState([
+        investmentStatus({
+          lastSyncedAt: "2026-08-14T16:00:00.000Z",
+          latestAdjudication: {
+            importId: "holding_import_synthetic_applied",
+            policyVersion: "plaid-investments-holdings-auto-v3",
+            autoAppliedCount: 3,
+            quarantinedCount: 0,
+            preservedPositionCount: 0,
+            baselineRefreshStatus: "refreshed",
+          },
+        }),
+      ]),
     });
   });
-  await page.route("**/api/public-holdings/robinhood", async (route) => {
-    expect(route.request().method()).toBe("DELETE");
-    disconnectCalls += 1;
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "disconnected",
-        lastSyncedAt: null,
-        automaticUpdatesEnabled: false,
-        latestImportId: null,
-        latestRunStatus: null,
-        errorCode: null,
-        latestAdjudication: null,
-      },
-    });
-  });
+  await page.route(
+    `**/api/investment-connections/${investmentConnectionId}`,
+    async (route) => {
+      expect(route.request().method()).toBe("DELETE");
+      disconnectCalls += 1;
+      await route.fulfill({
+        json: investmentStatus({
+          status: "disconnected",
+          lastSyncedAt: null,
+          automaticUpdatesEnabled: false,
+          latestRunStatus: null,
+        }),
+      });
+    },
+  );
 
   await page.goto("/holdings");
   await expect(
@@ -808,7 +802,7 @@ test("shows automatic Robinhood checks with exception-only review", async ({
   await expect(
     page.getByRole("button", { name: "Keep connected" }),
   ).toBeVisible();
-  await expect(page.locator(".robinhood-sync")).toHaveScreenshot(
+  await expect(page.locator(".investment-sync")).toHaveScreenshot(
     "holdings-robinhood-disconnect-confirmation.png",
     {
       animations: "disabled",

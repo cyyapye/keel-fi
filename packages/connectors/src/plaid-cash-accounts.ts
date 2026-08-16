@@ -9,7 +9,7 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
-import { plaidDecimalToScaledInteger } from "./plaid-robinhood-holdings";
+import { plaidDecimalToScaledInteger } from "./plaid-investments-holdings";
 
 const MAX_PLAID_CASH_ACCOUNTS = 100;
 

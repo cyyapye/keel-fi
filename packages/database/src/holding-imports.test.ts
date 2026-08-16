@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   D1HoldingImportRepository,
   type HoldingImportStageInput,
-  type RobinhoodHoldingImportStageInput,
+  type PlaidInvestmentsHoldingImportStageInput,
 } from "./holding-imports";
 import { D1AlphaRepository } from "./index";
 import { D1CashAccountsRepository } from "./cash-accounts";
@@ -34,6 +34,7 @@ const migrationFiles = [
   "packages/database/migrations/0019_multi_source_holdings_contract.sql",
   "packages/database/migrations/0020_container_scoped_holding_ingestion.sql",
   "packages/database/migrations/0021_canonical_exposure_resolution.sql",
+  "packages/database/migrations/0022_provider_neutral_investments.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -114,7 +115,7 @@ function seedRobinhoodInvestmentConnection(
          id, household_id, connection_id, version, institution_key,
          institution_label, lifecycle_state, credential_reference,
          supersedes_version_id, recorded_by_user_id, recorded_at, immutable
-       ) VALUES (?, 'hh_demo', ?, 1, 'robinhood', 'Robinhood', 'active',
+       ) VALUES (?, 'hh_demo', ?, 1, 'plaid_investments', 'Robinhood', 'active',
          'connector-secrets/synthetic.enc', NULL, 'usr_demo', ?, 1)`,
     )
     .run(versionId, connectionId, "2026-08-01T12:00:00.000Z");
@@ -196,7 +197,7 @@ function stageInput(
 
 function robinhoodStageInput(
   normalizedFingerprint = "9".repeat(64),
-): RobinhoodHoldingImportStageInput {
+): PlaidInvestmentsHoldingImportStageInput {
   return {
     objectKey: "holding-imports/synthetic-robinhood.json",
     sha256: "8".repeat(64),
@@ -465,14 +466,14 @@ describe("AngelList holding import persistence", () => {
   });
 
   it("stages and applies an exact Robinhood public-position snapshot", async () => {
-    const staged = await repository.stageRobinhoodHoldingImport(
+    const staged = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       robinhoodStageInput(),
     );
     expect(staged).toMatchObject({
       created: true,
       preview: {
-        provider: "robinhood",
+        provider: "plaid_investments",
         status: "pending_review",
         summary: {
           rowCount: 1,
@@ -493,7 +494,7 @@ describe("AngelList holding import persistence", () => {
       },
     });
 
-    const repeated = await repository.stageRobinhoodHoldingImport(
+    const repeated = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       { ...robinhoodStageInput(), sha256: "6".repeat(64) },
     );
@@ -526,7 +527,7 @@ describe("AngelList holding import persistence", () => {
          FROM holding_positions position
          JOIN holding_position_snapshots snapshot
            ON snapshot.position_id = position.id
-         WHERE position.provider = 'robinhood'`,
+         WHERE position.provider = 'plaid_investments'`,
       )
       .get() as {
       position_kind: string;
@@ -569,7 +570,7 @@ describe("AngelList holding import persistence", () => {
         exposureName: "SYN · Synthetic Public Company",
         positionKind: "direct",
         administratorNavMinor: 123_457,
-        sourceLabel: "Robinhood via Plaid",
+        sourceLabel: "Plaid Investments",
         ticker: "SYN",
         quantityMicros: 12_345_678,
         costBasisMinor: 100_000,
@@ -586,7 +587,7 @@ describe("AngelList holding import persistence", () => {
       marketValueMinor: 130_000,
       observedOn: "2026-08-09",
     };
-    const changed = await repository.stageRobinhoodHoldingImport(
+    const changed = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       changedInput,
     );
@@ -619,7 +620,7 @@ describe("AngelList holding import persistence", () => {
       ...returnedInput.rows[0]!,
       observedOn: "2026-08-10",
     };
-    const returned = await repository.stageRobinhoodHoldingImport(
+    const returned = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       returnedInput,
     );
@@ -668,7 +669,7 @@ describe("AngelList holding import persistence", () => {
     input.rows = [];
     input.canonicalScope.rows = [];
 
-    const staged = await repository.stageRobinhoodHoldingImport(
+    const staged = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       input,
     );
@@ -685,7 +686,7 @@ describe("AngelList holding import persistence", () => {
     });
 
     await expect(
-      repository.autoAdjudicateRobinhoodHoldingImport(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         staged.preview.id,
       ),
@@ -714,12 +715,12 @@ describe("AngelList holding import persistence", () => {
       securityType: "cryptocurrency",
       issues: ["cryptocurrency positions are not supported yet."],
     };
-    const legacy = await repository.stageRobinhoodHoldingImport(
+    const legacy = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       legacyInput,
     );
     await expect(
-      repository.autoAdjudicateRobinhoodHoldingImport(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         legacy.preview.id,
       ),
@@ -735,18 +736,19 @@ describe("AngelList holding import persistence", () => {
       issues: ["Crypto is recorded outside the FI plan."],
     };
 
-    const staged = await repository.stageRobinhoodHoldingImport(
+    const staged = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       input,
     );
-    const adjudication = await repository.autoAdjudicateRobinhoodHoldingImport(
-      "synthetic-access-subject",
-      staged.preview.id,
-    );
+    const adjudication =
+      await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        "synthetic-access-subject",
+        staged.preview.id,
+      );
 
     expect(adjudication).toEqual({
       importId: staged.preview.id,
-      policyVersion: "robinhood-holdings-auto-v2",
+      policyVersion: "plaid-investments-holdings-auto-v3",
       autoAppliedCount: 1,
       quarantinedCount: 0,
       preservedPositionCount: 0,
@@ -774,7 +776,7 @@ describe("AngelList holding import persistence", () => {
       expect.objectContaining({
         positionName: "Synthetic Digital Asset",
         ticker: "SDA",
-        sourceLabel: "Robinhood via Plaid",
+        sourceLabel: "Plaid Investments",
       }),
     );
 
@@ -784,12 +786,12 @@ describe("AngelList holding import persistence", () => {
     omittedCryptoInput.sha256 = "de".repeat(32);
     omittedCryptoInput.rows = [];
     omittedCryptoInput.canonicalScope.rows = [];
-    const omittedCrypto = await repository.stageRobinhoodHoldingImport(
+    const omittedCrypto = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       omittedCryptoInput,
     );
     await expect(
-      repository.autoAdjudicateRobinhoodHoldingImport(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         omittedCrypto.preview.id,
       ),
@@ -802,12 +804,12 @@ describe("AngelList holding import persistence", () => {
     const laterInput = robinhoodStageInput("e".repeat(64));
     laterInput.objectKey = "holding-imports/synthetic-later-robinhood.json";
     laterInput.sha256 = "e".repeat(64);
-    const later = await repository.stageRobinhoodHoldingImport(
+    const later = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       laterInput,
     );
     await expect(
-      repository.autoAdjudicateRobinhoodHoldingImport(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         later.preview.id,
       ),
@@ -848,18 +850,18 @@ describe("AngelList holding import persistence", () => {
       protectedAccountKey: robinhoodAccountKey,
       protectedPositionKey: "8".repeat(64),
     });
-    const initial = await repository.stageRobinhoodHoldingImport(
+    const initial = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       initialInput,
     );
     const initialAdjudication =
-      await repository.autoAdjudicateRobinhoodHoldingImport(
+      await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         initial.preview.id,
       );
     expect(initialAdjudication).toEqual({
       importId: initial.preview.id,
-      policyVersion: "robinhood-holdings-auto-v2",
+      policyVersion: "plaid-investments-holdings-auto-v3",
       autoAppliedCount: 2,
       quarantinedCount: 0,
       preservedPositionCount: 0,
@@ -906,18 +908,18 @@ describe("AngelList holding import persistence", () => {
       protectedAccountKey: robinhoodAccountKey,
       protectedPositionKey: "9".repeat(64),
     });
-    const changed = await repository.stageRobinhoodHoldingImport(
+    const changed = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       changedInput,
     );
     const changedAdjudication =
-      await repository.autoAdjudicateRobinhoodHoldingImport(
+      await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         changed.preview.id,
       );
     expect(changedAdjudication).toEqual({
       importId: changed.preview.id,
-      policyVersion: "robinhood-holdings-auto-v2",
+      policyVersion: "plaid-investments-holdings-auto-v3",
       autoAppliedCount: 1,
       quarantinedCount: 2,
       preservedPositionCount: 1,
@@ -955,10 +957,10 @@ describe("AngelList holding import persistence", () => {
       .prepare(
         `SELECT
            (SELECT COUNT(*) FROM holding_positions
-            WHERE provider = 'robinhood') AS positions,
+            WHERE provider = 'plaid_investments') AS positions,
            (SELECT COUNT(*) FROM holding_position_snapshots snapshot
             JOIN holding_positions position ON position.id = snapshot.position_id
-            WHERE position.provider = 'robinhood') AS snapshots,
+            WHERE position.provider = 'plaid_investments') AS snapshots,
            (SELECT COUNT(*) FROM holding_import_row_decisions
             WHERE decision_source = 'policy') AS policy_decisions,
            (SELECT COUNT(*) FROM holding_import_quarantines) AS quarantines`,
@@ -982,7 +984,7 @@ describe("AngelList holding import persistence", () => {
     ).toThrow("immutable");
 
     await expect(
-      repository.autoAdjudicateRobinhoodHoldingImport(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         changed.preview.id,
       ),
@@ -1018,12 +1020,12 @@ describe("AngelList holding import persistence", () => {
       protectedAccountKey: retirementAccountKey,
       protectedPositionKey: retirementPositionKey,
     });
-    const initial = await repository.stageRobinhoodHoldingImport(
+    const initial = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       initialInput,
     );
     await expect(
-      repository.autoAdjudicateRobinhoodHoldingImport(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         initial.preview.id,
       ),
@@ -1059,12 +1061,12 @@ describe("AngelList holding import persistence", () => {
         protectedPositionKey: retirementPositionKey,
       },
     ];
-    const later = await repository.stageRobinhoodHoldingImport(
+    const later = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       laterInput,
     );
     await expect(
-      repository.autoAdjudicateRobinhoodHoldingImport(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         later.preview.id,
       ),
@@ -1134,12 +1136,12 @@ describe("AngelList holding import persistence", () => {
       ],
       rows: [],
     };
-    const failed = await repository.stageRobinhoodHoldingImport(
+    const failed = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       failedInput,
     );
     await expect(
-      repository.autoAdjudicateRobinhoodHoldingImport(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
         "synthetic-access-subject",
         failed.preview.id,
       ),
@@ -1284,7 +1286,7 @@ describe("reviewed portfolio baseline persistence", () => {
       protectedAccountKey: robinhoodAccountKey,
       protectedPositionKey: "9".repeat(64),
     });
-    const robinhood = await holdingImports.stageRobinhoodHoldingImport(
+    const robinhood = await holdingImports.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       robinhoodInput,
     );

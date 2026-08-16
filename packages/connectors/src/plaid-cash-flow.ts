@@ -8,7 +8,7 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
-import { plaidDecimalToScaledInteger } from "./plaid-robinhood-holdings";
+import { plaidDecimalToScaledInteger } from "./plaid-investments-holdings";
 
 export const MAX_PLAID_TRANSACTION_MUTATIONS = 5_000;
 

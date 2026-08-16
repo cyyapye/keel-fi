@@ -70,22 +70,22 @@ const fiPlanningSecurityTypes = new Set([
 
 const outsideFiSecurityTypes = new Set(["cryptocurrency"]);
 
-export const ROBINHOOD_CRYPTO_OUTSIDE_FI_ISSUE =
+export const PLAID_INVESTMENTS_CRYPTO_OUTSIDE_FI_ISSUE =
   "Crypto is recorded outside the FI plan.";
 
-export function isRobinhoodFiPlanningSecurityType(
+export function isPlaidInvestmentsFiPlanningSecurityType(
   securityType: string,
 ): boolean {
   return fiPlanningSecurityTypes.has(securityType.trim().toLowerCase());
 }
 
-export function isRobinhoodOutsideFiSecurityType(
+export function isPlaidInvestmentsOutsideFiSecurityType(
   securityType: string,
 ): boolean {
   return outsideFiSecurityTypes.has(securityType.trim().toLowerCase());
 }
 
-export const RobinhoodHoldingRowSchema = z
+export const PlaidInvestmentHoldingRowSchema = z
   .object({
     rowNumber: z.number().int().positive().max(MAX_PLAID_HOLDINGS),
     naturalKeySha256: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -102,22 +102,24 @@ export const RobinhoodHoldingRowSchema = z
   })
   .strict();
 
-export const RobinhoodHoldingsImportSchema = z
+export const PlaidInvestmentsHoldingImportSchema = z
   .object({
-    provider: z.literal("robinhood"),
+    provider: z.literal("plaid_investments"),
     formatVersion: z.literal(1),
     normalizedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
     effectiveDate: z.iso.date(),
-    rows: z.array(RobinhoodHoldingRowSchema).max(MAX_PLAID_HOLDINGS),
+    rows: z.array(PlaidInvestmentHoldingRowSchema).max(MAX_PLAID_HOLDINGS),
   })
   .strict();
 
 export type PlaidInvestmentsHoldingsResponse = z.infer<
   typeof PlaidInvestmentsHoldingsResponseSchema
 >;
-export type RobinhoodHoldingRow = z.infer<typeof RobinhoodHoldingRowSchema>;
-export type RobinhoodHoldingsImport = z.infer<
-  typeof RobinhoodHoldingsImportSchema
+export type PlaidInvestmentHoldingRow = z.infer<
+  typeof PlaidInvestmentHoldingRowSchema
+>;
+export type PlaidInvestmentsHoldingImport = z.infer<
+  typeof PlaidInvestmentsHoldingImportSchema
 >;
 
 function decimalParts(value: number | string): {
@@ -182,15 +184,67 @@ async function sha256(value: string): Promise<string> {
     .join("");
 }
 
-function accountLabel(subtype: string | null): string {
-  const normalized = subtype?.toLowerCase() ?? "";
+export function plaidInvestmentAccountPresentation(input: {
+  institutionLabel: string;
+  subtype: string | null;
+}): {
+  displayLabel: string;
+  containerKind: "brokerage" | "ira" | "retirement" | "trust" | "other";
+  taxTreatment: "taxable" | "tax_deferred" | "tax_exempt" | "unknown";
+} {
+  const institutionLabel = z
+    .string()
+    .trim()
+    .min(1)
+    .max(512)
+    .parse(input.institutionLabel);
+  const normalized = input.subtype?.trim().toLowerCase() ?? "";
   if (normalized.includes("roth")) {
-    return "Robinhood Roth IRA";
+    return {
+      displayLabel: `${institutionLabel} Roth IRA`,
+      containerKind: "ira",
+      taxTreatment: "tax_exempt",
+    };
   }
   if (normalized.includes("ira")) {
-    return "Robinhood IRA";
+    return {
+      displayLabel: `${institutionLabel} IRA`,
+      containerKind: "ira",
+      taxTreatment: "tax_deferred",
+    };
   }
-  return "Robinhood brokerage";
+  if (
+    normalized.includes("401") ||
+    normalized.includes("403") ||
+    normalized.includes("457") ||
+    normalized.includes("pension") ||
+    normalized.includes("retirement")
+  ) {
+    return {
+      displayLabel: `${institutionLabel} retirement account`,
+      containerKind: "retirement",
+      taxTreatment: "tax_deferred",
+    };
+  }
+  if (normalized.includes("trust")) {
+    return {
+      displayLabel: `${institutionLabel} trust`,
+      containerKind: "trust",
+      taxTreatment: "unknown",
+    };
+  }
+  if (normalized === "" || normalized.includes("brokerage")) {
+    return {
+      displayLabel: `${institutionLabel} brokerage`,
+      containerKind: "brokerage",
+      taxTreatment: "taxable",
+    };
+  }
+  return {
+    displayLabel: `${institutionLabel} investment account`,
+    containerKind: "other",
+    taxTreatment: "unknown",
+  };
 }
 
 export type PlaidStrongSecurityIdentifier = {
@@ -322,19 +376,26 @@ function issueMessages(input: {
   if (input.costBasisMinor === null) {
     messages.push("Cost basis is unavailable.");
   }
-  if (isRobinhoodOutsideFiSecurityType(input.securityType)) {
-    messages.push(ROBINHOOD_CRYPTO_OUTSIDE_FI_ISSUE);
-  } else if (!isRobinhoodFiPlanningSecurityType(input.securityType)) {
+  if (isPlaidInvestmentsOutsideFiSecurityType(input.securityType)) {
+    messages.push(PLAID_INVESTMENTS_CRYPTO_OUTSIDE_FI_ISSUE);
+  } else if (!isPlaidInvestmentsFiPlanningSecurityType(input.securityType)) {
     messages.push(`${input.securityType} positions are not supported yet.`);
   }
   return messages;
 }
 
-export async function normalizeRobinhoodHoldings(
+export async function normalizePlaidInvestmentsHoldings(
   raw: unknown,
   retrievedAt: string,
-): Promise<RobinhoodHoldingsImport> {
+  institutionLabel: string,
+): Promise<PlaidInvestmentsHoldingImport> {
   const parsedRetrievedAt = z.iso.datetime({ offset: true }).parse(retrievedAt);
+  const parsedInstitutionLabel = z
+    .string()
+    .trim()
+    .min(1)
+    .max(512)
+    .parse(institutionLabel);
   const response = PlaidInvestmentsHoldingsResponseSchema.parse(raw);
   const accountsById = new Map(
     response.accounts.map((account) => [account.account_id, account]),
@@ -352,14 +413,14 @@ export async function normalizeRobinhoodHoldings(
   const fallbackDate = parsedRetrievedAt.slice(0, 10);
   const rows = await Promise.all(
     response.holdings.map(
-      async (holding, index): Promise<RobinhoodHoldingRow> => {
+      async (holding, index): Promise<PlaidInvestmentHoldingRow> => {
         const account = accountsById.get(holding.account_id);
         const security = securitiesById.get(holding.security_id);
         if (account === undefined || security === undefined) {
           throw new Error("Plaid holding references unknown account data.");
         }
         if (account.type.toLowerCase() !== "investment") {
-          throw new Error("Plaid returned a non-investment Robinhood account.");
+          throw new Error("Plaid returned a non-investment account.");
         }
         if (
           holding.iso_currency_code !== "USD" ||
@@ -368,7 +429,7 @@ export async function normalizeRobinhoodHoldings(
           security.unofficial_currency_code !== null
         ) {
           throw new Error(
-            "Robinhood sync currently supports USD holdings only.",
+            "Plaid Investments sync currently supports USD holdings only.",
           );
         }
 
@@ -389,7 +450,7 @@ export async function normalizeRobinhoodHoldings(
           marketValueMinor < 0 ||
           (costBasisMinor !== null && costBasisMinor < 0)
         ) {
-          throw new Error("Robinhood short positions are not supported yet.");
+          throw new Error("Short investment positions are not supported yet.");
         }
 
         const securityName =
@@ -400,20 +461,23 @@ export async function normalizeRobinhoodHoldings(
           account.persistent_account_id ?? account.account_id;
         const naturalKeySha256 = await sha256(
           JSON.stringify([
-            "robinhood-position-v1",
+            "plaid-investments-position-v1",
             accountIdentity,
             plaidInvestmentSecurityIdentity(security),
           ]),
         );
         const issues = issueMessages({ costBasisMinor, securityType });
 
-        return RobinhoodHoldingRowSchema.parse({
+        return PlaidInvestmentHoldingRowSchema.parse({
           rowNumber: index + 1,
           naturalKeySha256,
           securityName,
           ticker,
           securityType,
-          accountLabel: accountLabel(account.subtype),
+          accountLabel: plaidInvestmentAccountPresentation({
+            institutionLabel: parsedInstitutionLabel,
+            subtype: account.subtype,
+          }).displayLabel,
           quantityMicros,
           costBasisMinor,
           marketValueMinor,
@@ -426,7 +490,7 @@ export async function normalizeRobinhoodHoldings(
   );
   const keys = rows.map((row) => row.naturalKeySha256);
   if (new Set(keys).size !== keys.length) {
-    throw new Error("Plaid returned duplicate Robinhood holdings.");
+    throw new Error("Plaid returned duplicate investment holdings.");
   }
 
   const stableRows = [...rows]
@@ -452,11 +516,11 @@ export async function normalizeRobinhoodHoldings(
           rows[0]?.observedOn ?? fallbackDate,
         );
 
-  return RobinhoodHoldingsImportSchema.parse({
-    provider: "robinhood",
+  return PlaidInvestmentsHoldingImportSchema.parse({
+    provider: "plaid_investments",
     formatVersion: 1,
     normalizedFingerprint: await sha256(
-      JSON.stringify(["robinhood-holdings-import-v1", stableRows]),
+      JSON.stringify(["plaid-investments-holdings-import-v1", stableRows]),
     ),
     effectiveDate,
     rows,

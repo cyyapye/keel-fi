@@ -47,12 +47,14 @@ snapshot.
 - Optional macOS-assisted AngelList CSV download and staging with a dedicated
   local Chrome profile. Automatic checks run daily, an immediate local command
   is available, and every import still requires review.
-- Automatic Robinhood holdings checks that apply deterministic USD long
-  positions and isolate only unsupported or identity-ambiguous records. Missing
-  positions keep their last accepted values and never imply sales. A clean
-  update versions an existing Portfolio Baseline, forecast, and matching FI goal
-  with the already accepted other-liquid amount; initial baselines, unavailable
-  values, and possible overlaps remain explicit.
+- Automatic Plaid Investments holdings checks, currently operated with
+  Robinhood, that apply deterministic USD long positions and isolate only
+  unsupported or identity-ambiguous records. Every Item, account, sync, and
+  webhook stays on its exact connection lineage. Missing positions keep their
+  last accepted values and never imply sales. A clean update versions an
+  existing Portfolio Baseline, forecast, and matching FI goal with the already
+  accepted other-liquid amount; initial baselines, unavailable values, and
+  possible overlaps remain explicit.
 - User-initiated Plaid cash-balance checks. Checking, savings, money-market, and
   cash-management observations remain dated proposals until reviewed; missing,
   non-USD, and unavailable balances stay explicit.
@@ -117,7 +119,10 @@ exposure is
 [ADR 005](docs/architecture/adr-005-multi-source-holdings-identity.md). Its
 canonical persistence, pre-live reset boundary, and cost model are documented in
 the [multi-source holdings runbook](docs/deployment/multi-source-holdings.md);
-container-scoped ingestion and generic provider behavior remain pending.
+container-scoped ingestion, canonical exposures, the position read model, and
+the provider-neutral Investments cutover are present. Additional-institution
+authorization and the remaining exposure/planning integration stay gated by the
+roadmap.
 
 ## Local development
 

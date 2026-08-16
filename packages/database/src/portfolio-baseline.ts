@@ -1,4 +1,4 @@
-import { isRobinhoodFiPlanningSecurityType } from "@keel/connectors";
+import { isPlaidInvestmentsFiPlanningSecurityType } from "@keel/connectors";
 import {
   addMinorUnits,
   createGoalPreview,
@@ -31,7 +31,7 @@ type SourcePositionRow = {
   position_id: string;
   snapshot_id: string;
   snapshot_fingerprint: string;
-  provider: "angellist" | "robinhood";
+  provider: "angellist" | "plaid_investments";
   legal_vehicle_name: string;
   owner_label: string;
   exposure_label: string | null;
@@ -288,10 +288,15 @@ function sourcePositions(
       id: row.position_id,
       positionName,
       ownerLabel: row.owner_label,
-      sourceLabel: row.provider === "robinhood" ? "Robinhood" : "AngelList",
+      sourceLabel:
+        row.provider === "plaid_investments"
+          ? "Plaid Investments"
+          : "AngelList",
       provider: row.provider,
       classification:
-        row.provider === "robinhood" ? "public_market" : "private_paper",
+        row.provider === "plaid_investments"
+          ? "public_market"
+          : "private_paper",
       valueMinor: row.unrealized_value_minor,
       valueState: row.unrealized_value_state,
       observedAt: row.observed_at,
@@ -909,7 +914,9 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
             row.position_id,
             row.snapshot_id,
             row.provider,
-            row.provider === "robinhood" ? "public_market" : "private_paper",
+            row.provider === "plaid_investments"
+              ? "public_market"
+              : "private_paper",
             row.unrealized_value_minor,
             row.unrealized_value_state,
             row.observed_at,
@@ -1019,7 +1026,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
                LIMIT 1
              )
            WHERE position.household_id = ?
-             AND position.provider IN ('angellist', 'robinhood')
+             AND position.provider IN ('angellist', 'plaid_investments')
              AND EXISTS (
                SELECT 1
                FROM holding_import_applications application
@@ -1032,8 +1039,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     );
     return rows.filter(
       (row) =>
-        row.provider !== "robinhood" ||
-        isRobinhoodFiPlanningSecurityType(row.instrument_type),
+        row.provider !== "plaid_investments" ||
+        isPlaidInvestmentsFiPlanningSecurityType(row.instrument_type),
     );
   }
 

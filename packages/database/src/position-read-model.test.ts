@@ -27,6 +27,7 @@ const migrationFiles = [
   "packages/database/migrations/0019_multi_source_holdings_contract.sql",
   "packages/database/migrations/0020_container_scoped_holding_ingestion.sql",
   "packages/database/migrations/0021_canonical_exposure_resolution.sql",
+  "packages/database/migrations/0022_provider_neutral_investments.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -259,7 +260,7 @@ function addPositionObservation(
       `INSERT INTO holding_imports (
          id, household_id, source_document_id, provider, parser_schema,
          normalized_fingerprint, row_count, created_by, created_at
-       ) VALUES (?, ?, ?, 'robinhood', 'synthetic-position-view-v1', ?, 1, ?, ?)`,
+       ) VALUES (?, ?, ?, 'plaid_investments', 'synthetic-position-view-v1', ?, 1, ?, ?)`,
     )
     .run(
       importId,
@@ -351,7 +352,7 @@ function addPositionObservation(
            legal_vehicle_name, owner_label, position_kind, instrument_type,
            opened_on, currency, created_by, created_at
          ) VALUES (
-           ?, ?, 'robinhood', ?, 'Synthetic Security', 'Synthetic Account',
+           ?, ?, 'plaid_investments', ?, 'Synthetic Security', 'Synthetic Account',
            'direct', 'equity', '2026-01-15', 'USD', ?, ?
          )`,
       )
@@ -502,7 +503,7 @@ function addZeroRowCoverage(
       `INSERT INTO holding_imports (
          id, household_id, source_document_id, provider, parser_schema,
          normalized_fingerprint, row_count, created_by, created_at
-       ) VALUES (?, ?, ?, 'robinhood', 'synthetic-position-view-v1', ?, 0, ?, ?)`,
+       ) VALUES (?, ?, ?, 'plaid_investments', 'synthetic-position-view-v1', ?, 0, ?, ?)`,
     )
     .run(
       importId,

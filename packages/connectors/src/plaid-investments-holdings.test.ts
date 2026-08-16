@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  normalizeRobinhoodHoldings,
+  normalizePlaidInvestmentsHoldings,
   plaidDecimalToScaledInteger,
+  plaidInvestmentAccountPresentation,
   plaidInvestmentSecurityIdentity,
   plaidInvestmentStrongSecurityIdentifier,
-} from "./plaid-robinhood-holdings";
+} from "./plaid-investments-holdings";
 
 function syntheticResponse(
   options: {
@@ -61,7 +62,7 @@ function syntheticResponse(
   };
 }
 
-describe("Plaid Robinhood holdings normalization", () => {
+describe("Plaid Investments holdings normalization", () => {
   it("rounds provider decimals with exact integer arithmetic", () => {
     expect(plaidDecimalToScaledInteger("1234.565", 2)).toBe(123_457);
     expect(plaidDecimalToScaledInteger(1000.004, 2)).toBe(100_000);
@@ -70,13 +71,14 @@ describe("Plaid Robinhood holdings normalization", () => {
   });
 
   it("creates a stable, reviewable public holding without provider identifiers", async () => {
-    const result = await normalizeRobinhoodHoldings(
+    const result = await normalizePlaidInvestmentsHoldings(
       syntheticResponse(),
       "2026-08-10T12:00:00.000Z",
+      "Synthetic Brokerage",
     );
 
     expect(result).toMatchObject({
-      provider: "robinhood",
+      provider: "plaid_investments",
       formatVersion: 1,
       effectiveDate: "2026-08-08",
       normalizedFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/u),
@@ -87,7 +89,7 @@ describe("Plaid Robinhood holdings normalization", () => {
           securityName: "Synthetic Public Company",
           ticker: "SYN",
           securityType: "equity",
-          accountLabel: "Robinhood brokerage",
+          accountLabel: "Synthetic Brokerage brokerage",
           quantityMicros: 12_345_678,
           costBasisMinor: 100_000,
           marketValueMinor: 123_457,
@@ -100,6 +102,29 @@ describe("Plaid Robinhood holdings normalization", () => {
     expect(JSON.stringify(result)).not.toContain("synthetic-account-id");
     expect(JSON.stringify(result)).not.toContain("synthetic-security-id");
     expect(JSON.stringify(result)).not.toContain("synthetic-item-id");
+  });
+
+  it("derives account presentation from validated institution metadata", () => {
+    expect(
+      plaidInvestmentAccountPresentation({
+        institutionLabel: "Synthetic Fidelity",
+        subtype: "roth ira",
+      }),
+    ).toEqual({
+      displayLabel: "Synthetic Fidelity Roth IRA",
+      containerKind: "ira",
+      taxTreatment: "tax_exempt",
+    });
+    expect(
+      plaidInvestmentAccountPresentation({
+        institutionLabel: "Synthetic Fidelity",
+        subtype: "401k",
+      }),
+    ).toEqual({
+      displayLabel: "Synthetic Fidelity retirement account",
+      containerKind: "retirement",
+      taxTreatment: "tax_deferred",
+    });
   });
 
   it("canonicalizes only checksum-valid strong security identifiers", () => {
@@ -130,22 +155,25 @@ describe("Plaid Robinhood holdings normalization", () => {
   });
 
   it("deduplicates unchanged holdings despite request metadata changes", async () => {
-    const first = await normalizeRobinhoodHoldings(
+    const first = await normalizePlaidInvestmentsHoldings(
       syntheticResponse(),
       "2026-08-10T12:00:00.000Z",
+      "Synthetic Brokerage",
     );
-    const second = await normalizeRobinhoodHoldings(
+    const second = await normalizePlaidInvestmentsHoldings(
       syntheticResponse({ requestId: "another-synthetic-request" }),
       "2026-08-11T12:00:00.000Z",
+      "Synthetic Brokerage",
     );
 
     expect(second.normalizedFingerprint).toBe(first.normalizedFingerprint);
   });
 
   it("marks missing cost basis and unsupported instruments for exclusion", async () => {
-    const result = await normalizeRobinhoodHoldings(
+    const result = await normalizePlaidInvestmentsHoldings(
       syntheticResponse({ costBasis: null, securityType: "option" }),
       "2026-08-10T12:00:00.000Z",
+      "Synthetic Brokerage",
     );
 
     expect(result.rows[0]?.issues).toEqual([
@@ -155,9 +183,10 @@ describe("Plaid Robinhood holdings normalization", () => {
   });
 
   it("recognizes crypto as recordable evidence outside FI planning", async () => {
-    const result = await normalizeRobinhoodHoldings(
+    const result = await normalizePlaidInvestmentsHoldings(
       syntheticResponse({ securityType: "cryptocurrency" }),
       "2026-08-10T12:00:00.000Z",
+      "Synthetic Brokerage",
     );
 
     expect(result.rows[0]?.issues).toEqual([
@@ -167,17 +196,19 @@ describe("Plaid Robinhood holdings normalization", () => {
 
   it("fails closed for non-USD and short positions", async () => {
     await expect(
-      normalizeRobinhoodHoldings(
+      normalizePlaidInvestmentsHoldings(
         syntheticResponse({ currency: "EUR" }),
         "2026-08-10T12:00:00.000Z",
+        "Synthetic Brokerage",
       ),
     ).rejects.toThrow("USD holdings only");
 
     await expect(
-      normalizeRobinhoodHoldings(
+      normalizePlaidInvestmentsHoldings(
         syntheticResponse({ quantity: -1 }),
         "2026-08-10T12:00:00.000Z",
+        "Synthetic Brokerage",
       ),
-    ).rejects.toThrow("short positions");
+    ).rejects.toThrow("Short investment positions");
   });
 });

@@ -1,16 +1,21 @@
+import type { InvestmentConnectionsRepository } from "@keel/database";
 import type {
-  RobinhoodConnectionUpdate,
-  RobinhoodSyncRun,
-} from "@keel/database";
-import type { RobinhoodSyncStatus } from "@keel/domain";
+  InvestmentConnectionStatus,
+  InvestmentConnectionsState,
+} from "@keel/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "./app";
+import type { PlaidInvestmentsClient } from "./plaid-investments-sync";
 import type { Env } from "./types";
 
-const readyStatus: RobinhoodSyncStatus = {
+const connectionId = "11111111-1111-4111-8111-111111111111";
+
+const readyStatus: InvestmentConnectionStatus = {
   version: 1,
-  configured: true,
+  connectionId,
+  institutionKey: "ins_fidelity",
+  institutionLabel: "Fidelity",
   status: "ready",
   lastSyncedAt: "2026-08-10T12:00:00.000Z",
   automaticUpdatesEnabled: true,
@@ -20,49 +25,62 @@ const readyStatus: RobinhoodSyncStatus = {
   latestAdjudication: null,
 };
 
+const state: InvestmentConnectionsState = {
+  version: 1,
+  configured: true,
+  connections: [readyStatus],
+  errorCode: null,
+};
+
 function repository() {
-  return {
-    getStatus: vi.fn().mockResolvedValue(readyStatus),
+  const value = {
+    getState: vi.fn().mockResolvedValue(state),
+    getConnectionStatus: vi.fn().mockResolvedValue(readyStatus),
     getConnection: vi.fn().mockResolvedValue(null),
     upsertConnection: vi.fn().mockResolvedValue({
-      id: "synthetic-connection",
-      investmentConnectionId: "synthetic-investment-connection",
+      id: connectionId,
+      connectorAccountId: "synthetic-connector",
       secretReference: "synthetic-reference",
       providerAccountKey: "a".repeat(64),
+      institutionKey: "ins_fidelity",
+      institutionLabel: "Fidelity",
       previousSecretReference: null,
-    } satisfies RobinhoodConnectionUpdate),
+    }),
     beginSync: vi.fn().mockResolvedValue({
       id: "synthetic-run",
       created: false,
       connection: {
-        id: "synthetic-connection",
-        investmentConnectionId: "synthetic-investment-connection",
+        id: connectionId,
+        connectorAccountId: "synthetic-connector",
         secretReference: "synthetic-reference",
         providerAccountKey: "a".repeat(64),
+        institutionKey: "ins_fidelity",
+        institutionLabel: "Fidelity",
       },
-    } satisfies RobinhoodSyncRun),
+    }),
     completeSync: vi.fn().mockResolvedValue(undefined),
     failSync: vi.fn().mockResolvedValue(undefined),
-    bindProviderAccountKey: vi.fn().mockResolvedValue(undefined),
     disconnectConnection: vi.fn().mockResolvedValue(undefined),
     claimPlaidWebhookDelivery: vi.fn(),
     getPlaidWebhookDelivery: vi.fn(),
     markPlaidWebhookDelivery: vi.fn(),
-  };
+  } satisfies InvestmentConnectionsRepository;
+  return value;
 }
 
 function client() {
-  return {
+  const value = {
     createLinkToken: vi.fn().mockResolvedValue({
       linkToken: "link-synthetic-token",
       expiration: "2026-08-10T12:30:00.000Z",
     }),
-    exchangeRobinhoodToken: vi.fn(),
+    exchangeInvestmentToken: vi.fn(),
     removeItem: vi.fn(),
     updateItemWebhook: vi.fn(),
     getWebhookVerificationKey: vi.fn(),
     getHoldings: vi.fn(),
-  };
+  } satisfies PlaidInvestmentsClient;
+  return value;
 }
 
 function env(): Env {
@@ -74,11 +92,11 @@ function env(): Env {
   };
 }
 
-describe("Robinhood public-holdings API", () => {
-  it("rejects unsigned Plaid webhooks before they reach repository state", async () => {
-    const publicHoldingsRepository = repository();
+describe("investment-connections API", () => {
+  it("rejects unsigned Plaid webhooks before repository state", async () => {
+    const investmentConnectionsRepository = repository();
     const app = createApp({
-      publicHoldingsRepository,
+      investmentConnectionsRepository,
       plaidClient: client(),
     });
     const response = await app.request(
@@ -97,29 +115,29 @@ describe("Robinhood public-holdings API", () => {
     expect(response.status).toBe(401);
     expect(await response.text()).toBe("");
     expect(
-      publicHoldingsRepository.claimPlaidWebhookDelivery,
+      investmentConnectionsRepository.claimPlaidWebhookDelivery,
     ).not.toHaveBeenCalled();
   });
 
-  it("returns configured status and creates a private Link token", async () => {
-    const publicHoldingsRepository = repository();
+  it("returns all configured connections and creates a Link token", async () => {
+    const investmentConnectionsRepository = repository();
     const plaidClient = client();
-    const app = createApp({ publicHoldingsRepository, plaidClient });
+    const app = createApp({ investmentConnectionsRepository, plaidClient });
 
     const statusResponse = await app.request(
-      "/api/public-holdings/robinhood/status",
+      "/api/investment-connections",
       undefined,
       env(),
     );
     expect(statusResponse.status).toBe(200);
-    await expect(statusResponse.json()).resolves.toEqual(readyStatus);
-    expect(publicHoldingsRepository.getStatus).toHaveBeenCalledWith(
+    await expect(statusResponse.json()).resolves.toEqual(state);
+    expect(investmentConnectionsRepository.getState).toHaveBeenCalledWith(
       "synthetic-access-subject",
       true,
     );
 
     const linkResponse = await app.request(
-      "/api/public-holdings/robinhood/link-token",
+      "/api/investment-connections/link-token",
       { method: "POST" },
       env(),
     );
@@ -133,14 +151,14 @@ describe("Robinhood public-holdings API", () => {
     );
   });
 
-  it("rejects an unbounded or malformed exchange payload before Plaid", async () => {
+  it("rejects a malformed exchange before calling Plaid", async () => {
     const plaidClient = client();
     const app = createApp({
-      publicHoldingsRepository: repository(),
+      investmentConnectionsRepository: repository(),
       plaidClient,
     });
     const response = await app.request(
-      "/api/public-holdings/robinhood/exchange",
+      "/api/investment-connections/exchange",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -150,12 +168,12 @@ describe("Robinhood public-holdings API", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(plaidClient.exchangeRobinhoodToken).not.toHaveBeenCalled();
+    expect(plaidClient.exchangeInvestmentToken).not.toHaveBeenCalled();
   });
 
-  it("treats an already disconnected Robinhood connection as an idempotent delete", async () => {
-    const publicHoldingsRepository = repository();
-    publicHoldingsRepository.getStatus.mockResolvedValue({
+  it("treats an already disconnected exact connection as an idempotent delete", async () => {
+    const investmentConnectionsRepository = repository();
+    investmentConnectionsRepository.getConnectionStatus.mockResolvedValue({
       ...readyStatus,
       status: "disconnected",
       lastSyncedAt: null,
@@ -163,23 +181,58 @@ describe("Robinhood public-holdings API", () => {
       latestRunStatus: null,
     });
     const app = createApp({
-      publicHoldingsRepository,
+      investmentConnectionsRepository,
       plaidClient: client(),
     });
 
     const response = await app.request(
-      "/api/public-holdings/robinhood",
+      `/api/investment-connections/${connectionId}`,
       { method: "DELETE" },
       env(),
     );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
+      connectionId,
       status: "disconnected",
       automaticUpdatesEnabled: false,
     });
     expect(
-      publicHoldingsRepository.disconnectConnection,
+      investmentConnectionsRepository.disconnectConnection,
     ).not.toHaveBeenCalled();
+  });
+
+  it("does not retain the Robinhood-only route surface", async () => {
+    const app = createApp({
+      investmentConnectionsRepository: repository(),
+      plaidClient: client(),
+    });
+    const responses = await Promise.all([
+      app.request("/api/public-holdings/robinhood/status", undefined, env()),
+      app.request(
+        "/api/public-holdings/robinhood/link-token",
+        { method: "POST" },
+        env(),
+      ),
+      app.request(
+        "/api/public-holdings/robinhood/exchange",
+        { method: "POST" },
+        env(),
+      ),
+      app.request(
+        "/api/public-holdings/robinhood/sync",
+        { method: "POST" },
+        env(),
+      ),
+      app.request(
+        "/api/public-holdings/robinhood",
+        { method: "DELETE" },
+        env(),
+      ),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([
+      404, 404, 404, 404, 404,
+    ]);
   });
 });

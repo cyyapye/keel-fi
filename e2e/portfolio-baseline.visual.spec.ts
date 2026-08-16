@@ -1,5 +1,26 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const investmentConnectionsState = {
+  version: 1,
+  configured: true,
+  connections: [
+    {
+      version: 1,
+      connectionId: "11111111-1111-4111-8111-111111111111",
+      institutionKey: "ins_robinhood",
+      institutionLabel: "Robinhood",
+      status: "ready",
+      lastSyncedAt: "2026-08-13T16:00:00.000Z",
+      automaticUpdatesEnabled: true,
+      latestImportId: null,
+      latestRunStatus: "succeeded",
+      errorCode: null,
+      latestAdjudication: null,
+    },
+  ],
+  errorCode: null,
+};
+
 const readyState = {
   status: "ready",
   sourceRevision: "a".repeat(64),
@@ -22,7 +43,7 @@ const readyState = {
       positionName: "Synthetic Public Company",
       ownerLabel: "Robinhood individual account",
       sourceLabel: "Robinhood",
-      provider: "robinhood",
+      provider: "plaid_investments",
       classification: "public_market",
       valueMinor: 23_800_000,
       valueState: "reported",
@@ -279,19 +300,8 @@ test("sets the initial FI baseline with explicit overlap review", async ({
       },
     });
   });
-  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "ready",
-        lastSyncedAt: "2026-08-13T16:00:00.000Z",
-        automaticUpdatesEnabled: true,
-        latestImportId: null,
-        latestRunStatus: "succeeded",
-        errorCode: null,
-      },
-    });
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({ json: investmentConnectionsState });
   });
   await page.route("**/api/cash-accounts", async (route) => {
     await route.fulfill({
@@ -420,19 +430,8 @@ test("refreshes an existing FI baseline without a second review", async ({
       },
     });
   });
-  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "ready",
-        lastSyncedAt: "2026-08-13T16:00:00.000Z",
-        automaticUpdatesEnabled: true,
-        latestImportId: null,
-        latestRunStatus: "succeeded",
-        errorCode: null,
-      },
-    });
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({ json: investmentConnectionsState });
   });
   await page.route("**/api/cash-accounts", async (route) => {
     await route.fulfill({
@@ -513,19 +512,8 @@ test("keeps accepted cash changes behind a separate baseline review", async ({
       },
     });
   });
-  await page.route("**/api/public-holdings/robinhood/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "ready",
-        lastSyncedAt: "2026-08-13T16:00:00.000Z",
-        automaticUpdatesEnabled: true,
-        latestImportId: null,
-        latestRunStatus: "succeeded",
-        errorCode: null,
-      },
-    });
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({ json: investmentConnectionsState });
   });
   await page.route("**/api/cash-accounts", async (route) => {
     await route.fulfill({
