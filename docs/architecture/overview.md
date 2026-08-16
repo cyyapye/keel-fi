@@ -4,17 +4,18 @@ Keel's first deployment is a private, single-user alpha, but every canonical
 record is household-scoped so the authorization boundary is explicit from day
 one.
 
-The diagram below describes the shipped architecture. The accepted target model
-for connecting multiple investment institutions, keeping same-security holdings
+The diagram below describes the shipped architecture. The released model for
+connecting multiple investment institutions, keeping same-security holdings
 separate by account, and keeping same-company SPV interests legally distinct is
 [ADR 005: Multi-source holdings identity](./adr-005-multi-source-holdings-identity.md).
 Its additive connection, container, coverage, and exposure persistence contract,
 provider-neutral ingestion path, canonical position/exposure reads, and
-multi-institution Holdings operations are present. Because every environment is
-synthetic and disposable, Keel retains no holdings backfill, dual-read, or
-transitional association layer. Additional-institution authorization remains
-fail-closed until private coverage and pricing approval; Robinhood and AngelList
-remain the operated holding sources.
+multi-institution Holdings operations shipped in M9 through PR #82 and exact-SHA
+workflow `31960175926`. Because every environment is synthetic and disposable,
+Keel retains no holdings backfill, dual-read, or transitional association layer.
+Additional-institution authorization remains fail-closed until private coverage
+and pricing approval; Robinhood and AngelList remain the operated holding
+sources.
 
 ```mermaid
 flowchart LR

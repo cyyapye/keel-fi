@@ -121,7 +121,7 @@ identity could create false missing-position signals or double counts when a
 second institution is added. M9 establishes the account-scoped identity and
 aggregation boundary first.
 
-### [ ] M9 — Multi-source investment ownership — **Active**
+### [x] M9 — Multi-source investment ownership
 
 **User outcome:** The owner can connect Robinhood, Fidelity, and later
 investment institutions; keep the same security separate in every brokerage or
@@ -563,7 +563,7 @@ channel, or paid product. Private Fidelity coverage and pricing were not
 provided, so no real authorization or private provider call was performed and
 approved incremental provider spend remains $0.
 
-#### [ ] M9.8 — Holdings experience, operations, and release
+#### [x] M9.8 — Holdings experience, operations, and release
 
 **Outcome:** The owner can connect and operate multiple investment institutions,
 understand account-level positions and grouped exposures, and recover safely
@@ -599,9 +599,37 @@ from unsupported, partial, stale, or disconnected states.
   or rewriting accepted records.
 
 **Slice gate:** Desktop and mobile visual review, accessibility checks,
-protected preview smoke, private owner acceptance, migration/backup evidence,
-and exact-SHA release evidence all pass with no private data in repository or CI
-artifacts.
+protected preview smoke, migration/backup evidence, and exact-SHA release
+evidence all pass with no private data in repository or CI artifacts. The
+fail-closed path is the accepted private release state; provider coverage,
+pricing, and private owner acceptance must pass before real
+additional-institution authorization.
+
+**Evidence:** Delivered in [PR #82](https://github.com/cyyapye/keel-fi/pull/82)
+at exact checked head
+[`485603c`](https://github.com/cyyapye/keel-fi/commit/485603c93d8a3c7ab704366d9c7fee469d62d39b)
+and merge commit
+[`66f157a`](https://github.com/cyyapye/keel-fi/commit/66f157aa8143e6eff09d03b14ae915c17d4c1025).
+The combined no-store position/exposure view reads one accepted position
+snapshot projection, preserves exact connection and account provenance, and
+keeps unavailable and unallocated values explicit. The Holdings experience
+operates several distinct connections, scopes reconnect and lifecycle actions,
+retains accepted history after disconnect, and keeps company records outside the
+canonical connected-account rollup. All 435 tests and 46 desktop/mobile browser
+flows passed, including accessibility, focus restoration, 44-pixel targets,
+no-overflow, partial, stale, reconnect, disconnected, unknown-value, and
+synthetic same-security/different-account states. The release retained an
+encrypted D1 backup, applied the unchanged forward-only migration chain,
+deployed and read back both Worker versions, passed protected smokes, and
+retained exact-SHA evidence in
+[run `31960175926`](https://github.com/cyyapye/keel-fi/actions/runs/31960175926).
+It adds no migration, provider call, paid product, schedule, Queue message, R2
+object, or notification channel. Holdings and exposure reads run only on first
+load and explicit actions; the existing connection-status poll remains
+lightweight. Private provider coverage and pricing were not supplied, so real
+additional-institution authorization and provider acceptance were not claimed:
+the release keeps that path fail-closed, and approved incremental provider spend
+remains $0.
 
 **Required proof matrix:**
 
@@ -641,27 +669,29 @@ artifacts.
 
 **Exit gates:**
 
-- [ ] M9.1 through M9.8, including M9.6a and M9.6b, are checked in dependency
+- [x] M9.1 through M9.8, including M9.6a and M9.6b, are checked in dependency
       order with their evidence recorded.
-- [ ] Every required proof-matrix scenario passes in domain, repository, API,
+- [x] Every required proof-matrix scenario passes in domain, repository, API,
       and browser coverage where applicable.
-- [ ] Fresh canonical migration replay and every direct-ingestion cutover keep
+- [x] Fresh canonical migration replay and every direct-ingestion cutover keep
       each accepted position, snapshot, decision, baseline, goal, and forecast
       on one authoritative path without value or identity drift.
-- [ ] Position totals count each accepted snapshot at most once; exposure views
+- [x] Position totals count each accepted snapshot at most once; exposure views
       preserve legal drill-down and cannot duplicate allocated or unallocated
       value.
-- [ ] The multi-institution Holdings experience passes desktop, mobile,
+- [x] The multi-institution Holdings experience passes desktop, mobile,
       accessibility, no-overflow, review-boundary, and error-state acceptance.
-- [ ] Provider coverage, pricing, D1/storage growth, retention, backup, and
+- [x] Provider coverage, pricing, D1/storage growth, retention, backup, and
       rollback evidence are recorded before real additional-institution use.
-- [ ] ADR 005, the architecture overview, roadmap evidence, and deployment
+- [x] ADR 005, the architecture overview, roadmap evidence, and deployment
       runbooks identify the exact release that materialized the canonical model.
-- [ ] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
-      post-merge deployment evidence pass. Private runtime acceptance validates
-      provider support without committing institution credentials or holdings.
+- [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
+      post-merge deployment evidence pass. Protected private runtime acceptance
+      validates the fail-closed path and synthetic provider support without
+      committing institution credentials or holdings; real provider acceptance
+      remains an activation gate.
 
-### [ ] M10 — Plan versus actual monitoring
+### [ ] M10 — Plan versus actual monitoring — **Active**
 
 **User outcome:** Keel identifies meaningful drift in cash, debt, burn, and
 runway and presents the next decision without requiring the user to compare

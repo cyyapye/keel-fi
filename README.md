@@ -112,17 +112,16 @@ obligation policy is captured in
 [deployment runbook](docs/deployment/liabilities.md). Observed cash-flow policy
 is captured in
 [ADR 004](docs/architecture/adr-004-reviewed-observed-cash-flow.md) and its
-[deployment runbook](docs/deployment/observed-cash-flow.md). The accepted,
-implementation-in-progress model for Fidelity and other investment institutions,
-multiple accounts holding the same security, and multiple SPVs sharing a company
-exposure is
+[deployment runbook](docs/deployment/observed-cash-flow.md). The released model
+for Fidelity and other investment institutions, multiple accounts holding the
+same security, and multiple SPVs sharing a company exposure is
 [ADR 005](docs/architecture/adr-005-multi-source-holdings-identity.md). Its
 canonical persistence, pre-live reset boundary, and cost model are documented in
 the [multi-source holdings runbook](docs/deployment/multi-source-holdings.md);
-container-scoped ingestion, canonical exposures, the position read model, and
-the provider-neutral Investments cutover are present. Additional-institution
-authorization and the remaining exposure/planning integration stay gated by the
-roadmap.
+container-scoped ingestion, canonical position and exposure views, the
+provider-neutral Investments cutover, and multi-institution operations shipped
+in M9. Additional-institution authorization remains fail-closed until private
+provider coverage, pricing, and owner acceptance are recorded.
 
 ## Local development
 
