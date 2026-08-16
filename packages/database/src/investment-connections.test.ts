@@ -3,13 +3,19 @@ import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { D1HoldingImportRepository } from "./holding-imports";
+import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
+import {
+  D1HoldingImportRepository,
+  type PlaidInvestmentsHoldingImportStageInput,
+} from "./holding-imports";
 import { D1InvestmentConnectionsRepository } from "./investment-connections";
+import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
+import { D1InvestmentPositionViewRepository } from "./position-read-model";
 
 const accessSubject = "synthetic-access-subject";
 const robinhoodItemKey = "a".repeat(64);
 const fidelityItemKey = "b".repeat(64);
-const secondRobinhoodItemKey = "e".repeat(64);
+const secondFidelityItemKey = "e".repeat(64);
 
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
@@ -91,6 +97,65 @@ class TestD1Database {
   }
 }
 
+function sameSecurityInput(input: {
+  connectionId: string;
+  fingerprintCharacter: string;
+  institutionLabel: string;
+  accounts: readonly {
+    accountKey: string;
+    positionKey: string;
+    label: string;
+    kind: "brokerage" | "ira";
+    taxTreatment: "taxable" | "tax_exempt";
+    quantityMicros: number;
+    marketValueMinor: number;
+  }[];
+}): PlaidInvestmentsHoldingImportStageInput {
+  const fingerprint = input.fingerprintCharacter.repeat(64);
+  const institutionSlug = input.institutionLabel
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-");
+  return {
+    objectKey: `holding-imports/synthetic-${institutionSlug}-${input.fingerprintCharacter}.json`,
+    sha256: fingerprint,
+    byteSize: 2_048,
+    normalizedFingerprint: fingerprint,
+    effectiveDate: "2026-08-15",
+    retrievedAt: "2026-08-15T12:00:00.000Z",
+    rows: input.accounts.map((account, index) => ({
+      rowNumber: index + 1,
+      naturalKeySha256: account.positionKey,
+      securityName: "Synthetic NVIDIA common stock",
+      ticker: "NVDA",
+      securityType: "equity",
+      accountLabel: account.label,
+      quantityMicros: account.quantityMicros,
+      costBasisMinor: account.marketValueMinor - 10_000,
+      marketValueMinor: account.marketValueMinor,
+      observedOn: "2026-08-15",
+      currency: "USD",
+      issues: [],
+    })),
+    canonicalScope: {
+      connection: { mode: "existing", connectionId: input.connectionId },
+      containers: input.accounts.map((account) => ({
+        protectedAccountKey: account.accountKey,
+        displayLabel: account.label,
+        containerKind: account.kind,
+        taxTreatment: account.taxTreatment,
+        completeness: "complete" as const,
+      })),
+      rows: input.accounts.map((account, index) => ({
+        sourceRowNumber: index + 1,
+        protectedAccountKey: account.accountKey,
+        protectedPositionKey: account.positionKey,
+        publicExposureIdentityKind: "cusip" as const,
+        protectedExposureKey: "f".repeat(64),
+      })),
+    },
+  };
+}
+
 describe("Plaid Investments connection state", () => {
   let sqlite: DatabaseSync;
   let database: TestD1Database;
@@ -139,44 +204,44 @@ describe("Plaid Investments connection state", () => {
       "ins_fidelity",
       "Fidelity",
     );
-    const secondRobinhood = await repository.upsertConnection(
+    const secondFidelity = await repository.upsertConnection(
       accessSubject,
-      "connector-secrets/synthetic-robinhood-second.enc",
-      secondRobinhoodItemKey,
-      "ins_robinhood",
-      "Robinhood",
+      "connector-secrets/synthetic-fidelity-second.enc",
+      secondFidelityItemKey,
+      "ins_fidelity",
+      "Fidelity",
     );
 
     expect(fidelity.id).not.toBe(robinhood.id);
     expect(fidelity.connectorAccountId).not.toBe(robinhood.connectorAccountId);
-    expect(secondRobinhood.id).not.toBe(robinhood.id);
-    expect(secondRobinhood.connectorAccountId).not.toBe(
-      robinhood.connectorAccountId,
+    expect(secondFidelity.id).not.toBe(fidelity.id);
+    expect(secondFidelity.connectorAccountId).not.toBe(
+      fidelity.connectorAccountId,
     );
     await expect(
       repository.getState(accessSubject, true),
     ).resolves.toMatchObject({
       configured: true,
-      connections: [
-        {
+      connections: expect.arrayContaining([
+        expect.objectContaining({
           connectionId: robinhood.id,
           institutionKey: "ins_robinhood",
           institutionLabel: "Robinhood",
           status: "ready",
-        },
-        {
+        }),
+        expect.objectContaining({
           connectionId: fidelity.id,
           institutionKey: "ins_fidelity",
           institutionLabel: "Fidelity",
           status: "ready",
-        },
-        {
-          connectionId: secondRobinhood.id,
-          institutionKey: "ins_robinhood",
-          institutionLabel: "Robinhood",
+        }),
+        expect.objectContaining({
+          connectionId: secondFidelity.id,
+          institutionKey: "ins_fidelity",
+          institutionLabel: "Fidelity",
           status: "ready",
-        },
-      ],
+        }),
+      ]),
     });
 
     const reconnected = await repository.upsertConnection(
@@ -264,6 +329,82 @@ describe("Plaid Investments connection state", () => {
       errorCode: null,
       lastSyncedAt: expect.any(String),
     });
+  });
+
+  it("pauses and resumes one connection through append-only lifecycle state", async () => {
+    const fidelity = await repository.upsertConnection(
+      accessSubject,
+      "connector-secrets/synthetic-fidelity.enc",
+      fidelityItemKey,
+      "ins_fidelity",
+      "Fidelity",
+    );
+    const run = await repository.beginSync(accessSubject, fidelity.id);
+    await expect(
+      repository.setConnectionPaused(accessSubject, fidelity.id, true),
+    ).rejects.toThrow("in progress");
+    await repository.completeSync(accessSubject, run.id, {
+      discoveredCount: 0,
+      proposedCount: 0,
+      importId: null,
+    });
+
+    await repository.setConnectionPaused(accessSubject, fidelity.id, true);
+    await expect(
+      repository.getConnectionStatus(accessSubject, fidelity.id),
+    ).resolves.toMatchObject({
+      connectionId: fidelity.id,
+      status: "paused",
+      automaticUpdatesEnabled: false,
+      lastSyncedAt: expect.any(String),
+    });
+    await expect(
+      repository.getConnection(accessSubject, fidelity.id),
+    ).resolves.toBeNull();
+    await expect(
+      repository.getConnection(accessSubject, fidelity.id, true),
+    ).resolves.toMatchObject({ id: fidelity.id });
+    await expect(
+      repository.beginSync(accessSubject, fidelity.id),
+    ).rejects.toThrow("not active");
+    await expect(
+      repository.claimPlaidWebhookDelivery({
+        providerAccountKey: fidelityItemKey,
+        signatureSha256: "c".repeat(64),
+        bodySha256: "d".repeat(64),
+        issuedAt: "2026-08-14T12:00:00.000Z",
+        receivedAt: "2026-08-14T12:00:01.000Z",
+      }),
+    ).resolves.toEqual({ status: "unknown" });
+
+    await repository.setConnectionPaused(accessSubject, fidelity.id, true);
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM investment_connection_versions
+           WHERE connection_id = ?`,
+        )
+        .get(fidelity.id),
+    ).toEqual({ count: 2 });
+
+    await repository.setConnectionPaused(accessSubject, fidelity.id, false);
+    await expect(
+      repository.getConnectionStatus(accessSubject, fidelity.id),
+    ).resolves.toMatchObject({
+      connectionId: fidelity.id,
+      status: "ready",
+      automaticUpdatesEnabled: true,
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM investment_connection_versions
+           WHERE connection_id = ?`,
+        )
+        .get(fidelity.id),
+    ).toEqual({ count: 3 });
   });
 
   it("stages a non-Robinhood Item and links its review evidence to one run", async () => {
@@ -388,6 +529,426 @@ describe("Plaid Investments connection state", () => {
       connection_id: fidelity.id,
       provider: "plaid_investments",
     });
+  });
+
+  it("proves Fidelity account lineage, shared exposure, and baseline behavior end to end", async () => {
+    const robinhood = await repository.upsertConnection(
+      accessSubject,
+      "connector-secrets/synthetic-robinhood.enc",
+      robinhoodItemKey,
+      "ins_robinhood",
+      "Robinhood",
+    );
+    const fidelity = await repository.upsertConnection(
+      accessSubject,
+      "connector-secrets/synthetic-fidelity.enc",
+      fidelityItemKey,
+      "ins_fidelity",
+      "Fidelity",
+    );
+    const secondFidelity = await repository.upsertConnection(
+      accessSubject,
+      "connector-secrets/synthetic-fidelity-second.enc",
+      secondFidelityItemKey,
+      "ins_fidelity",
+      "Fidelity",
+    );
+    const holdingImports = new D1HoldingImportRepository(
+      database as unknown as D1Database,
+    );
+    const positionView = new D1InvestmentPositionViewRepository(
+      database as unknown as D1Database,
+    );
+    const exposureView = new D1InvestmentExposureViewRepository(
+      database as unknown as D1Database,
+    );
+    const baselines = new D1PortfolioBaselineRepository(
+      database as unknown as D1Database,
+    );
+    const robinhoodAccount = {
+      accountKey: "1".repeat(64),
+      positionKey: "2".repeat(64),
+      label: "Robinhood brokerage",
+      kind: "brokerage" as const,
+      taxTreatment: "taxable" as const,
+      quantityMicros: 1_000_000,
+      marketValueMinor: 100_000,
+    };
+    const fidelityBrokerage = {
+      accountKey: "3".repeat(64),
+      positionKey: "4".repeat(64),
+      label: "Fidelity brokerage",
+      kind: "brokerage" as const,
+      taxTreatment: "taxable" as const,
+      quantityMicros: 2_000_000,
+      marketValueMinor: 200_000,
+    };
+    const fidelityIra = {
+      accountKey: "5".repeat(64),
+      positionKey: "6".repeat(64),
+      label: "Fidelity Roth IRA",
+      kind: "ira" as const,
+      taxTreatment: "tax_exempt" as const,
+      quantityMicros: 3_000_000,
+      marketValueMinor: 300_000,
+    };
+    const robinhoodInput = sameSecurityInput({
+      connectionId: robinhood.id,
+      fingerprintCharacter: "7",
+      institutionLabel: "Robinhood",
+      accounts: [robinhoodAccount],
+    });
+    const fidelityInput = sameSecurityInput({
+      connectionId: fidelity.id,
+      fingerprintCharacter: "8",
+      institutionLabel: "Fidelity",
+      accounts: [fidelityBrokerage, fidelityIra],
+    });
+
+    for (const importInput of [robinhoodInput, fidelityInput]) {
+      const staged = await holdingImports.stagePlaidInvestmentsHoldingImport(
+        accessSubject,
+        importInput,
+      );
+      await expect(
+        holdingImports.autoAdjudicatePlaidInvestmentsHoldingImport(
+          accessSubject,
+          staged.preview.id,
+        ),
+      ).resolves.toMatchObject({
+        autoAppliedCount: importInput.rows.length,
+        quarantinedCount: 0,
+        preservedPositionCount: 0,
+      });
+    }
+
+    const initialPositions = await positionView.list(
+      accessSubject,
+      "2026-08-16T12:00:00.000Z",
+    );
+    expect(
+      initialPositions.connections.map((connection) => connection.id),
+    ).toEqual(expect.arrayContaining([fidelity.id, secondFidelity.id]));
+    const provingPositions = initialPositions.connections
+      .filter((connection) =>
+        [robinhood.id, fidelity.id].includes(connection.id),
+      )
+      .flatMap((connection) =>
+        connection.containers.flatMap((container) => container.positions),
+      );
+    expect(provingPositions).toHaveLength(3);
+    expect(
+      initialPositions.connections
+        .find((connection) => connection.id === fidelity.id)
+        ?.containers.map((container) => ({
+          kind: container.kind,
+          count: container.positions.length,
+        })),
+    ).toEqual([
+      { kind: "brokerage", count: 1 },
+      { kind: "ira", count: 1 },
+    ]);
+    const positionIds = provingPositions.map((position) => position.id).sort();
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_snapshots snapshot
+           JOIN holding_positions position ON position.id = snapshot.position_id
+           WHERE position.id IN (?, ?, ?)`,
+        )
+        .get(...positionIds),
+    ).toEqual({ count: 3 });
+
+    const initialExposures = await exposureView.list(
+      accessSubject,
+      "2026-08-16T12:00:00.000Z",
+    );
+    const sharedExposure = initialExposures.exposures.find(
+      (group) =>
+        group.contributions.filter((contribution) =>
+          positionIds.includes(contribution.positionId),
+        ).length === 3,
+    );
+    expect(sharedExposure).toMatchObject({
+      exposure: {
+        exposureKind: "public_instrument",
+        resolutionMethod: "strong_identifier",
+      },
+      totals: [
+        {
+          currency: "USD",
+          allocatedValueMinor: 600_000,
+          knownValuePositionCount: 3,
+          unknownValuePositionCount: 0,
+        },
+      ],
+    });
+
+    const initialBaseline = await baselines.getState(accessSubject);
+    expect(initialBaseline).toMatchObject({
+      status: "ready",
+      summary: {
+        positionCount: 3,
+        publicMarketValueMinor: 600_000,
+      },
+      hasSourceChanges: true,
+      canConfirm: true,
+    });
+    if (
+      initialBaseline.sourceRevision === null ||
+      initialBaseline.baseForecastSnapshotId === null ||
+      initialBaseline.baseForecastSnapshotVersion === null
+    ) {
+      throw new Error("Expected a confirmable Fidelity proving baseline.");
+    }
+    await baselines.confirm(accessSubject, {
+      sourceRevision: initialBaseline.sourceRevision,
+      baseForecastSnapshotId: initialBaseline.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: initialBaseline.baseForecastSnapshotVersion,
+      otherFiEligibleLiquidMinor: 0,
+      duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
+      changeNote: "Accepted the synthetic multi-institution proof.",
+    });
+
+    const repeated = await holdingImports.stagePlaidInvestmentsHoldingImport(
+      accessSubject,
+      fidelityInput,
+    );
+    expect(repeated.created).toBe(false);
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_snapshots snapshot
+           JOIN holding_positions position ON position.id = snapshot.position_id
+           WHERE position.id IN (?, ?, ?)`,
+        )
+        .get(...positionIds),
+    ).toEqual({ count: 3 });
+
+    const changedInput = sameSecurityInput({
+      connectionId: fidelity.id,
+      fingerprintCharacter: "9",
+      institutionLabel: "Fidelity",
+      accounts: [
+        {
+          ...fidelityBrokerage,
+          quantityMicros: 2_500_000,
+          marketValueMinor: 250_000,
+        },
+        fidelityIra,
+      ],
+    });
+    changedInput.effectiveDate = "2026-08-16";
+    changedInput.retrievedAt = "2026-08-16T12:00:00.000Z";
+    changedInput.rows.forEach((row) => {
+      row.observedOn = "2026-08-16";
+    });
+    const changed = await holdingImports.stagePlaidInvestmentsHoldingImport(
+      accessSubject,
+      changedInput,
+    );
+    await expect(
+      holdingImports.autoAdjudicatePlaidInvestmentsHoldingImport(
+        accessSubject,
+        changed.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      autoAppliedCount: 2,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_snapshots snapshot
+           JOIN holding_positions position ON position.id = snapshot.position_id
+           WHERE position.id IN (?, ?, ?)`,
+        )
+        .get(...positionIds),
+    ).toEqual({ count: 5 });
+    const changedBaseline = await baselines.getState(accessSubject);
+    expect(changedBaseline).toMatchObject({
+      status: "ready",
+      summary: {
+        positionCount: 3,
+        publicMarketValueMinor: 650_000,
+      },
+      hasSourceChanges: true,
+    });
+    if (
+      changedBaseline.sourceRevision === null ||
+      changedBaseline.baseForecastSnapshotId === null ||
+      changedBaseline.baseForecastSnapshotVersion === null
+    ) {
+      throw new Error("Expected a revised Fidelity proving baseline.");
+    }
+    await baselines.confirm(accessSubject, {
+      sourceRevision: changedBaseline.sourceRevision,
+      baseForecastSnapshotId: changedBaseline.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: changedBaseline.baseForecastSnapshotVersion,
+      otherFiEligibleLiquidMinor: 0,
+      duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
+      changeNote: "Accepted the revised synthetic Fidelity observation.",
+    });
+
+    const partialInput = sameSecurityInput({
+      connectionId: fidelity.id,
+      fingerprintCharacter: "a",
+      institutionLabel: "Fidelity",
+      accounts: [fidelityIra],
+    });
+    partialInput.sha256 = "ab".repeat(32);
+    partialInput.normalizedFingerprint = "ac".repeat(32);
+    partialInput.effectiveDate = "2026-08-16";
+    partialInput.retrievedAt = "2026-08-16T12:30:00.000Z";
+    partialInput.rows[0]!.observedOn = "2026-08-16";
+    partialInput.canonicalScope.containers = [
+      {
+        protectedAccountKey: fidelityBrokerage.accountKey,
+        displayLabel: fidelityBrokerage.label,
+        containerKind: fidelityBrokerage.kind,
+        taxTreatment: fidelityBrokerage.taxTreatment,
+        completeness: "partial",
+      },
+      {
+        ...partialInput.canonicalScope.containers[0]!,
+        completeness: "partial",
+      },
+    ];
+    const partial = await holdingImports.stagePlaidInvestmentsHoldingImport(
+      accessSubject,
+      partialInput,
+    );
+    await expect(
+      holdingImports.autoAdjudicatePlaidInvestmentsHoldingImport(
+        accessSubject,
+        partial.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      autoAppliedCount: 0,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_import_quarantines
+           WHERE import_id = ? AND reason_code = 'position_not_reported'`,
+        )
+        .get(partial.preview.id),
+    ).toEqual({ count: 0 });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_snapshots snapshot
+           JOIN holding_positions position ON position.id = snapshot.position_id
+           WHERE position.id IN (?, ?, ?)`,
+        )
+        .get(...positionIds),
+    ).toEqual({ count: 5 });
+    await expect(baselines.getState(accessSubject)).resolves.toMatchObject({
+      status: "current",
+      summary: {
+        positionCount: 3,
+        publicMarketValueMinor: 650_000,
+      },
+    });
+
+    const reconnected = await repository.upsertConnection(
+      accessSubject,
+      "connector-secrets/synthetic-fidelity-reconnected.enc",
+      fidelityItemKey,
+      "ins_fidelity",
+      "Fidelity Investments",
+    );
+    expect(reconnected).toMatchObject({
+      id: fidelity.id,
+      previousSecretReference: "connector-secrets/synthetic-fidelity.enc",
+    });
+    const reconnectedPositions = await positionView.list(
+      accessSubject,
+      "2026-08-18T12:00:00.000Z",
+    );
+    expect(
+      reconnectedPositions.connections
+        .find((connection) => connection.id === fidelity.id)
+        ?.containers.flatMap((container) => container.positions)
+        .map((position) => position.id)
+        .sort(),
+    ).toEqual(
+      initialPositions.connections
+        .find((connection) => connection.id === fidelity.id)
+        ?.containers.flatMap((container) => container.positions)
+        .map((position) => position.id)
+        .sort(),
+    );
+
+    const webhook = await repository.claimPlaidWebhookDelivery({
+      providerAccountKey: fidelityItemKey,
+      signatureSha256: "b".repeat(64),
+      bodySha256: "c".repeat(64),
+      issuedAt: "2026-08-18T12:00:00.000Z",
+      receivedAt: "2026-08-18T12:00:01.000Z",
+    });
+    expect(webhook.status).toBe("claimed");
+
+    await repository.setConnectionPaused(accessSubject, fidelity.id, true);
+    await expect(
+      repository.beginSync(accessSubject, fidelity.id),
+    ).rejects.toThrow("not active");
+    await expect(baselines.getState(accessSubject)).resolves.toMatchObject({
+      status: "current",
+      summary: {
+        positionCount: 3,
+        publicMarketValueMinor: 650_000,
+      },
+    });
+    expect(
+      (
+        await positionView.list(accessSubject, "2026-08-18T12:00:00.000Z")
+      ).connections.find((connection) => connection.id === fidelity.id),
+    ).toMatchObject({ lifecycleState: "paused" });
+
+    await repository.disconnectConnection(accessSubject, fidelity.id);
+    await expect(baselines.getState(accessSubject)).resolves.toMatchObject({
+      status: "current",
+      summary: {
+        positionCount: 3,
+        publicMarketValueMinor: 650_000,
+      },
+    });
+    expect(
+      (
+        await positionView.list(accessSubject, "2026-08-18T12:00:00.000Z")
+      ).connections.find((connection) => connection.id === fidelity.id),
+    ).toMatchObject({
+      lifecycleState: "disconnected",
+      containers: [
+        expect.objectContaining({ positions: [expect.any(Object)] }),
+        expect.objectContaining({ positions: [expect.any(Object)] }),
+      ],
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT credential_reference
+           FROM investment_connection_versions
+           WHERE connection_id = ?
+             AND NOT EXISTS (
+               SELECT 1 FROM investment_connection_versions later
+               WHERE later.supersedes_version_id =
+                     investment_connection_versions.id
+             )`,
+        )
+        .get(fidelity.id),
+    ).toEqual({ credential_reference: null });
   });
 
   it("disconnects and routes webhooks by exact connection", async () => {

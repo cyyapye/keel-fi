@@ -993,7 +993,7 @@ describe("AngelList holding import persistence", () => {
     ).resolves.toEqual(changedAdjudication);
   });
 
-  it("limits omissions to complete containers on the exact connection", async () => {
+  it("keeps every accepted position unchanged when any account coverage is partial", async () => {
     const retirementAccountKey = "4".repeat(64);
     const retirementPositionKey = "3".repeat(64);
     const initialInput = robinhoodStageInput("e".repeat(64));
@@ -1073,9 +1073,9 @@ describe("AngelList holding import persistence", () => {
         later.preview.id,
       ),
     ).resolves.toMatchObject({
-      autoAppliedCount: 1,
-      quarantinedCount: 1,
-      preservedPositionCount: 1,
+      autoAppliedCount: 0,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
     });
     await expect(
       repository.getHoldingImport("synthetic-access-subject", later.preview.id),
@@ -1105,14 +1105,17 @@ describe("AngelList holding import persistence", () => {
            AND quarantine.reason_code = 'position_not_reported'`,
       )
       .all(later.preview.id) as Array<{ container_id: string }>;
-    expect(omitted).toHaveLength(1);
-    const brokerageContainer = sqlite
-      .prepare(
-        `SELECT id FROM ownership_containers
-         WHERE connection_id = ? AND protected_account_key = ?`,
-      )
-      .get(robinhoodConnectionId, robinhoodAccountKey) as { id: string };
-    expect(omitted[0]?.container_id).toBe(brokerageContainer.id);
+    expect(omitted).toHaveLength(0);
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_snapshots snapshot
+           JOIN holding_positions position ON position.id = snapshot.position_id
+           WHERE position.provider = 'plaid_investments'`,
+        )
+        .get(),
+    ).toEqual({ count: 2 });
 
     const failedConnectionId = "connection_synthetic_failed_institution";
     seedRobinhoodInvestmentConnection(

@@ -406,6 +406,13 @@ export async function normalizePlaidInvestmentsHoldings(
   if (accountsById.size !== response.accounts.length) {
     throw new Error("Plaid returned duplicate investment accounts.");
   }
+  if (
+    response.accounts.some(
+      (account) => account.type.trim().toLowerCase() !== "investment",
+    )
+  ) {
+    throw new Error("Plaid returned a non-investment account.");
+  }
   if (securitiesById.size !== response.securities.length) {
     throw new Error("Plaid returned duplicate securities.");
   }

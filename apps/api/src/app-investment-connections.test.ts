@@ -61,6 +61,7 @@ function repository() {
     completeSync: vi.fn().mockResolvedValue(undefined),
     failSync: vi.fn().mockResolvedValue(undefined),
     disconnectConnection: vi.fn().mockResolvedValue(undefined),
+    setConnectionPaused: vi.fn().mockResolvedValue(undefined),
     claimPlaidWebhookDelivery: vi.fn(),
     getPlaidWebhookDelivery: vi.fn(),
     markPlaidWebhookDelivery: vi.fn(),
@@ -200,6 +201,49 @@ describe("investment-connections API", () => {
     expect(
       investmentConnectionsRepository.disconnectConnection,
     ).not.toHaveBeenCalled();
+  });
+
+  it("validates and applies a scoped pause action without provider configuration", async () => {
+    const investmentConnectionsRepository = repository();
+    const pausedStatus = {
+      ...readyStatus,
+      status: "paused" as const,
+      automaticUpdatesEnabled: false,
+      latestRunStatus: null,
+    };
+    investmentConnectionsRepository.getConnectionStatus.mockResolvedValue(
+      pausedStatus,
+    );
+    const app = createApp({
+      investmentConnectionsRepository,
+      plaidClient: client(),
+    });
+
+    const invalid = await app.request(
+      `/api/investment-connections/${connectionId}/lifecycle`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stop" }),
+      },
+      env(),
+    );
+    expect(invalid.status).toBe(400);
+
+    const response = await app.request(
+      `/api/investment-connections/${connectionId}/lifecycle`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pause" }),
+      },
+      env(),
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(pausedStatus);
+    expect(
+      investmentConnectionsRepository.setConnectionPaused,
+    ).toHaveBeenCalledWith("synthetic-access-subject", connectionId, true);
   });
 
   it("does not retain the Robinhood-only route surface", async () => {

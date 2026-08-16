@@ -216,6 +216,7 @@ function publicRepository() {
       repository.providerAccountKey = null;
       return Promise.resolve();
     }),
+    setConnectionPaused: vi.fn().mockResolvedValue(undefined),
     claimPlaidWebhookDelivery: vi.fn(),
     getPlaidWebhookDelivery: vi.fn(),
     markPlaidWebhookDelivery: vi.fn(),
@@ -447,7 +448,7 @@ describe("Plaid Investments sync", () => {
     }
   });
 
-  it("accepts validated Investments metadata from a non-Robinhood institution", async () => {
+  it("accepts validated Investments metadata from a synthetic Fidelity variant", async () => {
     const calls: string[] = [];
     const fetcher = vi.fn((url: string | URL | Request) => {
       const rawUrl =
@@ -464,7 +465,7 @@ describe("Plaid Investments sync", () => {
           : path === "/item/get"
             ? {
                 item: {
-                  institution_id: "synthetic-other-institution",
+                  institution_id: "synthetic-fidelity-investments",
                   item_id: "synthetic-item",
                 },
                 request_id: "synthetic-request",
@@ -472,8 +473,8 @@ describe("Plaid Investments sync", () => {
             : path === "/institutions/get_by_id"
               ? {
                   institution: {
-                    institution_id: "synthetic-other-institution",
-                    name: "Synthetic Other Brokerage",
+                    institution_id: "synthetic-fidelity-investments",
+                    name: "Synthetic Fidelity Investments",
                     products: ["investments"],
                   },
                   request_id: "synthetic-request",
@@ -503,8 +504,8 @@ describe("Plaid Investments sync", () => {
       version: 1,
       accessToken: "synthetic-access-token",
       itemId: "synthetic-item",
-      institutionKey: "synthetic-other-institution",
-      institutionLabel: "Synthetic Other Brokerage",
+      institutionKey: "synthetic-fidelity-investments",
+      institutionLabel: "Synthetic Fidelity Investments",
     });
     expect(calls).toEqual([
       "/item/public_token/exchange",
@@ -513,7 +514,7 @@ describe("Plaid Investments sync", () => {
     ]);
   });
 
-  it("removes an unsupported Item before any credential can be stored", async () => {
+  it("removes a Fidelity cash-management variant without Investments support", async () => {
     const calls: string[] = [];
     const fetcher = vi.fn((url: string | URL | Request) => {
       const rawUrl =
@@ -530,7 +531,7 @@ describe("Plaid Investments sync", () => {
           : path === "/item/get"
             ? {
                 item: {
-                  institution_id: "synthetic-bank",
+                  institution_id: "synthetic-fidelity-cash-management",
                   item_id: "synthetic-item",
                 },
                 request_id: "synthetic-request",
@@ -538,8 +539,8 @@ describe("Plaid Investments sync", () => {
             : path === "/institutions/get_by_id"
               ? {
                   institution: {
-                    institution_id: "synthetic-bank",
-                    name: "Synthetic Bank",
+                    institution_id: "synthetic-fidelity-cash-management",
+                    name: "Synthetic Fidelity Cash Management",
                     products: ["auth"],
                   },
                   request_id: "synthetic-request",

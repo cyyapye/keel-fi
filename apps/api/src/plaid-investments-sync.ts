@@ -733,6 +733,7 @@ export async function disconnectInvestmentConnection(input: {
   const connection = await input.repository.getConnection(
     input.accessSubject,
     input.connectionId,
+    true,
   );
   if (connection === null) {
     return input.repository.getConnectionStatus(

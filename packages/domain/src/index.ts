@@ -2227,7 +2227,13 @@ export const InvestmentConnectionStatusSchema = z
     connectionId: z.string().min(1),
     institutionKey: z.string().min(1).max(200),
     institutionLabel: z.string().min(1).max(512),
-    status: z.enum(["disconnected", "ready", "syncing", "needs_attention"]),
+    status: z.enum([
+      "disconnected",
+      "paused",
+      "ready",
+      "syncing",
+      "needs_attention",
+    ]),
     lastSyncedAt: IsoTimestampSchema.nullable(),
     automaticUpdatesEnabled: z.boolean().default(false),
     latestImportId: z.string().min(1).nullable(),
@@ -2298,6 +2304,12 @@ export const InvestmentLinkTokenSchema = z
 export const InvestmentExchangeInputSchema = z
   .object({
     publicToken: z.string().min(1).max(4_096),
+  })
+  .strict();
+
+export const InvestmentConnectionLifecycleActionInputSchema = z
+  .object({
+    action: z.enum(["pause", "resume"]),
   })
   .strict();
 
@@ -3381,6 +3393,9 @@ export type InvestmentSyncErrorCode = z.infer<
 >;
 export type InvestmentConnectionStatus = z.infer<
   typeof InvestmentConnectionStatusSchema
+>;
+export type InvestmentConnectionLifecycleActionInput = z.infer<
+  typeof InvestmentConnectionLifecycleActionInputSchema
 >;
 export type InvestmentConnectionsState = z.infer<
   typeof InvestmentConnectionsStateSchema
