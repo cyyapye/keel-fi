@@ -6,9 +6,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 
 - Last reconciled: 2026-08-16
 - Reconciled product baseline:
-  [`a5d7890`](https://github.com/cyyapye/keel-fi/commit/a5d789016c3887b7bc9e4851201eaa7c999ca3d1)
+  [`6457502`](https://github.com/cyyapye/keel-fi/commit/6457502d55c7e2f3b51ead67a0d78dfdf86c96e8)
 - Baseline release evidence:
-  [`31963952670`](https://github.com/cyyapye/keel-fi/actions/runs/31963952670)
+  [`31971076869`](https://github.com/cyyapye/keel-fi/actions/runs/31971076869)
 
 ## How to use this roadmap
 
@@ -691,7 +691,7 @@ remains $0.
       committing institution credentials or holdings; real provider acceptance
       remains an activation gate.
 
-### [ ] M9.9 — Reviewed private positions and exposures — **Active**
+### [x] M9.9 — Reviewed private positions and exposures
 
 **User outcome:** Every reviewed private holding appears once as a legal
 position, while multiple SPVs into the same reviewed company appear together as
@@ -728,6 +728,20 @@ accessibility, detail-focus, no-overflow, `make verify`, reviewed PR, exact-head
 merge, and exact-SHA deployment checks pass without private data in repository
 or CI artifacts.
 
+**Evidence:** Implemented in
+[PR #87](https://github.com/cyyapye/keel-fi/pull/87) at exact checked head
+[`26053ee`](https://github.com/cyyapye/keel-fi/commit/26053ee0a1d0c41a76caf4067f45ec797de00a46)
+and merged as released commit
+[`6457502`](https://github.com/cyyapye/keel-fi/commit/6457502d55c7e2f3b51ead67a0d78dfdf86c96e8).
+All 447 tests, 48 desktop/mobile browser flows, fresh migration replay,
+synthetic seed, builds, public-data checks, and secret scans passed. The release
+retained an encrypted D1 backup, deployed and read back both Worker versions,
+passed protected smokes, and retained exact-SHA evidence in
+[run `31971076869`](https://github.com/cyyapye/keel-fi/actions/runs/31971076869).
+No provider request, paid product, polling schedule, Queue message, R2 object,
+notification channel, recurring work, or migration was added; approved
+incremental external spend remains `$0`.
+
 **Exit gates:**
 
 - [x] Reviewed manual and imported holdings appear exactly once in Positions;
@@ -737,7 +751,7 @@ or CI artifacts.
       explicit.
 - [x] Database, domain, API, and browser tests cover shared-company SPVs,
       unresolved identity, value states, detail focus, and mobile no-overflow.
-- [ ] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
+- [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
 ### [x] M10 — Plan versus actual monitoring
@@ -798,7 +812,7 @@ or external notification was added; approved incremental external spend remains
 - [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
-### [ ] M11 — Actual distributions and forecast reconciliation
+### [ ] M11 — Actual distributions and forecast reconciliation — **Active**
 
 **User outcome:** When a private holding produces cash, Keel records what became
 usable, reconciles it with the prior forecast, and shows the resulting FI and
