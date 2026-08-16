@@ -1,4 +1,4 @@
-# Multi-source holdings canonical foundation
+# Multi-source investment holdings
 
 Migration `0019_multi_source_holdings_contract.sql` defines Keel's only
 connection, ownership-container, import-coverage, and exposure relationship
@@ -137,10 +137,90 @@ institution variant:
 6. rollback by disabling new authorization and writes while preserving accepted
    history.
 
-M9.1 through M9.6b use synthetic provider data and therefore have zero approved
+M9.1 through M9.8 use synthetic provider data and therefore have zero approved
 incremental provider spend.
 
-## Verification
+## Owner experience and scoped operations
+
+The Holdings page reads the canonical position and exposure projections from
+`GET /api/investment-holdings`. Positions are the default view and stay grouped
+by their exact connection and ownership container. The exposure view groups
+accepted mappings without merging positions and retains the contributing
+institution and account as drill-down context. Partial coverage, stale facts,
+unavailable values, unknown allocations, unresolved exposures, and unallocated
+position value remain explicit. They are never rendered as zero.
+
+Each investment connection has its own actions:
+
+- **Check now** performs one bounded Investments retrieval for that connection.
+- **Reconnect** opens Plaid update mode with the exact retained credential. It
+  does not create a second Item or request a new product.
+- **Pause** stops user-triggered retrieval without changing accepted history.
+- **Resume updates** re-enables the same connection lineage.
+- **Disconnect** removes only that connection's future retrieval credential
+  after confirmation. Accepted positions, review decisions, Portfolio Baselines,
+  plans, goals, and forecasts remain available.
+
+Investment authorization is deliberately separate from the reviewed Plaid Auth
+flow for banking cash. `INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED` defaults to
+`false` in checked-in local, preview, and production configuration. With that
+default, `POST /api/investment-connections/link-token` returns a fail-closed
+conflict and the interface explains that coverage and pricing approval are
+required. Existing connection reconnects remain available because they do not
+authorize a new institution or product.
+
+## Provider enablement checklist
+
+Before setting `INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED=true` in a private
+deployment, record all of the following outside public Git for the exact
+institution variant:
+
+1. Plaid Investments coverage for every intended brokerage and retirement
+   account type, including known unsupported or partial cases.
+2. The per-Item and per-product price, any Link update/reconnect charge, the
+   expected bounded manual-check and webhook volume, and the approved monthly
+   ceiling and owner.
+3. The expected number of connections, containers, imports, coverage rows,
+   position associations, exposure mappings, and accepted snapshots, plus the
+   resulting D1 and encrypted-backup growth.
+4. Credential, normalized-fact, backup, and disconnect retention; a successful
+   deletion test for the selected synthetic or Sandbox Item.
+5. Provider approval for the intended deployment environment and institution,
+   and a private owner acceptance run showing account coverage without copying
+   labels, identifiers, balances, holdings, or screenshots into Git or CI.
+6. Rollback ownership and the exact configuration change that disables new
+   authorization and generic writes while preserving accepted history.
+
+Do not enable Investments Refresh, a Worker schedule, a notification channel, or
+another paid product as part of this checklist. Those require a separate cost
+and product decision.
+
+## Synthetic operator check
+
+Use only the checked-in fabricated seed and Playwright fixtures for public
+release evidence:
+
+1. Start the isolated stack with `make dev` and open the printed web URL.
+2. Open **Holdings**. Confirm investment institutions and their brokerage,
+   retirement, entity, partial, stale, paused, and disconnected states are
+   distinguishable from the separate banking-cash section.
+3. Confirm **Positions** is selected by default and the same fabricated security
+   in three accounts remains three position rows.
+4. Open **Exposures**, expand the shared security, and confirm its three exact
+   account contributions. Confirm the fabricated multi-exposure fund shows
+   unknown allocations and unallocated value without a zero exposure total.
+5. Exercise check, pause/resume, reconnect, review, and disconnect confirmation
+   on only the intended synthetic connection. Confirm another same-label
+   connection is unchanged and accepted history remains visible.
+6. Run the focused domain/API tests, desktop and mobile Playwright flows, fresh
+   migration replay, and `make verify`. Inspect both viewport screenshots for
+   keyboard focus, 44-pixel controls, and horizontal overflow.
+7. Release only through a reviewed exact-head PR followed by the exact-SHA
+   backup, forward migration, deployment, and protected-smoke workflow. Keep
+   additional-institution authorization disabled unless the private checklist
+   above is complete.
+
+## Canonical contract verification
 
 Before accepting the M9.6b release:
 
@@ -174,7 +254,5 @@ Before accepting the M9.6b release:
    integer money/quantity conversion, response bounds, encrypted R2 storage,
    append-only decisions, and fail-closed Access authentication.
 9. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
-   exact-head merge, and exact-SHA protected preview gates before marking M9.5
-   and M9.6b complete.
-
-Additional-institution authorization remains a later ordered M9 gate.
+   exact-head merge, and exact-SHA protected preview gates before marking the
+   corresponding M9 slice complete.

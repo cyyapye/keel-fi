@@ -179,7 +179,10 @@ export class PlaidInvestmentsClientError extends Error {
 }
 
 export interface PlaidInvestmentsClient {
-  createLinkToken(clientUserId: string): Promise<InvestmentLinkToken>;
+  createLinkToken(
+    clientUserId: string,
+    accessToken?: string,
+  ): Promise<InvestmentLinkToken>;
   exchangeInvestmentToken(publicToken: string): Promise<InvestmentCredential>;
   removeItem(accessToken: string): Promise<void>;
   updateItemWebhook(accessToken: string): Promise<void>;
@@ -448,20 +451,29 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
 
   public async createLinkToken(
     clientUserId: string,
+    rawAccessToken?: string,
   ): Promise<InvestmentLinkToken> {
+    const accessToken =
+      rawAccessToken === undefined
+        ? undefined
+        : z.string().min(1).max(4_096).parse(rawAccessToken);
     const response = await this.post(
       "/link/token/create",
       {
         client_name: "Keel",
         country_codes: ["US"],
         language: "en",
-        products: ["investments"],
         redirect_uri: this.config.redirectUri,
-        webhook: this.config.webhookUrl,
-        account_filters: {
-          investment: { account_subtypes: ["all"] },
-        },
         user: { client_user_id: await sha256(clientUserId) },
+        ...(accessToken === undefined
+          ? {
+              products: ["investments"],
+              webhook: this.config.webhookUrl,
+              account_filters: {
+                investment: { account_subtypes: ["all"] },
+              },
+            }
+          : { access_token: accessToken }),
       },
       PlaidLinkTokenResponseSchema,
     );
@@ -720,6 +732,43 @@ export async function connectInvestmentConnection(input: {
   return input.repository.getConnectionStatus(
     input.accessSubject,
     connectionId,
+  );
+}
+
+export async function createInvestmentReconnectLinkToken(input: {
+  env: Env;
+  repository: InvestmentConnectionsRepository;
+  client: PlaidInvestmentsClient;
+  accessSubject: string;
+  connectionId: string;
+}): Promise<InvestmentLinkToken> {
+  const connection = await input.repository.getConnection(
+    input.accessSubject,
+    input.connectionId,
+    true,
+  );
+  if (connection === null) {
+    throw new PlaidInvestmentsClientError(
+      "connection_invalid",
+      "Reconnect this institution to continue syncing.",
+    );
+  }
+  const encrypted = await input.env.DOCUMENTS.get(connection.secretReference);
+  if (encrypted === null) {
+    throw new PlaidInvestmentsClientError(
+      "connection_invalid",
+      "Reconnect this institution to continue syncing.",
+    );
+  }
+  const credential = await decryptCredential(
+    input.env,
+    await readR2Bytes(encrypted),
+    input.accessSubject,
+    connection.secretReference,
+  );
+  return input.client.createLinkToken(
+    input.accessSubject,
+    credential.accessToken,
   );
 }
 

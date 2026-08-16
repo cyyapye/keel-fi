@@ -8,7 +8,7 @@ type PlaidLinkHandler = {
 
 type PlaidLinkConfiguration = {
   onExit: (error: unknown) => void;
-  onSuccess: (publicToken: string) => void;
+  onSuccess: (publicToken: string | null) => void;
   receivedRedirectUri?: string;
   token: string;
 };
@@ -59,7 +59,7 @@ function loadPlaidLink(): Promise<void> {
 export async function openPlaidLink(input: {
   linkToken: string;
   onExit: () => void;
-  onSuccess: (publicToken: string) => void;
+  onSuccess: (publicToken: string | null) => void;
   receivedRedirectUri?: string;
 }): Promise<PlaidLinkHandler> {
   await loadPlaidLink();

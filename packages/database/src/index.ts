@@ -60,6 +60,7 @@ export * from "./cash-flow";
 export * from "./liabilities";
 export * from "./exposures";
 export * from "./exposure-read-model";
+export * from "./position-read-model";
 
 type DashboardRow = {
   as_of_date: string;

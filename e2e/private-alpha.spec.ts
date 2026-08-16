@@ -31,7 +31,12 @@ test("loads the database-backed dashboard and primary views", async ({
   await page
     .getByRole("button", { name: /FI-eligible liquid.*View holdings/ })
     .click();
-  await expect(page.getByRole("heading", { name: "Holdings" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Holdings", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Company holdings" }),
+  ).toBeVisible();
   await expect(page.getByText("Northstar Robotics")).toBeVisible();
   const northstarHolding = page.getByRole("button", {
     name: "View Northstar Robotics holding details",

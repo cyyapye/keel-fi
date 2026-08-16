@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./exposure-read-model": "./src/exposure-read-model.ts",
+    "./investment-holdings-view": "./src/investment-holdings-view.ts",
     "./position-read-model": "./src/position-read-model.ts"
   },
   "scripts": {

@@ -655,7 +655,16 @@ export function Obligations() {
       await openPlaidLink({
         linkToken,
         onExit: () => setBusyAction(null),
-        onSuccess: (publicToken) => void exchangeToken(publicToken),
+        onSuccess: (publicToken) => {
+          if (publicToken === null) {
+            setBusyAction(null);
+            setError(
+              "The obligation institution did not return a connection token.",
+            );
+            return;
+          }
+          void exchangeToken(publicToken);
+        },
         ...(receivedRedirectUri === undefined ? {} : { receivedRedirectUri }),
       });
     },

@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
+
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/investment-holdings", async (route) => {
+    await route.fulfill({ json: emptyInvestmentHoldingsView });
+  });
+});
+
 const investmentConnectionsState = {
   version: 1,
   configured: true,

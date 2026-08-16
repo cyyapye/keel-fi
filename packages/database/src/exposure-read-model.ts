@@ -8,6 +8,10 @@ import {
   createInvestmentExposureView,
   type InvestmentExposureView,
 } from "@keel/domain/exposure-read-model";
+import {
+  InvestmentPositionViewSchema,
+  type InvestmentPositionView,
+} from "@keel/domain/position-read-model";
 
 import {
   D1InvestmentPositionViewRepository,
@@ -86,7 +90,11 @@ function mappingFrom(row: PositionExposureMappingRow): PositionExposureMapping {
 }
 
 export interface InvestmentExposureViewRepository {
-  list(accessSubject: string, asOf?: string): Promise<InvestmentExposureView>;
+  list(
+    accessSubject: string,
+    asOf?: string,
+    positionView?: InvestmentPositionView,
+  ): Promise<InvestmentExposureView>;
 }
 
 export class D1InvestmentExposureViewRepository implements InvestmentExposureViewRepository {
@@ -100,10 +108,15 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
   public async list(
     accessSubject: string,
     asOf = new Date().toISOString(),
+    suppliedPositionView?: InvestmentPositionView,
   ): Promise<InvestmentExposureView> {
     const [identity, positionView] = await Promise.all([
       this.findIdentity(accessSubject),
-      this.positions.list(accessSubject, asOf),
+      suppliedPositionView === undefined
+        ? this.positions.list(accessSubject, asOf)
+        : Promise.resolve(
+            InvestmentPositionViewSchema.parse(suppliedPositionView),
+          ),
     ]);
     const [exposureRows, mappingRows] = await Promise.all([
       all<CanonicalExposureRow>(

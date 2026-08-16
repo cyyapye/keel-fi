@@ -10,6 +10,7 @@ import { plaidInvestmentsSourceKey } from "./investment-identity";
 import {
   buildPlaidInvestmentsCanonicalScope,
   connectInvestmentConnection,
+  createInvestmentReconnectLinkToken,
   disconnectInvestmentConnection,
   FetchPlaidInvestmentsClient,
   syncInvestmentConnection,
@@ -446,6 +447,51 @@ describe("Plaid Investments sync", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("creates an exact-Item update token without requesting a new product", async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const fetcher = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== "string") {
+          throw new TypeError("Expected a JSON request body.");
+        }
+        requestBody = JSON.parse(init.body) as Record<string, unknown>;
+        return Promise.resolve(
+          Response.json({
+            link_token: "link-synthetic-update-token",
+            expiration: "2026-08-16T12:30:00Z",
+            request_id: "synthetic-request",
+          }),
+        );
+      },
+    ) as unknown as typeof fetch;
+    const client = new FetchPlaidInvestmentsClient(
+      {
+        clientId: "synthetic-client",
+        secret: "synthetic-secret",
+        environment: "sandbox",
+        credentialKey,
+        redirectUri: "https://keel.example/holdings",
+        webhookUrl: "https://keel-webhooks.example/webhooks/plaid",
+      },
+      fetcher,
+    );
+
+    await expect(
+      client.createLinkToken(
+        "synthetic-access-subject",
+        "synthetic-private-access-token",
+      ),
+    ).resolves.toEqual({
+      linkToken: "link-synthetic-update-token",
+      expiration: "2026-08-16T12:30:00Z",
+    });
+    expect(requestBody).toMatchObject({
+      access_token: "synthetic-private-access-token",
+    });
+    expect(requestBody).not.toHaveProperty("products");
+    expect(requestBody).not.toHaveProperty("account_filters");
   });
 
   it("accepts validated Investments metadata from a synthetic Fidelity variant", async () => {
@@ -968,6 +1014,57 @@ describe("Plaid Investments sync", () => {
       "synthetic-investment-connection",
     );
     expect(storage.values.has(secretReference ?? "")).toBe(false);
+  });
+
+  it("opens reconnect for one retained connection without replacing its credential", async () => {
+    const storage = memoryBucket();
+    const env = testEnv(storage.bucket);
+    const repository = publicRepository();
+    const createLinkToken = vi.fn().mockResolvedValue({
+      linkToken: "link-synthetic-update-token",
+      expiration: "2026-08-16T12:30:00.000Z",
+    });
+    const client: PlaidInvestmentsClient = {
+      createLinkToken,
+      exchangeInvestmentToken: vi.fn().mockResolvedValue({
+        version: 1,
+        accessToken: "synthetic-private-access-token",
+        itemId: "synthetic-item",
+        institutionKey: "synthetic-fidelity",
+        institutionLabel: "Fidelity",
+      }),
+      removeItem: vi.fn(),
+      updateItemWebhook: vi.fn(),
+      getWebhookVerificationKey: vi.fn(),
+      getHoldings: vi.fn(),
+    };
+    await connectInvestmentConnection({
+      env,
+      repository,
+      client,
+      accessSubject: "synthetic-access-subject",
+      publicToken: "synthetic-public-token",
+    });
+    const secretReference = repository.secretReference;
+
+    await expect(
+      createInvestmentReconnectLinkToken({
+        env,
+        repository,
+        client,
+        accessSubject: "synthetic-access-subject",
+        connectionId: "synthetic-investment-connection",
+      }),
+    ).resolves.toEqual({
+      linkToken: "link-synthetic-update-token",
+      expiration: "2026-08-16T12:30:00.000Z",
+    });
+    expect(createLinkToken).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-private-access-token",
+    );
+    expect(repository.secretReference).toBe(secretReference);
+    expect(storage.values.has(secretReference ?? "")).toBe(true);
   });
 
   it("preserves access to the shipped encrypted credential during cutover", async () => {

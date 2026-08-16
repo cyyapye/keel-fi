@@ -1,4 +1,8 @@
-import type { InvestmentConnectionsRepository } from "@keel/database";
+import type {
+  InvestmentConnectionsRepository,
+  InvestmentExposureViewRepository,
+  InvestmentPositionViewRepository,
+} from "@keel/database";
 import type {
   InvestmentConnectionStatus,
   InvestmentConnectionsState,
@@ -30,6 +34,19 @@ const state: InvestmentConnectionsState = {
   configured: true,
   connections: [readyStatus],
   errorCode: null,
+};
+
+const asOf = "2026-08-16T12:00:00.000Z";
+
+const positionView = {
+  asOf,
+  connections: [],
+};
+
+const exposureView = {
+  asOf,
+  positions: [],
+  exposures: [],
 };
 
 function repository() {
@@ -123,7 +140,11 @@ describe("investment-connections API", () => {
   it("returns all configured connections and creates a Link token", async () => {
     const investmentConnectionsRepository = repository();
     const plaidClient = client();
-    const app = createApp({ investmentConnectionsRepository, plaidClient });
+    const app = createApp({
+      investmentConnectionsRepository,
+      plaidClient,
+      additionalInvestmentAuthorizationAvailable: true,
+    });
 
     const statusResponse = await app.request(
       "/api/investment-connections",
@@ -150,6 +171,65 @@ describe("investment-connections API", () => {
     expect(plaidClient.createLinkToken).toHaveBeenCalledWith(
       "synthetic-access-subject",
     );
+  });
+
+  it("returns canonical position and exposure views with authorization status", async () => {
+    const investmentPositionViewRepository = {
+      list: vi.fn().mockResolvedValue(positionView),
+    } satisfies InvestmentPositionViewRepository;
+    const investmentExposureViewRepository = {
+      list: vi.fn().mockResolvedValue(exposureView),
+    } satisfies InvestmentExposureViewRepository;
+    const app = createApp({
+      investmentConnectionsRepository: repository(),
+      investmentPositionViewRepository,
+      investmentExposureViewRepository,
+      plaidClient: client(),
+    });
+
+    const response = await app.request(
+      "/api/investment-holdings",
+      undefined,
+      env(),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      version: 1,
+      authorizationStatus: "provider_approval_required",
+      positionView,
+      exposureView,
+    });
+    expect(investmentPositionViewRepository.list).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      expect.any(String),
+    );
+    expect(investmentExposureViewRepository.list).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      expect.any(String),
+      positionView,
+    );
+  });
+
+  it("does not open new authorization before provider approval", async () => {
+    const plaidClient = client();
+    const app = createApp({
+      investmentConnectionsRepository: repository(),
+      plaidClient,
+    });
+
+    const response = await app.request(
+      "/api/investment-connections/link-token",
+      { method: "POST" },
+      env(),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "Additional investment institutions require approved provider coverage and pricing.",
+    });
+    expect(plaidClient.createLinkToken).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed exchange before calling Plaid", async () => {

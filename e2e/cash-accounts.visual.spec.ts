@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
+
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/investment-holdings", async (route) => {
+    await route.fulfill({ json: emptyInvestmentHoldingsView });
+  });
+});
+
 const observedAt = "2026-08-14T16:00:00.000Z";
 const connectionId = "cash_connection_demo_bank";
 const proposalId = "cash_proposal_demo_bank";

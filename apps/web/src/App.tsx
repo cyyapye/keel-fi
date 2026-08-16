@@ -22,8 +22,6 @@ import {
   type HoldingImportPreview,
   type HoldingImportRowPreview,
   type HoldingImportSummary,
-  type InvestmentConnectionStatus,
-  type InvestmentConnectionsState,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineState,
   type PublicSourceObservation,
@@ -52,12 +50,9 @@ import {
   confirmPortfolioBaseline,
   configureAngelListMacAgent,
   createCashAccountLinkToken,
-  createInvestmentLinkToken,
   createSignalUpdateProposal as submitSignalUpdateProposal,
-  disconnectInvestmentConnection,
   getAngelListSignInRefresh,
   exchangeCashAccountPublicToken,
-  exchangeInvestmentPublicToken,
   listPendingHoldingImports,
   loadAngelListAutomationOverview,
   loadAlphaData,
@@ -65,7 +60,6 @@ import {
   loadLegacyAngelListAutomationOverview,
   loadCashAccounts,
   loadPortfolioBaseline,
-  loadInvestmentConnections,
   previewAngelListHoldingImport,
   requestAngelListUpdate,
   refreshCashAccount,
@@ -77,7 +71,6 @@ import {
   submitAngelListHandoffInput,
   submitAngelListMagicLink,
   submitEvidenceReview,
-  syncInvestmentHoldings,
 } from "./api";
 import {
   formatCompactCurrency,
@@ -87,6 +80,7 @@ import {
   formatProbability,
 } from "./format";
 import { openPlaidLink } from "./plaid-link";
+import { InvestmentHoldings } from "./InvestmentHoldings";
 import { Obligations } from "./Obligations";
 import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanInputsEditor } from "./PlanInputsEditor";
@@ -3067,404 +3061,7 @@ function AngelListSignInControl() {
   );
 }
 
-const INVESTMENT_LINK_TOKEN_STORAGE_KEY = "keel.investmentLinkToken";
 const PLAID_OAUTH_FLOW_STORAGE_KEY = "keel.plaidOauthFlow";
-const INVESTMENT_OAUTH_RECONNECT_MESSAGE =
-  "Reconnect the investment account to finish signing in.";
-
-function initialInvestmentSyncError(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const returningFromOauth = new URLSearchParams(window.location.search).has(
-    "oauth_state_id",
-  );
-  return returningFromOauth &&
-    window.sessionStorage.getItem(PLAID_OAUTH_FLOW_STORAGE_KEY) ===
-      "investments" &&
-    window.sessionStorage.getItem(INVESTMENT_LINK_TOKEN_STORAGE_KEY) === null
-    ? INVESTMENT_OAUTH_RECONNECT_MESSAGE
-    : null;
-}
-
-function InvestmentSyncControl({
-  onReviewImport,
-}: {
-  onReviewImport: (importId: string) => void;
-}) {
-  const [state, setState] = useState<InvestmentConnectionsState | null>(null);
-  const [busyAction, setBusyAction] = useState<
-    "connect" | "disconnect" | "exchange" | "sync" | null
-  >(null);
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const [error, setError] = useState<string | null>(initialInvestmentSyncError);
-  const [notice, setNotice] = useState<string | null>(null);
-  const oauthStarted = useRef(false);
-  const status =
-    state?.connections.find(
-      (connection) => connection.status !== "disconnected",
-    ) ??
-    state?.connections[0] ??
-    null;
-
-  const reload = useCallback(async () => {
-    try {
-      setState(await loadInvestmentConnections());
-      setError((current) =>
-        current === INVESTMENT_OAUTH_RECONNECT_MESSAGE ? current : null,
-      );
-    } catch {
-      setError(
-        "Keel could not check investment connections right now. Try again shortly.",
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    const initial = window.setTimeout(() => void reload(), 0);
-    const timer = window.setInterval(() => void reload(), 10_000);
-    return () => {
-      window.clearTimeout(initial);
-      window.clearInterval(timer);
-    };
-  }, [reload]);
-
-  const acceptSyncStatus = useCallback(
-    (next: InvestmentConnectionStatus) => {
-      setState((current) => ({
-        version: 1,
-        configured: true,
-        connections: [
-          next,
-          ...(current?.connections.filter(
-            (connection) => connection.connectionId !== next.connectionId,
-          ) ?? []),
-        ],
-        errorCode: null,
-      }));
-      setError(null);
-      if (
-        next.latestImportId !== null &&
-        (next.latestAdjudication?.quarantinedCount ?? 0) > 0
-      ) {
-        onReviewImport(next.latestImportId);
-      } else if ((next.latestAdjudication?.autoAppliedCount ?? 0) > 0) {
-        const applied = next.latestAdjudication?.autoAppliedCount ?? 0;
-        setNotice(
-          "Keel applied " +
-            applied +
-            " clear " +
-            (applied === 1 ? "position" : "positions") +
-            " automatically" +
-            (next.latestAdjudication?.baselineRefreshStatus === "refreshed"
-              ? " and refreshed your plan."
-              : "."),
-        );
-      } else {
-        setNotice(
-          `${next.institutionLabel} is up to date. No holding changes were found.`,
-        );
-      }
-    },
-    [onReviewImport],
-  );
-
-  const exchangeToken = useCallback(
-    async (publicToken: string) => {
-      setBusyAction("exchange");
-      setError(null);
-      setNotice(null);
-      try {
-        const next = await exchangeInvestmentPublicToken(publicToken);
-        window.sessionStorage.removeItem(INVESTMENT_LINK_TOKEN_STORAGE_KEY);
-        window.sessionStorage.removeItem(PLAID_OAUTH_FLOW_STORAGE_KEY);
-        if (window.location.search.length > 0) {
-          window.history.replaceState(null, "", window.location.pathname);
-        }
-        acceptSyncStatus(next);
-      } catch {
-        setError(
-          "The investment account could not be connected. Your holdings were not changed.",
-        );
-      } finally {
-        setBusyAction(null);
-      }
-    },
-    [acceptSyncStatus],
-  );
-
-  const openLink = useCallback(
-    async (linkToken: string, receivedRedirectUri?: string) => {
-      await openPlaidLink({
-        linkToken,
-        onExit: () => setBusyAction(null),
-        onSuccess: (publicToken) => void exchangeToken(publicToken),
-        ...(receivedRedirectUri === undefined ? {} : { receivedRedirectUri }),
-      });
-    },
-    [exchangeToken],
-  );
-
-  useEffect(() => {
-    if (
-      oauthStarted.current ||
-      !new URLSearchParams(window.location.search).has("oauth_state_id") ||
-      window.sessionStorage.getItem(PLAID_OAUTH_FLOW_STORAGE_KEY) !==
-        "investments"
-    ) {
-      return;
-    }
-    const linkToken = window.sessionStorage.getItem(
-      INVESTMENT_LINK_TOKEN_STORAGE_KEY,
-    );
-    if (linkToken === null) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      if (oauthStarted.current) {
-        return;
-      }
-      oauthStarted.current = true;
-      setBusyAction("connect");
-      void openLink(linkToken, window.location.href).catch(() => {
-        setBusyAction(null);
-        setError("The investment connection could not be reopened. Try again.");
-      });
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [openLink]);
-
-  const connect = async () => {
-    setBusyAction("connect");
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await createInvestmentLinkToken();
-      window.sessionStorage.setItem(
-        INVESTMENT_LINK_TOKEN_STORAGE_KEY,
-        result.linkToken,
-      );
-      window.sessionStorage.setItem(
-        PLAID_OAUTH_FLOW_STORAGE_KEY,
-        "investments",
-      );
-      await openLink(result.linkToken);
-    } catch {
-      setBusyAction(null);
-      setError("The investment connection could not be opened. Try again.");
-    }
-  };
-
-  const sync = async () => {
-    if (status === null) {
-      return;
-    }
-    setBusyAction("sync");
-    setError(null);
-    setNotice(null);
-    try {
-      acceptSyncStatus(await syncInvestmentHoldings(status.connectionId));
-    } catch {
-      setError(
-        `${status.institutionLabel} could not be synced. Your holdings were not changed.`,
-      );
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  const disconnect = async () => {
-    if (status === null) {
-      return;
-    }
-    setBusyAction("disconnect");
-    setError(null);
-    setNotice(null);
-    try {
-      acceptSyncStatus(
-        await disconnectInvestmentConnection(status.connectionId),
-      );
-      setConfirmDisconnect(false);
-      window.sessionStorage.removeItem(INVESTMENT_LINK_TOKEN_STORAGE_KEY);
-      setNotice(
-        `${status.institutionLabel} disconnected. Reviewed holdings remain visible.`,
-      );
-    } catch {
-      setError(
-        `${status.institutionLabel} could not be disconnected. Try again shortly.`,
-      );
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  const setupRequired = state !== null && !state.configured;
-  const disconnected =
-    state?.configured === true &&
-    (status === null || status.status === "disconnected");
-  const syncing = status?.status === "syncing";
-  const connectionInvalid =
-    status?.status === "needs_attention" &&
-    status.errorCode === "connection_invalid";
-  const quarantinedCount = status?.latestAdjudication?.quarantinedCount ?? 0;
-  const autoAppliedCount = status?.latestAdjudication?.autoAppliedCount ?? 0;
-  const institutionLabel = status?.institutionLabel ?? "Robinhood";
-  const title =
-    state === null
-      ? "Checking investment accounts"
-      : setupRequired
-        ? "Investment sync needs setup"
-        : disconnected
-          ? status === null
-            ? "Connect Robinhood"
-            : `Reconnect ${institutionLabel}`
-          : syncing
-            ? `Checking ${institutionLabel}`
-            : connectionInvalid
-              ? `Reconnect ${institutionLabel}`
-              : quarantinedCount > 0
-                ? quarantinedCount === 1
-                  ? `One ${institutionLabel} exception was isolated`
-                  : `${quarantinedCount} ${institutionLabel} exceptions were isolated`
-                : status?.status === "needs_attention"
-                  ? `${institutionLabel} update needs attention`
-                  : status?.automaticUpdatesEnabled
-                    ? `${institutionLabel} updates automatically`
-                    : `Turn on automatic ${institutionLabel} updates`;
-  const description = setupRequired
-    ? "Add the Plaid connection settings to enable investment holdings sync."
-    : disconnected
-      ? "Bring in stocks, ETFs, and mutual funds. Clear updates are recorded automatically."
-      : syncing
-        ? "Keel is checking the latest brokerage snapshot and isolating anything uncertain."
-        : connectionInvalid
-          ? "The saved connection no longer works. Reconnect to resume updates."
-          : status?.errorCode === "holdings_incomplete"
-            ? "The latest snapshot was incomplete. Prior holdings stayed unchanged."
-            : status?.status === "needs_attention"
-              ? "The latest update could not be safely applied. Try again shortly."
-              : quarantinedCount > 0
-                ? "Keel applied " +
-                  autoAppliedCount +
-                  " clear " +
-                  (autoAppliedCount === 1 ? "position" : "positions") +
-                  " and kept uncertain records unchanged."
-                : status?.automaticUpdatesEnabled
-                  ? "Keel records clear holdings changes automatically. Crypto stays outside your FI plan; only uncertain records need review."
-                  : `Check ${institutionLabel} once to enable automatic updates.`;
-
-  return (
-    <section
-      aria-labelledby="investment-sync-title"
-      className="investment-sync"
-    >
-      <div className="investment-sync__heading">
-        <p className="eyebrow">Public holdings</p>
-        <h2 id="investment-sync-title">{title}</h2>
-        <p>{description}</p>
-      </div>
-      <div className="investment-sync__action" aria-live="polite">
-        {state === null ? (
-          error === null ? (
-            <span className="investment-sync__checking" role="status">
-              Checking…
-            </span>
-          ) : null
-        ) : setupRequired ? null : disconnected || connectionInvalid ? (
-          <Button
-            disabled={busyAction !== null}
-            onClick={() => void connect()}
-            tone="primary"
-          >
-            {busyAction === "connect" || busyAction === "exchange"
-              ? "Connecting…"
-              : connectionInvalid
-                ? `Reconnect ${institutionLabel}`
-                : status === null
-                  ? "Connect Robinhood"
-                  : `Reconnect ${institutionLabel}`}
-          </Button>
-        ) : status !== null ? (
-          <div className="investment-sync__controls">
-            {!confirmDisconnect &&
-              status?.lastSyncedAt !== null &&
-              status?.lastSyncedAt !== undefined && (
-                <span>Last checked {formatDate(status.lastSyncedAt)}</span>
-              )}
-            {!confirmDisconnect &&
-              status.latestImportId !== null &&
-              quarantinedCount > 0 && (
-                <Button
-                  onClick={() => onReviewImport(status.latestImportId!)}
-                  tone="primary"
-                >
-                  {quarantinedCount === 1
-                    ? "View exception"
-                    : "View " + quarantinedCount + " exceptions"}
-                </Button>
-              )}
-            {confirmDisconnect ? (
-              <>
-                <small>
-                  This removes Plaid access. Reviewed holdings stay in Keel.
-                </small>
-                <Button
-                  disabled={busyAction !== null}
-                  onClick={() => setConfirmDisconnect(false)}
-                  tone="quiet"
-                >
-                  Keep connected
-                </Button>
-                <Button
-                  disabled={busyAction !== null}
-                  onClick={() => void disconnect()}
-                  tone="danger"
-                >
-                  {busyAction === "disconnect"
-                    ? "Disconnecting…"
-                    : "Disconnect"}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  disabled={busyAction !== null || syncing}
-                  onClick={() => setConfirmDisconnect(true)}
-                  tone="quiet"
-                >
-                  Disconnect
-                </Button>
-                <Button
-                  disabled={busyAction !== null || syncing}
-                  onClick={() => void sync()}
-                  tone={
-                    status.automaticUpdatesEnabled ? "secondary" : "primary"
-                  }
-                >
-                  {busyAction === "sync" || syncing
-                    ? "Checking…"
-                    : status.automaticUpdatesEnabled
-                      ? "Check now"
-                      : "Turn on automatic updates"}
-                </Button>
-              </>
-            )}
-          </div>
-        ) : null}
-        {notice !== null && (
-          <p className="investment-sync__notice" role="status">
-            {notice}
-          </p>
-        )}
-        {error !== null && (
-          <p className="investment-sync__error" role="alert">
-            {error}
-          </p>
-        )}
-      </div>
-    </section>
-  );
-}
 
 const CASH_LINK_TOKEN_STORAGE_KEY = "keel.cashLinkToken";
 
@@ -3754,7 +3351,14 @@ function CashAccountsControl({
       await openPlaidLink({
         linkToken,
         onExit: () => setBusyAction(null),
-        onSuccess: (publicToken) => void exchangeToken(publicToken),
+        onSuccess: (publicToken) => {
+          if (publicToken === null) {
+            setBusyAction(null);
+            setError("The cash institution did not return a connection token.");
+            return;
+          }
+          void exchangeToken(publicToken);
+        },
         ...(receivedRedirectUri === undefined ? {} : { receivedRedirectUri }),
       });
     },
@@ -4782,7 +4386,6 @@ function Holdings({
     null,
   );
   const [cashRefreshVersion, setCashRefreshVersion] = useState(0);
-  const holdingActionRefs = useRef(new Map<string, HTMLButtonElement>());
   const selectedHolding =
     data.holdings.find((holding) => holding.id === selectedHoldingId) ?? null;
   const importerVisible = showImporter || requestedImportId !== null;
@@ -4877,9 +4480,21 @@ function Holdings({
     const returnFocusId = selectedHoldingId;
     setSelectedHoldingId(null);
     if (returnFocusId !== null) {
-      window.requestAnimationFrame(() =>
-        holdingActionRefs.current.get(returnFocusId)?.focus(),
-      );
+      let attempts = 0;
+      const restoreFocus = () => {
+        const action = document.querySelector<HTMLButtonElement>(
+          `[data-holding-id="${CSS.escape(returnFocusId)}"]`,
+        );
+        if (action !== null) {
+          action.focus();
+          return;
+        }
+        attempts += 1;
+        if (attempts < 120) {
+          window.requestAnimationFrame(restoreFocus);
+        }
+      };
+      window.requestAnimationFrame(restoreFocus);
     }
   };
 
@@ -4890,8 +4505,8 @@ function Holdings({
           <p className="eyebrow">Portfolio evidence</p>
           <h1>Holdings</h1>
           <p>
-            Five distinct value lenses. A mark does not imply an exit, and an
-            exit does not imply usable liquidity.
+            See each position where it is held, then group shared exposure
+            without merging accounts or value.
           </p>
         </div>
         <div className="page-intro__actions">
@@ -4965,7 +4580,11 @@ function Holdings({
             onConfirmed={onBaselineConfirmed}
             refreshKey={baselineRefreshKey}
           />
-          <InvestmentSyncControl onReviewImport={reviewPendingImport} />
+          <InvestmentHoldings
+            holdings={data.holdings}
+            onOpenHolding={setSelectedHoldingId}
+            onReviewImport={reviewPendingImport}
+          />
           <AngelListSignInControl />
           {pendingImports.length > 0 && (
             <section
@@ -5007,63 +4626,6 @@ function Holdings({
               {pendingImportError}
             </div>
           )}
-          <Panel className="table-panel">
-            <div className="holdings-table-wrap">
-              <table className="data-table holdings-table">
-                <thead>
-                  <tr>
-                    <th>Investment</th>
-                    <th>Source value</th>
-                    <th>External mark</th>
-                    <th>FI planning value</th>
-                    <th>Scenario value</th>
-                    <th>Usable now</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.holdings.map((holding) => (
-                    <tr key={holding.id}>
-                      <td data-label="Investment">
-                        <button
-                          aria-label={`View ${holdingPrimaryName(holding)} holding details`}
-                          className="holding-row-action"
-                          onClick={() => setSelectedHoldingId(holding.id)}
-                          ref={(node) => {
-                            if (node === null) {
-                              holdingActionRefs.current.delete(holding.id);
-                            } else {
-                              holdingActionRefs.current.set(holding.id, node);
-                            }
-                          }}
-                          type="button"
-                        >
-                          <strong>{holdingPrimaryName(holding)}</strong>
-                          <i aria-hidden="true">View details →</i>
-                        </button>
-                      </td>
-                      <td data-label="Source value">
-                        {administratorValueLabel(holding)}
-                      </td>
-                      <td data-label="External mark">
-                        {holdingValueLabel(holding.externalMarkMinor)}
-                      </td>
-                      <td data-label="FI planning value">
-                        <strong>
-                          {holdingValueLabel(holding.underwritingValueMinor)}
-                        </strong>
-                      </td>
-                      <td data-label="Scenario value">
-                        {holdingValueLabel(holding.scenarioValueMinor)}
-                      </td>
-                      <td data-label="Usable now">
-                        {holdingValueLabel(holding.usableLiquidityMinor)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
         </>
       )}
     </div>

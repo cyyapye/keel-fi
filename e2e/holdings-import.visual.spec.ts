@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
+
 const investmentConnectionId = "11111111-1111-4111-8111-111111111111";
 
 function investmentStatus(overrides: Record<string, unknown> = {}) {
@@ -31,6 +33,9 @@ function investmentState(
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/api/investment-holdings", async (route) => {
+    await route.fulfill({ json: emptyInvestmentHoldingsView });
+  });
   await page.route("**/api/cash-accounts", async (route) => {
     await route.fulfill({
       json: {
@@ -523,6 +528,7 @@ test("connects Robinhood through Investments and isolates exceptions", async ({
 }) => {
   const exchangeBodies: unknown[] = [];
   await page.unroute("**/api/investment-connections");
+  await page.unroute("**/api/investment-holdings");
   await page.addInitScript(() => {
     (
       window as unknown as {
@@ -564,6 +570,14 @@ test("connects Robinhood through Investments and isolates exceptions", async ({
   await page.route("**/api/investment-connections", async (route) => {
     await route.fulfill({ json: investmentState([]) });
   });
+  await page.route("**/api/investment-holdings", async (route) => {
+    await route.fulfill({
+      json: {
+        ...emptyInvestmentHoldingsView,
+        authorizationStatus: "available",
+      },
+    });
+  });
   await page.route(
     "**/api/investment-connections/link-token",
     async (route) => {
@@ -601,9 +615,11 @@ test("connects Robinhood through Investments and isolates exceptions", async ({
 
   await page.goto("/holdings");
   await expect(
-    page.getByRole("heading", { name: "Connect Robinhood" }),
+    page.getByRole("heading", { name: "Accounts and updates" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Connect Robinhood" }).click();
+  await page
+    .getByRole("button", { name: "Add investment institution" })
+    .click();
 
   await expect(page).toHaveURL(
     /\/holdings\/imports\/holding_import_synthetic_robinhood$/,
@@ -704,16 +720,15 @@ test("shows one Robinhood exception entry point", async ({ page }) => {
   });
 
   await page.goto("/holdings");
+  const robinhoodCard = page
+    .locator(".investment-institution")
+    .filter({ hasText: "Robinhood" });
+  await expect(robinhoodCard).toContainText("Waiting for review2");
   await expect(
-    page.getByRole("heading", {
-      name: "2 Robinhood exceptions were isolated",
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /View .*exceptions?/u }),
+    page.getByRole("button", { name: "Review 2 items" }),
   ).toHaveCount(1);
   await expect(page.locator(".holding-import-pending")).toHaveCount(0);
-  await expect(page.locator(".investment-sync")).toHaveScreenshot(
+  await expect(robinhoodCard).toHaveScreenshot(
     "holdings-robinhood-single-exception.png",
     {
       animations: "disabled",
@@ -784,25 +799,24 @@ test("shows automatic Robinhood checks with exception-only review", async ({
   );
 
   await page.goto("/holdings");
+  const robinhoodCard = page
+    .locator(".investment-institution")
+    .filter({ hasText: "Robinhood" });
   await expect(
-    page.getByRole("heading", { name: "Robinhood updates automatically" }),
+    robinhoodCard.getByRole("heading", { name: "Robinhood" }),
   ).toBeVisible();
-  await expect(
-    page.getByText(
-      "Keel records clear holdings changes automatically. Crypto stays outside your FI plan; only uncertain records need review.",
-    ),
-  ).toBeVisible();
+  await expect(robinhoodCard).toContainText("Up to date");
   await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();
   await page.getByRole("button", { name: "Disconnect" }).click();
   await expect(
     page.getByText(
-      "This removes Plaid access. Reviewed holdings stay in Keel.",
+      "Provider access will be removed. Reviewed history stays in Keel.",
     ),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Keep connected" }),
   ).toBeVisible();
-  await expect(page.locator(".investment-sync")).toHaveScreenshot(
+  await expect(robinhoodCard).toHaveScreenshot(
     "holdings-robinhood-disconnect-confirmation.png",
     {
       animations: "disabled",
@@ -812,7 +826,7 @@ test("shows automatic Robinhood checks with exception-only review", async ({
     },
   );
   await page.getByRole("button", { name: "Keep connected" }).click();
-  await expect(page.getByText(/Last checked/)).toBeVisible();
+  await expect(robinhoodCard).toContainText("Last completeNot yet");
 
   const viewportWidths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -840,10 +854,10 @@ test("shows automatic Robinhood checks with exception-only review", async ({
   await page.getByRole("button", { name: "Disconnect", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(
-    page.getByText("Robinhood disconnected. Reviewed holdings remain visible."),
+    page.getByText("Robinhood disconnected. Reviewed history remains visible."),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Connect Robinhood" }),
+    page.getByText("Reviewed positions and planning history remain available."),
   ).toBeVisible();
   expect(disconnectCalls).toBe(1);
 });
