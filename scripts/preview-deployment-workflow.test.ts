@@ -37,6 +37,9 @@ describe("post-merge preview deployment workflow", () => {
       "wrangler d1 time-travel restore",
     );
     const migrations = deployment.indexOf("wrangler d1 migrations apply");
+    const canonicalSchemaVerification = deployment.indexOf(
+      "Verify canonical-only preview schema after reset",
+    );
     const apiDeploy = deployment.indexOf("Deploy private API Worker");
     const webDeploy = deployment.indexOf("Build and deploy web Worker");
     const smokes = deployment.indexOf("Run protected post-deploy smokes");
@@ -52,7 +55,11 @@ describe("post-merge preview deployment workflow", () => {
     );
     expect(deployment).toContain('timestamp "2026-08-15T23:27:50Z"');
     expect(migrations).toBeGreaterThan(backupUpload);
-    expect(apiDeploy).toBeGreaterThan(migrations);
+    expect(canonicalSchemaVerification).toBeGreaterThan(migrations);
+    expect(deployment).toContain("transition_object_count");
+    expect(deployment).toContain("removed_basis_contract_count");
+    expect(deployment).toContain("0019_multi_source_holdings_contract.sql");
+    expect(apiDeploy).toBeGreaterThan(canonicalSchemaVerification);
     expect(webDeploy).toBeGreaterThan(apiDeploy);
     expect(smokes).toBeGreaterThan(webDeploy);
     expect(evidence).toBeGreaterThan(smokes);
