@@ -2705,6 +2705,103 @@ h1,
   padding: 16px 0 24px;
 }
 
+.position-group--reviewed-history {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(250px, 0.8fr);
+  align-items: end;
+  gap: 48px;
+  padding: 26px 0;
+}
+
+.reviewed-history-position__heading {
+  min-width: 0;
+}
+
+.reviewed-history-position__heading p {
+  margin: 0 0 7px;
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.reviewed-history-position__heading h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: clamp(19px, 2.4vw, 27px);
+  letter-spacing: -0.04em;
+}
+
+.reviewed-history-position__heading > small {
+  display: block;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.reviewed-history-position__heading > small span,
+.reviewed-history-position__heading > small strong {
+  display: block;
+}
+
+.reviewed-history-position__heading > small span {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.reviewed-history-position__heading > small strong {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.reviewed-history-position__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(90px, 1fr));
+  align-items: end;
+  gap: 22px;
+}
+
+.reviewed-history-position__facts > span,
+.reviewed-history-position__facts > span small {
+  display: block;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.reviewed-history-position__facts > span small {
+  margin-bottom: 5px;
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.reviewed-history-position__facts > span strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.reviewed-history-position__facts > span em {
+  display: block;
+  color: var(--ink);
+  font-style: normal;
+  font-weight: 800;
+}
+
+.reviewed-history-position__facts .position-row__action {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
 .position-list {
   border-top: 1px solid var(--line-soft);
 }
@@ -6278,6 +6375,20 @@ h1,
   .position-group__heading {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .position-group--reviewed-history {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 28px 0;
+  }
+
+  .reviewed-history-position__heading h3 {
+    font-size: 23px;
+  }
+
+  .reviewed-history-position__facts {
+    gap: 18px 24px;
   }
 
   .position-row {

@@ -324,6 +324,19 @@ Migration `0026_reconciled_holding_ownership.sql` is this bounded repair. It is
 not a compatibility read, a second ownership model, or a general authorization
 to backfill accepted financial facts.
 
+Migration `0027_retained_public_exposure_identity.sql` extends the same bounded
+rule to accepted public rows whose strong-identifier columns did not yet exist.
+The original private source object remains the evidence boundary: Keel must
+match its recorded byte length and SHA-256, validate the provider response, and
+append only a protected checksum-valid CUSIP, ISIN, or SEDOL. The accepted row,
+position, snapshot, account provenance, and value remain unchanged. Ticker,
+provider security ID, and display text are still insufficient; missing or
+invalid source evidence remains unresolved. Because this repair is a derived
+relationship, not a new financial fact, it may run automatically and
+idempotently before the canonical Holdings read. A repair failure must fail
+closed for that relationship without making the authoritative position view
+unavailable.
+
 Robinhood and AngelList remain the operated holding sources. The released
 multi-institution experience and provider-neutral adapter are proven with
 synthetic Fidelity fixtures, while real additional-institution authorization

@@ -18,7 +18,13 @@ predates the canonical ownership chain, reapplies the same high-confidence
 exposure rules across providers, and prevents a new exposure mapping without a
 current ownership association. The repair does not change an accepted position,
 snapshot, value, Portfolio Baseline, plan, goal, or forecast. None of these
-migrations authorizes another live institution.
+migrations authorizes another live institution. Migration
+`0027_retained_public_exposure_identity.sql` adds an append-only evidence table
+for accepted public rows whose exact retained source document predates the
+strong-identifier columns. On the next Holdings read, Keel verifies the retained
+object's recorded byte length and SHA-256, validates its Plaid schema, protects
+only a checksum-valid CUSIP, ISIN, or SEDOL, and applies the same deterministic
+public-exposure policy. It never rewrites the accepted import row.
 
 The public repository and release fixtures remain synthetic-only. A short-lived
 synthetic transition experiment was removed instead of becoming a permanent
@@ -42,6 +48,11 @@ repair for already accepted history, not an alternate ingestion or read path.
   checksum-valid CUSIP, ISIN, or SEDOL protected with the deployment identity
   key. A ticker, provider security ID, or display label may still help identify
   a position but cannot create a canonical exposure.
+- For an accepted pre-`0021` public row, the same protected identifier may be
+  appended in `holding_import_row_public_exposure_evidence` only after the exact
+  retained source object matches its immutable D1 byte length and SHA-256.
+  Missing, changed, malformed, ticker-only, cash, and cryptocurrency evidence
+  stays unresolved and does not make Holdings unavailable.
 - A private-company exposure resolves to an existing reviewed company record.
   Fund and unresolved identities require recorded review evidence. Exposure
   identity never replaces the connection, container, or legal position.
@@ -113,6 +124,15 @@ repair for already accepted history, not an alternate ingestion or read path.
   CUSIP, ISIN, or SEDOL protected with the deployment identity key qualifies;
   reapplying the same decision is a no-op, while a missing or invalid identifier
   leaves the position unmapped.
+- Accepted public history that predates the row columns follows the same rule.
+  The runtime reads each unreconciled retained source object at most until its
+  append-only resolution evidence is recorded, then reconciliation runs entirely
+  from D1. Rows without a valid strong identifier record that outcome and remain
+  unresolved, so the same object is not read on every Holdings load. Source-row
+  number is used only inside the hash-verified original response; the provider
+  security ID, ticker, and display name never become the shared identity. A
+  failed legacy repair is logged and skipped without turning the canonical
+  Position or Exposure view into an error state.
 - Private exposure reconciliation is likewise provider-neutral when the position
   already has exactly one stable reviewed company ID. Eligible SPVs from any
   provider can participate in the reviewed exact-company batch, but a provider
@@ -133,11 +153,13 @@ repair for already accepted history, not an alternate ingestion or read path.
 
 ## Cost and activation gate
 
-The provider-neutral cutover adds no network call, R2 object, Queue message,
-schedule, webhook, or paid provider product. It reuses the shipped Plaid
-Investments and AngelList paths. Its incremental cost is bounded D1 storage and
-backup volume for connection metadata, exact sync/webhook associations,
-canonical exposure rows, and append-only mapping versions.
+The provider-neutral cutover adds no provider request, new R2 object, Queue
+message, schedule, webhook, or paid provider product. It reuses the shipped
+Plaid Investments and AngelList paths. Migration `0027` adds one bounded read of
+each unresolved legacy source object and small append-only D1 evidence and
+mapping rows; the object is not read again after its rows are reconciled. At the
+current retained-history volume this remains inside the existing Cloudflare
+usage envelope, with expected incremental spend of `$0`.
 
 For a deployment with `C` connections, `O` ownership containers, `P` accepted
 positions, `I` imports, `R` import rows, `E` canonical exposures, and `M`
@@ -266,10 +288,10 @@ release evidence:
 
 Before accepting the M9 canonical release:
 
-1. Replay migrations `0001` through `0026_reconciled_holding_ownership.sql`,
-   apply the synthetic seed, and verify the former public provider values read
-   as `plaid_investments` without changing position IDs or accepted baseline
-   items, goals, plans, or forecasts.
+1. Replay migrations `0001` through
+   `0027_retained_public_exposure_identity.sql`, apply the synthetic seed, and
+   verify the former public provider values read as `plaid_investments` without
+   changing position IDs or accepted baseline items, goals, plans, or forecasts.
 2. Seed synthetic accepted pre-ADR positions with applications but no ownership
    associations, including one with a proven row container and one with no
    canonical import scope. Apply migration `0026`; verify the proven container
@@ -304,6 +326,11 @@ Before accepting the M9 canonical release:
    D1, API responses, logs, screenshots, and repository artifacts. Preserve
    integer money/quantity conversion, response bounds, encrypted R2 storage,
    append-only decisions, and fail-closed Access authentication.
-10. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
+10. Seed an accepted pre-`0021` Plaid document containing the same valid strong
+    identifier in two accounts plus a ticker-only row. Verify the retained
+    document repair creates one exposure with two legal contributions, leaves
+    the ticker-only row unresolved, is idempotent, and does not block the
+    canonical view when the object is unavailable or its checksum differs.
+11. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
     exact-head merge, and exact-SHA protected preview gates before marking the
     corresponding M9 slice complete.

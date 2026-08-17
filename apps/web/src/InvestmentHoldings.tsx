@@ -590,6 +590,19 @@ function PositionViews({
   view: ViewMode;
 }) {
   if (view === "positions") {
+    const resolvedExposureNamesByPosition = new Map<string, Set<string>>();
+    for (const group of data.exposureView.exposures) {
+      if (group.exposure.exposureKind === "unresolved") {
+        continue;
+      }
+      for (const contribution of group.contributions) {
+        const names =
+          resolvedExposureNamesByPosition.get(contribution.positionId) ??
+          new Set<string>();
+        names.add(group.exposure.canonicalName);
+        resolvedExposureNamesByPosition.set(contribution.positionId, names);
+      }
+    }
     const positionCount =
       reviewedHoldings.length +
       data.positionView.connections.reduce(
@@ -612,45 +625,43 @@ function PositionViews({
     }
     return (
       <div className="position-groups" role="tabpanel">
-        {data.positionView.connections.map((connection) =>
-          connection.containers.map((container) => (
-            <section
-              aria-labelledby={`position-account-${container.id}`}
-              className="position-group"
-              key={container.id}
-            >
-              <div className="position-group__heading">
-                <div>
-                  <p>{connection.institutionLabel}</p>
-                  <h3 id={`position-account-${container.id}`}>
-                    {container.label}
-                  </h3>
-                </div>
-                <span>
-                  {accountKindLabel(container.kind)}
-                  {container.coverage === null
-                    ? " · Not checked"
-                    : ` · ${coverageLabel(container.coverage.completeness)}`}
-                </span>
-              </div>
-              {container.positions.length === 0 ? (
-                <p className="position-group__empty">
-                  The latest complete observation reported no positions.
-                </p>
-              ) : (
-                <div className="position-list">
-                  {container.positions.map((position) => (
-                    <article className="position-row" key={position.id}>
-                      <div className="position-row__identity">
-                        <strong>{position.legalVehicleName}</strong>
-                        {position.reportedExposureName !== null &&
-                          position.reportedExposureName !==
-                            position.legalVehicleName && (
-                            <small>
-                              Exposure: {position.reportedExposureName}
-                            </small>
-                          )}
-                      </div>
+        {data.positionView.connections.flatMap((connection) =>
+          connection.containers.flatMap((container) => {
+            if (
+              connection.purpose === "reviewed_history" &&
+              container.positions.length > 0
+            ) {
+              return container.positions.map((position) => {
+                const resolvedNames = [
+                  ...(resolvedExposureNamesByPosition.get(position.id) ?? []),
+                ];
+                const primaryName =
+                  resolvedNames.length === 1
+                    ? resolvedNames[0]!
+                    : position.legalVehicleName;
+                const sourceContext =
+                  connection.adapterType === "plaid-investments"
+                    ? `${connection.institutionLabel} · ${container.label}`
+                    : connection.institutionLabel;
+                return (
+                  <section
+                    aria-labelledby={`reviewed-history-position-${position.id}`}
+                    className="position-group position-group--reviewed-history"
+                    key={position.id}
+                  >
+                    <div className="reviewed-history-position__heading">
+                      <p>{sourceContext}</p>
+                      <h3 id={`reviewed-history-position-${position.id}`}>
+                        {primaryName}
+                      </h3>
+                      {primaryName !== position.legalVehicleName && (
+                        <small>
+                          <span>Legal position</span>
+                          <strong>{position.legalVehicleName}</strong>
+                        </small>
+                      )}
+                    </div>
+                    <div className="reviewed-history-position__facts">
                       <span>
                         <small>Value</small>
                         <strong>{positionValue(position)}</strong>
@@ -673,12 +684,78 @@ function PositionViews({
                           View details →
                         </button>
                       )}
-                    </article>
-                  ))}
+                    </div>
+                  </section>
+                );
+              });
+            }
+            return [
+              <section
+                aria-labelledby={`position-account-${container.id}`}
+                className="position-group"
+                key={container.id}
+              >
+                <div className="position-group__heading">
+                  <div>
+                    <p>{connection.institutionLabel}</p>
+                    <h3 id={`position-account-${container.id}`}>
+                      {container.label}
+                    </h3>
+                  </div>
+                  <span>
+                    {accountKindLabel(container.kind)}
+                    {container.coverage === null
+                      ? " · Not checked"
+                      : ` · ${coverageLabel(container.coverage.completeness)}`}
+                  </span>
                 </div>
-              )}
-            </section>
-          )),
+                {container.positions.length === 0 ? (
+                  <p className="position-group__empty">
+                    The latest complete observation reported no positions.
+                  </p>
+                ) : (
+                  <div className="position-list">
+                    {container.positions.map((position) => (
+                      <article className="position-row" key={position.id}>
+                        <div className="position-row__identity">
+                          <strong>{position.legalVehicleName}</strong>
+                          {position.reportedExposureName !== null &&
+                            position.reportedExposureName !==
+                              position.legalVehicleName && (
+                              <small>
+                                Exposure: {position.reportedExposureName}
+                              </small>
+                            )}
+                        </div>
+                        <span>
+                          <small>Value</small>
+                          <strong>{positionValue(position)}</strong>
+                        </span>
+                        <span>
+                          <small>Observed</small>
+                          {formatDate(position.snapshot.observedAt)}
+                          {position.source.freshness === "stale" && (
+                            <em>Stale</em>
+                          )}
+                        </span>
+                        {openableHoldingIds.has(position.id) && (
+                          <button
+                            aria-label={`View ${position.legalVehicleName} holding details`}
+                            className="position-row__action"
+                            data-holding-id={position.id}
+                            onClick={() => onOpenHolding(position.id)}
+                            type="button"
+                          >
+                            View details →
+                          </button>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </section>,
+            ];
+          }),
         )}
         {reviewedHoldings.length > 0 && (
           <section

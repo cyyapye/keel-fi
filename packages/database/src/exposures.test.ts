@@ -11,6 +11,8 @@ import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
 
 const reconciliationMigrationFile =
   "packages/database/migrations/0026_reconciled_holding_ownership.sql";
+const retainedPublicIdentityMigrationFile =
+  "packages/database/migrations/0027_retained_public_exposure_identity.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -37,6 +39,7 @@ const migrationFiles = [
   "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
   "packages/database/migrations/0025_retired_asset_lots.sql",
   reconciliationMigrationFile,
+  retainedPublicIdentityMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -1244,6 +1247,130 @@ describe("canonical exposure resolution and aggregation", () => {
       ),
     ).rejects.toMatchObject({ code: "already_resolved" });
   });
+
+  it("groups retained public positions only after append-only strong-identity evidence", async () => {
+    for (const [id, containerKind] of [
+      ["position_retained_public_brokerage", "brokerage"],
+      ["position_retained_public_ira", "ira"],
+      ["position_retained_public_ticker_only", "brokerage"],
+    ] as const) {
+      seedAcceptedPosition(sqlite, {
+        id,
+        label: "Synthetic Semiconductor Security",
+        provider: "plaid_investments",
+        reportedExposureName: "SYN · Synthetic Semiconductor Security",
+        positionKind: "direct",
+        valueMinor: 1_000_000,
+        valueState: "reported",
+        containerKind,
+        ticker: "SYN",
+      });
+    }
+
+    expect(
+      (await repository.listRetainedPublicExposureDocuments(accessSubject)).map(
+        (document) => document.importId,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        "import_position_retained_public_brokerage",
+        "import_position_retained_public_ira",
+        "import_position_retained_public_ticker_only",
+      ]),
+    );
+
+    const protectedIdentityKey = hash("cusip:synthetic-semiconductor-security");
+    const identities = [
+      "position_retained_public_brokerage",
+      "position_retained_public_ira",
+    ].map((id) => ({
+      importRowId: `row_${id}`,
+      resolutionStatus: "strong_identifier" as const,
+      identityKind: "cusip" as const,
+      protectedIdentityKey,
+      evidenceSha256: hash(`source:${id}`),
+    }));
+    const evidence = [
+      ...identities,
+      {
+        importRowId: "row_position_retained_public_ticker_only",
+        resolutionStatus: "no_strong_identifier" as const,
+        evidenceSha256: hash("source:position_retained_public_ticker_only"),
+      },
+    ];
+    await repository.recordRetainedPublicExposureEvidence(
+      accessSubject,
+      evidence,
+    );
+    await repository.recordRetainedPublicExposureEvidence(
+      accessSubject,
+      evidence,
+    );
+    await repository.reconcileAcceptedPublicExposureHistory(accessSubject);
+    await repository.reconcileAcceptedPublicExposureHistory(accessSubject);
+
+    const projection = await readModel.list(
+      accessSubject,
+      "2026-08-16T12:00:00.000Z",
+    );
+    const publicExposure = projection.exposures.find(
+      (group) => group.exposure.protectedIdentityKey === protectedIdentityKey,
+    );
+    expect(
+      publicExposure?.contributions.map((row) => row.positionId).sort(),
+    ).toEqual(
+      [
+        "position_retained_public_brokerage",
+        "position_retained_public_ira",
+      ].sort(),
+    );
+    expect(
+      projection.positions.find(
+        (position) => position.id === "position_retained_public_ticker_only",
+      ),
+    ).toMatchObject({ mappedExposureIds: [] });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_import_row_public_exposure_evidence
+           WHERE protected_identity_key = ?`,
+        )
+        .get(protectedIdentityKey),
+    ).toEqual({ count: 2 });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_import_row_public_exposure_evidence`,
+        )
+        .get(),
+    ).toEqual({ count: 3 });
+    expect(
+      await repository.listRetainedPublicExposureDocuments(accessSubject),
+    ).toEqual([]);
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_exposure_mappings mapping
+           JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
+           WHERE exposure.protected_identity_key = ?`,
+        )
+        .get(protectedIdentityKey),
+    ).toEqual({ count: 2 });
+    await expect(
+      repository.recordRetainedPublicExposureEvidence(accessSubject, [
+        {
+          importRowId: "row_position_retained_public_ticker_only",
+          resolutionStatus: "strong_identifier",
+          identityKind: "cusip",
+          protectedIdentityKey,
+          evidenceSha256: hash("wrong retained document"),
+        },
+      ]),
+    ).rejects.toThrow("Retained public exposure evidence changed.");
+  });
 });
 
 describe("holding ownership and exposure reconciliation migration", () => {
@@ -1255,6 +1382,7 @@ describe("holding ownership and exposure reconciliation migration", () => {
         .filter(
           (file) =>
             file !== reconciliationMigrationFile &&
+            file !== retainedPublicIdentityMigrationFile &&
             file !== "packages/database/seed/synthetic.sql",
         )
         .forEach((file) => {
@@ -1443,6 +1571,12 @@ describe("holding ownership and exposure reconciliation migration", () => {
       database.exec(
         readFileSync(
           resolve(process.cwd(), reconciliationMigrationFile),
+          "utf8",
+        ),
+      );
+      database.exec(
+        readFileSync(
+          resolve(process.cwd(), retainedPublicIdentityMigrationFile),
           "utf8",
         ),
       );

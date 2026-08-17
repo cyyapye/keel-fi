@@ -482,13 +482,34 @@ test("summarizes reviewed-history account shells without hiding positions or exp
 
   const positionGroups = page.locator(".position-groups .position-group");
   await expect(positionGroups).toHaveCount(14);
-  await expect(page.locator(".position-groups .position-row")).toHaveCount(14);
+  await expect(
+    page.locator(".position-groups .position-group--reviewed-history"),
+  ).toHaveCount(14);
+  await expect(
+    page.getByRole("heading", { name: "Demo Pharmacy", exact: true }),
+  ).toHaveCount(14);
   await expect(
     page.getByRole("heading", { name: "Demo Family holding 01" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Demo Pharmacy SPV 01", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Demo Family holding 14" }),
+    page.getByText("Demo Pharmacy SPV 14", { exact: true }),
   ).toBeVisible();
+  await expect(page.locator(".position-groups")).not.toContainText(
+    "Demo Family holding",
+  );
+  await expectNoHorizontalOverflow(page);
+  await expect(positionGroups.first()).toHaveScreenshot(
+    "investment-holdings-reviewed-history-position-hierarchy.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
 
   await page.getByRole("tab", { name: "Exposures" }).click();
   const exposure = page.locator(".exposure-group").filter({
@@ -545,9 +566,14 @@ test("uses the same reviewed-history summary for one legal position", async ({
   await expect(reviewedHistory).not.toContainText("Last complete");
   await expect(reviewedHistory).not.toContainText("Waiting for review");
   await expect(reviewedHistory.getByRole("button")).toHaveCount(0);
-  await expect(page.locator(".position-groups .position-row")).toHaveCount(1);
+  await expect(
+    page.getByRole("heading", { name: "Demo Pharmacy", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Demo Family holding 01" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Demo Pharmacy SPV 01", { exact: true }),
   ).toBeVisible();
 });
 
