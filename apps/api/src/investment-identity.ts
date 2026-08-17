@@ -80,6 +80,20 @@ export async function plaidInvestmentsExposureKey(
   });
 }
 
+/** Group one Plaid security only inside its exact protected Item identity. */
+export async function plaidInvestmentsProviderSecurityExposureKey(
+  env: Env,
+  sourceKey: string,
+  rawSecurityId: string,
+): Promise<string> {
+  return deriveProtectedProviderKey({
+    credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+    salt: INVESTMENT_KEY_SALT,
+    info: "public-provider-security-exposure-id",
+    value: scopedValue(sourceKey, rawSecurityId),
+  });
+}
+
 /** Identify the household's AngelList export stream without retaining identity. */
 export async function angelListInvestmentsSourceKey(
   env: Env,

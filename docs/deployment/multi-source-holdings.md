@@ -24,7 +24,13 @@ for accepted public rows whose exact retained source document predates the
 strong-identifier columns. On the next Holdings read, Keel verifies the retained
 object's recorded byte length and SHA-256, validates its Plaid schema, protects
 only a checksum-valid CUSIP, ISIN, or SEDOL, and applies the same deterministic
-public-exposure policy. It never rewrites the accepted import row.
+public-exposure policy. It never rewrites the accepted import row. Migration
+`0028_provider_scoped_public_exposure.sql` records a second, append-only outcome
+only when that retained evidence has no valid global identifier. Eligible
+equity, ETF, and mutual-fund rows may share a protected Plaid security identity
+inside one exact protected Item. Different Items never share this fallback, and
+cash, cryptocurrency, unsupported types, ticker, and display text cannot resolve
+an exposure.
 
 The public repository and release fixtures remain synthetic-only. A short-lived
 synthetic transition experiment was removed instead of becoming a permanent
@@ -44,15 +50,20 @@ repair for already accepted history, not an alternate ingestion or read path.
 - A position association is unique to one container and a protected position
   key. `provider_provenance`, `reviewed_import`, and `manual` are the supported
   association bases.
-- A public canonical exposure is shared across connections only through a
+- A public canonical exposure is shared across connections through a
   checksum-valid CUSIP, ISIN, or SEDOL protected with the deployment identity
-  key. A ticker, provider security ID, or display label may still help identify
-  a position but cannot create a canonical exposure.
+  key. When none exists, one exact Plaid security ID may group eligible public
+  positions only across accounts inside the same protected Item. That fallback
+  cannot cross Items or institutions. A ticker or display label cannot create a
+  canonical exposure.
 - For an accepted pre-`0021` public row, the same protected identifier may be
   appended in `holding_import_row_public_exposure_evidence` only after the exact
   retained source object matches its immutable D1 byte length and SHA-256.
-  Missing, changed, malformed, ticker-only, cash, and cryptocurrency evidence
-  stays unresolved and does not make Holdings unavailable.
+  Missing, changed, and malformed evidence stays unresolved and does not make
+  Holdings unavailable. Migration `0028` may append either the protected
+  Item-scoped provider identity or an explicit ineligible outcome for a
+  checksum-verified `0027` no-strong-identifier row. Cash, cryptocurrency, and
+  unsupported security types remain unresolved.
 - A private-company exposure resolves to an existing reviewed company record.
   Fund and unresolved identities require recorded review evidence. Exposure
   identity never replaces the connection, container, or legal position.
@@ -127,12 +138,14 @@ repair for already accepted history, not an alternate ingestion or read path.
 - Accepted public history that predates the row columns follows the same rule.
   The runtime reads each unreconciled retained source object at most until its
   append-only resolution evidence is recorded, then reconciliation runs entirely
-  from D1. Rows without a valid strong identifier record that outcome and remain
-  unresolved, so the same object is not read on every Holdings load. Source-row
-  number is used only inside the hash-verified original response; the provider
-  security ID, ticker, and display name never become the shared identity. A
-  failed legacy repair is logged and skipped without turning the canonical
-  Position or Exposure view into an error state.
+  from D1. A row without a valid global identifier can use the exact provider
+  security ID only after it is protected with the exact Item identity and only
+  for eligible public security types. The same provider ID in another Item does
+  not match. Source-row number and raw provider IDs are used only inside the
+  hash-verified original response; ticker and display name never become shared
+  identity. Explicit no-identifier and ineligible outcomes prevent repeated
+  object reads. A failed legacy repair is logged and skipped without turning the
+  canonical Position or Exposure view into an error state.
 - Private exposure reconciliation is likewise provider-neutral when the position
   already has exactly one stable reviewed company ID. Eligible SPVs from any
   provider can participate in the reviewed exact-company batch, but a provider
@@ -157,7 +170,9 @@ The provider-neutral cutover adds no provider request, new R2 object, Queue
 message, schedule, webhook, or paid provider product. It reuses the shipped
 Plaid Investments and AngelList paths. Migration `0027` adds one bounded read of
 each unresolved legacy source object and small append-only D1 evidence and
-mapping rows; the object is not read again after its rows are reconciled. At the
+mapping rows. Migration `0028` rereads only a `0027` no-strong-identifier source
+whose rows have no provider-scope outcome, then records that outcome so the
+object is not read again. It adds no provider request or new R2 object. At the
 current retained-history volume this remains inside the existing Cloudflare
 usage envelope, with expected incremental spend of `$0`.
 
@@ -288,10 +303,10 @@ release evidence:
 
 Before accepting the M9 canonical release:
 
-1. Replay migrations `0001` through
-   `0027_retained_public_exposure_identity.sql`, apply the synthetic seed, and
-   verify the former public provider values read as `plaid_investments` without
-   changing position IDs or accepted baseline items, goals, plans, or forecasts.
+1. Replay migrations `0001` through `0028_provider_scoped_public_exposure.sql`,
+   apply the synthetic seed, and verify the former public provider values read
+   as `plaid_investments` without changing position IDs or accepted baseline
+   items, goals, plans, or forecasts.
 2. Seed synthetic accepted pre-ADR positions with applications but no ownership
    associations, including one with a proven row container and one with no
    canonical import scope. Apply migration `0026`; verify the proven container
@@ -316,8 +331,10 @@ Before accepting the M9 canonical release:
 7. Verify positions appear exactly once under their connection and container;
    exposure groups preserve the exact contributing position, accepted snapshot,
    mapping version, allocation, and explicit unknown or unallocated value.
-   Verify cross-provider public grouping uses only a protected strong identifier
-   and private grouping uses only a reviewed company ID, never display text.
+   Verify cross-provider public grouping uses only a protected global strong
+   identifier. Verify the provider-security fallback groups only positions from
+   the same protected Item and never crosses Items. Private grouping uses only a
+   reviewed company ID; none of these paths uses display text.
 8. Verify a Portfolio Baseline can include each accepted position only once and
    rejects any snapshot without its exact accepted application. Reconnects,
    institution-label changes, and exposure mapping versions must leave the
@@ -326,11 +343,13 @@ Before accepting the M9 canonical release:
    D1, API responses, logs, screenshots, and repository artifacts. Preserve
    integer money/quantity conversion, response bounds, encrypted R2 storage,
    append-only decisions, and fail-closed Access authentication.
-10. Seed an accepted pre-`0021` Plaid document containing the same valid strong
-    identifier in two accounts plus a ticker-only row. Verify the retained
-    document repair creates one exposure with two legal contributions, leaves
-    the ticker-only row unresolved, is idempotent, and does not block the
-    canonical view when the object is unavailable or its checksum differs.
+10. Seed accepted pre-`0021` Plaid documents containing the same valid global
+    identifier in two accounts, the same provider security ID in two accounts of
+    one Item, that provider ID in a different Item, and an ineligible cash row.
+    Verify the retained repair creates the separate global and Item-scoped
+    exposures with two legal contributions each; does not merge the different
+    Item; leaves cash unresolved; is idempotent; and does not block the
+    canonical view when an object is unavailable or its checksum differs.
 11. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
     exact-head merge, and exact-SHA protected preview gates before marking the
     corresponding M9 slice complete.

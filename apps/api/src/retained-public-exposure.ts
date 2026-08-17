@@ -6,9 +6,14 @@ import {
   D1ExposureRepository,
   type RetainedPublicExposureDocument,
   type RetainedPublicExposureEvidenceInput,
+  type RetainedProviderExposureEvidenceInput,
 } from "@keel/database";
 
-import { plaidInvestmentsExposureKey } from "./investment-identity";
+import {
+  plaidInvestmentsExposureKey,
+  plaidInvestmentsProviderSecurityExposureKey,
+  plaidInvestmentsSourceKey,
+} from "./investment-identity";
 import type { Env } from "./types";
 
 const MAX_RETAINED_PUBLIC_DOCUMENT_BYTES = 5 * 1_048_576;
@@ -17,8 +22,16 @@ type RetainedPublicExposureRepository = Pick<
   D1ExposureRepository,
   | "listRetainedPublicExposureDocuments"
   | "recordRetainedPublicExposureEvidence"
+  | "recordRetainedProviderExposureEvidence"
   | "reconcileAcceptedPublicExposureHistory"
 >;
+
+type RetainedDocumentExposureEvidence = {
+  readonly publicEvidence: readonly RetainedPublicExposureEvidenceInput[];
+  readonly providerEvidence: readonly RetainedProviderExposureEvidenceInput[];
+};
+
+const providerScopedSecurityTypes = new Set(["equity", "etf", "mutual fund"]);
 
 export type RetainedPublicExposureReconciliationResult = {
   readonly documentCount: number;
@@ -48,7 +61,7 @@ async function sha256Bytes(value: Uint8Array): Promise<string> {
 async function evidenceFromDocument(
   env: Env,
   document: RetainedPublicExposureDocument,
-): Promise<readonly RetainedPublicExposureEvidenceInput[]> {
+): Promise<RetainedDocumentExposureEvidence> {
   if (
     document.byteSize <= 0 ||
     document.byteSize > MAX_RETAINED_PUBLIC_DOCUMENT_BYTES
@@ -79,7 +92,9 @@ async function evidenceFromDocument(
   const securitiesByProviderId = new Map(
     response.securities.map((security) => [security.security_id, security]),
   );
-  const evidence: RetainedPublicExposureEvidenceInput[] = [];
+  const sourceKey = await plaidInvestmentsSourceKey(env, response.item.item_id);
+  const publicEvidence: RetainedPublicExposureEvidenceInput[] = [];
+  const providerEvidence: RetainedProviderExposureEvidenceInput[] = [];
   for (const row of document.rows) {
     const holding = response.holdings[row.sourceRowNumber - 1];
     const security =
@@ -91,14 +106,36 @@ async function evidenceFromDocument(
     }
     const strongIdentifier = plaidInvestmentStrongSecurityIdentifier(security);
     if (strongIdentifier === null) {
-      evidence.push({
+      publicEvidence.push({
         importRowId: row.importRowId,
         resolutionStatus: "no_strong_identifier",
         evidenceSha256: document.evidenceSha256,
       });
+      if (
+        security.type !== null &&
+        providerScopedSecurityTypes.has(security.type.trim().toLowerCase())
+      ) {
+        providerEvidence.push({
+          importRowId: row.importRowId,
+          resolutionStatus: "scoped_identifier",
+          protectedIdentityKey:
+            await plaidInvestmentsProviderSecurityExposureKey(
+              env,
+              sourceKey,
+              security.security_id,
+            ),
+          evidenceSha256: document.evidenceSha256,
+        });
+      } else {
+        providerEvidence.push({
+          importRowId: row.importRowId,
+          resolutionStatus: "not_eligible",
+          evidenceSha256: document.evidenceSha256,
+        });
+      }
       continue;
     }
-    evidence.push({
+    publicEvidence.push({
       importRowId: row.importRowId,
       resolutionStatus: "strong_identifier",
       identityKind: strongIdentifier.kind,
@@ -110,7 +147,7 @@ async function evidenceFromDocument(
       evidenceSha256: document.evidenceSha256,
     });
   }
-  return evidence;
+  return { publicEvidence, providerEvidence };
 }
 
 export class D1RetainedPublicExposureReconciler implements RetainedPublicExposureReconciler {
@@ -138,11 +175,19 @@ export class D1RetainedPublicExposureReconciler implements RetainedPublicExposur
         const evidence = await evidenceFromDocument(this.env, document);
         await this.repository.recordRetainedPublicExposureEvidence(
           accessSubject,
-          evidence,
+          evidence.publicEvidence,
         );
-        identityCount += evidence.filter(
-          (row) => row.resolutionStatus === "strong_identifier",
-        ).length;
+        await this.repository.recordRetainedProviderExposureEvidence(
+          accessSubject,
+          evidence.providerEvidence,
+        );
+        identityCount +=
+          evidence.publicEvidence.filter(
+            (row) => row.resolutionStatus === "strong_identifier",
+          ).length +
+          evidence.providerEvidence.filter(
+            (row) => row.resolutionStatus === "scoped_identifier",
+          ).length;
       } catch {
         skippedDocumentCount += 1;
       }

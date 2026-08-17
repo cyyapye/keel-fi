@@ -13,6 +13,8 @@ const reconciliationMigrationFile =
   "packages/database/migrations/0026_reconciled_holding_ownership.sql";
 const retainedPublicIdentityMigrationFile =
   "packages/database/migrations/0027_retained_public_exposure_identity.sql";
+const providerScopedIdentityMigrationFile =
+  "packages/database/migrations/0028_provider_scoped_public_exposure.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -40,6 +42,7 @@ const migrationFiles = [
   "packages/database/migrations/0025_retired_asset_lots.sql",
   reconciliationMigrationFile,
   retainedPublicIdentityMigrationFile,
+  providerScopedIdentityMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -1248,11 +1251,13 @@ describe("canonical exposure resolution and aggregation", () => {
     ).rejects.toMatchObject({ code: "already_resolved" });
   });
 
-  it("groups retained public positions only after append-only strong-identity evidence", async () => {
+  it("groups retained public positions by global or source-scoped identity", async () => {
     for (const [id, containerKind] of [
       ["position_retained_public_brokerage", "brokerage"],
       ["position_retained_public_ira", "ira"],
-      ["position_retained_public_ticker_only", "brokerage"],
+      ["position_retained_provider_brokerage", "brokerage"],
+      ["position_retained_provider_ira", "ira"],
+      ["position_retained_provider_ineligible", "brokerage"],
     ] as const) {
       seedAcceptedPosition(sqlite, {
         id,
@@ -1275,7 +1280,9 @@ describe("canonical exposure resolution and aggregation", () => {
       expect.arrayContaining([
         "import_position_retained_public_brokerage",
         "import_position_retained_public_ira",
-        "import_position_retained_public_ticker_only",
+        "import_position_retained_provider_brokerage",
+        "import_position_retained_provider_ira",
+        "import_position_retained_provider_ineligible",
       ]),
     );
 
@@ -1290,21 +1297,52 @@ describe("canonical exposure resolution and aggregation", () => {
       protectedIdentityKey,
       evidenceSha256: hash(`source:${id}`),
     }));
-    const evidence = [
+    const publicEvidence = [
       ...identities,
-      {
-        importRowId: "row_position_retained_public_ticker_only",
+      ...[
+        "position_retained_provider_brokerage",
+        "position_retained_provider_ira",
+        "position_retained_provider_ineligible",
+      ].map((id) => ({
+        importRowId: `row_${id}`,
         resolutionStatus: "no_strong_identifier" as const,
-        evidenceSha256: hash("source:position_retained_public_ticker_only"),
+        evidenceSha256: hash(`source:${id}`),
+      })),
+    ];
+    const providerIdentityKey = hash(
+      "provider-security:synthetic-semiconductor-security",
+    );
+    const providerEvidence = [
+      ...[
+        "position_retained_provider_brokerage",
+        "position_retained_provider_ira",
+      ].map((id) => ({
+        importRowId: `row_${id}`,
+        resolutionStatus: "scoped_identifier" as const,
+        protectedIdentityKey: providerIdentityKey,
+        evidenceSha256: hash(`source:${id}`),
+      })),
+      {
+        importRowId: "row_position_retained_provider_ineligible",
+        resolutionStatus: "not_eligible" as const,
+        evidenceSha256: hash("source:position_retained_provider_ineligible"),
       },
     ];
     await repository.recordRetainedPublicExposureEvidence(
       accessSubject,
-      evidence,
+      publicEvidence,
     );
     await repository.recordRetainedPublicExposureEvidence(
       accessSubject,
-      evidence,
+      publicEvidence,
+    );
+    await repository.recordRetainedProviderExposureEvidence(
+      accessSubject,
+      providerEvidence,
+    );
+    await repository.recordRetainedProviderExposureEvidence(
+      accessSubject,
+      providerEvidence,
     );
     await repository.reconcileAcceptedPublicExposureHistory(accessSubject);
     await repository.reconcileAcceptedPublicExposureHistory(accessSubject);
@@ -1326,9 +1364,20 @@ describe("canonical exposure resolution and aggregation", () => {
     );
     expect(
       projection.positions.find(
-        (position) => position.id === "position_retained_public_ticker_only",
+        (position) => position.id === "position_retained_provider_ineligible",
       ),
     ).toMatchObject({ mappedExposureIds: [] });
+    const providerExposure = projection.exposures.find(
+      (group) => group.exposure.protectedIdentityKey === providerIdentityKey,
+    );
+    expect(
+      providerExposure?.contributions.map((row) => row.positionId).sort(),
+    ).toEqual(
+      [
+        "position_retained_provider_brokerage",
+        "position_retained_provider_ira",
+      ].sort(),
+    );
     expect(
       sqlite
         .prepare(
@@ -1345,6 +1394,14 @@ describe("canonical exposure resolution and aggregation", () => {
            FROM holding_import_row_public_exposure_evidence`,
         )
         .get(),
+    ).toEqual({ count: 5 });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_import_row_provider_exposure_evidence`,
+        )
+        .get(),
     ).toEqual({ count: 3 });
     expect(
       await repository.listRetainedPublicExposureDocuments(accessSubject),
@@ -1359,17 +1416,26 @@ describe("canonical exposure resolution and aggregation", () => {
         )
         .get(protectedIdentityKey),
     ).toEqual({ count: 2 });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_exposure_mappings mapping
+           JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
+           WHERE exposure.protected_identity_key = ?`,
+        )
+        .get(providerIdentityKey),
+    ).toEqual({ count: 2 });
     await expect(
-      repository.recordRetainedPublicExposureEvidence(accessSubject, [
+      repository.recordRetainedProviderExposureEvidence(accessSubject, [
         {
-          importRowId: "row_position_retained_public_ticker_only",
-          resolutionStatus: "strong_identifier",
-          identityKind: "cusip",
-          protectedIdentityKey,
+          importRowId: "row_position_retained_provider_ineligible",
+          resolutionStatus: "scoped_identifier",
+          protectedIdentityKey: providerIdentityKey,
           evidenceSha256: hash("wrong retained document"),
         },
       ]),
-    ).rejects.toThrow("Retained public exposure evidence changed.");
+    ).rejects.toThrow("Provider-scoped exposure evidence changed.");
   });
 });
 
@@ -1383,6 +1449,7 @@ describe("holding ownership and exposure reconciliation migration", () => {
           (file) =>
             file !== reconciliationMigrationFile &&
             file !== retainedPublicIdentityMigrationFile &&
+            file !== providerScopedIdentityMigrationFile &&
             file !== "packages/database/seed/synthetic.sql",
         )
         .forEach((file) => {
@@ -1577,6 +1644,12 @@ describe("holding ownership and exposure reconciliation migration", () => {
       database.exec(
         readFileSync(
           resolve(process.cwd(), retainedPublicIdentityMigrationFile),
+          "utf8",
+        ),
+      );
+      database.exec(
+        readFileSync(
+          resolve(process.cwd(), providerScopedIdentityMigrationFile),
           "utf8",
         ),
       );

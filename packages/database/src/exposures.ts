@@ -131,6 +131,39 @@ const RetainedPublicExposureEvidenceInputsSchema = z
     }
   });
 
+const RetainedProviderExposureEvidenceInputSchema = z.discriminatedUnion(
+  "resolutionStatus",
+  [
+    z
+      .object({
+        importRowId: z.string().min(1),
+        resolutionStatus: z.literal("scoped_identifier"),
+        protectedIdentityKey: ProtectedIdentityKeySchema,
+        evidenceSha256: ProtectedIdentityKeySchema,
+      })
+      .strict(),
+    z
+      .object({
+        importRowId: z.string().min(1),
+        resolutionStatus: z.literal("not_eligible"),
+        evidenceSha256: ProtectedIdentityKeySchema,
+      })
+      .strict(),
+  ],
+);
+
+const RetainedProviderExposureEvidenceInputsSchema = z
+  .array(RetainedProviderExposureEvidenceInputSchema)
+  .max(500)
+  .superRefine((rows, context) => {
+    if (new Set(rows.map((row) => row.importRowId)).size !== rows.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Provider-scoped exposure rows must be unique.",
+      });
+    }
+  });
+
 export type CanonicalExposureResolutionInput = z.infer<
   typeof CanonicalExposureResolutionInputSchema
 >;
@@ -176,7 +209,8 @@ type PositionExposureMappingRow = {
 type DeterministicPublicRow = {
   position_id: string;
   canonical_name: string;
-  public_exposure_identity_kind: "cusip" | "isin" | "sedol";
+  public_exposure_identity_kind:
+    "cusip" | "isin" | "sedol" | "provider_security";
   protected_exposure_key: string;
   evidence_sha256: string;
   effective_at: string;
@@ -199,6 +233,13 @@ type RetainedPublicExposureEvidenceRow = {
   evidence_sha256: string;
 };
 
+type RetainedProviderExposureEvidenceRow = {
+  import_row_id: string;
+  resolution_status: "scoped_identifier" | "not_eligible";
+  protected_identity_key: string | null;
+  evidence_sha256: string;
+};
+
 export type RetainedPublicExposureDocument = {
   readonly importId: string;
   readonly objectKey: string;
@@ -212,6 +253,10 @@ export type RetainedPublicExposureDocument = {
 
 export type RetainedPublicExposureEvidenceInput = z.infer<
   typeof RetainedPublicExposureEvidenceInputSchema
+>;
+
+export type RetainedProviderExposureEvidenceInput = z.infer<
+  typeof RetainedProviderExposureEvidenceInputSchema
 >;
 
 type PrivateExposureReviewPositionRow = {
@@ -1311,6 +1356,12 @@ export class D1ExposureRepository {
                SELECT 1
                FROM holding_import_row_public_exposure_evidence evidence
                WHERE evidence.import_row_id = row.id
+                 AND evidence.resolution_status = 'strong_identifier'
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM holding_import_row_provider_exposure_evidence evidence
+               WHERE evidence.import_row_id = row.id
              )
            ORDER BY import.created_at, import.id, row.source_row_number
            LIMIT 500`,
@@ -1436,6 +1487,80 @@ export class D1ExposureRepository {
     }
   }
 
+  public async recordRetainedProviderExposureEvidence(
+    accessSubject: string,
+    rawInputs: readonly RetainedProviderExposureEvidenceInput[],
+  ): Promise<void> {
+    const inputs =
+      RetainedProviderExposureEvidenceInputsSchema.parse(rawInputs);
+    if (inputs.length === 0) {
+      return;
+    }
+    const identity = await this.findIdentity(accessSubject);
+    const rowIds = inputs.map((input) => input.importRowId);
+    const existing = await all<RetainedProviderExposureEvidenceRow>(
+      this.db
+        .prepare(
+          `SELECT
+             import_row_id, resolution_status, protected_identity_key,
+             evidence_sha256
+           FROM holding_import_row_provider_exposure_evidence
+           WHERE household_id = ?
+             AND import_row_id IN (
+               SELECT CAST(value AS TEXT) FROM json_each(?)
+             )`,
+        )
+        .bind(identity.household_id, JSON.stringify(rowIds)),
+    );
+    const existingByRowId = new Map(
+      existing.map((row) => [row.import_row_id, row]),
+    );
+    for (const input of inputs) {
+      const prior = existingByRowId.get(input.importRowId);
+      const protectedIdentityKey =
+        input.resolutionStatus === "scoped_identifier"
+          ? input.protectedIdentityKey
+          : null;
+      if (
+        prior !== undefined &&
+        (prior.resolution_status !== input.resolutionStatus ||
+          prior.protected_identity_key !== protectedIdentityKey ||
+          prior.evidence_sha256 !== input.evidenceSha256)
+      ) {
+        throw new Error("Provider-scoped exposure evidence changed.");
+      }
+    }
+    const createdAt = new Date().toISOString();
+    const statements = inputs
+      .filter((input) => !existingByRowId.has(input.importRowId))
+      .map((input) =>
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO holding_import_row_provider_exposure_evidence (
+               id, household_id, import_row_id, resolution_status,
+               protected_identity_key, evidence_sha256, derivation_method,
+               created_by_user_id, created_at, immutable
+             ) VALUES (?, ?, ?, ?, ?, ?,
+               'retained_source_provider_security_v1', ?, ?, 1)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            input.importRowId,
+            input.resolutionStatus,
+            input.resolutionStatus === "scoped_identifier"
+              ? input.protectedIdentityKey
+              : null,
+            input.evidenceSha256,
+            identity.user_id,
+            createdAt,
+          ),
+      );
+    if (statements.length > 0) {
+      await this.db.batch(statements);
+    }
+  }
+
   public async reconcileAcceptedPublicExposureHistory(
     accessSubject: string,
   ): Promise<void> {
@@ -1455,11 +1580,16 @@ export class D1ExposureRepository {
              row.legal_vehicle_name AS canonical_name,
              COALESCE(
                row.public_exposure_identity_kind,
-               retained.identity_kind
+               retained.identity_kind,
+               CASE
+                 WHEN provider_scoped.protected_identity_key IS NOT NULL
+                 THEN 'provider_security'
+               END
              ) AS public_exposure_identity_kind,
              COALESCE(
                row.protected_exposure_key,
-               retained.protected_identity_key
+               retained.protected_identity_key,
+               provider_scoped.protected_identity_key
              ) AS protected_exposure_key,
              document.sha256 AS evidence_sha256,
              CASE
@@ -1476,16 +1606,25 @@ export class D1ExposureRepository {
            LEFT JOIN holding_import_row_public_exposure_evidence retained
              ON retained.import_row_id = row.id
             AND retained.resolution_status = 'strong_identifier'
+           LEFT JOIN holding_import_row_provider_exposure_evidence
+             provider_scoped
+             ON provider_scoped.import_row_id = row.id
+            AND provider_scoped.resolution_status = 'scoped_identifier'
            WHERE import.household_id = ?
              AND (? IS NULL OR import.id = ?)
              AND position.position_kind = 'direct'
              AND COALESCE(
                row.public_exposure_identity_kind,
-               retained.identity_kind
+               retained.identity_kind,
+               CASE
+                 WHEN provider_scoped.protected_identity_key IS NOT NULL
+                 THEN 'provider_security'
+               END
              ) IS NOT NULL
              AND COALESCE(
                row.protected_exposure_key,
-               retained.protected_identity_key
+               retained.protected_identity_key,
+               provider_scoped.protected_identity_key
              ) IS NOT NULL
              AND application.id = (
                SELECT latest_application.id
@@ -1498,16 +1637,25 @@ export class D1ExposureRepository {
                  latest_retained
                  ON latest_retained.import_row_id = latest_row.id
                 AND latest_retained.resolution_status = 'strong_identifier'
+               LEFT JOIN holding_import_row_provider_exposure_evidence
+                 latest_provider_scoped
+                 ON latest_provider_scoped.import_row_id = latest_row.id
+                AND latest_provider_scoped.resolution_status = 'scoped_identifier'
                WHERE latest_application.position_id = application.position_id
                  AND latest_import.household_id = import.household_id
                  AND (? IS NULL OR latest_import.id = ?)
                  AND COALESCE(
                    latest_row.public_exposure_identity_kind,
-                   latest_retained.identity_kind
+                   latest_retained.identity_kind,
+                   CASE
+                     WHEN latest_provider_scoped.protected_identity_key IS NOT NULL
+                     THEN 'provider_security'
+                   END
                  ) IS NOT NULL
                  AND COALESCE(
                    latest_row.protected_exposure_key,
-                   latest_retained.protected_identity_key
+                   latest_retained.protected_identity_key,
+                   latest_provider_scoped.protected_identity_key
                  ) IS NOT NULL
                ORDER BY
                  latest_application.applied_at DESC,
@@ -1547,7 +1695,10 @@ export class D1ExposureRepository {
         allocationPpm: 1_000_000,
         status: "active",
         decisionSource: "deterministic_policy",
-        decisionReference: `public-strong-identifier-v1:${row.public_exposure_identity_kind}`,
+        decisionReference:
+          row.public_exposure_identity_kind === "provider_security"
+            ? "public-provider-security-v1"
+            : `public-strong-identifier-v1:${row.public_exposure_identity_kind}`,
         evidenceSha256: row.evidence_sha256,
         effectiveAt: row.effective_at,
       });
