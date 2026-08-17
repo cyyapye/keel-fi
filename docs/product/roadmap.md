@@ -6,9 +6,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 
 - Last reconciled: 2026-08-16
 - Reconciled product baseline:
-  [`e99f77c`](https://github.com/cyyapye/keel-fi/commit/e99f77cb9d2d9344781ab94f057078121be23537)
+  [`bb998b3`](https://github.com/cyyapye/keel-fi/commit/bb998b32fb56680f1f9d82aac775dd3e95c1080c)
 - Baseline release evidence:
-  [`31989687685`](https://github.com/cyyapye/keel-fi/actions/runs/31989687685)
+  [`31992564702`](https://github.com/cyyapye/keel-fi/actions/runs/31992564702)
 
 ## How to use this roadmap
 
@@ -927,6 +927,30 @@ loaded without the retry outage, and shared-company legal positions appeared
 under one exposure without falling into unallocated value; no private holding
 name, count, value, or identifier is retained here. Approved incremental
 external spend remains `$0`.
+
+A presentation follow-up in [PR #97](https://github.com/cyyapye/keel-fi/pull/97)
+at exact checked head
+[`49ac2df`](https://github.com/cyyapye/keel-fi/commit/49ac2df8605e0491ab3d1adcdfdddc8b3dfbee7e)
+and released merge
+[`bb998b3`](https://github.com/cyyapye/keel-fi/commit/bb998b32fb56680f1f9d82aac775dd3e95c1080c)
+marks conservative repaired provenance as reviewed history in the typed position
+view and renders one non-actionable summary per provider in Accounts and
+updates. It does not merge, hide, or relabel legal positions, containers, or
+exposure contributions, and ordinary unresolved or ambiguous sources keep their
+normal account workflow. All 458 tests and 56 desktop/mobile browser flows
+passed; exact-head checks passed in
+[run `31992091662`](https://github.com/cyyapye/keel-fi/actions/runs/31992091662).
+The exact-SHA release retained an encrypted pre-migration D1 backup, applied the
+complete migration set, deployed and read back both Worker versions, passed
+protected smokes, and retained release evidence in
+[run `31992564702`](https://github.com/cyyapye/keel-fi/actions/runs/31992564702).
+Authenticated private acceptance confirmed repaired history no longer renders
+one pseudo-account per legal position, Holdings and Portfolio Baseline remain
+available without retry, and the previously verified shared-company exposure
+stays out of unallocated value; no private holding name, count, value, or
+identifier is retained here. The follow-up adds no provider request, paid
+product, polling schedule, Queue message, R2 object, notification channel,
+recurring work, or incremental external spend.
 
 **Exit gates:**
 
