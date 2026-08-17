@@ -998,6 +998,32 @@ label. No private name, count, value, or identifier is retained here. Both
 repairs use bounded reads of existing retained R2 evidence, add no provider
 request or new R2 object, and keep approved incremental external spend at `$0`.
 
+**2026-08-17 structured cash and source-scoped crypto follow-up:** Migration
+`0029_structured_asset_exposure.sql` adds append-only evidence for exact
+structured asset identity after the global-security and provider-security tiers.
+Exact USD investment cash now reconciles to one household-scoped `US Dollar`
+exposure across investment connections while preserving every legal account
+position and value. Exact cryptocurrency reconciles only within its protected
+Plaid Item and remains outside FI planning. Neither path uses ticker, display
+name, institution, account, owner, or legal-vehicle text; unsupported or
+ambiguous rows remain unresolved. Implemented in
+[PR #103](https://github.com/cyyapye/keel-fi/pull/103) at exact checked head
+[`b5e71f4`](https://github.com/cyyapye/keel-fi/commit/b5e71f4053c49042c933267235d20a3319b4e06b)
+and merged as released commit
+[`6078de6`](https://github.com/cyyapye/keel-fi/commit/6078de6cd696674f81e4954f6fe71450c3f8cd74).
+All 464 tests, 56 desktop/mobile browser flows, fresh migration replay through
+`0029`, builds, public-data checks, and secret scans passed. Exact-head checks
+passed in
+[run `32062922728`](https://github.com/cyyapye/keel-fi/actions/runs/32062922728).
+The release retained an encrypted pre-migration D1 backup, applied the
+forward-only migration, deployed and read back both Worker versions, passed
+protected smokes, and retained exact-SHA evidence in
+[run `32065760968`](https://github.com/cyyapye/keel-fi/actions/runs/32065760968).
+The reconciliation performs only bounded reads of existing retained evidence,
+adds no provider request, paid product, polling schedule, Queue message, R2
+object, notification channel, recurring work, or incremental external spend, and
+does not change an accepted position, value, baseline, plan, or forecast.
+
 **Exit gates:**
 
 - [x] One explicit reviewed action assigns every current exact AngelList
