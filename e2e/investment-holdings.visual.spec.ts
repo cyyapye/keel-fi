@@ -328,6 +328,7 @@ test("operates multiple institutions and keeps position and exposure identity vi
   await expect(
     page.getByText("NVDA common stock", { exact: true }),
   ).toHaveCount(3);
+  await expect(page.getByText("U S Dollar", { exact: true })).toHaveCount(2);
   await expect(page.getByText("Locked", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
@@ -370,11 +371,23 @@ test("operates multiple institutions and keeps position and exposure identity vi
   await expect(
     nvda.getByText("Fidelity · Fidelity rollover IRA"),
   ).toBeVisible();
+  const cash = page.locator(".exposure-group").filter({
+    has: page.getByText("US Dollar", { exact: true }),
+  });
+  await expect(cash).toContainText("2 positions");
+  await cash.locator("summary").click();
+  await expect(cash.getByText("Robinhood · Robinhood brokerage")).toBeVisible();
+  await expect(
+    cash.getByText("Fidelity · Fidelity rollover IRA"),
+  ).toBeVisible();
   await expect(
     page.locator(".unallocated-positions").getByText("Allocation unknown"),
   ).toBeVisible();
   await expect(page.locator(".unallocated-positions")).not.toContainText(
     "NVDA common stock",
+  );
+  await expect(page.locator(".unallocated-positions")).not.toContainText(
+    "U S Dollar",
   );
   await expect(
     page

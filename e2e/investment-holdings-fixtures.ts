@@ -242,6 +242,26 @@ function syntheticPublicPosition(input: {
   };
 }
 
+function syntheticCashPosition(input: {
+  id: string;
+  observedAt: string;
+  valueMinor: number;
+}): InvestmentPositionRecord {
+  const position = syntheticPublicPosition(input);
+  return {
+    ...position,
+    legalVehicleName: "U S Dollar",
+    reportedExposureName: "US Dollar",
+    snapshot: {
+      ...position.snapshot,
+      instrumentType: "cash",
+      ticker: null,
+      quantityMicros: null,
+      costBasisMinor: null,
+    },
+  };
+}
+
 export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView {
   const robinhood = syntheticPublicPosition({
     id: "position_nvda_robinhood_1",
@@ -257,6 +277,16 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
     id: "position_nvda_fidelity_ira_3",
     observedAt: "2026-08-15T11:45:00.000Z",
     valueMinor: 31_500_000,
+  });
+  const robinhoodCash = syntheticCashPosition({
+    id: "position_cash_robinhood_6",
+    observedAt: "2026-08-15T11:45:00.000Z",
+    valueMinor: 125_000,
+  });
+  const fidelityCash = syntheticCashPosition({
+    id: "position_cash_fidelity_ira_7",
+    observedAt: "2026-08-15T11:45:00.000Z",
+    valueMinor: 225_000,
   });
   const fundPosition: InvestmentPositionRecord = {
     ...syntheticPublicPosition({
@@ -321,7 +351,7 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
               observedAt: "2026-08-15T11:45:00.000Z",
               freshness: "current",
             },
-            positions: [robinhood],
+            positions: [robinhood, robinhoodCash],
           },
         ],
       },
@@ -355,7 +385,7 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
               observedAt: "2026-08-15T11:45:00.000Z",
               freshness: "current",
             },
-            positions: [fidelityIra],
+            positions: [fidelityIra, fidelityCash],
           },
         ],
       },
@@ -422,6 +452,12 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
     canonicalName: "Synthetic Cloud Basket",
     protectedIdentityKey: fingerprint("c"),
   };
+  const cashExposure: CanonicalExposure = {
+    ...nvdaExposure,
+    id: "exposure_usd_cash_synthetic",
+    canonicalName: "US Dollar",
+    protectedIdentityKey: fingerprint("9"),
+  };
   const fundUnderlyingTwo: CanonicalExposure = {
     ...nvdaExposure,
     id: "exposure_fund_two",
@@ -458,6 +494,23 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
     version: 1,
     supersedesMappingId: null,
   }));
+  for (const [index, position] of [robinhoodCash, fidelityCash].entries()) {
+    mappings.push({
+      id: `mapping_cash_${index + 1}`,
+      householdId,
+      positionId: position.id,
+      exposureId: cashExposure.id,
+      relationshipKind: "direct",
+      allocationPpm: 1_000_000,
+      status: "active",
+      decisionSource: "deterministic_policy",
+      decisionReference: "cash-currency-v1:USD",
+      evidenceSha256: fingerprint("8"),
+      effectiveAt: "2026-08-15T12:00:00.000Z",
+      version: 1,
+      supersedesMappingId: null,
+    });
+  }
   for (const [index, exposure] of [
     fundUnderlyingOne,
     fundUnderlyingTwo,
@@ -495,7 +548,13 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
   });
   const exposureView: InvestmentExposureView = createInvestmentExposureView(
     positionView,
-    [nvdaExposure, fundUnderlyingOne, fundUnderlyingTwo, privateExposure],
+    [
+      nvdaExposure,
+      cashExposure,
+      fundUnderlyingOne,
+      fundUnderlyingTwo,
+      privateExposure,
+    ],
     mappings,
   );
   return InvestmentHoldingsViewSchema.parse({

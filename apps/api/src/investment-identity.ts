@@ -8,6 +8,7 @@ import type { Env } from "./types";
 
 const RawProviderIdentifierSchema = z.string().min(1).max(512);
 const StrongSecurityIdentifierKindSchema = z.enum(["cusip", "isin", "sedol"]);
+const SupportedCashCurrencySchema = z.literal("USD");
 const AngelListOwnershipLabelSchema = z.string().trim().min(1).max(1_000);
 const INVESTMENT_KEY_SALT = "keel-provider-account-key-v1";
 const ANGELLIST_SOURCE_ID = "angellist-investments-export";
@@ -77,6 +78,19 @@ export async function plaidInvestmentsExposureKey(
       StrongSecurityIdentifierKindSchema.parse(kind),
       RawProviderIdentifierSchema.parse(normalizedIdentifier),
     ]),
+  });
+}
+
+/** Canonicalize exact investment cash currency across every connection. */
+export async function investmentCashCurrencyExposureKey(
+  env: Env,
+  currencyCode: "USD",
+): Promise<string> {
+  return deriveProtectedProviderKey({
+    credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+    salt: INVESTMENT_KEY_SALT,
+    info: "cash-currency-exposure-id",
+    value: SupportedCashCurrencySchema.parse(currencyCode),
   });
 }
 

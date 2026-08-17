@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   RetainedProviderExposureEvidenceInput,
   RetainedPublicExposureEvidenceInput,
+  RetainedStructuredAssetExposureEvidenceInput,
 } from "@keel/database";
 import { describe, expect, it, vi } from "vitest";
 
@@ -85,6 +86,26 @@ function sourceResponse(): Uint8Array {
           iso_currency_code: "USD",
           unofficial_currency_code: null,
         },
+        {
+          account_id: "synthetic-ira",
+          security_id: "synthetic-cash-security",
+          institution_value: "15.00",
+          cost_basis: null,
+          quantity: "15.0",
+          institution_price_as_of: "2026-08-15",
+          iso_currency_code: "USD",
+          unofficial_currency_code: null,
+        },
+        {
+          account_id: "synthetic-brokerage",
+          security_id: "synthetic-crypto-security",
+          institution_value: "5.00",
+          cost_basis: "4.00",
+          quantity: "10.0",
+          institution_price_as_of: "2026-08-15",
+          iso_currency_code: "USD",
+          unofficial_currency_code: null,
+        },
       ],
       securities: [
         {
@@ -120,6 +141,17 @@ function sourceResponse(): Uint8Array {
           iso_currency_code: "USD",
           unofficial_currency_code: null,
         },
+        {
+          security_id: "synthetic-crypto-security",
+          name: "Synthetic Coin",
+          ticker_symbol: "SCOIN",
+          type: "cryptocurrency",
+          cusip: null,
+          isin: null,
+          sedol: null,
+          iso_currency_code: "USD",
+          unofficial_currency_code: null,
+        },
       ],
       item: {
         institution_id: "ins_synthetic",
@@ -135,6 +167,9 @@ function repository() {
     listRetainedPublicExposureDocuments: vi.fn(),
     recordRetainedPublicExposureEvidence: vi.fn().mockResolvedValue(undefined),
     recordRetainedProviderExposureEvidence: vi
+      .fn()
+      .mockResolvedValue(undefined),
+    recordRetainedStructuredAssetExposureEvidence: vi
       .fn()
       .mockResolvedValue(undefined),
     reconcileAcceptedPublicExposureHistory: vi
@@ -165,7 +200,12 @@ describe("retained public exposure reconciliation", () => {
             importRowId: "row_synthetic_ticker_only_ira",
             sourceRowNumber: 4,
           },
-          { importRowId: "row_synthetic_cash", sourceRowNumber: 5 },
+          {
+            importRowId: "row_synthetic_cash_brokerage",
+            sourceRowNumber: 5,
+          },
+          { importRowId: "row_synthetic_cash_ira", sourceRowNumber: 6 },
+          { importRowId: "row_synthetic_crypto", sourceRowNumber: 7 },
         ],
       },
     ]);
@@ -187,17 +227,19 @@ describe("retained public exposure reconciliation", () => {
     expect(result).toEqual({
       documentCount: 1,
       skippedDocumentCount: 0,
-      identityCount: 4,
+      identityCount: 7,
     });
     const recorded = source.recordRetainedPublicExposureEvidence.mock
       .calls[0]![1] as readonly RetainedPublicExposureEvidenceInput[];
-    expect(recorded).toHaveLength(5);
+    expect(recorded).toHaveLength(7);
     expect(recorded.map((row) => row.importRowId)).toEqual([
       "row_synthetic_brokerage",
       "row_synthetic_ira",
       "row_synthetic_ticker_only_brokerage",
       "row_synthetic_ticker_only_ira",
-      "row_synthetic_cash",
+      "row_synthetic_cash_brokerage",
+      "row_synthetic_cash_ira",
+      "row_synthetic_crypto",
     ]);
     const strongEvidence = recorded.filter(
       (row) => row.resolutionStatus === "strong_identifier",
@@ -217,7 +259,7 @@ describe("retained public exposure reconciliation", () => {
     });
     const providerRecorded = source.recordRetainedProviderExposureEvidence.mock
       .calls[0]![1] as readonly RetainedProviderExposureEvidenceInput[];
-    expect(providerRecorded).toHaveLength(3);
+    expect(providerRecorded).toHaveLength(5);
     const scopedProviderEvidence = providerRecorded.filter(
       (row) => row.resolutionStatus === "scoped_identifier",
     );
@@ -227,8 +269,29 @@ describe("retained public exposure reconciliation", () => {
         .size,
     ).toBe(1);
     expect(providerRecorded[2]).toEqual({
-      importRowId: "row_synthetic_cash",
+      importRowId: "row_synthetic_cash_brokerage",
       resolutionStatus: "not_eligible",
+      evidenceSha256,
+    });
+    const structuredRecorded = source
+      .recordRetainedStructuredAssetExposureEvidence.mock
+      .calls[0]![1] as readonly RetainedStructuredAssetExposureEvidenceInput[];
+    expect(structuredRecorded).toHaveLength(3);
+    const cashEvidence = structuredRecorded.filter(
+      (row) =>
+        row.resolutionStatus === "structured_identifier" &&
+        row.identityKind === "cash_currency",
+    );
+    expect(cashEvidence).toHaveLength(2);
+    expect(
+      new Set(cashEvidence.map((row) => row.protectedIdentityKey)).size,
+    ).toBe(1);
+    expect(cashEvidence.map((row) => row.currencyCode)).toEqual(["USD", "USD"]);
+    expect(structuredRecorded[2]).toMatchObject({
+      importRowId: "row_synthetic_crypto",
+      resolutionStatus: "structured_identifier",
+      identityKind: "provider_crypto",
+      currencyCode: null,
       evidenceSha256,
     });
     expect(source.reconcileAcceptedPublicExposureHistory).toHaveBeenCalledWith(
@@ -270,6 +333,9 @@ describe("retained public exposure reconciliation", () => {
     expect(source.recordRetainedPublicExposureEvidence).not.toHaveBeenCalled();
     expect(
       source.recordRetainedProviderExposureEvidence,
+    ).not.toHaveBeenCalled();
+    expect(
+      source.recordRetainedStructuredAssetExposureEvidence,
     ).not.toHaveBeenCalled();
     expect(source.reconcileAcceptedPublicExposureHistory).toHaveBeenCalledTimes(
       1,

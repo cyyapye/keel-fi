@@ -164,6 +164,48 @@ const RetainedProviderExposureEvidenceInputsSchema = z
     }
   });
 
+const RetainedStructuredAssetExposureEvidenceInputSchema = z.union([
+  z
+    .object({
+      importRowId: z.string().min(1),
+      resolutionStatus: z.literal("structured_identifier"),
+      identityKind: z.literal("cash_currency"),
+      protectedIdentityKey: ProtectedIdentityKeySchema,
+      currencyCode: z.literal("USD"),
+      evidenceSha256: ProtectedIdentityKeySchema,
+    })
+    .strict(),
+  z
+    .object({
+      importRowId: z.string().min(1),
+      resolutionStatus: z.literal("structured_identifier"),
+      identityKind: z.literal("provider_crypto"),
+      protectedIdentityKey: ProtectedIdentityKeySchema,
+      currencyCode: z.null(),
+      evidenceSha256: ProtectedIdentityKeySchema,
+    })
+    .strict(),
+  z
+    .object({
+      importRowId: z.string().min(1),
+      resolutionStatus: z.literal("not_eligible"),
+      evidenceSha256: ProtectedIdentityKeySchema,
+    })
+    .strict(),
+]);
+
+const RetainedStructuredAssetExposureEvidenceInputsSchema = z
+  .array(RetainedStructuredAssetExposureEvidenceInputSchema)
+  .max(500)
+  .superRefine((rows, context) => {
+    if (new Set(rows.map((row) => row.importRowId)).size !== rows.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Structured asset exposure rows must be unique.",
+      });
+    }
+  });
+
 export type CanonicalExposureResolutionInput = z.infer<
   typeof CanonicalExposureResolutionInputSchema
 >;
@@ -210,7 +252,12 @@ type DeterministicPublicRow = {
   position_id: string;
   canonical_name: string;
   public_exposure_identity_kind:
-    "cusip" | "isin" | "sedol" | "provider_security";
+    | "cusip"
+    | "isin"
+    | "sedol"
+    | "provider_security"
+    | "cash_currency"
+    | "provider_crypto";
   protected_exposure_key: string;
   evidence_sha256: string;
   effective_at: string;
@@ -240,6 +287,15 @@ type RetainedProviderExposureEvidenceRow = {
   evidence_sha256: string;
 };
 
+type RetainedStructuredAssetExposureEvidenceRow = {
+  import_row_id: string;
+  resolution_status: "structured_identifier" | "not_eligible";
+  identity_kind: "cash_currency" | "provider_crypto" | null;
+  protected_identity_key: string | null;
+  currency_code: "USD" | null;
+  evidence_sha256: string;
+};
+
 export type RetainedPublicExposureDocument = {
   readonly importId: string;
   readonly objectKey: string;
@@ -257,6 +313,10 @@ export type RetainedPublicExposureEvidenceInput = z.infer<
 
 export type RetainedProviderExposureEvidenceInput = z.infer<
   typeof RetainedProviderExposureEvidenceInputSchema
+>;
+
+export type RetainedStructuredAssetExposureEvidenceInput = z.infer<
+  typeof RetainedStructuredAssetExposureEvidenceInputSchema
 >;
 
 type PrivateExposureReviewPositionRow = {
@@ -1358,10 +1418,26 @@ export class D1ExposureRepository {
                WHERE evidence.import_row_id = row.id
                  AND evidence.resolution_status = 'strong_identifier'
              )
-             AND NOT EXISTS (
-               SELECT 1
-               FROM holding_import_row_provider_exposure_evidence evidence
-               WHERE evidence.import_row_id = row.id
+             AND (
+               NOT EXISTS (
+                 SELECT 1
+                 FROM holding_import_row_provider_exposure_evidence evidence
+                 WHERE evidence.import_row_id = row.id
+               )
+               OR (
+                 EXISTS (
+                   SELECT 1
+                   FROM holding_import_row_provider_exposure_evidence evidence
+                   WHERE evidence.import_row_id = row.id
+                     AND evidence.resolution_status = 'not_eligible'
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM holding_import_row_structured_asset_exposure_evidence
+                     structured_evidence
+                   WHERE structured_evidence.import_row_id = row.id
+                 )
+               )
              )
            ORDER BY import.created_at, import.id, row.source_row_number
            LIMIT 500`,
@@ -1561,6 +1637,98 @@ export class D1ExposureRepository {
     }
   }
 
+  public async recordRetainedStructuredAssetExposureEvidence(
+    accessSubject: string,
+    rawInputs: readonly RetainedStructuredAssetExposureEvidenceInput[],
+  ): Promise<void> {
+    const inputs =
+      RetainedStructuredAssetExposureEvidenceInputsSchema.parse(rawInputs);
+    if (inputs.length === 0) {
+      return;
+    }
+    const identity = await this.findIdentity(accessSubject);
+    const rowIds = inputs.map((input) => input.importRowId);
+    const existing = await all<RetainedStructuredAssetExposureEvidenceRow>(
+      this.db
+        .prepare(
+          `SELECT
+             import_row_id, resolution_status, identity_kind,
+             protected_identity_key, currency_code, evidence_sha256
+           FROM holding_import_row_structured_asset_exposure_evidence
+           WHERE household_id = ?
+             AND import_row_id IN (
+               SELECT CAST(value AS TEXT) FROM json_each(?)
+             )`,
+        )
+        .bind(identity.household_id, JSON.stringify(rowIds)),
+    );
+    const existingByRowId = new Map(
+      existing.map((row) => [row.import_row_id, row]),
+    );
+    for (const input of inputs) {
+      const prior = existingByRowId.get(input.importRowId);
+      const identityKind =
+        input.resolutionStatus === "structured_identifier"
+          ? input.identityKind
+          : null;
+      const protectedIdentityKey =
+        input.resolutionStatus === "structured_identifier"
+          ? input.protectedIdentityKey
+          : null;
+      const currencyCode =
+        input.resolutionStatus === "structured_identifier"
+          ? input.currencyCode
+          : null;
+      if (
+        prior !== undefined &&
+        (prior.resolution_status !== input.resolutionStatus ||
+          prior.identity_kind !== identityKind ||
+          prior.protected_identity_key !== protectedIdentityKey ||
+          prior.currency_code !== currencyCode ||
+          prior.evidence_sha256 !== input.evidenceSha256)
+      ) {
+        throw new Error("Structured asset exposure evidence changed.");
+      }
+    }
+    const createdAt = new Date().toISOString();
+    const statements = inputs
+      .filter((input) => !existingByRowId.has(input.importRowId))
+      .map((input) =>
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO
+               holding_import_row_structured_asset_exposure_evidence (
+                 id, household_id, import_row_id, resolution_status,
+                 identity_kind, protected_identity_key, currency_code,
+                 evidence_sha256, derivation_method, created_by_user_id,
+                 created_at, immutable
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+                 'retained_source_structured_asset_v1', ?, ?, 1)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            identity.household_id,
+            input.importRowId,
+            input.resolutionStatus,
+            input.resolutionStatus === "structured_identifier"
+              ? input.identityKind
+              : null,
+            input.resolutionStatus === "structured_identifier"
+              ? input.protectedIdentityKey
+              : null,
+            input.resolutionStatus === "structured_identifier"
+              ? input.currencyCode
+              : null,
+            input.evidenceSha256,
+            identity.user_id,
+            createdAt,
+          ),
+      );
+    if (statements.length > 0) {
+      await this.db.batch(statements);
+    }
+  }
+
   public async reconcileAcceptedPublicExposureHistory(
     accessSubject: string,
   ): Promise<void> {
@@ -1577,19 +1745,25 @@ export class D1ExposureRepository {
         .prepare(
           `SELECT
              application.position_id,
-             row.legal_vehicle_name AS canonical_name,
+             CASE
+               WHEN structured.identity_kind = 'cash_currency'
+               THEN 'US Dollar'
+               ELSE row.legal_vehicle_name
+             END AS canonical_name,
              COALESCE(
                row.public_exposure_identity_kind,
                retained.identity_kind,
                CASE
                  WHEN provider_scoped.protected_identity_key IS NOT NULL
                  THEN 'provider_security'
-               END
+               END,
+               structured.identity_kind
              ) AS public_exposure_identity_kind,
              COALESCE(
                row.protected_exposure_key,
                retained.protected_identity_key,
-               provider_scoped.protected_identity_key
+               provider_scoped.protected_identity_key,
+               structured.protected_identity_key
              ) AS protected_exposure_key,
              document.sha256 AS evidence_sha256,
              CASE
@@ -1610,6 +1784,10 @@ export class D1ExposureRepository {
              provider_scoped
              ON provider_scoped.import_row_id = row.id
             AND provider_scoped.resolution_status = 'scoped_identifier'
+           LEFT JOIN holding_import_row_structured_asset_exposure_evidence
+             structured
+             ON structured.import_row_id = row.id
+            AND structured.resolution_status = 'structured_identifier'
            WHERE import.household_id = ?
              AND (? IS NULL OR import.id = ?)
              AND position.position_kind = 'direct'
@@ -1619,12 +1797,14 @@ export class D1ExposureRepository {
                CASE
                  WHEN provider_scoped.protected_identity_key IS NOT NULL
                  THEN 'provider_security'
-               END
+               END,
+               structured.identity_kind
              ) IS NOT NULL
              AND COALESCE(
                row.protected_exposure_key,
                retained.protected_identity_key,
-               provider_scoped.protected_identity_key
+               provider_scoped.protected_identity_key,
+               structured.protected_identity_key
              ) IS NOT NULL
              AND application.id = (
                SELECT latest_application.id
@@ -1641,6 +1821,10 @@ export class D1ExposureRepository {
                  latest_provider_scoped
                  ON latest_provider_scoped.import_row_id = latest_row.id
                 AND latest_provider_scoped.resolution_status = 'scoped_identifier'
+               LEFT JOIN holding_import_row_structured_asset_exposure_evidence
+                 latest_structured
+                 ON latest_structured.import_row_id = latest_row.id
+                AND latest_structured.resolution_status = 'structured_identifier'
                WHERE latest_application.position_id = application.position_id
                  AND latest_import.household_id = import.household_id
                  AND (? IS NULL OR latest_import.id = ?)
@@ -1650,12 +1834,14 @@ export class D1ExposureRepository {
                    CASE
                      WHEN latest_provider_scoped.protected_identity_key IS NOT NULL
                      THEN 'provider_security'
-                   END
+                   END,
+                   latest_structured.identity_kind
                  ) IS NOT NULL
                  AND COALESCE(
                    latest_row.protected_exposure_key,
                    latest_retained.protected_identity_key,
-                   latest_provider_scoped.protected_identity_key
+                   latest_provider_scoped.protected_identity_key,
+                   latest_structured.protected_identity_key
                  ) IS NOT NULL
                ORDER BY
                  latest_application.applied_at DESC,
@@ -1696,9 +1882,13 @@ export class D1ExposureRepository {
         status: "active",
         decisionSource: "deterministic_policy",
         decisionReference:
-          row.public_exposure_identity_kind === "provider_security"
-            ? "public-provider-security-v1"
-            : `public-strong-identifier-v1:${row.public_exposure_identity_kind}`,
+          row.public_exposure_identity_kind === "cash_currency"
+            ? "cash-currency-v1:USD"
+            : row.public_exposure_identity_kind === "provider_crypto"
+              ? "public-provider-crypto-v1"
+              : row.public_exposure_identity_kind === "provider_security"
+                ? "public-provider-security-v1"
+                : `public-strong-identifier-v1:${row.public_exposure_identity_kind}`,
         evidenceSha256: row.evidence_sha256,
         effectiveAt: row.effective_at,
       });

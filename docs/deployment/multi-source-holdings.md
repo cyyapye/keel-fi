@@ -30,7 +30,11 @@ only when that retained evidence has no valid global identifier. Eligible
 equity, ETF, and mutual-fund rows may share a protected Plaid security identity
 inside one exact protected Item. Different Items never share this fallback, and
 cash, cryptocurrency, unsupported types, ticker, and display text cannot resolve
-an exposure.
+an exposure through that policy. Migration `0029_structured_asset_exposure.sql`
+adds a separate append-only structured outcome: exact USD cash shares one
+currency exposure across investment connections, while cryptocurrency shares
+only an exact Plaid security identity inside one protected Item. Unsupported
+types and text-only identity remain unresolved.
 
 The public repository and release fixtures remain synthetic-only. A short-lived
 synthetic transition experiment was removed instead of becoming a permanent
@@ -62,8 +66,10 @@ repair for already accepted history, not an alternate ingestion or read path.
   Missing, changed, and malformed evidence stays unresolved and does not make
   Holdings unavailable. Migration `0028` may append either the protected
   Item-scoped provider identity or an explicit ineligible outcome for a
-  checksum-verified `0027` no-strong-identifier row. Cash, cryptocurrency, and
-  unsupported security types remain unresolved.
+  checksum-verified `0027` no-strong-identifier row. Migration `0029` may then
+  append one global exact-USD currency identity, one exact Item-scoped
+  cryptocurrency identity, or an explicit unsupported outcome. None of these
+  rules uses ticker or display text.
 - A private-company exposure resolves to an existing reviewed company record.
   Fund and unresolved identities require recorded review evidence. Exposure
   identity never replaces the connection, container, or legal position.
@@ -141,11 +147,13 @@ repair for already accepted history, not an alternate ingestion or read path.
   from D1. A row without a valid global identifier can use the exact provider
   security ID only after it is protected with the exact Item identity and only
   for eligible public security types. The same provider ID in another Item does
-  not match. Source-row number and raw provider IDs are used only inside the
-  hash-verified original response; ticker and display name never become shared
-  identity. Explicit no-identifier and ineligible outcomes prevent repeated
-  object reads. A failed legacy repair is logged and skipped without turning the
-  canonical Position or Exposure view into an error state.
+  not match. Exact USD cash instead uses one currency identity across investment
+  connections. Cryptocurrency uses the same exact-Item boundary and remains
+  outside FI planning. Source-row number and raw provider IDs are used only
+  inside the hash-verified original response; ticker and display name never
+  become shared identity. The final structured or unsupported outcome prevents
+  repeated object reads. A failed legacy repair is logged and skipped without
+  turning the canonical Position or Exposure view into an error state.
 - Private exposure reconciliation is likewise provider-neutral when the position
   already has exactly one stable reviewed company ID. Eligible SPVs from any
   provider can participate in the reviewed exact-company batch, but a provider
@@ -172,9 +180,11 @@ Plaid Investments and AngelList paths. Migration `0027` adds one bounded read of
 each unresolved legacy source object and small append-only D1 evidence and
 mapping rows. Migration `0028` rereads only a `0027` no-strong-identifier source
 whose rows have no provider-scope outcome, then records that outcome so the
-object is not read again. It adds no provider request or new R2 object. At the
-current retained-history volume this remains inside the existing Cloudflare
-usage envelope, with expected incremental spend of `$0`.
+object is not read again. Migration `0029` performs one final bounded reread
+only for an existing `0028` ineligible row without a structured-asset outcome.
+It adds no provider request or new R2 object. At the current retained-history
+volume this remains inside the existing Cloudflare usage envelope, with expected
+incremental spend of `$0`.
 
 For a deployment with `C` connections, `O` ownership containers, `P` accepted
 positions, `I` imports, `R` import rows, `E` canonical exposures, and `M`
@@ -303,10 +313,10 @@ release evidence:
 
 Before accepting the M9 canonical release:
 
-1. Replay migrations `0001` through `0028_provider_scoped_public_exposure.sql`,
-   apply the synthetic seed, and verify the former public provider values read
-   as `plaid_investments` without changing position IDs or accepted baseline
-   items, goals, plans, or forecasts.
+1. Replay migrations `0001` through `0029_structured_asset_exposure.sql`, apply
+   the synthetic seed, and verify the former public provider values read as
+   `plaid_investments` without changing position IDs or accepted baseline items,
+   goals, plans, or forecasts.
 2. Seed synthetic accepted pre-ADR positions with applications but no ownership
    associations, including one with a proven row container and one with no
    canonical import scope. Apply migration `0026`; verify the proven container
@@ -345,11 +355,13 @@ Before accepting the M9 canonical release:
    append-only decisions, and fail-closed Access authentication.
 10. Seed accepted pre-`0021` Plaid documents containing the same valid global
     identifier in two accounts, the same provider security ID in two accounts of
-    one Item, that provider ID in a different Item, and an ineligible cash row.
-    Verify the retained repair creates the separate global and Item-scoped
-    exposures with two legal contributions each; does not merge the different
-    Item; leaves cash unresolved; is idempotent; and does not block the
-    canonical view when an object is unavailable or its checksum differs.
+    one Item, that provider ID in a different Item, exact USD cash in two
+    accounts, cryptocurrency in two accounts of one Item, and an unsupported
+    row. Verify the retained repair creates separate global, Item-scoped public,
+    global USD cash, and Item-scoped cryptocurrency exposures with two legal
+    contributions each; does not merge the different Item; leaves only the
+    unsupported row unresolved; is idempotent; and does not block the canonical
+    view when an object is unavailable or its checksum differs.
 11. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
     exact-head merge, and exact-SHA protected preview gates before marking the
     corresponding M9 slice complete.

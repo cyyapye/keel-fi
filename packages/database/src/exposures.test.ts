@@ -15,6 +15,8 @@ const retainedPublicIdentityMigrationFile =
   "packages/database/migrations/0027_retained_public_exposure_identity.sql";
 const providerScopedIdentityMigrationFile =
   "packages/database/migrations/0028_provider_scoped_public_exposure.sql";
+const structuredAssetIdentityMigrationFile =
+  "packages/database/migrations/0029_structured_asset_exposure.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -43,6 +45,7 @@ const migrationFiles = [
   reconciliationMigrationFile,
   retainedPublicIdentityMigrationFile,
   providerScopedIdentityMigrationFile,
+  structuredAssetIdentityMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -1251,13 +1254,17 @@ describe("canonical exposure resolution and aggregation", () => {
     ).rejects.toMatchObject({ code: "already_resolved" });
   });
 
-  it("groups retained public positions by global or source-scoped identity", async () => {
+  it("groups retained positions by global, source-scoped, or structured identity", async () => {
     for (const [id, containerKind] of [
       ["position_retained_public_brokerage", "brokerage"],
       ["position_retained_public_ira", "ira"],
       ["position_retained_provider_brokerage", "brokerage"],
       ["position_retained_provider_ira", "ira"],
       ["position_retained_provider_ineligible", "brokerage"],
+      ["position_retained_cash_brokerage", "brokerage"],
+      ["position_retained_cash_ira", "ira"],
+      ["position_retained_crypto_brokerage", "brokerage"],
+      ["position_retained_crypto_ira", "ira"],
     ] as const) {
       seedAcceptedPosition(sqlite, {
         id,
@@ -1272,17 +1279,20 @@ describe("canonical exposure resolution and aggregation", () => {
       });
     }
 
-    expect(
-      (await repository.listRetainedPublicExposureDocuments(accessSubject)).map(
-        (document) => document.importId,
-      ),
-    ).toEqual(
+    const initialDocuments = (
+      await repository.listRetainedPublicExposureDocuments(accessSubject)
+    ).map((document) => document.importId);
+    expect(initialDocuments).toEqual(
       expect.arrayContaining([
         "import_position_retained_public_brokerage",
         "import_position_retained_public_ira",
         "import_position_retained_provider_brokerage",
         "import_position_retained_provider_ira",
         "import_position_retained_provider_ineligible",
+        "import_position_retained_cash_brokerage",
+        "import_position_retained_cash_ira",
+        "import_position_retained_crypto_brokerage",
+        "import_position_retained_crypto_ira",
       ]),
     );
 
@@ -1303,6 +1313,10 @@ describe("canonical exposure resolution and aggregation", () => {
         "position_retained_provider_brokerage",
         "position_retained_provider_ira",
         "position_retained_provider_ineligible",
+        "position_retained_cash_brokerage",
+        "position_retained_cash_ira",
+        "position_retained_crypto_brokerage",
+        "position_retained_crypto_ira",
       ].map((id) => ({
         importRowId: `row_${id}`,
         resolutionStatus: "no_strong_identifier" as const,
@@ -1327,6 +1341,46 @@ describe("canonical exposure resolution and aggregation", () => {
         resolutionStatus: "not_eligible" as const,
         evidenceSha256: hash("source:position_retained_provider_ineligible"),
       },
+      ...[
+        "position_retained_cash_brokerage",
+        "position_retained_cash_ira",
+        "position_retained_crypto_brokerage",
+        "position_retained_crypto_ira",
+      ].map((id) => ({
+        importRowId: `row_${id}`,
+        resolutionStatus: "not_eligible" as const,
+        evidenceSha256: hash(`source:${id}`),
+      })),
+    ];
+    const cashIdentityKey = hash("cash-currency:USD");
+    const cryptoIdentityKey = hash("provider-crypto:synthetic-coin");
+    const structuredAssetEvidence = [
+      ...["position_retained_cash_brokerage", "position_retained_cash_ira"].map(
+        (id) => ({
+          importRowId: `row_${id}`,
+          resolutionStatus: "structured_identifier" as const,
+          identityKind: "cash_currency" as const,
+          protectedIdentityKey: cashIdentityKey,
+          currencyCode: "USD" as const,
+          evidenceSha256: hash(`source:${id}`),
+        }),
+      ),
+      ...[
+        "position_retained_crypto_brokerage",
+        "position_retained_crypto_ira",
+      ].map((id) => ({
+        importRowId: `row_${id}`,
+        resolutionStatus: "structured_identifier" as const,
+        identityKind: "provider_crypto" as const,
+        protectedIdentityKey: cryptoIdentityKey,
+        currencyCode: null,
+        evidenceSha256: hash(`source:${id}`),
+      })),
+      {
+        importRowId: "row_position_retained_provider_ineligible",
+        resolutionStatus: "not_eligible" as const,
+        evidenceSha256: hash("source:position_retained_provider_ineligible"),
+      },
     ];
     await repository.recordRetainedPublicExposureEvidence(
       accessSubject,
@@ -1339,6 +1393,32 @@ describe("canonical exposure resolution and aggregation", () => {
     await repository.recordRetainedProviderExposureEvidence(
       accessSubject,
       providerEvidence,
+    );
+    const afterProviderEvidence = (
+      await repository.listRetainedPublicExposureDocuments(accessSubject)
+    ).map((document) => document.importId);
+    expect(afterProviderEvidence).toEqual(
+      expect.arrayContaining([
+        "import_position_retained_provider_ineligible",
+        "import_position_retained_cash_brokerage",
+        "import_position_retained_cash_ira",
+        "import_position_retained_crypto_brokerage",
+        "import_position_retained_crypto_ira",
+      ]),
+    );
+    expect(afterProviderEvidence).not.toContain(
+      "import_position_retained_public_brokerage",
+    );
+    expect(afterProviderEvidence).not.toContain(
+      "import_position_retained_provider_brokerage",
+    );
+    await repository.recordRetainedStructuredAssetExposureEvidence(
+      accessSubject,
+      structuredAssetEvidence,
+    );
+    await repository.recordRetainedStructuredAssetExposureEvidence(
+      accessSubject,
+      structuredAssetEvidence,
     );
     await repository.recordRetainedProviderExposureEvidence(
       accessSubject,
@@ -1378,6 +1458,26 @@ describe("canonical exposure resolution and aggregation", () => {
         "position_retained_provider_ira",
       ].sort(),
     );
+    const cashExposure = projection.exposures.find(
+      (group) => group.exposure.protectedIdentityKey === cashIdentityKey,
+    );
+    expect(cashExposure?.exposure.canonicalName).toBe("US Dollar");
+    expect(
+      cashExposure?.contributions.map((row) => row.positionId).sort(),
+    ).toEqual(
+      ["position_retained_cash_brokerage", "position_retained_cash_ira"].sort(),
+    );
+    const cryptoExposure = projection.exposures.find(
+      (group) => group.exposure.protectedIdentityKey === cryptoIdentityKey,
+    );
+    expect(
+      cryptoExposure?.contributions.map((row) => row.positionId).sort(),
+    ).toEqual(
+      [
+        "position_retained_crypto_brokerage",
+        "position_retained_crypto_ira",
+      ].sort(),
+    );
     expect(
       sqlite
         .prepare(
@@ -1394,7 +1494,7 @@ describe("canonical exposure resolution and aggregation", () => {
            FROM holding_import_row_public_exposure_evidence`,
         )
         .get(),
-    ).toEqual({ count: 5 });
+    ).toEqual({ count: 9 });
     expect(
       sqlite
         .prepare(
@@ -1402,7 +1502,15 @@ describe("canonical exposure resolution and aggregation", () => {
            FROM holding_import_row_provider_exposure_evidence`,
         )
         .get(),
-    ).toEqual({ count: 3 });
+    ).toEqual({ count: 7 });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_import_row_structured_asset_exposure_evidence`,
+        )
+        .get(),
+    ).toEqual({ count: 5 });
     expect(
       await repository.listRetainedPublicExposureDocuments(accessSubject),
     ).toEqual([]);
@@ -1424,6 +1532,26 @@ describe("canonical exposure resolution and aggregation", () => {
            JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
            WHERE exposure.protected_identity_key = ?`,
         )
+        .get(cashIdentityKey),
+    ).toEqual({ count: 2 });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_exposure_mappings mapping
+           JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
+           WHERE exposure.protected_identity_key = ?`,
+        )
+        .get(cryptoIdentityKey),
+    ).toEqual({ count: 2 });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_exposure_mappings mapping
+           JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
+           WHERE exposure.protected_identity_key = ?`,
+        )
         .get(providerIdentityKey),
     ).toEqual({ count: 2 });
     await expect(
@@ -1436,6 +1564,18 @@ describe("canonical exposure resolution and aggregation", () => {
         },
       ]),
     ).rejects.toThrow("Provider-scoped exposure evidence changed.");
+    await expect(
+      repository.recordRetainedStructuredAssetExposureEvidence(accessSubject, [
+        {
+          importRowId: "row_position_retained_provider_ineligible",
+          resolutionStatus: "structured_identifier",
+          identityKind: "cash_currency",
+          protectedIdentityKey: cashIdentityKey,
+          currencyCode: "USD",
+          evidenceSha256: hash("wrong retained document"),
+        },
+      ]),
+    ).rejects.toThrow("Structured asset exposure evidence changed.");
   });
 });
 
@@ -1450,6 +1590,7 @@ describe("holding ownership and exposure reconciliation migration", () => {
             file !== reconciliationMigrationFile &&
             file !== retainedPublicIdentityMigrationFile &&
             file !== providerScopedIdentityMigrationFile &&
+            file !== structuredAssetIdentityMigrationFile &&
             file !== "packages/database/seed/synthetic.sql",
         )
         .forEach((file) => {
@@ -1650,6 +1791,12 @@ describe("holding ownership and exposure reconciliation migration", () => {
       database.exec(
         readFileSync(
           resolve(process.cwd(), providerScopedIdentityMigrationFile),
+          "utf8",
+        ),
+      );
+      database.exec(
+        readFileSync(
+          resolve(process.cwd(), structuredAssetIdentityMigrationFile),
           "utf8",
         ),
       );
