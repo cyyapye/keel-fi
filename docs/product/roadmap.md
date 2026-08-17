@@ -6,9 +6,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 
 - Last reconciled: 2026-08-16
 - Reconciled product baseline:
-  [`2d60375`](https://github.com/cyyapye/keel-fi/commit/2d60375faddda2e7e2e3f89e9513264fafb51543)
+  [`e99f77c`](https://github.com/cyyapye/keel-fi/commit/e99f77cb9d2d9344781ab94f057078121be23537)
 - Baseline release evidence:
-  [`31984115584`](https://github.com/cyyapye/keel-fi/actions/runs/31984115584)
+  [`31989687685`](https://github.com/cyyapye/keel-fi/actions/runs/31989687685)
 
 ## How to use this roadmap
 
@@ -909,9 +909,24 @@ association. Holdings and Portfolio Baseline now fail and retry against the
 shared authoritative projection without rendering fallback evidence rows as
 false unresolved exposures. This bounded D1 repair adds no provider request,
 paid product, schedule, Queue message, R2 object, notification channel,
-recurring work, or incremental external spend. Release evidence is not claimed
-until the standard verification, review, merge, and exact-SHA deployment gates
-complete.
+recurring work, or incremental external spend. Implemented in
+[PR #95](https://github.com/cyyapye/keel-fi/pull/95) at exact checked head
+[`63927fb`](https://github.com/cyyapye/keel-fi/commit/63927fbdef0a4b06b4144a6ea4dd23b6e6a369ef)
+and merged as released commit
+[`e99f77c`](https://github.com/cyyapye/keel-fi/commit/e99f77cb9d2d9344781ab94f057078121be23537).
+All 456 tests, 52 desktop/mobile browser flows, a fresh migration replay through
+`0026_reconciled_holding_ownership.sql`, synthetic seed, builds, public-data
+checks, and secret scans passed. Exact-head PR checks passed in
+[run `31989491531`](https://github.com/cyyapye/keel-fi/actions/runs/31989491531).
+The release retained an encrypted pre-migration D1 backup, applied the
+forward-only repair, deployed and read back both Worker versions, passed
+protected smokes, and retained exact-SHA evidence in
+[run `31989687685`](https://github.com/cyyapye/keel-fi/actions/runs/31989687685).
+Authenticated private acceptance confirmed Holdings and Portfolio Baseline
+loaded without the retry outage, and shared-company legal positions appeared
+under one exposure without falling into unallocated value; no private holding
+name, count, value, or identifier is retained here. Approved incremental
+external spend remains `$0`.
 
 **Exit gates:**
 
