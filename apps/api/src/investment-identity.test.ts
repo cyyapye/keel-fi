@@ -7,6 +7,7 @@ import {
   plaidInvestmentsAccountKey,
   plaidInvestmentsExposureKey,
   plaidInvestmentsPositionKey,
+  plaidInvestmentsProviderSecurityExposureKey,
   plaidInvestmentsSourceKey,
 } from "./investment-identity";
 import type { Env } from "./types";
@@ -88,6 +89,36 @@ describe("protected investment identity", () => {
     expect(first).toBe(second);
     expect(first).toMatch(/^[a-f0-9]{64}$/u);
     expect(differentKind).not.toBe(first);
+  });
+
+  it("shares provider security only inside one protected Item", async () => {
+    const firstSource = await plaidInvestmentsSourceKey(
+      env,
+      "synthetic-item-one",
+    );
+    const secondSource = await plaidInvestmentsSourceKey(
+      env,
+      "synthetic-item-two",
+    );
+    const first = await plaidInvestmentsProviderSecurityExposureKey(
+      env,
+      firstSource,
+      "same-provider-security",
+    );
+    const sameItem = await plaidInvestmentsProviderSecurityExposureKey(
+      env,
+      firstSource,
+      "same-provider-security",
+    );
+    const otherItem = await plaidInvestmentsProviderSecurityExposureKey(
+      env,
+      secondSource,
+      "same-provider-security",
+    );
+
+    expect(first).toBe(sameItem);
+    expect(first).toMatch(/^[a-f0-9]{64}$/u);
+    expect(otherItem).not.toBe(first);
   });
 
   it("scopes AngelList ownership and positions without retaining labels", async () => {

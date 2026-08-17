@@ -329,13 +329,22 @@ rule to accepted public rows whose strong-identifier columns did not yet exist.
 The original private source object remains the evidence boundary: Keel must
 match its recorded byte length and SHA-256, validate the provider response, and
 append only a protected checksum-valid CUSIP, ISIN, or SEDOL. The accepted row,
-position, snapshot, account provenance, and value remain unchanged. Ticker,
-provider security ID, and display text are still insufficient; missing or
-invalid source evidence remains unresolved. Because this repair is a derived
-relationship, not a new financial fact, it may run automatically and
-idempotently before the canonical Holdings read. A repair failure must fail
-closed for that relationship without making the authoritative position view
-unavailable.
+position, snapshot, account provenance, and value remain unchanged.
+
+Migration `0028_provider_scoped_public_exposure.sql` adds a narrower fallback
+for a validated Plaid source that has no checksum-valid global identifier. An
+exact Plaid security ID may group eligible public securities only inside the
+same protected Item identity. It cannot merge positions across Items or
+institutions and it does not make the provider identifier household-global.
+Ticker, company name, and display text remain insufficient. Cash,
+cryptocurrency, unsupported security types, missing source evidence, and invalid
+source evidence remain unresolved. Global CUSIP, ISIN, or SEDOL always takes
+precedence over the Item-scoped fallback.
+
+Both repairs are derived relationships, not new financial facts, so they may run
+automatically and idempotently before the canonical Holdings read. A repair
+failure must fail closed for that relationship without making the authoritative
+position view unavailable.
 
 Robinhood and AngelList remain the operated holding sources. The released
 multi-institution experience and provider-neutral adapter are proven with

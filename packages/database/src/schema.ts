@@ -2129,6 +2129,56 @@ export const holdingImportRowPublicExposureEvidence = sqliteTable(
   ],
 );
 
+export const holdingImportRowProviderExposureEvidence = sqliteTable(
+  "holding_import_row_provider_exposure_evidence",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    importRowId: text("import_row_id")
+      .notNull()
+      .references(() => holdingImportRows.id, { onDelete: "restrict" })
+      .unique(),
+    resolutionStatus: text("resolution_status").notNull(),
+    protectedIdentityKey: text("protected_identity_key"),
+    evidenceSha256: text("evidence_sha256").notNull(),
+    derivationMethod: text("derivation_method").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("holding_import_row_provider_exposure_evidence_key_idx")
+      .on(table.householdId, table.protectedIdentityKey)
+      .where(sql`${table.protectedIdentityKey} IS NOT NULL`),
+    check(
+      "holding_import_row_provider_exposure_evidence_status_check",
+      sql`${table.resolutionStatus} IN ('scoped_identifier', 'not_eligible')`,
+    ),
+    check(
+      "holding_import_row_provider_exposure_evidence_key_check",
+      sql`${table.protectedIdentityKey} IS NULL OR (length(${table.protectedIdentityKey}) = 64 AND ${table.protectedIdentityKey} NOT GLOB '*[^0-9a-f]*')`,
+    ),
+    check(
+      "holding_import_row_provider_exposure_evidence_hash_check",
+      sql`length(${table.evidenceSha256}) = 64 AND ${table.evidenceSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "holding_import_row_provider_exposure_evidence_derivation_check",
+      sql`${table.derivationMethod} = 'retained_source_provider_security_v1'`,
+    ),
+    check(
+      "holding_import_row_provider_exposure_evidence_result_check",
+      sql`(${table.resolutionStatus} = 'scoped_identifier' AND ${table.protectedIdentityKey} IS NOT NULL) OR (${table.resolutionStatus} = 'not_eligible' AND ${table.protectedIdentityKey} IS NULL)`,
+    ),
+    check(
+      "holding_import_row_provider_exposure_evidence_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
 export const holdingPositions = sqliteTable(
   "holding_positions",
   {
