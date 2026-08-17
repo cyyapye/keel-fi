@@ -234,10 +234,18 @@ describe("investment-connections API", () => {
     const investmentExposureViewRepository = {
       list: vi.fn().mockResolvedValue(exposureView),
     } satisfies InvestmentExposureViewRepository;
+    const retainedPublicExposureReconciler = {
+      reconcile: vi.fn().mockResolvedValue({
+        documentCount: 1,
+        skippedDocumentCount: 0,
+        identityCount: 2,
+      }),
+    };
     const app = createApp({
       investmentConnectionsRepository: repository(),
       investmentPositionViewRepository,
       investmentExposureViewRepository,
+      retainedPublicExposureReconciler,
       plaidClient: client(),
     });
 
@@ -263,6 +271,45 @@ describe("investment-connections API", () => {
       expect.any(String),
       positionView,
     );
+    expect(retainedPublicExposureReconciler.reconcile).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+    );
+  });
+
+  it("keeps canonical holdings available when retained-history repair fails", async () => {
+    const investmentPositionViewRepository = {
+      list: vi.fn().mockResolvedValue(positionView),
+    } satisfies InvestmentPositionViewRepository;
+    const investmentExposureViewRepository = {
+      list: vi.fn().mockResolvedValue(exposureView),
+    } satisfies InvestmentExposureViewRepository;
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const app = createApp({
+      investmentPositionViewRepository,
+      investmentExposureViewRepository,
+      retainedPublicExposureReconciler: {
+        reconcile: vi.fn().mockRejectedValue(new Error("synthetic failure")),
+      },
+      plaidClient: client(),
+    });
+
+    const response = await app.request(
+      "/api/investment-holdings",
+      undefined,
+      env(),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      positionView,
+      exposureView,
+    });
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("retained_public_exposure_reconciliation_failed"),
+    );
+    error.mockRestore();
   });
 
   it("loads and records an explicit private-company exposure review", async () => {

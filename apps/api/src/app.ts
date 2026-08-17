@@ -111,6 +111,10 @@ import {
   syncInvestmentConnection,
   type PlaidInvestmentsClient,
 } from "./plaid-investments-sync";
+import {
+  D1RetainedPublicExposureReconciler,
+  type RetainedPublicExposureReconciler,
+} from "./retained-public-exposure";
 import type { AccessIdentity, Env } from "./types";
 
 type Variables = {
@@ -144,6 +148,7 @@ type AppOptions = {
   investmentExposureViewRepository?: InvestmentExposureViewRepository;
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
   privateExposureReviewRepository?: PrivateExposureReviewRepository;
+  retainedPublicExposureReconciler?: RetainedPublicExposureReconciler;
   additionalInvestmentAuthorizationAvailable?: boolean;
   repository?: AlphaRepository;
   verifyAccess?: AccessVerifier;
@@ -510,6 +515,9 @@ export function createApp(options: AppOptions = {}) {
     new D1InvestmentExposureViewRepository(env.DB);
   const privateExposureReviewRepositoryFor = (env: Env) =>
     options.privateExposureReviewRepository ?? new D1ExposureRepository(env.DB);
+  const retainedPublicExposureReconcilerFor = (env: Env) =>
+    options.retainedPublicExposureReconciler ??
+    new D1RetainedPublicExposureReconciler(env);
   const portfolioBaselineRepositoryFor = (env: Env) =>
     options.portfolioBaselineRepository ??
     new D1PortfolioBaselineRepository(env.DB);
@@ -1495,6 +1503,28 @@ export function createApp(options: AppOptions = {}) {
   app.get("/api/investment-holdings", async (context) => {
     const accessSubject = context.get("identity").subject;
     const asOf = new Date().toISOString();
+    try {
+      const reconciliation = await retainedPublicExposureReconcilerFor(
+        context.env,
+      ).reconcile(accessSubject);
+      if (reconciliation.skippedDocumentCount > 0) {
+        console.error(
+          JSON.stringify({
+            event: "retained_public_exposure_reconciliation_incomplete",
+            requestId: context.get("requestId"),
+            skippedDocumentCount: reconciliation.skippedDocumentCount,
+          }),
+        );
+      }
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "retained_public_exposure_reconciliation_failed",
+          requestId: context.get("requestId"),
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        }),
+      );
+    }
     try {
       const positionView = await investmentPositionViewRepositoryFor(
         context.env,
