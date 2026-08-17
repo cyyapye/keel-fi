@@ -37,6 +37,7 @@ const migrationFiles = [
   "packages/database/migrations/0021_canonical_exposure_resolution.sql",
   "packages/database/migrations/0022_provider_neutral_investments.sql",
   "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
+  "packages/database/migrations/0025_retired_asset_lots.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -367,13 +368,14 @@ describe("AngelList holding import persistence", () => {
     const alpha = await new D1AlphaRepository(
       new TestD1Database(sqlite) as unknown as D1Database,
     ).getAlphaData("synthetic-access-subject");
-    expect(alpha.holdings).toHaveLength(4);
-    expect(
-      alpha.holdings.find((holding) => holding.id === "lot_harbor_spv"),
-    ).toMatchObject({
-      companyId: "co_harbor",
-      exposureName: "Harbor Health Systems",
-    });
+    expect(alpha.holdings).toHaveLength(1);
+    expect(alpha.holdings.map((holding) => holding.id)).not.toEqual(
+      expect.arrayContaining([
+        "lot_harbor_spv",
+        "lot_lattice_seriesa",
+        "lot_northstar_seed",
+      ]),
+    );
     expect(alpha.holdings).toContainEqual(
       expect.objectContaining({
         id: expect.any(String),

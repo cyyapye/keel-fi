@@ -50,6 +50,8 @@ import {
   LiabilityExchangeInputSchema,
   ManualLiabilityInputSchema,
   PlanInputSaveSchema,
+  PrivateExposureExactBatchInputSchema,
+  PrivateExposureExactBatchResultSchema,
   PrivateExposureResolutionInputSchema,
   PrivateExposureResolutionResultSchema,
   PrivateExposureReviewStateSchema,
@@ -1534,6 +1536,56 @@ export function createApp(options: AppOptions = {}) {
     } catch {
       return context.json(
         { error: "Private exposure reviews are unavailable." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/private-exposure-reviews/exact-batch", async (context) => {
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const parsed = PrivateExposureExactBatchInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        { error: "Review the current exact company assignments." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const result = await privateExposureReviewRepositoryFor(
+        context.env,
+      ).applyPrivateExposureExactBatch(
+        context.get("identity").subject,
+        parsed.data,
+      );
+      return context.json(
+        PrivateExposureExactBatchResultSchema.parse(result),
+        201,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      if (error instanceof PrivateExposureReviewError) {
+        return context.json(
+          {
+            error:
+              error.code === "no_matches"
+                ? "No exact company assignments are ready."
+                : "The exact company assignments changed. Review them again.",
+          },
+          409,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      return context.json(
+        { error: "Keel could not assign the exact company matches." },
         503,
         { "Cache-Control": "private, no-store" },
       );

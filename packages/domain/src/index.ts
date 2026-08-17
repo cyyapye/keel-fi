@@ -840,11 +840,35 @@ export const PrivateExposureReviewPositionSchema = z
   })
   .strict();
 
+export const PrivateExposureExactBatchPreviewSchema = z
+  .object({
+    revision: ProtectedIdentityKeySchema,
+    positionCount: z.number().int().nonnegative().max(500),
+    companyCount: z.number().int().nonnegative().max(500),
+    existingCompanyCount: z.number().int().nonnegative().max(500),
+    newCompanyCount: z.number().int().nonnegative().max(500),
+    excludedPositionCount: z.number().int().nonnegative().max(500),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.existingCompanyCount + value.newCompanyCount !==
+      value.companyCount
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["companyCount"],
+        message: "Exact company counts must reconcile.",
+      });
+    }
+  });
+
 export const PrivateExposureReviewStateSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     positions: z.array(PrivateExposureReviewPositionSchema).max(500),
     companies: z.array(PrivateExposureCompanySchema).max(1_000),
+    exactBatch: PrivateExposureExactBatchPreviewSchema,
   })
   .strict();
 
@@ -884,6 +908,35 @@ export const PrivateExposureResolutionResultSchema = z
     mappingId: z.string().min(1),
   })
   .strict();
+
+export const PrivateExposureExactBatchInputSchema = z
+  .object({
+    expectedRevision: ProtectedIdentityKeySchema,
+  })
+  .strict();
+
+export const PrivateExposureExactBatchResultSchema = z
+  .object({
+    version: z.literal(1),
+    assignedPositionCount: z.number().int().positive().max(500),
+    companyCount: z.number().int().positive().max(500),
+    existingCompanyCount: z.number().int().nonnegative().max(500),
+    createdCompanyCount: z.number().int().nonnegative().max(500),
+    remainingPositionCount: z.number().int().nonnegative().max(500),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.existingCompanyCount + value.createdCompanyCount !==
+      value.companyCount
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["companyCount"],
+        message: "Applied company counts must reconcile.",
+      });
+    }
+  });
 
 export const HoldingImportProviderSchema = z.enum([
   "angellist",
@@ -3400,6 +3453,15 @@ export type PositionExposureMapping = z.infer<
 >;
 export type PrivateExposureCompany = z.infer<
   typeof PrivateExposureCompanySchema
+>;
+export type PrivateExposureExactBatchInput = z.infer<
+  typeof PrivateExposureExactBatchInputSchema
+>;
+export type PrivateExposureExactBatchPreview = z.infer<
+  typeof PrivateExposureExactBatchPreviewSchema
+>;
+export type PrivateExposureExactBatchResult = z.infer<
+  typeof PrivateExposureExactBatchResultSchema
 >;
 export type PrivateExposureReviewPosition = z.infer<
   typeof PrivateExposureReviewPositionSchema

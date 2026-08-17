@@ -187,6 +187,47 @@ VALUES
     '2026-07-01T09:00:00-07:00'
   );
 
+-- Keep the legacy lot records available to evidence and migration tests while
+-- excluding the retired preview examples from the current Holdings view.
+INSERT OR IGNORE INTO asset_lot_retirements
+  (
+    id,
+    household_id,
+    asset_lot_id,
+    reason,
+    retired_by_user_id,
+    retired_at,
+    immutable
+  )
+VALUES
+  (
+    'retirement_lot_harbor_spv',
+    'hh_demo',
+    'lot_harbor_spv',
+    'preview_demo_cleanup',
+    'usr_demo',
+    '2026-08-16T17:30:00.000Z',
+    1
+  ),
+  (
+    'retirement_lot_lattice_seriesa',
+    'hh_demo',
+    'lot_lattice_seriesa',
+    'preview_demo_cleanup',
+    'usr_demo',
+    '2026-08-16T17:30:00.000Z',
+    1
+  ),
+  (
+    'retirement_lot_northstar_seed',
+    'hh_demo',
+    'lot_northstar_seed',
+    'preview_demo_cleanup',
+    'usr_demo',
+    '2026-08-16T17:30:00.000Z',
+    1
+  );
+
 INSERT OR IGNORE INTO mark_sources
   (id, household_id, source_type, source_name, confidence_ppm, created_at)
 VALUES

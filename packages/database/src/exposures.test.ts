@@ -32,6 +32,7 @@ const migrationFiles = [
   "packages/database/migrations/0021_canonical_exposure_resolution.sql",
   "packages/database/migrations/0022_provider_neutral_investments.sql",
   "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
+  "packages/database/migrations/0025_retired_asset_lots.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -367,6 +368,58 @@ describe("canonical exposure resolution and aggregation", () => {
   });
 
   afterEach(() => sqlite.close());
+
+  it("retires the three preview demo lots without deleting accepted history", async () => {
+    const alpha = await new D1AlphaRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    ).getAlphaData(accessSubject);
+    expect(alpha.holdings.map((holding) => holding.id)).not.toEqual(
+      expect.arrayContaining([
+        "lot_harbor_spv",
+        "lot_lattice_seriesa",
+        "lot_northstar_seed",
+      ]),
+    );
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM asset_lots
+           WHERE id IN (
+             'lot_harbor_spv',
+             'lot_lattice_seriesa',
+             'lot_northstar_seed'
+           )`,
+        )
+        .get(),
+    ).toEqual({ count: 3 });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM asset_lot_retirements
+           WHERE reason = 'preview_demo_cleanup'`,
+        )
+        .get(),
+    ).toEqual({ count: 3 });
+    expect(() =>
+      sqlite
+        .prepare(
+          `UPDATE asset_lot_retirements
+           SET retired_at = '2026-08-17T00:00:00.000Z'
+           WHERE asset_lot_id = 'lot_harbor_spv'`,
+        )
+        .run(),
+    ).toThrow(/asset lot retirements are immutable/u);
+    expect(() =>
+      sqlite
+        .prepare(
+          `DELETE FROM asset_lot_retirements
+           WHERE asset_lot_id = 'lot_harbor_spv'`,
+        )
+        .run(),
+    ).toThrow(/asset lot retirements are immutable/u);
+  });
 
   it("groups one public security across three accounts without merging positions", async () => {
     seedAcceptedPosition(sqlite, {
@@ -799,6 +852,207 @@ describe("canonical exposure resolution and aggregation", () => {
     ).toEqual(["co_harbor", "co_harbor"]);
   });
 
+  it("batch-assigns exact AngelList company labels and leaves uncertain rows for review", async () => {
+    for (const [id, label, reportedExposureName] of [
+      [
+        "position_exact_harbor_a",
+        "Synthetic Harbor Access I SPV",
+        "Harbor Health Systems",
+      ],
+      [
+        "position_exact_harbor_b",
+        "Synthetic Harbor Access II SPV",
+        "  HARBOR   HEALTH SYSTEMS ",
+      ],
+      [
+        "position_exact_alto_a",
+        "Synthetic Alto Access I SPV",
+        "Synthetic Alto Pharmacy",
+      ],
+      [
+        "position_exact_alto_b",
+        "Synthetic Alto Access II SPV",
+        "Synthetic Alto Pharmacy",
+      ],
+      [
+        "position_vehicle_name_only",
+        "Synthetic Vehicle Name SPV",
+        "Synthetic Vehicle Name SPV",
+      ],
+      [
+        "position_ambiguous_company",
+        "Synthetic Ambiguous Access SPV",
+        "Synthetic Ambiguous Company",
+      ],
+      [
+        "position_multiple_labels",
+        "Synthetic Multiple Labels SPV",
+        "Synthetic First Company",
+      ],
+    ] as const) {
+      seedAcceptedPosition(sqlite, {
+        id,
+        label,
+        provider: "angellist",
+        reportedExposureName,
+        positionKind: "spv_interest",
+        valueMinor: 1_000_000,
+        valueState: "reported",
+      });
+    }
+    seedAcceptedPosition(sqlite, {
+      id: "position_manual_exact_text",
+      label: "Synthetic Manual Access SPV",
+      provider: "manual",
+      reportedExposureName: "Synthetic Alto Pharmacy",
+      positionKind: "spv_interest",
+      valueMinor: 1_000_000,
+      valueState: "reported",
+    });
+    sqlite
+      .prepare(
+        `INSERT INTO companies (
+           id, household_id, legal_name, website_host, status,
+           created_at, updated_at
+         ) VALUES
+           ('co_ambiguous_a', 'hh_demo', 'Synthetic Ambiguous Company', NULL,
+            'active', ?, ?),
+           ('co_ambiguous_b', 'hh_demo', 'synthetic ambiguous company', NULL,
+            'active', ?, ?)`,
+      )
+      .run(recordedAt, recordedAt, recordedAt, recordedAt);
+    sqlite
+      .prepare(
+        `INSERT INTO holding_position_exposures (
+           id, household_id, position_id, exposure_label, exposure_kind,
+           company_id, created_at
+         ) VALUES (
+           'reported_exposure_position_multiple_labels_second',
+           'hh_demo', 'position_multiple_labels', 'Synthetic Second Company',
+           'unresolved', NULL, ?
+         )`,
+      )
+      .run(recordedAt);
+
+    const pending =
+      await repository.getPrivateExposureReviewState(accessSubject);
+    expect(pending).toMatchObject({
+      version: 2,
+      exactBatch: {
+        positionCount: 4,
+        companyCount: 2,
+        existingCompanyCount: 1,
+        newCompanyCount: 1,
+        excludedPositionCount: 3,
+      },
+    });
+    expect(pending.positions).toHaveLength(7);
+    expect(pending.positions).not.toContainEqual(
+      expect.objectContaining({ positionId: "position_manual_exact_text" }),
+    );
+
+    const result = await repository.applyPrivateExposureExactBatch(
+      accessSubject,
+      { expectedRevision: pending.exactBatch.revision },
+    );
+    expect(result).toEqual({
+      version: 1,
+      assignedPositionCount: 4,
+      companyCount: 2,
+      existingCompanyCount: 1,
+      createdCompanyCount: 1,
+      remainingPositionCount: 3,
+    });
+
+    const assigned = sqlite
+      .prepare(
+        `SELECT
+           mapping.position_id,
+           exposure.company_id,
+           exposure.canonical_name,
+           mapping.relationship_kind,
+           mapping.allocation_ppm,
+           mapping.decision_source,
+           mapping.decision_reference
+         FROM holding_position_exposure_mappings mapping
+         JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
+         WHERE mapping.position_id LIKE 'position_exact_%'
+           AND mapping.status = 'active'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM holding_position_exposure_mappings later
+             WHERE later.supersedes_mapping_id = mapping.id
+           )
+         ORDER BY mapping.position_id`,
+      )
+      .all() as Array<Record<string, unknown>>;
+    expect(assigned).toHaveLength(4);
+    expect(
+      assigned
+        .filter((row) => String(row.position_id).includes("harbor"))
+        .map((row) => row.company_id),
+    ).toEqual(["co_harbor", "co_harbor"]);
+    const altoCompanyIds = assigned
+      .filter((row) => String(row.position_id).includes("alto"))
+      .map((row) => row.company_id);
+    expect(new Set(altoCompanyIds).size).toBe(1);
+    expect(altoCompanyIds[0]).not.toBeNull();
+    expect(assigned).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonical_name: "Synthetic Alto Pharmacy",
+          relationship_kind: "look_through",
+          allocation_ppm: 1_000_000,
+          decision_source: "review",
+          decision_reference: expect.stringMatching(
+            /^Reviewed exact AngelList company batch /u,
+          ),
+        }),
+      ]),
+    );
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM companies
+           WHERE household_id = 'hh_demo'
+             AND legal_name = 'Synthetic Vehicle Name SPV'`,
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+
+    const remaining =
+      await repository.getPrivateExposureReviewState(accessSubject);
+    expect(remaining.positions.map((position) => position.positionId)).toEqual(
+      expect.arrayContaining([
+        "position_vehicle_name_only",
+        "position_ambiguous_company",
+        "position_multiple_labels",
+      ]),
+    );
+    expect(remaining.exactBatch).toMatchObject({
+      positionCount: 0,
+      excludedPositionCount: 3,
+    });
+    const mappingCountBeforeStaleRetry = sqlite
+      .prepare(
+        "SELECT COUNT(*) AS count FROM holding_position_exposure_mappings",
+      )
+      .get();
+    await expect(
+      repository.applyPrivateExposureExactBatch(accessSubject, {
+        expectedRevision: pending.exactBatch.revision,
+      }),
+    ).rejects.toMatchObject({ code: "stale" });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM holding_position_exposure_mappings",
+        )
+        .get(),
+    ).toEqual(mappingCountBeforeStaleRetry);
+  });
+
   it("never treats matching provider text as a company decision", async () => {
     seedAcceptedPosition(sqlite, {
       id: "position_synthetic_unresolved_spv",
@@ -933,5 +1187,91 @@ describe("canonical exposure resolution and aggregation", () => {
         },
       ),
     ).rejects.toMatchObject({ code: "already_resolved" });
+  });
+});
+
+describe("preview asset-lot retirement migration", () => {
+  it("backfills retirement records when the legacy preview lots already exist", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      database.exec(
+        readFileSync(
+          resolve(
+            process.cwd(),
+            "packages/database/migrations/0001_keel_core.sql",
+          ),
+          "utf8",
+        ),
+      );
+      database.exec(`
+        INSERT INTO users (
+          id, access_subject, email, display_name, created_at
+        ) VALUES (
+          'usr_cleanup', 'cleanup-access-subject', 'cleanup@example.test',
+          'Cleanup owner', '${recordedAt}'
+        );
+        INSERT INTO households (
+          id, owner_user_id, name, base_currency, created_at
+        ) VALUES (
+          'hh_cleanup', 'usr_cleanup', 'Cleanup household', 'USD',
+          '${recordedAt}'
+        );
+        INSERT INTO companies (
+          id, household_id, legal_name, website_host, status,
+          created_at, updated_at
+        ) VALUES (
+          'co_cleanup', 'hh_cleanup', 'Synthetic cleanup company', NULL,
+          'active', '${recordedAt}', '${recordedAt}'
+        );
+        INSERT INTO asset_accounts (
+          id, household_id, name, account_type, administrator_label, created_at
+        ) VALUES (
+          'acct_cleanup', 'hh_cleanup', 'Cleanup account', 'direct', NULL,
+          '${recordedAt}'
+        );
+        INSERT INTO asset_lots (
+          id, household_id, company_id, asset_account_id, private_vehicle_id,
+          lot_label, security_type, quantity_scaled, quantity_scale,
+          acquisition_date, cost_basis_minor, currency, created_at
+        ) VALUES
+          (
+            'lot_harbor_spv', 'hh_cleanup', 'co_cleanup', 'acct_cleanup', NULL,
+            'Cleanup lot one', 'preferred_equity', 1, 0, '2026-01-01', 0,
+            'USD', '${recordedAt}'
+          ),
+          (
+            'lot_lattice_seriesa', 'hh_cleanup', 'co_cleanup', 'acct_cleanup',
+            NULL, 'Cleanup lot two', 'preferred_equity', 1, 0, '2026-01-01',
+            0, 'USD', '${recordedAt}'
+          ),
+          (
+            'lot_northstar_seed', 'hh_cleanup', 'co_cleanup', 'acct_cleanup',
+            NULL, 'Cleanup lot three', 'preferred_equity', 1, 0, '2026-01-01',
+            0, 'USD', '${recordedAt}'
+          );
+      `);
+      database.exec(
+        readFileSync(
+          resolve(
+            process.cwd(),
+            "packages/database/migrations/0025_retired_asset_lots.sql",
+          ),
+          "utf8",
+        ),
+      );
+
+      expect(
+        database
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM asset_lot_retirements
+             WHERE household_id = 'hh_cleanup'
+               AND reason = 'preview_demo_cleanup'`,
+          )
+          .get(),
+      ).toEqual({ count: 3 });
+    } finally {
+      database.close();
+    }
   });
 });

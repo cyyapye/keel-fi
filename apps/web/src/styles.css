@@ -2873,6 +2873,47 @@ h1,
   gap: 8px;
 }
 
+.private-exposure-exact-batch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  margin: 4px 0 10px;
+  padding: 22px 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.private-exposure-exact-batch > div {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.private-exposure-exact-batch h4 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: -0.03em;
+}
+
+.private-exposure-exact-batch p {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.private-exposure-exact-batch .eyebrow,
+.private-exposure-exact-batch .private-exposure-exact-batch__error {
+  color: var(--ink);
+}
+
+.private-exposure-exact-batch .button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
 .private-exposure-review__open.button {
   min-height: 44px;
   padding: 0 14px;
@@ -6276,6 +6317,15 @@ h1,
 
   .private-exposure-review {
     padding-left: 0;
+  }
+
+  .private-exposure-exact-batch {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .private-exposure-exact-batch .button {
+    width: 100%;
   }
 
   .private-exposure-review__heading,

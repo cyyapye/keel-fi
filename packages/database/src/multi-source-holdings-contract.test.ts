@@ -22,6 +22,7 @@ const priorMigrationFiles = [
   "packages/database/migrations/0016_reviewed_liabilities.sql",
   "packages/database/migrations/0017_reviewed_cash_flow.sql",
   "packages/database/migrations/0018_reviewed_cash_account_identities.sql",
+  "packages/database/migrations/0025_retired_asset_lots.sql",
 ] as const;
 
 const canonicalMigrationFile =

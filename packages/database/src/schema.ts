@@ -268,6 +268,35 @@ export const assetLots = sqliteTable(
   ],
 );
 
+export const assetLotRetirements = sqliteTable(
+  "asset_lot_retirements",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    assetLotId: text("asset_lot_id")
+      .notNull()
+      .references(() => assetLots.id, { onDelete: "restrict" }),
+    reason: text("reason").notNull(),
+    retiredByUserId: text("retired_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    retiredAt: timestamp("retired_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("asset_lot_retirements_household_idx").on(
+      table.householdId,
+      table.retiredAt,
+    ),
+    uniqueIndex("asset_lot_retirements_asset_lot_unique").on(table.assetLotId),
+    check(
+      "asset_lot_retirements_reason_check",
+      sql`${table.reason} IN ('preview_demo_cleanup')`,
+    ),
+    check("asset_lot_retirements_immutable_check", sql`${table.immutable} = 1`),
+  ],
+);
+
 export const markSources = sqliteTable(
   "mark_sources",
   {

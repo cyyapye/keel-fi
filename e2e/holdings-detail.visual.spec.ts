@@ -264,7 +264,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.route("**/api/private-exposure-reviews", async (route) => {
     await route.fulfill({
       json: {
-        version: 1,
+        version: 2,
         positions: exposureResolved
           ? []
           : [
@@ -292,9 +292,37 @@ test("leads with the investment and opens a truthful holding detail", async ({
             status: "active",
           },
         ],
+        exactBatch: {
+          revision: (exposureResolved ? "b" : "a").repeat(64),
+          positionCount: exposureResolved ? 0 : 1,
+          companyCount: exposureResolved ? 0 : 1,
+          existingCompanyCount: exposureResolved ? 0 : 1,
+          newCompanyCount: 0,
+          excludedPositionCount: 0,
+        },
       },
     });
   });
+  await page.route(
+    "**/api/private-exposure-reviews/exact-batch",
+    async (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        expectedRevision: "a".repeat(64),
+      });
+      exposureResolved = true;
+      await route.fulfill({
+        status: 201,
+        json: {
+          version: 1,
+          assignedPositionCount: 1,
+          companyCount: 1,
+          existingCompanyCount: 1,
+          createdCompanyCount: 0,
+          remainingPositionCount: 0,
+        },
+      });
+    },
+  );
   await page.route(
     "**/api/private-exposure-reviews/*/assign",
     async (route) => {
@@ -499,10 +527,11 @@ test("leads with the investment and opens a truthful holding detail", async ({
       threshold: 0.25,
     },
   );
-  await exposureReview.getByRole("button", { name: "Assign company" }).click();
+  await exposureReview.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Assign 1 exact match" }).click();
   await expect(
     page.getByText(
-      "Ridge Demo SPV now groups under Lattice Grove Energy. The legal position is unchanged.",
+      "1 position now groups under 1 company. Legal positions and values stayed unchanged.",
     ),
   ).toBeVisible();
   const latticeExposure = page.locator(".exposure-group").filter({

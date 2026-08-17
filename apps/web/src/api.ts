@@ -31,6 +31,8 @@ import {
   PlanInputSaveResultSchema,
   PlanInputSaveSchema,
   PlanInputStateSchema,
+  PrivateExposureExactBatchInputSchema,
+  PrivateExposureExactBatchResultSchema,
   PrivateExposureResolutionInputSchema,
   PrivateExposureResolutionResultSchema,
   PrivateExposureReviewStateSchema,
@@ -73,6 +75,8 @@ import {
   type PlanInputSave,
   type PlanInputSaveResult,
   type PlanInputState,
+  type PrivateExposureExactBatchInput,
+  type PrivateExposureExactBatchResult,
   type PrivateExposureResolutionInput,
   type PrivateExposureResolutionResult,
   type PrivateExposureReviewState,
@@ -892,6 +896,28 @@ export async function assignPrivateCompanyExposure(
     );
   }
   return PrivateExposureResolutionResultSchema.parse(await response.json());
+}
+
+export async function applyPrivateExposureExactBatch(
+  input: PrivateExposureExactBatchInput,
+): Promise<PrivateExposureExactBatchResult> {
+  const body = PrivateExposureExactBatchInputSchema.parse(input);
+  const response = await fetch("/api/private-exposure-reviews/exact-batch", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Exact company assignments returned ${response.status}.`,
+    );
+  }
+  return PrivateExposureExactBatchResultSchema.parse(await response.json());
 }
 
 export async function createInvestmentLinkToken(): Promise<InvestmentLinkToken> {
