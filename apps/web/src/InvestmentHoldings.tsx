@@ -250,34 +250,52 @@ function InvestmentAccountRows({
       <p className="investment-institution__empty">No accounts recorded yet.</p>
     );
   }
+  const reviewedHistoryPositionCount = connection.containers.reduce(
+    (total, container) => total + container.positions.length,
+    0,
+  );
   return (
     <div className="investment-institution__accounts">
-      {connection.containers.map((container) => (
-        <div className="investment-institution__account" key={container.id}>
+      {connection.purpose === "reviewed_history" ? (
+        <div className="investment-institution__account investment-institution__account--history-summary">
           <span>
-            <strong>{container.label}</strong>
+            <strong>Original account details unavailable</strong>
             <small>
-              {accountKindLabel(container.kind)} · {container.positions.length}{" "}
-              {container.positions.length === 1 ? "position" : "positions"}
+              {reviewedHistoryPositionCount} reviewed{" "}
+              {reviewedHistoryPositionCount === 1 ? "position" : "positions"}
+              {" · "}Kept separate below · No account identity inferred
             </small>
           </span>
-          {container.coverage === null ? (
-            <span className="investment-institution__coverage">
-              Not checked
-            </span>
-          ) : (
-            <span className="investment-institution__coverage">
-              <Badge tone={coverageTone(container.coverage.completeness)}>
-                {coverageLabel(container.coverage.completeness)}
-              </Badge>
+        </div>
+      ) : (
+        connection.containers.map((container) => (
+          <div className="investment-institution__account" key={container.id}>
+            <span>
+              <strong>{container.label}</strong>
               <small>
-                {container.coverage.freshness === "stale" ? "Stale · " : ""}
-                {formatDate(container.coverage.observedAt)}
+                {accountKindLabel(container.kind)} ·{" "}
+                {container.positions.length}{" "}
+                {container.positions.length === 1 ? "position" : "positions"}
               </small>
             </span>
-          )}
-        </div>
-      ))}
+            {container.coverage === null ? (
+              <span className="investment-institution__coverage">
+                Not checked
+              </span>
+            ) : (
+              <span className="investment-institution__coverage">
+                <Badge tone={coverageTone(container.coverage.completeness)}>
+                  {coverageLabel(container.coverage.completeness)}
+                </Badge>
+                <small>
+                  {container.coverage.freshness === "stale" ? "Stale · " : ""}
+                  {formatDate(container.coverage.observedAt)}
+                </small>
+              </span>
+            )}
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -1598,6 +1616,21 @@ export function InvestmentHoldings({
               const status = statusById.get(connectionId) ?? null;
               const connection =
                 positionConnectionById.get(connectionId) ?? null;
+              if (connection?.purpose === "reviewed_history") {
+                return (
+                  <article
+                    className="investment-institution investment-institution--reviewed-history"
+                    key={connectionId}
+                  >
+                    <div className="investment-institution__heading">
+                      <span>
+                        <h3>{connection.institutionLabel}</h3>
+                      </span>
+                    </div>
+                    <InvestmentAccountRows connection={connection} />
+                  </article>
+                );
+              }
               const label =
                 status?.institutionLabel ??
                 connection?.institutionLabel ??

@@ -140,9 +140,12 @@ function addConnection(
   household: TestHousehold,
   input: {
     readonly id: string;
+    readonly adapterType?: "plaid-investments" | "angellist-import" | "manual";
     readonly protectedSourceKey: string;
     readonly institutionKey: string;
     readonly institutionLabel: string;
+    readonly credentialReference?: string | null;
+    readonly lifecycleState?: "pending" | "active";
   },
 ) {
   database
@@ -150,11 +153,12 @@ function addConnection(
       `INSERT INTO investment_connections (
          id, household_id, adapter_type, protected_source_key,
          created_by_user_id, created_at, immutable
-       ) VALUES (?, ?, 'plaid-investments', ?, ?, ?, 1)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
     )
     .run(
       input.id,
       household.id,
+      input.adapterType ?? "plaid-investments",
       input.protectedSourceKey,
       household.userId,
       "2026-08-01T00:00:00.000Z",
@@ -165,7 +169,7 @@ function addConnection(
          id, household_id, connection_id, version, institution_key,
          institution_label, lifecycle_state, credential_reference,
          supersedes_version_id, recorded_by_user_id, recorded_at, immutable
-       ) VALUES (?, ?, ?, 1, ?, ?, 'active', ?, NULL, ?, ?, 1)`,
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, NULL, ?, ?, 1)`,
     )
     .run(
       `${input.id}_v1`,
@@ -173,7 +177,10 @@ function addConnection(
       input.id,
       input.institutionKey,
       input.institutionLabel,
-      `connector-secrets/${input.id}.json.enc`,
+      input.lifecycleState ?? "active",
+      input.credentialReference === undefined
+        ? `connector-secrets/${input.id}.json.enc`
+        : input.credentialReference,
       household.userId,
       "2026-08-01T00:00:00.000Z",
     );
@@ -187,8 +194,8 @@ function addContainer(
     readonly connectionId: string;
     readonly protectedAccountKey: string;
     readonly label: string;
-    readonly kind: "brokerage" | "ira";
-    readonly taxTreatment: "taxable" | "tax_exempt";
+    readonly kind: "brokerage" | "ira" | "unresolved";
+    readonly taxTreatment: "taxable" | "tax_exempt" | "unknown";
   },
 ) {
   database
@@ -476,6 +483,7 @@ function addZeroRowCoverage(
     readonly observationDigest: string;
     readonly observedAt: string;
     readonly retrievedAt: string;
+    readonly completeness?: "complete" | "ambiguous";
   },
 ) {
   const documentId = `document_${input.observationId}`;
@@ -534,13 +542,14 @@ function addZeroRowCoverage(
       `INSERT INTO holding_import_coverages (
          id, household_id, import_id, container_id, completeness,
          evidence_sha256, observed_at, created_at, immutable
-       ) VALUES (?, ?, ?, ?, 'complete', ?, ?, ?, 1)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     )
     .run(
       `coverage_${input.observationId}`,
       input.household.id,
       importId,
       input.containerId,
+      input.completeness ?? "complete",
       input.observationDigest,
       input.observedAt,
       input.retrievedAt,
@@ -588,6 +597,67 @@ describe("canonical investment position view", () => {
     await expect(
       repository.list("missing-subject", "2026-08-16T12:00:00.000Z"),
     ).rejects.toThrow(/Household not found/u);
+  });
+
+  it("derives reviewed-history purpose only from the reserved connection id", async () => {
+    addConnection(sqlite, demoHousehold, {
+      id: "connection_with_history_text",
+      protectedSourceKey: digest("7"),
+      institutionKey: "reviewed-history:angellist",
+      institutionLabel: "Synthetic reviewed history text",
+    });
+    addContainer(sqlite, demoHousehold, {
+      id: "container_unresolved_source",
+      connectionId: "connection_with_history_text",
+      protectedAccountKey: digest("6"),
+      label: "Synthetic unresolved source account",
+      kind: "unresolved",
+      taxTreatment: "unknown",
+    });
+    addZeroRowCoverage(sqlite, {
+      household: demoHousehold,
+      connectionId: "connection_with_history_text",
+      containerId: "container_unresolved_source",
+      observationId: "unresolved_source",
+      observationDigest: digest("5"),
+      observedAt: "2026-08-15T12:00:00.000Z",
+      retrievedAt: "2026-08-15T12:05:00.000Z",
+      completeness: "ambiguous",
+    });
+    addConnection(sqlite, demoHousehold, {
+      id: "reconciled-holding-connection-v1:hh_demo:angellist",
+      adapterType: "angellist-import",
+      protectedSourceKey: digest("8"),
+      institutionKey: "synthetic-history",
+      institutionLabel: "Synthetic reconciled history",
+      credentialReference: null,
+      lifecycleState: "pending",
+    });
+
+    const view = await repository.list(
+      "synthetic-access-subject",
+      "2026-08-16T12:00:00.000Z",
+    );
+
+    expect(
+      view.connections.find(
+        (connection) => connection.id === "connection_with_history_text",
+      ),
+    ).toMatchObject({
+      purpose: "source",
+      containers: [
+        {
+          id: "container_unresolved_source",
+          kind: "unresolved",
+          coverage: { completeness: "ambiguous" },
+        },
+      ],
+    });
+    expect(
+      view.connections.find((connection) =>
+        connection.id.startsWith("reconciled-holding-connection-v1:"),
+      )?.purpose,
+    ).toBe("reviewed_history");
   });
 
   it("keeps positions separate across institutions, logins, and containers while selecting exact accepted snapshots", async () => {

@@ -58,6 +58,7 @@ function positionView(
     connections: [
       {
         id: "connection_synthetic",
+        purpose: "source",
         adapterType: "plaid-investments",
         institutionKey: "ins_synthetic",
         institutionLabel: "Synthetic Brokerage",

@@ -93,6 +93,7 @@ export const InvestmentPositionContainerSchema = z.object({
 
 export const InvestmentPositionConnectionSchema = z.object({
   id: z.string().min(1),
+  purpose: z.enum(["source", "reviewed_history"]),
   adapterType: z.enum(["plaid-investments", "angellist-import", "manual"]),
   institutionKey: z.string().trim().min(1).max(200),
   institutionLabel: z.string().trim().min(1).max(512),

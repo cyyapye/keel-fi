@@ -73,6 +73,9 @@ type ConnectionBuilder = {
   readonly containers: Map<string, InvestmentPositionContainer>;
 };
 
+const RECONCILED_HISTORY_CONNECTION_PREFIX =
+  "reconciled-holding-connection-v1:";
+
 async function all<T>(statement: D1PreparedStatement): Promise<readonly T[]> {
   const result = await statement.all<T>();
   return result.results;
@@ -135,6 +138,11 @@ function groupRows(
   for (const row of connectionRows) {
     const value: InvestmentPositionConnection = {
       id: row.connection_id,
+      purpose: row.connection_id.startsWith(
+        RECONCILED_HISTORY_CONNECTION_PREFIX,
+      )
+        ? "reviewed_history"
+        : "source",
       adapterType: row.adapter_type,
       institutionKey: row.institution_key,
       institutionLabel: row.institution_label,

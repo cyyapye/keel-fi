@@ -2502,6 +2502,10 @@ h1,
   border-top: 1px solid var(--line-soft);
 }
 
+.investment-institution__account--history-summary {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .investment-institution__account strong,
 .investment-institution__account small {
   display: block;
