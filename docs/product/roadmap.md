@@ -6,9 +6,9 @@ The first unchecked milestone is next. Keep exactly one milestone marked
 
 - Last reconciled: 2026-08-16
 - Reconciled product baseline:
-  [`dd589d8`](https://github.com/cyyapye/keel-fi/commit/dd589d8f915c955e215ff82905fc8d340003d78b)
+  [`2d60375`](https://github.com/cyyapye/keel-fi/commit/2d60375faddda2e7e2e3f89e9513264fafb51543)
 - Baseline release evidence:
-  [`31979180654`](https://github.com/cyyapye/keel-fi/actions/runs/31979180654)
+  [`31984115584`](https://github.com/cyyapye/keel-fi/actions/runs/31984115584)
 
 ## How to use this roadmap
 
@@ -772,9 +772,9 @@ and SPV positions. Allow an explicit choice of an existing company or creation
 of a new reviewed company, supersede any current unresolved mapping, and record
 one full direct or look-through mapping to the reviewed company exposure.
 
-**Non-goals:** Fuzzy or automatic name matching, bulk assignment without
-per-position review, fund look-through allocation, merging SPV histories,
-rewriting provider labels, or changing planning value.
+**Non-goals:** Fuzzy company matching, silently selecting a canonical identity,
+silent or background bulk assignment, fund look-through allocation, merging SPV
+histories, rewriting provider labels, or changing planning value.
 
 **Dependencies:** Released M9.4 canonical exposures and mappings, M9.6 read
 models, and M9.9's separate Positions and Exposures experience.
@@ -826,6 +826,85 @@ evidence in
 The live diagnosis was read-only, and the follow-up added no migration, provider
 request, paid product, polling schedule, Queue message, R2 object, notification
 channel, recurring work, or incremental external spend.
+
+### [x] M9.11 — Exact AngelList exposure batch review
+
+**User outcome:** Keel can resolve every current high-confidence AngelList
+company match in one reviewed action, while leaving ambiguous positions for
+individual review. Multiple legal SPVs into the same company remain separate
+positions and appear together as one economic exposure.
+
+**Trust boundary:** A batch candidate must have exactly one non-empty company
+identity in AngelList's structured Company/Fund field. Keel normalizes Unicode,
+case, and whitespace only; it never infers a company from the SPV or fund legal
+name, strips legal suffixes, or uses fuzzy similarity. A unique reviewed company
+identity is reused; an unseen exact label can create one reviewed company; an
+ambiguous reviewed identity is excluded. The owner confirms the entire exact set
+against its current revision in one action, and a stale revision fails closed.
+
+**Scope:** Add the exact-match proposal to private-exposure review state, one
+authenticated batch-review endpoint, and one Holdings action that applies the
+current exact set atomically by stable company ID. Preserve every legal
+position, owner, source, and value, and keep excluded rows in the existing
+one-position review flow. Add an append-only retirement ledger and retire three
+obsolete synthetic demonstration lots from the current Holdings read model
+without deleting their accepted records or history.
+
+**Non-goals:** Fuzzy matching, SPV-name matching, fund look-through allocation,
+background acceptance, merging legal positions or values, rewriting provider
+labels, deleting accepted holding history, or changing a baseline, goal, plan,
+or forecast.
+
+**Dependencies:** M9.4 canonical exposures and mappings, M9.9's separate
+Positions and Exposures views, and M9.10's append-only reviewed company
+assignment path.
+
+**Infrastructure-cost gate:** Use the existing authenticated API and D1. Add one
+forward-only migration and bounded append-only review and retirement records;
+add no provider request, paid product, polling schedule, Queue message, R2
+object, notification channel, or recurring work. Approved incremental external
+spend remains `$0`.
+
+**Slice gate:** Synthetic database, domain, API, browser, and visual coverage
+proves exact labels with different case or spacing resolve together by stable
+company ID; differently named SPVs into that company remain separate legal
+positions under one exposure; unseen exact labels create one reviewed company;
+ambiguous, conflicting, missing, or legal-name-derived labels remain unresolved;
+and a stale batch makes no write. Migration replay proves existing and freshly
+seeded obsolete demonstration lots leave the current read model without deleting
+accepted history.
+
+**Evidence:** Implemented in
+[PR #93](https://github.com/cyyapye/keel-fi/pull/93) at exact checked head
+[`f572a2e`](https://github.com/cyyapye/keel-fi/commit/f572a2eb64744d2b56def50cbd25665af9f07cfb)
+and merged as released commit
+[`2d60375`](https://github.com/cyyapye/keel-fi/commit/2d60375faddda2e7e2e3f89e9513264fafb51543).
+All 455 tests, 48 desktop/mobile browser flows, fresh migration replay through
+`0025_retired_asset_lots.sql`, synthetic seed, builds, public-data checks, and
+secret scans passed. Exact-head PR checks passed in
+[run `31983907775`](https://github.com/cyyapye/keel-fi/actions/runs/31983907775).
+The release retained an encrypted pre-migration D1 backup, applied the complete
+migration set, deployed and read back both Worker versions, passed protected
+smokes, and retained exact-SHA evidence in
+[run `31984115584`](https://github.com/cyyapye/keel-fi/actions/runs/31984115584).
+Authenticated private acceptance confirmed the retired demonstration rows were
+absent, one reviewed exact batch completed, shared-company legal positions
+consolidated under one exposure, and excluded rows remained unresolved; no
+private holding name, count, value, or identifier is retained here. No provider
+request, paid product, polling schedule, Queue message, R2 object, notification
+channel, or recurring work was added; approved incremental external spend
+remains `$0`.
+
+**Exit gates:**
+
+- [x] One explicit reviewed action assigns every current exact AngelList
+      Company/Fund proposal by stable company ID; stale revisions fail closed.
+- [x] Ambiguous, conflicting, missing, or SPV-derived identities remain
+      unresolved and retain the individual review action.
+- [x] Retired synthetic demonstration lots leave current Holdings without
+      deleting accepted records, marks, or history.
+- [x] `make verify`, reviewed PR checks, exact-head merge, exact-SHA deployment,
+      protected smokes, and bounded authenticated private acceptance pass.
 
 ### [x] M10 — Plan versus actual monitoring
 
