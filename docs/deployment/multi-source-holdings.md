@@ -12,13 +12,20 @@ cuts the institution-enumerated public provider value over to
 replaces the Robinhood-only integrity checks. Migration
 `0023_authoritative_portfolio_baselines.sql` makes every newly confirmed
 Portfolio Baseline item reference the exact position and snapshot accepted by a
-review decision. It adds no data rewrite. None of these migrations authorizes
-another live institution or changes the reviewed value in a Portfolio Baseline,
-plan, goal, or forecast.
+review decision. It adds no data rewrite. Migration
+`0026_reconciled_holding_ownership.sql` repairs accepted holding history that
+predates the canonical ownership chain, reapplies the same high-confidence
+exposure rules across providers, and prevents a new exposure mapping without a
+current ownership association. The repair does not change an accepted position,
+snapshot, value, Portfolio Baseline, plan, goal, or forecast. None of these
+migrations authorizes another live institution.
 
-Keel has no live user data. A short-lived synthetic transition experiment was
-removed instead of becoming a permanent backfill and dual-read surface. The next
-holding ingestion migration must write this canonical contract directly.
+The public repository and release fixtures remain synthetic-only. A short-lived
+synthetic transition experiment was removed instead of becoming a permanent
+dual-read surface. Deployed accepted review history is treated as retained and
+forward-only under ADR 005's 2026-08-16 operational amendment. Every holding
+writer must write the canonical contract directly; migration `0026` is a bounded
+repair for already accepted history, not an alternate ingestion or read path.
 
 ## Identity and storage boundary
 
@@ -53,8 +60,20 @@ holding ingestion migration must write this canonical contract directly.
 
 ## Direct-ingestion boundary
 
-- There is no holdings backfill migration, compatibility view, association
-  trigger, runtime read-source flag, or dual repository path.
+- There is no compatibility view, runtime read-source flag, or dual repository
+  path. Migration `0026` is the single bounded ownership repair for accepted
+  positions that were created before ADR 005 and have accepted application
+  evidence but no current canonical ownership association.
+- The repair reuses an accepted import row's existing container when present.
+  Only a position with no proven row/container scope receives a provider-scoped
+  reviewed-history connection and its own unresolved container; the migration
+  also records the missing import and row associations with ambiguous coverage.
+  It does not merge positions by owner, institution, legal-vehicle, ticker, or
+  company text, and ambiguous coverage cannot support omission inference.
+- Every new exposure-mapping insert must reference a position with a current
+  household-scoped ownership association. The database trigger fails closed
+  before an orphan mapping can make the shared Position, Exposure, and Portfolio
+  Baseline projections unreadable.
 - Plaid Investments creates one canonical `plaid-investments` connection per
   protected Item identity. A household may retain several Items, including two
   Items with the same institution label. Every sync run and webhook delivery
@@ -88,10 +107,18 @@ holding ingestion migration must write this canonical contract directly.
   exception ends. Deployed migrations then become forward-only, database resets
   require incident or recovery authorization, and accepted history remains
   append-only.
-- Applying an accepted Plaid Investments row with a validated strong identifier
-  creates or reuses one household-level public exposure and records a full
-  direct mapping under the deterministic policy. Reapplying the same decision is
-  a no-op. Missing or invalid strong identifiers leave the position unmapped.
+- Applying an accepted import row with a validated strong identifier creates or
+  reuses one household-level public exposure and records a full direct mapping
+  under the deterministic policy, regardless of provider. Only a checksum-valid
+  CUSIP, ISIN, or SEDOL protected with the deployment identity key qualifies;
+  reapplying the same decision is a no-op, while a missing or invalid identifier
+  leaves the position unmapped.
+- Private exposure reconciliation is likewise provider-neutral when the position
+  already has exactly one stable reviewed company ID. Eligible SPVs from any
+  provider can participate in the reviewed exact-company batch, but a provider
+  label, ticker, company-name string, or legal-vehicle/SPV name cannot silently
+  select or create an exposure. Ambiguous rows remain unresolved for individual
+  review.
 - Direct mappings carry exactly 1,000,000 ppm. Look-through mappings may carry a
   reviewed allocation or `NULL` when only the relationship is known. Current
   known allocations for one position cannot exceed 1,000,000 ppm; corrections
@@ -140,6 +167,12 @@ institution variant:
 M9.1 through M9.8 use synthetic provider data and therefore have zero approved
 incremental provider spend.
 
+Migration `0026` adds only bounded D1 rows for legacy ownership relationships,
+high-confidence exposure identities and mappings, and the insertion invariant.
+It adds no provider request, paid product, polling schedule, Queue message, R2
+object, notification channel, or recurring work; approved incremental external
+spend remains `$0`.
+
 ## Owner experience and scoped operations
 
 The Holdings page reads the canonical position and exposure projections from
@@ -149,6 +182,12 @@ accepted mappings without merging positions and retains the contributing
 institution and account as drill-down context. Partial coverage, stale facts,
 unavailable values, unknown allocations, unresolved exposures, and unallocated
 position value remain explicit. They are never rendered as zero.
+
+If the authoritative holdings projection cannot load, the page shows the load
+error without falling back to company-evidence rows, a fabricated position
+count, or false unresolved exposures. **Try again** reloads the authoritative
+projection. Portfolio Baseline uses the same position projection and the same
+retry boundary.
 
 Each investment connection has its own actions:
 
@@ -207,8 +246,11 @@ release evidence:
 3. Confirm **Positions** is selected by default and the same fabricated security
    in three accounts remains three position rows.
 4. Open **Exposures**, expand the shared security, and confirm its three exact
-   account contributions. Confirm the fabricated multi-exposure fund shows
-   unknown allocations and unallocated value without a zero exposure total.
+   account contributions, including contributions accepted through different
+   providers. Confirm separate SPVs with one reviewed company ID remain separate
+   legal positions under one exposure. Confirm the fabricated multi-exposure
+   fund shows unknown allocations and unallocated value without a zero exposure
+   total.
 5. Exercise check, pause/resume, reconnect, review, and disconnect confirmation
    on only the intended synthetic connection. Confirm another same-label
    connection is unchanged and accepted history remains visible.
@@ -224,35 +266,44 @@ release evidence:
 
 Before accepting the M9 canonical release:
 
-1. Replay migrations `0001` through
-   `0023_authoritative_portfolio_baselines.sql`, apply the synthetic seed, and
-   verify the former public provider values read as `plaid_investments` without
-   changing position IDs or accepted baseline items, goals, plans, or forecasts.
-2. Verify two protected Items create two connection lineages, including Items
+1. Replay migrations `0001` through `0026_reconciled_holding_ownership.sql`,
+   apply the synthetic seed, and verify the former public provider values read
+   as `plaid_investments` without changing position IDs or accepted baseline
+   items, goals, plans, or forecasts.
+2. Seed synthetic accepted pre-ADR positions with applications but no ownership
+   associations, including one with a proven row container and one with no
+   canonical import scope. Apply migration `0026`; verify the proven container
+   is reused, the unscoped row receives one unresolved container with ambiguous
+   coverage, and each position appears once in Position, Exposure, and Portfolio
+   Baseline reads. Verify a later exposure-mapping insert without current
+   ownership fails at the database boundary.
+3. Verify two protected Items create two connection lineages, including Items
    with different validated institution metadata. Reconnecting one stable Item
    must append only its state; syncing or disconnecting one connection must not
    alter the other.
-3. Verify Link exchange accepts a synthetic non-Robinhood institution only when
+4. Verify Link exchange accepts a synthetic non-Robinhood institution only when
    its metadata includes Investments. An unsupported institution must have its
    Plaid Item removed before Keel stores a credential or creates an accepted
    fact.
-4. Verify several investment accounts returned by one Item become distinct
+5. Verify several investment accounts returned by one Item become distinct
    ownership containers and every row, omission decision, run, and webhook stays
    on that exact connection/container lineage.
-5. Verify the generic `/api/investment-connections` routes replace the former
+6. Verify the generic `/api/investment-connections` routes replace the former
    Robinhood-only routes, which must return `404`; no duplicate provider read or
    baseline path may remain.
-6. Verify positions appear exactly once under their connection and container;
+7. Verify positions appear exactly once under their connection and container;
    exposure groups preserve the exact contributing position, accepted snapshot,
    mapping version, allocation, and explicit unknown or unallocated value.
-7. Verify a Portfolio Baseline can include each accepted position only once and
+   Verify cross-provider public grouping uses only a protected strong identifier
+   and private grouping uses only a reviewed company ID, never display text.
+8. Verify a Portfolio Baseline can include each accepted position only once and
    rejects any snapshot without its exact accepted application. Reconnects,
    institution-label changes, and exposure mapping versions must leave the
    accepted baseline source revision, plan, goal, and forecast unchanged.
-8. Verify raw Item, account, security, and position identifiers remain outside
+9. Verify raw Item, account, security, and position identifiers remain outside
    D1, API responses, logs, screenshots, and repository artifacts. Preserve
    integer money/quantity conversion, response bounds, encrypted R2 storage,
    append-only decisions, and fail-closed Access authentication.
-9. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
-   exact-head merge, and exact-SHA protected preview gates before marking the
-   corresponding M9 slice complete.
+10. Run the unit, migration, desktop/mobile, `make verify`, reviewed PR,
+    exact-head merge, and exact-SHA protected preview gates before marking the
+    corresponding M9 slice complete.

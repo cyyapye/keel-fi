@@ -370,6 +370,14 @@ test("operates multiple institutions and keeps position and exposure identity vi
   await expect(
     page.locator(".unallocated-positions").getByText("Allocation unknown"),
   ).toBeVisible();
+  await expect(page.locator(".unallocated-positions")).not.toContainText(
+    "NVDA common stock",
+  );
+  await expect(
+    page
+      .locator(".unallocated-positions")
+      .getByText("Exposure unresolved", { exact: true }),
+  ).toHaveCount(0);
   await expect(
     page
       .locator(".exposure-group")
@@ -410,4 +418,78 @@ test("operates multiple institutions and keeps position and exposure identity vi
       "Provider access will be removed. Reviewed history stays in Keel.",
     ),
   ).toHaveCount(0);
+});
+
+test("keeps failed canonical holdings out of unresolved exposures and retries", async ({
+  page,
+}, testInfo) => {
+  let holdingsRequestCount = 0;
+  await page.unroute("**/api/investment-holdings");
+  await page.route("**/api/investment-holdings", async (route) => {
+    holdingsRequestCount += 1;
+    if (holdingsRequestCount === 1) {
+      await route.fulfill({
+        status: 503,
+        json: { error: "Reviewed holdings are temporarily unavailable." },
+      });
+      return;
+    }
+    await route.fulfill({ json: holdingsView });
+  });
+  await page.route("**/api/private-exposure-reviews", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 2,
+        positions: [],
+        companies: [],
+        exactBatch: {
+          revision: "a".repeat(64),
+          positionCount: 0,
+          companyCount: 0,
+          existingCompanyCount: 0,
+          newCompanyCount: 0,
+          excludedPositionCount: 0,
+        },
+      },
+    });
+  });
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await navigateToScreen(page, mobile, /Holdings/);
+  await page.getByRole("tab", { name: "Exposures" }).click();
+
+  const errorState = page.locator(".investment-views");
+  await expect(errorState.getByRole("alert")).toContainText(
+    "Keel could not load the reviewed position view.",
+  );
+  await expect(
+    errorState.locator(".investment-views__heading > span"),
+  ).toHaveCount(0);
+  await expect(errorState.locator(".exposure-groups")).toHaveCount(0);
+  await expect(errorState.locator(".unallocated-positions")).toHaveCount(0);
+  await expect(
+    errorState.getByText("Exposure unresolved", { exact: true }),
+  ).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  await expect(errorState).toHaveScreenshot(
+    "investment-holdings-retry-error.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  await errorState.getByRole("button", { name: "Try again" }).click();
+  await expect.poll(() => holdingsRequestCount).toBe(2);
+  await expect(errorState.getByRole("alert")).toHaveCount(0);
+  const nvda = errorState.locator(".exposure-group").filter({
+    has: page.getByText("NVIDIA common stock", { exact: true }),
+  });
+  await expect(nvda).toContainText("3 positions");
+  await expect(errorState.locator(".unallocated-positions")).not.toContainText(
+    "NVDA common stock",
+  );
 });

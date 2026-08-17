@@ -895,6 +895,24 @@ request, paid product, polling schedule, Queue message, R2 object, notification
 channel, or recurring work was added; approved incremental external spend
 remains `$0`.
 
+**2026-08-16 provider-neutral follow-up:** The implementation now applies the
+same high-confidence exposure contract to every accepted holding source. Public
+positions reconcile only through a protected, checksum-valid CUSIP, ISIN, or
+SEDOL; private positions reconcile only through a stable reviewed company ID,
+and eligible SPVs from any provider can enter the reviewed exact-company batch.
+Ticker, company-name, owner, institution, and legal-vehicle text remain
+insufficient identity. Forward migration `0026_reconciled_holding_ownership.sql`
+repairs accepted pre-ADR positions that lack canonical ownership, reapplies
+those exposure policies without changing accepted money or legal-position
+history, and rejects future exposure mappings without a current ownership
+association. Holdings and Portfolio Baseline now fail and retry against the
+shared authoritative projection without rendering fallback evidence rows as
+false unresolved exposures. This bounded D1 repair adds no provider request,
+paid product, schedule, Queue message, R2 object, notification channel,
+recurring work, or incremental external spend. Release evidence is not claimed
+until the standard verification, review, merge, and exact-SHA deployment gates
+complete.
+
 **Exit gates:**
 
 - [x] One explicit reviewed action assigns every current exact AngelList

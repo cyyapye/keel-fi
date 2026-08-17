@@ -38,6 +38,7 @@ const migrationFiles = [
   "packages/database/migrations/0022_provider_neutral_investments.sql",
   "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
   "packages/database/migrations/0025_retired_asset_lots.sql",
+  "packages/database/migrations/0026_reconciled_holding_ownership.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -476,7 +477,7 @@ describe("AngelList holding import persistence", () => {
     expect(counts).toEqual({ positions: 1, snapshots: 2, applications: 3 });
   });
 
-  it("stages and applies an exact Robinhood public-position snapshot", async () => {
+  it("reconciles a non-AngelList public position by strong identifier and remains idempotent", async () => {
     const staged = await repository.stagePlaidInvestmentsHoldingImport(
       "synthetic-access-subject",
       robinhoodStageInput(),
@@ -551,8 +552,9 @@ describe("AngelList holding import persistence", () => {
       .prepare(
         `SELECT
            canonical.exposure_kind, canonical.resolution_method,
+           canonical.protected_identity_key,
            mapping.relationship_kind, mapping.allocation_ppm,
-           mapping.decision_source
+           mapping.decision_source, mapping.decision_reference
          FROM canonical_exposures canonical
          JOIN holding_position_exposure_mappings mapping
            ON mapping.exposure_id = canonical.id`,
@@ -568,9 +570,11 @@ describe("AngelList holding import persistence", () => {
     expect(exposure).toEqual({
       exposure_kind: "public_instrument",
       resolution_method: "strong_identifier",
+      protected_identity_key: "6".repeat(64),
       relationship_kind: "direct",
       allocation_ppm: 1_000_000,
       decision_source: "deterministic_policy",
+      decision_reference: "public-strong-identifier-v1:cusip",
     });
 
     const alpha = await new D1AlphaRepository(

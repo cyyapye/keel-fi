@@ -1598,9 +1598,10 @@ export class D1HoldingImportRepository {
       if (!exactRetry) {
         throw new Error("Holding import was already reviewed differently.");
       }
-      await new D1ExposureRepository(
-        this.db,
-      ).reconcileDeterministicPublicImport(accessSubject, importId);
+      await new D1ExposureRepository(this.db).reconcileAcceptedImportExposures(
+        accessSubject,
+        importId,
+      );
       return this.getApplyResult(identity.household_id, importId);
     }
     if (
@@ -1959,7 +1960,7 @@ export class D1HoldingImportRepository {
         ),
     );
     await this.db.batch(statements);
-    await new D1ExposureRepository(this.db).reconcileDeterministicPublicImport(
+    await new D1ExposureRepository(this.db).reconcileAcceptedImportExposures(
       accessSubject,
       importId,
     );

@@ -442,8 +442,13 @@ export class D1ExposureRepository {
            ON document.id = snapshot.source_document_id
          WHERE position.id = ?
            AND position.household_id = ?
-           AND position.provider = 'angellist'
-           AND position.position_kind IN ('direct', 'spv_interest')`,
+           AND (
+             position.position_kind = 'spv_interest'
+             OR (
+               position.provider = 'angellist'
+               AND position.position_kind = 'direct'
+             )
+           )`,
       )
       .bind(positionId, identity.household_id)
       .first<PrivateExposureReviewEvidenceRow>();
@@ -786,7 +791,7 @@ export class D1ExposureRepository {
     }
 
     const acceptedAt = new Date().toISOString();
-    const decisionReference = `Reviewed exact AngelList company batch ${plan.preview.revision.slice(0, 12)}`;
+    const decisionReference = `Reviewed exact company batch ${plan.preview.revision.slice(0, 12)}`;
     const companyRows: Array<Record<string, unknown>> = [];
     const exposureRows: Array<Record<string, unknown>> = [];
     const mappingRows: Array<Record<string, unknown>> = [];
@@ -1201,7 +1206,7 @@ export class D1ExposureRepository {
     });
   }
 
-  public async reconcileDeterministicPublicImport(
+  public async reconcileAcceptedImportExposures(
     accessSubject: string,
     importId: string,
   ): Promise<void> {
@@ -1304,8 +1309,13 @@ export class D1ExposureRepository {
              JOIN source_documents document
                ON document.id = snapshot.source_document_id
              WHERE position.household_id = ?
-               AND position.provider = 'angellist'
-               AND position.position_kind IN ('direct', 'spv_interest')
+               AND (
+                 position.position_kind = 'spv_interest'
+                 OR (
+                   position.provider = 'angellist'
+                   AND position.position_kind = 'direct'
+                 )
+               )
                AND NOT EXISTS (
                  SELECT 1
                  FROM holding_position_exposure_mappings mapping
