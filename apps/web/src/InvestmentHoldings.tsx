@@ -28,6 +28,7 @@ import {
 } from "react";
 
 import {
+  applyPrivateExposureExactBatch,
   assignPrivateCompanyExposure,
   changeInvestmentConnectionLifecycle,
   createInvestmentLinkToken,
@@ -536,12 +537,15 @@ function PrivateExposureAssignmentForm({
 
 function PositionViews({
   data,
+  exposureReviewBatchBusy,
+  exposureReviewBatchError,
   exposureReviewBusyPositionId,
   exposureReviewError,
   exposureReviewPositionId,
   exposureReviewState,
   openableHoldingIds,
   onBeginExposureReview,
+  onApplyExactBatch,
   onCancelExposureReview,
   onOpenHolding,
   onSubmitExposureReview,
@@ -549,12 +553,15 @@ function PositionViews({
   view,
 }: {
   data: InvestmentHoldingsView;
+  exposureReviewBatchBusy: boolean;
+  exposureReviewBatchError: string | null;
   exposureReviewBusyPositionId: string | null;
   exposureReviewError: string | null;
   exposureReviewPositionId: string | null;
   exposureReviewState: PrivateExposureReviewState | null;
   openableHoldingIds: ReadonlySet<string>;
   onBeginExposureReview: (positionId: string) => void;
+  onApplyExactBatch: () => void;
   onCancelExposureReview: () => void;
   onOpenHolding: (holdingId: string) => void;
   onSubmitExposureReview: (
@@ -873,6 +880,68 @@ function PositionViews({
             <p className="eyebrow">Not assigned to an exposure total</p>
             <h3>Unallocated or unresolved value</h3>
           </div>
+          {(exposureReviewState?.exactBatch.positionCount ?? 0) > 0 && (
+            <div className="private-exposure-exact-batch">
+              <div>
+                <p className="eyebrow">Exact AngelList company matches</p>
+                <h4>
+                  Resolve {exposureReviewState!.exactBatch.positionCount}{" "}
+                  {exposureReviewState!.exactBatch.positionCount === 1
+                    ? "position"
+                    : "positions"}{" "}
+                  at once
+                </h4>
+                <p>
+                  Keel uses AngelList’s Company/Fund field—not the SPV name—and
+                  skips ambiguous rows. This will group the positions under{" "}
+                  {exposureReviewState!.exactBatch.companyCount}{" "}
+                  {exposureReviewState!.exactBatch.companyCount === 1
+                    ? "company"
+                    : "companies"}
+                  .{" "}
+                  {exposureReviewState!.exactBatch.newCompanyCount > 0
+                    ? `It creates ${exposureReviewState!.exactBatch.newCompanyCount} reviewed ${exposureReviewState!.exactBatch.newCompanyCount === 1 ? "company" : "companies"}${
+                        exposureReviewState!.exactBatch.existingCompanyCount > 0
+                          ? ` and reuses ${exposureReviewState!.exactBatch.existingCompanyCount}`
+                          : ""
+                      }. `
+                    : exposureReviewState!.exactBatch.existingCompanyCount > 0
+                      ? `It reuses ${exposureReviewState!.exactBatch.existingCompanyCount} reviewed ${exposureReviewState!.exactBatch.existingCompanyCount === 1 ? "company" : "companies"}. `
+                      : ""}
+                  Legal positions and values stay unchanged.
+                </p>
+                {exposureReviewState!.exactBatch.excludedPositionCount > 0 && (
+                  <p>
+                    {exposureReviewState!.exactBatch.excludedPositionCount}{" "}
+                    {exposureReviewState!.exactBatch.excludedPositionCount === 1
+                      ? "other position remains"
+                      : "other positions remain"}{" "}
+                    for individual review.
+                  </p>
+                )}
+                {exposureReviewBatchError !== null && (
+                  <p
+                    className="private-exposure-exact-batch__error"
+                    role="alert"
+                  >
+                    {exposureReviewBatchError}
+                  </p>
+                )}
+              </div>
+              <Button
+                disabled={
+                  exposureReviewBatchBusy ||
+                  exposureReviewBusyPositionId !== null
+                }
+                onClick={onApplyExactBatch}
+                tone="primary"
+              >
+                {exposureReviewBatchBusy
+                  ? "Assigning…"
+                  : `Assign ${exposureReviewState!.exactBatch.positionCount} exact ${exposureReviewState!.exactBatch.positionCount === 1 ? "match" : "matches"}`}
+              </Button>
+            </div>
+          )}
           {canonicalUnallocated.map((position) => {
             const reviewPosition = reviewPositionById.get(position.id) ?? null;
             const reviewOpen = exposureReviewPositionId === position.id;
@@ -901,6 +970,7 @@ function PositionViews({
                           "Choose company for " + position.legalVehicleName
                         }
                         className="private-exposure-review__open"
+                        disabled={exposureReviewBatchBusy}
                         onClick={() => onBeginExposureReview(position.id)}
                         tone="secondary"
                       >
@@ -946,6 +1016,7 @@ function PositionViews({
                           "Choose company for " + holding.positionName
                         }
                         className="private-exposure-review__open"
+                        disabled={exposureReviewBatchBusy}
                         onClick={() => onBeginExposureReview(holding.id)}
                         tone="secondary"
                       >
@@ -1030,6 +1101,10 @@ export function InvestmentHoldings({
   >(null);
   const [exposureReviewBusyPositionId, setExposureReviewBusyPositionId] =
     useState<string | null>(null);
+  const [exposureReviewBatchBusy, setExposureReviewBatchBusy] = useState(false);
+  const [exposureReviewBatchError, setExposureReviewBatchError] = useState<
+    string | null
+  >(null);
   const [exposureReviewError, setExposureReviewError] = useState<string | null>(
     null,
   );
@@ -1331,6 +1406,9 @@ export function InvestmentHoldings({
   };
 
   const beginExposureReview = (positionId: string) => {
+    if (exposureReviewBatchBusy) {
+      return;
+    }
     setExposureReviewPositionId(positionId);
     setExposureReviewError(null);
     setExposureReviewNotice(null);
@@ -1381,6 +1459,57 @@ export function InvestmentHoldings({
       );
     } finally {
       setExposureReviewBusyPositionId(null);
+    }
+  };
+
+  const applyExactExposureBatch = async () => {
+    if (
+      exposureReviewState === null ||
+      exposureReviewState.exactBatch.positionCount === 0 ||
+      exposureReviewBatchBusy
+    ) {
+      return;
+    }
+    setExposureReviewBatchBusy(true);
+    setExposureReviewBatchError(null);
+    setExposureReviewNotice(null);
+    setExposureReviewPositionId(null);
+    try {
+      const result = await applyPrivateExposureExactBatch({
+        expectedRevision: exposureReviewState.exactBatch.revision,
+      });
+      setExposureReviewNotice(
+        `${result.assignedPositionCount} ${
+          result.assignedPositionCount === 1
+            ? "position now groups"
+            : "positions now group"
+        } under ${result.companyCount} ${
+          result.companyCount === 1 ? "company" : "companies"
+        }. Legal positions and values stayed unchanged.${
+          result.remainingPositionCount > 0
+            ? ` ${result.remainingPositionCount} ${result.remainingPositionCount === 1 ? "position remains" : "positions remain"} for individual review.`
+            : ""
+        }`,
+      );
+      const refreshes = await Promise.allSettled([
+        reloadHoldings(),
+        reloadExposureReviews(),
+        onExposureResolved(),
+      ]);
+      if (refreshes.some((refresh) => refresh.status === "rejected")) {
+        setExposureReviewLoadError(
+          "The exact company assignments were saved, but the latest view could not be loaded.",
+        );
+      }
+    } catch (batchError) {
+      setExposureReviewBatchError(
+        batchError instanceof Error
+          ? batchError.message
+          : "Keel could not assign the exact company matches.",
+      );
+      await reloadExposureReviews();
+    } finally {
+      setExposureReviewBatchBusy(false);
     }
   };
 
@@ -1612,12 +1741,15 @@ export function InvestmentHoldings({
             {(data !== null || reviewedHoldings.length > 0) && (
               <PositionViews
                 data={data ?? EMPTY_INVESTMENT_HOLDINGS_VIEW}
+                exposureReviewBatchBusy={exposureReviewBatchBusy}
+                exposureReviewBatchError={exposureReviewBatchError}
                 exposureReviewBusyPositionId={exposureReviewBusyPositionId}
                 exposureReviewError={exposureReviewError}
                 exposureReviewPositionId={exposureReviewPositionId}
                 exposureReviewState={exposureReviewState}
                 openableHoldingIds={knownHoldingIds}
                 onBeginExposureReview={beginExposureReview}
+                onApplyExactBatch={() => void applyExactExposureBatch()}
                 onCancelExposureReview={cancelExposureReview}
                 onOpenHolding={onOpenHolding}
                 onSubmitExposureReview={(position, input) =>

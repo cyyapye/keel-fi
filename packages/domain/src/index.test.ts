@@ -87,7 +87,7 @@ describe("reviewed holding exposure identity", () => {
     });
     expect(
       PrivateExposureReviewStateSchema.parse({
-        version: 1,
+        version: 2,
         positions: [
           {
             positionId: "holding_synthetic_spv",
@@ -107,6 +107,14 @@ describe("reviewed holding exposure identity", () => {
             status: "active",
           },
         ],
+        exactBatch: {
+          revision: "a".repeat(64),
+          positionCount: 1,
+          companyCount: 1,
+          existingCompanyCount: 1,
+          newCompanyCount: 0,
+          excludedPositionCount: 0,
+        },
       }).positions,
     ).toHaveLength(1);
   });

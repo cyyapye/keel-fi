@@ -636,6 +636,12 @@ export class D1AlphaRepository implements AlphaRepository {
                  )
                JOIN mark_sources source ON source.id = external.mark_source_id
                WHERE lot.household_id = ?
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM asset_lot_retirements retirement
+                   WHERE retirement.asset_lot_id = lot.id
+                     AND retirement.household_id = lot.household_id
+                 )
 
                UNION ALL
 

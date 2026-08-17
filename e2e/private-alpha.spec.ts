@@ -42,17 +42,18 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);
-  await expect(page.getByText("Northstar Robotics")).toBeVisible();
-  const northstarHolding = page.getByRole("button", {
-    name: "View Seed preferred holding details",
-  });
-  await northstarHolding.click();
   await expect(
-    page.getByRole("heading", { level: 2, name: "Northstar Robotics" }),
-  ).toBeFocused();
-  await expect(page.getByText("External mark source")).toBeVisible();
-  await page.getByRole("button", { name: "Back to holdings" }).click();
-  await expect(northstarHolding).toBeFocused();
+    page.getByRole("heading", { level: 3, name: "No reviewed positions" }),
+  ).toBeVisible();
+  for (const retiredCompany of [
+    "Harbor Health Systems",
+    "Lattice Grove Energy",
+    "Northstar Robotics",
+  ]) {
+    await expect(page.getByText(retiredCompany, { exact: true })).toHaveCount(
+      0,
+    );
+  }
 
   await navigateToScreen(page, mobile, /Obligations/);
   await expect(

@@ -106,7 +106,7 @@ function client() {
 function privateExposureReviewRepository() {
   const value = {
     getPrivateExposureReviewState: vi.fn().mockResolvedValue({
-      version: 1,
+      version: 2,
       positions: [
         {
           positionId: "position_synthetic_spv",
@@ -126,6 +126,14 @@ function privateExposureReviewRepository() {
           status: "active",
         },
       ],
+      exactBatch: {
+        revision: "a".repeat(64),
+        positionCount: 1,
+        companyCount: 1,
+        existingCompanyCount: 1,
+        newCompanyCount: 0,
+        excludedPositionCount: 0,
+      },
     }),
     assignPrivateCompanyExposure: vi.fn().mockResolvedValue({
       version: 1,
@@ -134,6 +142,14 @@ function privateExposureReviewRepository() {
       companyName: "Synthetic Harbor Health",
       exposureId: "exposure_synthetic_harbor",
       mappingId: "mapping_synthetic_spv_harbor",
+    }),
+    applyPrivateExposureExactBatch: vi.fn().mockResolvedValue({
+      version: 1,
+      assignedPositionCount: 1,
+      companyCount: 1,
+      existingCompanyCount: 1,
+      createdCompanyCount: 0,
+      remainingPositionCount: 0,
     }),
   } satisfies PrivateExposureReviewRepository;
   return value;
@@ -266,9 +282,10 @@ describe("investment-connections API", () => {
       "private, no-store",
     );
     await expect(stateResponse.json()).resolves.toMatchObject({
-      version: 1,
+      version: 2,
       positions: [{ positionId: "position_synthetic_spv" }],
       companies: [{ id: "company_synthetic_harbor" }],
+      exactBatch: { positionCount: 1, companyCount: 1 },
     });
 
     const input = {
@@ -298,6 +315,27 @@ describe("investment-connections API", () => {
     await expect(assignResponse.json()).resolves.toMatchObject({
       companyId: "company_synthetic_harbor",
       mappingId: "mapping_synthetic_spv_harbor",
+    });
+
+    const exactBatchResponse = await app.request(
+      "/api/private-exposure-reviews/exact-batch",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedRevision: "a".repeat(64) }),
+      },
+      env(),
+    );
+    expect(exactBatchResponse.status).toBe(201);
+    expect(
+      privateExposureReviewRepositoryValue.applyPrivateExposureExactBatch,
+    ).toHaveBeenCalledWith("synthetic-access-subject", {
+      expectedRevision: "a".repeat(64),
+    });
+    await expect(exactBatchResponse.json()).resolves.toMatchObject({
+      assignedPositionCount: 1,
+      companyCount: 1,
+      remainingPositionCount: 0,
     });
   });
 
