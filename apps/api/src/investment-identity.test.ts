@@ -4,6 +4,7 @@ import {
   angelListInvestmentsSourceKey,
   angelListOwnershipContainerKey,
   angelListPositionKey,
+  investmentCashCurrencyExposureKey,
   plaidInvestmentsAccountKey,
   plaidInvestmentsExposureKey,
   plaidInvestmentsPositionKey,
@@ -119,6 +120,21 @@ describe("protected investment identity", () => {
     expect(first).toBe(sameItem);
     expect(first).toMatch(/^[a-f0-9]{64}$/u);
     expect(otherItem).not.toBe(first);
+  });
+
+  it("shares exact cash currency across connections", async () => {
+    const [first, second, publicSecurity] = await Promise.all([
+      investmentCashCurrencyExposureKey(env, "USD"),
+      investmentCashCurrencyExposureKey(env, "USD"),
+      plaidInvestmentsExposureKey(env, "cusip", "67066G104"),
+    ]);
+
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[a-f0-9]{64}$/u);
+    expect(first).not.toBe(publicSecurity);
+    await expect(
+      investmentCashCurrencyExposureKey(env, "EUR" as "USD"),
+    ).rejects.toThrow();
   });
 
   it("scopes AngelList ownership and positions without retaining labels", async () => {

@@ -341,8 +341,18 @@ cryptocurrency, unsupported security types, missing source evidence, and invalid
 source evidence remain unresolved. Global CUSIP, ISIN, or SEDOL always takes
 precedence over the Item-scoped fallback.
 
-Both repairs are derived relationships, not new financial facts, so they may run
-automatically and idempotently before the canonical Holdings read. A repair
+Migration `0029_structured_asset_exposure.sql` resolves the structured asset
+types intentionally excluded by `0028`. Exact USD cash positions share one
+household currency exposure across investment connections. Cryptocurrency may
+share an exposure only through its exact Plaid security ID inside the same
+protected Item; it remains outside FI planning. Neither rule uses ticker, name,
+legal-vehicle, owner, or account text. Unsupported types and any row without
+checksum-verified structured evidence remain unresolved. These mappings do not
+merge legal positions or accounts and cannot change accepted value or Portfolio
+Baseline membership.
+
+These repairs are derived relationships, not new financial facts, so they may
+run automatically and idempotently before the canonical Holdings read. A repair
 failure must fail closed for that relationship without making the authoritative
 position view unavailable.
 

@@ -7,9 +7,11 @@ import {
   type RetainedPublicExposureDocument,
   type RetainedPublicExposureEvidenceInput,
   type RetainedProviderExposureEvidenceInput,
+  type RetainedStructuredAssetExposureEvidenceInput,
 } from "@keel/database";
 
 import {
+  investmentCashCurrencyExposureKey,
   plaidInvestmentsExposureKey,
   plaidInvestmentsProviderSecurityExposureKey,
   plaidInvestmentsSourceKey,
@@ -23,12 +25,14 @@ type RetainedPublicExposureRepository = Pick<
   | "listRetainedPublicExposureDocuments"
   | "recordRetainedPublicExposureEvidence"
   | "recordRetainedProviderExposureEvidence"
+  | "recordRetainedStructuredAssetExposureEvidence"
   | "reconcileAcceptedPublicExposureHistory"
 >;
 
 type RetainedDocumentExposureEvidence = {
   readonly publicEvidence: readonly RetainedPublicExposureEvidenceInput[];
   readonly providerEvidence: readonly RetainedProviderExposureEvidenceInput[];
+  readonly structuredAssetEvidence: readonly RetainedStructuredAssetExposureEvidenceInput[];
 };
 
 const providerScopedSecurityTypes = new Set(["equity", "etf", "mutual fund"]);
@@ -95,6 +99,8 @@ async function evidenceFromDocument(
   const sourceKey = await plaidInvestmentsSourceKey(env, response.item.item_id);
   const publicEvidence: RetainedPublicExposureEvidenceInput[] = [];
   const providerEvidence: RetainedProviderExposureEvidenceInput[] = [];
+  const structuredAssetEvidence: RetainedStructuredAssetExposureEvidenceInput[] =
+    [];
   for (const row of document.rows) {
     const holding = response.holdings[row.sourceRowNumber - 1];
     const security =
@@ -106,15 +112,13 @@ async function evidenceFromDocument(
     }
     const strongIdentifier = plaidInvestmentStrongSecurityIdentifier(security);
     if (strongIdentifier === null) {
+      const normalizedSecurityType = security.type?.trim().toLowerCase() ?? "";
       publicEvidence.push({
         importRowId: row.importRowId,
         resolutionStatus: "no_strong_identifier",
         evidenceSha256: document.evidenceSha256,
       });
-      if (
-        security.type !== null &&
-        providerScopedSecurityTypes.has(security.type.trim().toLowerCase())
-      ) {
+      if (providerScopedSecurityTypes.has(normalizedSecurityType)) {
         providerEvidence.push({
           importRowId: row.importRowId,
           resolutionStatus: "scoped_identifier",
@@ -132,6 +136,45 @@ async function evidenceFromDocument(
           resolutionStatus: "not_eligible",
           evidenceSha256: document.evidenceSha256,
         });
+        if (
+          normalizedSecurityType === "cash" &&
+          holding.iso_currency_code === "USD" &&
+          holding.unofficial_currency_code === null &&
+          security.iso_currency_code === "USD" &&
+          security.unofficial_currency_code === null
+        ) {
+          structuredAssetEvidence.push({
+            importRowId: row.importRowId,
+            resolutionStatus: "structured_identifier",
+            identityKind: "cash_currency",
+            protectedIdentityKey: await investmentCashCurrencyExposureKey(
+              env,
+              "USD",
+            ),
+            currencyCode: "USD",
+            evidenceSha256: document.evidenceSha256,
+          });
+        } else if (normalizedSecurityType === "cryptocurrency") {
+          structuredAssetEvidence.push({
+            importRowId: row.importRowId,
+            resolutionStatus: "structured_identifier",
+            identityKind: "provider_crypto",
+            protectedIdentityKey:
+              await plaidInvestmentsProviderSecurityExposureKey(
+                env,
+                sourceKey,
+                security.security_id,
+              ),
+            currencyCode: null,
+            evidenceSha256: document.evidenceSha256,
+          });
+        } else {
+          structuredAssetEvidence.push({
+            importRowId: row.importRowId,
+            resolutionStatus: "not_eligible",
+            evidenceSha256: document.evidenceSha256,
+          });
+        }
       }
       continue;
     }
@@ -147,7 +190,7 @@ async function evidenceFromDocument(
       evidenceSha256: document.evidenceSha256,
     });
   }
-  return { publicEvidence, providerEvidence };
+  return { publicEvidence, providerEvidence, structuredAssetEvidence };
 }
 
 export class D1RetainedPublicExposureReconciler implements RetainedPublicExposureReconciler {
@@ -181,12 +224,19 @@ export class D1RetainedPublicExposureReconciler implements RetainedPublicExposur
           accessSubject,
           evidence.providerEvidence,
         );
+        await this.repository.recordRetainedStructuredAssetExposureEvidence(
+          accessSubject,
+          evidence.structuredAssetEvidence,
+        );
         identityCount +=
           evidence.publicEvidence.filter(
             (row) => row.resolutionStatus === "strong_identifier",
           ).length +
           evidence.providerEvidence.filter(
             (row) => row.resolutionStatus === "scoped_identifier",
+          ).length +
+          evidence.structuredAssetEvidence.filter(
+            (row) => row.resolutionStatus === "structured_identifier",
           ).length;
       } catch {
         skippedDocumentCount += 1;
