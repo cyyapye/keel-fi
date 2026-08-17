@@ -883,7 +883,7 @@ function PositionViews({
           {(exposureReviewState?.exactBatch.positionCount ?? 0) > 0 && (
             <div className="private-exposure-exact-batch">
               <div>
-                <p className="eyebrow">Exact AngelList company matches</p>
+                <p className="eyebrow">Exact company matches</p>
                 <h4>
                   Resolve {exposureReviewState!.exactBatch.positionCount}{" "}
                   {exposureReviewState!.exactBatch.positionCount === 1
@@ -892,9 +892,9 @@ function PositionViews({
                   at once
                 </h4>
                 <p>
-                  Keel uses AngelList’s Company/Fund field—not the SPV name—and
-                  skips ambiguous rows. This will group the positions under{" "}
-                  {exposureReviewState!.exactBatch.companyCount}{" "}
+                  Keel uses each holding’s company name—not the legal vehicle
+                  name—and skips ambiguous rows. This will group the positions
+                  under {exposureReviewState!.exactBatch.companyCount}{" "}
                   {exposureReviewState!.exactBatch.companyCount === 1
                     ? "company"
                     : "companies"}
@@ -1133,10 +1133,10 @@ export function InvestmentHoldings({
   );
   const reviewedHoldings = useMemo(
     () =>
-      data === null && viewError === null
+      data === null
         ? []
         : holdings.filter((holding) => !canonicalPositionIds.has(holding.id)),
-    [canonicalPositionIds, data, holdings, viewError],
+    [canonicalPositionIds, data, holdings],
   );
 
   const reloadConnections = useCallback(async () => {
@@ -1677,10 +1677,12 @@ export function InvestmentHoldings({
               economic risk without merging accounts or value.
             </p>
           </div>
-          <span>
-            <strong>{positionCount}</strong>{" "}
-            {positionCount === 1 ? "position" : "positions"}
-          </span>
+          {data !== null && (
+            <span>
+              <strong>{positionCount}</strong>{" "}
+              {positionCount === 1 ? "position" : "positions"}
+            </span>
+          )}
         </div>
         <div
           aria-label="Holdings view"

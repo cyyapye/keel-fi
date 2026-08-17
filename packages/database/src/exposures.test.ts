@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { D1ExposureRepository } from "./exposures";
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import { D1AlphaRepository } from "./index";
+import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
 
+const reconciliationMigrationFile =
+  "packages/database/migrations/0026_reconciled_holding_ownership.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -33,6 +36,7 @@ const migrationFiles = [
   "packages/database/migrations/0022_provider_neutral_investments.sql",
   "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
   "packages/database/migrations/0025_retired_asset_lots.sql",
+  reconciliationMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -97,6 +101,36 @@ function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function withoutImmutableDeleteTriggers(
+  database: DatabaseSync,
+  triggerNames: readonly string[],
+  action: () => void,
+): void {
+  const definitions = triggerNames.map((name) => {
+    const row = database
+      .prepare(
+        `SELECT sql
+         FROM sqlite_master
+         WHERE type = 'trigger' AND name = ?`,
+      )
+      .get(name) as { sql: string } | undefined;
+    if (row === undefined) {
+      throw new Error(`Expected immutable delete trigger ${name}.`);
+    }
+    return row.sql;
+  });
+  triggerNames.forEach((name) => {
+    database.exec(`DROP TRIGGER "${name}"`);
+  });
+  try {
+    action();
+  } finally {
+    definitions.forEach((definition) => {
+      database.exec(definition);
+    });
+  }
+}
+
 function seedManualConnection(database: DatabaseSync): void {
   database
     .prepare(
@@ -123,8 +157,12 @@ function seedAcceptedPosition(
   input: {
     id: string;
     label: string;
-    provider?: "angellist" | "manual";
+    provider?: "angellist" | "manual" | "plaid_investments";
     reportedExposureName?: string;
+    reportedCompanyId?: string;
+    publicExposureIdentityKind?: "cusip" | "isin" | "sedol";
+    protectedExposureKey?: string;
+    ticker?: string;
     positionKind: "direct" | "spv_interest" | "fund_interest";
     valueMinor: number | null;
     valueState: "reported" | "locked" | "not_reported";
@@ -182,10 +220,15 @@ function seedAcceptedPosition(
       `INSERT INTO holding_imports (
          id, household_id, source_document_id, provider, parser_schema,
          row_count, created_by, created_at
-       ) VALUES (?, 'hh_demo', ?, 'angellist', 'synthetic_exposure_v1', 1,
+       ) VALUES (?, 'hh_demo', ?, ?, 'synthetic_exposure_v1', 1,
          'usr_demo', ?)`,
     )
-    .run(importId, `document_${input.id}`, recordedAt);
+    .run(
+      importId,
+      `document_${input.id}`,
+      input.provider ?? "manual",
+      recordedAt,
+    );
   database
     .prepare(
       `INSERT INTO holding_import_connections (
@@ -218,10 +261,11 @@ function seedAcceptedPosition(
          unrealized_value_state, realized_value_minor, net_value_minor,
          net_value_state, instrument_type, currency_hint, parse_status,
          issue_codes_json, position_kind, quantity_micros, ticker,
-         cost_basis_minor, created_at
+         cost_basis_minor, public_exposure_identity_kind,
+         protected_exposure_key, created_at
        ) VALUES (?, 'hh_demo', ?, 1, ?, ?, ?, 'Synthetic owner', ?, 'live',
          '2026-08-15', 0, 0, ?, ?, 0, ?, ?, ?, 'USD', 'ready', '[]', ?,
-         NULL, NULL, NULL, ?)`,
+         NULL, ?, NULL, ?, ?, ?)`,
     )
     .run(
       rowId,
@@ -236,6 +280,9 @@ function seedAcceptedPosition(
       input.valueState,
       input.positionKind === "direct" ? "equity" : "private interest",
       input.positionKind,
+      input.ticker ?? null,
+      input.publicExposureIdentityKind ?? null,
+      input.protectedExposureKey ?? null,
       recordedAt,
     );
   database
@@ -268,12 +315,14 @@ function seedAcceptedPosition(
       `INSERT INTO holding_position_exposures (
          id, household_id, position_id, exposure_label, exposure_kind,
          company_id, created_at
-       ) VALUES (?, 'hh_demo', ?, ?, 'unresolved', NULL, ?)`,
+       ) VALUES (?, 'hh_demo', ?, ?, ?, ?, ?)`,
     )
     .run(
       `reported_exposure_${input.id}`,
       input.id,
       input.reportedExposureName ?? input.label,
+      input.reportedCompanyId === undefined ? "unresolved" : "company",
+      input.reportedCompanyId ?? null,
       recordedAt,
     );
   database
@@ -852,7 +901,7 @@ describe("canonical exposure resolution and aggregation", () => {
     ).toEqual(["co_harbor", "co_harbor"]);
   });
 
-  it("batch-assigns exact AngelList company labels and leaves uncertain rows for review", async () => {
+  it("batch-assigns exact company labels across reviewed SPVs and leaves uncertain rows for review", async () => {
     for (const [id, label, reportedExposureName] of [
       [
         "position_exact_harbor_a",
@@ -939,15 +988,15 @@ describe("canonical exposure resolution and aggregation", () => {
     expect(pending).toMatchObject({
       version: 2,
       exactBatch: {
-        positionCount: 4,
+        positionCount: 5,
         companyCount: 2,
         existingCompanyCount: 1,
         newCompanyCount: 1,
         excludedPositionCount: 3,
       },
     });
-    expect(pending.positions).toHaveLength(7);
-    expect(pending.positions).not.toContainEqual(
+    expect(pending.positions).toHaveLength(8);
+    expect(pending.positions).toContainEqual(
       expect.objectContaining({ positionId: "position_manual_exact_text" }),
     );
 
@@ -957,7 +1006,7 @@ describe("canonical exposure resolution and aggregation", () => {
     );
     expect(result).toEqual({
       version: 1,
-      assignedPositionCount: 4,
+      assignedPositionCount: 5,
       companyCount: 2,
       existingCompanyCount: 1,
       createdCompanyCount: 1,
@@ -976,7 +1025,10 @@ describe("canonical exposure resolution and aggregation", () => {
            mapping.decision_reference
          FROM holding_position_exposure_mappings mapping
          JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
-         WHERE mapping.position_id LIKE 'position_exact_%'
+         WHERE (
+             mapping.position_id LIKE 'position_exact_%'
+             OR mapping.position_id = 'position_manual_exact_text'
+           )
            AND mapping.status = 'active'
            AND NOT EXISTS (
              SELECT 1
@@ -986,14 +1038,18 @@ describe("canonical exposure resolution and aggregation", () => {
          ORDER BY mapping.position_id`,
       )
       .all() as Array<Record<string, unknown>>;
-    expect(assigned).toHaveLength(4);
+    expect(assigned).toHaveLength(5);
     expect(
       assigned
         .filter((row) => String(row.position_id).includes("harbor"))
         .map((row) => row.company_id),
     ).toEqual(["co_harbor", "co_harbor"]);
     const altoCompanyIds = assigned
-      .filter((row) => String(row.position_id).includes("alto"))
+      .filter(
+        (row) =>
+          String(row.position_id).includes("alto") ||
+          row.position_id === "position_manual_exact_text",
+      )
       .map((row) => row.company_id);
     expect(new Set(altoCompanyIds).size).toBe(1);
     expect(altoCompanyIds[0]).not.toBeNull();
@@ -1005,7 +1061,7 @@ describe("canonical exposure resolution and aggregation", () => {
           allocation_ppm: 1_000_000,
           decision_source: "review",
           decision_reference: expect.stringMatching(
-            /^Reviewed exact AngelList company batch /u,
+            /^Reviewed exact company batch /u,
           ),
         }),
       ]),
@@ -1187,6 +1243,440 @@ describe("canonical exposure resolution and aggregation", () => {
         },
       ),
     ).rejects.toMatchObject({ code: "already_resolved" });
+  });
+});
+
+describe("holding ownership and exposure reconciliation migration", () => {
+  it("repairs legacy reads, adds only high-confidence mappings, and prevents recurrence", async () => {
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    try {
+      migrationFiles
+        .filter(
+          (file) =>
+            file !== reconciliationMigrationFile &&
+            file !== "packages/database/seed/synthetic.sql",
+        )
+        .forEach((file) => {
+          database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+        });
+      database.exec(
+        readFileSync(
+          resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
+          "utf8",
+        ),
+      );
+      seedManualConnection(database);
+      const legacyPublicExposureKey = hash("cusip:synthetic-legacy-public");
+      seedAcceptedPosition(database, {
+        id: "position_legacy_angellist_orphan",
+        label: "Synthetic Legacy Private SPV",
+        provider: "angellist",
+        reportedExposureName: "Synthetic Legacy Private Company",
+        positionKind: "spv_interest",
+        valueMinor: 4_000_000,
+        valueState: "reported",
+      });
+      seedAcceptedPosition(database, {
+        id: "position_legacy_plaid_orphan",
+        label: "Synthetic Legacy Public Security",
+        provider: "plaid_investments",
+        reportedExposureName: "SYN · Synthetic Legacy Public Security",
+        positionKind: "direct",
+        valueMinor: 2_000_000,
+        valueState: "reported",
+        containerKind: "brokerage",
+        publicExposureIdentityKind: "cusip",
+        protectedExposureKey: legacyPublicExposureKey,
+        ticker: "SYN",
+      });
+      seedAcceptedPosition(database, {
+        id: "position_legacy_manual_public_strong_id_unmapped",
+        label: "Synthetic Legacy Public Security in Another Account",
+        provider: "manual",
+        reportedExposureName: "SYN · Synthetic Legacy Public Security",
+        positionKind: "direct",
+        valueMinor: 3_000_000,
+        valueState: "reported",
+        containerKind: "brokerage",
+        publicExposureIdentityKind: "cusip",
+        protectedExposureKey: legacyPublicExposureKey,
+        ticker: "SYN",
+      });
+      seedAcceptedPosition(database, {
+        id: "position_legacy_reviewed_company_unmapped",
+        label: "Synthetic Legacy Harbor Access SPV",
+        provider: "manual",
+        reportedExposureName: "Harbor Health Systems",
+        reportedCompanyId: "co_harbor",
+        positionKind: "spv_interest",
+        valueMinor: 5_000_000,
+        valueState: "reported",
+      });
+      seedAcceptedPosition(database, {
+        id: "position_legacy_ticker_only_unmapped",
+        label: "Synthetic Ticker-only Security",
+        provider: "plaid_investments",
+        reportedExposureName: "SYN · Synthetic Ticker-only Security",
+        positionKind: "direct",
+        valueMinor: 1_000_000,
+        valueState: "reported",
+        containerKind: "brokerage",
+        ticker: "SYN",
+      });
+      seedAcceptedPosition(database, {
+        id: "position_manual_direct_reviewed_company_unmapped",
+        label: "Synthetic Manual Direct Company Interest",
+        provider: "manual",
+        reportedExposureName: "Harbor Health Systems",
+        reportedCompanyId: "co_harbor",
+        positionKind: "direct",
+        valueMinor: 6_000_000,
+        valueState: "reported",
+      });
+      seedAcceptedPosition(database, {
+        id: "position_angellist_fund_reviewed_company_unmapped",
+        label: "Synthetic AngelList Diversified Fund",
+        provider: "angellist",
+        reportedExposureName: "Harbor Health Systems",
+        reportedCompanyId: "co_harbor",
+        positionKind: "fund_interest",
+        valueMinor: 7_000_000,
+        valueState: "reported",
+      });
+      const legacyPositionIds = [
+        "position_legacy_angellist_orphan",
+        "position_legacy_plaid_orphan",
+        "position_legacy_manual_public_strong_id_unmapped",
+        "position_legacy_reviewed_company_unmapped",
+        "position_legacy_ticker_only_unmapped",
+      ];
+      withoutImmutableDeleteTriggers(
+        database,
+        [
+          "holding_position_ownerships_no_delete",
+          "holding_import_row_containers_no_delete",
+          "holding_import_coverages_no_delete",
+          "holding_import_connections_no_delete",
+        ],
+        () => {
+          database
+            .prepare(
+              `DELETE FROM holding_import_row_containers
+               WHERE import_row_id = ?`,
+            )
+            .run("row_position_legacy_ticker_only_unmapped");
+          database
+            .prepare(
+              `DELETE FROM holding_import_coverages
+               WHERE import_id = ?`,
+            )
+            .run("import_position_legacy_ticker_only_unmapped");
+          database
+            .prepare(
+              `DELETE FROM holding_import_connections
+               WHERE import_id = ?`,
+            )
+            .run("import_position_legacy_ticker_only_unmapped");
+          database
+            .prepare(
+              `DELETE FROM holding_position_ownerships
+               WHERE position_id IN (?, ?, ?, ?, ?)`,
+            )
+            .run(...legacyPositionIds);
+        },
+      );
+
+      const d1 = new TestD1Database(database) as unknown as D1Database;
+      const repository = new D1ExposureRepository(d1);
+      const privateExposure = await repository.resolveExposure(accessSubject, {
+        exposureKind: "private_company",
+        canonicalName: "Synthetic Legacy Private Company",
+        companyId: "co_harbor",
+        evidenceSha256: hash("legacy private mapping evidence"),
+      });
+      const publicExposure = await repository.resolveExposure(accessSubject, {
+        exposureKind: "public_instrument",
+        canonicalName: "Synthetic Legacy Public Security",
+        protectedIdentityKey: legacyPublicExposureKey,
+        evidenceSha256: hash("legacy public mapping evidence"),
+      });
+      await repository.recordMapping(accessSubject, {
+        positionId: "position_legacy_angellist_orphan",
+        exposureId: privateExposure.id,
+        relationshipKind: "look_through",
+        allocationPpm: 1_000_000,
+        status: "active",
+        decisionSource: "review",
+        decisionReference: "legacy reviewed SPV mapping",
+        evidenceSha256: hash("legacy private mapping decision"),
+        effectiveAt: recordedAt,
+      });
+      await repository.recordMapping(accessSubject, {
+        positionId: "position_legacy_plaid_orphan",
+        exposureId: publicExposure.id,
+        relationshipKind: "direct",
+        allocationPpm: 1_000_000,
+        status: "active",
+        decisionSource: "deterministic_policy",
+        decisionReference: "public-strong-identifier-v1:cusip",
+        evidenceSha256: hash("legacy public mapping decision"),
+        effectiveAt: recordedAt,
+      });
+
+      const exposureView = new D1InvestmentExposureViewRepository(d1);
+      const baselines = new D1PortfolioBaselineRepository(d1);
+      await expect(exposureView.list(accessSubject)).rejects.toThrow(
+        "Exposure mapping is missing its authoritative accepted position.",
+      );
+      await expect(baselines.getState(accessSubject)).rejects.toThrow(
+        "Exposure mapping is missing its authoritative accepted position.",
+      );
+      const topologyCountsBefore = database
+        .prepare(
+          `SELECT
+             (SELECT COUNT(*) FROM investment_connections) AS connections,
+             (SELECT COUNT(*) FROM ownership_containers) AS containers`,
+        )
+        .get() as { connections: number; containers: number };
+
+      database.exec(
+        readFileSync(
+          resolve(process.cwd(), reconciliationMigrationFile),
+          "utf8",
+        ),
+      );
+
+      const projection = await exposureView.list(
+        accessSubject,
+        "2026-08-16T12:00:00.000Z",
+      );
+      expect(
+        projection.positions
+          .filter((position) => legacyPositionIds.includes(position.id))
+          .map((position) => position.id)
+          .sort(),
+      ).toEqual([...legacyPositionIds].sort());
+      const baseline = await baselines.getState(accessSubject);
+      expect(baseline.status).toBe("ready");
+      expect(
+        baseline.positions
+          .filter((position) => legacyPositionIds.includes(position.id))
+          .map((position) => position.id)
+          .sort(),
+      ).toEqual(["position_legacy_ticker_only_unmapped"]);
+      expect(
+        database
+          .prepare(
+            `SELECT
+               (SELECT COUNT(*) FROM investment_connections) AS connections,
+               (SELECT COUNT(*) FROM ownership_containers) AS containers`,
+          )
+          .get(),
+      ).toEqual({
+        connections: topologyCountsBefore.connections + 1,
+        containers: topologyCountsBefore.containers + 1,
+      });
+      expect(
+        database
+          .prepare(
+            `SELECT
+               ownership.container_id AS ownership_container_id,
+               row_scope.container_id AS row_container_id,
+               container.connection_id AS container_connection_id,
+               import_scope.connection_id AS import_connection_id
+             FROM holding_position_ownerships ownership
+             JOIN holding_import_applications application
+               ON application.position_id = ownership.position_id
+             JOIN holding_import_row_containers row_scope
+               ON row_scope.import_row_id = application.import_row_id
+             JOIN holding_import_rows row
+               ON row.id = application.import_row_id
+             JOIN holding_import_connections import_scope
+               ON import_scope.import_id = row.import_id
+             JOIN ownership_containers container
+               ON container.id = ownership.container_id
+             WHERE ownership.position_id = ?`,
+          )
+          .get("position_legacy_angellist_orphan"),
+      ).toEqual({
+        ownership_container_id: "container_position_legacy_angellist_orphan",
+        row_container_id: "container_position_legacy_angellist_orphan",
+        container_connection_id: "connection_exposure_test",
+        import_connection_id: "connection_exposure_test",
+      });
+      const reconstructedScope = database
+        .prepare(
+          `SELECT
+             import_scope.connection_id AS import_connection_id,
+             container.connection_id AS container_connection_id,
+             connection.adapter_type,
+             row_scope.container_id AS row_container_id,
+             coverage.container_id AS coverage_container_id,
+             coverage.completeness,
+             ownership.container_id AS ownership_container_id,
+             ownership.association_basis,
+             container_version.container_kind
+           FROM holding_import_applications application
+           JOIN holding_import_rows row
+             ON row.id = application.import_row_id
+           JOIN holding_import_connections import_scope
+             ON import_scope.import_id = row.import_id
+           JOIN investment_connections connection
+             ON connection.id = import_scope.connection_id
+           JOIN holding_import_row_containers row_scope
+             ON row_scope.import_row_id = row.id
+           JOIN ownership_containers container
+             ON container.id = row_scope.container_id
+           JOIN ownership_container_versions container_version
+             ON container_version.container_id = container.id
+            AND NOT EXISTS (
+              SELECT 1
+              FROM ownership_container_versions later
+              WHERE later.supersedes_version_id = container_version.id
+            )
+           JOIN holding_import_coverages coverage
+             ON coverage.import_id = row.import_id
+            AND coverage.container_id = row_scope.container_id
+           JOIN holding_position_ownerships ownership
+             ON ownership.position_id = application.position_id
+            AND ownership.container_id = row_scope.container_id
+           WHERE application.position_id = ?`,
+        )
+        .get("position_legacy_ticker_only_unmapped") as {
+        import_connection_id: string;
+        container_connection_id: string;
+        adapter_type: string;
+        row_container_id: string;
+        coverage_container_id: string;
+        completeness: string;
+        ownership_container_id: string;
+        association_basis: string;
+        container_kind: string;
+      };
+      expect(reconstructedScope).toMatchObject({
+        adapter_type: "plaid-investments",
+        completeness: "ambiguous",
+        association_basis: "reviewed_import",
+        container_kind: "unresolved",
+      });
+      expect(reconstructedScope.import_connection_id).toBe(
+        reconstructedScope.container_connection_id,
+      );
+      expect(reconstructedScope.row_container_id).toBe(
+        reconstructedScope.coverage_container_id,
+      );
+      expect(reconstructedScope.row_container_id).toBe(
+        reconstructedScope.ownership_container_id,
+      );
+      expect(reconstructedScope.import_connection_id).not.toBe(
+        "connection_exposure_test",
+      );
+      expect(reconstructedScope.row_container_id).not.toBe(
+        "container_position_legacy_ticker_only_unmapped",
+      );
+      expect(
+        projection.exposures
+          .find((group) => group.exposure.id === publicExposure.id)
+          ?.contributions.map((contribution) => contribution.positionId)
+          .sort(),
+      ).toEqual(
+        [
+          "position_legacy_plaid_orphan",
+          "position_legacy_manual_public_strong_id_unmapped",
+        ].sort(),
+      );
+      expect(
+        projection.exposures
+          .find((group) => group.exposure.id === privateExposure.id)
+          ?.contributions.map((contribution) => contribution.positionId)
+          .sort(),
+      ).toEqual(
+        [
+          "position_legacy_angellist_orphan",
+          "position_legacy_reviewed_company_unmapped",
+        ].sort(),
+      );
+      expect(
+        projection.positions.find(
+          (position) => position.id === "position_legacy_ticker_only_unmapped",
+        ),
+      ).toMatchObject({ mappedExposureIds: [] });
+      expect(
+        projection.positions
+          .filter((position) =>
+            [
+              "position_manual_direct_reviewed_company_unmapped",
+              "position_angellist_fund_reviewed_company_unmapped",
+            ].includes(position.id),
+          )
+          .map((position) => ({
+            id: position.id,
+            mappedExposureIds: position.mappedExposureIds,
+          }))
+          .sort((left, right) => left.id.localeCompare(right.id)),
+      ).toEqual([
+        {
+          id: "position_angellist_fund_reviewed_company_unmapped",
+          mappedExposureIds: [],
+        },
+        {
+          id: "position_manual_direct_reviewed_company_unmapped",
+          mappedExposureIds: [],
+        },
+      ]);
+      expect(
+        database
+          .prepare(
+            `SELECT
+               COUNT(*) AS count,
+               COUNT(DISTINCT association_basis) AS basis_count,
+               MIN(association_basis) AS association_basis,
+               MIN(version) AS minimum_version,
+               MAX(version) AS maximum_version
+             FROM holding_position_ownerships
+             WHERE position_id IN (?, ?, ?, ?, ?)`,
+          )
+          .get(...legacyPositionIds),
+      ).toEqual({
+        count: 5,
+        basis_count: 1,
+        association_basis: "reviewed_import",
+        minimum_version: 1,
+        maximum_version: 1,
+      });
+
+      database
+        .prepare(
+          `INSERT INTO holding_positions (
+             id, household_id, provider, position_fingerprint,
+             legal_vehicle_name, owner_label, position_kind, instrument_type,
+             opened_on, currency, created_by, created_at
+           ) VALUES (
+             'position_future_unowned_mapping', 'hh_demo', 'manual', ?,
+             'Synthetic Future Unowned SPV', 'Synthetic owner',
+             'spv_interest', 'private interest', NULL, 'USD', 'usr_demo', ?
+           )`,
+        )
+        .run(hash("position:future-unowned-mapping"), recordedAt);
+      await expect(
+        repository.recordMapping(accessSubject, {
+          positionId: "position_future_unowned_mapping",
+          exposureId: privateExposure.id,
+          relationshipKind: "look_through",
+          allocationPpm: 1_000_000,
+          status: "active",
+          decisionSource: "review",
+          decisionReference: "future invalid mapping",
+          evidenceSha256: hash("future invalid mapping evidence"),
+          effectiveAt: recordedAt,
+        }),
+      ).rejects.toThrow(
+        "exposure mapping requires canonical position ownership",
+      );
+    } finally {
+      database.close();
+    }
   });
 });
 

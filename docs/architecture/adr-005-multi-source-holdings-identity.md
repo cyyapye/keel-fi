@@ -299,6 +299,31 @@ Once any environment is authorized to retain real user data, database resets and
 deployed-migration rewrites are prohibited. From that point, schema changes must
 be forward-only and accepted history remains append-only.
 
+### 2026-08-16 operational amendment: retained accepted history
+
+The rebuild instruction above governs disposable pre-live transition databases;
+it is not permission to reset an environment that retains accepted review
+history. Such an environment follows the forward-only rule even when the public
+repository and its release fixtures remain synthetic-only.
+
+A forward repair may add missing canonical relationship records only when it:
+
+1. derives the position, connection, container, and evidence from an accepted
+   application and reuses an existing row/container association when present;
+2. creates a separate unresolved container only when accepted history has no
+   proven container identity, then records ambiguous coverage so omission
+   inference remains disabled;
+3. preserves every accepted position, snapshot, value, baseline, plan, goal,
+   forecast, and mapping decision;
+4. reconciles exposures only from a protected strong public identifier or an
+   existing reviewed company ID, never from display text; and
+5. adds a write-time invariant that prevents the inconsistent state from
+   recurring.
+
+Migration `0026_reconciled_holding_ownership.sql` is this bounded repair. It is
+not a compatibility read, a second ownership model, or a general authorization
+to backfill accepted financial facts.
+
 Robinhood and AngelList remain the operated holding sources. The released
 multi-institution experience and provider-neutral adapter are proven with
 synthetic Fidelity fixtures, while real additional-institution authorization
