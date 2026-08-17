@@ -136,6 +136,7 @@ export function investmentHoldingsViewFor(
   if (privatePositions.length > 0) {
     connections.push({
       id: "connection_angellist_synthetic",
+      purpose: "source",
       adapterType: "angellist-import",
       institutionKey: "angellist-synthetic",
       institutionLabel: "AngelList imports",
@@ -159,6 +160,7 @@ export function investmentHoldingsViewFor(
   if (publicPositions.length > 0) {
     connections.push({
       id: "11111111-1111-4111-8111-111111111111",
+      purpose: "source",
       adapterType: "plaid-investments",
       institutionKey: "ins_robinhood",
       institutionLabel: "Robinhood",
@@ -303,6 +305,7 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
     connections: [
       {
         id: "11111111-1111-4111-8111-111111111111",
+        purpose: "source",
         adapterType: "plaid-investments",
         institutionKey: "ins_robinhood",
         institutionLabel: "Robinhood",
@@ -324,6 +327,7 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
       },
       {
         id: "22222222-2222-4222-8222-222222222222",
+        purpose: "source",
         adapterType: "plaid-investments",
         institutionKey: "ins_fidelity",
         institutionLabel: "Fidelity",
@@ -357,6 +361,7 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
       },
       {
         id: "33333333-3333-4333-8333-333333333333",
+        purpose: "source",
         adapterType: "plaid-investments",
         institutionKey: "ins_fidelity",
         institutionLabel: "Fidelity",
@@ -378,6 +383,7 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
       },
       {
         id: "connection_angellist_synthetic",
+        purpose: "source",
         adapterType: "angellist-import",
         institutionKey: "angellist-synthetic",
         institutionLabel: "AngelList imports",
@@ -497,5 +503,95 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
     authorizationStatus: "available",
     positionView,
     exposureView,
+  });
+}
+
+export function reconciledReviewedHistoryInvestmentHoldingsView(
+  positionCount = 14,
+): InvestmentHoldingsView {
+  const base = multiInstitutionInvestmentHoldingsView();
+  const seedPosition = base.positionView.connections
+    .flatMap((connection) => connection.containers)
+    .flatMap((container) => container.positions)
+    .find((position) => position.kind === "spv_interest")!;
+  const positions = Array.from({ length: positionCount }, (_, index) => {
+    const sequence = String(index + 1).padStart(2, "0");
+    return {
+      ...seedPosition,
+      id: `position_reviewed_history_${sequence}`,
+      legalVehicleName: `Demo Pharmacy SPV ${sequence}`,
+      reportedExposureName: "Demo Pharmacy",
+      snapshot: {
+        ...seedPosition.snapshot,
+        id: `snapshot_reviewed_history_${sequence}`,
+        fingerprint: fingerprint((index % 10).toString()),
+      },
+    };
+  });
+  const positionView: InvestmentPositionView = {
+    asOf,
+    connections: [
+      {
+        id: "reconciled-holding-connection-v1:household_synthetic:angellist",
+        purpose: "reviewed_history",
+        adapterType: "angellist-import",
+        institutionKey: "reviewed-history:angellist",
+        institutionLabel: "AngelList reviewed history",
+        lifecycleState: "pending",
+        containers: positions.map((position, index) => {
+          const sequence = String(index + 1).padStart(2, "0");
+          return {
+            id: `reconciled-holding-container-v1:${position.id}`,
+            label: `Demo Family holding ${sequence}`,
+            kind: "unresolved" as const,
+            taxTreatment: "unknown" as const,
+            coverage: {
+              completeness: "ambiguous" as const,
+              observedAt: "2026-08-15T11:45:00.000Z",
+              freshness: "current" as const,
+            },
+            positions: [position],
+          };
+        }),
+      },
+    ],
+  };
+  const exposure: CanonicalExposure = {
+    id: "exposure_demo_pharmacy_synthetic",
+    householdId,
+    exposureKind: "private_company",
+    canonicalName: "Demo Pharmacy",
+    protectedIdentityKey: null,
+    companyId: "company_demo_pharmacy_synthetic",
+    resolutionMethod: "reviewed_company",
+    evidenceSha256: fingerprint("e"),
+    createdAt: "2026-08-15T12:00:00.000Z",
+  };
+  const mappings: PositionExposureMapping[] = positions.map(
+    (position, index) => ({
+      id: `mapping_reviewed_history_${index + 1}`,
+      householdId,
+      positionId: position.id,
+      exposureId: exposure.id,
+      relationshipKind: "look_through",
+      allocationPpm: 1_000_000,
+      status: "active",
+      decisionSource: "review",
+      decisionReference: `synthetic reviewed company ${index + 1}`,
+      evidenceSha256: fingerprint("f"),
+      effectiveAt: "2026-08-15T12:00:00.000Z",
+      version: 1,
+      supersedesMappingId: null,
+    }),
+  );
+  return InvestmentHoldingsViewSchema.parse({
+    version: 1,
+    authorizationStatus: "available",
+    positionView,
+    exposureView: createInvestmentExposureView(
+      positionView,
+      [exposure],
+      mappings,
+    ),
   });
 }

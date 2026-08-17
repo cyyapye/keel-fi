@@ -74,6 +74,7 @@ describe("investment holdings view contract", () => {
         connections: [
           {
             id: "connection-synthetic",
+            purpose: "source" as const,
             adapterType: "manual" as const,
             institutionKey: "manual",
             institutionLabel: "Manual holdings",

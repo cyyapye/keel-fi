@@ -1,6 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { multiInstitutionInvestmentHoldingsView } from "./investment-holdings-fixtures";
+import {
+  multiInstitutionInvestmentHoldingsView,
+  reconciledReviewedHistoryInvestmentHoldingsView,
+} from "./investment-holdings-fixtures";
 import { navigateToScreen } from "./navigation";
 
 const holdingsView = multiInstitutionInvestmentHoldingsView();
@@ -418,6 +421,134 @@ test("operates multiple institutions and keeps position and exposure identity vi
       "Provider access will be removed. Reviewed history stays in Keel.",
     ),
   ).toHaveCount(0);
+});
+
+test("summarizes reviewed-history account shells without hiding positions or exposures", async ({
+  page,
+}, testInfo) => {
+  const reviewedHistoryView = reconciledReviewedHistoryInvestmentHoldingsView();
+  await page.unroute("**/api/alpha");
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: { ...alphaFixture, holdings: [] } });
+  });
+  await page.unroute("**/api/investment-connections");
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: [],
+        errorCode: null,
+      },
+    });
+  });
+  await page.unroute("**/api/investment-holdings");
+  await page.route("**/api/investment-holdings", async (route) => {
+    await route.fulfill({ json: reviewedHistoryView });
+  });
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await navigateToScreen(page, mobile, /Holdings/);
+
+  const accounts = page.locator(".investment-institutions");
+  const reviewedHistory = accounts
+    .locator(".investment-institution")
+    .filter({ hasText: "AngelList reviewed history" });
+  await expect(reviewedHistory).toContainText(
+    "Original account details unavailable",
+  );
+  await expect(reviewedHistory).toContainText(
+    "14 reviewed positions · Kept separate below · No account identity inferred",
+  );
+  await expect(reviewedHistory).not.toContainText("Imported source");
+  await expect(reviewedHistory).not.toContainText("Last complete");
+  await expect(reviewedHistory).not.toContainText("Waiting for review");
+  await expect(reviewedHistory.getByRole("button")).toHaveCount(0);
+  await expect(
+    reviewedHistory.locator(".investment-institution__account"),
+  ).toHaveCount(1);
+  await expect(reviewedHistory).not.toContainText("Demo Family holding 01");
+  await expectNoHorizontalOverflow(page);
+  await expect(accounts).toHaveScreenshot(
+    "investment-holdings-reviewed-history-summary.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  const positionGroups = page.locator(".position-groups .position-group");
+  await expect(positionGroups).toHaveCount(14);
+  await expect(page.locator(".position-groups .position-row")).toHaveCount(14);
+  await expect(
+    page.getByRole("heading", { name: "Demo Family holding 01" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Demo Family holding 14" }),
+  ).toBeVisible();
+
+  await page.getByRole("tab", { name: "Exposures" }).click();
+  const exposure = page.locator(".exposure-group").filter({
+    has: page.getByText("Demo Pharmacy", { exact: true }),
+  });
+  await expect(page.locator(".exposure-group")).toHaveCount(1);
+  await expect(exposure).toContainText("14 positions");
+  await exposure.locator("summary").click();
+  await expect(
+    exposure.locator(".exposure-group__positions article"),
+  ).toHaveCount(14);
+  await expect(exposure).toContainText("Demo Pharmacy SPV 01");
+  await expect(exposure).toContainText("Demo Pharmacy SPV 14");
+});
+
+test("uses the same reviewed-history summary for one legal position", async ({
+  page,
+}, testInfo) => {
+  const reviewedHistoryView =
+    reconciledReviewedHistoryInvestmentHoldingsView(1);
+  await page.unroute("**/api/alpha");
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: { ...alphaFixture, holdings: [] } });
+  });
+  await page.unroute("**/api/investment-connections");
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: [],
+        errorCode: null,
+      },
+    });
+  });
+  await page.unroute("**/api/investment-holdings");
+  await page.route("**/api/investment-holdings", async (route) => {
+    await route.fulfill({ json: reviewedHistoryView });
+  });
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await navigateToScreen(page, mobile, /Holdings/);
+
+  const reviewedHistory = page
+    .locator(".investment-institution")
+    .filter({ hasText: "AngelList reviewed history" });
+  await expect(reviewedHistory).toContainText("1 reviewed position ·");
+  await expect(
+    reviewedHistory.locator(".investment-institution__account"),
+  ).toHaveCount(1);
+  await expect(reviewedHistory).not.toContainText("Demo Family holding 01");
+  await expect(reviewedHistory).not.toContainText("Imported source");
+  await expect(reviewedHistory).not.toContainText("Last complete");
+  await expect(reviewedHistory).not.toContainText("Waiting for review");
+  await expect(reviewedHistory.getByRole("button")).toHaveCount(0);
+  await expect(page.locator(".position-groups .position-row")).toHaveCount(1);
+  await expect(
+    page.getByRole("heading", { name: "Demo Family holding 01" }),
+  ).toBeVisible();
 });
 
 test("keeps failed canonical holdings out of unresolved exposures and retries", async ({

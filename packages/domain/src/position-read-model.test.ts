@@ -46,6 +46,7 @@ describe("investment position view contract", () => {
       connections: [
         {
           id: "connection_synthetic",
+          purpose: "source",
           adapterType: "plaid-investments",
           institutionKey: "ins_synthetic",
           institutionLabel: "Synthetic Brokerage",
@@ -86,11 +87,45 @@ describe("investment position view contract", () => {
     });
 
     expect(view.connections[0]?.containers).toHaveLength(2);
+    expect(view.connections[0]?.purpose).toBe("source");
     expect(
       view.connections[0]?.containers.flatMap(
         (container) => container.positions,
       ),
     ).toHaveLength(2);
+  });
+
+  it("requires an explicit source or reviewed-history purpose", () => {
+    const connection = {
+      id: "connection_reviewed_history_synthetic",
+      purpose: "reviewed_history" as const,
+      adapterType: "manual" as const,
+      institutionKey: "reviewed-history:manual",
+      institutionLabel: "Reviewed holding history",
+      lifecycleState: "pending" as const,
+      containers: [],
+    };
+    expect(
+      InvestmentPositionViewSchema.parse({
+        asOf: "2026-08-16T12:00:00.000Z",
+        connections: [connection],
+      }).connections[0]?.purpose,
+    ).toBe("reviewed_history");
+    expect(
+      InvestmentPositionViewSchema.safeParse({
+        asOf: "2026-08-16T12:00:00.000Z",
+        connections: [
+          {
+            id: connection.id,
+            adapterType: connection.adapterType,
+            institutionKey: connection.institutionKey,
+            institutionLabel: connection.institutionLabel,
+            lifecycleState: connection.lifecycleState,
+            containers: connection.containers,
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 
   it("keeps locked and not-reported values unknown instead of zero", () => {
@@ -101,6 +136,7 @@ describe("investment position view contract", () => {
           connections: [
             {
               id: "connection_synthetic",
+              purpose: "source",
               adapterType: "manual",
               institutionKey: "manual-synthetic",
               institutionLabel: "Synthetic Manual Holdings",
@@ -136,6 +172,7 @@ describe("investment position view contract", () => {
         connections: [
           {
             id: "connection_synthetic",
+            purpose: "source",
             adapterType: "manual",
             institutionKey: "manual-synthetic",
             institutionLabel: "Synthetic Manual Holdings",
