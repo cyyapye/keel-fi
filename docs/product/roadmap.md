@@ -952,6 +952,52 @@ identifier is retained here. The follow-up adds no provider request, paid
 product, polling schedule, Queue message, R2 object, notification channel,
 recurring work, or incremental external spend.
 
+**2026-08-16 retained public exposure and position-hierarchy follow-up:**
+Reviewed-history Positions now lead with the resolved company or exposure and
+retain each legal vehicle as secondary context instead of repeating the owner
+label. Migration `0027_retained_public_exposure_identity.sql` verifies the exact
+retained Plaid object by byte length, SHA-256, and schema before appending a
+protected checksum-valid CUSIP, ISIN, or SEDOL; missing global identity fails
+closed without making Holdings unavailable. Implemented in
+[PR #100](https://github.com/cyyapye/keel-fi/pull/100) at exact checked head
+[`63fb502`](https://github.com/cyyapye/keel-fi/commit/63fb502fa549abf51cdf909d9dd7b8378c5082e6)
+and merged as released commit
+[`22b7db7`](https://github.com/cyyapye/keel-fi/commit/22b7db710f03c71744396d63cf7cb49828a42b49).
+All 462 tests and 56 desktop/mobile browser flows passed; exact-head checks
+passed in
+[run `31996866133`](https://github.com/cyyapye/keel-fi/actions/runs/31996866133),
+and the exact-SHA release retained an encrypted D1 backup, applied migration
+`0027`, deployed both Workers, passed protected smokes, and retained release
+evidence in
+[run `31997094442`](https://github.com/cyyapye/keel-fi/actions/runs/31997094442).
+
+Private acceptance then proved the retained source had no valid global public
+identifier. Migration `0028_provider_scoped_public_exposure.sql` therefore adds
+only a narrower append-only fallback: an eligible equity, ETF, or mutual-fund
+security may group across accounts inside the same exact protected Plaid Item.
+The fallback cannot cross Items or institutions and never uses ticker, company,
+owner, account, or legal-vehicle text; cash, cryptocurrency, and unsupported
+types remain unresolved. Implemented in
+[PR #101](https://github.com/cyyapye/keel-fi/pull/101) at exact checked head
+[`f158f5b`](https://github.com/cyyapye/keel-fi/commit/f158f5bfa6a2ee8a2be105d667b48b59efc09f6e)
+and merged as released commit
+[`fa07de4`](https://github.com/cyyapye/keel-fi/commit/fa07de47455478baf58c713a9dc6efda64dc1f47).
+All 463 tests, 56 desktop/mobile browser flows, fresh migration replay through
+`0028`, builds, public-data checks, and secret scans passed. Exact-head checks
+passed in
+[run `31998587451`](https://github.com/cyyapye/keel-fi/actions/runs/31998587451).
+The release retained an encrypted pre-migration D1 backup, applied the
+forward-only migration, deployed and read back both Worker versions, passed
+protected smokes, and retained exact-SHA evidence in
+[run `31998792313`](https://github.com/cyyapye/keel-fi/actions/runs/31998792313).
+Authenticated private acceptance confirmed one eligible retained public security
+appears as one exposure with multiple fully allocated legal-position
+contributions and no unresolved duplicate; reviewed private positions lead with
+the company while preserving legal vehicles secondarily and omitting the owner
+label. No private name, count, value, or identifier is retained here. Both
+repairs use bounded reads of existing retained R2 evidence, add no provider
+request or new R2 object, and keep approved incremental external spend at `$0`.
+
 **Exit gates:**
 
 - [x] One explicit reviewed action assigns every current exact AngelList
