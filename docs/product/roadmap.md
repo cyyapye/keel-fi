@@ -1096,6 +1096,20 @@ label; a connection with any reviewed account remains separate. This removes the
 redundant **Connect again** card without using display text to merge holdings or
 changing accepted position, exposure, value, or planning history.
 
+**2026-08-18 reconnect position-continuity follow-up:** Forward migration
+`0030_reconnected_position_continuity.sql` prevents an accepted reviewed-history
+position and its later post-reconnect Plaid position from appearing and counting
+twice. It records an immutable one-to-one continuation only when legal vehicle,
+account label, ticker, instrument type, currency, quantity, and cost basis agree
+exactly, the source observation is later, and both sides are unique. Protected
+global security identities must agree whenever present. Ambiguous candidates,
+changed structured facts, conflicting identity, or text-only similarity remain
+separate. Both accepted snapshots stay in history; only the successor
+participates in current Position, Exposure, and Portfolio Baseline projections.
+The repair is bounded D1 reconciliation with no provider request, paid product,
+polling schedule, Queue message, new R2 object, notification channel, or
+recurring external cost.
+
 **Exit gates:**
 
 - [x] One explicit reviewed action assigns every current exact AngelList

@@ -34,6 +34,7 @@ const migrationFiles = [
   "packages/database/migrations/0027_retained_public_exposure_identity.sql",
   "packages/database/migrations/0028_provider_scoped_public_exposure.sql",
   "packages/database/migrations/0029_structured_asset_exposure.sql",
+  "packages/database/migrations/0030_reconnected_position_continuity.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

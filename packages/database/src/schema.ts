@@ -2946,6 +2946,61 @@ export const holdingPositionOwnerships = sqliteTable(
   ],
 );
 
+export const holdingPositionContinuities = sqliteTable(
+  "holding_position_continuities",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    predecessorPositionId: text("predecessor_position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    predecessorSnapshotId: text("predecessor_snapshot_id")
+      .notNull()
+      .references(() => holdingPositionSnapshots.id, {
+        onDelete: "restrict",
+      }),
+    successorPositionId: text("successor_position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    successorSnapshotId: text("successor_snapshot_id")
+      .notNull()
+      .references(() => holdingPositionSnapshots.id, {
+        onDelete: "restrict",
+      }),
+    resolutionMethod: text("resolution_method").notNull(),
+    recordedByUserId: text("recorded_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    recordedAt: timestamp("recorded_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("holding_position_continuities_predecessor_unique").on(
+      table.predecessorPositionId,
+    ),
+    uniqueIndex("holding_position_continuities_successor_unique").on(
+      table.successorPositionId,
+    ),
+    index("holding_position_continuities_household_idx").on(
+      table.householdId,
+      table.predecessorPositionId,
+      table.successorPositionId,
+    ),
+    check(
+      "holding_position_continuities_positions_check",
+      sql`${table.predecessorPositionId} <> ${table.successorPositionId}`,
+    ),
+    check(
+      "holding_position_continuities_resolution_check",
+      sql`${table.resolutionMethod} = 'exact_reconnect_snapshot_v1'`,
+    ),
+    check(
+      "holding_position_continuities_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
 export const holdingImportConnections = sqliteTable(
   "holding_import_connections",
   {

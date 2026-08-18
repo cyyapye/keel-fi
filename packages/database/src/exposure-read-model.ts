@@ -128,6 +128,25 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
                evidence_sha256, created_at
              FROM canonical_exposures
              WHERE household_id = ?
+               AND EXISTS (
+                 SELECT 1
+                 FROM holding_position_exposure_mappings current_mapping
+                 WHERE current_mapping.exposure_id = canonical_exposures.id
+                   AND current_mapping.household_id = canonical_exposures.household_id
+                   AND current_mapping.status = 'active'
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM holding_position_continuities continuity
+                     WHERE continuity.predecessor_position_id =
+                           current_mapping.position_id
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM holding_position_exposure_mappings later_mapping
+                     WHERE later_mapping.supersedes_mapping_id =
+                           current_mapping.id
+                   )
+               )
              ORDER BY lower(canonical_name), id`,
           )
           .bind(identity.household_id),
@@ -145,6 +164,11 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
              FROM holding_position_exposure_mappings mapping
              WHERE mapping.household_id = ?
                AND mapping.status = 'active'
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM holding_position_continuities continuity
+                 WHERE continuity.predecessor_position_id = mapping.position_id
+               )
                AND NOT EXISTS (
                  SELECT 1
                  FROM holding_position_exposure_mappings later
