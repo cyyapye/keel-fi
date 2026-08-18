@@ -34,7 +34,12 @@ an exposure through that policy. Migration `0029_structured_asset_exposure.sql`
 adds a separate append-only structured outcome: exact USD cash shares one
 currency exposure across investment connections, while cryptocurrency shares
 only an exact Plaid security identity inside one protected Item. Unsupported
-types and text-only identity remain unresolved.
+types and text-only identity remain unresolved. Migration
+`0030_reconnected_position_continuity.sql` records a unique exact continuation
+when a retained reviewed-history Plaid position is followed by the same legal
+holding under a new Item. It preserves both accepted snapshots but excludes the
+older predecessor from current positions, exposure totals, and Portfolio
+Baseline value.
 
 The public repository and release fixtures remain synthetic-only. A short-lived
 synthetic transition experiment was removed instead of becoming a permanent
@@ -85,6 +90,11 @@ repair for already accepted history, not an alternate ingestion or read path.
 - `holding_positions` and accepted position snapshots are authoritative for
   money. Relationship and exposure records cannot create, duplicate, or alter
   Portfolio Baseline value.
+- Reconnected position continuity requires a later source snapshot, exact
+  legal-vehicle, account-label, ticker, instrument, currency, quantity, and cost
+  basis agreement, one candidate on each side, and no conflicting protected
+  global security identity. Text alone, changed quantities or cost basis,
+  several possible matches, and conflicting identity remain separate.
 
 ## Direct-ingestion boundary
 
@@ -219,6 +229,12 @@ high-confidence exposure identities and mappings, and the insertion invariant.
 It adds no provider request, paid product, polling schedule, Queue message, R2
 object, notification channel, or recurring work; approved incremental external
 spend remains `$0`.
+
+Migration `0030` adds one indexed immutable D1 relationship row per uniquely
+proven reconnect continuation plus a bounded candidate view. Reconciliation
+reads only accepted D1 facts, is idempotent, makes no provider request, and adds
+no paid product, polling schedule, Queue message, R2 object, notification
+channel, or recurring external cost.
 
 ## Owner experience and scoped operations
 

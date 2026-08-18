@@ -17,6 +17,8 @@ const providerScopedIdentityMigrationFile =
   "packages/database/migrations/0028_provider_scoped_public_exposure.sql";
 const structuredAssetIdentityMigrationFile =
   "packages/database/migrations/0029_structured_asset_exposure.sql";
+const reconnectedPositionContinuityMigrationFile =
+  "packages/database/migrations/0030_reconnected_position_continuity.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -46,6 +48,7 @@ const migrationFiles = [
   retainedPublicIdentityMigrationFile,
   providerScopedIdentityMigrationFile,
   structuredAssetIdentityMigrationFile,
+  reconnectedPositionContinuityMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -161,6 +164,39 @@ function seedManualConnection(database: DatabaseSync): void {
     .run("connection_exposure_test_v1", "connection_exposure_test", recordedAt);
 }
 
+function seedPlaidInvestmentConnection(
+  database: DatabaseSync,
+  input: { id: string; label: string; lifecycle?: "active" | "pending" },
+): void {
+  database
+    .prepare(
+      `INSERT INTO investment_connections (
+         id, household_id, adapter_type, protected_source_key,
+         created_by_user_id, created_at, immutable
+       ) VALUES (?, 'hh_demo', 'plaid-investments', ?, 'usr_demo', ?, 1)`,
+    )
+    .run(input.id, hash(`source:${input.id}`), recordedAt);
+  database
+    .prepare(
+      `INSERT INTO investment_connection_versions (
+         id, household_id, connection_id, version, institution_key,
+         institution_label, lifecycle_state, credential_reference,
+         supersedes_version_id, recorded_by_user_id, recorded_at, immutable
+       ) VALUES (?, 'hh_demo', ?, 1, ?, ?, ?, ?, NULL, 'usr_demo', ?, 1)`,
+    )
+    .run(
+      `${input.id}_v1`,
+      input.id,
+      `ins_${input.id}`,
+      input.label,
+      input.lifecycle ?? "active",
+      input.lifecycle === "pending"
+        ? null
+        : `connector-secrets/${input.id}.json.enc`,
+      recordedAt,
+    );
+}
+
 function seedAcceptedPosition(
   database: DatabaseSync,
   input: {
@@ -172,10 +208,15 @@ function seedAcceptedPosition(
     publicExposureIdentityKind?: "cusip" | "isin" | "sedol";
     protectedExposureKey?: string;
     ticker?: string;
+    quantityMicros?: number;
+    costBasisMinor?: number;
     positionKind: "direct" | "spv_interest" | "fund_interest";
     valueMinor: number | null;
     valueState: "reported" | "locked" | "not_reported";
     containerKind?: "brokerage" | "ira" | "entity";
+    connectionId?: string;
+    containerLabel?: string;
+    observedAt?: string;
   },
 ): void {
   const containerId = `container_${input.id}`;
@@ -190,9 +231,14 @@ function seedAcceptedPosition(
       `INSERT INTO ownership_containers (
          id, household_id, connection_id, protected_account_key,
          created_by_user_id, created_at, immutable
-       ) VALUES (?, 'hh_demo', 'connection_exposure_test', ?, 'usr_demo', ?, 1)`,
+       ) VALUES (?, 'hh_demo', ?, ?, 'usr_demo', ?, 1)`,
     )
-    .run(containerId, hash(`container:${input.id}`), recordedAt);
+    .run(
+      containerId,
+      input.connectionId ?? "connection_exposure_test",
+      hash(`container:${input.id}`),
+      recordedAt,
+    );
   database
     .prepare(
       `INSERT INTO ownership_container_versions (
@@ -204,7 +250,7 @@ function seedAcceptedPosition(
     .run(
       `${containerId}_v1`,
       containerId,
-      `${input.label} account`,
+      input.containerLabel ?? `${input.label} account`,
       input.containerKind ?? "entity",
       recordedAt,
     );
@@ -242,9 +288,14 @@ function seedAcceptedPosition(
     .prepare(
       `INSERT INTO holding_import_connections (
          id, household_id, import_id, connection_id, created_at, immutable
-       ) VALUES (?, 'hh_demo', ?, 'connection_exposure_test', ?, 1)`,
+       ) VALUES (?, 'hh_demo', ?, ?, ?, 1)`,
     )
-    .run(`import_connection_${input.id}`, importId, recordedAt);
+    .run(
+      `import_connection_${input.id}`,
+      importId,
+      input.connectionId ?? "connection_exposure_test",
+      recordedAt,
+    );
   database
     .prepare(
       `INSERT INTO holding_import_coverages (
@@ -274,7 +325,7 @@ function seedAcceptedPosition(
          protected_exposure_key, created_at
        ) VALUES (?, 'hh_demo', ?, 1, ?, ?, ?, 'Synthetic owner', ?, 'live',
          '2026-08-15', 0, 0, ?, ?, 0, ?, ?, ?, 'USD', 'ready', '[]', ?,
-         NULL, ?, NULL, ?, ?, ?)`,
+         ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       rowId,
@@ -289,7 +340,9 @@ function seedAcceptedPosition(
       input.valueState,
       input.positionKind === "direct" ? "equity" : "private interest",
       input.positionKind,
+      input.quantityMicros ?? null,
       input.ticker ?? null,
+      input.costBasisMinor ?? null,
       input.publicExposureIdentityKind ?? null,
       input.protectedExposureKey ?? null,
       recordedAt,
@@ -373,9 +426,10 @@ function seedAcceptedPosition(
          source_import_row_id, snapshot_fingerprint, provider_status,
          invested_minor, allocation_minor, unrealized_value_minor,
          unrealized_value_state, realized_value_minor, net_value_minor,
-         net_value_state, instrument_type, currency, observed_at, created_at
+         net_value_state, instrument_type, currency, observed_at,
+         quantity_micros, ticker, cost_basis_minor, created_at
        ) VALUES (?, 'hh_demo', ?, ?, ?, ?, 'live', 0, 0, ?, ?, 0, ?, ?, ?,
-         'USD', ?, ?)`,
+         'USD', ?, ?, ?, ?, ?)`,
     )
     .run(
       `snapshot_${input.id}`,
@@ -388,7 +442,10 @@ function seedAcceptedPosition(
       input.valueMinor,
       input.valueState,
       input.positionKind === "direct" ? "equity" : "private interest",
-      recordedAt,
+      input.observedAt ?? recordedAt,
+      input.quantityMicros ?? null,
+      input.ticker ?? null,
+      input.costBasisMinor ?? null,
       recordedAt,
     );
   database
@@ -404,7 +461,7 @@ function seedAcceptedPosition(
       `decision_${input.id}`,
       input.id,
       `snapshot_${input.id}`,
-      recordedAt,
+      input.observedAt ?? recordedAt,
     );
 }
 
@@ -412,6 +469,7 @@ describe("canonical exposure resolution and aggregation", () => {
   let sqlite: DatabaseSync;
   let repository: D1ExposureRepository;
   let readModel: D1InvestmentExposureViewRepository;
+  let baselines: D1PortfolioBaselineRepository;
 
   beforeEach(() => {
     sqlite = new DatabaseSync(":memory:");
@@ -423,6 +481,7 @@ describe("canonical exposure resolution and aggregation", () => {
     const database = new TestD1Database(sqlite) as unknown as D1Database;
     repository = new D1ExposureRepository(database);
     readModel = new D1InvestmentExposureViewRepository(database);
+    baselines = new D1PortfolioBaselineRepository(database);
   });
 
   afterEach(() => sqlite.close());
@@ -579,6 +638,308 @@ describe("canonical exposure resolution and aggregation", () => {
         },
       ],
     });
+  });
+
+  it("keeps reconnect history append-only while projecting only the unique current position", async () => {
+    const historyConnectionId =
+      "reconciled-holding-connection-v1:hh_demo:plaid_investments";
+    const currentConnectionId = "connection_synthetic_reconnected_brokerage";
+    seedPlaidInvestmentConnection(sqlite, {
+      id: historyConnectionId,
+      label: "Investment reviewed history",
+      lifecycle: "pending",
+    });
+    seedPlaidInvestmentConnection(sqlite, {
+      id: currentConnectionId,
+      label: "Synthetic Brokerage",
+    });
+    const shared = {
+      label: "Synthetic Alphabet Class A",
+      provider: "plaid_investments" as const,
+      positionKind: "direct" as const,
+      valueState: "reported" as const,
+      containerKind: "brokerage" as const,
+      containerLabel: "Synthetic brokerage",
+      ticker: "GOOGL",
+      quantityMicros: 32_116,
+      costBasisMinor: 509,
+    };
+    seedAcceptedPosition(sqlite, {
+      ...shared,
+      id: "position_synthetic_alphabet_history",
+      connectionId: historyConnectionId,
+      valueMinor: 1_111,
+      observedAt: "2026-08-15T00:00:00.000Z",
+    });
+    seedAcceptedPosition(sqlite, {
+      ...shared,
+      id: "position_synthetic_alphabet_current",
+      connectionId: currentConnectionId,
+      valueMinor: 1_100,
+      observedAt: "2026-08-18T00:00:00.000Z",
+    });
+
+    const historyExposure = await repository.resolveExposure(accessSubject, {
+      exposureKind: "public_instrument",
+      canonicalName: shared.label,
+      protectedIdentityKey: hash("old-item:synthetic-alphabet-security"),
+      evidenceSha256: hash("old synthetic provider security evidence"),
+    });
+    const currentExposure = await repository.resolveExposure(accessSubject, {
+      exposureKind: "public_instrument",
+      canonicalName: shared.label,
+      protectedIdentityKey: hash("new-item:synthetic-alphabet-security"),
+      evidenceSha256: hash("new synthetic provider security evidence"),
+    });
+    for (const [positionId, exposureId, effectiveAt] of [
+      [
+        "position_synthetic_alphabet_history",
+        historyExposure.id,
+        "2026-08-15T00:00:00.000Z",
+      ],
+      [
+        "position_synthetic_alphabet_current",
+        currentExposure.id,
+        "2026-08-18T00:00:00.000Z",
+      ],
+    ] as const) {
+      await repository.recordMapping(accessSubject, {
+        positionId,
+        exposureId,
+        relationshipKind: "direct",
+        allocationPpm: 1_000_000,
+        status: "active",
+        decisionSource: "deterministic_policy",
+        decisionReference: "public-provider-security-v1",
+        evidenceSha256: hash(`mapping:${positionId}`),
+        effectiveAt,
+      });
+    }
+
+    const before = await readModel.list(
+      accessSubject,
+      "2026-08-18T12:00:00.000Z",
+    );
+    const beforeBaseline = await baselines.getState(accessSubject);
+    expect(
+      before.positions.filter((position) =>
+        position.id.startsWith("position_synthetic_alphabet_"),
+      ),
+    ).toHaveLength(2);
+    expect(
+      before.exposures.filter((exposure) =>
+        [historyExposure.id, currentExposure.id].includes(exposure.exposure.id),
+      ),
+    ).toHaveLength(2);
+
+    await repository.reconcileRetainedPositionContinuity(accessSubject);
+    await repository.reconcileRetainedPositionContinuity(accessSubject);
+
+    const after = await readModel.list(
+      accessSubject,
+      "2026-08-18T12:00:00.000Z",
+    );
+    const afterBaseline = await baselines.getState(accessSubject);
+    if (beforeBaseline.summary === null || afterBaseline.summary === null) {
+      throw new Error("Expected reconnect baseline summaries.");
+    }
+    expect(
+      after.positions.filter((position) =>
+        position.id.startsWith("position_synthetic_alphabet_"),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "position_synthetic_alphabet_current",
+        valueMinor: 1_100,
+        observedAt: "2026-08-18T00:00:00.000Z",
+      }),
+    ]);
+    expect(
+      after.exposures.filter((exposure) =>
+        [historyExposure.id, currentExposure.id].includes(exposure.exposure.id),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        exposure: expect.objectContaining({ id: currentExposure.id }),
+        contributions: [
+          expect.objectContaining({
+            positionId: "position_synthetic_alphabet_current",
+            allocatedValueMinor: 1_100,
+          }),
+        ],
+      }),
+    ]);
+    expect(afterBaseline.summary.positionCount).toBe(
+      beforeBaseline.summary.positionCount - 1,
+    );
+    expect(afterBaseline.summary.publicMarketValueMinor).toBe(
+      beforeBaseline.summary.publicMarketValueMinor - 1_111,
+    );
+    expect(
+      sqlite
+        .prepare(
+          `SELECT predecessor_position_id, predecessor_snapshot_id,
+                  successor_position_id, successor_snapshot_id,
+                  resolution_method
+           FROM holding_position_continuities`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        predecessor_position_id: "position_synthetic_alphabet_history",
+        predecessor_snapshot_id: "snapshot_position_synthetic_alphabet_history",
+        successor_position_id: "position_synthetic_alphabet_current",
+        successor_snapshot_id: "snapshot_position_synthetic_alphabet_current",
+        resolution_method: "exact_reconnect_snapshot_v1",
+      },
+    ]);
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_snapshots
+           WHERE position_id IN (?, ?)`,
+        )
+        .get(
+          "position_synthetic_alphabet_history",
+          "position_synthetic_alphabet_current",
+        ),
+    ).toEqual({ count: 2 });
+    expect(() =>
+      sqlite
+        .prepare(
+          `DELETE FROM holding_position_continuities
+           WHERE predecessor_position_id = ?`,
+        )
+        .run("position_synthetic_alphabet_history"),
+    ).toThrow(/holding position continuity is immutable/u);
+  });
+
+  it("does not infer reconnect continuity when exact candidates are ambiguous", async () => {
+    const historyConnectionId =
+      "reconciled-holding-connection-v1:hh_demo:plaid_investments";
+    seedPlaidInvestmentConnection(sqlite, {
+      id: historyConnectionId,
+      label: "Investment reviewed history",
+      lifecycle: "pending",
+    });
+    seedPlaidInvestmentConnection(sqlite, {
+      id: "connection_synthetic_candidate_one",
+      label: "Synthetic Brokerage A",
+    });
+    seedPlaidInvestmentConnection(sqlite, {
+      id: "connection_synthetic_candidate_two",
+      label: "Synthetic Brokerage B",
+    });
+    for (const [id, connectionId, observedAt] of [
+      [
+        "position_synthetic_history_ambiguous",
+        historyConnectionId,
+        "2026-08-15T00:00:00.000Z",
+      ],
+      [
+        "position_synthetic_current_ambiguous_one",
+        "connection_synthetic_candidate_one",
+        "2026-08-18T00:00:00.000Z",
+      ],
+      [
+        "position_synthetic_current_ambiguous_two",
+        "connection_synthetic_candidate_two",
+        "2026-08-18T00:00:00.000Z",
+      ],
+    ] as const) {
+      seedAcceptedPosition(sqlite, {
+        id,
+        connectionId,
+        observedAt,
+        label: "Synthetic duplicated equity",
+        provider: "plaid_investments",
+        positionKind: "direct",
+        valueMinor: 1_000,
+        valueState: "reported",
+        containerKind: "brokerage",
+        containerLabel: "Synthetic brokerage",
+        ticker: "SYN",
+        quantityMicros: 1_000_000,
+        costBasisMinor: 700,
+      });
+    }
+    for (const [id, connectionId, observedAt, protectedExposureKey] of [
+      [
+        "position_synthetic_history_conflicting_identity",
+        historyConnectionId,
+        "2026-08-15T00:00:00.000Z",
+        hash("cusip:synthetic-old-identity"),
+      ],
+      [
+        "position_synthetic_current_conflicting_identity",
+        "connection_synthetic_candidate_one",
+        "2026-08-18T00:00:00.000Z",
+        hash("cusip:synthetic-new-identity"),
+      ],
+    ] as const) {
+      seedAcceptedPosition(sqlite, {
+        id,
+        connectionId,
+        observedAt,
+        protectedExposureKey,
+        publicExposureIdentityKind: "cusip",
+        label: "Synthetic conflicting identity equity",
+        provider: "plaid_investments",
+        positionKind: "direct",
+        valueMinor: 2_000,
+        valueState: "reported",
+        containerKind: "brokerage",
+        containerLabel: "Synthetic brokerage",
+        ticker: "CONFLICT",
+        quantityMicros: 2_000_000,
+        costBasisMinor: 1_400,
+      });
+    }
+
+    await repository.reconcileRetainedPositionContinuity(accessSubject);
+
+    expect(
+      sqlite
+        .prepare(`SELECT COUNT(*) AS count FROM holding_position_continuities`)
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(() =>
+      sqlite
+        .prepare(
+          `INSERT INTO holding_position_continuities (
+             id, household_id, predecessor_position_id,
+             predecessor_snapshot_id, successor_position_id,
+             successor_snapshot_id, resolution_method, recorded_by_user_id,
+             recorded_at, immutable
+           ) VALUES (?, 'hh_demo', ?, ?, ?, ?,
+             'exact_reconnect_snapshot_v1', 'usr_demo', ?, 1)`,
+        )
+        .run(
+          "synthetic-ambiguous-continuity",
+          "position_synthetic_history_ambiguous",
+          "snapshot_position_synthetic_history_ambiguous",
+          "position_synthetic_current_ambiguous_one",
+          "snapshot_position_synthetic_current_ambiguous_one",
+          "2026-08-18T00:00:00.000Z",
+        ),
+    ).toThrow(/not a unique candidate/u);
+    const projection = await readModel.list(
+      accessSubject,
+      "2026-08-18T12:00:00.000Z",
+    );
+    expect(
+      projection.positions.filter(
+        (position) =>
+          position.id.includes("synthetic_") &&
+          position.id.includes("ambiguous"),
+      ),
+    ).toHaveLength(3);
+    expect(
+      projection.positions.filter((position) =>
+        position.id.includes("conflicting_identity"),
+      ),
+    ).toHaveLength(2);
   });
 
   it("groups reviewed SPVs and leaves unknown fund allocations on the position", async () => {
@@ -1591,6 +1952,7 @@ describe("holding ownership and exposure reconciliation migration", () => {
             file !== retainedPublicIdentityMigrationFile &&
             file !== providerScopedIdentityMigrationFile &&
             file !== structuredAssetIdentityMigrationFile &&
+            file !== reconnectedPositionContinuityMigrationFile &&
             file !== "packages/database/seed/synthetic.sql",
         )
         .forEach((file) => {
@@ -1760,6 +2122,17 @@ describe("holding ownership and exposure reconciliation migration", () => {
         effectiveAt: recordedAt,
       });
 
+      // Keep the read-model schema current while proving the earlier ownership
+      // repair against deliberately orphaned accepted positions.
+      for (const file of [
+        retainedPublicIdentityMigrationFile,
+        providerScopedIdentityMigrationFile,
+        structuredAssetIdentityMigrationFile,
+        reconnectedPositionContinuityMigrationFile,
+      ]) {
+        database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+      }
+
       const exposureView = new D1InvestmentExposureViewRepository(d1);
       const baselines = new D1PortfolioBaselineRepository(d1);
       await expect(exposureView.list(accessSubject)).rejects.toThrow(
@@ -1779,24 +2152,6 @@ describe("holding ownership and exposure reconciliation migration", () => {
       database.exec(
         readFileSync(
           resolve(process.cwd(), reconciliationMigrationFile),
-          "utf8",
-        ),
-      );
-      database.exec(
-        readFileSync(
-          resolve(process.cwd(), retainedPublicIdentityMigrationFile),
-          "utf8",
-        ),
-      );
-      database.exec(
-        readFileSync(
-          resolve(process.cwd(), providerScopedIdentityMigrationFile),
-          "utf8",
-        ),
-      );
-      database.exec(
-        readFileSync(
-          resolve(process.cwd(), structuredAssetIdentityMigrationFile),
           "utf8",
         ),
       );

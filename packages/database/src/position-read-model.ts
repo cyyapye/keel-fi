@@ -335,6 +335,11 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            JOIN source_documents document
              ON document.id = accepted_import.source_document_id
            WHERE position.household_id = ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM holding_position_continuities continuity
+               WHERE continuity.predecessor_position_id = position.id
+             )
            ORDER BY ownership.container_id,
                     lower(position.legal_vehicle_name),
                     position.id`,

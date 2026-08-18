@@ -1382,6 +1382,7 @@ export class D1ExposureRepository {
     importId: string,
   ): Promise<void> {
     await this.reconcileAcceptedPublicExposureRows(accessSubject, importId);
+    await this.reconcileRetainedPositionContinuity(accessSubject);
   }
 
   public async listRetainedPublicExposureDocuments(
@@ -1733,6 +1734,38 @@ export class D1ExposureRepository {
     accessSubject: string,
   ): Promise<void> {
     await this.reconcileAcceptedPublicExposureRows(accessSubject, null);
+    await this.reconcileRetainedPositionContinuity(accessSubject);
+  }
+
+  public async reconcileRetainedPositionContinuity(
+    accessSubject: string,
+  ): Promise<void> {
+    const identity = await this.findIdentity(accessSubject);
+    await this.db
+      .prepare(
+        `INSERT OR IGNORE INTO holding_position_continuities (
+           id, household_id, predecessor_position_id, predecessor_snapshot_id,
+           successor_position_id, successor_snapshot_id, resolution_method,
+           recorded_by_user_id, recorded_at, immutable
+         )
+         SELECT
+           'holding-position-continuity-v1:' ||
+             candidate.predecessor_position_id || ':' ||
+             candidate.successor_position_id,
+           candidate.household_id,
+           candidate.predecessor_position_id,
+           candidate.predecessor_snapshot_id,
+           candidate.successor_position_id,
+           candidate.successor_snapshot_id,
+           'exact_reconnect_snapshot_v1',
+           ?,
+           candidate.recorded_at,
+           1
+         FROM holding_position_continuity_candidates_v1 candidate
+         WHERE candidate.household_id = ?`,
+      )
+      .bind(identity.user_id, identity.household_id)
+      .run();
   }
 
   private async reconcileAcceptedPublicExposureRows(

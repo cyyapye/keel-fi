@@ -351,6 +351,20 @@ checksum-verified structured evidence remain unresolved. These mappings do not
 merge legal positions or accounts and cannot change accepted value or Portfolio
 Baseline membership.
 
+Migration `0030_reconnected_position_continuity.sql` repairs a different
+relationship: a retained reviewed-history position followed by a newly
+authorized Plaid Item can represent one legal holding at two observation dates.
+The accepted positions and snapshots remain immutable. Keel records a one-to-one
+continuation only when the reviewed-history record and the newer source record
+have the same normalized legal vehicle and account label, exact ticker,
+instrument type, currency, quantity, and cost basis, the newer snapshot is
+later, and neither side has another candidate. Any protected global security
+identity must also agree; conflicting or one-sided identity fails closed. The
+predecessor then leaves the current Position, Exposure, and Portfolio Baseline
+projections while its accepted source and snapshot remain auditable. This is a
+position-continuity decision, not text-based exposure identity and not a value
+rewrite.
+
 These repairs are derived relationships, not new financial facts, so they may
 run automatically and idempotently before the canonical Holdings read. A repair
 failure must fail closed for that relationship without making the authoritative
