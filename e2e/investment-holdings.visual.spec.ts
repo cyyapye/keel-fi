@@ -157,6 +157,19 @@ const statuses = [
   },
   {
     version: 1 as const,
+    connectionId: "66666666-6666-4666-8666-666666666666",
+    institutionKey: "ins_robinhood",
+    institutionLabel: "Robinhood",
+    status: "disconnected" as const,
+    lastSyncedAt: "2026-03-01T11:45:00.000Z",
+    automaticUpdatesEnabled: false,
+    latestImportId: null,
+    latestRunStatus: null,
+    errorCode: null,
+    latestAdjudication: null,
+  },
+  {
+    version: 1 as const,
     connectionId: "22222222-2222-4222-8222-222222222222",
     institutionKey: "ins_fidelity",
     institutionLabel: "Fidelity",
@@ -350,6 +363,16 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page.getByText("Robinhood, Fidelity, Schwab investing. Banking above."),
   ).toBeVisible();
+  const robinhoodCard = page
+    .locator(".investment-institution")
+    .filter({ hasText: "Robinhood" });
+  await expect(robinhoodCard).toHaveCount(1);
+  await expect(
+    robinhoodCard.getByText("Up to date", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    robinhoodCard.getByRole("button", { name: "Connect again" }),
+  ).toHaveCount(0);
   await expect(
     page.locator(".investment-institution").filter({ hasText: "Fidelity" }),
   ).toHaveCount(2);
@@ -497,9 +520,6 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(nvdaDetailAction).toBeFocused();
 
-  const robinhoodCard = page
-    .locator(".investment-institution")
-    .filter({ hasText: "Robinhood" });
   await robinhoodCard.getByRole("button", { name: "Disconnect" }).click();
   await expect(
     robinhoodCard.getByText(

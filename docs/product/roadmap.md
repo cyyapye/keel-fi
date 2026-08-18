@@ -1089,6 +1089,11 @@ migration, schedule, Queue message, notification channel, or background request.
 It can create a Plaid Item only after the owner explicitly opens Link and
 completes institution consent.
 
+The follow-up also treats a disconnected Item as replaced once a current Item
+has the same exact provider institution ID. Holdings then removes the redundant
+**Connect again** card without matching display text or changing accepted
+positions, exposure, value, or planning history.
+
 **Exit gates:**
 
 - [x] One explicit reviewed action assigns every current exact AngelList
