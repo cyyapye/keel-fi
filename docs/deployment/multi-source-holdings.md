@@ -109,6 +109,10 @@ repair for already accepted history, not an alternate ingestion or read path.
   path. Migration `0026` is the single bounded ownership repair for accepted
   positions that were created before ADR 005 and have accepted application
   evidence but no current canonical ownership association.
+- Holdings renders current rows and totals only from the canonical Position and
+  Exposure projections. The Alpha holding collection may back an available
+  detail action for the same canonical position ID; an Alpha-only record is
+  retained history, not a supplemental current position.
 - The repair reuses an accepted import row's existing container when present.
   Only a position with no proven row/container scope receives a provider-scoped
   reviewed-history connection and its own unresolved container; the migration

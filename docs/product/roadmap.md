@@ -1114,13 +1114,20 @@ recurring external cost.
 read-back after `0030` proved a current public-equity position grouped correctly
 but its older reviewed-history record still appeared once under unresolved
 value. Forward migration
-`0031_reconnected_position_continuity_one_sided_identity.sql` covers the exact
-case where only the newer record has a protected public identifier. It still
-requires exact legal vehicle, account label, ticker, instrument type, currency,
-quantity, cost basis, later observation, and one candidate on each side; two
-present but different protected identities continue to fail closed. No
-identifier, value, position, or snapshot is rewritten, and the slice adds no
-provider request or recurring infrastructure cost.
+`0031_reconnected_position_continuity_one_sided_identity.sql` defensively covers
+the valid case where only the newer record has a protected public identifier. It
+still requires exact legal vehicle, account label, ticker, instrument type,
+currency, quantity, cost basis, later observation, and one candidate on each
+side; two present but different protected identities continue to fail closed.
+
+The subsequent source-label comparison proved the remaining rendered row came
+from the parallel Alpha supplement, not the canonical Position or Exposure
+projection. Holdings now uses those canonical projections exclusively for
+current rows and totals; Alpha data may open details only for the same canonical
+position ID. A desktop/mobile regression includes a retained predecessor in
+Alpha and proves it cannot reappear. No identifier, value, position, or snapshot
+is rewritten, and the slice adds no provider request or recurring infrastructure
+cost.
 
 **Exit gates:**
 
