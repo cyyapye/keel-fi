@@ -4491,6 +4491,11 @@ function Holdings({
           `[data-holding-id="${CSS.escape(returnFocusId)}"]`,
         );
         if (action !== null) {
+          const exposure =
+            action.closest<HTMLDetailsElement>(".exposure-group");
+          if (exposure !== null) {
+            exposure.open = true;
+          }
           action.focus();
           return;
         }
@@ -4510,8 +4515,8 @@ function Holdings({
           <p className="eyebrow">Portfolio evidence</p>
           <h1>Holdings</h1>
           <p>
-            See each position where it is held, then group shared exposure
-            without merging accounts or value.
+            See shared economic exposure, then open each legal position for
+            ownership and source details.
           </p>
         </div>
         <div className="page-intro__actions">

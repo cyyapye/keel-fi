@@ -408,6 +408,26 @@ test("leads with the investment and opens a truthful holding detail", async ({
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
 
+  const exposureView = page.locator(".investment-views");
+  await expect(exposureView.getByRole("tab")).toHaveCount(0);
+  await expect(
+    exposureView.locator(".investment-views__heading"),
+  ).toContainText("3 exposures");
+  await expect(
+    exposureView.locator(".investment-views__heading"),
+  ).toContainText("5 legal positions");
+  const harborExposure = page.locator(".exposure-group").filter({
+    has: page.getByText("Harbor Health Systems", { exact: true }),
+  });
+  const northstarExposure = page.locator(".exposure-group").filter({
+    has: page.getByText("Northstar Robotics", { exact: true }),
+  });
+  const publicExposure = page.locator(".exposure-group").filter({
+    has: page.getByText("Synthetic Public Company", { exact: true }),
+  });
+  await harborExposure.locator("summary").click();
+  await northstarExposure.locator("summary").click();
+  await publicExposure.locator("summary").click();
   const harborAction = page.getByRole("button", {
     name: "View Beacon Demo SPV holding details",
   });
@@ -415,10 +435,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     page.getByText("Beacon Demo SPV", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("Exposure: Harbor Health Systems")).toHaveCount(
-    2,
-  );
-  await expect(harborAction).not.toContainText("Demo Family LLC");
+  await expect(harborExposure).not.toContainText("Demo Family LLC");
   await expect(
     page.getByRole("button", {
       name: "View Seed preferred holding details",
@@ -427,12 +444,6 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);
-  await expect(page.locator(".investment-views__heading")).toContainText(
-    "5 positions",
-  );
-  await expect(
-    page.getByText("Exposure: Northstar Robotics", { exact: true }),
-  ).toBeVisible();
   await expect(
     page.getByText("Administrator-reported value as of the source date."),
   ).toHaveCount(0);
@@ -467,11 +478,6 @@ test("leads with the investment and opens a truthful holding detail", async ({
         visibility: hidden !important;
       }
     `,
-  });
-  const exposureTab = page.getByRole("tab", { name: "Exposures" });
-  await exposureTab.click();
-  const harborExposure = page.locator(".exposure-group").filter({
-    has: page.getByText("Harbor Health Systems", { exact: true }),
   });
   await expect(harborExposure).toContainText("2 positions");
   await harborExposure.locator("summary").click();
@@ -543,7 +549,6 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
   ).toHaveCount(0);
-  await page.getByRole("tab", { name: "Positions" }).click();
 
   await harborAction.click();
   const detailHeading = page.getByRole("heading", {
@@ -573,6 +578,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(harborAction).toBeFocused();
 
+  await latticeExposure.locator("summary").click();
   await page
     .getByRole("button", {
       name: "View Ridge Demo SPV holding details",
@@ -585,6 +591,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expectNoHorizontalOverflow(page);
 
   await page.getByRole("button", { name: "Back to holdings" }).click();
+  await publicExposure.locator("summary").click();
   await page
     .getByRole("button", {
       name: "View SYN · Synthetic Public Company holding details",

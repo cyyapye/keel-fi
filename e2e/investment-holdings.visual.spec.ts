@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { InvestmentHoldingsView } from "../packages/domain/src/investment-holdings-view";
 
 import {
   multiInstitutionInvestmentHoldingsView,
@@ -7,6 +8,39 @@ import {
 import { navigateToScreen } from "./navigation";
 
 const holdingsView = multiInstitutionInvestmentHoldingsView();
+
+function alphaHoldingsFrom(view: InvestmentHoldingsView) {
+  return view.exposureView.positions.map((position) => ({
+    id: position.id,
+    companyId:
+      view.exposureView.exposures.find((group) =>
+        group.contributions.some(
+          (contribution) => contribution.positionId === position.id,
+        ),
+      )?.exposure.companyId ?? null,
+    positionName: position.legalVehicleName,
+    exposureName: position.reportedExposureName,
+    ownerLabel: position.containerLabel,
+    positionKind: position.positionKind,
+    administratorNavMinor: position.valueMinor,
+    administratorNavState:
+      position.valueState === "not_reported"
+        ? ("not_set" as const)
+        : position.valueState,
+    externalMarkMinor: null,
+    underwritingValueMinor: null,
+    scenarioValueMinor: null,
+    usableLiquidityMinor: null,
+    sourceStatus: "verified" as const,
+    sourceLabel: position.sourceLabel,
+    effectiveDate: position.observedAt.slice(0, 10),
+    retrievedAt: position.observedAt,
+    confidencePpm: null,
+    ticker: position.ticker,
+    quantityMicros: null,
+    costBasisMinor: null,
+  }));
+}
 
 const alphaFixture = {
   dashboard: {
@@ -64,36 +98,7 @@ const alphaFixture = {
       ],
     },
   ],
-  holdings: holdingsView.exposureView.positions.map((position) => ({
-    id: position.id,
-    companyId:
-      holdingsView.exposureView.exposures.find((group) =>
-        group.contributions.some(
-          (contribution) => contribution.positionId === position.id,
-        ),
-      )?.exposure.companyId ?? null,
-    positionName: position.legalVehicleName,
-    exposureName: position.reportedExposureName,
-    ownerLabel: position.containerLabel,
-    positionKind: position.positionKind,
-    administratorNavMinor: position.valueMinor,
-    administratorNavState:
-      position.valueState === "not_reported"
-        ? ("not_set" as const)
-        : position.valueState,
-    externalMarkMinor: null,
-    underwritingValueMinor: null,
-    scenarioValueMinor: null,
-    usableLiquidityMinor: null,
-    sourceStatus: "verified" as const,
-    sourceLabel: position.sourceLabel,
-    effectiveDate: position.observedAt.slice(0, 10),
-    retrievedAt: position.observedAt,
-    confidencePpm: null,
-    ticker: position.ticker,
-    quantityMicros: null,
-    costBasisMinor: null,
-  })),
+  holdings: alphaHoldingsFrom(holdingsView),
   evidenceInbox: [],
   portfolioWatch: { targets: [], observations: [] },
   scenarios: [],
@@ -272,6 +277,23 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/investment-holdings", async (route) => {
     await route.fulfill({ json: holdingsView });
   });
+  await page.route("**/api/private-exposure-reviews", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 2,
+        positions: [],
+        companies: [],
+        exactBatch: {
+          revision: "a".repeat(64),
+          positionCount: 0,
+          companyCount: 0,
+          existingCompanyCount: 0,
+          newCompanyCount: 0,
+          excludedPositionCount: 0,
+        },
+      },
+    });
+  });
   await page.route("**/api/investment-connections", async (route) => {
     await route.fulfill({
       json: {
@@ -284,7 +306,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("operates multiple institutions and keeps position and exposure identity visible", async ({
+test("operates multiple institutions from one exposure-first holdings view", async ({
   page,
 }, testInfo) => {
   await page.goto("/");
@@ -301,10 +323,10 @@ test("operates multiple institutions and keeps position and exposure identity vi
     page.locator(".investment-institution").filter({ hasText: "Fidelity" }),
   ).toHaveCount(2);
   await expect(
-    page.getByRole("heading", { name: "Fidelity brokerage" }),
+    page.getByText("Fidelity brokerage", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Fidelity rollover IRA" }),
+    page.getByText("Fidelity rollover IRA", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Partial", { exact: true })).toBeVisible();
   await expect(page.getByText("Stale · Apr 1, 2026")).toBeVisible();
@@ -322,45 +344,21 @@ test("operates multiple institutions and keeps position and exposure identity vi
     page.getByText("Reviewed positions and planning history remain available."),
   ).toBeVisible();
 
-  const positionTab = page.getByRole("tab", { name: "Positions" });
-  const exposureTab = page.getByRole("tab", { name: "Exposures" });
-  await expect(positionTab).toHaveAttribute("aria-selected", "true");
+  const exposureView = page.locator(".investment-views");
   await expect(
-    page.getByText("NVDA common stock", { exact: true }),
-  ).toHaveCount(3);
-  await expect(page.getByText("U S Dollar", { exact: true })).toHaveCount(2);
-  await expect(page.getByText("Locked", { exact: true })).toBeVisible();
+    exposureView.getByRole("heading", { name: "Exposures", exact: true }),
+  ).toBeVisible();
+  await expect(exposureView.getByRole("tab")).toHaveCount(0);
+  await expect(
+    exposureView.locator(".investment-views__heading"),
+  ).toContainText("5 exposures");
+  await expect(
+    exposureView.locator(".investment-views__heading"),
+  ).toContainText("7 legal positions");
+  await expect(exposureView.locator(".exposure-group")).toHaveCount(5);
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  const targetHeights = await page
-    .locator(".investment-institutions .button, .investment-view-tabs button")
-    .evaluateAll((elements) =>
-      elements.map((element) => element.getBoundingClientRect().height),
-    );
-  expect(targetHeights.every((height) => height >= 44)).toBe(true);
-
-  await page.addStyleTag({
-    content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
-  });
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "investment-holdings-positions.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  await exposureTab.click();
-  await expect(exposureTab).toHaveAttribute("aria-selected", "true");
   const nvda = page.locator(".exposure-group").filter({
     has: page.getByText("NVIDIA common stock", { exact: true }),
   });
@@ -380,6 +378,12 @@ test("operates multiple institutions and keeps position and exposure identity vi
   await expect(
     cash.getByText("Fidelity · Fidelity rollover IRA"),
   ).toBeVisible();
+  const harbor = page.locator(".exposure-group").filter({
+    has: page.getByText("Harbor Health Systems", { exact: true }),
+  });
+  await harbor.locator("summary").click();
+  await expect(harbor.getByText("Synthetic Horizon SPV")).toBeVisible();
+  await expect(harbor.getByText("Locked", { exact: true })).toBeVisible();
   await expect(
     page.locator(".unallocated-positions").getByText("Allocation unknown"),
   ).toBeVisible();
@@ -408,7 +412,33 @@ test("operates multiple institutions and keeps position and exposure identity vi
   await expect(
     page.getByRole("heading", { name: "Unallocated or unresolved value" }),
   ).toBeVisible();
+  await expect(
+    nvda.getByRole("button", {
+      name: "View NVDA common stock holding details",
+    }),
+  ).toHaveCount(3);
+  await expect(
+    cash.getByRole("button", {
+      name: "View U S Dollar holding details",
+    }),
+  ).toHaveCount(2);
+  const targetHeights = await page
+    .locator(
+      ".investment-institutions .button:visible, .position-row__action:visible",
+    )
+    .evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect().height),
+    );
+  expect(targetHeights.every((height) => height >= 44)).toBe(true);
   await expectNoHorizontalOverflow(page);
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "investment-holdings-exposures.png",
     {
@@ -418,6 +448,21 @@ test("operates multiple institutions and keeps position and exposure identity vi
       threshold: 0.25,
     },
   );
+
+  const nvdaDetailAction = nvda
+    .getByRole("button", {
+      name: "View NVDA common stock holding details",
+    })
+    .first();
+  await nvdaDetailAction.click();
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "NVIDIA common stock",
+    }),
+  ).toBeFocused();
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(nvdaDetailAction).toBeFocused();
 
   const robinhoodCard = page
     .locator(".investment-institution")
@@ -442,7 +487,12 @@ test("summarizes reviewed-history account shells without hiding positions or exp
   const reviewedHistoryView = reconciledReviewedHistoryInvestmentHoldingsView();
   await page.unroute("**/api/alpha");
   await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: { ...alphaFixture, holdings: [] } });
+    await route.fulfill({
+      json: {
+        ...alphaFixture,
+        holdings: alphaHoldingsFrom(reviewedHistoryView),
+      },
+    });
   });
   await page.unroute("**/api/investment-connections");
   await page.route("**/api/investment-connections", async (route) => {
@@ -493,38 +543,14 @@ test("summarizes reviewed-history account shells without hiding positions or exp
     },
   );
 
-  const positionGroups = page.locator(".position-groups .position-group");
-  await expect(positionGroups).toHaveCount(14);
+  const exposureView = page.locator(".investment-views");
+  await expect(exposureView.getByRole("tab")).toHaveCount(0);
   await expect(
-    page.locator(".position-groups .position-group--reviewed-history"),
-  ).toHaveCount(14);
+    exposureView.locator(".investment-views__heading"),
+  ).toContainText("1 exposure");
   await expect(
-    page.getByRole("heading", { name: "Demo Pharmacy", exact: true }),
-  ).toHaveCount(14);
-  await expect(
-    page.getByRole("heading", { name: "Demo Family holding 01" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText("Demo Pharmacy SPV 01", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Demo Pharmacy SPV 14", { exact: true }),
-  ).toBeVisible();
-  await expect(page.locator(".position-groups")).not.toContainText(
-    "Demo Family holding",
-  );
-  await expectNoHorizontalOverflow(page);
-  await expect(positionGroups.first()).toHaveScreenshot(
-    "investment-holdings-reviewed-history-position-hierarchy.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  await page.getByRole("tab", { name: "Exposures" }).click();
+    exposureView.locator(".investment-views__heading"),
+  ).toContainText("14 legal positions");
   const exposure = page.locator(".exposure-group").filter({
     has: page.getByText("Demo Pharmacy", { exact: true }),
   });
@@ -536,6 +562,26 @@ test("summarizes reviewed-history account shells without hiding positions or exp
   ).toHaveCount(14);
   await expect(exposure).toContainText("Demo Pharmacy SPV 01");
   await expect(exposure).toContainText("Demo Pharmacy SPV 14");
+  await expect(exposure).not.toContainText("Demo Family holding");
+  await expect(exposure).toContainText("AngelList reviewed history");
+  const positionActions = exposure.getByRole("button", {
+    name: /View Demo Pharmacy SPV \d+ holding details/,
+  });
+  await expect(positionActions).toHaveCount(14);
+  await expectNoHorizontalOverflow(page);
+
+  const firstPositionAction = positionActions.first();
+  await firstPositionAction.click();
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "Demo Pharmacy",
+      exact: true,
+    }),
+  ).toBeFocused();
+  await expect(page.getByText("Via Demo Pharmacy SPV 01")).toBeVisible();
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(firstPositionAction).toBeFocused();
 });
 
 test("uses the same reviewed-history summary for one legal position", async ({
@@ -545,7 +591,12 @@ test("uses the same reviewed-history summary for one legal position", async ({
     reconciledReviewedHistoryInvestmentHoldingsView(1);
   await page.unroute("**/api/alpha");
   await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: { ...alphaFixture, holdings: [] } });
+    await route.fulfill({
+      json: {
+        ...alphaFixture,
+        holdings: alphaHoldingsFrom(reviewedHistoryView),
+      },
+    });
   });
   await page.unroute("**/api/investment-connections");
   await page.route("**/api/investment-connections", async (route) => {
@@ -579,14 +630,15 @@ test("uses the same reviewed-history summary for one legal position", async ({
   await expect(reviewedHistory).not.toContainText("Last complete");
   await expect(reviewedHistory).not.toContainText("Waiting for review");
   await expect(reviewedHistory.getByRole("button")).toHaveCount(0);
+  const exposure = page.locator(".exposure-group").filter({
+    has: page.getByText("Demo Pharmacy", { exact: true }),
+  });
+  await expect(exposure).toContainText("1 position");
+  await exposure.locator("summary").click();
   await expect(
-    page.getByRole("heading", { name: "Demo Pharmacy", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Demo Family holding 01" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText("Demo Pharmacy SPV 01", { exact: true }),
+    exposure.getByRole("button", {
+      name: "View Demo Pharmacy SPV 01 holding details",
+    }),
   ).toBeVisible();
 });
 
@@ -606,28 +658,9 @@ test("keeps failed canonical holdings out of unresolved exposures and retries", 
     }
     await route.fulfill({ json: holdingsView });
   });
-  await page.route("**/api/private-exposure-reviews", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 2,
-        positions: [],
-        companies: [],
-        exactBatch: {
-          revision: "a".repeat(64),
-          positionCount: 0,
-          companyCount: 0,
-          existingCompanyCount: 0,
-          newCompanyCount: 0,
-          excludedPositionCount: 0,
-        },
-      },
-    });
-  });
-
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
-  await page.getByRole("tab", { name: "Exposures" }).click();
 
   const errorState = page.locator(".investment-views");
   await expect(errorState.getByRole("alert")).toContainText(
