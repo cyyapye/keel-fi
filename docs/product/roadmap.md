@@ -1024,6 +1024,34 @@ adds no provider request, paid product, polling schedule, Queue message, R2
 object, notification channel, recurring work, or incremental external spend, and
 does not change an accepted position, value, baseline, plan, or forecast.
 
+**2026-08-17 exposure-first Holdings follow-up:** Holdings now presents one
+exposure hierarchy instead of parallel Positions and Exposures tabs. Each
+exposure expands to its separately named legal positions, and each position has
+a direct detail action that restores focus to its originating exposure on
+return. Reviewed-history private positions no longer repeat the household owner
+label; public positions retain useful institution and account context. The
+multi-institution proof keeps three NVIDIA legal positions under one exposure,
+keeps cash positions grouped by exact structured asset identity, and leaves
+unallocated or unresolved value explicit. This presentation supersedes M9.8's
+original tab default without changing the canonical position or exposure
+contracts, accepted values, legal-position histories, baselines, plans, or
+forecasts. Implemented in [PR #105](https://github.com/cyyapye/keel-fi/pull/105)
+at exact checked head
+[`0875386`](https://github.com/cyyapye/keel-fi/commit/0875386b8564b84f6f184ab8242e7a41496c53bd)
+and merged as released commit
+[`18726db`](https://github.com/cyyapye/keel-fi/commit/18726dba08b8de4fba04556d81367ff07bf0914a).
+All 464 tests, 56 desktop/mobile browser flows, D1 replay and seed checks,
+builds, public-data checks, secret scans, and inspected Darwin/Linux visual
+baselines passed; exact-head PR checks passed in
+[run `32098134309`](https://github.com/cyyapye/keel-fi/actions/runs/32098134309).
+The exact-SHA release retained an encrypted D1 backup, confirmed the complete
+migration set, deployed and read back both Worker versions, passed protected
+smokes, and retained release evidence in
+[run `32098393945`](https://github.com/cyyapye/keel-fi/actions/runs/32098393945).
+The follow-up adds no migration, provider request, paid product, polling
+schedule, Queue message, R2 object, notification channel, recurring work, or
+incremental external spend.
+
 **Exit gates:**
 
 - [x] One explicit reviewed action assigns every current exact AngelList
