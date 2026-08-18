@@ -36,6 +36,23 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/investment-holdings", async (route) => {
     await route.fulfill({ json: emptyInvestmentHoldingsView });
   });
+  await page.route("**/api/private-exposure-reviews", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 2,
+        positions: [],
+        companies: [],
+        exactBatch: {
+          revision: "a".repeat(64),
+          positionCount: 0,
+          companyCount: 0,
+          existingCompanyCount: 0,
+          newCompanyCount: 0,
+          excludedPositionCount: 0,
+        },
+      },
+    });
+  });
   await page.route("**/api/cash-accounts", async (route) => {
     await route.fulfill({
       json: {

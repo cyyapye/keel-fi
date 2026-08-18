@@ -14,7 +14,6 @@ import type {
   InvestmentCoverageCompleteness,
   InvestmentPositionConnection,
   InvestmentPositionContainer,
-  InvestmentPositionRecord,
 } from "@keel/domain/position-read-model";
 import { Badge, Button } from "@keel/ui";
 import {
@@ -63,8 +62,6 @@ type BusyAction = {
   action: ConnectionAction;
   connectionId: string | null;
 };
-
-type ViewMode = "positions" | "exposures";
 
 const EMPTY_INVESTMENT_HOLDINGS_VIEW: InvestmentHoldingsView = {
   version: 1,
@@ -164,14 +161,6 @@ function latestCompleteObservation(
   return (
     observations.sort((left, right) => right.localeCompare(left))[0] ?? null
   );
-}
-
-function positionValue(position: InvestmentPositionRecord): string {
-  const value = position.snapshot.netValue;
-  if (value.state === "reported" && value.minor !== null) {
-    return formatCompactCurrency(value.minor, position.snapshot.currency);
-  }
-  return value.state === "locked" ? "Locked" : "Not reported";
 }
 
 function exposurePositionValue(position: InvestmentExposurePosition): string {
@@ -553,7 +542,7 @@ function PrivateExposureAssignmentForm({
   );
 }
 
-function PositionViews({
+function ExposureView({
   data,
   exposureReviewBatchBusy,
   exposureReviewBatchError,
@@ -568,7 +557,6 @@ function PositionViews({
   onOpenHolding,
   onSubmitExposureReview,
   reviewedHoldings,
-  view,
 }: {
   data: InvestmentHoldingsView;
   exposureReviewBatchBusy: boolean;
@@ -587,234 +575,35 @@ function PositionViews({
     input: PrivateExposureResolutionInput,
   ) => void;
   reviewedHoldings: readonly Holding[];
-  view: ViewMode;
 }) {
-  if (view === "positions") {
-    const resolvedExposureNamesByPosition = new Map<string, Set<string>>();
-    for (const group of data.exposureView.exposures) {
-      if (group.exposure.exposureKind === "unresolved") {
-        continue;
-      }
-      for (const contribution of group.contributions) {
-        const names =
-          resolvedExposureNamesByPosition.get(contribution.positionId) ??
-          new Set<string>();
-        names.add(group.exposure.canonicalName);
-        resolvedExposureNamesByPosition.set(contribution.positionId, names);
-      }
-    }
-    const positionCount =
-      reviewedHoldings.length +
-      data.positionView.connections.reduce(
-        (connectionTotal, connection) =>
-          connectionTotal +
-          connection.containers.reduce(
-            (containerTotal, container) =>
-              containerTotal + container.positions.length,
-            0,
-          ),
-        0,
-      );
-    if (positionCount === 0) {
-      return (
-        <div className="investment-views__empty">
-          <h3>No reviewed positions</h3>
-          <p>Connect an investment institution or import a holding update.</p>
-        </div>
-      );
-    }
-    return (
-      <div className="position-groups" role="tabpanel">
-        {data.positionView.connections.flatMap((connection) =>
-          connection.containers.flatMap((container) => {
-            if (
-              connection.purpose === "reviewed_history" &&
-              container.positions.length > 0
-            ) {
-              return container.positions.map((position) => {
-                const resolvedNames = [
-                  ...(resolvedExposureNamesByPosition.get(position.id) ?? []),
-                ];
-                const primaryName =
-                  resolvedNames.length === 1
-                    ? resolvedNames[0]!
-                    : position.legalVehicleName;
-                const sourceContext =
-                  connection.adapterType === "plaid-investments"
-                    ? `${connection.institutionLabel} · ${container.label}`
-                    : connection.institutionLabel;
-                return (
-                  <section
-                    aria-labelledby={`reviewed-history-position-${position.id}`}
-                    className="position-group position-group--reviewed-history"
-                    key={position.id}
-                  >
-                    <div className="reviewed-history-position__heading">
-                      <p>{sourceContext}</p>
-                      <h3 id={`reviewed-history-position-${position.id}`}>
-                        {primaryName}
-                      </h3>
-                      {primaryName !== position.legalVehicleName && (
-                        <small>
-                          <span>Legal position</span>
-                          <strong>{position.legalVehicleName}</strong>
-                        </small>
-                      )}
-                    </div>
-                    <div className="reviewed-history-position__facts">
-                      <span>
-                        <small>Value</small>
-                        <strong>{positionValue(position)}</strong>
-                      </span>
-                      <span>
-                        <small>Observed</small>
-                        {formatDate(position.snapshot.observedAt)}
-                        {position.source.freshness === "stale" && (
-                          <em>Stale</em>
-                        )}
-                      </span>
-                      {openableHoldingIds.has(position.id) && (
-                        <button
-                          aria-label={`View ${position.legalVehicleName} holding details`}
-                          className="position-row__action"
-                          data-holding-id={position.id}
-                          onClick={() => onOpenHolding(position.id)}
-                          type="button"
-                        >
-                          View details →
-                        </button>
-                      )}
-                    </div>
-                  </section>
-                );
-              });
-            }
-            return [
-              <section
-                aria-labelledby={`position-account-${container.id}`}
-                className="position-group"
-                key={container.id}
-              >
-                <div className="position-group__heading">
-                  <div>
-                    <p>{connection.institutionLabel}</p>
-                    <h3 id={`position-account-${container.id}`}>
-                      {container.label}
-                    </h3>
-                  </div>
-                  <span>
-                    {accountKindLabel(container.kind)}
-                    {container.coverage === null
-                      ? " · Not checked"
-                      : ` · ${coverageLabel(container.coverage.completeness)}`}
-                  </span>
-                </div>
-                {container.positions.length === 0 ? (
-                  <p className="position-group__empty">
-                    The latest complete observation reported no positions.
-                  </p>
-                ) : (
-                  <div className="position-list">
-                    {container.positions.map((position) => (
-                      <article className="position-row" key={position.id}>
-                        <div className="position-row__identity">
-                          <strong>{position.legalVehicleName}</strong>
-                          {position.reportedExposureName !== null &&
-                            position.reportedExposureName !==
-                              position.legalVehicleName && (
-                              <small>
-                                Exposure: {position.reportedExposureName}
-                              </small>
-                            )}
-                        </div>
-                        <span>
-                          <small>Value</small>
-                          <strong>{positionValue(position)}</strong>
-                        </span>
-                        <span>
-                          <small>Observed</small>
-                          {formatDate(position.snapshot.observedAt)}
-                          {position.source.freshness === "stale" && (
-                            <em>Stale</em>
-                          )}
-                        </span>
-                        {openableHoldingIds.has(position.id) && (
-                          <button
-                            aria-label={`View ${position.legalVehicleName} holding details`}
-                            className="position-row__action"
-                            data-holding-id={position.id}
-                            onClick={() => onOpenHolding(position.id)}
-                            type="button"
-                          >
-                            View details →
-                          </button>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </section>,
-            ];
-          }),
-        )}
-        {reviewedHoldings.length > 0 && (
-          <section
-            aria-labelledby="reviewed-holdings-title"
-            className="position-group"
-          >
-            <div className="position-group__heading">
-              <div>
-                <p>Manual and imported</p>
-                <h3 id="reviewed-holdings-title">Reviewed holdings</h3>
-              </div>
-              <span>
-                {reviewedHoldings.length} legal{" "}
-                {reviewedHoldings.length === 1 ? "position" : "positions"}
-              </span>
-            </div>
-            <div className="position-list">
-              {reviewedHoldings.map((holding) => (
-                <article className="position-row" key={holding.id}>
-                  <div className="position-row__identity">
-                    <strong>{holding.positionName}</strong>
-                    <small>
-                      {holding.exposureName === null
-                        ? "Exposure unresolved"
-                        : `Exposure: ${holding.exposureName}`}
-                    </small>
-                    <small>
-                      {holding.ownerLabel} · {holding.sourceLabel}
-                    </small>
-                  </div>
-                  <span>
-                    <small>Value</small>
-                    <strong>{reviewedHoldingValue(holding)}</strong>
-                  </span>
-                  <span>
-                    <small>Observed</small>
-                    {formatDate(holding.effectiveDate)}
-                    {holding.sourceStatus !== "verified" && (
-                      <em>{holdingStatusLabel(holding.sourceStatus)}</em>
-                    )}
-                  </span>
-                  <button
-                    aria-label={`View ${holding.positionName} holding details`}
-                    className="position-row__action"
-                    data-holding-id={holding.id}
-                    onClick={() => onOpenHolding(holding.id)}
-                    type="button"
-                  >
-                    View details →
-                  </button>
-                </article>
-              ))}
-            </div>
-          </section>
-        )}
-      </div>
-    );
-  }
-
+  const holdingDetailAction = (holdingId: string, holdingName: string) =>
+    openableHoldingIds.has(holdingId) ? (
+      <button
+        aria-label={`View ${holdingName} holding details`}
+        className="position-row__action"
+        data-holding-id={holdingId}
+        onClick={() => onOpenHolding(holdingId)}
+        type="button"
+      >
+        View details →
+      </button>
+    ) : null;
+  const positionContextById = new Map(
+    data.positionView.connections.flatMap((connection) =>
+      connection.containers.flatMap((container) =>
+        container.positions.map((position) => [
+          position.id,
+          connection.purpose === "reviewed_history" &&
+          connection.adapterType !== "plaid-investments"
+            ? connection.institutionLabel
+            : `${connection.institutionLabel} · ${container.label}`,
+        ]),
+      ),
+    ),
+  );
+  const positionContext = (position: InvestmentExposurePosition) =>
+    positionContextById.get(position.id) ??
+    `${position.institutionLabel} · ${position.containerLabel}`;
   const canonicalUnallocated = data.exposureView.positions.filter(
     (position) =>
       position.hasUnknownAllocation ||
@@ -858,16 +647,14 @@ function PositionViews({
     unresolvedReviewed.length === 0
   ) {
     return (
-      <div className="investment-views__empty" role="tabpanel">
-        <h3>No resolved exposures</h3>
-        <p>
-          Reviewed positions stay visible while exposure resolution is pending.
-        </p>
+      <div className="investment-views__empty">
+        <h3>No reviewed positions</h3>
+        <p>Connect an investment institution or import a holding update.</p>
       </div>
     );
   }
   return (
-    <div className="exposure-groups" role="tabpanel">
+    <div className="exposure-groups">
       {data.exposureView.exposures.map((group) => {
         const positions = group.contributions
           .map((contribution) =>
@@ -906,9 +693,7 @@ function PositionViews({
                 <article key={position.id}>
                   <span>
                     <strong>{position.legalVehicleName}</strong>
-                    <small>
-                      {position.institutionLabel} · {position.containerLabel}
-                    </small>
+                    <small>{positionContext(position)}</small>
                   </span>
                   <span>{exposurePositionValue(position)}</span>
                   <span>
@@ -918,18 +703,18 @@ function PositionViews({
                         ? "Full exposure"
                         : `${Math.floor(position.knownAllocationPpm / 10_000)}% allocated`}
                   </span>
+                  {holdingDetailAction(position.id, position.legalVehicleName)}
                 </article>
               ))}
               {supplemental.map((holding) => (
                 <article key={holding.id}>
                   <span>
                     <strong>{holding.positionName}</strong>
-                    <small>
-                      {holding.sourceLabel} · {holding.ownerLabel}
-                    </small>
+                    <small>{holding.sourceLabel}</small>
                   </span>
                   <span>{reviewedHoldingValue(holding)}</span>
                   <span>{holdingKindLabel(holding.positionKind)}</span>
+                  {holdingDetailAction(holding.id, holding.positionName)}
                 </article>
               ))}
             </div>
@@ -957,12 +742,11 @@ function PositionViews({
                 <article key={holding.id}>
                   <span>
                     <strong>{holding.positionName}</strong>
-                    <small>
-                      {holding.sourceLabel} · {holding.ownerLabel}
-                    </small>
+                    <small>{holding.sourceLabel}</small>
                   </span>
                   <span>{reviewedHoldingValue(holding)}</span>
                   <span>{holdingKindLabel(holding.positionKind)}</span>
+                  {holdingDetailAction(holding.id, holding.positionName)}
                 </article>
               ))}
             </div>
@@ -1045,9 +829,7 @@ function PositionViews({
                 <article>
                   <span>
                     <strong>{position.legalVehicleName}</strong>
-                    <small>
-                      {position.institutionLabel} · {position.containerLabel}
-                    </small>
+                    <small>{positionContext(position)}</small>
                   </span>
                   <span>{exposurePositionValue(position)}</span>
                   <span className="unallocated-positions__status">
@@ -1073,6 +855,7 @@ function PositionViews({
                       </Button>
                     )}
                   </span>
+                  {holdingDetailAction(position.id, position.legalVehicleName)}
                 </article>
                 {reviewPosition !== null && reviewOpen && (
                   <PrivateExposureAssignmentForm
@@ -1098,9 +881,7 @@ function PositionViews({
                 <article>
                   <span>
                     <strong>{holding.positionName}</strong>
-                    <small>
-                      {holding.sourceLabel} · {holding.ownerLabel}
-                    </small>
+                    <small>{holding.sourceLabel}</small>
                   </span>
                   <span>{reviewedHoldingValue(holding)}</span>
                   <span className="unallocated-positions__status">
@@ -1119,6 +900,7 @@ function PositionViews({
                       </Button>
                     )}
                   </span>
+                  {holdingDetailAction(holding.id, holding.positionName)}
                 </article>
                 {reviewPosition !== null && reviewOpen && (
                   <PrivateExposureAssignmentForm
@@ -1148,14 +930,6 @@ function holdingKindLabel(kind: Holding["positionKind"]): string {
     spv_interest: "SPV interest",
     fund_interest: "Fund interest",
   }[kind];
-}
-
-function holdingStatusLabel(status: Holding["sourceStatus"]): string {
-  return {
-    verified: "Reviewed",
-    review_due: "Review due",
-    proposed: "Value review pending",
-  }[status];
 }
 
 function reviewedHoldingValue(holding: Holding): string {
@@ -1209,7 +983,6 @@ export function InvestmentHoldings({
   const [exposureReviewNotice, setExposureReviewNotice] = useState<
     string | null
   >(null);
-  const [view, setView] = useState<ViewMode>("positions");
   const oauthStarted = useRef(false);
   const knownHoldingIds = useMemo(
     () => new Set(holdings.map((holding) => holding.id)),
@@ -1644,6 +1417,22 @@ export function InvestmentHoldings({
         ),
       0,
     ) ?? 0);
+  const canonicalExposureCompanyIds = new Set(
+    data?.exposureView.exposures.flatMap((group) =>
+      group.exposure.companyId === null ? [] : [group.exposure.companyId],
+    ) ?? [],
+  );
+  const reviewedOnlyExposureCompanyIds = new Set(
+    reviewedHoldings.flatMap((holding) =>
+      holding.companyId !== null &&
+      !canonicalExposureCompanyIds.has(holding.companyId)
+        ? [holding.companyId]
+        : [],
+    ),
+  );
+  const exposureCount =
+    (data?.exposureView.exposures.length ?? 0) +
+    reviewedOnlyExposureCompanyIds.size;
 
   return (
     <>
@@ -1781,49 +1570,29 @@ export function InvestmentHoldings({
         <div className="investment-views__heading">
           <div>
             <p className="eyebrow">Reviewed ownership</p>
-            <h2 id="investment-views-title">Positions and exposures</h2>
+            <h2 id="investment-views-title">Exposures</h2>
             <p>
-              Positions show what is legally held. Exposures group shared
-              economic risk without merging accounts or value.
+              Each exposure groups legal positions that share economic risk.
+              Open a position for its ownership and source details.
             </p>
           </div>
           {data !== null && (
             <span>
-              <strong>{positionCount}</strong>{" "}
-              {positionCount === 1 ? "position" : "positions"}
+              <strong>{exposureCount}</strong>{" "}
+              {exposureCount === 1 ? "exposure" : "exposures"}
+              <small>
+                {positionCount} legal{" "}
+                {positionCount === 1 ? "position" : "positions"}
+              </small>
             </span>
           )}
         </div>
-        <div
-          aria-label="Holdings view"
-          className="investment-view-tabs"
-          role="tablist"
-        >
-          <button
-            aria-selected={view === "positions"}
-            className={view === "positions" ? "active" : ""}
-            onClick={() => setView("positions")}
-            role="tab"
-            type="button"
-          >
-            Positions
-          </button>
-          <button
-            aria-selected={view === "exposures"}
-            className={view === "exposures" ? "active" : ""}
-            onClick={() => setView("exposures")}
-            role="tab"
-            type="button"
-          >
-            Exposures
-          </button>
-        </div>
-        {view === "exposures" && exposureReviewNotice !== null && (
+        {exposureReviewNotice !== null && (
           <p className="private-exposure-review__notice" role="status">
             {exposureReviewNotice}
           </p>
         )}
-        {view === "exposures" && exposureReviewLoadError !== null && (
+        {exposureReviewLoadError !== null && (
           <div className="investment-views__error" role="alert">
             <p>
               {exposureReviewLoadError} Reviewed positions were not changed.
@@ -1838,7 +1607,7 @@ export function InvestmentHoldings({
         )}
         {data === null && viewError === null ? (
           <p className="investment-views__loading" role="status">
-            Loading reviewed positions…
+            Loading reviewed exposures…
           </p>
         ) : (
           <>
@@ -1851,7 +1620,7 @@ export function InvestmentHoldings({
               </div>
             )}
             {(data !== null || reviewedHoldings.length > 0) && (
-              <PositionViews
+              <ExposureView
                 data={data ?? EMPTY_INVESTMENT_HOLDINGS_VIEW}
                 exposureReviewBatchBusy={exposureReviewBatchBusy}
                 exposureReviewBatchError={exposureReviewBatchError}
@@ -1868,7 +1637,6 @@ export function InvestmentHoldings({
                   void submitExposureReview(position, input)
                 }
                 reviewedHoldings={reviewedHoldings}
-                view={view}
               />
             )}
           </>
