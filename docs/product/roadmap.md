@@ -1090,9 +1090,11 @@ It can create a Plaid Item only after the owner explicitly opens Link and
 completes institution consent.
 
 The follow-up also treats a disconnected Item as replaced once a current Item
-has the same exact provider institution ID. Holdings then removes the redundant
-**Connect again** card without matching display text or changing accepted
-positions, exposure, value, or planning history.
+has the same exact provider institution ID. For retained pre-ID connections,
+Holdings may also suppress an empty card with the exact provider institution
+label; a connection with any reviewed account remains separate. This removes the
+redundant **Connect again** card without using display text to merge holdings or
+changing accepted position, exposure, value, or planning history.
 
 **Exit gates:**
 

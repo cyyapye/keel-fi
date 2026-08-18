@@ -158,7 +158,7 @@ const statuses = [
   {
     version: 1 as const,
     connectionId: "66666666-6666-4666-8666-666666666666",
-    institutionKey: "ins_robinhood",
+    institutionKey: "ins_robinhood_legacy",
     institutionLabel: "Robinhood",
     status: "disconnected" as const,
     lastSyncedAt: "2026-03-01T11:45:00.000Z",
@@ -575,6 +575,46 @@ test("opens a new Item flow for a disconnected brokerage", async ({
 
   await expect.poll(() => linkTokenRequests).toBe(1);
   await expect(connectAgain).toBeEnabled();
+});
+
+test("keeps a same-label disconnected Item when it has a reviewed account", async ({
+  page,
+}, testInfo) => {
+  await page.unroute("**/api/investment-connections");
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: statuses.map((status) =>
+          status.connectionId === "33333333-3333-4333-8333-333333333333"
+            ? {
+                ...status,
+                institutionKey: "ins_fidelity_legacy",
+                status: "disconnected" as const,
+              }
+            : status,
+        ),
+        errorCode: null,
+      },
+    });
+  });
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await navigateToScreen(page, mobile, /Holdings/);
+
+  const fidelityCards = page
+    .locator(".investment-institution")
+    .filter({ hasText: "Fidelity" });
+  await expect(fidelityCards).toHaveCount(2);
+  const disconnectedFidelity = fidelityCards.filter({
+    hasText: "Disconnected",
+  });
+  await expect(disconnectedFidelity).toContainText("1 reviewed account");
+  await expect(
+    disconnectedFidelity.getByRole("button", { name: "Connect again" }),
+  ).toBeVisible();
 });
 
 test("keeps reviewed history in exposures without showing fake brokerage accounts", async ({
