@@ -1377,6 +1377,11 @@ export function InvestmentHoldings({
       status,
     ]) ?? [],
   );
+  const currentInstitutionKeys = new Set(
+    connectionState?.connections.flatMap((status) =>
+      status.status === "disconnected" ? [] : [status.institutionKey],
+    ) ?? [],
+  );
   const positionConnectionById = new Map(
     data?.positionView.connections.map((connection) => [
       connection.id,
@@ -1393,9 +1398,14 @@ export function InvestmentHoldings({
   ];
   const visibleConnectionIds = orderedIds.filter((connectionId) => {
     const connection = positionConnectionById.get(connectionId) ?? null;
+    const status = statusById.get(connectionId) ?? null;
     return (
       (connection === null || connection.adapterType === "plaid-investments") &&
-      connection?.purpose !== "reviewed_history"
+      connection?.purpose !== "reviewed_history" &&
+      !(
+        status?.status === "disconnected" &&
+        currentInstitutionKeys.has(status.institutionKey)
+      )
     );
   });
   const addAvailable = data?.authorizationStatus === "available";

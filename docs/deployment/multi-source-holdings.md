@@ -270,6 +270,11 @@ new Item while preserving accepted positions and planning history. Bank and
 investment consent remain separate. Robinhood banking uses **Add bank**; its
 brokerage and retirement accounts use **Add brokerage**.
 
+After a replacement Item exists, Holdings suppresses the old disconnected
+recovery card only when a non-disconnected Item carries the same exact Plaid
+institution ID. It does not compare institution labels, delete the old source,
+or remove its accepted positions from exposure and planning history.
+
 Plaid's [current Trial plan](https://plaid.com/docs/account/billing/) includes
 Investments and permits at most 10 Production Items. Every new Item counts
 toward that lifetime Trial ceiling; removing an Item does not restore capacity.
