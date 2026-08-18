@@ -189,10 +189,18 @@ export function investmentHoldingsViewFor(
   const resolvedHoldings = holdings.filter(
     (holding) => holding.ticker !== null || holding.companyId !== null,
   );
-  const exposures = resolvedHoldings.map(reviewedExposure);
-  const mappings = resolvedHoldings.map((holding, index) =>
-    directMapping(holding, exposures[index]!, index),
-  );
+  const exposureByIdentity = new Map<string, CanonicalExposure>();
+  const mappings = resolvedHoldings.map((holding, index) => {
+    const identity =
+      holding.ticker === null
+        ? `company:${holding.companyId}`
+        : `position:${holding.id}`;
+    const exposure =
+      exposureByIdentity.get(identity) ?? reviewedExposure(holding, index);
+    exposureByIdentity.set(identity, exposure);
+    return directMapping(holding, exposure, index);
+  });
+  const exposures = [...exposureByIdentity.values()];
   return InvestmentHoldingsViewSchema.parse({
     version: 1,
     authorizationStatus: "provider_approval_required",

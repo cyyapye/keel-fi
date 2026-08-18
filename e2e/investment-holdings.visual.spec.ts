@@ -621,12 +621,19 @@ test("keeps reviewed history in exposures without showing fake brokerage account
   page,
 }, testInfo) => {
   const reviewedHistoryView = reconciledReviewedHistoryInvestmentHoldingsView();
+  const reviewedAlphaHoldings = alphaHoldingsFrom(reviewedHistoryView);
+  const retainedPredecessor = {
+    ...reviewedAlphaHoldings[0]!,
+    id: "position_reviewed_history_retained_predecessor",
+    positionName: "Demo Pharmacy retired predecessor",
+    administratorNavMinor: 123_456,
+  };
   await page.unroute("**/api/alpha");
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({
       json: {
         ...alphaFixture,
-        holdings: alphaHoldingsFrom(reviewedHistoryView),
+        holdings: [...reviewedAlphaHoldings, retainedPredecessor],
       },
     });
   });
@@ -675,6 +682,9 @@ test("keeps reviewed history in exposures without showing fake brokerage account
   ).toHaveCount(14);
   await expect(exposure).toContainText("Demo Pharmacy SPV 01");
   await expect(exposure).toContainText("Demo Pharmacy SPV 14");
+  await expect(exposureView).not.toContainText(
+    "Demo Pharmacy retired predecessor",
+  );
   await expect(exposure).not.toContainText("Demo Family holding");
   await expect(exposure).not.toContainText("AngelList reviewed history");
   const positionActions = exposure.getByRole("button", {

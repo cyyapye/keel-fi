@@ -366,13 +366,19 @@ auditable. This is a position-continuity decision, not text-based exposure
 identity and not a value rewrite.
 
 Migration `0031_reconnected_position_continuity_one_sided_identity.sql` refines
-only the protected-identity corroboration rule after authenticated release
-acceptance found a reconnect where the successor had a valid global identifier
-that the retained predecessor lacked. One missing identifier no longer vetoes an
-otherwise exact, unique structured continuation; it is never copied to or
-inferred for the predecessor. If both sides have protected global identities,
-they must match. All snapshot facts, directionality, provenance, and one-to-one
-uniqueness gates from `0030` remain unchanged.
+only the protected-identity corroboration rule for a valid reconnect shape where
+the successor has a global identifier that the retained predecessor lacks. One
+missing identifier no longer vetoes an otherwise exact, unique structured
+continuation; it is never copied to or inferred for the predecessor. If both
+sides have protected global identities, they must match. All snapshot facts,
+directionality, provenance, and one-to-one uniqueness gates from `0030` remain
+unchanged.
+
+The canonical Position and Exposure projections are the only Holdings list
+source. The Alpha holding collection may supply detail content for a canonical
+position ID, but the UI must not union an Alpha-only record back into either
+projection. Otherwise an intentionally retired continuity predecessor can
+reappear as an unresolved current position after the database has excluded it.
 
 These repairs are derived relationships, not new financial facts, so they may
 run automatically and idempotently before the canonical Holdings read. A repair

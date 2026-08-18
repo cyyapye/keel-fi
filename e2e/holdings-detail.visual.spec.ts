@@ -192,7 +192,6 @@ test("leads with the investment and opens a truthful holding detail", async ({
   page,
 }, testInfo) => {
   let exposureResolved = false;
-  let useLegacyExposureView = false;
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({
       json: {
@@ -239,26 +238,19 @@ test("leads with the investment and opens a truthful holding detail", async ({
     });
   });
   await page.route("**/api/investment-holdings", async (route) => {
-    const unresolvedHolding = alphaFixture.holdings.find(
-      (holding) => holding.id === "holding_demo_locked",
-    )!;
-    const publicHolding = alphaFixture.holdings.find(
-      (holding) => holding.id === "holding_demo_robinhood",
-    )!;
     await route.fulfill({
-      json: investmentHoldingsViewFor([
-        ...(useLegacyExposureView
-          ? []
-          : [
-              {
-                ...unresolvedHolding,
+      json: investmentHoldingsViewFor(
+        alphaFixture.holdings.map((holding) =>
+          holding.id === "holding_demo_locked"
+            ? {
+                ...holding,
                 companyId: exposureResolved
                   ? "company_lattice_synthetic"
                   : null,
-              },
-            ]),
-        publicHolding,
-      ]),
+              }
+            : holding,
+        ),
+      ),
     });
   });
   await page.route("**/api/private-exposure-reviews", async (route) => {
@@ -468,7 +460,6 @@ test("leads with the investment and opens a truthful holding detail", async ({
     },
   );
 
-  useLegacyExposureView = true;
   await page.reload();
   await navigateToScreen(page, mobile, /Holdings/);
   await page.addStyleTag({
