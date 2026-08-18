@@ -402,6 +402,11 @@ export interface CashAccountsRepository {
     connectionId: string,
     refreshKind: "initial" | "live",
   ): Promise<CashAccountRefreshRun>;
+  beginAutomaticRefresh(
+    accessSubject: string,
+    connectionId: string,
+    refreshedAfter: string,
+  ): Promise<CashAccountRefreshRun | null>;
   stageProposal(
     accessSubject: string,
     runId: string,
@@ -837,6 +842,79 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     return { id, connection, refreshKind };
   }
 
+  public async beginAutomaticRefresh(
+    accessSubject: string,
+    rawConnectionId: string,
+    rawRefreshedAfter: string,
+  ): Promise<CashAccountRefreshRun | null> {
+    const refreshedAfter = z.iso
+      .datetime({ offset: true })
+      .parse(rawRefreshedAfter);
+    const connection = await this.getConnection(accessSubject, rawConnectionId);
+    if (connection === null) {
+      return null;
+    }
+    const identity = await findIdentity(this.db, accessSubject);
+    const id = crypto.randomUUID();
+    const startedAt = new Date().toISOString();
+    const result = await this.db
+      .prepare(
+        `INSERT INTO connector_sync_runs (
+           id, household_id, connector_account_id, status, started_at,
+           finished_at, cursor, discovered_count, proposed_count, error_code
+         )
+         SELECT ?, ?, ?, 'running', ?, NULL, 'cash-live-v1', 0, 0, NULL
+         WHERE NOT EXISTS (
+           SELECT 1 FROM cash_balance_proposals proposal
+           WHERE proposal.household_id = ?
+             AND proposal.connector_account_id = ?
+             AND proposal.status = 'pending_review'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM connector_sync_runs active
+           WHERE active.household_id = ?
+             AND active.connector_account_id = ?
+             AND active.cursor IN ('cash-initial-v1', 'cash-live-v1')
+             AND active.status IN ('queued', 'running')
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM connector_sync_runs recent
+           WHERE recent.household_id = ?
+             AND recent.connector_account_id = ?
+             AND recent.cursor = 'cash-live-v1'
+             AND recent.started_at >= ?
+         )
+         AND (
+           SELECT COUNT(*) FROM connector_sync_runs used
+           WHERE used.household_id = ?
+             AND used.connector_account_id = ?
+             AND used.cursor = 'cash-live-v1'
+             AND substr(used.started_at, 1, 7) = ?
+         ) < ?`,
+      )
+      .bind(
+        id,
+        identity.household_id,
+        connection.id,
+        startedAt,
+        identity.household_id,
+        connection.id,
+        identity.household_id,
+        connection.id,
+        identity.household_id,
+        connection.id,
+        refreshedAfter,
+        identity.household_id,
+        connection.id,
+        monthPrefix(new Date(startedAt)),
+        LIVE_REFRESH_LIMIT,
+      )
+      .run();
+    return result.meta.changes === 1
+      ? { id, connection, refreshKind: "live" }
+      : null;
+  }
+
   public async stageProposal(
     accessSubject: string,
     rawRunId: string,
@@ -957,6 +1035,12 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
       id: crypto.randomUUID(),
       ...row,
     }));
+    const rows = rowRecords.map((row) =>
+      proposalRowFrom(row, acceptedByKey.get(row.natural_key_sha256)),
+    );
+    if (rows.every((row) => row.action === "no_change")) {
+      return { proposal: null };
+    }
     const statements: D1PreparedStatement[] = [
       this.db
         .prepare(
@@ -1013,9 +1097,6 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
       );
     });
     await this.db.batch(statements);
-    const rows = rowRecords.map((row) =>
-      proposalRowFrom(row, acceptedByKey.get(row.natural_key_sha256)),
-    );
     return {
       proposal: {
         id: proposalId,

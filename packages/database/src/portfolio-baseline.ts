@@ -263,32 +263,8 @@ function sourceCashAccounts(
 function sourcePositions(
   rows: readonly SourcePositionRow[],
 ): PortfolioBaselinePosition[] {
-  const material = rows.map((row) => {
+  return rows.map((row) => {
     const positionName = row.exposure_label ?? row.legal_vehicle_name;
-    return {
-      row,
-      positionName,
-      duplicateKey: normalizedDuplicateKey(positionName, row.ticker),
-    };
-  });
-  const providersByDuplicateKey = new Map<string, Set<string>>();
-  material.forEach(({ duplicateKey, row }) => {
-    const providers = providersByDuplicateKey.get(duplicateKey) ?? new Set();
-    providers.add(row.provider);
-    providersByDuplicateKey.set(duplicateKey, providers);
-  });
-
-  return material.map(({ duplicateKey, positionName, row }) => {
-    const duplicateWith = material
-      .filter(
-        (candidate) =>
-          candidate.duplicateKey === duplicateKey &&
-          candidate.row.provider !== row.provider,
-      )
-      .map((candidate) => candidate.positionName)
-      .sort((left, right) => left.localeCompare(right));
-    const potentialDuplicate =
-      (providersByDuplicateKey.get(duplicateKey)?.size ?? 0) > 1;
     return {
       id: row.position_id,
       positionName,
@@ -307,8 +283,8 @@ function sourcePositions(
       observedAt: row.observed_at,
       ticker: row.ticker,
       isCashPosition: row.instrument_type.toLowerCase() === "cash",
-      potentialDuplicate,
-      duplicateWith,
+      potentialDuplicate: false,
+      duplicateWith: [],
     };
   });
 }
@@ -406,9 +382,7 @@ function requiresCashOverlapReview(
       .map((position) => position.valueMinor ?? 0),
   );
   return (
-    [linkedCashMinor, brokerageCashMinor, manualResidualMinor].filter(
-      (value) => value > 0,
-    ).length > 1
+    manualResidualMinor > 0 && (linkedCashMinor > 0 || brokerageCashMinor > 0)
   );
 }
 

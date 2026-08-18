@@ -41,6 +41,7 @@ function repository(
     cancelDisconnect: vi.fn(),
     completeDisconnect: vi.fn(),
     beginRefresh: vi.fn(),
+    beginAutomaticRefresh: vi.fn().mockResolvedValue(null),
     stageProposal: vi.fn(),
     completeRefresh: vi.fn(),
     failRefresh: vi.fn(),
@@ -203,6 +204,23 @@ describe("cash account API", () => {
     await expect(response.json()).resolves.toEqual({
       error: "This institution has used its live balance checks this month.",
     });
+    expect(getAccounts).not.toHaveBeenCalled();
+  });
+
+  it("loads Holdings without calling Plaid when the automatic guard skips refresh", async () => {
+    const beginAutomaticRefresh = vi.fn().mockResolvedValue(null);
+    const getAccounts = vi.fn();
+    const response = await createApp({
+      cashAccountsRepository: repository({ beginAutomaticRefresh }),
+      cashPlaidClient: client({ getAccounts }),
+    }).request("/api/cash-accounts/auto-refresh", { method: "POST" }, env());
+
+    expect(response.status).toBe(200);
+    expect(beginAutomaticRefresh).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-cash-connection",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u),
+    );
     expect(getAccounts).not.toHaveBeenCalled();
   });
 

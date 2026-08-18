@@ -43,7 +43,7 @@ const readyState = {
     cashAccountValueMinor: 9_968_055,
     unknownCashAccountCount: 0,
     unknownValueCount: 1,
-    potentialDuplicateCount: 2,
+    potentialDuplicateCount: 0,
   },
   positions: [
     {
@@ -58,8 +58,8 @@ const readyState = {
       observedAt: "2026-08-10T16:00:00.000Z",
       ticker: "SYN",
       isCashPosition: false,
-      potentialDuplicate: true,
-      duplicateWith: ["Synthetic Public Company"],
+      potentialDuplicate: false,
+      duplicateWith: [],
     },
     {
       id: "holding_demo_spv",
@@ -73,8 +73,8 @@ const readyState = {
       observedAt: "2026-08-09T16:00:00.000Z",
       ticker: null,
       isCashPosition: false,
-      potentialDuplicate: true,
-      duplicateWith: ["Synthetic Public Company"],
+      potentialDuplicate: false,
+      duplicateWith: [],
     },
     {
       id: "holding_demo_locked",
@@ -139,7 +139,7 @@ const readyState = {
   latestBaseline: null,
   hasSourceChanges: true,
   hasCashAccountChanges: true,
-  requiresDuplicateReview: true,
+  requiresDuplicateReview: false,
   requiresCashOverlapReview: true,
   canConfirm: true,
 } as const;
@@ -252,7 +252,7 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("sets the initial FI baseline with explicit overlap review", async ({
+test("sets the initial FI baseline while checking only manual cash", async ({
   page,
 }) => {
   const alphaResponse = await page.request.get("/api/alpha");
@@ -332,7 +332,7 @@ test("sets the initial FI baseline with explicit overlap review", async ({
       name: "Set the FI planning baseline",
     }),
   ).toBeVisible();
-  await expect(summary).toContainText("2 cash accounts");
+  await expect(summary).not.toContainText("reviewed positions");
   await expect(summary).toHaveScreenshot("portfolio-baseline-ready.png", {
     animations: "disabled",
     caret: "hide",
@@ -347,9 +347,9 @@ test("sets the initial FI baseline with explicit overlap review", async ({
   await expect(
     page.getByLabel("Proposed FI-eligible liquid calculation"),
   ).toContainText("$387,680.55");
-  await page
-    .getByLabel(/I reviewed the 2 possible overlapping positions/u)
-    .check();
+  await expect(page.getByLabel(/possible overlapping positions/u)).toHaveCount(
+    0,
+  );
   await page
     .getByLabel(/I checked linked cash accounts, brokerage cash positions/u)
     .check();
@@ -372,13 +372,14 @@ test("sets the initial FI baseline with explicit overlap review", async ({
   await page.getByRole("button", { name: "Confirm baseline" }).click();
   await expect(
     page.getByRole("heading", { name: "Planning baseline is current" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
+  await expect(page.locator(".portfolio-baseline")).toHaveCount(0);
   expect(confirmationBody).toMatchObject({
     sourceRevision: readyState.sourceRevision,
     baseForecastSnapshotId: "snap_fi_v3",
     baseForecastSnapshotVersion: 3,
     otherFiEligibleLiquidMinor: 5_000_000,
-    duplicateReviewConfirmed: true,
+    duplicateReviewConfirmed: false,
     cashOverlapReviewConfirmed: true,
   });
 });
@@ -456,9 +457,8 @@ test("refreshes an existing FI baseline without a second review", async ({
   });
 
   await page.goto("/holdings");
-  await expect(
-    page.getByRole("heading", { name: "Planning baseline is current" }),
-  ).toBeVisible();
+  await expect.poll(() => confirmationBody).not.toBeNull();
+  await expect(page.locator(".portfolio-baseline")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Review replacement" }),
   ).toHaveCount(0);
@@ -470,16 +470,6 @@ test("refreshes an existing FI baseline without a second review", async ({
     duplicateReviewConfirmed: false,
     cashOverlapReviewConfirmed: false,
     changeNote: "Accepted holdings refreshed automatically.",
-  });
-  const summary = page.locator(".portfolio-baseline");
-  await expect(summary).toContainText(
-    "Accepted holdings can update automatically; cash changes wait for review.",
-  );
-  await expect(summary).toHaveScreenshot("portfolio-baseline-automatic.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
   });
   await expectNoHorizontalOverflow(page);
 });
@@ -539,11 +529,11 @@ test("keeps accepted cash changes behind a separate baseline review", async ({
 
   await page.goto("/holdings");
   await expect(
-    page.getByRole("heading", { name: "Cash changes are ready to review" }),
+    page.getByRole("heading", { name: "Bank cash changes are ready" }),
   ).toBeVisible();
   await page.waitForTimeout(250);
   expect(confirmationCount).toBe(0);
-  await page.getByRole("button", { name: "Review cash changes" }).click();
+  await page.getByRole("button", { name: "Review bank cash" }).click();
   await expect(page.getByLabel("Manual liquid residual")).toHaveValue("0.00");
   await expectNoHorizontalOverflow(page);
 });

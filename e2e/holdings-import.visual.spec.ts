@@ -631,12 +631,8 @@ test("connects Robinhood through Investments and isolates exceptions", async ({
   );
 
   await page.goto("/holdings");
-  await expect(
-    page.getByRole("heading", { name: "Accounts and updates" }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Add investment institution" })
-    .click();
+  await expect(page.getByRole("heading", { name: "Brokerages" })).toBeVisible();
+  await page.getByRole("button", { name: "Add brokerage" }).click();
 
   await expect(page).toHaveURL(
     /\/holdings\/imports\/holding_import_synthetic_robinhood$/,
@@ -740,7 +736,7 @@ test("shows one Robinhood exception entry point", async ({ page }) => {
   const robinhoodCard = page
     .locator(".investment-institution")
     .filter({ hasText: "Robinhood" });
-  await expect(robinhoodCard).toContainText("Waiting for review2");
+  await expect(robinhoodCard).toContainText("2 waiting for review");
   await expect(
     page.getByRole("button", { name: "Review 2 items" }),
   ).toHaveCount(1);
@@ -843,7 +839,7 @@ test("shows automatic Robinhood checks with exception-only review", async ({
     },
   );
   await page.getByRole("button", { name: "Keep connected" }).click();
-  await expect(robinhoodCard).toContainText("Last completeNot yet");
+  await expect(robinhoodCard).toContainText("0 accounts");
 
   const viewportWidths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -873,9 +869,10 @@ test("shows automatic Robinhood checks with exception-only review", async ({
   await expect(
     page.getByText("Robinhood disconnected. Reviewed history remains visible."),
   ).toBeVisible();
+  await expect(robinhoodCard).toHaveCount(0);
   await expect(
     page.getByText("Reviewed positions and planning history remain available."),
-  ).toBeVisible();
+  ).toHaveCount(0);
   expect(disconnectCalls).toBe(1);
 });
 

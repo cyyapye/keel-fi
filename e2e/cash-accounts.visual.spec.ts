@@ -193,11 +193,16 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   let cashState: Record<string, unknown> = pendingState;
   let applyBody: Record<string, unknown> | null = null;
   let identityReviewBody: Record<string, unknown> | null = null;
+  let automaticRefreshRequests = 0;
 
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
   await page.route("**/api/cash-accounts", async (route) => {
+    await route.fulfill({ json: cashState });
+  });
+  await page.route("**/api/cash-accounts/auto-refresh", async (route) => {
+    automaticRefreshRequests += 1;
     await route.fulfill({ json: cashState });
   });
   await page.route(
@@ -315,12 +320,13 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   await page.goto("/holdings");
   const cashSection = page.locator(".cash-accounts");
   await expect(
-    page.getByRole("heading", { name: "Linked cash accounts" }),
+    page.getByRole("heading", { name: "Bank cash", exact: true }),
   ).toBeVisible();
   await expect(cashSection).toContainText("$75k");
-  await expect(cashSection).toContainText("3 live checks left this month");
+  await expect(cashSection).toContainText("four times per bank each month");
   await expect(cashSection).not.toContainText("Review waiting");
   await expect(cashSection).not.toContainText("ready to review");
+  expect(automaticRefreshRequests).toBe(0);
   await expect(cashSection).toHaveScreenshot("cash-accounts-ready.png", {
     animations: "disabled",
     caret: "hide",

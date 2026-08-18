@@ -2459,6 +2459,13 @@ h1,
   letter-spacing: -0.035em;
 }
 
+.investment-institution__summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
 .investment-institution__meta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2645,6 +2652,19 @@ h1,
 .exposure-groups {
   display: grid;
   margin-top: 24px;
+}
+
+.exposure-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 0;
+}
+
+.exposure-pagination span {
+  color: var(--muted);
+  font-size: 9px;
 }
 
 .exposure-group,
@@ -3053,6 +3073,11 @@ h1,
 }
 
 .angellist-agent + .holding-import-pending {
+  border-top: 0;
+}
+
+.holding-import-pending + .angellist-agent,
+.angellist-agent + .cash-accounts {
   border-top: 0;
 }
 
@@ -6125,11 +6150,16 @@ h1,
 
   .investment-institution__actions {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .investment-institution__actions .button {
+  .investment-institution__actions .button:not(.button--quiet) {
+    grid-column: 1 / -1;
     width: 100%;
+  }
+
+  .investment-institution__actions .button--quiet:nth-child(2):last-child {
+    grid-column: 1 / -1;
   }
 
   .investment-institution__confirm {
@@ -6227,6 +6257,15 @@ h1,
   }
 
   .investment-views__error .button {
+    width: 100%;
+  }
+
+  .exposure-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .exposure-pagination .button {
     width: 100%;
   }
 

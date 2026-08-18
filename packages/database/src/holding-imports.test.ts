@@ -1398,12 +1398,12 @@ describe("reviewed portfolio baseline persistence", () => {
         cashAccountValueMinor: 300_000,
         unknownCashAccountCount: 0,
         unknownValueCount: 1,
-        potentialDuplicateCount: 2,
+        potentialDuplicateCount: 0,
       },
       hasSourceChanges: true,
       hasCashAccountChanges: true,
-      requiresDuplicateReview: true,
-      requiresCashOverlapReview: true,
+      requiresDuplicateReview: false,
+      requiresCashOverlapReview: false,
       canConfirm: true,
       suggestedOtherFiEligibleLiquidMinor: 0,
     });
@@ -1415,7 +1415,7 @@ describe("reviewed portfolio baseline persistence", () => {
     ]);
     expect(
       state.positions.filter((position) => position.potentialDuplicate),
-    ).toHaveLength(2);
+    ).toHaveLength(0);
     expect(state.positions).not.toContainEqual(
       expect.objectContaining({ ticker: "SDA" }),
     );
@@ -1445,24 +1445,11 @@ describe("reviewed portfolio baseline persistence", () => {
     await expect(
       baselines.confirm("synthetic-access-subject", {
         ...confirmation,
-        otherFiEligibleLiquidMinor: 0,
-        duplicateReviewConfirmed: true,
-      }),
-    ).rejects.toThrow("cash overlaps");
-    await expect(
-      baselines.confirm("synthetic-access-subject", confirmation),
-    ).rejects.toThrow("overlaps");
-
-    await expect(
-      baselines.confirm("synthetic-access-subject", {
-        ...confirmation,
-        duplicateReviewConfirmed: true,
       }),
     ).rejects.toThrow("cash overlaps");
 
     const confirmed = await baselines.confirm("synthetic-access-subject", {
       ...confirmation,
-      duplicateReviewConfirmed: true,
       cashOverlapReviewConfirmed: true,
     });
     expect(confirmed).toMatchObject({

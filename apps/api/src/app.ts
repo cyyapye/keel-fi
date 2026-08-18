@@ -91,6 +91,7 @@ import {
   createPlaidCashClient,
   disconnectCashAccount,
   refreshCashAccount,
+  refreshDueCashAccounts,
   type PlaidCashClient,
 } from "./plaid-cash-sync";
 import {
@@ -1008,6 +1009,27 @@ export function createApp(options: AppOptions = {}) {
         client: cashPlaidClientFor(context.env),
         accessSubject: context.get("identity").subject,
         publicToken: parsed.data.publicToken,
+      });
+      return context.json(state, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return cashAccountErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/cash-accounts/auto-refresh", async (context) => {
+    if (!cashAccountsConfiguredFor(context.env)) {
+      return context.json({ error: "Cash accounts are not configured." }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    try {
+      const state = await refreshDueCashAccounts({
+        env: context.env,
+        repository: cashAccountsRepositoryFor(context.env),
+        client: cashPlaidClientFor(context.env),
+        accessSubject: context.get("identity").subject,
       });
       return context.json(state, 200, {
         "Cache-Control": "private, no-store",

@@ -24,6 +24,10 @@ function fingerprint(character: string): string {
   return character.repeat(64);
 }
 
+function fingerprintForIndex(index: number): string {
+  return index.toString(16).padStart(2, "0").repeat(32);
+}
+
 function recordFromHolding(
   holding: Holding,
   index: number,
@@ -53,7 +57,7 @@ function recordFromHolding(
     },
     snapshot: {
       id: `snapshot_${holding.id}`,
-      fingerprint: fingerprint(String.fromCharCode(97 + index)),
+      fingerprint: fingerprintForIndex(index),
       observedAt: holding.retrievedAt,
       providerStatus: "live",
       investedMinor: holding.administratorNavMinor ?? 0,
@@ -76,14 +80,14 @@ function recordFromHolding(
   };
 }
 
-function reviewedExposure(holding: Holding): CanonicalExposure {
+function reviewedExposure(holding: Holding, index: number): CanonicalExposure {
   const publicPosition = holding.ticker !== null;
   return {
     id: `exposure_${holding.id}`,
     householdId,
     exposureKind: publicPosition ? "public_instrument" : "private_company",
     canonicalName: holding.exposureName ?? holding.positionName,
-    protectedIdentityKey: publicPosition ? fingerprint("f") : null,
+    protectedIdentityKey: publicPosition ? fingerprintForIndex(index) : null,
     companyId: publicPosition ? null : holding.companyId,
     resolutionMethod: publicPosition ? "strong_identifier" : "reviewed_company",
     evidenceSha256: fingerprint("e"),
