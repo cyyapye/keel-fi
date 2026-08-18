@@ -1071,6 +1071,24 @@ visit may use at most one due Plaid Balance request per bank each seven days,
 still capped at four attempted requests per UTC month and therefore at `4 ×` the
 private contract rate per connected bank.
 
+**2026-08-18 brokerage connection recovery follow-up:** A disconnected brokerage
+source returns to Holdings only when it offers a real recovery action. **Connect
+again** opens a new Plaid Investments Item because the prior Item and credential
+were deliberately removed; accepted positions and planning history remain
+unchanged. **Reconnect** remains reserved for an invalid retained Item that can
+use Plaid update mode without creating a second Item. The same provider-neutral
+**Add brokerage** path now serves Robinhood investing, Fidelity, and Schwab,
+while Robinhood banking stays in the separate **Add bank** flow. The private
+preview enables new Investments connections; checked-in local and production
+configurations remain disabled. Link availability and exact post-exchange
+Investments metadata fail closed without matching institution display text.
+Plaid's Trial plan includes Investments but permits only 10 Production Items,
+and deleting an Item does not restore capacity, so bank, brokerage, and
+post-disconnect replacement Items each consume one slot. This slice adds no
+migration, schedule, Queue message, notification channel, or background request.
+It can create a Plaid Item only after the owner explicitly opens Link and
+completes institution consent.
+
 **Exit gates:**
 
 - [x] One explicit reviewed action assigns every current exact AngelList

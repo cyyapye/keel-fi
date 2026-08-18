@@ -150,7 +150,7 @@ type AppOptions = {
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
   privateExposureReviewRepository?: PrivateExposureReviewRepository;
   retainedPublicExposureReconciler?: RetainedPublicExposureReconciler;
-  additionalInvestmentAuthorizationAvailable?: boolean;
+  newInvestmentConnectionsAvailable?: boolean;
   repository?: AlphaRepository;
   verifyAccess?: AccessVerifier;
 };
@@ -533,9 +533,9 @@ export function createApp(options: AppOptions = {}) {
     options.plaidClient ?? createPlaidInvestmentsClient(env);
   const investmentsConfiguredFor = (env: Env) =>
     options.plaidClient !== undefined || investmentsSyncConfigured(env);
-  const additionalInvestmentAuthorizationAvailableFor = (env: Env) =>
-    options.additionalInvestmentAuthorizationAvailable ??
-    env.INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED === "true";
+  const newInvestmentConnectionsAvailableFor = (env: Env) =>
+    options.newInvestmentConnectionsAvailable ??
+    env.INVESTMENTS_NEW_CONNECTIONS_ENABLED === "true";
   const cashAccountsRepositoryFor = (env: Env) =>
     options.cashAccountsRepository ?? new D1CashAccountsRepository(env.DB);
   const cashPlaidClientFor = (env: Env) =>
@@ -1559,7 +1559,7 @@ export function createApp(options: AppOptions = {}) {
           version: 1,
           authorizationStatus: !investmentsConfiguredFor(context.env)
             ? "configuration_required"
-            : additionalInvestmentAuthorizationAvailableFor(context.env)
+            : newInvestmentConnectionsAvailableFor(context.env)
               ? "available"
               : "provider_approval_required",
           positionView,
@@ -1727,11 +1727,10 @@ export function createApp(options: AppOptions = {}) {
         { "Cache-Control": "private, no-store" },
       );
     }
-    if (!additionalInvestmentAuthorizationAvailableFor(context.env)) {
+    if (!newInvestmentConnectionsAvailableFor(context.env)) {
       return context.json(
         {
-          error:
-            "Additional investment institutions require approved provider coverage and pricing.",
+          error: "New investment connections are not enabled.",
         },
         409,
         { "Cache-Control": "private, no-store" },
@@ -1803,6 +1802,13 @@ export function createApp(options: AppOptions = {}) {
     const parsed = InvestmentExchangeInputSchema.safeParse(input);
     if (!parsed.success) {
       return context.json({ error: "Investment connection is invalid." }, 400);
+    }
+    if (!newInvestmentConnectionsAvailableFor(context.env)) {
+      return context.json(
+        { error: "New investment connections are not enabled." },
+        409,
+        { "Cache-Control": "private, no-store" },
+      );
     }
     const accessSubject = context.get("identity").subject;
     try {
