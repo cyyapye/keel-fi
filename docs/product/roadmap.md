@@ -633,20 +633,20 @@ remains $0.
 
 **Required proof matrix:**
 
-| Scenario                                                          | Required result                                                                                                                 |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Existing Robinhood and AngelList data after migration             | Same position IDs, accepted snapshots, baseline items, totals, goals, and forecasts; only canonical associations are added.     |
-| NVDA in Robinhood brokerage, Fidelity brokerage, and Fidelity IRA | Three legal positions and baseline line items, one canonical NVIDIA exposure, and exact account drill-down.                     |
-| Two SPVs into the same private company                            | Two legal positions and histories, one shared company exposure, and no merge of invested, realized, or remaining values.        |
-| One SPV or fund with several exposures and unknown allocations    | Position value appears once; relationships are visible; no underlying exposure receives manufactured value.                     |
-| Complete observation omits a prior position in one container      | Only that connection/container receives a `not reported` proposal or exception; its last accepted value remains.                |
-| Partial, failed, malformed, or ambiguous observation              | No position is called missing and no accepted position, baseline, or forecast changes.                                          |
-| Reconnect with stable source/account identities                   | Existing connection, container, and position lineages continue; no duplicate position is created.                               |
-| Same institution connected through two Items/logins               | Two connections remain distinct even when institution labels match.                                                             |
-| Brokerage cash plus linked banking cash or manual residual        | Values remain separate and positive overlap requires explicit review before baseline confirmation.                              |
-| Banking or cash-management account returned outside Investments   | It is excluded from holdings and can enter only through the separate reviewed `plaid-cash` flow.                                |
-| Disconnect or pause                                               | Future retrieval stops as required; credentials follow deletion policy; accepted history and current baseline remain unchanged. |
-| Ambiguous cross-source account or position match                  | The candidate is isolated for review and cannot be auto-merged or counted twice.                                                |
+| Scenario                                                          | Required result                                                                                                                      |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Existing Robinhood and AngelList data after migration             | Same position IDs, accepted snapshots, baseline items, totals, goals, and forecasts; only canonical associations are added.          |
+| NVDA in Robinhood brokerage, Fidelity brokerage, and Fidelity IRA | Three legal positions and baseline line items, one canonical NVIDIA exposure, and exact account drill-down.                          |
+| Two SPVs into the same private company                            | Two legal positions and histories, one shared company exposure, and no merge of invested, realized, or remaining values.             |
+| One SPV or fund with several exposures and unknown allocations    | Position value appears once; relationships are visible; no underlying exposure receives manufactured value.                          |
+| Complete observation omits a prior position in one container      | Only that connection/container receives a `not reported` proposal or exception; its last accepted value remains.                     |
+| Partial, failed, malformed, or ambiguous observation              | No position is called missing and no accepted position, baseline, or forecast changes.                                               |
+| Reconnect with stable source/account identities                   | Existing connection, container, and position lineages continue; no duplicate position is created.                                    |
+| Same institution connected through two Items/logins               | Two connections remain distinct even when institution labels match.                                                                  |
+| Brokerage cash plus linked banking cash or manual residual        | Exact sourced cash stays separate and is counted automatically; only a positive source-less manual residual requires overlap review. |
+| Banking or cash-management account returned outside Investments   | It is excluded from holdings and can enter only through the separate reviewed `plaid-cash` flow.                                     |
+| Disconnect or pause                                               | Future retrieval stops as required; credentials follow deletion policy; accepted history and current baseline remain unchanged.      |
+| Ambiguous cross-source account or position match                  | The candidate is isolated for review and cannot be auto-merged or counted twice.                                                     |
 
 **Rollout and cost evidence:**
 
@@ -1051,6 +1051,25 @@ smokes, and retained release evidence in
 The follow-up adds no migration, provider request, paid product, polling
 schedule, Queue message, R2 object, notification channel, recurring work, or
 incremental external spend.
+
+**2026-08-17 Holdings hierarchy and refresh follow-up:** Holdings removes
+reviewed-history placeholders and empty disconnected sources from brokerage
+management while retaining every accepted legal position in the exposure
+hierarchy. Current brokerage controls remain only when they communicate a real
+state or action. Bank cash is labeled separately from brokerage cash, due live
+balances refresh on a Holdings visit behind a seven-day cooldown and the
+existing four-attempt monthly ceiling, and changed observations remain proposals
+until review. Exact accepted bank and brokerage identities are counted together
+without a manufactured overlap prompt; only a positive manual residual still
+needs confirmation. AngelList actions and pending imports precede passive
+portfolio content. Long exposure lists render 12 groups at a time from the one
+canonical response with automatic progressive disclosure and an accessible
+manual fallback. Idle ten-second investment and AngelList polling is removed;
+only an active run keeps the short poll. The slice adds no migration, background
+schedule, Queue message, notification channel, or new paid product. A Holdings
+visit may use at most one due Plaid Balance request per bank each seven days,
+still capped at four attempted requests per UTC month and therefore at `4 ×` the
+private contract rate per connected bank.
 
 **Exit gates:**
 

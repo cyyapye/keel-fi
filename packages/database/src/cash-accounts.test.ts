@@ -351,6 +351,31 @@ describe("reviewed cash accounts", () => {
         }),
       ],
     });
+
+    const unchangedRun = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "live",
+    );
+    const unchanged = await repository.stageProposal(
+      "synthetic-access-subject",
+      unchangedRun.id,
+      {
+        objectKey: "cash-observations/synthetic-unchanged.json",
+        sourceSha256: "3".repeat(64),
+        normalized: normalized([reportedRow()]),
+      },
+    );
+    expect(unchanged.proposal).toBeNull();
+    await repository.completeRefresh(
+      "synthetic-access-subject",
+      unchangedRun.id,
+      null,
+      1,
+    );
+    await expect(
+      repository.getState("synthetic-access-subject", true),
+    ).resolves.toMatchObject({ pendingProposals: [] });
   });
 
   it("treats a missing account as unknown only after review", async () => {
@@ -888,6 +913,60 @@ describe("reviewed cash accounts", () => {
         }),
       ],
     });
+  });
+
+  it("starts an automatic live check only when the weekly guard allows it", async () => {
+    const connection = await repository.upsertConnection(
+      "synthetic-access-subject",
+      "First Synthetic Bank",
+      "connector-secrets/synthetic-cash.enc",
+      "6".repeat(64),
+    );
+    const refreshedAfter = new Date(
+      Date.now() - 7 * 24 * 60 * 60 * 1_000,
+    ).toISOString();
+    const first = await repository.beginAutomaticRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      refreshedAfter,
+    );
+    expect(first).toMatchObject({ refreshKind: "live" });
+    await expect(
+      repository.beginAutomaticRefresh(
+        "synthetic-access-subject",
+        connection.id,
+        refreshedAfter,
+      ),
+    ).resolves.toBeNull();
+    if (first === null) {
+      throw new Error("Expected an automatic live refresh run.");
+    }
+    await repository.failRefresh(
+      "synthetic-access-subject",
+      first.id,
+      "provider_unavailable",
+    );
+    await expect(
+      repository.beginAutomaticRefresh(
+        "synthetic-access-subject",
+        connection.id,
+        refreshedAfter,
+      ),
+    ).resolves.toBeNull();
+
+    sqlite
+      .prepare("UPDATE connector_sync_runs SET started_at = ? WHERE id = ?")
+      .run(
+        new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000).toISOString(),
+        first.id,
+      );
+    await expect(
+      repository.beginAutomaticRefresh(
+        "synthetic-access-subject",
+        connection.id,
+        refreshedAfter,
+      ),
+    ).resolves.toMatchObject({ refreshKind: "live" });
   });
 
   it("guards cash observations and decisions against rewriting", async () => {

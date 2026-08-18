@@ -14,6 +14,7 @@ import {
   disconnectCashAccount,
   FetchPlaidCashClient,
   refreshCashAccount,
+  refreshDueCashAccounts,
   type PlaidCashClient,
 } from "./plaid-cash-sync";
 import type { Env } from "./types";
@@ -166,6 +167,7 @@ function cashRepository() {
         });
       },
     ),
+    beginAutomaticRefresh: vi.fn().mockResolvedValue(null),
     stageProposal: vi.fn().mockResolvedValue({
       proposal: {
         id: "synthetic-cash-proposal",
@@ -422,6 +424,84 @@ describe("Plaid cash account sync", () => {
       "synthetic-access-subject",
       "synthetic-cash-connection",
       "live",
+    );
+  });
+
+  it("checks only connections admitted by the automatic weekly guard", async () => {
+    const storage = memoryBucket();
+    const repository = cashRepository();
+    const response = syntheticCashResponse();
+    const getAccounts = vi.fn().mockResolvedValue({
+      bytes: new TextEncoder().encode(JSON.stringify(response)),
+      parsed: response,
+    });
+    const client: PlaidCashClient = {
+      createLinkToken: vi.fn(),
+      exchangeToken: vi.fn().mockResolvedValue({
+        credential: {
+          version: 1,
+          accessToken: "synthetic-private-access-token",
+          itemId: "synthetic-item",
+          institutionId: "synthetic-bank",
+        },
+        institutionLabel: "First Synthetic Bank",
+      }),
+      getAccounts,
+      removeItem: vi.fn(),
+    };
+    const env = testEnv(storage.bucket);
+    await connectCashAccount({
+      env,
+      repository,
+      client,
+      accessSubject: "synthetic-access-subject",
+      publicToken: "synthetic-public-token",
+    });
+    getAccounts.mockClear();
+    repository.getState.mockResolvedValue({
+      ...state(),
+      connections: [
+        {
+          id: "synthetic-cash-connection",
+          institutionLabel: "First Synthetic Bank",
+          status: "ready",
+          lastCheckedAt: "2026-08-01T18:00:00.000Z",
+          liveRefreshLimit: 4,
+          liveRefreshesUsed: 0,
+          liveRefreshesRemaining: 4,
+        },
+      ],
+    });
+    repository.beginAutomaticRefresh.mockResolvedValue({
+      id: "synthetic-automatic-run",
+      refreshKind: "live",
+      connection: {
+        id: "synthetic-cash-connection",
+        institutionLabel: "First Synthetic Bank",
+        secretReference: repository.secretReference!,
+        providerAccountKey: "a".repeat(64),
+      },
+    });
+
+    await refreshDueCashAccounts({
+      env,
+      repository,
+      client,
+      accessSubject: "synthetic-access-subject",
+      now: new Date("2026-08-17T18:00:00.000Z"),
+    });
+
+    expect(repository.beginAutomaticRefresh).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-cash-connection",
+      "2026-08-10T18:00:00.000Z",
+    );
+    expect(getAccounts).toHaveBeenCalledTimes(1);
+    expect(repository.completeRefresh).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-automatic-run",
+      "synthetic-cash-proposal",
+      1,
     );
   });
 

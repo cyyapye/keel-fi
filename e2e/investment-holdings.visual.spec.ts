@@ -1,13 +1,40 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { Holding } from "../packages/domain/src/index";
 import type { InvestmentHoldingsView } from "../packages/domain/src/investment-holdings-view";
 
 import {
+  investmentHoldingsViewFor,
   multiInstitutionInvestmentHoldingsView,
   reconciledReviewedHistoryInvestmentHoldingsView,
 } from "./investment-holdings-fixtures";
 import { navigateToScreen } from "./navigation";
 
 const holdingsView = multiInstitutionInvestmentHoldingsView();
+
+const paginatedHoldings: Holding[] = Array.from({ length: 25 }, (_, index) => ({
+  id: `position_paginated_${String(index + 1).padStart(2, "0")}`,
+  companyId: null,
+  positionName: `Demo Security ${String(index + 1).padStart(2, "0")}`,
+  exposureName: `Demo Exposure ${String(index + 1).padStart(2, "0")}`,
+  ownerLabel: "Demo Brokerage",
+  positionKind: "direct",
+  administratorNavMinor: (index + 1) * 10_000,
+  administratorNavState: "reported",
+  externalMarkMinor: null,
+  underwritingValueMinor: null,
+  scenarioValueMinor: null,
+  usableLiquidityMinor: null,
+  sourceStatus: "verified",
+  sourceLabel: "Plaid Investments",
+  effectiveDate: "2026-08-16",
+  retrievedAt: "2026-08-16T12:00:00.000Z",
+  confidencePpm: null,
+  ticker: `DMO${index + 1}`,
+  quantityMicros: 1_000_000,
+  costBasisMinor: null,
+}));
+
+const paginatedHoldingsView = investmentHoldingsViewFor(paginatedHoldings);
 
 function alphaHoldingsFrom(view: InvestmentHoldingsView) {
   return view.exposureView.positions.map((position) => ({
@@ -314,22 +341,17 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await navigateToScreen(page, mobile, /Holdings/);
 
   await expect(
-    page.getByRole("heading", { name: "Accounts and updates" }),
+    page.getByRole("heading", { name: "Brokerages", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Add investment institution" }),
+    page.getByRole("button", { name: "Add brokerage" }),
   ).toBeVisible();
   await expect(
     page.locator(".investment-institution").filter({ hasText: "Fidelity" }),
   ).toHaveCount(2);
   await expect(
-    page.getByText("Fidelity brokerage", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Fidelity rollover IRA", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText("Partial", { exact: true })).toBeVisible();
-  await expect(page.getByText("Stale · Apr 1, 2026")).toBeVisible();
+    page.locator(".investment-institution").filter({ hasText: "Fidelity" }),
+  ).toContainText(["2 accounts", "1 account"]);
   const reconnectCard = page.locator(".investment-institution").filter({
     hasText: "Synthetic Reconnect Brokerage",
   });
@@ -339,10 +361,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     reconnectCard.getByRole("button", { name: "Reconnect" }),
   ).toBeVisible();
-  await expect(page.getByText("Synthetic Former Brokerage")).toBeVisible();
-  await expect(
-    page.getByText("Reviewed positions and planning history remain available."),
-  ).toBeVisible();
+  await expect(page.getByText("Synthetic Former Brokerage")).toHaveCount(0);
 
   const exposureView = page.locator(".investment-views");
   await expect(
@@ -481,7 +500,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ).toHaveCount(0);
 });
 
-test("summarizes reviewed-history account shells without hiding positions or exposures", async ({
+test("keeps reviewed history in exposures without showing fake brokerage accounts", async ({
   page,
 }, testInfo) => {
   const reviewedHistoryView = reconciledReviewedHistoryInvestmentHoldingsView();
@@ -515,33 +534,10 @@ test("summarizes reviewed-history account shells without hiding positions or exp
   await navigateToScreen(page, mobile, /Holdings/);
 
   const accounts = page.locator(".investment-institutions");
-  const reviewedHistory = accounts
-    .locator(".investment-institution")
-    .filter({ hasText: "AngelList reviewed history" });
-  await expect(reviewedHistory).toContainText(
-    "Original account details unavailable",
-  );
-  await expect(reviewedHistory).toContainText(
-    "14 reviewed positions · Kept separate below · No account identity inferred",
-  );
-  await expect(reviewedHistory).not.toContainText("Imported source");
-  await expect(reviewedHistory).not.toContainText("Last complete");
-  await expect(reviewedHistory).not.toContainText("Waiting for review");
-  await expect(reviewedHistory.getByRole("button")).toHaveCount(0);
-  await expect(
-    reviewedHistory.locator(".investment-institution__account"),
-  ).toHaveCount(1);
-  await expect(reviewedHistory).not.toContainText("Demo Family holding 01");
+  await expect(accounts.locator(".investment-institution")).toHaveCount(0);
+  await expect(accounts).not.toContainText("AngelList reviewed history");
+  await expect(accounts).not.toContainText("Original account details");
   await expectNoHorizontalOverflow(page);
-  await expect(accounts).toHaveScreenshot(
-    "investment-holdings-reviewed-history-summary.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
 
   const exposureView = page.locator(".investment-views");
   await expect(exposureView.getByRole("tab")).toHaveCount(0);
@@ -563,7 +559,7 @@ test("summarizes reviewed-history account shells without hiding positions or exp
   await expect(exposure).toContainText("Demo Pharmacy SPV 01");
   await expect(exposure).toContainText("Demo Pharmacy SPV 14");
   await expect(exposure).not.toContainText("Demo Family holding");
-  await expect(exposure).toContainText("AngelList reviewed history");
+  await expect(exposure).not.toContainText("AngelList reviewed history");
   const positionActions = exposure.getByRole("button", {
     name: /View Demo Pharmacy SPV \d+ holding details/,
   });
@@ -584,7 +580,7 @@ test("summarizes reviewed-history account shells without hiding positions or exp
   await expect(firstPositionAction).toBeFocused();
 });
 
-test("uses the same reviewed-history summary for one legal position", async ({
+test("keeps one reviewed-history legal position without a fake account", async ({
   page,
 }, testInfo) => {
   const reviewedHistoryView =
@@ -618,18 +614,10 @@ test("uses the same reviewed-history summary for one legal position", async ({
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
 
-  const reviewedHistory = page
-    .locator(".investment-institution")
-    .filter({ hasText: "AngelList reviewed history" });
-  await expect(reviewedHistory).toContainText("1 reviewed position ·");
-  await expect(
-    reviewedHistory.locator(".investment-institution__account"),
-  ).toHaveCount(1);
-  await expect(reviewedHistory).not.toContainText("Demo Family holding 01");
-  await expect(reviewedHistory).not.toContainText("Imported source");
-  await expect(reviewedHistory).not.toContainText("Last complete");
-  await expect(reviewedHistory).not.toContainText("Waiting for review");
-  await expect(reviewedHistory.getByRole("button")).toHaveCount(0);
+  await expect(page.locator(".investment-institution")).toHaveCount(0);
+  await expect(page.locator(".investment-institutions")).not.toContainText(
+    "AngelList reviewed history",
+  );
   const exposure = page.locator(".exposure-group").filter({
     has: page.getByText("Demo Pharmacy", { exact: true }),
   });
@@ -695,4 +683,67 @@ test("keeps failed canonical holdings out of unresolved exposures and retries", 
   await expect(errorState.locator(".unallocated-positions")).not.toContainText(
     "NVDA common stock",
   );
+});
+
+test("progressively renders long exposure lists", async ({
+  page,
+}, testInfo) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "IntersectionObserver", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  await page.unroute("**/api/alpha");
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({
+      json: {
+        ...alphaFixture,
+        holdings: paginatedHoldings,
+      },
+    });
+  });
+  await page.unroute("**/api/investment-holdings");
+  await page.route("**/api/investment-holdings", async (route) => {
+    await route.fulfill({ json: paginatedHoldingsView });
+  });
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await navigateToScreen(page, mobile, /Holdings/);
+
+  const exposureView = page.locator(".investment-views");
+  await expect(exposureView.locator(".exposure-group")).toHaveCount(12);
+  await expect(exposureView.locator(".exposure-pagination")).toContainText(
+    "Showing 12 of 25 exposures",
+  );
+  await expect(exposureView).not.toContainText("Demo Exposure 25");
+  await expectNoHorizontalOverflow(page);
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { display: none !important; }",
+  });
+  await expect(page.locator(".topbar")).toHaveCSS("display", "none");
+  await expect(exposureView).toHaveScreenshot(
+    "investment-holdings-paginated-exposures.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  await exposureView
+    .getByRole("button", { name: "Load more exposures" })
+    .click();
+  await expect(exposureView.locator(".exposure-group")).toHaveCount(24);
+  await expect(exposureView.locator(".exposure-pagination")).toContainText(
+    "Showing 24 of 25 exposures",
+  );
+  await exposureView
+    .getByRole("button", { name: "Load more exposures" })
+    .click();
+  await expect(exposureView.locator(".exposure-group")).toHaveCount(25);
+  await expect(exposureView).toContainText("Demo Exposure 25");
+  await expect(exposureView.locator(".exposure-pagination")).toHaveCount(0);
 });

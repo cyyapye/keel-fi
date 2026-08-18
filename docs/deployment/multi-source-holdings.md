@@ -223,12 +223,21 @@ spend remains `$0`.
 ## Owner experience and scoped operations
 
 The Holdings page reads the canonical position and exposure projections from
-`GET /api/investment-holdings`. Positions are the default view and stay grouped
-by their exact connection and ownership container. The exposure view groups
-accepted mappings without merging positions and retains the contributing
-institution and account as drill-down context. Partial coverage, stale facts,
-unavailable values, unknown allocations, unresolved exposures, and unallocated
-position value remain explicit. They are never rendered as zero.
+`GET /api/investment-holdings`. It presents the exposure hierarchy once, with
+each exact legal position and its detail action inside the relevant exposure.
+Accepted mappings never merge positions. Useful source-account context remains
+on current brokerage positions; bounded reviewed-history connections stay out of
+account management because they are not reconnectable accounts. Partial
+coverage, stale facts, unavailable values, unknown allocations, unresolved
+exposures, and unallocated position value remain explicit. They are never
+rendered as zero.
+
+The browser initially renders 12 exposure groups and progressively reveals the
+rest with an intersection observer plus an accessible **Load more exposures**
+fallback. This reduces DOM and page length; it does not issue a query per group
+or claim to reduce the single canonical API payload. Unallocated and unresolved
+positions remain explicit in the same hierarchy, with any available review
+action attached to the exact legal position.
 
 If the authoritative holdings projection cannot load, the page shows the load
 error without falling back to company-evidence rows, a fabricated position

@@ -331,6 +331,21 @@ export async function refreshCashAccount(
   return CashAccountsStateSchema.parse(await response.json());
 }
 
+export async function refreshDueCashAccounts(): Promise<CashAccountsState> {
+  const response = await fetch("/api/cash-accounts/auto-refresh", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Automatic cash balance check returned ${response.status}.`,
+    );
+  }
+  return CashAccountsStateSchema.parse(await response.json());
+}
+
 export async function disconnectCashAccount(
   connectionId: string,
 ): Promise<CashAccountsState> {

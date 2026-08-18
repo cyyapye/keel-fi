@@ -11,7 +11,6 @@ import {
 import type { InvestmentExposurePosition } from "@keel/domain/exposure-read-model";
 import type { InvestmentHoldingsView } from "@keel/domain/investment-holdings-view";
 import type {
-  InvestmentCoverageCompleteness,
   InvestmentPositionConnection,
   InvestmentPositionContainer,
 } from "@keel/domain/position-read-model";
@@ -94,27 +93,6 @@ function initialInvestmentError(): string | null {
 function clearStoredLink() {
   window.sessionStorage.removeItem(INVESTMENT_LINK_TOKEN_STORAGE_KEY);
   window.sessionStorage.removeItem(INVESTMENT_LINK_MODE_STORAGE_KEY);
-}
-
-function coverageLabel(completeness: InvestmentCoverageCompleteness): string {
-  return {
-    complete: "Complete",
-    partial: "Partial",
-    unavailable: "Unavailable",
-    malformed: "Unsupported response",
-    failed: "Check failed",
-    ambiguous: "Needs review",
-  }[completeness];
-}
-
-function coverageTone(
-  completeness: InvestmentCoverageCompleteness,
-): "neutral" | "warning" | "negative" {
-  return completeness === "complete"
-    ? "neutral"
-    : completeness === "failed" || completeness === "malformed"
-      ? "negative"
-      : "warning";
 }
 
 function lifecycleLabel(status: InvestmentConnectionStatus | null): string {
@@ -217,78 +195,6 @@ function exposureTotalsLabel(
   ].join(" · ");
 }
 
-function accountKindLabel(kind: InvestmentPositionContainer["kind"]): string {
-  return {
-    brokerage: "Brokerage",
-    ira: "IRA",
-    retirement: "Retirement",
-    trust: "Trust",
-    entity: "Entity",
-    unresolved: "Unresolved account",
-    other: "Other account",
-  }[kind];
-}
-
-function InvestmentAccountRows({
-  connection,
-}: {
-  connection: InvestmentPositionConnection | null;
-}) {
-  if (connection === null || connection.containers.length === 0) {
-    return (
-      <p className="investment-institution__empty">No accounts recorded yet.</p>
-    );
-  }
-  const reviewedHistoryPositionCount = connection.containers.reduce(
-    (total, container) => total + container.positions.length,
-    0,
-  );
-  return (
-    <div className="investment-institution__accounts">
-      {connection.purpose === "reviewed_history" ? (
-        <div className="investment-institution__account investment-institution__account--history-summary">
-          <span>
-            <strong>Original account details unavailable</strong>
-            <small>
-              {reviewedHistoryPositionCount} reviewed{" "}
-              {reviewedHistoryPositionCount === 1 ? "position" : "positions"}
-              {" · "}Kept separate below · No account identity inferred
-            </small>
-          </span>
-        </div>
-      ) : (
-        connection.containers.map((container) => (
-          <div className="investment-institution__account" key={container.id}>
-            <span>
-              <strong>{container.label}</strong>
-              <small>
-                {accountKindLabel(container.kind)} ·{" "}
-                {container.positions.length}{" "}
-                {container.positions.length === 1 ? "position" : "positions"}
-              </small>
-            </span>
-            {container.coverage === null ? (
-              <span className="investment-institution__coverage">
-                Not checked
-              </span>
-            ) : (
-              <span className="investment-institution__coverage">
-                <Badge tone={coverageTone(container.coverage.completeness)}>
-                  {coverageLabel(container.coverage.completeness)}
-                </Badge>
-                <small>
-                  {container.coverage.freshness === "stale" ? "Stale · " : ""}
-                  {formatDate(container.coverage.observedAt)}
-                </small>
-              </span>
-            )}
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
 function InstitutionActions({
   busy,
   confirmDisconnect,
@@ -359,7 +265,7 @@ function InstitutionActions({
         >
           {isBusy ? "Resuming…" : "Resume updates"}
         </Button>
-      ) : (
+      ) : waitingCount === 0 ? (
         <Button
           disabled={isBusy || status.status === "syncing"}
           onClick={() => onAction("check")}
@@ -367,16 +273,20 @@ function InstitutionActions({
         >
           {isBusy || status.status === "syncing" ? "Checking…" : "Check now"}
         </Button>
-      )}
-      {status.status !== "paused" && (
-        <Button
-          disabled={isBusy || status.status === "syncing"}
-          onClick={() => onAction("pause")}
-          tone="quiet"
-        >
-          Pause
-        </Button>
-      )}
+      ) : null}
+      {status.status !== "paused" &&
+        !(
+          status.status === "needs_attention" &&
+          status.errorCode === "connection_invalid"
+        ) && (
+          <Button
+            disabled={isBusy || status.status === "syncing"}
+            onClick={() => onAction("pause")}
+            tone="quiet"
+          >
+            Pause
+          </Button>
+        )}
       <Button
         disabled={isBusy || status.status === "syncing"}
         onClick={onConfirmDisconnect}
@@ -555,8 +465,10 @@ function ExposureView({
   onApplyExactBatch,
   onCancelExposureReview,
   onOpenHolding,
+  onLoadMoreExposures,
   onSubmitExposureReview,
   reviewedHoldings,
+  visibleExposureCount,
 }: {
   data: InvestmentHoldingsView;
   exposureReviewBatchBusy: boolean;
@@ -570,11 +482,13 @@ function ExposureView({
   onApplyExactBatch: () => void;
   onCancelExposureReview: () => void;
   onOpenHolding: (holdingId: string) => void;
+  onLoadMoreExposures: () => void;
   onSubmitExposureReview: (
     position: PrivateExposureReviewPosition,
     input: PrivateExposureResolutionInput,
   ) => void;
   reviewedHoldings: readonly Holding[];
+  visibleExposureCount: number;
 }) {
   const holdingDetailAction = (holdingId: string, holdingName: string) =>
     openableHoldingIds.has(holdingId) ? (
@@ -593,17 +507,19 @@ function ExposureView({
       connection.containers.flatMap((container) =>
         container.positions.map((position) => [
           position.id,
-          connection.purpose === "reviewed_history" &&
-          connection.adapterType !== "plaid-investments"
-            ? connection.institutionLabel
+          connection.purpose === "reviewed_history"
+            ? connection.adapterType === "plaid-investments"
+              ? container.label
+              : null
             : `${connection.institutionLabel} · ${container.label}`,
         ]),
       ),
     ),
   );
   const positionContext = (position: InvestmentExposurePosition) =>
-    positionContextById.get(position.id) ??
-    `${position.institutionLabel} · ${position.containerLabel}`;
+    positionContextById.has(position.id)
+      ? positionContextById.get(position.id)
+      : `${position.institutionLabel} · ${position.containerLabel}`;
   const canonicalUnallocated = data.exposureView.positions.filter(
     (position) =>
       position.hasUnknownAllocation ||
@@ -640,6 +556,38 @@ function ExposureView({
         right[0]?.exposureName ?? right[0]?.positionName ?? "",
       ),
     );
+  const totalExposureCount =
+    data.exposureView.exposures.length + reviewedOnlyExposureGroups.length;
+  const visibleCanonicalExposureGroups = data.exposureView.exposures.slice(
+    0,
+    visibleExposureCount,
+  );
+  const visibleReviewedExposureGroups = reviewedOnlyExposureGroups.slice(
+    0,
+    Math.max(visibleExposureCount - data.exposureView.exposures.length, 0),
+  );
+  const hasMoreExposures = visibleExposureCount < totalExposureCount;
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (
+      target === null ||
+      !hasMoreExposures ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMoreExposures();
+        }
+      },
+      { rootMargin: "240px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMoreExposures, onLoadMoreExposures, visibleExposureCount]);
   if (
     data.exposureView.exposures.length === 0 &&
     reviewedOnlyExposureGroups.length === 0 &&
@@ -655,7 +603,7 @@ function ExposureView({
   }
   return (
     <div className="exposure-groups">
-      {data.exposureView.exposures.map((group) => {
+      {visibleCanonicalExposureGroups.map((group) => {
         const positions = group.contributions
           .map((contribution) =>
             data.exposureView.positions.find(
@@ -721,7 +669,7 @@ function ExposureView({
           </details>
         );
       })}
-      {reviewedOnlyExposureGroups.map(([companyId, groupHoldings]) => {
+      {visibleReviewedExposureGroups.map(([companyId, groupHoldings]) => {
         const first = groupHoldings[0]!;
         return (
           <details className="exposure-group" key={companyId}>
@@ -920,6 +868,17 @@ function ExposureView({
           })}
         </section>
       )}
+      {hasMoreExposures && (
+        <div className="exposure-pagination" ref={loadMoreRef}>
+          <span>
+            Showing {Math.min(visibleExposureCount, totalExposureCount)} of{" "}
+            {totalExposureCount} exposures
+          </span>
+          <Button onClick={onLoadMoreExposures} tone="secondary">
+            Load more exposures
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -945,13 +904,17 @@ function reviewedHoldingValue(holding: Holding): string {
 export function InvestmentHoldings({
   holdings,
   onExposureResolved,
+  onLoadMoreExposures,
   onOpenHolding,
   onReviewImport,
+  visibleExposureCount,
 }: {
   holdings: readonly Holding[];
   onExposureResolved: () => Promise<void>;
+  onLoadMoreExposures: () => void;
   onOpenHolding: (holdingId: string) => void;
   onReviewImport: (importId: string) => void;
+  visibleExposureCount: number;
 }) {
   const [connectionState, setConnectionState] =
     useState<InvestmentConnectionsState | null>(null);
@@ -1050,12 +1013,22 @@ export function InvestmentHoldings({
 
   useEffect(() => {
     const initial = window.setTimeout(() => void reload(), 0);
-    const timer = window.setInterval(() => void reloadConnections(), 10_000);
     return () => {
       window.clearTimeout(initial);
-      window.clearInterval(timer);
     };
-  }, [reload, reloadConnections]);
+  }, [reload]);
+
+  useEffect(() => {
+    if (
+      !connectionState?.connections.some(
+        (connection) => connection.status === "syncing",
+      )
+    ) {
+      return;
+    }
+    const timer = window.setInterval(() => void reloadConnections(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [connectionState, reloadConnections]);
 
   const acceptStatus = useCallback(
     async (next: InvestmentConnectionStatus) => {
@@ -1401,6 +1374,15 @@ export function InvestmentHoldings({
         []),
     ]),
   ];
+  const visibleConnectionIds = orderedIds.filter((connectionId) => {
+    const connection = positionConnectionById.get(connectionId) ?? null;
+    const status = statusById.get(connectionId) ?? null;
+    return (
+      (connection === null || connection.adapterType === "plaid-investments") &&
+      connection?.purpose !== "reviewed_history" &&
+      status?.status !== "disconnected"
+    );
+  });
   const addAvailable = data?.authorizationStatus === "available";
   const setupRequired =
     connectionState?.configured === false ||
@@ -1441,12 +1423,9 @@ export function InvestmentHoldings({
         className="investment-institutions"
       >
         <div className="investment-institutions__heading">
-          <p className="eyebrow">Investment institutions</p>
-          <h2 id="investment-institutions-title">Accounts and updates</h2>
-          <p>
-            Brokerage and retirement accounts stay separate. Add banking cash
-            accounts in the section above.
-          </p>
+          <p className="eyebrow">Connections</p>
+          <h2 id="investment-institutions-title">Brokerages</h2>
+          <p>Manage current brokerage and retirement connections.</p>
         </div>
         <div className="investment-institutions__add">
           {addAvailable ? (
@@ -1457,13 +1436,13 @@ export function InvestmentHoldings({
             >
               {busy?.action === "add" || busy?.action === "exchange"
                 ? "Opening…"
-                : "Add investment institution"}
+                : "Add brokerage"}
             </Button>
           ) : (
             <p>
               {setupRequired
                 ? "Investment updates need deployment setup."
-                : "New institutions need approved provider coverage and pricing."}
+                : "New brokerage connections are not enabled yet."}
             </p>
           )}
         </div>
@@ -1471,32 +1450,12 @@ export function InvestmentHoldings({
           <p className="investment-institutions__checking" role="status">
             Checking investment institutions…
           </p>
-        ) : orderedIds.length === 0 ? (
-          <div className="investment-institutions__empty">
-            <h3>No investment institution connected</h3>
-            <p>Reviewed imports remain available below.</p>
-          </div>
-        ) : (
+        ) : visibleConnectionIds.length === 0 ? null : (
           <div className="investment-institution-list">
-            {orderedIds.map((connectionId) => {
+            {visibleConnectionIds.map((connectionId) => {
               const status = statusById.get(connectionId) ?? null;
               const connection =
                 positionConnectionById.get(connectionId) ?? null;
-              if (connection?.purpose === "reviewed_history") {
-                return (
-                  <article
-                    className="investment-institution investment-institution--reviewed-history"
-                    key={connectionId}
-                  >
-                    <div className="investment-institution__heading">
-                      <span>
-                        <h3>{connection.institutionLabel}</h3>
-                      </span>
-                    </div>
-                    <InvestmentAccountRows connection={connection} />
-                  </article>
-                );
-              }
               const label =
                 status?.institutionLabel ??
                 connection?.institutionLabel ??
@@ -1517,20 +1476,19 @@ export function InvestmentHoldings({
                         {lifecycleLabel(status)}
                       </Badge>
                     </span>
-                    <div className="investment-institution__meta">
-                      <span>
-                        <small>Last complete</small>
-                        {lastComplete === null
-                          ? "Not yet"
-                          : formatDate(lastComplete)}
-                      </span>
-                      <span>
-                        <small>Waiting for review</small>
-                        {pendingCount}
-                      </span>
-                    </div>
+                    <p className="investment-institution__summary">
+                      {connection?.containers.length ?? 0}{" "}
+                      {(connection?.containers.length ?? 0) === 1
+                        ? "account"
+                        : "accounts"}
+                      {lastComplete === null
+                        ? ""
+                        : ` · Updated ${formatDate(lastComplete)}`}
+                      {pendingCount > 0
+                        ? ` · ${pendingCount} waiting for review`
+                        : ""}
+                    </p>
                   </div>
-                  <InvestmentAccountRows connection={connection} />
                   {status !== null && (
                     <InstitutionActions
                       busy={busy}
@@ -1572,8 +1530,8 @@ export function InvestmentHoldings({
             <p className="eyebrow">Reviewed ownership</p>
             <h2 id="investment-views-title">Exposures</h2>
             <p>
-              Each exposure groups legal positions that share economic risk.
-              Open a position for its ownership and source details.
+              Legal positions stay separate inside each exposure. Open one for
+              ownership and source details.
             </p>
           </div>
           {data !== null && (
@@ -1633,10 +1591,12 @@ export function InvestmentHoldings({
                 onApplyExactBatch={() => void applyExactExposureBatch()}
                 onCancelExposureReview={cancelExposureReview}
                 onOpenHolding={onOpenHolding}
+                onLoadMoreExposures={onLoadMoreExposures}
                 onSubmitExposureReview={(position, input) =>
                   void submitExposureReview(position, input)
                 }
                 reviewedHoldings={reviewedHoldings}
+                visibleExposureCount={visibleExposureCount}
               />
             )}
           </>

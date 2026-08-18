@@ -20,7 +20,9 @@ billing. Cached balances from
 for an Auth-only Item. A call to
 [`/accounts/balance/get`](https://plaid.com/docs/balance/) requests a live
 balance and is billed per successful request at the account-specific contract
-rate.
+rate. Plaid's Trial access is free and limits Production to 10 live Items; it
+does not publish a separate monthly allowance of live Balance requests. Keel's
+request ceiling below is therefore its own cost guard, not a Plaid Trial quota.
 
 ## Decision
 
@@ -33,11 +35,15 @@ Use Plaid for cash-account observations with these boundaries:
 - do not call `/auth/get`, request routing data, or store account or routing
   numbers;
 - use the free `/accounts/get` response immediately after a new Item is linked;
-- call `/accounts/balance/get` only after the user chooses **Check balances**;
+- when Holdings loads, call `/accounts/balance/get` only when the institution
+  has no pending review or active refresh and no live attempt in the preceding
+  seven days;
+- offer a manual retry only after a failed automatic check;
 - allow at most four live balance requests per connected institution per UTC
   calendar month, including an attempted request once it crosses Keel's provider
   boundary; and
-- do not schedule cash refreshes or subscribe to Transactions in this milestone.
+- do not run a background schedule or subscribe to Transactions in this
+  milestone.
 
 The fixed request ceiling makes the maximum live-balance cost per institution
 `4 × the Plaid contract rate` each month. Plaid does not publish the exact
@@ -53,15 +59,19 @@ when Plaid reports one, otherwise a non-negative current balance. Missing,
 non-USD, or negative values remain explicit and cannot be accepted as usable
 cash.
 
-A provider fetch creates a proposal. It does not mutate accepted cash facts, the
-portfolio baseline, a cash-flow plan, a goal, or a forecast. The user must
-review each account and apply the proposal. A later Portfolio Baseline review
-then combines accepted cash with reviewed public holdings, keeps a separate
-manual residual, and identifies reviewed brokerage cash positions separately.
-When any two of linked cash, brokerage cash, and the manual residual are
-positive, confirmation requires an explicit overlap acknowledgment. The review
-previews the FI and runway effects, then appends the resulting plan, forecast,
-and goal versions.
+A provider fetch with a new, changed, missing, or unsupported account creates a
+proposal. An exact no-change result completes the checked connection without a
+proposal and without mutating accepted cash facts. Neither path directly changes
+the portfolio baseline, a cash-flow plan, a goal, or a forecast. The user must
+review each material account result and apply the proposal. A later Portfolio
+Baseline review then combines accepted cash with reviewed public holdings, keeps
+a separate manual residual, and identifies reviewed brokerage cash positions
+separately. Linked bank accounts and brokerage cash positions have exact
+accepted source identities and are counted together automatically. Only a
+positive manual residual alongside either sourced cash category requires an
+explicit overlap acknowledgment because the manual amount has no source
+identity. The review previews the FI and runway effects, then appends the
+resulting plan, forecast, and goal versions.
 
 Plaid may omit `persistent_account_id` and may rotate `account_id`. When that
 happens, protected provider keys cannot prove whether a newly reported record
@@ -78,7 +88,8 @@ are never rewritten.
 Positive:
 
 - provider access is narrower than enabling transaction ingestion early;
-- paid calls are explicit, visible, and bounded;
+- paid calls are visible and bounded;
+- due balances refresh on a Holdings visit without another routine click;
 - missing accounts cannot be interpreted as withdrawals or spending; and
 - complete provider-identity rotation remains visible until explicitly reviewed;
   and
@@ -87,8 +98,8 @@ Positive:
 Tradeoffs:
 
 - Auth itself is billed when an Item is created;
-- a user may need to spend one of four monthly live checks to replace a stale
-  cached balance;
+- a Holdings visit may use one paid live check after the seven-day cooldown,
+  while the monthly ceiling still bounds the total;
 - transaction history remains unavailable until its own reviewed milestone; and
 - liabilities and negative balances remain out of scope rather than being
   silently netted against cash.

@@ -3,7 +3,10 @@ import {
   PlaidCashAccountsResponseSchema,
   type PlaidCashAccountsResponse,
 } from "@keel/connectors";
-import type { CashAccountsRepository } from "@keel/database";
+import type {
+  CashAccountRefreshRun,
+  CashAccountsRepository,
+} from "@keel/database";
 import {
   CashAccountLinkTokenSchema,
   type CashAccountLinkToken,
@@ -784,6 +787,18 @@ export async function refreshCashAccount(input: {
     input.connectionId,
     input.refreshKind,
   );
+  await executeCashAccountRefresh({ ...input, run });
+  return input.repository.getState(input.accessSubject, true);
+}
+
+async function executeCashAccountRefresh(input: {
+  env: Env;
+  repository: CashAccountsRepository;
+  client: PlaidCashClient;
+  accessSubject: string;
+  run: CashAccountRefreshRun;
+}): Promise<void> {
+  const { run } = input;
   let observationObjectKey: string | null = null;
   try {
     const encrypted = await input.env.DOCUMENTS.get(
@@ -804,7 +819,7 @@ export async function refreshCashAccount(input: {
     const retrievedAt = new Date().toISOString();
     const accounts = await input.client.getAccounts(
       credential.accessToken,
-      input.refreshKind,
+      run.refreshKind,
     );
     let normalized: Awaited<ReturnType<typeof normalizePlaidCashAccounts>>;
     try {
@@ -858,7 +873,6 @@ export async function refreshCashAccount(input: {
       staged.proposal?.id ?? null,
       normalized.rows.length,
     );
-    return input.repository.getState(input.accessSubject, true);
   } catch (error) {
     if (observationObjectKey !== null) {
       await input.env.DOCUMENTS.delete(observationObjectKey).catch(
@@ -872,4 +886,32 @@ export async function refreshCashAccount(input: {
     );
     throw error;
   }
+}
+
+const AUTOMATIC_LIVE_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1_000;
+
+export async function refreshDueCashAccounts(input: {
+  env: Env;
+  repository: CashAccountsRepository;
+  client: PlaidCashClient;
+  accessSubject: string;
+  now?: Date;
+}): Promise<CashAccountsState> {
+  const state = await input.repository.getState(input.accessSubject, true);
+  const now = input.now ?? new Date();
+  const refreshedAfter = new Date(
+    now.getTime() - AUTOMATIC_LIVE_REFRESH_INTERVAL_MS,
+  ).toISOString();
+  for (const connection of state.connections) {
+    const run = await input.repository.beginAutomaticRefresh(
+      input.accessSubject,
+      connection.id,
+      refreshedAfter,
+    );
+    if (run === null) {
+      continue;
+    }
+    await executeCashAccountRefresh({ ...input, run }).catch(() => undefined);
+  }
+  return input.repository.getState(input.accessSubject, true);
 }

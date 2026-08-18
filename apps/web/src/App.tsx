@@ -63,6 +63,7 @@ import {
   previewAngelListHoldingImport,
   requestAngelListUpdate,
   refreshCashAccount,
+  refreshDueCashAccounts,
   reviewCashAccountIdentity,
   saveGoalVersion,
   saveScenarioVersion,
@@ -2420,12 +2421,18 @@ function AngelListMacAgentControl() {
 
   useEffect(() => {
     const initial = window.setTimeout(() => void reload(), 0);
-    const timer = window.setInterval(() => void reload(), 10_000);
     return () => {
       window.clearTimeout(initial);
-      window.clearInterval(timer);
     };
   }, [reload]);
+
+  useEffect(() => {
+    if (overview?.status !== "running") {
+      return;
+    }
+    const timer = window.setInterval(() => void reload(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [overview?.status, reload]);
 
   const setupCommand = `pnpm angellist:setup -- --keel-url ${window.location.origin}`;
   const message = angelListAgentMessage(overview);
@@ -3295,15 +3302,65 @@ function CashAccountsControl({
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void reload(controller.signal).catch((loadError: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Keel could not check cash accounts.",
+      void reload(controller.signal)
+        .then(async (initialState) => {
+          const refreshCutoff = Date.now() - 7 * 24 * 60 * 60 * 1_000;
+          const hasDueConnection = initialState.connections.some(
+            (connection) =>
+              connection.status === "ready" &&
+              connection.liveRefreshesRemaining > 0 &&
+              !initialState.pendingProposals.some(
+                (proposal) => proposal.connectionId === connection.id,
+              ) &&
+              (connection.lastCheckedAt === null ||
+                Date.parse(connection.lastCheckedAt) < refreshCutoff),
           );
-        }
-      });
+          if (
+            controller.signal.aborted ||
+            !initialState.configured ||
+            !hasDueConnection
+          ) {
+            return;
+          }
+          setBusyAction("automatic");
+          try {
+            const next = await refreshDueCashAccounts();
+            if (controller.signal.aborted) {
+              return;
+            }
+            setState(next);
+            const pending = next.pendingProposals.find(
+              (proposal) =>
+                !initialState.pendingProposals.some(
+                  (initialProposal) => initialProposal.id === proposal.id,
+                ),
+            );
+            if (pending !== undefined) {
+              setNotice("Updated bank balances are ready to review.");
+            }
+          } catch (refreshError: unknown) {
+            if (!controller.signal.aborted) {
+              setError(
+                refreshError instanceof Error
+                  ? refreshError.message
+                  : "Automatic bank balance checks are temporarily unavailable.",
+              );
+            }
+          } finally {
+            if (!controller.signal.aborted) {
+              setBusyAction(null);
+            }
+          }
+        })
+        .catch((loadError: unknown) => {
+          if (!controller.signal.aborted) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Keel could not check cash accounts.",
+            );
+          }
+        });
     }, 0);
     return () => {
       window.clearTimeout(timer);
@@ -3492,22 +3549,31 @@ function CashAccountsControl({
       []),
   );
   const setupRequired = state?.status === "setup_required";
+  const latestBankCheckAt =
+    state?.connections.reduce<string | null>((latest, connection) => {
+      if (connection.lastCheckedAt === null) {
+        return latest;
+      }
+      return latest === null || connection.lastCheckedAt > latest
+        ? connection.lastCheckedAt
+        : latest;
+    }, null) ?? null;
 
   return (
     <section aria-labelledby="cash-accounts-title" className="cash-accounts">
       <div className="cash-accounts__heading">
         <div>
-          <p className="eyebrow">Cash accounts</p>
+          <p className="eyebrow">Bank cash</p>
           <h2 id="cash-accounts-title">
             {setupRequired
-              ? "Cash accounts need setup"
+              ? "Bank accounts need setup"
               : state?.status === "disconnected"
-                ? "Add cash accounts"
-                : "Linked cash accounts"}
+                ? "Add a bank"
+                : "Bank cash"}
           </h2>
           <p>
-            Checking, savings, money-market, and cash-management balances stay
-            out of your FI baseline until you approve them.
+            Bank accounts are separate from cash held inside a brokerage. New
+            balances wait for your review.
           </p>
         </div>
         {!setupRequired && (
@@ -3518,9 +3584,7 @@ function CashAccountsControl({
           >
             {busyAction === "connect" || busyAction === "exchange"
               ? "Connecting…"
-              : state?.connections.length === 0
-                ? "Connect cash account"
-                : "Add institution"}
+              : "Add bank"}
           </Button>
         )}
       </div>
@@ -3534,7 +3598,7 @@ function CashAccountsControl({
       {state !== null && state.acceptedAccounts.length > 0 && (
         <div className="cash-accounts__accepted">
           <div>
-            <span>Reviewed cash</span>
+            <span>Reviewed bank cash</span>
             <strong>{formatCompactMoney(acceptedCashMinor)}</strong>
           </div>
           <div className="cash-accounts__accepted-list">
@@ -3622,70 +3686,84 @@ function CashAccountsControl({
         </div>
       )}
 
-      {state !== null && state.connections.length > 0 && (
-        <div className="cash-accounts__connections">
-          {state.connections.map((connection) => {
-            const pendingProposal = state.pendingProposals.find(
+      {state !== null &&
+        state.connections.some(
+          (connection) =>
+            connection.status === "needs_attention" ||
+            state.pendingProposals.some(
               (proposal) => proposal.connectionId === connection.id,
-            );
-            if (
-              pendingProposal !== undefined &&
-              pendingProposal.id === activeProposal?.id
-            ) {
-              return (
-                <CashBalanceProposalReview
-                  key={pendingProposal.id}
-                  onApplied={async () => {
-                    setActiveProposalId(null);
-                    await Promise.all([reload(), onAccepted()]);
-                    setNotice(
-                      "Balance decisions saved. Confirm the FI baseline when ready.",
-                    );
-                  }}
-                  onCancel={() => setActiveProposalId(null)}
-                  proposal={pendingProposal}
-                />
+            ),
+        ) && (
+          <div className="cash-accounts__connections">
+            {state.connections.map((connection) => {
+              const pendingProposal = state.pendingProposals.find(
+                (proposal) => proposal.connectionId === connection.id,
               );
-            }
-            return (
-              <div className="cash-accounts__connection" key={connection.id}>
-                <span>
-                  <strong>{connection.institutionLabel}</strong>
-                  <small>
-                    {pendingProposal !== undefined
-                      ? `${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "balance" : "balances"} ready · ${pendingProposal.refreshKind === "live" ? "live check" : "cached"} ${formatDate(pendingProposal.observedAt)}`
-                      : connection.lastCheckedAt === null
-                        ? "Not checked yet"
-                        : `Last checked ${formatDate(connection.lastCheckedAt)}`}
-                    {` · ${connection.liveRefreshesRemaining} live ${connection.liveRefreshesRemaining === 1 ? "check" : "checks"} left this month`}
-                  </small>
-                </span>
-                <Button
-                  disabled={
-                    busyAction !== null ||
-                    (pendingProposal === undefined &&
-                      connection.liveRefreshesRemaining === 0)
-                  }
-                  onClick={() => {
-                    if (pendingProposal !== undefined) {
-                      setActiveProposalId(pendingProposal.id);
-                      return;
+              if (
+                pendingProposal === undefined &&
+                connection.status !== "needs_attention"
+              ) {
+                return null;
+              }
+              if (
+                pendingProposal !== undefined &&
+                pendingProposal.id === activeProposal?.id
+              ) {
+                return (
+                  <CashBalanceProposalReview
+                    key={pendingProposal.id}
+                    onApplied={async () => {
+                      setActiveProposalId(null);
+                      await Promise.all([reload(), onAccepted()]);
+                      setNotice(
+                        "Balance decisions saved. Confirm the FI baseline when ready.",
+                      );
+                    }}
+                    onCancel={() => setActiveProposalId(null)}
+                    proposal={pendingProposal}
+                  />
+                );
+              }
+              return (
+                <div className="cash-accounts__connection" key={connection.id}>
+                  <span>
+                    <strong>{connection.institutionLabel}</strong>
+                    <small>
+                      {pendingProposal !== undefined
+                        ? `${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "balance" : "balances"} ready · ${pendingProposal.refreshKind === "live" ? "live check" : "cached"} ${formatDate(pendingProposal.observedAt)}`
+                        : connection.lastCheckedAt === null
+                          ? "Not checked yet"
+                          : `Automatic check failed after ${formatDate(connection.lastCheckedAt)}`}
+                    </small>
+                  </span>
+                  <Button
+                    disabled={
+                      busyAction !== null ||
+                      (pendingProposal === undefined &&
+                        connection.liveRefreshesRemaining === 0)
                     }
-                    void checkBalances(connection.id);
-                  }}
-                  tone={pendingProposal === undefined ? "secondary" : "primary"}
-                >
-                  {busyAction === connection.id
-                    ? "Checking…"
-                    : pendingProposal !== undefined
-                      ? `Review ${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "balance" : "balances"}`
-                      : "Check balances"}
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                    onClick={() => {
+                      if (pendingProposal !== undefined) {
+                        setActiveProposalId(pendingProposal.id);
+                        return;
+                      }
+                      void checkBalances(connection.id);
+                    }}
+                    tone={
+                      pendingProposal === undefined ? "secondary" : "primary"
+                    }
+                  >
+                    {busyAction === connection.id
+                      ? "Checking…"
+                      : pendingProposal !== undefined
+                        ? `Review ${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "balance" : "balances"}`
+                        : "Try again"}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
       {notice !== null && (
         <p className="cash-accounts__notice" role="status">
@@ -3697,11 +3775,14 @@ function CashAccountsControl({
           {error}
         </p>
       )}
-      {!setupRequired && (
+      {!setupRequired && (state?.connections.length ?? 0) > 0 && (
         <p className="cash-accounts__cost-note">
-          Plaid may charge once when you connect and for each live balance
-          check. Keel runs live checks only when you ask, up to four per
-          institution each month.
+          {busyAction === "automatic"
+            ? "Checking due bank balances…"
+            : latestBankCheckAt === null
+              ? "Balances are checked automatically when due."
+              : `Last checked ${formatDate(latestBankCheckAt)}.`}{" "}
+          Checks run no more than once a week or four times per bank each month.
         </p>
       )}
     </section>
@@ -4285,34 +4366,37 @@ function PortfolioBaselineSection({
     (state.requiresDuplicateReview || state.requiresCashOverlapReview);
   const requiresSourceReview =
     !isCurrent && state.latestBaseline !== null && state.hasCashAccountChanges;
+  if (isCurrent) {
+    return null;
+  }
   return (
     <section
       aria-labelledby="portfolio-baseline-title"
-      className={`portfolio-baseline${isCurrent ? " portfolio-baseline--current" : ""}`}
+      className="portfolio-baseline"
     >
       <div className="portfolio-baseline__heading">
         <p className="eyebrow">Planning baseline</p>
         <h2 id="portfolio-baseline-title">
-          {isCurrent
-            ? "Planning baseline is current"
-            : isUpdatingAutomatically
-              ? "Updating the planning baseline"
-              : requiresOverlapReview
-                ? "Possible overlaps need review"
-                : requiresSourceReview
-                  ? "Cash changes are ready to review"
-                  : "Set the FI planning baseline"}
+          {isUpdatingAutomatically
+            ? "Updating the planning baseline"
+            : requiresOverlapReview
+              ? state.requiresCashOverlapReview
+                ? "Check cash held elsewhere"
+                : "Review a source overlap"
+              : requiresSourceReview
+                ? "Bank cash changes are ready"
+                : "Set the FI planning baseline"}
         </h2>
         <p>
-          {isCurrent
-            ? `Updated ${formatDate(state.latestBaseline?.createdAt ?? state.observedAt ?? "")}. Accepted holdings can update automatically; cash changes wait for review.`
-            : isUpdatingAutomatically
-              ? "Accepted holdings changed. Keel is updating the FI plan automatically."
-              : requiresOverlapReview
-                ? "Confirm which accepted sources overlap before Keel updates the FI plan."
-                : requiresSourceReview
-                  ? "Review accepted cash accounts and the manual residual. Nothing changes until you confirm."
-                  : "Set reviewed holdings and cash accounts as the FI baseline, then add any eligible liquid assets held elsewhere."}
+          {isUpdatingAutomatically
+            ? "Accepted holdings changed. Keel is updating the FI plan automatically."
+            : requiresOverlapReview
+              ? state.requiresCashOverlapReview
+                ? "Linked bank and brokerage cash are already counted. Confirm that the manual residual does not repeat them."
+                : "Keel needs one source decision before updating the FI plan."
+              : requiresSourceReview
+                ? "Review the changed bank balances before Keel updates the FI plan."
+                : "Set reviewed holdings and cash accounts as the FI baseline, then add any eligible liquid assets held elsewhere."}
         </p>
         {error !== null && (
           <p className="portfolio-baseline__error" role="status">
@@ -4320,35 +4404,22 @@ function PortfolioBaselineSection({
           </p>
         )}
       </div>
-      <div className="portfolio-baseline__summary">
-        <span>
-          <strong>{state.summary.positionCount}</strong> reviewed positions
-        </span>
-        <span>
-          <strong>{state.summary.unknownValueCount}</strong> values unavailable
-        </span>
-        <span>
-          <strong>{state.summary.cashAccountCount}</strong> cash accounts
-        </span>
-        <span>
-          <strong>
-            {formatCompactMoney(state.planning.currentFiEligibleLiquidMinor)}
-          </strong>{" "}
-          in the FI plan
-        </span>
-      </div>
-      {!isCurrent && !isUpdatingAutomatically && (
+      {!isUpdatingAutomatically && (
         <Button onClick={openReview} tone="primary">
           {requiresOverlapReview
-            ? "Review overlaps"
+            ? state.requiresCashOverlapReview
+              ? "Review cash held elsewhere"
+              : "Review source"
             : requiresSourceReview
-              ? "Review cash changes"
+              ? "Review bank cash"
               : "Set baseline"}
         </Button>
       )}
     </section>
   );
 }
+
+const HOLDINGS_EXPOSURE_PAGE_SIZE = 12;
 
 function Holdings({
   data,
@@ -4391,6 +4462,9 @@ function Holdings({
     null,
   );
   const [cashRefreshVersion, setCashRefreshVersion] = useState(0);
+  const [visibleExposureCount, setVisibleExposureCount] = useState(
+    HOLDINGS_EXPOSURE_PAGE_SIZE,
+  );
   const selectedHolding =
     data.holdings.find((holding) => holding.id === selectedHoldingId) ?? null;
   const importerVisible = showImporter || requestedImportId !== null;
@@ -4426,7 +4500,7 @@ function Holdings({
         }
       } finally {
         if (!cancelled) {
-          timer = window.setTimeout(() => void loadPending(), 10_000);
+          timer = window.setTimeout(() => void loadPending(), 60_000);
         }
       }
     };
@@ -4479,6 +4553,13 @@ function Holdings({
   const reviewPendingImport = useCallback(
     (importId: string) => onImportRouteChange(importId),
     [onImportRouteChange],
+  );
+  const loadMoreExposures = useCallback(
+    () =>
+      setVisibleExposureCount(
+        (current) => current + HOLDINGS_EXPOSURE_PAGE_SIZE,
+      ),
+    [],
   );
 
   const closeHoldingDetail = () => {
@@ -4540,7 +4621,7 @@ function Holdings({
                 }}
                 tone="primary"
               >
-                Import holdings
+                Import AngelList CSV
               </Button>
             </>
           )}
@@ -4580,23 +4661,6 @@ function Holdings({
         )
       ) : (
         <>
-          <CashAccountsControl
-            onAccepted={() => {
-              setCashRefreshVersion((current) => current + 1);
-              return Promise.resolve();
-            }}
-          />
-          <PortfolioBaselineSection
-            onConfirmed={onBaselineConfirmed}
-            refreshKey={baselineRefreshKey}
-          />
-          <InvestmentHoldings
-            holdings={data.holdings}
-            onExposureResolved={onExposureResolved}
-            onOpenHolding={setSelectedHoldingId}
-            onReviewImport={reviewPendingImport}
-          />
-          <AngelListSignInControl />
           {pendingImports.length > 0 && (
             <section
               aria-labelledby="pending-holding-imports-title"
@@ -4637,6 +4701,25 @@ function Holdings({
               {pendingImportError}
             </div>
           )}
+          <AngelListSignInControl />
+          <CashAccountsControl
+            onAccepted={() => {
+              setCashRefreshVersion((current) => current + 1);
+              return Promise.resolve();
+            }}
+          />
+          <PortfolioBaselineSection
+            onConfirmed={onBaselineConfirmed}
+            refreshKey={baselineRefreshKey}
+          />
+          <InvestmentHoldings
+            holdings={data.holdings}
+            onExposureResolved={onExposureResolved}
+            onLoadMoreExposures={loadMoreExposures}
+            onOpenHolding={setSelectedHoldingId}
+            onReviewImport={reviewPendingImport}
+            visibleExposureCount={visibleExposureCount}
+          />
         </>
       )}
     </div>

@@ -7,8 +7,8 @@ Baseline confirmation combines those facts with reviewed public holdings and a
 manual residual.
 
 This integration never requests routing or account numbers, calls `/auth/get`,
-ingests transactions, schedules balance refreshes, or interprets a missing
-account as closed or empty.
+ingests transactions, runs a background balance schedule, or interprets a
+missing account as closed or empty.
 
 ## Plaid setup
 
@@ -48,25 +48,32 @@ unreadable and requires reconnecting it.
 
 - Initial linking uses the cached `/accounts/get` response and consumes no live
   balance-check allowance.
-- **Check balances** is the only path that calls `/accounts/balance/get`.
+- Opening Holdings attempts `/accounts/balance/get` only when the institution
+  has no live attempt in the preceding seven days.
+- A failed automatic check exposes a bounded manual retry; healthy connections
+  do not repeat a routine **Check balances** action.
 - Each institution is capped at four attempted live checks per UTC calendar
-  month. There is no background schedule or webhook-triggered cash refresh.
+  month. There is no background schedule or webhook-triggered cash refresh, so a
+  page reload inside the cooldown makes no provider request.
 - Keel permits only one active check or waiting proposal per connection, so an
   older review cannot be overtaken by another paid result.
+- An exact no-change result completes the check without creating another review
+  or changing the last accepted cash fact. New, changed, missing, and
+  unsupported rows remain review proposals.
 - The maximum live-balance cost is therefore
   `4 × the deployment's Plaid contract rate` per institution each month, plus
   any one-time Auth charge for linking.
-- The Holdings UI distinguishes cached connection data from an explicit live
-  balance check, and shows the remaining monthly live checks before the user
-  requests another paid refresh.
+- Plaid Trial is free and limits Production to 10 live Items; Plaid does not
+  publish a separate monthly allowance of Balance calls. The four-attempt limit
+  is Keel's own maximum-cost guard.
 
 Use Plaid's official documentation for
 [Link product initialization](https://plaid.com/docs/link/initializing-products/),
 [Link token options](https://plaid.com/docs/api/link/),
 [Accounts](https://plaid.com/docs/api/accounts/),
 [Balance](https://plaid.com/docs/balance/), and
-[billing behavior](https://plaid.com/docs/account/billing/) when changing this
-contract.
+[billing behavior](https://plaid.com/docs/account/billing/), including Trial
+limits, when changing this contract.
 
 ## Data and review contract
 
@@ -96,9 +103,10 @@ contract.
   The user may accept that state to clear the stale balance, but Keel never
   infers closure, withdrawal, or a zero balance.
 - Portfolio Baseline confirmation includes reviewed public holdings and linked
-  cash once and keeps a separate manual residual. If any two of linked cash,
-  reviewed brokerage cash positions, and the manual residual are positive, the
-  user must explicitly confirm that overlap was removed.
+  cash once and keeps a separate manual residual. Exact bank-account and
+  brokerage-position identities are counted together automatically. A positive
+  manual residual alongside either sourced cash category requires explicit
+  confirmation because the residual has no source identity.
 
 ## Private acceptance
 
@@ -107,17 +115,18 @@ artifacts:
 
 1. Confirm the Plaid secret group is complete and the authenticated Holdings
    page reports cash accounts as enabled.
-2. Select **Connect cash account** and verify Plaid Link opens with eligible
-   bank institutions. This proves token creation and the Link boundary; do not
-   enter real credentials merely for release evidence.
+2. Select **Add bank** and verify Plaid Link opens with eligible bank
+   institutions. This proves token creation and the Link boundary; do not enter
+   real credentials merely for release evidence.
 3. In a disposable Sandbox profile, complete Link with Plaid's synthetic user,
    confirm a dated proposal appears, and verify no FI value changes before the
    cash review and subsequent Portfolio Baseline confirmation.
 4. Apply a synthetic review containing a supported USD balance and an
    unsupported or missing balance. Confirm only the supported decision enters
    the baseline preview and that the manual-cash overlap checkbox is required.
-5. Verify the UI exposes at most four live checks for the institution and that a
-   fifth request fails closed with no provider call.
+5. Verify the first due Holdings visit starts one live check, another visit
+   inside seven days makes no provider call, and a fifth monthly attempt fails
+   closed with no provider call.
 
 Keep account names, balances, tokens, screenshots of real institutions, raw
 responses, and provider request logs out of GitHub issues, CI artifacts, and
