@@ -96,6 +96,7 @@ describe("preview deployment configuration", () => {
       vars: {
         ENVIRONMENT: "preview",
         DEPLOYED_GIT_SHA: "b".repeat(40),
+        INVESTMENTS_NEW_CONNECTIONS_ENABLED: "true",
         PLAID_WEBHOOK_URL:
           "https://keel-preview-webhooks.example.com/webhooks/plaid",
       },

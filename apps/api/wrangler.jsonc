@@ -8,7 +8,7 @@
   "preview_urls": false,
   "vars": {
     "ENVIRONMENT": "production",
-    "INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED": "false",
+    "INVESTMENTS_NEW_CONNECTIONS_ENABLED": "false",
   },
   "d1_databases": [
     {
@@ -48,7 +48,7 @@
       "name": "keel-api-local",
       "vars": {
         "ENVIRONMENT": "local",
-        "INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED": "false",
+        "INVESTMENTS_NEW_CONNECTIONS_ENABLED": "false",
       },
       "d1_databases": [
         {

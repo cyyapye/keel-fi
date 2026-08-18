@@ -869,9 +869,13 @@ test("shows automatic Robinhood checks with exception-only review", async ({
   await expect(
     page.getByText("Robinhood disconnected. Reviewed history remains visible."),
   ).toBeVisible();
-  await expect(robinhoodCard).toHaveCount(0);
+  await expect(robinhoodCard).toBeVisible();
+  await expect(robinhoodCard).toContainText("Disconnected");
+  await expect(robinhoodCard).toContainText(
+    "This Plaid connection ended. Reviewed positions and planning history remain available.",
+  );
   await expect(
-    page.getByText("Reviewed positions and planning history remain available."),
+    robinhoodCard.getByRole("button", { name: "Connect again" }),
   ).toHaveCount(0);
   expect(disconnectCalls).toBe(1);
 });

@@ -198,27 +198,44 @@ function exposureTotalsLabel(
 function InstitutionActions({
   busy,
   confirmDisconnect,
+  newConnectionsAvailable,
   onAction,
   onCancelDisconnect,
+  onConnectAgain,
   onConfirmDisconnect,
   onReviewImport,
   status,
 }: {
   busy: BusyAction | null;
   confirmDisconnect: boolean;
+  newConnectionsAvailable: boolean;
   onAction: (action: ConnectionAction) => void;
   onCancelDisconnect: () => void;
+  onConnectAgain: () => void;
   onConfirmDisconnect: () => void;
   onReviewImport: (importId: string) => void;
   status: InvestmentConnectionStatus;
 }) {
   const isBusy = busy?.connectionId === status.connectionId;
+  const isAdding = busy?.action === "add" || busy?.action === "exchange";
   const waitingCount = status.latestAdjudication?.quarantinedCount ?? 0;
   if (status.status === "disconnected") {
     return (
-      <p className="investment-institution__history">
-        Reviewed positions and planning history remain available.
-      </p>
+      <div className="investment-institution__reconnect">
+        <p>
+          This Plaid connection ended. Reviewed positions and planning history
+          remain available.
+        </p>
+        {newConnectionsAvailable && (
+          <Button
+            disabled={busy !== null}
+            onClick={onConnectAgain}
+            tone="primary"
+          >
+            {isAdding ? "Opening…" : "Connect again"}
+          </Button>
+        )}
+      </div>
     );
   }
   if (confirmDisconnect) {
@@ -1376,11 +1393,9 @@ export function InvestmentHoldings({
   ];
   const visibleConnectionIds = orderedIds.filter((connectionId) => {
     const connection = positionConnectionById.get(connectionId) ?? null;
-    const status = statusById.get(connectionId) ?? null;
     return (
       (connection === null || connection.adapterType === "plaid-investments") &&
-      connection?.purpose !== "reviewed_history" &&
-      status?.status !== "disconnected"
+      connection?.purpose !== "reviewed_history"
     );
   });
   const addAvailable = data?.authorizationStatus === "available";
@@ -1425,7 +1440,7 @@ export function InvestmentHoldings({
         <div className="investment-institutions__heading">
           <p className="eyebrow">Connections</p>
           <h2 id="investment-institutions-title">Brokerages</h2>
-          <p>Manage current brokerage and retirement connections.</p>
+          <p>Robinhood, Fidelity, Schwab investing. Banking above.</p>
         </div>
         <div className="investment-institutions__add">
           {addAvailable ? (
@@ -1442,7 +1457,7 @@ export function InvestmentHoldings({
             <p>
               {setupRequired
                 ? "Investment updates need deployment setup."
-                : "New brokerage connections are not enabled yet."}
+                : "New brokerage connections are disabled in this deployment."}
             </p>
           )}
         </div>
@@ -1467,6 +1482,7 @@ export function InvestmentHoldings({
                 status?.latestImportId === undefined
                   ? 0
                   : 1);
+              const accountCount = connection?.containers.length ?? 0;
               return (
                 <article className="investment-institution" key={connectionId}>
                   <div className="investment-institution__heading">
@@ -1477,10 +1493,11 @@ export function InvestmentHoldings({
                       </Badge>
                     </span>
                     <p className="investment-institution__summary">
-                      {connection?.containers.length ?? 0}{" "}
-                      {(connection?.containers.length ?? 0) === 1
-                        ? "account"
-                        : "accounts"}
+                      {status?.status === "disconnected"
+                        ? accountCount === 0
+                          ? "No current accounts"
+                          : `${accountCount} reviewed ${accountCount === 1 ? "account" : "accounts"}`
+                        : `${accountCount} ${accountCount === 1 ? "account" : "accounts"}`}
                       {lastComplete === null
                         ? ""
                         : ` · Updated ${formatDate(lastComplete)}`}
@@ -1493,10 +1510,12 @@ export function InvestmentHoldings({
                     <InstitutionActions
                       busy={busy}
                       confirmDisconnect={confirmDisconnectId === connectionId}
+                      newConnectionsAvailable={addAvailable}
                       onAction={(action) =>
                         void runConnectionAction(status, action)
                       }
                       onCancelDisconnect={() => setConfirmDisconnectId(null)}
+                      onConnectAgain={() => void addInstitution()}
                       onConfirmDisconnect={() =>
                         setConfirmDisconnectId(connectionId)
                       }

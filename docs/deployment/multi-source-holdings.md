@@ -257,18 +257,38 @@ Each investment connection has its own actions:
   plans, goals, and forecasts remain available.
 
 Investment authorization is deliberately separate from the reviewed Plaid Auth
-flow for banking cash. `INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED` defaults to
-`false` in checked-in local, preview, and production configuration. With that
-default, `POST /api/investment-connections/link-token` returns a fail-closed
-conflict and the interface explains that coverage and pricing approval are
-required. Existing connection reconnects remain available because they do not
-authorize a new institution or product.
+flow for banking cash. `INVESTMENTS_NEW_CONNECTIONS_ENABLED` defaults to `false`
+in checked-in local and production configuration. The owner-operated private
+preview enables it so the owner can authorize Robinhood Investments, Fidelity,
+and Schwab through the same Plaid Investments flow. Both Link-token creation and
+public-token exchange fail closed when the flag is disabled.
+
+An invalid retained Item can still use **Reconnect** in Plaid update mode
+without creating a second Item. A deliberately disconnected Item cannot: Keel
+has removed its Plaid credential and exposes **Connect again**, which creates a
+new Item while preserving accepted positions and planning history. Bank and
+investment consent remain separate. Robinhood banking uses **Add bank**; its
+brokerage and retirement accounts use **Add brokerage**.
+
+Plaid's [current Trial plan](https://plaid.com/docs/account/billing/) includes
+Investments and permits at most 10 Production Items. Every new Item counts
+toward that lifetime Trial ceiling; removing an Item does not restore capacity.
+The owner must therefore treat a bank connection, an investment connection, and
+a post-disconnect replacement as separate Item uses. Link and the Dashboard
+remain authoritative for Fidelity and Schwab availability; Plaid documents
+additional institution access requirements for both after a paid-plan upgrade.
+Keel additionally reads exact institution metadata after exchange, requires the
+Investments product, and removes an unsupported Item before storing a
+credential. Institution display text never authorizes or identifies a
+connection.
 
 ## Provider enablement checklist
 
-Before setting `INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED=true` in a private
-deployment, record all of the following outside public Git for the exact
-institution variant:
+Before setting `INVESTMENTS_NEW_CONNECTIONS_ENABLED=true` in production or a
+paid deployment, record all of the following outside public Git for the exact
+institution variant. The owner-operated Trial preview uses Plaid's published
+Trial ceiling and product inclusion; it must still fail closed when Link or
+exact post-exchange metadata denies Investments access.
 
 1. Plaid Investments coverage for every intended brokerage and retirement
    account type, including known unsupported or partial cases.
@@ -315,8 +335,8 @@ release evidence:
    keyboard focus, 44-pixel controls, and horizontal overflow.
 7. Release only through a reviewed exact-head PR followed by the exact-SHA
    backup, forward migration, deployment, and protected-smoke workflow. Keep
-   additional-institution authorization disabled unless the private checklist
-   above is complete.
+   new-connection authorization disabled outside the owner-operated Trial
+   preview unless the private checklist above is complete.
 
 ## Canonical contract verification
 

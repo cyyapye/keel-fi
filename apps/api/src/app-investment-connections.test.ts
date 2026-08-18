@@ -197,7 +197,7 @@ describe("investment-connections API", () => {
     const app = createApp({
       investmentConnectionsRepository,
       plaidClient,
-      additionalInvestmentAuthorizationAvailable: true,
+      newInvestmentConnectionsAvailable: true,
     });
 
     const statusResponse = await app.request(
@@ -439,7 +439,7 @@ describe("investment-connections API", () => {
     });
   });
 
-  it("does not open new authorization before provider approval", async () => {
+  it("does not open a new connection when authorization is disabled", async () => {
     const plaidClient = client();
     const app = createApp({
       investmentConnectionsRepository: repository(),
@@ -454,10 +454,33 @@ describe("investment-connections API", () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
-      error:
-        "Additional investment institutions require approved provider coverage and pricing.",
+      error: "New investment connections are not enabled.",
     });
     expect(plaidClient.createLinkToken).not.toHaveBeenCalled();
+  });
+
+  it("does not exchange a valid new Item when authorization is disabled", async () => {
+    const plaidClient = client();
+    const app = createApp({
+      investmentConnectionsRepository: repository(),
+      plaidClient,
+    });
+
+    const response = await app.request(
+      "/api/investment-connections/exchange",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicToken: "public-synthetic" }),
+      },
+      env(),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "New investment connections are not enabled.",
+    });
+    expect(plaidClient.exchangeInvestmentToken).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed exchange before calling Plaid", async () => {

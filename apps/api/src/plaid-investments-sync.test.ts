@@ -560,6 +560,68 @@ describe("Plaid Investments sync", () => {
     ]);
   });
 
+  it("accepts validated Investments metadata from a synthetic Schwab variant", async () => {
+    const calls: string[] = [];
+    const fetcher = vi.fn((url: string | URL | Request) => {
+      const rawUrl =
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      const path = new URL(rawUrl).pathname;
+      calls.push(path);
+      const body =
+        path === "/item/public_token/exchange"
+          ? {
+              access_token: "synthetic-schwab-access-token",
+              item_id: "synthetic-schwab-item",
+              request_id: "synthetic-request",
+            }
+          : path === "/item/get"
+            ? {
+                item: {
+                  institution_id: "synthetic-schwab-investments",
+                  item_id: "synthetic-schwab-item",
+                },
+                request_id: "synthetic-request",
+              }
+            : path === "/institutions/get_by_id"
+              ? {
+                  institution: {
+                    institution_id: "synthetic-schwab-investments",
+                    name: "Synthetic Schwab Investments",
+                    products: ["investments"],
+                  },
+                  request_id: "synthetic-request",
+                }
+              : { removed: true, request_id: "synthetic-request" };
+      return Promise.resolve(Response.json(body));
+    });
+    const client = new FetchPlaidInvestmentsClient(
+      {
+        clientId: "synthetic-client",
+        secret: "synthetic-secret",
+        environment: "sandbox",
+        credentialKey,
+        redirectUri: "https://keel.example/holdings",
+        webhookUrl: "https://keel-webhooks.example/webhooks/plaid",
+      },
+      fetcher,
+    );
+
+    await expect(
+      client.exchangeInvestmentToken("synthetic-public-token"),
+    ).resolves.toEqual({
+      version: 1,
+      accessToken: "synthetic-schwab-access-token",
+      itemId: "synthetic-schwab-item",
+      institutionKey: "synthetic-schwab-investments",
+      institutionLabel: "Synthetic Schwab Investments",
+    });
+    expect(calls).toEqual([
+      "/item/public_token/exchange",
+      "/item/get",
+      "/institutions/get_by_id",
+    ]);
+  });
+
   it("removes a Fidelity cash-management variant without Investments support", async () => {
     const calls: string[] = [];
     const fetcher = vi.fn((url: string | URL | Request) => {

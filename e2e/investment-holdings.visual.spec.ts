@@ -346,6 +346,10 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page.getByRole("button", { name: "Add brokerage" }),
   ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add bank" })).toBeVisible();
+  await expect(
+    page.getByText("Robinhood, Fidelity, Schwab investing. Banking above."),
+  ).toBeVisible();
   await expect(
     page.locator(".investment-institution").filter({ hasText: "Fidelity" }),
   ).toHaveCount(2);
@@ -361,7 +365,17 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     reconnectCard.getByRole("button", { name: "Reconnect" }),
   ).toBeVisible();
-  await expect(page.getByText("Synthetic Former Brokerage")).toHaveCount(0);
+  const disconnectedCard = page.locator(".investment-institution").filter({
+    hasText: "Synthetic Former Brokerage",
+  });
+  await expect(disconnectedCard).toBeVisible();
+  await expect(
+    disconnectedCard.getByText("Disconnected", { exact: true }),
+  ).toBeVisible();
+  await expect(disconnectedCard).toContainText("No current accounts");
+  await expect(
+    disconnectedCard.getByRole("button", { name: "Connect again" }),
+  ).toBeVisible();
 
   const exposureView = page.locator(".investment-views");
   await expect(
@@ -498,6 +512,49 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       "Provider access will be removed. Reviewed history stays in Keel.",
     ),
   ).toHaveCount(0);
+});
+
+test("opens a new Item flow for a disconnected brokerage", async ({
+  page,
+}, testInfo) => {
+  let linkTokenRequests = 0;
+  await page.addInitScript(() => {
+    Object.assign(window, {
+      Plaid: {
+        create: ({ onExit }: { onExit: () => void }) => ({
+          destroy: () => undefined,
+          open: () => window.setTimeout(onExit, 0),
+        }),
+      },
+    });
+  });
+  await page.route(
+    "**/api/investment-connections/link-token",
+    async (route) => {
+      linkTokenRequests += 1;
+      await route.fulfill({
+        json: {
+          linkToken: "link-synthetic-disconnected",
+          expiration: "2026-08-18T12:30:00.000Z",
+        },
+      });
+    },
+  );
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await navigateToScreen(page, mobile, /Holdings/);
+  const disconnectedCard = page.locator(".investment-institution").filter({
+    hasText: "Synthetic Former Brokerage",
+  });
+  const connectAgain = disconnectedCard.getByRole("button", {
+    name: "Connect again",
+  });
+
+  await connectAgain.click();
+
+  await expect.poll(() => linkTokenRequests).toBe(1);
+  await expect(connectAgain).toBeEnabled();
 });
 
 test("keeps reviewed history in exposures without showing fake brokerage accounts", async ({

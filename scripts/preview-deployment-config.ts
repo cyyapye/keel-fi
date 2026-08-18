@@ -161,7 +161,7 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
     vars: {
       ENVIRONMENT: "preview",
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
-      INVESTMENTS_ADDITIONAL_INSTITUTIONS_ENABLED: "false",
+      INVESTMENTS_NEW_CONNECTIONS_ENABLED: "true",
       PLAID_WEBHOOK_URL: webhookUrl.href,
     },
     secrets: {

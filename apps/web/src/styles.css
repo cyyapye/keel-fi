@@ -2407,8 +2407,7 @@ h1,
 
 .investment-institutions__checking,
 .investment-institutions__empty p,
-.investment-institution__empty,
-.investment-institution__history {
+.investment-institution__empty {
   margin: 0;
   color: var(--muted);
   font-size: 10px;
@@ -2539,7 +2538,7 @@ h1,
 
 .investment-institution__actions,
 .investment-institution__confirm,
-.investment-institution__history {
+.investment-institution__reconnect {
   grid-column: 2;
 }
 
@@ -2564,7 +2563,19 @@ h1,
   line-height: 1.5;
 }
 
-.investment-institution__history {
+.investment-institution__reconnect {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+}
+
+.investment-institution__reconnect p {
+  max-width: 440px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
   text-align: right;
 }
 
@@ -6144,7 +6155,7 @@ h1,
 
   .investment-institution__actions,
   .investment-institution__confirm,
-  .investment-institution__history {
+  .investment-institution__reconnect {
     grid-column: 1;
   }
 
@@ -6174,10 +6185,24 @@ h1,
     width: 100%;
   }
 
-  .investment-institution__history,
   .investment-institutions__notice,
   .investment-institutions__error {
     text-align: left;
+  }
+
+  .investment-institution__reconnect {
+    display: grid;
+    justify-content: stretch;
+    gap: 12px;
+  }
+
+  .investment-institution__reconnect p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .investment-institution__reconnect .button {
+    width: 100%;
   }
 
   .investment-views {
