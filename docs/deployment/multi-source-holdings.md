@@ -272,8 +272,10 @@ brokerage and retirement accounts use **Add brokerage**.
 
 After a replacement Item exists, Holdings suppresses the old disconnected
 recovery card only when a non-disconnected Item carries the same exact Plaid
-institution ID. It does not compare institution labels, delete the old source,
-or remove its accepted positions from exposure and planning history.
+institution ID. For a retained pre-ID connection, it also suppresses an empty
+card with the exact provider institution label; a connection with any reviewed
+account remains separate. This presentation rule does not merge holdings, delete
+the old source, or remove accepted positions from exposure and planning history.
 
 Plaid's [current Trial plan](https://plaid.com/docs/account/billing/) includes
 Investments and permits at most 10 Production Items. Every new Item counts

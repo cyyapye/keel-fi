@@ -1382,6 +1382,11 @@ export function InvestmentHoldings({
       status.status === "disconnected" ? [] : [status.institutionKey],
     ) ?? [],
   );
+  const currentInstitutionLabels = new Set(
+    connectionState?.connections.flatMap((status) =>
+      status.status === "disconnected" ? [] : [status.institutionLabel],
+    ) ?? [],
+  );
   const positionConnectionById = new Map(
     data?.positionView.connections.map((connection) => [
       connection.id,
@@ -1404,7 +1409,9 @@ export function InvestmentHoldings({
       connection?.purpose !== "reviewed_history" &&
       !(
         status?.status === "disconnected" &&
-        currentInstitutionKeys.has(status.institutionKey)
+        (currentInstitutionKeys.has(status.institutionKey) ||
+          ((connection?.containers.length ?? 0) === 0 &&
+            currentInstitutionLabels.has(status.institutionLabel)))
       )
     );
   });
