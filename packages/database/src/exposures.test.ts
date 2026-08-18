@@ -19,6 +19,8 @@ const structuredAssetIdentityMigrationFile =
   "packages/database/migrations/0029_structured_asset_exposure.sql";
 const reconnectedPositionContinuityMigrationFile =
   "packages/database/migrations/0030_reconnected_position_continuity.sql";
+const oneSidedPositionIdentityMigrationFile =
+  "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -49,6 +51,7 @@ const migrationFiles = [
   providerScopedIdentityMigrationFile,
   structuredAssetIdentityMigrationFile,
   reconnectedPositionContinuityMigrationFile,
+  oneSidedPositionIdentityMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -675,6 +678,8 @@ describe("canonical exposure resolution and aggregation", () => {
       ...shared,
       id: "position_synthetic_alphabet_current",
       connectionId: currentConnectionId,
+      publicExposureIdentityKind: "cusip",
+      protectedExposureKey: hash("cusip:synthetic-alphabet-current"),
       valueMinor: 1_100,
       observedAt: "2026-08-18T00:00:00.000Z",
     });
@@ -1953,6 +1958,7 @@ describe("holding ownership and exposure reconciliation migration", () => {
             file !== providerScopedIdentityMigrationFile &&
             file !== structuredAssetIdentityMigrationFile &&
             file !== reconnectedPositionContinuityMigrationFile &&
+            file !== oneSidedPositionIdentityMigrationFile &&
             file !== "packages/database/seed/synthetic.sql",
         )
         .forEach((file) => {
@@ -2129,6 +2135,7 @@ describe("holding ownership and exposure reconciliation migration", () => {
         providerScopedIdentityMigrationFile,
         structuredAssetIdentityMigrationFile,
         reconnectedPositionContinuityMigrationFile,
+        oneSidedPositionIdentityMigrationFile,
       ]) {
         database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
       }

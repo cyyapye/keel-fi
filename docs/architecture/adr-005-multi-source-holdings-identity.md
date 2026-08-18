@@ -358,12 +358,21 @@ The accepted positions and snapshots remain immutable. Keel records a one-to-one
 continuation only when the reviewed-history record and the newer source record
 have the same normalized legal vehicle and account label, exact ticker,
 instrument type, currency, quantity, and cost basis, the newer snapshot is
-later, and neither side has another candidate. Any protected global security
-identity must also agree; conflicting or one-sided identity fails closed. The
-predecessor then leaves the current Position, Exposure, and Portfolio Baseline
-projections while its accepted source and snapshot remain auditable. This is a
-position-continuity decision, not text-based exposure identity and not a value
-rewrite.
+later, and neither side has another candidate. When both sides carry a protected
+global security identity, those identities must agree; conflicting identity
+fails closed. The predecessor then leaves the current Position, Exposure, and
+Portfolio Baseline projections while its accepted source and snapshot remain
+auditable. This is a position-continuity decision, not text-based exposure
+identity and not a value rewrite.
+
+Migration `0031_reconnected_position_continuity_one_sided_identity.sql` refines
+only the protected-identity corroboration rule after authenticated release
+acceptance found a reconnect where the successor had a valid global identifier
+that the retained predecessor lacked. One missing identifier no longer vetoes an
+otherwise exact, unique structured continuation; it is never copied to or
+inferred for the predecessor. If both sides have protected global identities,
+they must match. All snapshot facts, directionality, provenance, and one-to-one
+uniqueness gates from `0030` remain unchanged.
 
 These repairs are derived relationships, not new financial facts, so they may
 run automatically and idempotently before the canonical Holdings read. A repair

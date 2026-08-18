@@ -39,7 +39,12 @@ types and text-only identity remain unresolved. Migration
 when a retained reviewed-history Plaid position is followed by the same legal
 holding under a new Item. It preserves both accepted snapshots but excludes the
 older predecessor from current positions, exposure totals, and Portfolio
-Baseline value.
+Baseline value. Forward migration
+`0031_reconnected_position_continuity_one_sided_identity.sql` keeps that repair
+eligible when a checksum-valid public identifier exists on only one side of the
+reconnect. It does not infer the missing identifier: every structured snapshot
+fact and the one-to-one candidate constraint still must agree, and two present
+identifiers must be equal.
 
 The public repository and release fixtures remain synthetic-only. A short-lived
 synthetic transition experiment was removed instead of becoming a permanent
@@ -93,8 +98,10 @@ repair for already accepted history, not an alternate ingestion or read path.
 - Reconnected position continuity requires a later source snapshot, exact
   legal-vehicle, account-label, ticker, instrument, currency, quantity, and cost
   basis agreement, one candidate on each side, and no conflicting protected
-  global security identity. Text alone, changed quantities or cost basis,
-  several possible matches, and conflicting identity remain separate.
+  global security identity. A missing identifier on one side neither identifies
+  nor vetoes an otherwise exact unique continuation. Text alone, changed
+  quantities or cost basis, several possible matches, and two different present
+  identities remain separate.
 
 ## Direct-ingestion boundary
 
