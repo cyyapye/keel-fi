@@ -113,11 +113,6 @@ h1,
   line-height: 1.05;
 }
 
-.plan-monitoring__header h2:focus {
-  outline: 2px solid var(--ink);
-  outline-offset: 5px;
-}
-
 .plan-monitoring__copy {
   max-width: 720px;
   margin-bottom: 0;
@@ -1057,11 +1052,6 @@ h1,
 .holding-row-action:focus-visible i {
   color: var(--ink);
   transform: translateX(2px);
-}
-
-.holding-row-action:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 6px;
 }
 
 .source-meta {
@@ -2109,27 +2099,9 @@ h1,
   text-transform: uppercase;
 }
 
-.exposure-sort select {
-  min-height: 44px;
-  padding: 0 28px 0 0;
-  color: var(--ink);
+.exposure-sort .select-trigger {
   font-size: 10px;
   font-weight: 700;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-}
-
-.exposure-sort select:hover,
-.exposure-sort select:focus {
-  border-bottom-color: var(--ink);
-}
-
-.position-row__action:focus-visible,
-.exposure-group summary:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
 }
 
 .investment-views__loading,
@@ -2440,13 +2412,6 @@ h1,
   background: transparent;
   border: 1px solid var(--ink);
   border-radius: 0;
-}
-
-.private-exposure-review select:focus-visible,
-.private-exposure-review input:focus-visible,
-.private-exposure-review__open:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
 }
 
 .private-exposure-review__new-company {
@@ -5488,10 +5453,6 @@ h1,
 
   .exposure-sort {
     min-width: 0;
-  }
-
-  .exposure-sort select {
-    width: 100%;
   }
 
   .position-row__action {

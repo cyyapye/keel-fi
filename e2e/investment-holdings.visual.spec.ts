@@ -430,7 +430,31 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   const exposureSort = exposureView.getByLabel(
     "Sort exposures and positions by value",
   );
-  await expect(exposureSort).toHaveValue("descending");
+  await expect(exposureSort).toContainText("Highest first");
+  const restingSortBorder = await exposureSort.evaluate((element) => {
+    const styles = window.getComputedStyle(element);
+    return [
+      styles.borderTopWidth,
+      styles.borderRightWidth,
+      styles.borderBottomWidth,
+      styles.borderLeftWidth,
+    ];
+  });
+  await exposureSort.focus();
+  const focusedSortFrame = await exposureSort.evaluate((element) => {
+    const styles = window.getComputedStyle(element);
+    return {
+      border: [
+        styles.borderTopWidth,
+        styles.borderRightWidth,
+        styles.borderBottomWidth,
+        styles.borderLeftWidth,
+      ],
+      outline: styles.outlineStyle,
+    };
+  });
+  expect(focusedSortFrame.border).toEqual(restingSortBorder);
+  expect(focusedSortFrame.outline).toBe("none");
   await expect(
     exposureView.locator(".exposure-group summary strong").first(),
   ).toHaveText("NVIDIA common stock");
@@ -465,7 +489,12 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "USD 2.25k",
     "USD 1.25k",
   ]);
-  await exposureSort.selectOption("ascending");
+  await exposureSort.click();
+  await expect(
+    page.getByRole("option", { name: "Lowest first" }),
+  ).toBeVisible();
+  await page.getByRole("option", { name: "Lowest first" }).click();
+  await expect(exposureSort).toContainText("Lowest first");
   await expect(
     exposureView.locator(".exposure-group summary strong").first(),
   ).toHaveText("US Dollar");
@@ -478,7 +507,41 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "USD 240k",
     "USD 315k",
   ]);
-  await exposureSort.selectOption("descending");
+  await exposureSort.click();
+  await page.getByRole("option", { name: "Highest first" }).click();
+  await expect(exposureSort).toContainText("Highest first");
+  await exposureSort.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    page.getByRole("option", { name: "Highest first" }),
+  ).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    page.getByRole("option", { name: "Lowest first" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(exposureSort).toContainText("Lowest first");
+  await exposureSort.focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(
+    page.getByRole("option", { name: "Lowest first" }),
+  ).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(
+    page.getByRole("option", { name: "Highest first" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(exposureSort).toContainText("Highest first");
+  await expect
+    .poll(() =>
+      exposureSort.evaluate(
+        (element) => window.getComputedStyle(element).boxShadow,
+      ),
+    )
+    .not.toBe("none");
+  await exposureSort.evaluate((element) => {
+    (element as HTMLElement).blur();
+  });
   const harbor = page.locator(".exposure-group").filter({
     has: page.getByText("Harbor Health Systems", { exact: true }),
   });

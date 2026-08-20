@@ -12,4 +12,11 @@ export {
 } from "./components/layout";
 export { MetricCard } from "./components/metric-card";
 export { Panel } from "./components/panel";
+export {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./components/select";
 export { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/tabs";
