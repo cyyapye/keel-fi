@@ -16,7 +16,17 @@ import type {
   InvestmentPositionConnection,
   InvestmentPositionContainer,
 } from "@keel/domain/position-read-model";
-import { Badge, Button, Input, NativeSelect } from "@keel/ui";
+import {
+  Badge,
+  Button,
+  Input,
+  NativeSelect,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@keel/ui";
 import {
   Fragment,
   type FormEvent,
@@ -183,6 +193,14 @@ function exposureTotalsLabel(
 }
 
 type ExposureSortDirection = "ascending" | "descending";
+
+const EXPOSURE_SORT_OPTIONS = [
+  { label: "Highest first", value: "descending" },
+  { label: "Lowest first", value: "ascending" },
+] as const satisfies ReadonlyArray<{
+  label: string;
+  value: ExposureSortDirection;
+}>;
 
 type SortableValue = {
   currency: string;
@@ -1511,21 +1529,29 @@ export function InvestmentHoldings({
           {data !== null && (
             <div className="investment-views__controls">
               {exposureCount > 1 && (
-                <label className="exposure-sort">
+                <div className="exposure-sort">
                   <span>Sort by value</span>
-                  <select
-                    aria-label="Sort exposures and positions by value"
-                    onChange={(event) =>
-                      setExposureSortDirection(
-                        event.currentTarget.value as ExposureSortDirection,
-                      )
-                    }
+                  <Select
+                    items={EXPOSURE_SORT_OPTIONS}
+                    onValueChange={(value) => {
+                      if (value === "ascending" || value === "descending") {
+                        setExposureSortDirection(value);
+                      }
+                    }}
                     value={exposureSortDirection}
                   >
-                    <option value="descending">Highest first</option>
-                    <option value="ascending">Lowest first</option>
-                  </select>
-                </label>
+                    <SelectTrigger aria-label="Sort exposures and positions by value">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPOSURE_SORT_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
               <span className="investment-views__count">
                 <strong>{exposureCount}</strong>{" "}
