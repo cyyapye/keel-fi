@@ -6,7 +6,16 @@ import {
   type CashFlowState,
   type CashFlowTreatment,
 } from "@keel/domain";
-import { Badge, Button, Panel } from "@keel/ui";
+import {
+  Badge,
+  Button,
+  Field,
+  FormMessage,
+  Input,
+  NativeSelect,
+  Notice,
+  Panel,
+} from "@keel/ui";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -235,9 +244,7 @@ export function ObservedCashFlow({
         eyebrow="Observed cash flow"
         title="Cash flow is unavailable"
       >
-        <p className="inline-error" role="alert">
-          {loadError}
-        </p>
+        <Notice tone="error">{loadError}</Notice>
         <Button
           onClick={() => {
             setLoadError(null);
@@ -352,7 +359,7 @@ export function ObservedCashFlow({
                 </small>
               </span>
               <b>{formatCompactMoney(category.averageMonthlyMinor)}</b>
-              <select
+              <NativeSelect
                 aria-label={`${category.label} treatment`}
                 disabled={readyForPlan}
                 onChange={(event) => {
@@ -374,7 +381,7 @@ export function ObservedCashFlow({
                     {label}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
           ))}
         </div>
@@ -390,29 +397,22 @@ export function ObservedCashFlow({
         )}
 
         {!readyForPlan && (
-          <label className="field field--wide cash-flow__note">
-            <span>Review note</span>
-            <input
+          <Field className="cash-flow__note" label="Review note" wide>
+            <Input
               maxLength={500}
               onChange={(event) => setChangeNote(event.target.value)}
               value={changeNote}
             />
-          </label>
+          </Field>
         )}
         <p className="cash-flow__trust">
           Loan payments stay with Obligations by default. Nothing changes until
           the prepared plan is saved.
         </p>
         {actionError !== null && (
-          <p className="form-message error" role="alert">
-            {actionError}
-          </p>
+          <FormMessage tone="error">{actionError}</FormMessage>
         )}
-        {message !== null && (
-          <p className="form-message" role="status">
-            {message}
-          </p>
-        )}
+        {message !== null && <FormMessage>{message}</FormMessage>}
         <div className="cash-flow__actions">
           {readyForPlan ? (
             <Button
@@ -503,7 +503,7 @@ export function ObservedCashFlow({
             </span>
             {needsConsent && (
               <label className="cash-flow__consent">
-                <input
+                <Input
                   checked={pricingConfirmed[connection.id] === true}
                   onChange={(event) =>
                     setPricingConfirmed((current) => ({
@@ -582,15 +582,9 @@ export function ObservedCashFlow({
         </p>
       )}
       {actionError !== null && (
-        <p className="form-message error" role="alert">
-          {actionError}
-        </p>
+        <FormMessage tone="error">{actionError}</FormMessage>
       )}
-      {message !== null && (
-        <p className="form-message" role="status">
-          {message}
-        </p>
-      )}
+      {message !== null && <FormMessage>{message}</FormMessage>}
     </Panel>
   );
 }

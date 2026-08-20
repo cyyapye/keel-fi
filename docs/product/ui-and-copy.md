@@ -8,6 +8,9 @@ verification workflow. This document remains the canonical product contract.
 
 ## Visual language
 
+- Keep the palette to ink and canvas. Use opacity and whitespace for hierarchy;
+  do not introduce semantic colors unless the trust boundary cannot be
+  communicated another way.
 - Use whitespace and section rhythm before adding a container or rule.
 - Use type hierarchy in this order: page title, section heading, primary value
   or action, supporting copy, metadata.
@@ -18,6 +21,21 @@ verification workflow. This document remains the canonical product contract.
 - Keep one primary action per section whenever possible.
 - Use Holdings as the default reference for information density and Scenarios as
   the default reference for interactive controls.
+
+## Shared implementation layer
+
+- Build recurring interface patterns in `packages/ui` and consume them through
+  `@keel/ui`. Keep app-local CSS for domain-specific composition only.
+- Follow shadcn's source-owned composition model: accessible behavior comes from
+  headless primitives, while Keel owns the markup, variants, copy, and visual
+  language.
+- Start with the narrow layout. Shared interactive targets must be at least 44px
+  high on mobile, and horizontal scrolling must be intentional and local.
+- Prefer the shared shell, page and section headers, buttons, badges, panels,
+  metrics, fields, feedback, and tabs before adding another variant.
+- Keep the primary action in the current section. Do not add a separate step,
+  modal, or confirmation unless it protects an irreversible or trust-sensitive
+  action.
 
 ## Copy filter
 

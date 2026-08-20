@@ -4,7 +4,16 @@ import {
   type PlanInputSave,
   type PlanInputState,
 } from "@keel/domain";
-import { Badge, Button, Panel } from "@keel/ui";
+import {
+  Badge,
+  Button,
+  Field,
+  FormMessage,
+  Input,
+  InputGroup,
+  Notice,
+  Panel,
+} from "@keel/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { loadPlanInputs, savePlanInputs } from "./api";
@@ -274,9 +283,7 @@ export function PlanInputsEditor({
         eyebrow="Runway plan"
         title="Plan inputs are unavailable"
       >
-        <p className="inline-error" role="alert">
-          {loadError}
-        </p>
+        <Notice tone="error">{loadError}</Notice>
         <Button onClick={reloadLatest}>Try again</Button>
       </Panel>
     );
@@ -351,11 +358,12 @@ export function PlanInputsEditor({
         }}
       >
         <div className="plan-inputs__fields">
-          <label className="field">
-            <span>Household burn / month</span>
-            <div className="field__value">
-              <i>$</i>
-              <input
+          <Field
+            description="Personal operating costs"
+            label="Household burn / month"
+          >
+            <InputGroup prefix="$">
+              <Input
                 aria-invalid={
                   parseMoneyInput(draft.householdBurnMonthly) === null
                     ? true
@@ -367,14 +375,14 @@ export function PlanInputsEditor({
                 }
                 value={draft.householdBurnMonthly}
               />
-            </div>
-            <small>Personal operating costs</small>
-          </label>
-          <label className="field">
-            <span>Business burn / month</span>
-            <div className="field__value">
-              <i>$</i>
-              <input
+            </InputGroup>
+          </Field>
+          <Field
+            description="Business costs covered by the plan"
+            label="Business burn / month"
+          >
+            <InputGroup prefix="$">
+              <Input
                 aria-invalid={
                   parseMoneyInput(draft.businessBurnMonthly) === null
                     ? true
@@ -386,14 +394,14 @@ export function PlanInputsEditor({
                 }
                 value={draft.businessBurnMonthly}
               />
-            </div>
-            <small>Business costs covered by the plan</small>
-          </label>
-          <label className="field">
-            <span>Protected cash floor</span>
-            <div className="field__value">
-              <i>$</i>
-              <input
+            </InputGroup>
+          </Field>
+          <Field
+            description="Excluded before runway is calculated"
+            label="Protected cash floor"
+          >
+            <InputGroup prefix="$">
+              <Input
                 aria-invalid={
                   parseMoneyInput(draft.protectedCashFloor) === null
                     ? true
@@ -405,9 +413,8 @@ export function PlanInputsEditor({
                 }
                 value={draft.protectedCashFloor}
               />
-            </div>
-            <small>Excluded before runway is calculated</small>
-          </label>
+            </InputGroup>
+          </Field>
         </div>
 
         <div className="plan-inputs__preview" aria-live="polite">
@@ -447,9 +454,8 @@ export function PlanInputsEditor({
           </article>
         </div>
 
-        <label className="field field--wide plan-inputs__change-note">
-          <span>What changed</span>
-          <input
+        <Field className="plan-inputs__change-note" label="What changed" wide>
+          <Input
             maxLength={500}
             onChange={(event) => {
               setChangeNote(event.target.value);
@@ -458,17 +464,12 @@ export function PlanInputsEditor({
             }}
             value={changeNote ?? automaticChangeNote}
           />
-        </label>
+        </Field>
 
         {saveMessage !== null && (
-          <p
-            className={
-              saveState === "error" ? "form-message error" : "form-message"
-            }
-            role={saveState === "error" ? "alert" : "status"}
-          >
+          <FormMessage tone={saveState === "error" ? "error" : "neutral"}>
             {saveMessage}
-          </p>
+          </FormMessage>
         )}
 
         <div className="plan-inputs__actions">

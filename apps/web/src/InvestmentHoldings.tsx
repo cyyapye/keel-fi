@@ -16,7 +16,7 @@ import type {
   InvestmentPositionConnection,
   InvestmentPositionContainer,
 } from "@keel/domain/position-read-model";
-import { Badge, Button } from "@keel/ui";
+import { Badge, Button, Input, NativeSelect } from "@keel/ui";
 import {
   Fragment,
   type FormEvent,
@@ -457,7 +457,7 @@ function PrivateExposureAssignmentForm({
         <legend>Company identity</legend>
         {companies.length > 0 && (
           <label className="private-exposure-review__choice">
-            <input
+            <Input
               checked={mode === "existing"}
               disabled={busy}
               name={"company-mode-" + position.positionId}
@@ -470,7 +470,7 @@ function PrivateExposureAssignmentForm({
         {mode === "existing" && companies.length > 0 && (
           <label>
             Company
-            <select
+            <NativeSelect
               disabled={busy}
               onChange={(event) => setCompanyId(event.target.value)}
               value={companyId}
@@ -482,11 +482,11 @@ function PrivateExposureAssignmentForm({
                   {company.websiteHost ?? companyStatusLabel(company.status)}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </label>
         )}
         <label className="private-exposure-review__choice">
-          <input
+          <Input
             checked={mode === "new"}
             disabled={busy}
             name={"company-mode-" + position.positionId}
@@ -499,7 +499,7 @@ function PrivateExposureAssignmentForm({
           <div className="private-exposure-review__new-company">
             <label>
               Company name
-              <input
+              <Input
                 disabled={busy}
                 maxLength={1_000}
                 onChange={(event) => setLegalName(event.target.value)}
@@ -509,7 +509,7 @@ function PrivateExposureAssignmentForm({
             </label>
             <label>
               Website domain <small>Optional</small>
-              <input
+              <Input
                 autoCapitalize="none"
                 disabled={busy}
                 maxLength={253}
