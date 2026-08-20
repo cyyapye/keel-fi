@@ -41,10 +41,11 @@ one serialized deployment:
 
 1. Validate every environment value and generate ignored private Wrangler
    configuration.
-2. Export D1 to the ephemeral runner, encrypt it with the independent preview
-   backup passphrase, decrypt and byte-compare a verification copy, record both
-   hashes, delete plaintext copies, and retain only the encrypted artifact for
-   14 days.
+2. Export D1 to the isolated deployment runner, encrypt it with the independent
+   preview backup passphrase, decrypt and byte-compare a verification copy,
+   record both hashes, delete plaintext copies, and retain only the encrypted
+   artifact for 14 days. The workflow removes the runner-local encrypted copy
+   and evidence files after their artifacts upload.
 3. Apply every pending D1 migration. Ordinary deployments never seed, reset,
    import, or restore the remote preview database.
 4. Deploy the private API Worker with the merged SHA as its version tag, then

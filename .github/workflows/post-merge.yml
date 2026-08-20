@@ -12,13 +12,13 @@ permissions:
 jobs:
   verify:
     name: Exact merged commit
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-node-pnpm
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       - run: make verify
       - name: Upload browser failure artifacts
         if: failure()
@@ -31,7 +31,7 @@ jobs:
 
   secret-scan:
     name: Secret scan
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -40,6 +40,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOME: ${{ runner.workspace }}
 
   deploy-preview:
     name: Deploy exact SHA to preview
@@ -47,7 +48,7 @@ jobs:
     needs:
       - verify
       - secret-scan
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, keel-deploy]
     timeout-minutes: 45
     permissions:
       contents: read
@@ -256,7 +257,12 @@ jobs:
           rm -f -- \
             apps/api/wrangler.preview.jsonc \
             apps/web/wrangler.preview.jsonc \
+            "$KEEL_API_WRANGLER_OUTPUT_PATH" \
+            "$KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH" \
+            "$KEEL_PREVIEW_BACKUP_MANIFEST_PATH" \
             "$RUNNER_TEMP/keel-preview-api-secrets.json" \
             "$RUNNER_TEMP/keel-preview-backup-passphrase" \
             "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
-            "$KEEL_PREVIEW_BACKUP_VERIFY_PATH"
+            "$KEEL_PREVIEW_BACKUP_VERIFY_PATH" \
+            "$KEEL_PREVIEW_RELEASE_EVIDENCE_PATH" \
+            "$KEEL_WEB_WRANGLER_OUTPUT_PATH"

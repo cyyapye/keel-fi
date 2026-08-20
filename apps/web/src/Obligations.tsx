@@ -6,7 +6,17 @@ import {
   type LiabilityProposal,
   type ManualLiabilityInput,
 } from "@keel/domain";
-import { Badge, Button } from "@keel/ui";
+import {
+  Badge,
+  Button,
+  Field,
+  Input,
+  InputGroup,
+  NativeSelect,
+  Notice,
+  PageHeader,
+  Screen,
+} from "@keel/ui";
 import {
   type FormEvent,
   useCallback,
@@ -305,7 +315,7 @@ function ObligationReview({
               </div>
               <div className="obligation-review__decision">
                 <label>
-                  <input
+                  <Input
                     checked={selection.included}
                     disabled={!canAccept || working}
                     onChange={(event) =>
@@ -324,7 +334,7 @@ function ObligationReview({
                   </span>
                 </label>
                 {selection.included && (
-                  <select
+                  <NativeSelect
                     aria-label={`Planning treatment for ${row.accountLabel}`}
                     disabled={working}
                     onChange={(event) =>
@@ -344,7 +354,7 @@ function ObligationReview({
                         {treatmentLabel(treatment)}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 )}
               </div>
             </article>
@@ -352,23 +362,19 @@ function ObligationReview({
         })}
       </div>
 
-      <label
-        className="field obligation-review__note"
+      <Field
+        className="obligation-review__note"
         htmlFor="obligation-review-note"
+        label="Review note"
       >
-        <span>Review note</span>
-        <input
+        <Input
           id="obligation-review-note"
           maxLength={500}
           onChange={(event) => setChangeNote(event.currentTarget.value)}
           value={changeNote}
         />
-      </label>
-      {error !== null && (
-        <p className="inline-error" role="alert">
-          {error}
-        </p>
-      )}
+      </Field>
+      {error !== null && <Notice tone="error">{error}</Notice>}
       <footer className="obligation-review__actions">
         <p>Only the selected payment treatments affect this planning view.</p>
         <div>
@@ -478,17 +484,14 @@ function ManualObligationForm({
       </header>
       <form onSubmit={(event) => void submit(event)}>
         <div className="manual-obligation__fields">
-          <label className="field">
-            <span>Institution</span>
-            <input maxLength={512} name="institutionLabel" required />
-          </label>
-          <label className="field">
-            <span>Account label</span>
-            <input maxLength={512} name="accountLabel" required />
-          </label>
-          <label className="field">
-            <span>Type</span>
-            <select
+          <Field label="Institution">
+            <Input maxLength={512} name="institutionLabel" required />
+          </Field>
+          <Field label="Account label">
+            <Input maxLength={512} name="accountLabel" required />
+          </Field>
+          <Field label="Type">
+            <NativeSelect
               name="kind"
               onChange={(event) =>
                 setKind(
@@ -502,56 +505,43 @@ function ManualObligationForm({
               <option value="student_loan">Student loan</option>
               <option value="other_revolving">Other revolving</option>
               <option value="other_scheduled">Other scheduled</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Outstanding balance</span>
-            <div className="field__value field__value--suffix">
-              <i>$</i>
-              <input inputMode="decimal" name="balance" placeholder="Unknown" />
-            </div>
-          </label>
-          <label className="field">
-            <span>Next required payment</span>
-            <div className="field__value">
-              <i>$</i>
-              <input inputMode="decimal" name="payment" placeholder="Unknown" />
-            </div>
-          </label>
-          <label className="field">
-            <span>APR</span>
-            <div className="field__value">
-              <input inputMode="decimal" name="rate" placeholder="Unknown" />
-              <i>%</i>
-            </div>
-          </label>
-          <label className="field">
-            <span>Next payment due</span>
-            <input name="dueDate" type="date" />
-          </label>
-          <label className="field">
-            <span>Payment status</span>
-            <select defaultValue="unknown" name="overdue">
+            </NativeSelect>
+          </Field>
+          <Field label="Outstanding balance">
+            <InputGroup prefix="$">
+              <Input inputMode="decimal" name="balance" placeholder="Unknown" />
+            </InputGroup>
+          </Field>
+          <Field label="Next required payment">
+            <InputGroup prefix="$">
+              <Input inputMode="decimal" name="payment" placeholder="Unknown" />
+            </InputGroup>
+          </Field>
+          <Field label="APR">
+            <InputGroup suffix="%">
+              <Input inputMode="decimal" name="rate" placeholder="Unknown" />
+            </InputGroup>
+          </Field>
+          <Field label="Next payment due">
+            <Input name="dueDate" type="date" />
+          </Field>
+          <Field label="Payment status">
+            <NativeSelect defaultValue="unknown" name="overdue">
               <option value="unknown">Unknown</option>
               <option value="no">Current</option>
               <option value="yes">Overdue</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Values effective</span>
-            <input
+            </NativeSelect>
+          </Field>
+          <Field label="Values effective">
+            <Input
               defaultValue={today}
               name="effectiveDate"
               required
               type="date"
             />
-          </label>
+          </Field>
         </div>
-        {error !== null && (
-          <p className="inline-error" role="alert">
-            {error}
-          </p>
-        )}
+        {error !== null && <Notice tone="error">{error}</Notice>}
         <footer>
           <p>
             You will review the planning treatment before anything is accepted.
@@ -756,53 +746,44 @@ export function Obligations() {
 
   if (state === null) {
     return (
-      <div className="screen-stack">
-        <div className="page-intro">
-          <div>
-            <p className="eyebrow">Liquidity commitments</p>
-            <h1>Obligations</h1>
-            <p>Loading reviewed debt and payment context…</p>
-          </div>
-        </div>
-        {error !== null && (
-          <p className="inline-error" role="alert">
-            {error}
-          </p>
-        )}
-      </div>
+      <Screen>
+        <PageHeader
+          description="Loading reviewed debt and payment context…"
+          eyebrow="Liquidity commitments"
+          title="Obligations"
+        />
+        {error !== null && <Notice tone="error">{error}</Notice>}
+      </Screen>
     );
   }
 
   return (
-    <div className="screen-stack obligations-page">
-      <div className="page-intro">
-        <div>
-          <p className="eyebrow">Liquidity commitments</p>
-          <h1>Obligations</h1>
-          <p>
-            Review debt balances and next payments without treating every
-            outstanding dollar as an immediate cash outflow.
-          </p>
-        </div>
-        <div className="page-intro__actions">
-          <Button onClick={() => setShowManual(true)} tone="secondary">
-            Add manually
-          </Button>
-          {state.configured && (
-            <Button
-              disabled={busyAction !== null}
-              onClick={() => void connect()}
-              tone="primary"
-            >
-              {busyAction === "connect" || busyAction === "exchange"
-                ? "Connecting…"
-                : state.connections.length === 0
-                  ? "Connect institution"
-                  : "Add institution"}
+    <Screen className="obligations-page">
+      <PageHeader
+        actions={
+          <>
+            <Button onClick={() => setShowManual(true)} tone="secondary">
+              Add manually
             </Button>
-          )}
-        </div>
-      </div>
+            {state.configured && (
+              <Button
+                disabled={busyAction !== null}
+                onClick={() => void connect()}
+                tone="primary"
+              >
+                {busyAction === "connect" || busyAction === "exchange"
+                  ? "Connecting…"
+                  : state.connections.length === 0
+                    ? "Connect institution"
+                    : "Add institution"}
+              </Button>
+            )}
+          </>
+        }
+        description="Review debt balances and next payments without treating every outstanding dollar as an immediate cash outflow."
+        eyebrow="Liquidity commitments"
+        title="Obligations"
+      />
 
       {!state.configured && (
         <p className="obligations-page__setup">
@@ -1075,6 +1056,6 @@ export function Obligations() {
           {error}
         </p>
       )}
-    </div>
+    </Screen>
   );
 }

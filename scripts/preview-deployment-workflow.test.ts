@@ -3,6 +3,38 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("post-merge preview deployment workflow", () => {
+  it("routes verification and deployment to isolated Keel runner lanes", async () => {
+    const [pullRequestWorkflow, postMergeWorkflow] = await Promise.all([
+      readFile(".github/workflows/ci.yml", "utf8"),
+      readFile(".github/workflows/post-merge.yml", "utf8"),
+    ]);
+    const deploymentStart = postMergeWorkflow.indexOf("  deploy-preview:");
+    expect(deploymentStart).toBeGreaterThan(-1);
+    const verification = postMergeWorkflow.slice(0, deploymentStart);
+    const deployment = postMergeWorkflow.slice(deploymentStart);
+
+    expect(
+      pullRequestWorkflow.match(
+        /runs-on: \[self-hosted, Linux, X64, keel-ci\]/g,
+      ),
+    ).toHaveLength(4);
+    expect(
+      verification.match(/runs-on: \[self-hosted, Linux, X64, keel-ci\]/g),
+    ).toHaveLength(2);
+    expect(deployment).toContain(
+      "runs-on: [self-hosted, Linux, X64, keel-deploy]",
+    );
+    expect(pullRequestWorkflow).not.toContain("runs-on: ubuntu-latest");
+    expect(postMergeWorkflow).not.toContain("runs-on: ubuntu-latest");
+    expect(pullRequestWorkflow).not.toContain("playwright install --with-deps");
+    expect(postMergeWorkflow).not.toContain("playwright install --with-deps");
+    expect(
+      [pullRequestWorkflow, postMergeWorkflow]
+        .join("\n")
+        .match(/HOME: \$\{\{ runner\.workspace \}\}/g),
+    ).toHaveLength(2);
+  });
+
   it("preserves exact-SHA gates, safe ordering, and the no-seed boundary", async () => {
     const workflow = await readFile(".github/workflows/post-merge.yml", "utf8");
     const deploymentStart = workflow.indexOf("  deploy-preview:");
@@ -38,6 +70,10 @@ describe("post-merge preview deployment workflow", () => {
     const webDeploy = deployment.indexOf("Build and deploy web Worker");
     const smokes = deployment.indexOf("Run protected post-deploy smokes");
     const evidence = deployment.indexOf("Record exact deployment evidence");
+    const evidenceUpload = deployment.indexOf(
+      "Retain preview release evidence",
+    );
+    const cleanup = deployment.indexOf("Remove private runner files");
 
     expect(backup).toBeGreaterThan(-1);
     expect(backupVerification).toBeGreaterThan(backup);
@@ -47,5 +83,14 @@ describe("post-merge preview deployment workflow", () => {
     expect(webDeploy).toBeGreaterThan(apiDeploy);
     expect(smokes).toBeGreaterThan(webDeploy);
     expect(evidence).toBeGreaterThan(smokes);
+    expect(evidenceUpload).toBeGreaterThan(evidence);
+    expect(cleanup).toBeGreaterThan(evidenceUpload);
+
+    const cleanupStep = deployment.slice(cleanup);
+    expect(cleanupStep).toContain('"$KEEL_API_WRANGLER_OUTPUT_PATH"');
+    expect(cleanupStep).toContain('"$KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH"');
+    expect(cleanupStep).toContain('"$KEEL_PREVIEW_BACKUP_MANIFEST_PATH"');
+    expect(cleanupStep).toContain('"$KEEL_PREVIEW_RELEASE_EVIDENCE_PATH"');
+    expect(cleanupStep).toContain('"$KEEL_WEB_WRANGLER_OUTPUT_PATH"');
   });
 });

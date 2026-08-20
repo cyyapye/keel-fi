@@ -15,7 +15,7 @@ concurrency:
 jobs:
   quality:
     name: Quality
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-node-pnpm
@@ -25,7 +25,7 @@ jobs:
 
   migrations:
     name: D1 migration and synthetic seed
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-node-pnpm
@@ -33,11 +33,11 @@ jobs:
 
   browser:
     name: Critical browser flows
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-node-pnpm
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       - run: make e2e
       - name: Upload browser failure artifacts
         if: failure()
@@ -50,7 +50,7 @@ jobs:
 
   secret-scan:
     name: Secret scan
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -58,3 +58,4 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOME: ${{ runner.workspace }}

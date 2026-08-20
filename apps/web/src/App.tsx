@@ -30,11 +30,31 @@ import {
   type SignalReconciliationGroup,
   type SignalUpdateProposal,
 } from "@keel/domain";
-import { Badge, Button, MetricCard, Panel } from "@keel/ui";
+import {
+  AppShell,
+  Badge,
+  BrandMark,
+  Button,
+  EmptyState,
+  Field,
+  FormMessage,
+  Input,
+  InputGroup,
+  MetricCard,
+  NativeSelect,
+  Notice,
+  PageHeader,
+  Panel,
+  Screen as ScreenLayout,
+  SectionHeader,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@keel/ui";
 import {
   type CSSProperties,
   type FormEvent,
-  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -103,31 +123,31 @@ const isRealCompanyAcceptanceProfile =
 const navigation: readonly {
   id: Screen;
   label: string;
-  icon: string;
+  index: string;
 }[] = [
   {
     id: "dashboard",
     label: "Overview",
-    icon: "01",
+    index: "01",
   },
-  { id: "goals", label: "Goals", icon: "02" },
-  { id: "holdings", label: "Holdings", icon: "03" },
-  { id: "obligations", label: "Obligations", icon: "04" },
+  { id: "goals", label: "Goals", index: "02" },
+  { id: "holdings", label: "Holdings", index: "03" },
+  { id: "obligations", label: "Obligations", index: "04" },
   {
     id: "watch",
     label: "Portfolio Watch",
-    icon: "05",
+    index: "05",
   },
   {
     id: "evidence",
     label: "Evidence Inbox",
-    icon: "06",
+    index: "06",
   },
-  { id: "scenarios", label: "Scenarios", icon: "07" },
+  { id: "scenarios", label: "Scenarios", index: "07" },
   {
     id: "history",
     label: "Forecast History",
-    icon: "08",
+    index: "08",
   },
 ];
 
@@ -167,15 +187,6 @@ function pathForScreen(screen: Screen): string {
   return screen === "dashboard" ? "/" : `/${screen}`;
 }
 
-function KeelMark() {
-  return (
-    <svg aria-hidden="true" className="brand-mark" viewBox="0 0 32 32">
-      <path d="M10 2h12l8 8v12l-8 8H10l-8-8V10Z" />
-      <path d="M16 6v19M7 12h18M8 18l8 7 8-7" />
-    </svg>
-  );
-}
-
 function SourceBadge({
   status,
 }: {
@@ -188,22 +199,6 @@ function SourceBadge({
     return <Badge tone="warning">Review due</Badge>;
   }
   return <Badge tone="accent">Proposed</Badge>;
-}
-
-function EmptyState({
-  children,
-  title,
-}: {
-  children: ReactNode;
-  title: string;
-}) {
-  return (
-    <div className="empty-state">
-      <span>◎</span>
-      <h2>{title}</h2>
-      <p>{children}</p>
-    </div>
-  );
 }
 
 type GoalUnit = GoalDraftInput["targetUnit"];
@@ -509,7 +504,7 @@ function Dashboard({
   ).length;
 
   return (
-    <div className="screen-stack">
+    <ScreenLayout>
       <section className="hero">
         <div>
           <p className="eyebrow">
@@ -765,7 +760,7 @@ function Dashboard({
           </article>
         </div>
       </Panel>
-    </div>
+    </ScreenLayout>
   );
 }
 
@@ -1011,18 +1006,13 @@ function Goals({
   };
 
   return (
-    <div className="screen-stack">
-      <div className="page-intro">
-        <div>
-          <p className="eyebrow">Editable planning record</p>
-          <h1>Goals</h1>
-          <p>
-            Keep several goals, choose one primary goal, and save changes as new
-            versions. Prior versions stay available.
-          </p>
-        </div>
-        <Badge tone="neutral">{data.goals.length} active goals</Badge>
-      </div>
+    <ScreenLayout>
+      <PageHeader
+        actions={<Badge tone="neutral">{data.goals.length} active goals</Badge>}
+        description="Track several goals and choose the one that drives your forecast."
+        eyebrow="Planning priorities"
+        title="Goals"
+      />
 
       <div className="goal-workspace">
         <aside className="goal-list" aria-label="Saved goals">
@@ -1106,18 +1096,16 @@ function Goals({
               </div>
 
               <div className="goal-form__fields">
-                <label className="field field--wide">
-                  <span>Goal name</span>
-                  <input
+                <Field label="Goal name" wide>
+                  <Input
                     maxLength={120}
                     onChange={(event) => updateForm("name", event.target.value)}
                     required
                     value={form.name}
                   />
-                </label>
-                <label className="field field--wide">
-                  <span>How success is measured</span>
-                  <input
+                </Field>
+                <Field label="How success is measured" wide>
+                  <Input
                     maxLength={120}
                     onChange={(event) =>
                       updateForm("metricLabel", event.target.value)
@@ -1125,10 +1113,9 @@ function Goals({
                     required
                     value={form.metricLabel}
                   />
-                </label>
-                <label className="field">
-                  <span>Unit</span>
-                  <select
+                </Field>
+                <Field label="Unit">
+                  <NativeSelect
                     disabled={form.templateKey !== "custom"}
                     onChange={(event) =>
                       updateForm("targetUnit", event.target.value as GoalUnit)
@@ -1139,13 +1126,13 @@ function Goals({
                     <option value="months">Months</option>
                     <option value="count">Count</option>
                     <option value="ppm">Percentage</option>
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Current value</span>
-                  <div className="field__value">
-                    {form.targetUnit === "minor_units" && <i>$</i>}
-                    <input
+                  </NativeSelect>
+                </Field>
+                <Field label="Current value">
+                  <InputGroup
+                    prefix={form.targetUnit === "minor_units" ? "$" : undefined}
+                  >
+                    <Input
                       inputMode="decimal"
                       onChange={(event) =>
                         updateForm("currentValue", event.target.value)
@@ -1153,34 +1140,32 @@ function Goals({
                       required
                       value={form.currentValue}
                     />
-                  </div>
-                </label>
-                <label className="field">
-                  <span>Target value · optional</span>
-                  <div className="field__value">
-                    {form.targetUnit === "minor_units" && <i>$</i>}
-                    <input
+                  </InputGroup>
+                </Field>
+                <Field label="Target value · optional">
+                  <InputGroup
+                    prefix={form.targetUnit === "minor_units" ? "$" : undefined}
+                  >
+                    <Input
                       inputMode="decimal"
                       onChange={(event) =>
                         updateForm("targetValue", event.target.value)
                       }
                       value={form.targetValue}
                     />
-                  </div>
-                </label>
-                <label className="field">
-                  <span>Target date · optional</span>
-                  <input
+                  </InputGroup>
+                </Field>
+                <Field label="Target date · optional">
+                  <Input
                     onChange={(event) =>
                       updateForm("targetDate", event.target.value)
                     }
                     type="date"
                     value={form.targetDate}
                   />
-                </label>
-                <label className="field field--wide">
-                  <span>What changed</span>
-                  <input
+                </Field>
+                <Field label="What changed" wide>
+                  <Input
                     maxLength={500}
                     onChange={(event) =>
                       updateForm("changeNote", event.target.value)
@@ -1188,11 +1173,11 @@ function Goals({
                     required
                     value={form.changeNote}
                   />
-                </label>
+                </Field>
               </div>
 
               <label className="primary-toggle">
-                <input
+                <Input
                   checked={form.makePrimary}
                   disabled={selectedGoal?.isPrimary === true}
                   onChange={(event) =>
@@ -1207,16 +1192,9 @@ function Goals({
               </label>
 
               {saveMessage !== null && (
-                <p
-                  className={
-                    saveState === "error"
-                      ? "form-message error"
-                      : "form-message"
-                  }
-                  role={saveState === "error" ? "alert" : "status"}
-                >
+                <FormMessage tone={saveState === "error" ? "error" : "neutral"}>
                   {saveMessage}
-                </p>
+                </FormMessage>
               )}
               <div className="goal-form__actions">
                 <Button
@@ -1336,7 +1314,7 @@ function Goals({
           )}
         </div>
       </div>
-    </div>
+    </ScreenLayout>
   );
 }
 
@@ -1646,9 +1624,8 @@ function HoldingImportWorkspace({
           </p>
         </div>
         <form className="import-upload" onSubmit={requestPreview}>
-          <label className="field" htmlFor="angellist-import-file">
-            <span>AngelList CSV export</span>
-            <input
+          <Field htmlFor="angellist-import-file" label="AngelList CSV export">
+            <Input
               accept=".csv,text/csv"
               aria-describedby={`holding-import-boundary${error === null ? "" : " holding-import-error"}`}
               aria-invalid={error === null ? undefined : true}
@@ -1662,17 +1639,16 @@ function HoldingImportWorkspace({
               ref={fileInputRef}
               type="file"
             />
-          </label>
+          </Field>
           {error !== null && (
-            <div
-              className="inline-error"
+            <Notice
               id="holding-import-error"
               ref={messageRef}
-              role="alert"
               tabIndex={-1}
+              tone="error"
             >
               {error}
-            </div>
+            </Notice>
           )}
           <div className="import-actions">
             <Button
@@ -1934,14 +1910,9 @@ function HoldingImportWorkspace({
       )}
 
       {error !== null && (
-        <div
-          className="inline-error"
-          ref={messageRef}
-          role="alert"
-          tabIndex={-1}
-        >
+        <Notice ref={messageRef} tabIndex={-1} tone="error">
           {error} Nothing changed. Try again.
-        </div>
+        </Notice>
       )}
 
       <Panel className="table-panel import-table-panel">
@@ -2064,7 +2035,7 @@ function HoldingImportWorkspace({
       </nav>
 
       <label className="import-currency-confirmation">
-        <input
+        <Input
           checked={currencyConfirmed}
           onChange={(event) =>
             setCurrencyConfirmed(event.currentTarget.checked)
@@ -2529,7 +2500,7 @@ function AngelListMacAgentControl() {
           <div className="angellist-agent__controls">
             <label htmlFor="angellist-update-interval">
               <span>Automatic updates</span>
-              <select
+              <NativeSelect
                 disabled={busyAction !== null}
                 id="angellist-update-interval"
                 onChange={(event) =>
@@ -2542,7 +2513,7 @@ function AngelListMacAgentControl() {
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
                 <option value="off">Off</option>
-              </select>
+              </NativeSelect>
             </label>
             <Button
               disabled={busyAction !== null || running}
@@ -2939,7 +2910,7 @@ function AngelListBrowserRunControl() {
             >
               <label htmlFor="angellist-handoff-input">
                 <span>Email or one-time code</span>
-                <input
+                <Input
                   aria-describedby="angellist-handoff-input-help"
                   autoCapitalize="none"
                   autoComplete="off"
@@ -2985,7 +2956,7 @@ function AngelListBrowserRunControl() {
             >
               <label htmlFor="angellist-magic-link">
                 <span>Magic link from email</span>
-                <input
+                <Input
                   aria-describedby="angellist-magic-link-help"
                   autoCapitalize="none"
                   autoComplete="off"
@@ -3220,7 +3191,7 @@ function CashBalanceProposalReview({
                   <span>{row.balanceSource} balance</span>
                 )}
                 <label>
-                  <input
+                  <Input
                     checked={checked}
                     disabled={!canAccept || working}
                     onChange={(event) =>
@@ -3248,20 +3219,19 @@ function CashBalanceProposalReview({
         })}
       </div>
 
-      <label className="field cash-review__note" htmlFor="cash-review-note">
-        <span>What changed</span>
-        <input
+      <Field
+        className="cash-review__note"
+        htmlFor="cash-review-note"
+        label="What changed"
+      >
+        <Input
           id="cash-review-note"
           maxLength={500}
           onChange={(event) => setChangeNote(event.currentTarget.value)}
           value={changeNote}
         />
-      </label>
-      {error !== null && (
-        <p className="inline-error" role="alert">
-          {error}
-        </p>
-      )}
+      </Field>
+      {error !== null && <Notice tone="error">{error}</Notice>}
       <footer className="cash-review__actions">
         <div>
           <Button disabled={working} onClick={onCancel} tone="quiet">
@@ -4177,7 +4147,7 @@ function PortfolioBaselineSection({
 
         {state.requiresDuplicateReview && (
           <label className="baseline-overlap-confirmation">
-            <input
+            <Input
               checked={duplicateReviewConfirmed}
               onChange={(event) =>
                 setDuplicateReviewConfirmed(event.currentTarget.checked)
@@ -4210,14 +4180,13 @@ function PortfolioBaselineSection({
                   {formatMoney(state.summary.cashAccountValueMinor)}
                 </strong>
               </div>
-              <label
-                className="field baseline-liquid-composition__field"
+              <Field
+                className="baseline-liquid-composition__field"
                 htmlFor="other-fi-eligible-liquid-input"
+                label="Manual liquid residual"
               >
-                <span>Manual liquid residual</span>
-                <span className="field__value">
-                  <i>$</i>
-                  <input
+                <InputGroup prefix="$">
+                  <Input
                     aria-describedby="fi-eligible-liquid-help"
                     aria-invalid={otherLiquidInputInvalid || undefined}
                     id="other-fi-eligible-liquid-input"
@@ -4227,8 +4196,8 @@ function PortfolioBaselineSection({
                     }
                     value={otherLiquidInput}
                   />
-                </span>
-              </label>
+                </InputGroup>
+              </Field>
               <div className="baseline-liquid-composition__row baseline-liquid-composition__total">
                 <span>Proposed FI-eligible liquid</span>
                 <strong>
@@ -4245,7 +4214,7 @@ function PortfolioBaselineSection({
             </p>
             {requiresCashOverlapReview && (
               <label className="baseline-overlap-confirmation">
-                <input
+                <Input
                   checked={cashOverlapReviewConfirmed}
                   onChange={(event) =>
                     setCashOverlapReviewConfirmed(event.currentTarget.checked)
@@ -4258,15 +4227,17 @@ function PortfolioBaselineSection({
                 </span>
               </label>
             )}
-            <label className="field" htmlFor="portfolio-baseline-change-note">
-              <span>What changed</span>
-              <input
+            <Field
+              htmlFor="portfolio-baseline-change-note"
+              label="What changed"
+            >
+              <Input
                 id="portfolio-baseline-change-note"
                 maxLength={500}
                 onChange={(event) => setChangeNote(event.currentTarget.value)}
                 value={changeNote}
               />
-            </label>
+            </Field>
           </div>
 
           <div aria-live="polite" className="baseline-impact">
@@ -4313,11 +4284,7 @@ function PortfolioBaselineSection({
           </div>
         </div>
 
-        {error !== null && (
-          <p className="inline-error" role="alert">
-            {error}
-          </p>
-        )}
+        {error !== null && <Notice tone="error">{error}</Notice>}
         <footer className="baseline-review-actions">
           <p>
             Confirming replaces the current FI liquid baseline and saves a new
@@ -4590,43 +4557,40 @@ function Holdings({
   };
 
   return (
-    <div className="screen-stack">
-      <div className="page-intro">
-        <div>
-          <p className="eyebrow">Portfolio evidence</p>
-          <h1>Holdings</h1>
-          <p>
-            See shared economic exposure, then open each legal position for
-            ownership and source details.
-          </p>
-        </div>
-        <div className="page-intro__actions">
-          {selectedHolding !== null ? (
-            <Button onClick={closeHoldingDetail} tone="quiet">
-              Back to holdings
-            </Button>
-          ) : importerVisible ? (
-            <Button onClick={closeImporter} tone="quiet">
-              Close import
-            </Button>
-          ) : (
-            <>
-              <span className="page-count">
-                {data.holdings.length} holdings
-              </span>
-              <Button
-                onClick={() => {
-                  setSelectedHoldingId(null);
-                  setShowImporter(true);
-                }}
-                tone="primary"
-              >
-                Import AngelList CSV
+    <ScreenLayout>
+      <PageHeader
+        actions={
+          <>
+            {selectedHolding !== null ? (
+              <Button onClick={closeHoldingDetail} tone="quiet">
+                Back to holdings
               </Button>
-            </>
-          )}
-        </div>
-      </div>
+            ) : importerVisible ? (
+              <Button onClick={closeImporter} tone="quiet">
+                Close import
+              </Button>
+            ) : (
+              <>
+                <span className="page-count">
+                  {data.holdings.length} holdings
+                </span>
+                <Button
+                  onClick={() => {
+                    setSelectedHoldingId(null);
+                    setShowImporter(true);
+                  }}
+                  tone="primary"
+                >
+                  Import AngelList CSV
+                </Button>
+              </>
+            )}
+          </>
+        }
+        description="See shared economic exposure, then open each legal position for ownership and source details."
+        eyebrow="Portfolio evidence"
+        title="Holdings"
+      />
 
       {selectedHolding !== null ? (
         <HoldingDetailWorkspace holding={selectedHolding} />
@@ -4638,12 +4602,12 @@ function Holdings({
             Loading the holding import…
           </div>
         ) : requestedImportId !== null && activeRoutedPreview === null ? (
-          <div className="inline-error" role="alert">
+          <Notice tone="error">
             {activeRoutedError ?? "This holding import is unavailable."}
             <Button onClick={closeImporter} tone="quiet">
               Back to holdings
             </Button>
-          </div>
+          </Notice>
         ) : (
           <HoldingImportWorkspace
             initialPreview={activeRoutedPreview}
@@ -4697,9 +4661,9 @@ function Holdings({
             </section>
           )}
           {pendingImportError !== null && requestedImportId === null && (
-            <div className="inline-error" role="status">
+            <Notice role="status" tone="error">
               {pendingImportError}
-            </div>
+            </Notice>
           )}
           <AngelListSignInControl />
           <CashAccountsControl
@@ -4722,7 +4686,7 @@ function Holdings({
           />
         </>
       )}
-    </div>
+    </ScreenLayout>
   );
 }
 
@@ -4965,19 +4929,17 @@ function PortfolioWatch({
   };
 
   return (
-    <div className="screen-stack watch-screen">
-      <div className="page-intro watch-intro">
-        <div>
-          <h1>Portfolio Watch</h1>
-          <p>
-            Follow public signals across your private holdings. Nothing changes
-            until you review it.
-          </p>
-        </div>
-        <Badge data-testid="portfolio-watch-status" tone="neutral">
-          Public sources only
-        </Badge>
-      </div>
+    <ScreenLayout className="watch-screen">
+      <PageHeader
+        actions={
+          <Badge data-testid="portfolio-watch-status" tone="neutral">
+            Public sources only
+          </Badge>
+        }
+        className="watch-intro"
+        description="Follow public signals across your private holdings. Nothing changes until you review it."
+        title="Portfolio Watch"
+      />
 
       <Panel
         className="watch-control-panel"
@@ -4999,17 +4961,13 @@ function PortfolioWatch({
         </Button>
       </Panel>
 
-      {error !== null && <div className="inline-error">{error}</div>}
-      {message !== null && (
-        <p className="form-message success" role="status">
-          {message}
-        </p>
-      )}
+      {error !== null && <Notice tone="error">{error}</Notice>}
+      {message !== null && <FormMessage tone="success">{message}</FormMessage>}
 
       <section>
-        <div className="section-heading">
-          <h2>Monitoring {data.portfolioWatch.targets.length} companies</h2>
-        </div>
+        <SectionHeader
+          title={`Monitoring ${data.portfolioWatch.targets.length} companies`}
+        />
         <div className="watch-target-grid">
           {data.portfolioWatch.targets.map((target) => (
             <article data-testid={`watch-target-${target.id}`} key={target.id}>
@@ -5027,9 +4985,7 @@ function PortfolioWatch({
       </section>
 
       <section>
-        <div className="section-heading">
-          <h2>Recent signals</h2>
-        </div>
+        <SectionHeader title="Recent signals" />
 
         {data.portfolioWatch.observations.length === 0 ? (
           <EmptyState title="No updates yet">
@@ -5146,7 +5102,7 @@ function PortfolioWatch({
           </div>
         )}
       </section>
-    </div>
+    </ScreenLayout>
   );
 }
 
@@ -5494,7 +5450,7 @@ function SignalProposalComposer({
       </div>
       <label>
         Start from
-        <select
+        <NativeSelect
           aria-label={
             "Scenario baseline for " +
             group.companyName +
@@ -5510,7 +5466,7 @@ function SignalProposalComposer({
               {scenario.name} v{scenario.latestSnapshotVersion}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </label>
       <Button
         disabled={busy}
@@ -5534,7 +5490,7 @@ function SignalProposalComposer({
       <small>
         Keel checks the exact reports and scenario version again before saving.
       </small>
-      {error !== null && <div className="inline-error">{error}</div>}
+      {error !== null && <Notice tone="error">{error}</Notice>}
     </div>
   );
 }
@@ -5564,16 +5520,11 @@ function SignalReconciliationList({
 
   return (
     <section className="signal-reconciliation-list">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">Recommended review order</p>
-          <h2>Reconcile related reports</h2>
-        </div>
-        <p>
-          Compare current reports together. Superseded reports stay visible but
-          do not drive a proposed update.
-        </p>
-      </div>
+      <SectionHeader
+        description="Compare current reports together. Superseded reports stay visible but do not drive a proposed update."
+        eyebrow="Recommended review order"
+        title="Reconcile related reports"
+      />
       {data.signalReconciliations.map((group) => {
         const proposalRows = data.signalUpdateProposals.filter(
           (proposal) => proposal.groupId === group.id,
@@ -5665,26 +5616,23 @@ function EvidenceInbox({
   ) => void;
 }) {
   return (
-    <div className="screen-stack evidence-screen">
-      <div className="page-intro">
-        <div>
-          <p className="eyebrow">Human review boundary</p>
-          <h1>Evidence Inbox</h1>
-          <p>
-            External signals become proposals. You decide what enters the
-            accepted record or a scenario.
-          </p>
-        </div>
-        <Badge tone="accent">
-          {
-            data.evidenceInbox.filter(
-              (item) => item.status === "pending_review",
-            ).length
-          }{" "}
-          pending
-        </Badge>
-      </div>
-      {error !== null && <div className="inline-error">{error}</div>}
+    <ScreenLayout className="evidence-screen">
+      <PageHeader
+        actions={
+          <Badge tone="accent">
+            {
+              data.evidenceInbox.filter(
+                (item) => item.status === "pending_review",
+              ).length
+            }{" "}
+            pending
+          </Badge>
+        }
+        description="External signals become proposals. You decide what enters the accepted record or a scenario."
+        eyebrow="Review before change"
+        title="Evidence Inbox"
+      />
+      {error !== null && <Notice tone="error">{error}</Notice>}
       <SignalReconciliationList
         busyEvent={busyEvent}
         data={data}
@@ -5712,7 +5660,7 @@ function EvidenceInbox({
             />
           ))}
       </div>
-    </div>
+    </ScreenLayout>
   );
 }
 
@@ -5886,28 +5834,25 @@ function Scenarios({
   };
 
   return (
-    <div className="screen-stack">
-      <div className="page-intro">
-        <div>
-          <p className="eyebrow">Forecast assumptions</p>
-          <h1>Scenarios</h1>
-          <p>
-            Scenarios change projected outcomes. Goals define what success
-            means. Edit the goal itself in Goals.
-          </p>
-        </div>
-        <Badge
-          tone={
-            saveState === "error"
-              ? "negative"
-              : hasDraftChanges
-                ? "warning"
-                : "neutral"
-          }
-        >
-          {hasDraftChanges ? "Unsaved draft" : "Saved scenario"}
-        </Badge>
-      </div>
+    <ScreenLayout>
+      <PageHeader
+        actions={
+          <Badge
+            tone={
+              saveState === "error"
+                ? "negative"
+                : hasDraftChanges
+                  ? "warning"
+                  : "neutral"
+            }
+          >
+            {hasDraftChanges ? "Unsaved draft" : "Saved scenario"}
+          </Badge>
+        }
+        description="Scenarios change projected outcomes. Goals define what success means. Edit the goal itself in Goals."
+        eyebrow="Forecast assumptions"
+        title="Scenarios"
+      />
 
       <ObservedCashFlow
         onPreparePlanDraft={(suggestion) => {
@@ -5927,195 +5872,192 @@ function Scenarios({
         suggestionVersion={planSuggestionVersion}
       />
 
-      <div className="scenario-tabs" role="tablist">
-        {data.scenarios.map((scenario) => (
-          <button
-            aria-selected={scenario.id === selected.id}
-            className={scenario.id === selected.id ? "active" : ""}
-            key={scenario.id}
-            onClick={() => selectScenario(scenario.id)}
-            role="tab"
-            type="button"
-          >
-            {scenario.name}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        className="scenario-workspace"
+        onValueChange={(value) => selectScenario(String(value))}
+        value={selected.id}
+      >
+        <TabsList className="scenario-tabs" variant="line">
+          {data.scenarios.map((scenario) => (
+            <TabsTrigger key={scenario.id} value={scenario.id}>
+              {scenario.name}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent className="scenario-content" value={selected.id}>
+          {scenarioContext !== null ? (
+            <div className="scenario-context" role="status">
+              <div>
+                <p className="eyebrow">
+                  {scenarioContext.financingFacts === null
+                    ? "Scenario-only evidence"
+                    : "Reported financing context"}
+                </p>
+                <strong>{scenarioContext.headline}</strong>
+                {scenarioContext.financingFacts === null ? (
+                  <small>
+                    {scenarioContext.priorValue} →{" "}
+                    {scenarioContext.replacementValue} · estimated impact{" "}
+                    {scenarioContext.forecastImpactMinor >= 0 ? "+" : ""}
+                    {formatCompactMoney(scenarioContext.forecastImpactMinor)}
+                  </small>
+                ) : (
+                  <>
+                    <small>
+                      Reported terms:{" "}
+                      {financingScenarioTermsLabel(
+                        scenarioContext.financingFacts,
+                      )}
+                      .
+                    </small>
+                    <small>
+                      Holding impact not calculated. No holding mark or forecast
+                      changes. Adjust assumptions below to model your view.
+                    </small>
+                  </>
+                )}
+              </div>
+              <Button tone="quiet" onClick={onClearScenarioContext}>
+                Dismiss
+              </Button>
+            </div>
+          ) : null}
 
-      {scenarioContext !== null ? (
-        <div className="scenario-context" role="status">
-          <div>
-            <p className="eyebrow">
-              {scenarioContext.financingFacts === null
-                ? "Scenario-only evidence"
-                : "Reported financing context"}
-            </p>
-            <strong>{scenarioContext.headline}</strong>
-            {scenarioContext.financingFacts === null ? (
-              <small>
-                {scenarioContext.priorValue} →{" "}
-                {scenarioContext.replacementValue} · estimated impact{" "}
-                {scenarioContext.forecastImpactMinor >= 0 ? "+" : ""}
-                {formatCompactMoney(scenarioContext.forecastImpactMinor)}
-              </small>
-            ) : (
-              <>
-                <small>
-                  Reported terms:{" "}
-                  {financingScenarioTermsLabel(scenarioContext.financingFacts)}.
-                </small>
-                <small>
-                  Holding impact not calculated. No holding mark or forecast
-                  changes. Adjust assumptions below to model your view.
-                </small>
-              </>
-            )}
-          </div>
-          <Button tone="quiet" onClick={onClearScenarioContext}>
-            Dismiss
-          </Button>
-        </div>
-      ) : null}
-
-      <div className="scenario-summary">
-        <div>
-          <p>{selected.description}</p>
-          <span>
-            {hasDraftChanges
-              ? "Working draft preview"
-              : "Current saved forecast output"}
-          </span>
-        </div>
-        <article>
-          <span>Conditional value</span>
-          <strong>
-            {formatCompactMoney(displayedScenario.conditionalValueMinor)}
-          </strong>
-          <small>Value if the modeled liquidity events occur</small>
-        </article>
-        <i aria-hidden="true">≠</i>
-        <article className="usable">
-          <span>Timing-adjusted liquidity</span>
-          <strong>
-            {formatCompactMoney(displayedScenario.timingAdjustedLiquidityMinor)}
-          </strong>
-          <small className="scenario-summary__assumptions">
-            {scenarioConditions}
-          </small>
-        </article>
-      </div>
-
-      <div className="scenario-grid">
-        <Panel eyebrow="Annual distribution" title="Cumulative liquidity curve">
-          <LiquidityChart scenario={displayedScenario} />
-          <div className="zero-probabilities">
-            {displayedScenario.liquidityCurve.map((point) => (
-              <span key={point.year}>
-                <b>{point.year}</b>
-                {formatProbability(point.probabilityZeroPpm)} chance of zero
+          <div className="scenario-summary">
+            <div>
+              <p>{selected.description}</p>
+              <span>
+                {hasDraftChanges
+                  ? "Working draft preview"
+                  : "Current saved forecast output"}
               </span>
-            ))}
+            </div>
+            <article>
+              <span>Conditional value</span>
+              <strong>
+                {formatCompactMoney(displayedScenario.conditionalValueMinor)}
+              </strong>
+              <small>Value if the modeled liquidity events occur</small>
+            </article>
+            <i aria-hidden="true">≠</i>
+            <article className="usable">
+              <span>Timing-adjusted liquidity</span>
+              <strong>
+                {formatCompactMoney(
+                  displayedScenario.timingAdjustedLiquidityMinor,
+                )}
+              </strong>
+              <small className="scenario-summary__assumptions">
+                {scenarioConditions}
+              </small>
+            </article>
           </div>
-        </Panel>
-        <Panel
-          action={
-            <Badge tone={hasDraftChanges ? "warning" : "neutral"}>
-              {hasDraftChanges ? "Draft" : "Saved"}
-            </Badge>
-          }
-          eyebrow="Assumption editor"
-          title="Working values"
-        >
-          <div className="assumption-list">
-            {selected.assumptions.map((assumption) => {
-              const value = draftValues[assumption.id] ?? assumption.value;
-              const isProbability = assumption.unit === "ppm";
-              return (
-                <label key={assumption.id}>
-                  <span>
-                    <strong>{assumption.label}</strong>
-                    <b>
-                      {isProbability
-                        ? formatProbability(value)
-                        : `${value} ${assumption.unit}`}
-                    </b>
+
+          <div className="scenario-grid">
+            <Panel
+              eyebrow="Annual distribution"
+              title="Cumulative liquidity curve"
+            >
+              <LiquidityChart scenario={displayedScenario} />
+              <div className="zero-probabilities">
+                {displayedScenario.liquidityCurve.map((point) => (
+                  <span key={point.year}>
+                    <b>{point.year}</b>
+                    {formatProbability(point.probabilityZeroPpm)} chance of zero
                   </span>
-                  <input
-                    max={isProbability ? 1_000_000 : 60}
-                    min="0"
-                    onChange={(event) =>
-                      setDraftValues((current) => ({
-                        ...current,
-                        [assumption.id]: Number(event.target.value),
-                      }))
-                    }
-                    step={isProbability ? 10_000 : 1}
-                    type="range"
-                    value={value}
-                  />
-                  <small>{assumption.provenance}</small>
-                </label>
-              );
-            })}
-          </div>
-          <label className="field field--wide">
-            <span>What changed</span>
-            <input
-              maxLength={500}
-              onChange={(event) => {
-                setChangeNote(event.target.value);
-                setSaveState("idle");
-                setSaveMessage(null);
-              }}
-              value={changeNote || autoChangeNote}
-            />
-          </label>
-          {saveMessage !== null && (
-            <p
-              className={
-                saveState === "error" ? "form-message error" : "form-message"
+                ))}
+              </div>
+            </Panel>
+            <Panel
+              action={
+                <Badge tone={hasDraftChanges ? "warning" : "neutral"}>
+                  {hasDraftChanges ? "Draft" : "Saved"}
+                </Badge>
               }
-              role={saveState === "error" ? "alert" : "status"}
+              eyebrow="Assumption editor"
+              title="Working values"
             >
-              {saveMessage}
-            </p>
-          )}
-          <div className="scenario-actions">
-            <Button
-              disabled={!hasDraftChanges || saveState === "saving"}
-              onClick={resetDraft}
-              tone="quiet"
-            >
-              Reset
-            </Button>
-            <Button
-              disabled={!hasDraftChanges || saveState === "saving"}
-              onClick={submit}
-              tone="primary"
-            >
-              {saveState === "saving" ? "Saving…" : "Save scenario"}
-            </Button>
+              <div className="assumption-list">
+                {selected.assumptions.map((assumption) => {
+                  const value = draftValues[assumption.id] ?? assumption.value;
+                  const isProbability = assumption.unit === "ppm";
+                  return (
+                    <label key={assumption.id}>
+                      <span>
+                        <strong>{assumption.label}</strong>
+                        <b>
+                          {isProbability
+                            ? formatProbability(value)
+                            : `${value} ${assumption.unit}`}
+                        </b>
+                      </span>
+                      <Input
+                        max={isProbability ? 1_000_000 : 60}
+                        min="0"
+                        onChange={(event) =>
+                          setDraftValues((current) => ({
+                            ...current,
+                            [assumption.id]: Number(event.target.value),
+                          }))
+                        }
+                        step={isProbability ? 10_000 : 1}
+                        type="range"
+                        value={value}
+                      />
+                      <small>{assumption.provenance}</small>
+                    </label>
+                  );
+                })}
+              </div>
+              <Field label="What changed" wide>
+                <Input
+                  maxLength={500}
+                  onChange={(event) => {
+                    setChangeNote(event.target.value);
+                    setSaveState("idle");
+                    setSaveMessage(null);
+                  }}
+                  value={changeNote || autoChangeNote}
+                />
+              </Field>
+              {saveMessage !== null && (
+                <FormMessage tone={saveState === "error" ? "error" : "neutral"}>
+                  {saveMessage}
+                </FormMessage>
+              )}
+              <div className="scenario-actions">
+                <Button
+                  disabled={!hasDraftChanges || saveState === "saving"}
+                  onClick={resetDraft}
+                  tone="quiet"
+                >
+                  Reset
+                </Button>
+                <Button
+                  disabled={!hasDraftChanges || saveState === "saving"}
+                  onClick={submit}
+                  tone="primary"
+                >
+                  {saveState === "saving" ? "Saving…" : "Save scenario"}
+                </Button>
+              </div>
+            </Panel>
           </div>
-        </Panel>
-      </div>
-    </div>
+        </TabsContent>
+      </Tabs>
+    </ScreenLayout>
   );
 }
 
 function ForecastHistory({ data }: { data: AlphaData }) {
   return (
-    <div className="screen-stack">
-      <div className="page-intro">
-        <div>
-          <p className="eyebrow">Append-only record</p>
-          <h1>Forecast History</h1>
-          <p>
-            Every version is retained with its trigger, author, and attributed
-            change.
-          </p>
-        </div>
-        <Badge tone="positive">Read-only record</Badge>
-      </div>
+    <ScreenLayout>
+      <PageHeader
+        actions={<Badge tone="positive">Read-only record</Badge>}
+        description="Review what changed, who saved it, and how the forecast moved."
+        eyebrow="Saved decisions"
+        title="Forecast History"
+      />
 
       <Panel className="history-panel">
         <div className="history-list">
@@ -6169,176 +6111,7 @@ function ForecastHistory({ data }: { data: AlphaData }) {
           })}
         </div>
       </Panel>
-    </div>
-  );
-}
-
-function Shell({
-  activeScreen,
-  children,
-  data,
-  onNavigate,
-}: {
-  activeScreen: Screen;
-  children: ReactNode;
-  data: AlphaData;
-  onNavigate: (screen: Screen) => void;
-}) {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const mobileNavigationRef = useRef<HTMLElement>(null);
-  const pending = data.evidenceInbox.filter(
-    (item) => item.status === "pending_review",
-  ).length;
-
-  useEffect(() => {
-    if (!mobileMenuOpen) {
-      return;
-    }
-
-    const navigationElement = mobileNavigationRef.current;
-    const activeItem = navigationElement?.querySelector<HTMLButtonElement>(
-      '[aria-current="page"]',
-    );
-    const focusFrame = window.requestAnimationFrame(() => activeItem?.focus());
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setMobileMenuOpen(false);
-        window.requestAnimationFrame(() =>
-          mobileMenuButtonRef.current?.focus(),
-        );
-        return;
-      }
-
-      if (event.key !== "Tab" || navigationElement === null) {
-        return;
-      }
-
-      const navigationButtons = Array.from(
-        navigationElement.querySelectorAll<HTMLButtonElement>("button"),
-      );
-      const lastButton = navigationButtons.at(-1);
-
-      if (
-        event.shiftKey &&
-        document.activeElement === mobileMenuButtonRef.current &&
-        lastButton !== undefined
-      ) {
-        event.preventDefault();
-        lastButton.focus();
-      } else if (
-        !event.shiftKey &&
-        document.activeElement === lastButton &&
-        mobileMenuButtonRef.current !== null
-      ) {
-        event.preventDefault();
-        mobileMenuButtonRef.current.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.cancelAnimationFrame(focusFrame);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [mobileMenuOpen]);
-
-  const closeMobileMenu = () => {
-    setMobileMenuOpen(false);
-    window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
-  };
-
-  const navigateFromMobileMenu = (screen: Screen) => {
-    onNavigate(screen);
-    closeMobileMenu();
-  };
-
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <KeelMark />
-          <div>
-            <strong>Keel</strong>
-            <small>Private alpha</small>
-          </div>
-        </div>
-        <nav aria-label="Primary navigation">
-          {navigation.map((item) => (
-            <button
-              aria-current={activeScreen === item.id ? "page" : undefined}
-              className={activeScreen === item.id ? "active" : ""}
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              type="button"
-            >
-              <i>{item.icon}</i>
-              <span>{item.label}</span>
-              {item.id === "evidence" && pending > 0 && <b>{pending}</b>}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar__footer">
-          <div className="user-avatar">DO</div>
-          <div>
-            <strong>Demo Operator</strong>
-            <span>{data.dashboard.householdName}</span>
-          </div>
-          <i>•••</i>
-        </div>
-      </aside>
-
-      <main>
-        <header className="topbar">
-          <div className="topbar__title">
-            <KeelMark />
-            <span>Keel /</span> {pageHeading(activeScreen)}
-          </div>
-          <button
-            aria-controls="mobile-navigation"
-            aria-expanded={mobileMenuOpen}
-            aria-label={
-              mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"
-            }
-            className="mobile-menu-toggle"
-            onClick={() => setMobileMenuOpen((isOpen) => !isOpen)}
-            ref={mobileMenuButtonRef}
-            type="button"
-          >
-            <span aria-hidden="true" className="mobile-menu-toggle__icon">
-              <span />
-              <span />
-              <span />
-            </span>
-          </button>
-        </header>
-        <div className="content">{children}</div>
-      </main>
-
-      <nav
-        aria-label="Mobile navigation"
-        className="mobile-nav"
-        hidden={!mobileMenuOpen}
-        id="mobile-navigation"
-        ref={mobileNavigationRef}
-      >
-        {navigation.map((item) => (
-          <button
-            aria-current={activeScreen === item.id ? "page" : undefined}
-            className={activeScreen === item.id ? "active" : ""}
-            key={item.id}
-            onClick={() => navigateFromMobileMenu(item.id)}
-            type="button"
-          >
-            <i>{item.icon}</i>
-            <span>{item.label}</span>
-            {item.id === "evidence" && pending > 0 && <b>{pending}</b>}
-          </button>
-        ))}
-      </nav>
-    </div>
+    </ScreenLayout>
   );
 }
 
@@ -6570,7 +6343,7 @@ export function App() {
     return (
       <div className="fatal-error">
         <div className="brand">
-          <KeelMark />
+          <BrandMark />
           <strong>Keel</strong>
         </div>
         <EmptyState title="The decision record is unavailable">
@@ -6581,13 +6354,31 @@ export function App() {
     );
   }
 
+  const pendingEvidenceCount = data.evidenceInbox.filter(
+    (item) => item.status === "pending_review",
+  ).length;
+  const navigationItems = navigation.map((item) => ({
+    ...item,
+    badge:
+      item.id === "evidence" && pendingEvidenceCount > 0
+        ? pendingEvidenceCount
+        : undefined,
+  }));
+
   return (
-    <Shell
-      activeScreen={activeScreen}
-      data={data}
+    <AppShell
+      activeItemId={activeScreen}
+      brandMark={<BrandMark />}
+      brandName="Keel"
+      brandSubtitle="Private alpha"
+      contextName={data.dashboard.householdName}
+      items={navigationItems}
       onNavigate={navigateToScreen}
+      operatorInitials="DO"
+      operatorName="Demo Operator"
+      pageTitle={pageHeading(activeScreen)}
     >
       {content}
-    </Shell>
+    </AppShell>
   );
 }
