@@ -1012,6 +1012,21 @@ export async function syncInvestmentHoldings(
   return InvestmentConnectionStatusSchema.parse(await response.json());
 }
 
+export async function syncDueInvestmentHoldings(): Promise<InvestmentConnectionsState> {
+  const response = await fetch("/api/investment-connections/auto-sync", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Automatic investment sync returned ${response.status}.`,
+    );
+  }
+  return InvestmentConnectionsStateSchema.parse(await response.json());
+}
+
 export async function disconnectInvestmentConnection(
   connectionId: string,
 ): Promise<InvestmentConnectionStatus> {

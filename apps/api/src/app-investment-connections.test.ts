@@ -77,6 +77,7 @@ function repository() {
         institutionLabel: "Fidelity",
       },
     }),
+    beginAutomaticSync: vi.fn().mockResolvedValue(null),
     completeSync: vi.fn().mockResolvedValue(undefined),
     failSync: vi.fn().mockResolvedValue(undefined),
     disconnectConnection: vi.fn().mockResolvedValue(undefined),
@@ -225,6 +226,32 @@ describe("investment-connections API", () => {
     expect(plaidClient.createLinkToken).toHaveBeenCalledWith(
       "synthetic-access-subject",
     );
+  });
+
+  it("checks due investment connections through the server cooldown", async () => {
+    const investmentConnectionsRepository = repository();
+    const plaidClient = client();
+    const app = createApp({
+      investmentConnectionsRepository,
+      plaidClient,
+    });
+
+    const response = await app.request(
+      "/api/investment-connections/auto-sync",
+      { method: "POST" },
+      env(),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(state);
+    expect(
+      investmentConnectionsRepository.beginAutomaticSync,
+    ).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      connectionId,
+      expect.any(String),
+    );
+    expect(plaidClient.getHoldings).not.toHaveBeenCalled();
   });
 
   it("returns canonical position and exposure views with authorization status", async () => {

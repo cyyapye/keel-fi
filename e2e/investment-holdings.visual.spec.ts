@@ -141,7 +141,7 @@ const statuses = [
     institutionKey: "ins_robinhood",
     institutionLabel: "Robinhood",
     status: "ready" as const,
-    lastSyncedAt: "2026-08-15T11:45:00.000Z",
+    lastSyncedAt: "2026-08-19T11:45:00.000Z",
     automaticUpdatesEnabled: true,
     latestImportId: null,
     latestRunStatus: "succeeded" as const,
@@ -238,6 +238,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-08-19T12:00:00.000Z"));
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
@@ -344,6 +345,17 @@ test.beforeEach(async ({ page }) => {
       },
     });
   });
+  await page.route("**/api/investment-connections/auto-sync", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: statuses,
+        errorCode: null,
+      },
+    });
+  });
 });
 
 test("operates multiple institutions from one exposure-first holdings view", async ({
@@ -370,6 +382,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     robinhoodCard.getByText("Up to date", { exact: true }),
   ).toBeVisible();
+  await expect(robinhoodCard).toContainText(
+    "Data as of Aug 15, 2026 · Checked Aug 19, 2026",
+  );
   await expect(
     robinhoodCard.getByRole("button", { name: "Connect again" }),
   ).toHaveCount(0);
@@ -532,6 +547,68 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       "Provider access will be removed. Reviewed history stays in Keel.",
     ),
   ).toHaveCount(0);
+});
+
+test("checks a stale brokerage after rendering current holdings", async ({
+  page,
+}, testInfo) => {
+  const robinhoodConnectionId = "11111111-1111-4111-8111-111111111111";
+  const staleStatuses = statuses.map((status) =>
+    status.connectionId === robinhoodConnectionId
+      ? { ...status, lastSyncedAt: "2026-08-17T11:45:00.000Z" }
+      : status,
+  );
+  let automaticRequestCount = 0;
+  let releaseAutomaticSync: () => void = () => undefined;
+  const automaticSyncGate = new Promise<void>((resolve) => {
+    releaseAutomaticSync = resolve;
+  });
+
+  await page.unroute("**/api/investment-connections");
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: staleStatuses,
+        errorCode: null,
+      },
+    });
+  });
+  await page.unroute("**/api/investment-connections/auto-sync");
+  await page.route("**/api/investment-connections/auto-sync", async (route) => {
+    automaticRequestCount += 1;
+    await automaticSyncGate;
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: statuses,
+        errorCode: null,
+      },
+    });
+  });
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await navigateToScreen(page, mobile, /Holdings/);
+
+  const robinhoodCard = page
+    .locator(".investment-institution")
+    .filter({ hasText: "Robinhood" });
+  await expect(robinhoodCard).toContainText(
+    "Data as of Aug 15, 2026 · Checked Aug 17, 2026",
+  );
+  try {
+    await expect(page.locator(".exposure-group")).toHaveCount(5);
+    await expect.poll(() => automaticRequestCount).toBe(1);
+  } finally {
+    releaseAutomaticSync();
+  }
+  await expect(robinhoodCard).toContainText(
+    "Data as of Aug 15, 2026 · Checked Aug 19, 2026",
+  );
+  expect(automaticRequestCount).toBe(1);
 });
 
 test("opens a new Item flow for a disconnected brokerage", async ({

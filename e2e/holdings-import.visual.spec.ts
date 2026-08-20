@@ -778,22 +778,24 @@ test("shows automatic Robinhood checks with exception-only review", async ({
       },
     });
   });
+  const automaticInvestmentState = investmentState([
+    investmentStatus({
+      lastSyncedAt: "2026-08-14T16:00:00.000Z",
+      latestAdjudication: {
+        importId: "holding_import_synthetic_applied",
+        policyVersion: "plaid-investments-holdings-auto-v3",
+        autoAppliedCount: 3,
+        quarantinedCount: 0,
+        preservedPositionCount: 0,
+        baselineRefreshStatus: "refreshed",
+      },
+    }),
+  ]);
   await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({
-      json: investmentState([
-        investmentStatus({
-          lastSyncedAt: "2026-08-14T16:00:00.000Z",
-          latestAdjudication: {
-            importId: "holding_import_synthetic_applied",
-            policyVersion: "plaid-investments-holdings-auto-v3",
-            autoAppliedCount: 3,
-            quarantinedCount: 0,
-            preservedPositionCount: 0,
-            baselineRefreshStatus: "refreshed",
-          },
-        }),
-      ]),
-    });
+    await route.fulfill({ json: automaticInvestmentState });
+  });
+  await page.route("**/api/investment-connections/auto-sync", async (route) => {
+    await route.fulfill({ json: automaticInvestmentState });
   });
   await page.route(
     `**/api/investment-connections/${investmentConnectionId}`,

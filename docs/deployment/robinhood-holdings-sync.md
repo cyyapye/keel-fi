@@ -127,6 +127,12 @@ bounded setup-required state.
 - Keel relies on Plaid's periodic Investments refresh and `DEFAULT_UPDATE`
   notification. The optional on-demand Investments Refresh add-on is not
   required for this flow; “Check now” remains a manual fallback.
+- Opening Holdings also starts a non-blocking standard holdings read when an
+  active connection has no sync attempt in the preceding 24 hours and no review
+  is waiting. The server claims that cooldown atomically, so reloads, tabs, and
+  failed attempts cannot create an unbounded provider loop. This backstops a
+  missed webhook; it does not call the paid `/investments/refresh` add-on or
+  claim real-time market prices.
 - Disconnect removes the Plaid Item and encrypted R2 credential, appends a
   disconnected canonical state, and preserves accepted holdings, baselines, and
   prior run/import provenance.

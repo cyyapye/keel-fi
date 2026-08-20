@@ -109,6 +109,7 @@ import {
   disconnectInvestmentConnection,
   PlaidInvestmentsClientError,
   investmentsSyncConfigured,
+  syncDueInvestmentConnections,
   syncInvestmentConnection,
   type PlaidInvestmentsClient,
 } from "./plaid-investments-sync";
@@ -1831,6 +1832,31 @@ export function createApp(options: AppOptions = {}) {
         connectionId: connection.connectionId,
       });
       return context.json(status, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return investmentsErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/investment-connections/auto-sync", async (context) => {
+    if (!investmentsConfiguredFor(context.env)) {
+      return context.json(
+        { error: "Investment sync is not configured." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const state = await syncDueInvestmentConnections({
+        env: context.env,
+        repository: investmentConnectionsRepositoryFor(context.env),
+        holdingImports: holdingImportRepositoryFor(context.env),
+        portfolioBaselines: portfolioBaselineRepositoryFor(context.env),
+        client: plaidClientFor(context.env),
+        accessSubject: context.get("identity").subject,
+      });
+      return context.json(state, 200, {
         "Cache-Control": "private, no-store",
       });
     } catch (error) {

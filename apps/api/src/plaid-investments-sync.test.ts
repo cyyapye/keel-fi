@@ -13,6 +13,7 @@ import {
   createInvestmentReconnectLinkToken,
   disconnectInvestmentConnection,
   FetchPlaidInvestmentsClient,
+  syncDueInvestmentConnections,
   syncInvestmentConnection,
   type PlaidInvestmentsClient,
 } from "./plaid-investments-sync";
@@ -238,6 +239,7 @@ function publicRepository() {
         },
       });
     }),
+    beginAutomaticSync: vi.fn().mockResolvedValue(null),
     completeSync: vi.fn().mockResolvedValue(undefined),
     failSync: vi.fn().mockResolvedValue(undefined),
   };
@@ -260,6 +262,57 @@ function testEnv(bucket: R2Bucket): Env {
 }
 
 describe("Plaid Investments sync", () => {
+  it("checks only ready connections admitted by the automatic cooldown", async () => {
+    const repository = publicRepository();
+    repository.getState.mockResolvedValue({
+      version: 1,
+      configured: true,
+      connections: [
+        status(),
+        status({
+          connectionId: "synthetic-paused-connection",
+          status: "paused",
+          automaticUpdatesEnabled: false,
+        }),
+        status({
+          connectionId: "synthetic-review-connection",
+          latestImportId: "synthetic-review-import",
+        }),
+      ],
+      errorCode: null,
+    });
+    const env = testEnv(memoryBucket().bucket);
+    const getHoldings = vi.fn();
+    const client: PlaidInvestmentsClient = {
+      createLinkToken: vi.fn(),
+      exchangeInvestmentToken: vi.fn(),
+      removeItem: vi.fn(),
+      updateItemWebhook: vi.fn(),
+      getWebhookVerificationKey: vi.fn(),
+      getHoldings,
+    };
+
+    await syncDueInvestmentConnections({
+      env,
+      repository,
+      holdingImports: {
+        stagePlaidInvestmentsHoldingImport: vi.fn(),
+        autoAdjudicatePlaidInvestmentsHoldingImport: vi.fn(),
+      },
+      client,
+      accessSubject: "synthetic-access-subject",
+      now: new Date("2026-08-19T12:00:00.000Z"),
+    });
+
+    expect(repository.beginAutomaticSync).toHaveBeenCalledOnce();
+    expect(repository.beginAutomaticSync).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-investment-connection",
+      "2026-08-18T12:00:00.000Z",
+    );
+    expect(getHoldings).not.toHaveBeenCalled();
+  });
+
   it("keeps container and position identity stable across opaque provider ID changes", async () => {
     const env = testEnv(memoryBucket().bucket);
     const firstResponse = syntheticHoldingsResponse();

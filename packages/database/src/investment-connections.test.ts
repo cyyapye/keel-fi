@@ -85,13 +85,22 @@ class TestD1Statement {
 }
 
 class TestD1Database {
+  private beforeBatchOnce: (() => void) | null = null;
+
   public constructor(private readonly database: DatabaseSync) {}
 
   public prepare(sql: string): TestD1Statement {
     return new TestD1Statement(this.database, sql);
   }
 
+  public beforeNextBatch(callback: () => void): void {
+    this.beforeBatchOnce = callback;
+  }
+
   public batch(statements: readonly TestD1Statement[]): Promise<void> {
+    const beforeBatch = this.beforeBatchOnce;
+    this.beforeBatchOnce = null;
+    beforeBatch?.();
     this.database.exec("BEGIN");
     try {
       statements.forEach((statement) => statement.execute());
@@ -336,6 +345,82 @@ describe("Plaid Investments connection state", () => {
       errorCode: null,
       lastSyncedAt: expect.any(String),
     });
+  });
+
+  it("claims at most one automatic sync attempt per connection every 24 hours", async () => {
+    const robinhood = await repository.upsertConnection(
+      accessSubject,
+      "connector-secrets/synthetic-robinhood.enc",
+      robinhoodItemKey,
+      "ins_robinhood",
+      "Robinhood",
+    );
+    const syncedAfter = new Date(
+      Date.now() - 24 * 60 * 60 * 1_000,
+    ).toISOString();
+
+    const first = await repository.beginAutomaticSync(
+      accessSubject,
+      robinhood.id,
+      syncedAfter,
+    );
+    expect(first).toMatchObject({ created: true });
+    await expect(
+      repository.beginAutomaticSync(accessSubject, robinhood.id, syncedAfter),
+    ).resolves.toBeNull();
+
+    await repository.failSync(accessSubject, first!.id, "provider_unavailable");
+    await expect(
+      repository.beginAutomaticSync(accessSubject, robinhood.id, syncedAfter),
+    ).resolves.toBeNull();
+
+    const afterCooldown = await repository.beginAutomaticSync(
+      accessSubject,
+      robinhood.id,
+      new Date(Date.now() + 1_000).toISOString(),
+    );
+    expect(afterCooldown).toMatchObject({ created: true });
+    expect(
+      sqlite
+        .prepare(`SELECT cursor FROM connector_sync_runs WHERE id = ?`)
+        .get(afterCooldown!.id),
+    ).toEqual({ cursor: "investment-holdings-auto-v1" });
+  });
+
+  it("does not claim an automatic sync when a connection pauses before the atomic write", async () => {
+    const robinhood = await repository.upsertConnection(
+      accessSubject,
+      "connector-secrets/synthetic-robinhood.enc",
+      robinhoodItemKey,
+      "ins_robinhood",
+      "Robinhood",
+    );
+    database.beforeNextBatch(() => {
+      sqlite
+        .prepare(
+          `UPDATE connector_accounts
+           SET status = 'paused'
+           WHERE id = ?`,
+        )
+        .run(robinhood.connectorAccountId);
+    });
+
+    await expect(
+      repository.beginAutomaticSync(
+        accessSubject,
+        robinhood.id,
+        new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString(),
+      ),
+    ).resolves.toBeNull();
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM connector_sync_runs
+           WHERE connector_account_id = ?`,
+        )
+        .get(robinhood.connectorAccountId),
+    ).toEqual({ count: 0 });
   });
 
   it("pauses and resumes one connection through append-only lifecycle state", async () => {
