@@ -1,8 +1,9 @@
 # GitHub verification and deployment workflows
 
 `ci.yml` runs before merge for pull requests and merge-queue candidates. Its
-four jobs are intentionally independent so failures are targeted and the slow
-browser path can run in parallel:
+four jobs are intentionally independent so failures are targeted. They run on
+the repository-scoped `keel-ci` lane and can run in parallel when more than one
+matching runner is online:
 
 - `Quality`
 - `D1 migration and synthetic seed`
@@ -11,6 +12,25 @@ browser path can run in parallel:
 
 Configure the `main` branch ruleset to require all four jobs and require the
 branch to be up to date before merge.
+
+## Self-hosted runner lanes
+
+The private repository uses two isolated Linux x64 runner services on the
+existing OVH host:
+
+- `keel-ci` runs read-only PR and post-merge verification without repository
+  secrets, cloud credentials, `sudo`, or Docker-socket access.
+- `keel-deploy` runs only the protected `preview` environment deployment after
+  verification and secret scan pass. It has a separate service user, home,
+  runner root, and work directory, and it also has no Docker-socket access.
+
+Both services are registered only to `cyyapye/keel-fi`. The host provides Docker
+Compose and Playwright system libraries; workflows install the pinned Node,
+pnpm, dependencies, and Chromium in the unprivileged job context. If a runner is
+offline, its required job must queue and fail closed. Do not route public or
+untrusted-fork pull requests to these persistent runners. Return PR jobs to
+GitHub-hosted or ephemeral runners before changing repository visibility or
+accepting untrusted contributors.
 
 `post-merge.yml` runs `make verify` plus a full-history secret scan on the exact
 commit pushed to `main`. After both jobs pass, it automatically deploys that
@@ -60,7 +80,10 @@ GitHub does not expose environment secrets until the deployment job starts.
 Within the job, each secret is passed only to the local step that needs it. The
 generated Worker configuration is ignored by Git, the API secrets file exists
 only for the API deploy command, and plaintext D1 export/passphrase files are
-removed before artifact upload.
+removed before artifact upload. The final always-run cleanup also removes the
+encrypted backup copy, manifests, Wrangler output, release evidence, and
+generated configuration from the persistent deployment runner after their
+artifacts have uploaded.
 
 See
 [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments),
