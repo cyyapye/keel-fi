@@ -6,6 +6,9 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/investment-holdings", async (route) => {
     await route.fulfill({ json: emptyInvestmentHoldingsView });
   });
+  await page.route("**/api/investment-connections/auto-sync", async (route) => {
+    await route.fulfill({ json: investmentConnectionsState });
+  });
 });
 
 const investmentConnectionsState = {

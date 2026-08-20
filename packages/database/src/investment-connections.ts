@@ -150,6 +150,11 @@ export interface InvestmentConnectionsRepository {
     accessSubject: string,
     connectionId: string,
   ): Promise<InvestmentSyncRun>;
+  beginAutomaticSync(
+    accessSubject: string,
+    connectionId: string,
+    syncedAfter: string,
+  ): Promise<InvestmentSyncRun | null>;
   completeSync(
     accessSubject: string,
     runId: string,
@@ -1155,6 +1160,168 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
       },
       created: true,
     };
+  }
+
+  public async beginAutomaticSync(
+    accessSubject: string,
+    rawConnectionId: string,
+    rawSyncedAfter: string,
+  ): Promise<InvestmentSyncRun | null> {
+    const connectionId = z.string().min(1).parse(rawConnectionId);
+    const syncedAfter = z.iso.datetime({ offset: true }).parse(rawSyncedAfter);
+    const connection = await this.getConnection(accessSubject, connectionId);
+    if (connection === null) {
+      return null;
+    }
+    const identity = await findIdentity(this.db, accessSubject);
+    const runId = crypto.randomUUID();
+    const scopeId = crypto.randomUUID();
+    const startedAt = new Date().toISOString();
+    try {
+      await this.db.batch([
+        this.db
+          .prepare(
+            `INSERT INTO connector_sync_runs (
+               id, household_id, connector_account_id, status, started_at,
+               finished_at, cursor, discovered_count, proposed_count,
+               error_code
+             )
+             SELECT ?, ?, ?, 'running', ?, NULL,
+                    'investment-holdings-auto-v1', 0, 0, NULL
+             WHERE NOT EXISTS (
+               SELECT 1 FROM connector_sync_runs active
+               WHERE active.household_id = ?
+                 AND active.connector_account_id = ?
+                 AND active.status IN ('queued', 'running')
+             )
+             AND EXISTS (
+               SELECT 1
+               FROM connector_accounts current_account
+               JOIN connector_investment_connection_versions current_link
+                 ON current_link.connector_account_id = current_account.id
+                AND current_link.household_id = current_account.household_id
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM connector_investment_connection_versions later_link
+                  WHERE later_link.supersedes_link_id = current_link.id
+                )
+               JOIN investment_connection_versions current_state
+                 ON current_state.connection_id = current_link.connection_id
+                AND current_state.household_id = current_account.household_id
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM investment_connection_versions later_state
+                  WHERE later_state.supersedes_version_id = current_state.id
+                )
+               WHERE current_account.id = ?
+                 AND current_account.household_id = ?
+                 AND current_account.connector_type = ?
+                 AND current_account.status = 'active'
+                 AND current_link.connection_id = ?
+                 AND current_state.lifecycle_state = 'active'
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM connector_sync_runs recent
+               JOIN connector_sync_investment_connections recent_scope
+                 ON recent_scope.sync_run_id = recent.id
+               WHERE recent.household_id = ?
+                 AND recent.connector_account_id = ?
+                 AND recent_scope.connection_id = ?
+                 AND recent.started_at >= ?
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM holding_import_connections import_scope
+               JOIN holding_imports import ON import.id = import_scope.import_id
+               JOIN source_documents document
+                 ON document.id = import.source_document_id
+               WHERE import_scope.household_id = ?
+                 AND import_scope.connection_id = ?
+                 AND document.review_status = 'pending_review'
+             )`,
+          )
+          .bind(
+            runId,
+            identity.household_id,
+            connection.connectorAccountId,
+            startedAt,
+            identity.household_id,
+            connection.connectorAccountId,
+            connection.connectorAccountId,
+            identity.household_id,
+            CONNECTOR_TYPE,
+            connection.id,
+            identity.household_id,
+            connection.connectorAccountId,
+            connection.id,
+            syncedAfter,
+            identity.household_id,
+            connection.id,
+          ),
+        this.db
+          .prepare(
+            `INSERT INTO connector_sync_investment_connections (
+               id, household_id, sync_run_id, connection_id, created_at,
+               immutable
+             )
+             SELECT ?, ?, ?, ?, ?, 1
+             WHERE EXISTS (
+               SELECT 1 FROM connector_sync_runs run
+               WHERE run.id = ? AND run.household_id = ?
+             )`,
+          )
+          .bind(
+            scopeId,
+            identity.household_id,
+            runId,
+            connection.id,
+            startedAt,
+            runId,
+            identity.household_id,
+          ),
+      ]);
+    } catch (error) {
+      const blocked = await this.db
+        .prepare(
+          `SELECT run.id
+           FROM connector_sync_runs run
+           LEFT JOIN connector_sync_investment_connections scope
+             ON scope.sync_run_id = run.id
+           WHERE run.household_id = ?
+             AND run.connector_account_id = ?
+             AND (
+               run.status IN ('queued', 'running')
+               OR (scope.connection_id = ? AND run.started_at >= ?)
+             )
+           LIMIT 1`,
+        )
+        .bind(
+          identity.household_id,
+          connection.connectorAccountId,
+          connection.id,
+          syncedAfter,
+        )
+        .first<{ id: string }>();
+      if (blocked !== null) {
+        return null;
+      }
+      throw error;
+    }
+    const created = await this.db
+      .prepare(
+        `SELECT id FROM connector_sync_runs
+         WHERE id = ? AND household_id = ?`,
+      )
+      .bind(runId, identity.household_id)
+      .first<{ id: string }>();
+    return created === null
+      ? null
+      : {
+          id: runId,
+          connection,
+          created: true,
+        };
   }
 
   public async completeSync(

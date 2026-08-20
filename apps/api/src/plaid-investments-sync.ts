@@ -10,6 +10,7 @@ import type {
   D1HoldingImportRepository,
   PortfolioBaselineRepository,
   InvestmentConnectionsRepository,
+  InvestmentSyncRun,
   PlaidInvestmentsImportAdjudication,
 } from "@keel/database";
 import {
@@ -19,6 +20,7 @@ import {
   type InvestmentLinkToken,
   type InvestmentSyncErrorCode,
   type InvestmentConnectionStatus,
+  type InvestmentConnectionsState,
 } from "@keel/domain";
 import { z } from "zod";
 
@@ -968,7 +970,7 @@ export async function buildPlaidInvestmentsCanonicalScope(input: {
   });
 }
 
-export async function syncInvestmentConnection(input: {
+type InvestmentSyncDependencies = {
   env: Env;
   repository: InvestmentConnectionsRepository;
   holdingImports: Pick<
@@ -982,30 +984,16 @@ export async function syncInvestmentConnection(input: {
   >;
   client: PlaidInvestmentsClient;
   accessSubject: string;
-  connectionId: string;
-}): Promise<InvestmentConnectionStatus> {
-  if (
-    (await input.repository.getConnection(
-      input.accessSubject,
-      input.connectionId,
-    )) === null
-  ) {
-    throw new PlaidInvestmentsClientError(
-      "connection_invalid",
-      "Reconnect this institution to continue syncing.",
-    );
-  }
-  const run = await input.repository.beginSync(
-    input.accessSubject,
-    input.connectionId,
-  );
-  if (!run.created) {
-    return input.repository.getConnectionStatus(
-      input.accessSubject,
-      input.connectionId,
-    );
-  }
+};
 
+type InvestmentConnectionSyncInput = InvestmentSyncDependencies & {
+  connectionId: string;
+};
+
+async function executeInvestmentConnectionSync(
+  input: InvestmentSyncDependencies,
+  run: InvestmentSyncRun,
+): Promise<InvestmentConnectionStatus> {
   let stagedObjectKey: string | null = null;
   try {
     const encrypted = await input.env.DOCUMENTS.get(
@@ -1130,7 +1118,7 @@ export async function syncInvestmentConnection(input: {
     });
     return input.repository.getConnectionStatus(
       input.accessSubject,
-      input.connectionId,
+      run.connection.id,
     );
   } catch (error) {
     if (stagedObjectKey !== null) {
@@ -1140,4 +1128,63 @@ export async function syncInvestmentConnection(input: {
     await input.repository.failSync(input.accessSubject, run.id, code);
     throw error;
   }
+}
+
+export async function syncInvestmentConnection(
+  input: InvestmentConnectionSyncInput,
+): Promise<InvestmentConnectionStatus> {
+  if (
+    (await input.repository.getConnection(
+      input.accessSubject,
+      input.connectionId,
+    )) === null
+  ) {
+    throw new PlaidInvestmentsClientError(
+      "connection_invalid",
+      "Reconnect this institution to continue syncing.",
+    );
+  }
+  const run = await input.repository.beginSync(
+    input.accessSubject,
+    input.connectionId,
+  );
+  if (!run.created) {
+    return input.repository.getConnectionStatus(
+      input.accessSubject,
+      input.connectionId,
+    );
+  }
+
+  return executeInvestmentConnectionSync(input, run);
+}
+
+const AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1_000;
+
+export async function syncDueInvestmentConnections(
+  input: InvestmentSyncDependencies & { now?: Date },
+): Promise<InvestmentConnectionsState> {
+  const state = await input.repository.getState(input.accessSubject, true);
+  const now = input.now ?? new Date();
+  const syncedAfter = new Date(
+    now.getTime() - AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS,
+  ).toISOString();
+  for (const connection of state.connections) {
+    if (
+      connection.status !== "ready" ||
+      !connection.automaticUpdatesEnabled ||
+      connection.latestImportId !== null
+    ) {
+      continue;
+    }
+    const run = await input.repository.beginAutomaticSync(
+      input.accessSubject,
+      connection.connectionId,
+      syncedAfter,
+    );
+    if (run === null) {
+      continue;
+    }
+    await executeInvestmentConnectionSync(input, run).catch(() => undefined);
+  }
+  return input.repository.getState(input.accessSubject, true);
 }

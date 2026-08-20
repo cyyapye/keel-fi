@@ -35,6 +35,7 @@ import {
   loadInvestmentConnections,
   loadInvestmentHoldings,
   loadPrivateExposureReviews,
+  syncDueInvestmentHoldings,
   syncInvestmentHoldings,
 } from "./api";
 import { formatCompactCurrency, formatDate } from "./format";
@@ -46,6 +47,7 @@ const INVESTMENT_ADD_MODE = "add";
 const INVESTMENT_RECONNECT_PREFIX = "reconnect:";
 const INVESTMENT_OAUTH_RECONNECT_MESSAGE =
   "Open this connection again to finish signing in.";
+const AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 type ConnectionAction =
   | "add"
@@ -123,6 +125,20 @@ function latestCompleteObservation(
       .map((coverage) => coverage.observedAt) ?? [];
   return (
     observations.sort((left, right) => right.localeCompare(left))[0] ?? null
+  );
+}
+
+function hasDueInvestmentConnection(
+  state: InvestmentConnectionsState,
+): boolean {
+  const syncedAfter = Date.now() - AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS;
+  return state.connections.some(
+    (connection) =>
+      connection.status === "ready" &&
+      connection.automaticUpdatesEnabled &&
+      connection.latestImportId === null &&
+      (connection.lastSyncedAt === null ||
+        Date.parse(connection.lastSyncedAt) < syncedAfter),
   );
 }
 
@@ -795,12 +811,15 @@ export function InvestmentHoldings({
   );
   const reloadConnections = useCallback(async () => {
     try {
-      setConnectionState(await loadInvestmentConnections());
+      const next = await loadInvestmentConnections();
+      setConnectionState(next);
       setError((current) =>
         current === INVESTMENT_OAUTH_RECONNECT_MESSAGE ? current : null,
       );
+      return next;
     } catch {
       setError("Keel could not check investment institutions right now.");
+      return null;
     }
   }, []);
 
@@ -835,11 +854,36 @@ export function InvestmentHoldings({
   );
 
   useEffect(() => {
-    const initial = window.setTimeout(() => void reload(), 0);
+    let cancelled = false;
+    const initial = window.setTimeout(() => {
+      void reload().then(async ([initialConnections]) => {
+        if (
+          cancelled ||
+          initialConnections === null ||
+          !initialConnections.configured ||
+          !hasDueInvestmentConnection(initialConnections)
+        ) {
+          return;
+        }
+        try {
+          const next = await syncDueInvestmentHoldings();
+          if (cancelled) {
+            return;
+          }
+          setConnectionState(next);
+          await reloadHoldings();
+        } catch {
+          if (!cancelled) {
+            setError("Keel could not run the due brokerage check.");
+          }
+        }
+      });
+    }, 0);
     return () => {
+      cancelled = true;
       window.clearTimeout(initial);
     };
-  }, [reload]);
+  }, [reload, reloadHoldings]);
 
   useEffect(() => {
     if (
@@ -1307,7 +1351,11 @@ export function InvestmentHoldings({
                         : `${accountCount} ${accountCount === 1 ? "account" : "accounts"}`}
                       {lastComplete === null
                         ? ""
-                        : ` · Updated ${formatDate(lastComplete)}`}
+                        : ` · Data as of ${formatDate(lastComplete)}`}
+                      {status?.lastSyncedAt === null ||
+                      status?.lastSyncedAt === undefined
+                        ? ""
+                        : ` · Checked ${formatDate(status.lastSyncedAt)}`}
                       {pendingCount > 0
                         ? ` · ${pendingCount} waiting for review`
                         : ""}
