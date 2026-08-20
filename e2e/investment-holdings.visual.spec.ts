@@ -427,6 +427,13 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     exposureView.locator(".investment-views__heading"),
   ).toContainText("7 legal positions");
   await expect(exposureView.locator(".exposure-group")).toHaveCount(5);
+  const exposureSort = exposureView.getByLabel(
+    "Sort exposures and positions by value",
+  );
+  await expect(exposureSort).toHaveValue("descending");
+  await expect(
+    exposureView.locator(".exposure-group summary strong").first(),
+  ).toHaveText("NVIDIA common stock");
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);
@@ -440,6 +447,11 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     nvda.getByText("Fidelity · Fidelity rollover IRA"),
   ).toBeVisible();
+  await expect(nvda.locator(".position-row__value")).toHaveText([
+    "USD 315k",
+    "USD 240k",
+    "USD 185k",
+  ]);
   const cash = page.locator(".exposure-group").filter({
     has: page.getByText("US Dollar", { exact: true }),
   });
@@ -449,6 +461,24 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     cash.getByText("Fidelity · Fidelity rollover IRA"),
   ).toBeVisible();
+  await expect(cash.locator(".position-row__value")).toHaveText([
+    "USD 2.25k",
+    "USD 1.25k",
+  ]);
+  await exposureSort.selectOption("ascending");
+  await expect(
+    exposureView.locator(".exposure-group summary strong").first(),
+  ).toHaveText("US Dollar");
+  await expect(cash.locator(".position-row__value")).toHaveText([
+    "USD 1.25k",
+    "USD 2.25k",
+  ]);
+  await expect(nvda.locator(".position-row__value")).toHaveText([
+    "USD 185k",
+    "USD 240k",
+    "USD 315k",
+  ]);
+  await exposureSort.selectOption("descending");
   const harbor = page.locator(".exposure-group").filter({
     has: page.getByText("Harbor Health Systems", { exact: true }),
   });
@@ -921,7 +951,7 @@ test("progressively renders long exposure lists", async ({
   await expect(exposureView.locator(".exposure-pagination")).toContainText(
     "Showing 12 of 25 exposures",
   );
-  await expect(exposureView).not.toContainText("Demo Exposure 25");
+  await expect(exposureView).not.toContainText("Demo Exposure 01");
   await expectNoHorizontalOverflow(page);
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { display: none !important; }",
@@ -948,6 +978,6 @@ test("progressively renders long exposure lists", async ({
     .getByRole("button", { name: "Load more exposures" })
     .click();
   await expect(exposureView.locator(".exposure-group")).toHaveCount(25);
-  await expect(exposureView).toContainText("Demo Exposure 25");
+  await expect(exposureView).toContainText("Demo Exposure 01");
   await expect(exposureView.locator(".exposure-pagination")).toHaveCount(0);
 });

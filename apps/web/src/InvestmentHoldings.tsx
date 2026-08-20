@@ -7,7 +7,10 @@ import {
   type PrivateExposureReviewPosition,
   type PrivateExposureReviewState,
 } from "@keel/domain";
-import type { InvestmentExposurePosition } from "@keel/domain/exposure-read-model";
+import type {
+  InvestmentExposureGroup,
+  InvestmentExposurePosition,
+} from "@keel/domain/exposure-read-model";
 import type { InvestmentHoldingsView } from "@keel/domain/investment-holdings-view";
 import type {
   InvestmentPositionConnection,
@@ -177,6 +180,85 @@ function exposureTotalsLabel(
           `${unavailableCount} value${unavailableCount === 1 ? "" : "s"} unavailable`,
         ]),
   ].join(" · ");
+}
+
+type ExposureSortDirection = "ascending" | "descending";
+
+type SortableValue = {
+  currency: string;
+  valueMinor: number;
+};
+
+function exposureSortValue(
+  group: InvestmentExposureGroup,
+): SortableValue | null {
+  const reportedTotals = group.totals.filter(
+    (total) => total.knownValuePositionCount > 0,
+  );
+  return reportedTotals.length === 1
+    ? {
+        currency: reportedTotals[0]!.currency,
+        valueMinor: reportedTotals[0]!.allocatedValueMinor,
+      }
+    : null;
+}
+
+function positionSortValue(
+  position: InvestmentExposurePosition,
+): SortableValue | null {
+  return position.valueState === "reported" && position.valueMinor !== null
+    ? { currency: position.currency, valueMinor: position.valueMinor }
+    : null;
+}
+
+function compareSortableValues(
+  left: SortableValue | null,
+  right: SortableValue | null,
+  direction: ExposureSortDirection,
+): number {
+  if (left === null) {
+    return right === null ? 0 : 1;
+  }
+  if (right === null) {
+    return -1;
+  }
+  const currencyOrder = left.currency.localeCompare(right.currency);
+  if (currencyOrder !== 0) {
+    return currencyOrder;
+  }
+  return direction === "ascending"
+    ? left.valueMinor - right.valueMinor
+    : right.valueMinor - left.valueMinor;
+}
+
+function compareExposureGroups(
+  left: InvestmentExposureGroup,
+  right: InvestmentExposureGroup,
+  direction: ExposureSortDirection,
+): number {
+  const valueOrder = compareSortableValues(
+    exposureSortValue(left),
+    exposureSortValue(right),
+    direction,
+  );
+  return valueOrder !== 0
+    ? valueOrder
+    : left.exposure.canonicalName.localeCompare(right.exposure.canonicalName);
+}
+
+function compareExposurePositions(
+  left: InvestmentExposurePosition,
+  right: InvestmentExposurePosition,
+  direction: ExposureSortDirection,
+): number {
+  const valueOrder = compareSortableValues(
+    positionSortValue(left),
+    positionSortValue(right),
+    direction,
+  );
+  return valueOrder !== 0
+    ? valueOrder
+    : left.legalVehicleName.localeCompare(right.legalVehicleName);
 }
 
 function InstitutionActions({
@@ -468,6 +550,7 @@ function ExposureView({
   onOpenHolding,
   onLoadMoreExposures,
   onSubmitExposureReview,
+  sortDirection,
   visibleExposureCount,
 }: {
   data: InvestmentHoldingsView;
@@ -487,6 +570,7 @@ function ExposureView({
     position: PrivateExposureReviewPosition,
     input: PrivateExposureResolutionInput,
   ) => void;
+  sortDirection: ExposureSortDirection;
   visibleExposureCount: number;
 }) {
   const holdingDetailAction = (holdingId: string, holdingName: string) =>
@@ -531,8 +615,15 @@ function ExposureView({
       position,
     ]) ?? [],
   );
-  const totalExposureCount = data.exposureView.exposures.length;
-  const visibleCanonicalExposureGroups = data.exposureView.exposures.slice(
+  const sortedExposureGroups = useMemo(
+    () =>
+      [...data.exposureView.exposures].sort((left, right) =>
+        compareExposureGroups(left, right, sortDirection),
+      ),
+    [data.exposureView.exposures, sortDirection],
+  );
+  const totalExposureCount = sortedExposureGroups.length;
+  const visibleCanonicalExposureGroups = sortedExposureGroups.slice(
     0,
     visibleExposureCount,
   );
@@ -581,6 +672,9 @@ function ExposureView({
           .filter(
             (position): position is InvestmentExposurePosition =>
               position !== undefined,
+          )
+          .sort((left, right) =>
+            compareExposurePositions(left, right, sortDirection),
           );
         const positionCount = positions.length;
         return (
@@ -607,7 +701,9 @@ function ExposureView({
                     <strong>{position.legalVehicleName}</strong>
                     <small>{positionContext(position)}</small>
                   </span>
-                  <span>{exposurePositionValue(position)}</span>
+                  <span className="position-row__value">
+                    {exposurePositionValue(position)}
+                  </span>
                   <span>
                     {position.hasUnknownAllocation
                       ? "Allocation unknown"
@@ -700,7 +796,9 @@ function ExposureView({
                     <strong>{position.legalVehicleName}</strong>
                     <small>{positionContext(position)}</small>
                   </span>
-                  <span>{exposurePositionValue(position)}</span>
+                  <span className="position-row__value">
+                    {exposurePositionValue(position)}
+                  </span>
                   <span className="unallocated-positions__status">
                     {position.hasUnknownAllocation
                       ? "Allocation unknown"
@@ -804,6 +902,8 @@ export function InvestmentHoldings({
   const [exposureReviewNotice, setExposureReviewNotice] = useState<
     string | null
   >(null);
+  const [exposureSortDirection, setExposureSortDirection] =
+    useState<ExposureSortDirection>("descending");
   const oauthStarted = useRef(false);
   const knownHoldingIds = useMemo(
     () => new Set(holdings.map((holding) => holding.id)),
@@ -1409,14 +1509,33 @@ export function InvestmentHoldings({
             </p>
           </div>
           {data !== null && (
-            <span>
-              <strong>{exposureCount}</strong>{" "}
-              {exposureCount === 1 ? "exposure" : "exposures"}
-              <small>
-                {positionCount} legal{" "}
-                {positionCount === 1 ? "position" : "positions"}
-              </small>
-            </span>
+            <div className="investment-views__controls">
+              {exposureCount > 1 && (
+                <label className="exposure-sort">
+                  <span>Sort by value</span>
+                  <select
+                    aria-label="Sort exposures and positions by value"
+                    onChange={(event) =>
+                      setExposureSortDirection(
+                        event.currentTarget.value as ExposureSortDirection,
+                      )
+                    }
+                    value={exposureSortDirection}
+                  >
+                    <option value="descending">Highest first</option>
+                    <option value="ascending">Lowest first</option>
+                  </select>
+                </label>
+              )}
+              <span className="investment-views__count">
+                <strong>{exposureCount}</strong>{" "}
+                {exposureCount === 1 ? "exposure" : "exposures"}
+                <small>
+                  {positionCount} legal{" "}
+                  {positionCount === 1 ? "position" : "positions"}
+                </small>
+              </span>
+            </div>
           )}
         </div>
         {exposureReviewNotice !== null && (
@@ -1469,6 +1588,7 @@ export function InvestmentHoldings({
                 onSubmitExposureReview={(position, input) =>
                   void submitExposureReview(position, input)
                 }
+                sortDirection={exposureSortDirection}
                 visibleExposureCount={visibleExposureCount}
               />
             )}
