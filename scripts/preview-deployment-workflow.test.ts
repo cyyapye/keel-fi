@@ -28,6 +28,11 @@ describe("post-merge preview deployment workflow", () => {
     expect(postMergeWorkflow).not.toContain("runs-on: ubuntu-latest");
     expect(pullRequestWorkflow).not.toContain("playwright install --with-deps");
     expect(postMergeWorkflow).not.toContain("playwright install --with-deps");
+    expect(
+      [pullRequestWorkflow, postMergeWorkflow]
+        .join("\n")
+        .match(/HOME: \$\{\{ runner\.workspace \}\}/g),
+    ).toHaveLength(2);
   });
 
   it("preserves exact-SHA gates, safe ordering, and the no-seed boundary", async () => {

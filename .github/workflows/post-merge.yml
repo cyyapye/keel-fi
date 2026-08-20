@@ -40,6 +40,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOME: ${{ runner.workspace }}
 
   deploy-preview:
     name: Deploy exact SHA to preview
