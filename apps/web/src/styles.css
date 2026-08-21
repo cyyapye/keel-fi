@@ -951,6 +951,11 @@ h1,
   --line-soft: transparent;
 }
 
+.holdings-screen .field .input:is(:hover, :focus, :focus-visible),
+.holdings-screen .field .native-select:is(:hover, :focus, :focus-visible) {
+  border-color: transparent;
+}
+
 .holdings-screen
   :is(
     .data-table th,

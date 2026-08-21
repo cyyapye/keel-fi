@@ -357,6 +357,17 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
     page.getByRole("checkbox", { name: "Approve balance" }),
   ).toHaveCount(2);
   const cashReview = page.locator(".cash-review");
+  const changeNote = page.getByLabel("What changed");
+  await changeNote.hover();
+  await expect(changeNote).toHaveCSS("border-bottom-color", "rgba(0, 0, 0, 0)");
+  await changeNote.focus();
+  await expect(changeNote).toHaveCSS("border-bottom-color", "rgba(0, 0, 0, 0)");
+  await expect(page.locator(".cash-review__actions")).toHaveCSS(
+    "border-top-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await reviewHeading.focus();
+  await page.mouse.move(0, 0);
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
