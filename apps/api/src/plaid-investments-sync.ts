@@ -1160,6 +1160,16 @@ export async function syncInvestmentConnection(
 
 const AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
+function isAutomaticInvestmentSyncEligible(
+  connection: InvestmentConnectionStatus,
+): boolean {
+  return (
+    connection.status === "ready" ||
+    (connection.status === "needs_attention" &&
+      connection.errorCode === "unexpected_failure")
+  );
+}
+
 export async function syncDueInvestmentConnections(
   input: InvestmentSyncDependencies & { now?: Date },
 ): Promise<InvestmentConnectionsState> {
@@ -1170,7 +1180,7 @@ export async function syncDueInvestmentConnections(
   ).toISOString();
   for (const connection of state.connections) {
     if (
-      connection.status !== "ready" ||
+      !isAutomaticInvestmentSyncEligible(connection) ||
       !connection.automaticUpdatesEnabled ||
       connection.latestImportId !== null
     ) {

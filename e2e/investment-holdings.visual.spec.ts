@@ -791,9 +791,7 @@ test("checks a stale brokerage after rendering current holdings", async ({
   expect(automaticRequestCount).toBe(1);
 });
 
-test("lets an interrupted brokerage check be retried", async ({
-  page,
-}, testInfo) => {
+test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
   const robinhood = statuses[0]!;
   const interrupted = {
     ...robinhood,
@@ -826,15 +824,83 @@ test("lets an interrupted brokerage check be retried", async ({
   const robinhoodCard = page
     .locator(".investment-institution")
     .filter({ hasText: "Robinhood" });
+  const failedStatus = robinhoodCard.getByText("Check failed", { exact: true });
+  await expect(failedStatus).toBeVisible();
+  await expect(failedStatus).toHaveCSS("text-decoration-line", "none");
   await expect(
-    robinhoodCard.getByText("Check interrupted", { exact: true }),
+    robinhoodCard.getByText("We’ll try again later.", { exact: true }),
   ).toBeVisible();
-  const retry = robinhoodCard.getByRole("button", { name: "Check now" });
+  await expectNoHorizontalOverflow(page);
+  await expect(robinhoodCard).toHaveScreenshot(
+    "investment-holdings-check-failed.png",
+  );
+  const retry = robinhoodCard.getByRole("button", { name: "Try now" });
   await expect(retry).toBeEnabled();
   await retry.click();
   await expect(
     robinhoodCard.getByText("Up to date", { exact: true }),
   ).toBeVisible();
+});
+
+test("automatically retries an old generic brokerage failure", async ({
+  page,
+}, testInfo) => {
+  const robinhood = statuses[0]!;
+  const failed = {
+    ...robinhood,
+    status: "needs_attention" as const,
+    lastSyncedAt: "2026-08-17T11:45:00.000Z",
+    latestRunStatus: "failed" as const,
+    errorCode: "unexpected_failure" as const,
+  };
+  let automaticRequestCount = 0;
+  let releaseAutomaticSync: () => void = () => undefined;
+  const automaticSyncGate = new Promise<void>((resolve) => {
+    releaseAutomaticSync = resolve;
+  });
+  await page.unroute("**/api/investment-connections");
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: [failed],
+        errorCode: null,
+      },
+    });
+  });
+  await page.unroute("**/api/investment-connections/auto-sync");
+  await page.route("**/api/investment-connections/auto-sync", async (route) => {
+    automaticRequestCount += 1;
+    await automaticSyncGate;
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: [robinhood],
+        errorCode: null,
+      },
+    });
+  });
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await navigateToScreen(page, mobile, /Holdings/);
+  const robinhoodCard = page
+    .locator(".investment-institution")
+    .filter({ hasText: "Robinhood" });
+  try {
+    await expect(
+      robinhoodCard.getByText("Check failed", { exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => automaticRequestCount).toBe(1);
+  } finally {
+    releaseAutomaticSync();
+  }
+  await expect(
+    robinhoodCard.getByText("Up to date", { exact: true }),
+  ).toBeVisible();
+  expect(automaticRequestCount).toBe(1);
 });
 
 test("opens a new Item flow for a disconnected brokerage", async ({

@@ -97,6 +97,15 @@ function clearStoredLink() {
   window.sessionStorage.removeItem(INVESTMENT_LINK_MODE_STORAGE_KEY);
 }
 
+function isRetryableInvestmentCheckFailure(
+  status: InvestmentConnectionStatus | null,
+): boolean {
+  return (
+    status?.status === "needs_attention" &&
+    status.errorCode === "unexpected_failure"
+  );
+}
+
 function lifecycleLabel(status: InvestmentConnectionStatus | null): string {
   if (status === null) {
     return "Imported source";
@@ -110,7 +119,7 @@ function lifecycleLabel(status: InvestmentConnectionStatus | null): string {
       status.errorCode === "connection_invalid"
         ? "Reconnect needed"
         : status.errorCode === "unexpected_failure"
-          ? "Check interrupted"
+          ? "Check failed"
           : "Needs attention",
   }[status.status];
 }
@@ -151,7 +160,8 @@ function hasDueInvestmentConnection(
   const syncedAfter = Date.now() - AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS;
   return state.connections.some(
     (connection) =>
-      connection.status === "ready" &&
+      (connection.status === "ready" ||
+        isRetryableInvestmentCheckFailure(connection)) &&
       connection.automaticUpdatesEnabled &&
       connection.latestImportId === null &&
       (connection.lastSyncedAt === null ||
@@ -476,6 +486,7 @@ function InstitutionActions({
 }) {
   const isBusy = busy?.connectionId === status.connectionId;
   const isAdding = busy?.action === "add" || busy?.action === "exchange";
+  const isRetryableFailure = isRetryableInvestmentCheckFailure(status);
   const waitingCount = status.latestAdjudication?.quarantinedCount ?? 0;
   if (status.status === "disconnected") {
     return (
@@ -515,6 +526,11 @@ function InstitutionActions({
   }
   return (
     <div className="investment-institution__actions">
+      {isRetryableFailure && (
+        <p className="investment-institution__retry-note">
+          We’ll try again later.
+        </p>
+      )}
       {status.latestImportId !== null && waitingCount > 0 && (
         <Button
           onClick={() => onReviewImport(status.latestImportId!)}
@@ -546,7 +562,11 @@ function InstitutionActions({
           onClick={() => onAction("check")}
           tone="secondary"
         >
-          {isBusy || status.status === "syncing" ? "Checking…" : "Check now"}
+          {isBusy || status.status === "syncing"
+            ? "Checking…"
+            : isRetryableFailure
+              ? "Try now"
+              : "Check now"}
         </Button>
       ) : null}
       {status.status !== "paused" &&
