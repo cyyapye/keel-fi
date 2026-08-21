@@ -420,10 +420,6 @@ h3 {
   border-width: 2px;
 }
 
-.badge--negative {
-  text-decoration: line-through;
-}
-
 .badge--neutral {
   color: var(--muted);
 }

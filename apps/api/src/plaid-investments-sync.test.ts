@@ -262,13 +262,25 @@ function testEnv(bucket: R2Bucket): Env {
 }
 
 describe("Plaid Investments sync", () => {
-  it("checks only ready connections admitted by the automatic cooldown", async () => {
+  it("checks ready and retryable failed connections admitted by the automatic cooldown", async () => {
     const repository = publicRepository();
     repository.getState.mockResolvedValue({
       version: 1,
       configured: true,
       connections: [
         status(),
+        status({
+          connectionId: "synthetic-retryable-connection",
+          status: "needs_attention",
+          latestRunStatus: "failed",
+          errorCode: "unexpected_failure",
+        }),
+        status({
+          connectionId: "synthetic-reconnect-connection",
+          status: "needs_attention",
+          latestRunStatus: "failed",
+          errorCode: "connection_invalid",
+        }),
         status({
           connectionId: "synthetic-paused-connection",
           status: "paused",
@@ -304,12 +316,19 @@ describe("Plaid Investments sync", () => {
       now: new Date("2026-08-19T12:00:00.000Z"),
     });
 
-    expect(repository.beginAutomaticSync).toHaveBeenCalledOnce();
-    expect(repository.beginAutomaticSync).toHaveBeenCalledWith(
-      "synthetic-access-subject",
-      "synthetic-investment-connection",
-      "2026-08-18T12:00:00.000Z",
-    );
+    expect(repository.beginAutomaticSync).toHaveBeenCalledTimes(2);
+    expect(repository.beginAutomaticSync.mock.calls).toEqual([
+      [
+        "synthetic-access-subject",
+        "synthetic-investment-connection",
+        "2026-08-18T12:00:00.000Z",
+      ],
+      [
+        "synthetic-access-subject",
+        "synthetic-retryable-connection",
+        "2026-08-18T12:00:00.000Z",
+      ],
+    ]);
     expect(getHoldings).not.toHaveBeenCalled();
   });
 
