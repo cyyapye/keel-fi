@@ -440,6 +440,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       styles.borderLeftWidth,
     ];
   });
+  expect(restingSortBorder).toEqual(["0px", "0px", "0px", "0px"]);
   await exposureSort.focus();
   const focusedSortFrame = await exposureSort.evaluate((element) => {
     const styles = window.getComputedStyle(element);
@@ -493,6 +494,12 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page.getByRole("option", { name: "Lowest first" }),
   ).toBeVisible();
+  await expect(page).toHaveScreenshot("investment-holdings-sort-open.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
   await page.getByRole("option", { name: "Lowest first" }).click();
   await expect(exposureSort).toContainText("Lowest first");
   await expect(
@@ -539,6 +546,11 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       ),
     )
     .not.toBe("none");
+  expect(
+    await exposureSort.evaluate(
+      (element) => window.getComputedStyle(element).boxShadow,
+    ),
+  ).not.toContain("inset");
   await exposureSort.evaluate((element) => {
     (element as HTMLElement).blur();
   });
@@ -594,6 +606,44 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       elements.map((element) => element.getBoundingClientRect().height),
     );
   expect(targetHeights.every((height) => height >= 44)).toBe(true);
+  const hasVisibleDecorativeBorder = await page
+    .locator(
+      [
+        ".angellist-agent",
+        ".angellist-agent__controls select",
+        ".angellist-agent__meta",
+        ".cash-accounts",
+        ".investment-institutions",
+        ".investment-institution-list",
+        ".investment-institution",
+        ".exposure-group",
+        ".exposure-group__positions article",
+        ".unallocated-positions",
+      ].join(", "),
+    )
+    .evaluateAll((elements) =>
+      elements.some((element) => {
+        const styles = window.getComputedStyle(element);
+        return ["Top", "Right", "Bottom", "Left"].some((side) => {
+          const width = Number.parseFloat(
+            styles.getPropertyValue(`border-${side.toLowerCase()}-width`),
+          );
+          const style = styles.getPropertyValue(
+            `border-${side.toLowerCase()}-style`,
+          );
+          const color = styles.getPropertyValue(
+            `border-${side.toLowerCase()}-color`,
+          );
+          return (
+            width > 0 &&
+            style !== "none" &&
+            color !== "transparent" &&
+            color !== "rgba(0, 0, 0, 0)"
+          );
+        });
+      }),
+    );
+  expect(hasVisibleDecorativeBorder).toBe(false);
   await expectNoHorizontalOverflow(page);
   await page.addStyleTag({
     content: `

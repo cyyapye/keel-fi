@@ -945,6 +945,34 @@ h1,
   background: transparent;
 }
 
+.holdings-screen {
+  /* Holdings relies on spacing and type hierarchy instead of decorative rules. */
+  --line: transparent;
+  --line-soft: transparent;
+}
+
+.holdings-screen .field .input:is(:hover, :focus, :focus-visible),
+.holdings-screen .field .native-select:is(:hover, :focus, :focus-visible) {
+  border-color: transparent;
+}
+
+.holdings-screen
+  :is(
+    .data-table th,
+    .data-table tr,
+    .cash-accounts,
+    .cash-review,
+    .cash-review__rows,
+    .portfolio-baseline,
+    .baseline-totals,
+    .baseline-position-list,
+    .baseline-liquid-composition,
+    .investment-institutions,
+    .import-attention
+  ) {
+  border: 0;
+}
+
 .holdings-table-wrap {
   overflow-x: auto;
 }
@@ -1765,11 +1793,6 @@ h1,
   justify-content: space-between;
   gap: 20px;
   padding: 12px 0;
-  border-bottom: 1px solid rgb(247 244 238 / 20%);
-}
-
-.baseline-impact > div:last-child {
-  border-bottom: 0;
 }
 
 .baseline-impact span {
