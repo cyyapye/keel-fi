@@ -347,6 +347,45 @@ describe("Plaid Investments connection state", () => {
     });
   });
 
+  it("turns an abandoned investment check into a retryable failure", async () => {
+    const robinhood = await repository.upsertConnection(
+      accessSubject,
+      "connector-secrets/synthetic-robinhood.enc",
+      robinhoodItemKey,
+      "ins_robinhood",
+      "Robinhood",
+    );
+    const abandoned = await repository.beginSync(accessSubject, robinhood.id);
+    sqlite
+      .prepare(
+        `UPDATE connector_sync_runs
+         SET started_at = ?
+         WHERE id = ?`,
+      )
+      .run("2020-01-01T00:00:00.000Z", abandoned.id);
+
+    await expect(
+      repository.getConnectionStatus(accessSubject, robinhood.id),
+    ).resolves.toMatchObject({
+      status: "needs_attention",
+      latestRunStatus: "failed",
+      errorCode: "unexpected_failure",
+    });
+
+    const retry = await repository.beginSync(accessSubject, robinhood.id);
+    expect(retry).toMatchObject({ created: true });
+    expect(retry.id).not.toBe(abandoned.id);
+    expect(
+      sqlite
+        .prepare(
+          `SELECT status, error_code
+           FROM connector_sync_runs
+           WHERE id = ?`,
+        )
+        .get(abandoned.id),
+    ).toEqual({ status: "failed", error_code: "unexpected_failure" });
+  });
+
   it("claims at most one automatic sync attempt per connection every 24 hours", async () => {
     const robinhood = await repository.upsertConnection(
       accessSubject,

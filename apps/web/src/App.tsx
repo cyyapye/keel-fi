@@ -3567,23 +3567,24 @@ function CashAccountsControl({
 
       {state !== null && state.acceptedAccounts.length > 0 && (
         <div className="cash-accounts__accepted">
-          <div>
-            <span>Reviewed bank cash</span>
+          <div className="cash-accounts__total">
+            <span>Total cash</span>
             <strong>{formatCompactMoney(acceptedCashMinor)}</strong>
           </div>
           <div className="cash-accounts__accepted-list">
             {state.acceptedAccounts.map((account) => (
-              <span key={account.id}>
-                <strong>{account.accountLabel}</strong>
-                <small>
-                  {account.institutionLabel} ·{" "}
-                  {acceptedCashValueLabel(account.valueMinor)} ·{" "}
-                  {account.refreshKind === "live"
-                    ? "live balance checked"
-                    : "cached data retrieved"}{" "}
-                  {formatDate(account.observedAt)}
-                </small>
-              </span>
+              <div className="cash-accounts__accepted-account" key={account.id}>
+                <span>
+                  <strong>{account.accountLabel}</strong>
+                  <small>
+                    {account.institutionLabel} · As of{" "}
+                    {formatDate(account.observedAt)}
+                  </small>
+                </span>
+                <strong className="cash-accounts__accepted-value">
+                  {acceptedCashValueLabel(account.valueMinor)}
+                </strong>
+              </div>
             ))}
           </div>
         </div>
@@ -6119,10 +6120,9 @@ function LoadingShell() {
   return (
     <div className="loading-shell">
       <div className="loading-brand">Keel</div>
-      <div className="loading-card">
-        <span className="loader" />
-        <h1>Loading the decision record</h1>
-        <p>Retrieving the database-backed synthetic household.</p>
+      <div aria-live="polite" className="loading-card" role="status">
+        <span aria-hidden="true" className="loader" />
+        <h1>Loading your portfolio</h1>
       </div>
     </div>
   );

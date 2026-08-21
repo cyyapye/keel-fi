@@ -382,9 +382,21 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     robinhoodCard.getByText("Up to date", { exact: true }),
   ).toBeVisible();
+  await expect(
+    robinhoodCard.locator(".investment-institution__value"),
+  ).toHaveText("$186.25k");
   await expect(robinhoodCard).toContainText(
     "Data as of Aug 15, 2026 · Checked Aug 19, 2026",
   );
+  await robinhoodCard.locator("summary").click();
+  const robinhoodAccount = robinhoodCard
+    .locator(".investment-institution__account")
+    .filter({ hasText: "Robinhood brokerage" });
+  await expect(robinhoodAccount).toBeVisible();
+  await expect(
+    robinhoodAccount.locator(".investment-institution__account-value strong"),
+  ).toHaveText("$186.25k");
+  await expect(robinhoodAccount).toContainText("Complete · as of Aug 15, 2026");
   await expect(
     robinhoodCard.getByRole("button", { name: "Connect again" }),
   ).toHaveCount(0);
@@ -394,6 +406,18 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page.locator(".investment-institution").filter({ hasText: "Fidelity" }),
   ).toContainText(["2 accounts", "1 account"]);
+  const currentFidelityCard = page
+    .locator(".investment-institution")
+    .filter({ hasText: "Fidelity" })
+    .first();
+  await expect(
+    currentFidelityCard.locator(".investment-institution__value"),
+  ).toHaveText("$647.25k");
+  await expect(
+    currentFidelityCard.locator(
+      ".investment-institution__account-value strong",
+    ),
+  ).toHaveText(["$330k", "$317.25k"]);
   const reconnectCard = page.locator(".investment-institution").filter({
     hasText: "Synthetic Reconnect Brokerage",
   });
@@ -426,6 +450,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     exposureView.locator(".investment-views__heading"),
   ).toContainText("7 legal positions");
+  await expect(exposureView.locator(".investment-views__total")).toContainText(
+    "Total exposure$743.5k · 2 values unavailable",
+  );
   await expect(exposureView.locator(".exposure-group")).toHaveCount(5);
   const exposureSort = exposureView.getByLabel(
     "Sort exposures and positions by value",
@@ -458,12 +485,12 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   expect(focusedSortFrame.outline).toBe("none");
   await expect(
     exposureView.locator(".exposure-group summary strong").first(),
-  ).toHaveText("NVIDIA common stock");
+  ).toHaveText("NVDA");
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);
   const nvda = page.locator(".exposure-group").filter({
-    has: page.getByText("NVIDIA common stock", { exact: true }),
+    has: page.locator('summary strong[title="NVIDIA common stock"]'),
   });
   await expect(nvda).toContainText("3 positions");
   await nvda.locator("summary").click();
@@ -473,9 +500,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     nvda.getByText("Fidelity · Fidelity rollover IRA"),
   ).toBeVisible();
   await expect(nvda.locator(".position-row__value")).toHaveText([
-    "USD 315k",
-    "USD 240k",
-    "USD 185k",
+    "$315k",
+    "$240k",
+    "$185k",
   ]);
   const cash = page.locator(".exposure-group").filter({
     has: page.getByText("US Dollar", { exact: true }),
@@ -487,8 +514,8 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     cash.getByText("Fidelity · Fidelity rollover IRA"),
   ).toBeVisible();
   await expect(cash.locator(".position-row__value")).toHaveText([
-    "USD 2.25k",
-    "USD 1.25k",
+    "$2.25k",
+    "$1.25k",
   ]);
   await exposureSort.click();
   await expect(
@@ -506,13 +533,13 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     exposureView.locator(".exposure-group summary strong").first(),
   ).toHaveText("US Dollar");
   await expect(cash.locator(".position-row__value")).toHaveText([
-    "USD 1.25k",
-    "USD 2.25k",
+    "$1.25k",
+    "$2.25k",
   ]);
   await expect(nvda.locator(".position-row__value")).toHaveText([
-    "USD 185k",
-    "USD 240k",
-    "USD 315k",
+    "$185k",
+    "$240k",
+    "$315k",
   ]);
   await exposureSort.click();
   await page.getByRole("option", { name: "Highest first" }).click();
@@ -564,7 +591,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     page.locator(".unallocated-positions").getByText("Allocation unknown"),
   ).toBeVisible();
   await expect(page.locator(".unallocated-positions")).not.toContainText(
-    "NVDA common stock",
+    "NVDA",
   );
   await expect(page.locator(".unallocated-positions")).not.toContainText(
     "U S Dollar",
@@ -584,13 +611,13 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     page
       .locator(".exposure-group")
       .filter({ hasText: "Synthetic Cloud Basket" }),
-  ).not.toContainText("USD 0");
+  ).not.toContainText("$0");
   await expect(
     page.getByRole("heading", { name: "Unallocated or unresolved value" }),
   ).toBeVisible();
   await expect(
     nvda.getByRole("button", {
-      name: "View NVDA common stock holding details",
+      name: "View NVDA holding details",
     }),
   ).toHaveCount(3);
   await expect(
@@ -598,6 +625,16 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       name: "View U S Dollar holding details",
     }),
   ).toHaveCount(2);
+  await expect(exposureView).not.toContainText("USD ");
+  expect(
+    await exposureView
+      .locator(".exposure-group summary")
+      .evaluateAll((summaries) =>
+        summaries.every(
+          (summary) => getComputedStyle(summary, "::after").content === "none",
+        ),
+      ),
+  ).toBe(true);
   const targetHeights = await page
     .locator(
       ".investment-institutions .button:visible, .position-row__action:visible",
@@ -665,7 +702,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
 
   const nvdaDetailAction = nvda
     .getByRole("button", {
-      name: "View NVDA common stock holding details",
+      name: "View NVDA holding details",
     })
     .first();
   await nvdaDetailAction.click();
@@ -752,6 +789,52 @@ test("checks a stale brokerage after rendering current holdings", async ({
     "Data as of Aug 15, 2026 · Checked Aug 19, 2026",
   );
   expect(automaticRequestCount).toBe(1);
+});
+
+test("lets an interrupted brokerage check be retried", async ({
+  page,
+}, testInfo) => {
+  const robinhood = statuses[0]!;
+  const interrupted = {
+    ...robinhood,
+    status: "needs_attention" as const,
+    latestRunStatus: "failed" as const,
+    errorCode: "unexpected_failure" as const,
+  };
+  await page.unroute("**/api/investment-connections");
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: [interrupted],
+        errorCode: null,
+      },
+    });
+  });
+  await page.route(
+    `**/api/investment-connections/${robinhood.connectionId}/sync`,
+    async (route) => {
+      expect(route.request().method()).toBe("POST");
+      await route.fulfill({ json: robinhood });
+    },
+  );
+
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await navigateToScreen(page, mobile, /Holdings/);
+  const robinhoodCard = page
+    .locator(".investment-institution")
+    .filter({ hasText: "Robinhood" });
+  await expect(
+    robinhoodCard.getByText("Check interrupted", { exact: true }),
+  ).toBeVisible();
+  const retry = robinhoodCard.getByRole("button", { name: "Check now" });
+  await expect(retry).toBeEnabled();
+  await retry.click();
+  await expect(
+    robinhoodCard.getByText("Up to date", { exact: true }),
+  ).toBeVisible();
 });
 
 test("opens a new Item flow for a disconnected brokerage", async ({
@@ -1024,11 +1107,11 @@ test("keeps failed canonical holdings out of unresolved exposures and retries", 
   await expect.poll(() => holdingsRequestCount).toBe(2);
   await expect(errorState.getByRole("alert")).toHaveCount(0);
   const nvda = errorState.locator(".exposure-group").filter({
-    has: page.getByText("NVIDIA common stock", { exact: true }),
+    has: page.locator('summary strong[title="NVIDIA common stock"]'),
   });
   await expect(nvda).toContainText("3 positions");
   await expect(errorState.locator(".unallocated-positions")).not.toContainText(
-    "NVDA common stock",
+    "NVDA",
   );
 });
 
@@ -1064,7 +1147,10 @@ test("progressively renders long exposure lists", async ({
   await expect(exposureView.locator(".exposure-pagination")).toContainText(
     "Showing 12 of 25 exposures",
   );
-  await expect(exposureView).not.toContainText("Demo Exposure 01");
+  const lowestExposureName = exposureView
+    .locator(".exposure-group summary")
+    .getByText("DMO1", { exact: true });
+  await expect(lowestExposureName).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { display: none !important; }",
@@ -1091,6 +1177,6 @@ test("progressively renders long exposure lists", async ({
     .getByRole("button", { name: "Load more exposures" })
     .click();
   await expect(exposureView.locator(".exposure-group")).toHaveCount(25);
-  await expect(exposureView).toContainText("Demo Exposure 01");
+  await expect(lowestExposureName).toBeVisible();
   await expect(exposureView.locator(".exposure-pagination")).toHaveCount(0);
 });

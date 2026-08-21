@@ -11,6 +11,48 @@ const navigationLabels = [
   "Forecast History",
 ] as const;
 
+test("keeps portfolio loading concise", async ({ page }) => {
+  let releaseResponse!: () => void;
+  const responseGate = new Promise<void>((resolve) => {
+    releaseResponse = resolve;
+  });
+  await page.route("**/api/alpha", async (route) => {
+    const response = await route.fetch();
+    await responseGate;
+    await route.fulfill({ response });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const loading = page.getByRole("status");
+  await expect(
+    loading.getByRole("heading", { name: "Loading your portfolio" }),
+  ).toBeVisible();
+  await expect(loading).not.toContainText("decision record");
+  await expect(loading).not.toContainText("database");
+  await expect(loading).not.toContainText("synthetic household");
+  await expect(page).toHaveScreenshot("loading-shell.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth ===
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+
+  releaseResponse();
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Financial independence",
+    }),
+  ).toBeVisible();
+});
+
 test("keeps primary navigation legible and keyboard accessible", async ({
   page,
 }, testInfo) => {

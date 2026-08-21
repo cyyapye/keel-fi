@@ -415,7 +415,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     has: page.getByText("Northstar Robotics", { exact: true }),
   });
   const publicExposure = page.locator(".exposure-group").filter({
-    has: page.getByText("Synthetic Public Company", { exact: true }),
+    has: page.locator('summary strong[title="Synthetic Public Company"]'),
   });
   await harborExposure.locator("summary").click();
   await northstarExposure.locator("summary").click();
@@ -585,7 +585,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await publicExposure.locator("summary").click();
   await page
     .getByRole("button", {
-      name: "View SYN · Synthetic Public Company holding details",
+      name: "View SYN holding details",
     })
     .click();
   await expect(page.getByText("Brokerage source")).toBeVisible();
