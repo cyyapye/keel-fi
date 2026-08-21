@@ -4557,7 +4557,7 @@ function Holdings({
   };
 
   return (
-    <ScreenLayout>
+    <ScreenLayout className="holdings-screen">
       <PageHeader
         actions={
           <>

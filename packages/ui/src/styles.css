@@ -89,7 +89,7 @@ button {
   [contenteditable="true"],
   [tabindex]
 ):focus-visible {
-  box-shadow: inset 0 -3px 0 currentColor;
+  box-shadow: 0 10px 24px rgb(38 34 56 / 16%);
 }
 
 h1,
@@ -618,12 +618,7 @@ h3 {
   text-align: left;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--line);
   border-radius: 0;
-}
-
-.select-trigger:hover {
-  border-bottom-color: var(--ink);
 }
 
 .select-value {
