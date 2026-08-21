@@ -9,6 +9,7 @@ import {
 import { z } from "zod";
 
 const CONNECTOR_TYPE = "plaid-investments";
+const INVESTMENT_SYNC_STALE_AFTER_MS = 5 * 60 * 1_000;
 
 function connectorAccountDisplayLabel(
   institutionLabel: string,
@@ -48,6 +49,7 @@ type ConnectionRow = {
 
 type LatestRunRow = {
   status: "queued" | "running" | "succeeded" | "failed";
+  started_at: string;
   error_code: string | null;
   adjudication_policy_version: string | null;
   auto_applied_count: number;
@@ -293,7 +295,7 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
       await Promise.all([
         this.db
           .prepare(
-            `SELECT run.status, run.error_code,
+            `SELECT run.status, run.started_at, run.error_code,
                   run.adjudication_policy_version,
                   run.auto_applied_count,
                   run.quarantined_count,
@@ -346,10 +348,19 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
           .bind(identity.household_id, connection.investment_connection_id)
           .first<{ id: string }>(),
       ]);
-    const runStatus =
-      latestRun?.status === "queued" ? "running" : (latestRun?.status ?? null);
-    const errorCode =
-      latestRun?.error_code === null || latestRun?.error_code === undefined
+    const staleRunning =
+      latestRun !== null &&
+      (latestRun.status === "queued" || latestRun.status === "running") &&
+      Date.parse(latestRun.started_at) <=
+        Date.now() - INVESTMENT_SYNC_STALE_AFTER_MS;
+    const runStatus = staleRunning
+      ? "failed"
+      : latestRun?.status === "queued"
+        ? "running"
+        : (latestRun?.status ?? null);
+    const errorCode = staleRunning
+      ? "unexpected_failure"
+      : latestRun?.error_code === null || latestRun?.error_code === undefined
         ? null
         : InvestmentSyncErrorCodeSchema.parse(latestRun.error_code);
     const adjudicationImportId =
@@ -1050,6 +1061,11 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
     ) {
       throw new Error("Investment connection is not active.");
     }
+    await this.expireStaleSyncRuns(
+      identity.household_id,
+      connection.id,
+      connection.investment_connection_id,
+    );
     const active = await this.db
       .prepare(
         `SELECT run.id
@@ -1177,6 +1193,11 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
     const runId = crypto.randomUUID();
     const scopeId = crypto.randomUUID();
     const startedAt = new Date().toISOString();
+    await this.expireStaleSyncRuns(
+      identity.household_id,
+      connection.connectorAccountId,
+      connection.id,
+    );
     try {
       await this.db.batch([
         this.db
@@ -1449,6 +1470,41 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
          WHERE id = ? AND household_id = ? AND status = 'running'`,
       )
       .bind(new Date().toISOString(), errorCode, runId, identity.household_id)
+      .run();
+  }
+
+  private async expireStaleSyncRuns(
+    householdId: string,
+    connectorAccountId: string,
+    connectionId: string,
+  ): Promise<void> {
+    const now = new Date();
+    const cutoff = new Date(
+      now.getTime() - INVESTMENT_SYNC_STALE_AFTER_MS,
+    ).toISOString();
+    await this.db
+      .prepare(
+        `UPDATE connector_sync_runs
+         SET status = 'failed', finished_at = ?, error_code = 'unexpected_failure'
+         WHERE id IN (
+           SELECT run.id
+           FROM connector_sync_runs run
+           JOIN connector_sync_investment_connections scope
+             ON scope.sync_run_id = run.id
+           WHERE run.household_id = ?
+             AND run.connector_account_id = ?
+             AND scope.connection_id = ?
+             AND run.status IN ('queued', 'running')
+             AND run.started_at <= ?
+         )`,
+      )
+      .bind(
+        now.toISOString(),
+        householdId,
+        connectorAccountId,
+        connectionId,
+        cutoff,
+      )
       .run();
   }
 

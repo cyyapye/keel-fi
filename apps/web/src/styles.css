@@ -1245,8 +1245,8 @@ h1,
   border-top: 1px solid var(--line-soft);
 }
 
-.cash-accounts__accepted > div:first-child span,
-.cash-accounts__accepted > div:first-child strong,
+.cash-accounts__total span,
+.cash-accounts__total strong,
 .cash-accounts__accepted-list strong,
 .cash-accounts__accepted-list small,
 .cash-accounts__connection span,
@@ -1255,7 +1255,7 @@ h1,
   display: block;
 }
 
-.cash-accounts__accepted > div:first-child span {
+.cash-accounts__total span {
   margin-bottom: 7px;
   color: var(--faint);
   font-size: 8px;
@@ -1264,7 +1264,7 @@ h1,
   text-transform: uppercase;
 }
 
-.cash-accounts__accepted > div:first-child strong {
+.cash-accounts__total strong {
   font-size: 24px;
   font-weight: 620;
   letter-spacing: -0.04em;
@@ -1274,6 +1274,13 @@ h1,
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px 34px;
+}
+
+.cash-accounts__accepted-account {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px;
 }
 
 .cash-accounts__accepted-list strong,
@@ -1288,6 +1295,14 @@ h1,
   color: var(--faint);
   font-size: 8px;
   line-height: 1.45;
+}
+
+.cash-accounts__accepted-account > .cash-accounts__accepted-value {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  text-align: right;
 }
 
 .cash-accounts__identity-review {
@@ -1904,9 +1919,6 @@ h1,
 }
 
 .investment-institution {
-  display: grid;
-  grid-template-columns: minmax(210px, 0.48fr) minmax(0, 1fr);
-  gap: 22px 42px;
   padding: 26px 0;
 }
 
@@ -1914,10 +1926,24 @@ h1,
   border-top: 1px solid var(--line-soft);
 }
 
+.investment-institution__details > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 28px;
+  min-height: 58px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.investment-institution__details > summary::-webkit-details-marker {
+  display: none;
+}
+
 .investment-institution__heading {
   display: grid;
   align-content: start;
-  gap: 18px;
+  gap: 7px;
 }
 
 .investment-institution__heading > span {
@@ -1934,10 +1960,19 @@ h1,
 }
 
 .investment-institution__summary {
-  margin: 0;
+  display: block;
   color: var(--muted);
   font-size: 9px;
   line-height: 1.5;
+}
+
+.investment-institution__value {
+  max-width: 280px;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 680;
+  letter-spacing: -0.025em;
+  text-align: right;
 }
 
 .investment-institution__meta {
@@ -1967,6 +2002,7 @@ h1,
 
 .investment-institution__accounts {
   min-width: 0;
+  margin-top: 12px;
   border-top: 1px solid var(--line-soft);
 }
 
@@ -1997,6 +2033,20 @@ h1,
   font-size: 11px;
 }
 
+.investment-institution__account-value {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  text-align: right;
+}
+
+.investment-institution__account-value > strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
 .investment-institution__account small,
 .investment-institution__coverage {
   color: var(--muted);
@@ -2014,7 +2064,7 @@ h1,
 .investment-institution__actions,
 .investment-institution__confirm,
 .investment-institution__reconnect {
-  grid-column: 2;
+  margin-top: 16px;
 }
 
 .investment-institution__actions {
@@ -2090,22 +2140,34 @@ h1,
   gap: 28px;
 }
 
-.investment-views__count {
+.investment-views__total {
   display: grid;
   justify-items: end;
-  color: var(--faint);
-  font-size: 9px;
+  min-width: 160px;
 }
 
-.investment-views__count strong {
+.investment-views__total small {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.investment-views__total strong {
+  margin-top: 4px;
   color: var(--ink);
   font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+  text-align: right;
 }
 
-.investment-views__count small {
+.investment-views__total > span {
   margin-top: 3px;
   color: var(--muted);
   font-size: 8px;
+  text-align: right;
 }
 
 .exposure-sort {
@@ -2191,7 +2253,7 @@ h1,
 
 .exposure-group summary {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 24px;
   min-height: 76px;
@@ -2202,16 +2264,6 @@ h1,
 
 .exposure-group summary::-webkit-details-marker {
   display: none;
-}
-
-.exposure-group summary::after {
-  content: "+";
-  color: var(--ink);
-  font-size: 18px;
-}
-
-.exposure-group[open] summary::after {
-  content: "−";
 }
 
 .exposure-group summary > span:first-child strong,
@@ -4291,7 +4343,7 @@ h1,
 }
 
 .loading-card h1 {
-  margin: 20px 0 9px;
+  margin: 20px 0 0;
   color: var(--canvas);
   font-size: 28px;
 }
@@ -5381,24 +5433,27 @@ h1,
   }
 
   .investment-institution {
-    grid-template-columns: 1fr;
-    gap: 18px;
     padding: 22px 0;
   }
 
-  .investment-institution__meta {
-    max-width: 300px;
+  .investment-institution__details > summary {
+    gap: 16px;
+  }
+
+  .investment-institution__value {
+    max-width: 130px;
+    font-size: 15px;
   }
 
   .investment-institution__account {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 14px;
     padding: 14px 0;
   }
 
-  .investment-institution__coverage {
-    justify-items: start;
-    text-align: left;
+  .investment-institution__account-value {
+    max-width: 132px;
   }
 
   .investment-institution__actions,
@@ -5470,8 +5525,9 @@ h1,
     width: 100%;
   }
 
-  .investment-views__count {
+  .investment-views__total {
     justify-items: end;
+    min-width: 0;
   }
 
   .exposure-sort {
@@ -5491,18 +5547,14 @@ h1,
   }
 
   .exposure-group__totals {
-    grid-column: 1;
-    text-align: left;
+    max-width: 150px;
+    font-size: 13px;
+    text-align: right;
   }
 
   .exposure-group__positions article > .position-row__value,
   .unallocated-positions article > .position-row__value {
     font-size: 12px;
-  }
-
-  .exposure-group summary::after {
-    grid-column: 2;
-    grid-row: 1 / span 2;
   }
 
   .exposure-group__positions article,

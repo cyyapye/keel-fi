@@ -1,4 +1,5 @@
 import {
+  addMinorUnits,
   type Holding,
   type InvestmentConnectionStatus,
   type InvestmentConnectionsState,
@@ -15,6 +16,7 @@ import type { InvestmentHoldingsView } from "@keel/domain/investment-holdings-vi
 import type {
   InvestmentPositionConnection,
   InvestmentPositionContainer,
+  InvestmentPositionRecord,
 } from "@keel/domain/position-read-model";
 import {
   Badge,
@@ -107,7 +109,9 @@ function lifecycleLabel(status: InvestmentConnectionStatus | null): string {
     needs_attention:
       status.errorCode === "connection_invalid"
         ? "Reconnect needed"
-        : "Needs attention",
+        : status.errorCode === "unexpected_failure"
+          ? "Check interrupted"
+          : "Needs attention",
   }[status.status];
 }
 
@@ -155,9 +159,73 @@ function hasDueInvestmentConnection(
   );
 }
 
+function formatHoldingCurrency(minorUnits: number, currency: string): string {
+  const formatted = formatCompactCurrency(minorUnits, currency);
+  return currency.toUpperCase() === "USD"
+    ? formatted.replace(/^USD /u, "$")
+    : formatted;
+}
+
+function formatCurrencyTotals(
+  reportedByCurrency: ReadonlyMap<string, number>,
+  unavailableCount: number,
+  emptyLabel = "Value unavailable",
+): string {
+  if (reportedByCurrency.size === 0) {
+    return emptyLabel;
+  }
+  const reported = [...reportedByCurrency.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, valueMinor]) =>
+      formatHoldingCurrency(valueMinor, currency),
+    );
+  return [
+    ...reported,
+    ...(unavailableCount === 0
+      ? []
+      : [
+          `${unavailableCount} value${unavailableCount === 1 ? "" : "s"} unavailable`,
+        ]),
+  ].join(" · ");
+}
+
+function investmentPositionTotalsLabel(
+  positions: readonly InvestmentPositionRecord[],
+): string {
+  const reportedByCurrency = new Map<string, number>();
+  let unavailableCount = 0;
+  for (const position of positions) {
+    const value = position.snapshot.netValue;
+    if (value.state !== "reported" || value.minor === null) {
+      unavailableCount += 1;
+      continue;
+    }
+    const currency = position.snapshot.currency;
+    reportedByCurrency.set(
+      currency,
+      addMinorUnits(reportedByCurrency.get(currency) ?? 0, value.minor),
+    );
+  }
+  return formatCurrencyTotals(
+    reportedByCurrency,
+    unavailableCount,
+    positions.length === 0 ? "No reviewed value" : "Value unavailable",
+  );
+}
+
+function investmentConnectionTotalsLabel(
+  connection: InvestmentPositionConnection | null,
+): string {
+  return connection === null
+    ? "Value unavailable"
+    : investmentPositionTotalsLabel(
+        connection.containers.flatMap((container) => container.positions),
+      );
+}
+
 function exposurePositionValue(position: InvestmentExposurePosition): string {
   if (position.valueState === "reported" && position.valueMinor !== null) {
-    return formatCompactCurrency(position.valueMinor, position.currency);
+    return formatHoldingCurrency(position.valueMinor, position.currency);
   }
   return position.valueState === "locked" ? "Locked" : "Not reported";
 }
@@ -177,19 +245,62 @@ function exposureTotalsLabel(
   if (reportedByCurrency.size === 0) {
     return "Value unavailable";
   }
-  const reported = [...reportedByCurrency.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([currency, valueMinor]) =>
-      formatCompactCurrency(valueMinor, currency),
-    );
-  return [
-    ...reported,
-    ...(unavailableCount === 0
-      ? []
-      : [
-          `${unavailableCount} value${unavailableCount === 1 ? "" : "s"} unavailable`,
-        ]),
-  ].join(" · ");
+  return formatCurrencyTotals(reportedByCurrency, unavailableCount);
+}
+
+function exposureGrandTotalLabel(data: InvestmentHoldingsView): string {
+  const reportedByCurrency = new Map<string, number>();
+  for (const group of data.exposureView.exposures) {
+    for (const total of group.totals) {
+      if (total.knownValuePositionCount === 0) {
+        continue;
+      }
+      reportedByCurrency.set(
+        total.currency,
+        addMinorUnits(
+          reportedByCurrency.get(total.currency) ?? 0,
+          total.allocatedValueMinor,
+        ),
+      );
+    }
+  }
+  const unavailableCount = data.exposureView.positions.filter(
+    (position) =>
+      position.valueState !== "reported" || position.hasUnknownAllocation,
+  ).length;
+  return formatCurrencyTotals(
+    reportedByCurrency,
+    unavailableCount,
+    data.exposureView.exposures.length === 0
+      ? formatHoldingCurrency(0, "USD")
+      : "Value unavailable",
+  );
+}
+
+function exposureDisplayName(
+  group: InvestmentExposureGroup,
+  positions: readonly InvestmentExposurePosition[],
+): string {
+  if (
+    group.exposure.exposureKind !== "public_instrument" ||
+    group.contributions.some(
+      (contribution) => contribution.relationshipKind !== "direct",
+    )
+  ) {
+    return group.exposure.canonicalName;
+  }
+  const tickers = new Set(
+    positions.flatMap((position) =>
+      position.ticker === null ? [] : [position.ticker],
+    ),
+  );
+  return tickers.size === 1
+    ? ([...tickers][0] ?? group.exposure.canonicalName)
+    : group.exposure.canonicalName;
+}
+
+function positionDisplayName(position: InvestmentExposurePosition): string {
+  return position.ticker ?? position.legalVehicleName;
 }
 
 type ExposureSortDirection = "ascending" | "descending";
@@ -277,6 +388,69 @@ function compareExposurePositions(
   return valueOrder !== 0
     ? valueOrder
     : left.legalVehicleName.localeCompare(right.legalVehicleName);
+}
+
+function accountKindLabel(kind: InvestmentPositionContainer["kind"]): string {
+  return {
+    brokerage: "Brokerage",
+    ira: "IRA",
+    retirement: "Retirement",
+    trust: "Trust",
+    entity: "Entity",
+    unresolved: "Unresolved account",
+    other: "Other account",
+  }[kind];
+}
+
+function coverageLabel(
+  coverage: NonNullable<InvestmentPositionContainer["coverage"]>,
+): string {
+  const completeness = {
+    complete: "Complete",
+    partial: "Partial",
+    unavailable: "Unavailable",
+    malformed: "Needs attention",
+    failed: "Check failed",
+    ambiguous: "Needs review",
+  }[coverage.completeness];
+  return `${completeness} · ${coverage.freshness === "stale" ? "stale since" : "as of"} ${formatDate(coverage.observedAt)}`;
+}
+
+function InvestmentAccountRows({
+  connection,
+}: {
+  connection: InvestmentPositionConnection | null;
+}) {
+  if (connection === null || connection.containers.length === 0) {
+    return (
+      <p className="investment-institution__empty">No reviewed accounts yet.</p>
+    );
+  }
+  return (
+    <div className="investment-institution__accounts">
+      {connection.containers.map((container) => (
+        <div className="investment-institution__account" key={container.id}>
+          <span>
+            <strong>{container.label}</strong>
+            <small>
+              {accountKindLabel(container.kind)} · {container.positions.length}{" "}
+              {container.positions.length === 1 ? "position" : "positions"}
+            </small>
+          </span>
+          <span className="investment-institution__account-value">
+            <strong>
+              {investmentPositionTotalsLabel(container.positions)}
+            </strong>
+            <small>
+              {container.coverage === null
+                ? "Not checked"
+                : coverageLabel(container.coverage)}
+            </small>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function InstitutionActions({
@@ -695,11 +869,20 @@ function ExposureView({
             compareExposurePositions(left, right, sortDirection),
           );
         const positionCount = positions.length;
+        const displayName = exposureDisplayName(group, positions);
         return (
           <details className="exposure-group" key={group.exposure.id}>
             <summary>
               <span>
-                <strong>{group.exposure.canonicalName}</strong>
+                <strong
+                  title={
+                    displayName === group.exposure.canonicalName
+                      ? undefined
+                      : group.exposure.canonicalName
+                  }
+                >
+                  {displayName}
+                </strong>
                 <small>
                   {positionCount}{" "}
                   {positionCount === 1 ? "position" : "positions"}
@@ -713,25 +896,36 @@ function ExposureView({
               </span>
             </summary>
             <div className="exposure-group__positions">
-              {positions.map((position) => (
-                <article key={position.id}>
-                  <span>
-                    <strong>{position.legalVehicleName}</strong>
-                    <small>{positionContext(position)}</small>
-                  </span>
-                  <span className="position-row__value">
-                    {exposurePositionValue(position)}
-                  </span>
-                  <span>
-                    {position.hasUnknownAllocation
-                      ? "Allocation unknown"
-                      : position.knownAllocationPpm === 1_000_000
-                        ? "Full exposure"
-                        : `${Math.floor(position.knownAllocationPpm / 10_000)}% allocated`}
-                  </span>
-                  {holdingDetailAction(position.id, position.legalVehicleName)}
-                </article>
-              ))}
+              {positions.map((position) => {
+                const positionName = positionDisplayName(position);
+                return (
+                  <article key={position.id}>
+                    <span>
+                      <strong
+                        title={
+                          positionName === position.legalVehicleName
+                            ? undefined
+                            : position.legalVehicleName
+                        }
+                      >
+                        {positionName}
+                      </strong>
+                      <small>{positionContext(position)}</small>
+                    </span>
+                    <span className="position-row__value">
+                      {exposurePositionValue(position)}
+                    </span>
+                    <span>
+                      {position.hasUnknownAllocation
+                        ? "Allocation unknown"
+                        : position.knownAllocationPpm === 1_000_000
+                          ? "Full exposure"
+                          : `${Math.floor(position.knownAllocationPpm / 10_000)}% allocated`}
+                    </span>
+                    {holdingDetailAction(position.id, positionName)}
+                  </article>
+                );
+              })}
             </div>
           </details>
         );
@@ -807,11 +1001,20 @@ function ExposureView({
           {canonicalUnallocated.map((position) => {
             const reviewPosition = reviewPositionById.get(position.id) ?? null;
             const reviewOpen = exposureReviewPositionId === position.id;
+            const positionName = positionDisplayName(position);
             return (
               <Fragment key={position.id}>
                 <article>
                   <span>
-                    <strong>{position.legalVehicleName}</strong>
+                    <strong
+                      title={
+                        positionName === position.legalVehicleName
+                          ? undefined
+                          : position.legalVehicleName
+                      }
+                    >
+                      {positionName}
+                    </strong>
                     <small>{positionContext(position)}</small>
                   </span>
                   <span className="position-row__value">
@@ -822,7 +1025,7 @@ function ExposureView({
                       ? "Allocation unknown"
                       : position.mappedExposureIds.length === 0
                         ? "Exposure unresolved"
-                        : formatCompactCurrency(
+                        : formatHoldingCurrency(
                             position.unallocatedValueMinor ?? 0,
                             position.currency,
                           )}
@@ -840,7 +1043,7 @@ function ExposureView({
                       </Button>
                     )}
                   </span>
-                  {holdingDetailAction(position.id, position.legalVehicleName)}
+                  {holdingDetailAction(position.id, positionName)}
                 </article>
                 {reviewPosition !== null && reviewOpen && (
                   <PrivateExposureAssignmentForm
@@ -1454,31 +1657,42 @@ export function InvestmentHoldings({
               const accountCount = connection?.containers.length ?? 0;
               return (
                 <article className="investment-institution" key={connectionId}>
-                  <div className="investment-institution__heading">
-                    <span>
-                      <h3>{label}</h3>
-                      <Badge tone={lifecycleTone(status)}>
-                        {lifecycleLabel(status)}
-                      </Badge>
-                    </span>
-                    <p className="investment-institution__summary">
-                      {status?.status === "disconnected"
-                        ? accountCount === 0
-                          ? "No current accounts"
-                          : `${accountCount} reviewed ${accountCount === 1 ? "account" : "accounts"}`
-                        : `${accountCount} ${accountCount === 1 ? "account" : "accounts"}`}
-                      {lastComplete === null
-                        ? ""
-                        : ` · Data as of ${formatDate(lastComplete)}`}
-                      {status?.lastSyncedAt === null ||
-                      status?.lastSyncedAt === undefined
-                        ? ""
-                        : ` · Checked ${formatDate(status.lastSyncedAt)}`}
-                      {pendingCount > 0
-                        ? ` · ${pendingCount} waiting for review`
-                        : ""}
-                    </p>
-                  </div>
+                  <details
+                    className="investment-institution__details"
+                    open={status !== null && status.status !== "ready"}
+                  >
+                    <summary>
+                      <span className="investment-institution__heading">
+                        <span>
+                          <h3>{label}</h3>
+                          <Badge tone={lifecycleTone(status)}>
+                            {lifecycleLabel(status)}
+                          </Badge>
+                        </span>
+                        <small className="investment-institution__summary">
+                          {status?.status === "disconnected"
+                            ? accountCount === 0
+                              ? "No current accounts"
+                              : `${accountCount} reviewed ${accountCount === 1 ? "account" : "accounts"}`
+                            : `${accountCount} ${accountCount === 1 ? "account" : "accounts"}`}
+                          {lastComplete === null
+                            ? ""
+                            : ` · Data as of ${formatDate(lastComplete)}`}
+                          {status?.lastSyncedAt === null ||
+                          status?.lastSyncedAt === undefined
+                            ? ""
+                            : ` · Checked ${formatDate(status.lastSyncedAt)}`}
+                          {pendingCount > 0
+                            ? ` · ${pendingCount} waiting for review`
+                            : ""}
+                        </small>
+                      </span>
+                      <strong className="investment-institution__value">
+                        {investmentConnectionTotalsLabel(connection)}
+                      </strong>
+                    </summary>
+                    <InvestmentAccountRows connection={connection} />
+                  </details>
                   {status !== null && (
                     <InstitutionActions
                       busy={busy}
@@ -1553,13 +1767,16 @@ export function InvestmentHoldings({
                   </Select>
                 </div>
               )}
-              <span className="investment-views__count">
-                <strong>{exposureCount}</strong>{" "}
-                {exposureCount === 1 ? "exposure" : "exposures"}
-                <small>
+              <span className="investment-views__total">
+                <small>Total exposure</small>
+                <strong>{exposureGrandTotalLabel(data)}</strong>
+                <span>
+                  {exposureCount}{" "}
+                  {exposureCount === 1 ? "exposure" : "exposures"}
+                  {" · "}
                   {positionCount} legal{" "}
                   {positionCount === 1 ? "position" : "positions"}
-                </small>
+                </span>
               </span>
             </div>
           )}

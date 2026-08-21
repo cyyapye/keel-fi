@@ -324,7 +324,19 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   await expect(
     page.getByRole("heading", { name: "Bank cash", exact: true }),
   ).toBeVisible();
-  await expect(cashSection).toContainText("$75k");
+  await expect(cashSection.locator(".cash-accounts__total")).toContainText(
+    "Total cash$75k",
+  );
+  const acceptedSavingsRow = cashSection
+    .locator(".cash-accounts__accepted-account")
+    .filter({ hasText: "Reserve savings" });
+  await expect(acceptedSavingsRow).toHaveCount(1);
+  await expect(
+    acceptedSavingsRow.locator(".cash-accounts__accepted-value"),
+  ).toHaveText("$75,000.00");
+  await expect(acceptedSavingsRow).toContainText(
+    "Northstar Demo Bank · As of Aug 1, 2026",
+  );
   await expect(cashSection).toContainText("four times per bank each month");
   await expect(cashSection).not.toContainText("Review waiting");
   await expect(cashSection).not.toContainText("ready to review");
@@ -380,7 +392,12 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   await expectNoHorizontalOverflow(page);
 
   await page.getByRole("button", { name: "Save decisions" }).click();
-  await expect(cashSection).toContainText("$100k");
+  await expect(cashSection.locator(".cash-accounts__total")).toContainText(
+    "Total cash$100k",
+  );
+  await expect(
+    cashSection.locator(".cash-accounts__accepted-value"),
+  ).toHaveText(["$24,680.55", "$75,000.00", "Not reported"]);
   await expect(cashSection).toContainText(
     "Balance decisions saved. Confirm the FI baseline when ready.",
   );
