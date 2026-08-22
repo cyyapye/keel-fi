@@ -119,6 +119,38 @@ describe("preview deployment runtime verification", () => {
     expect(fetchImplementation).toHaveBeenCalledTimes(10);
   });
 
+  it("waits for a new Mac agent hostname to resolve", async () => {
+    const baseFetch = successfulFetch() as unknown as FetchImplementation;
+    let agentRootAttempts = 0;
+    const fetchImplementation = vi.fn(
+      (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(
+          input instanceof Request ? input.url : input.toString(),
+        );
+        if (
+          url.hostname === "keel-preview-agents.example.com" &&
+          url.pathname === "/"
+        ) {
+          agentRootAttempts += 1;
+          if (agentRootAttempts < 3) {
+            return Promise.reject(new TypeError("fetch failed"));
+          }
+        }
+        return baseFetch(input, init);
+      },
+    );
+    const delay = vi.fn(() => Promise.resolve());
+
+    await expect(
+      runPreviewDeploymentSmoke(environment(), fetchImplementation, delay),
+    ).resolves.toBeUndefined();
+
+    expect(agentRootAttempts).toBe(3);
+    expect(delay).toHaveBeenCalledTimes(2);
+    expect(delay).toHaveBeenNthCalledWith(1, 5_000);
+    expect(delay).toHaveBeenNthCalledWith(2, 5_000);
+  });
+
   it("fails when the public health route reports a different merged SHA", async () => {
     const baseFetch = successfulFetch() as unknown as FetchImplementation;
     const fetchImplementation = vi.fn(
