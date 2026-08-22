@@ -118,6 +118,7 @@ const holdingImportPreview: HoldingImportPreview = {
       ownerLabel: "Synthetic Demo LLC",
       providerStatus: "Live",
       investedOn: "2026-06-14",
+      investedOnState: "reported",
       investedMinor: 10_000,
       administratorNavMinor: 12_500,
       administratorNavState: "reported",

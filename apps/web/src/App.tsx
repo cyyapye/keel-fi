@@ -2105,7 +2105,10 @@ function HoldingImportWorkspace({
                     <td data-label="Status">
                       <strong>{row.providerStatus}</strong>
                       <span className="source-meta">
-                        Invested {formatDate(row.investedOn)}
+                        {row.investedOnState === "reported" &&
+                        row.investedOn !== null
+                          ? `Invested ${formatDate(row.investedOn)}`
+                          : "Investment date not reported"}
                       </span>
                     </td>
                     <td data-label="Invested">

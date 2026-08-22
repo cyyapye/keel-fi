@@ -49,6 +49,9 @@ const migrationFiles = [
   "packages/database/migrations/0030_reconnected_position_continuity.sql",
   "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql",
   "packages/database/migrations/0032_provider_template_holdings.sql",
+  "packages/database/migrations/0033_provider_portfolio_agents.sql",
+  "packages/database/migrations/0034_mac_agent_credentials.sql",
+  "packages/database/migrations/0035_nullable_private_investment_date.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

@@ -5,15 +5,51 @@ import { __providerPortfolioMacAgentTest } from "./provider-portfolio-mac-agent"
 
 const {
   buildLaunchAgentPlist,
+  chromeProcessIdsForProfile,
   formatUsdMinor,
+  manualSetupChromeArguments,
   parseOptions,
   parseProviderDate,
   parseUsdMinor,
+  providerPaths,
   rowsToCsv,
+  tokenfolioActiveHoldingStatus,
   tokenfolioTabCount,
 } = __providerPortfolioMacAgentTest;
 
 describe("provider portfolio Mac agent", () => {
+  it.each([
+    ["tokenfolio", "https://app.tokenfolio.co/portfolio?tab=active"],
+    ["sydecar", "https://app.sydecar.io/investments"],
+  ] as const)(
+    "opens %s sign-in in normal Chrome before automation",
+    (provider, portfolioUrl) => {
+      const keelOrigin = new URL("https://keel.example.com");
+      const arguments_ = manualSetupChromeArguments(provider, keelOrigin);
+
+      expect(arguments_).toContain("--disable-background-mode");
+      expect(arguments_).toContain(portfolioUrl);
+      expect(arguments_).toContain("https://keel.example.com/holdings");
+      expect(arguments_).toContain(
+        `--user-data-dir=${providerPaths(provider, keelOrigin).profileDirectory}`,
+      );
+      expect(arguments_).not.toContain("--remote-debugging-address=127.0.0.1");
+      expect(arguments_).not.toContain("--remote-debugging-port=0");
+    },
+  );
+
+  it("stops only Chrome using the exact isolated provider profile", () => {
+    const profile = "/Users/synthetic/Sydecar Agent/Instances/local/Chrome";
+    const processList = [
+      "100 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      `101 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=${profile} --no-first-run`,
+      `102 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Helper --user-data-dir=${profile}`,
+      `103 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=${profile}-copy`,
+    ].join("\n");
+
+    expect(chromeProcessIdsForProfile(processList, profile)).toEqual([101]);
+  });
+
   it("parses CLI provider scope and rejects an unsupported provider", () => {
     expect(
       parseOptions([
@@ -53,6 +89,16 @@ describe("provider portfolio Mac agent", () => {
     expect(() => tokenfolioTabCount("Active Holdings")).toThrow(
       "page_not_supported",
     );
+    expect(() => tokenfolioTabCount("Other Holdings 124")).toThrow(
+      "page_not_supported",
+    );
+  });
+
+  it("accepts only known statuses inside Tokenfolio active holdings", () => {
+    expect(tokenfolioActiveHoldingStatus("Active")).toBe(true);
+    expect(tokenfolioActiveHoldingStatus("Funds Received")).toBe(true);
+    expect(tokenfolioActiveHoldingStatus("Completed")).toBe(true);
+    expect(tokenfolioActiveHoldingStatus("Exited")).toBe(false);
   });
 
   it("builds a parseable Tokenfolio capture without floating-point money", async () => {
@@ -116,9 +162,10 @@ describe("provider portfolio Mac agent", () => {
     });
   });
 
-  it("installs an isolated daily LaunchAgent for each provider", () => {
+  it("installs an isolated daily LaunchAgent for each provider and origin", () => {
+    const keelOrigin = new URL("https://keel.example.com");
     const plist = buildLaunchAgentPlist({
-      keelOrigin: new URL("https://keel.example.com"),
+      keelOrigin,
       logDirectory: "/Users/synthetic/Library/Logs/Keel",
       nodeExecutable: "/opt/node/bin/node",
       pnpmCli: "/opt/pnpm/pnpm.cjs",
@@ -127,9 +174,23 @@ describe("provider portfolio Mac agent", () => {
       scriptPath:
         "/Users/synthetic/keel-fi/scripts/provider-portfolio-mac-agent.ts",
     });
-    expect(plist).toContain("com.keel.sydecar-agent");
+    expect(plist).toContain(
+      providerPaths("sydecar", keelOrigin).launchAgentLabel,
+    );
     expect(plist).toContain("<string>sydecar</string>");
     expect(plist).toContain("<integer>86400</integer>");
     expect(plist).toContain("/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+  });
+
+  it("keeps local and preview schedules and Chrome profiles separate", () => {
+    const local = providerPaths("tokenfolio", new URL("http://127.0.0.1:5422"));
+    const preview = providerPaths(
+      "tokenfolio",
+      new URL("https://keel-preview.example.com"),
+    );
+
+    expect(local.launchAgentLabel).not.toBe(preview.launchAgentLabel);
+    expect(local.launchAgentPath).not.toBe(preview.launchAgentPath);
+    expect(local.profileDirectory).not.toBe(preview.profileDirectory);
   });
 });

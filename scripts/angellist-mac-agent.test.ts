@@ -12,6 +12,7 @@ describe("AngelList Mac agent boundaries", () => {
 
     await expect(
       __angellistMacAgentTest.connectContext(
+        new URL("https://keel-preview.example.com"),
         () => Promise.resolve(50_576),
         connectOverCDP,
       ),
@@ -154,8 +155,9 @@ describe("AngelList Mac agent boundaries", () => {
   });
 
   it("makes the setup Node binary available to pnpm under launchd", () => {
+    const keelOrigin = new URL("https://keel-preview.example.com");
     const plist = __angellistMacAgentTest.buildLaunchAgentPlist({
-      keelOrigin: new URL("https://keel-preview.example.com"),
+      keelOrigin,
       logDirectory: "/Users/synthetic/Library/Logs/Keel",
       nodeExecutable: "/opt/keel-node/bin/node",
       pnpmCli: "/opt/keel-pnpm/bin/pnpm.mjs",
@@ -169,11 +171,28 @@ describe("AngelList Mac agent boundaries", () => {
       "<string>/opt/keel-node/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>",
     );
     expect(plist).toContain("<string>/opt/keel-node/bin/node</string>");
+    expect(plist).toContain(
+      `<string>${__angellistMacAgentTest.agentPaths(keelOrigin).launchAgentLabel}</string>`,
+    );
     expect(plist).toContain("<string>once</string>");
     expect(plist).toContain("<key>StartInterval</key>");
     expect(plist).toContain("<integer>86400</integer>");
     expect(plist).not.toContain("<key>KeepAlive</key>");
     expect(plist).not.toContain("<string>serve</string>");
+  });
+
+  it("isolates its scheduled job and Chrome profile by Keel origin", () => {
+    const local = __angellistMacAgentTest.agentPaths(
+      new URL("http://127.0.0.1:5422"),
+    );
+    const preview = __angellistMacAgentTest.agentPaths(
+      new URL("https://keel-preview.example.com"),
+    );
+
+    expect(local.launchAgentLabel).not.toBe(preview.launchAgentLabel);
+    expect(local.launchAgentPath).not.toBe(preview.launchAgentPath);
+    expect(local.profileDirectory).not.toBe(preview.profileDirectory);
+    expect(local.configPath).not.toBe(preview.configPath);
   });
 
   it("accepts only an explicit Keel HTTP(S) origin", () => {

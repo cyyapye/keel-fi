@@ -45,12 +45,155 @@ const migrationFiles = [
   "packages/database/migrations/0030_reconnected_position_continuity.sql",
   "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql",
   "packages/database/migrations/0032_provider_template_holdings.sql",
+  "packages/database/migrations/0033_provider_portfolio_agents.sql",
+  "packages/database/migrations/0034_mac_agent_credentials.sql",
+  "packages/database/migrations/0035_nullable_private_investment_date.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
 const robinhoodConnectionId = "connection_synthetic_robinhood";
 const robinhoodAccountKey = "6".repeat(64);
 const robinhoodPositionKey = "7".repeat(64);
+
+describe("nullable private investment date migration", () => {
+  it("preserves legacy rows and their review references", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    try {
+      sqlite.exec("PRAGMA foreign_keys = ON");
+      migrationFiles
+        .filter(
+          (file) =>
+            file !==
+            "packages/database/migrations/0035_nullable_private_investment_date.sql",
+        )
+        .forEach((file) => {
+          sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+        });
+
+      sqlite
+        .prepare(
+          `INSERT INTO source_documents (
+             id, household_id, object_key, file_name, content_type, byte_size,
+             sha256, effective_date, retrieved_at, source_label, review_status,
+             created_at
+           ) VALUES (?, 'hh_demo', ?, ?, 'text/csv', 512, ?, ?, ?, ?,
+             'pending_review', ?)`,
+        )
+        .run(
+          "legacy_sydecar_document",
+          "holding-imports/sydecar/legacy-synthetic.csv",
+          "legacy-synthetic.csv",
+          "0123456789abcdef".repeat(4),
+          "2026-08-20",
+          "2026-08-20T12:00:00.000Z",
+          "Sydecar template",
+          "2026-08-20T12:00:00.000Z",
+        );
+      sqlite
+        .prepare(
+          `INSERT INTO holding_imports (
+             id, household_id, source_document_id, provider, parser_schema,
+             row_count, created_by, created_at, normalized_fingerprint
+           ) VALUES (?, 'hh_demo', ?, 'sydecar', ?, 1, 'usr_demo', ?, ?)`,
+        )
+        .run(
+          "legacy_sydecar_import",
+          "legacy_sydecar_document",
+          "provider-holdings-template-v1",
+          "2026-08-20T12:00:00.000Z",
+          "d".repeat(64),
+        );
+      sqlite
+        .prepare(
+          `INSERT INTO holding_import_rows (
+             id, household_id, import_id, source_row_number,
+             position_fingerprint, snapshot_fingerprint, legal_vehicle_name,
+             owner_label, exposure_label, provider_status, invested_on,
+             invested_minor, allocation_minor, unrealized_value_minor,
+             unrealized_value_state, realized_value_minor, net_value_minor,
+             net_value_state, instrument_type, currency_hint, parse_status,
+             issue_codes_json, created_at, position_kind
+           ) VALUES (?, 'hh_demo', ?, 1, ?, ?, ?, ?, ?, 'live', ?, ?, ?, NULL,
+             'not_reported', 0, NULL, 'not_reported', ?, 'USD', 'ready', '[]',
+             ?, 'spv_interest')`,
+        )
+        .run(
+          "legacy_sydecar_row",
+          "legacy_sydecar_import",
+          "1".repeat(64),
+          "2".repeat(64),
+          "Synthetic Legacy SPV",
+          "Synthetic Investment Profile",
+          "Synthetic Legacy Company",
+          "2025-02-01",
+          500_000,
+          750_000,
+          "Membership interest",
+          "2026-08-20T12:00:00.000Z",
+        );
+      sqlite
+        .prepare(
+          `INSERT INTO holding_import_row_decisions (
+             id, household_id, import_row_id, reviewer_user_id, decision,
+             matched_position_id, currency, reviewed_snapshot_fingerprint,
+             rationale, decided_at
+           ) VALUES (?, 'hh_demo', ?, 'usr_demo', 'rejected', NULL, NULL, ?, ?, ?)`,
+        )
+        .run(
+          "legacy_sydecar_decision",
+          "legacy_sydecar_row",
+          "2".repeat(64),
+          "Synthetic migration review.",
+          "2026-08-20T13:00:00.000Z",
+        );
+
+      sqlite.exec("BEGIN");
+      try {
+        sqlite.exec(
+          readFileSync(
+            resolve(
+              process.cwd(),
+              "packages/database/migrations/0035_nullable_private_investment_date.sql",
+            ),
+            "utf8",
+          ),
+        );
+        sqlite.exec("COMMIT");
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
+
+      expect(
+        sqlite
+          .prepare(
+            `SELECT invested_on, invested_on_state
+             FROM holding_import_rows
+             WHERE id = ?`,
+          )
+          .get("legacy_sydecar_row"),
+      ).toEqual({
+        invested_on: "2025-02-01",
+        invested_on_state: "reported",
+      });
+      expect(
+        sqlite
+          .prepare(
+            `SELECT import_row_id
+             FROM holding_import_row_decisions
+             WHERE id = ?`,
+          )
+          .get("legacy_sydecar_decision"),
+      ).toEqual({ import_row_id: "legacy_sydecar_row" });
+      expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(sqlite.prepare("PRAGMA integrity_check").get()).toEqual({
+        integrity_check: "ok",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+});
 
 class TestD1Statement {
   public constructor(
@@ -289,7 +432,8 @@ function providerTemplateStageInput(
         investmentEntity: tokenfolio
           ? "Synthetic Family Trust"
           : "Synthetic Investment Profile",
-        investDate: "2025-02-01",
+        investDate: tokenfolio ? "2025-02-01" : null,
+        investDateState: tokenfolio ? "reported" : "not_reported",
         investedMinor: tokenfolio ? 125_000 : 500_000,
         unrealizedValueMinor: tokenfolio ? 180_025 : null,
         unrealizedValueState: tokenfolio ? "reported" : "not_reported",
@@ -491,6 +635,13 @@ describe("AngelList holding import persistence", () => {
         provider,
         status: "pending_review",
         summary: { createCount: 1, rowCount: 1 },
+        rows: [
+          {
+            investedOn: provider === "tokenfolio" ? "2025-02-01" : null,
+            investedOnState:
+              provider === "tokenfolio" ? "reported" : "not_reported",
+          },
+        ],
       });
       expect(
         sqlite
@@ -529,7 +680,7 @@ describe("AngelList holding import persistence", () => {
               adapter_type: "manual",
               file_name: "sydecar-holdings.csv",
               institution_key: "sydecar",
-              opened_on: "2025-02-01",
+              opened_on: null,
               position_kind: "spv_interest",
               source_label: "Sydecar template",
             };

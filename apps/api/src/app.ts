@@ -525,6 +525,12 @@ class ProviderTemplateImportRequestError extends Error {
   public constructor(
     public readonly status: 400 | 413 | 500,
     message: string,
+    public readonly reason:
+      | "canonical_scope"
+      | "document_store"
+      | "review_staging"
+      | "validation"
+      | "unexpected" = "unexpected",
   ) {
     super(message);
     this.name = "ProviderTemplateImportRequestError";
@@ -551,12 +557,14 @@ async function stageProviderTemplateUpload(
       error instanceof ProviderHoldingsTemplateCsvParseError
         ? error.message
         : `This is not a supported Keel ${label} holdings template.`,
+      "validation",
     );
   }
   if (parsed.effectiveDate > upload.retrievedAt.slice(0, 10)) {
     throw new ProviderTemplateImportRequestError(
       400,
       `${label} template As Of Date cannot be in the future.`,
+      "validation",
     );
   }
 
@@ -569,9 +577,11 @@ async function stageProviderTemplateUpload(
     throw new ProviderTemplateImportRequestError(
       500,
       "Keel could not retain this import for review.",
+      "document_store",
     );
   }
 
+  let phase: "canonical_scope" | "review_staging" = "canonical_scope";
   try {
     const canonicalScope = await buildProviderTemplateCanonicalScope({
       env,
@@ -579,6 +589,7 @@ async function stageProviderTemplateUpload(
       provider,
       rows: parsed.rows,
     });
+    phase = "review_staging";
     const staged = await repository.stageHoldingImport(accessSubject, {
       provider,
       objectKey,
@@ -598,6 +609,7 @@ async function stageProviderTemplateUpload(
     throw new ProviderTemplateImportRequestError(
       500,
       "Keel could not prepare this import for review.",
+      phase,
     );
   }
 }
@@ -2969,9 +2981,11 @@ export function createApp(options: AppOptions = {}) {
                 500,
                 "Keel could not prepare this update for review.",
               );
-        return context.json({ error: failure.message }, failure.status, {
-          "Cache-Control": "private, no-store",
-        });
+        return context.json(
+          { error: failure.message, reason: failure.reason },
+          failure.status,
+          { "Cache-Control": "private, no-store" },
+        );
       }
 
       try {

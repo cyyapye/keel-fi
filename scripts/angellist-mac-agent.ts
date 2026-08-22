@@ -31,6 +31,10 @@ import {
   storeMacAgentAuthorization,
 } from "./mac-agent-auth";
 import {
+  macAgentInstanceId,
+  retireMatchingLegacyLaunchAgent,
+} from "./mac-agent-instance";
+import {
   chromium,
   type Browser,
   type BrowserContext,
@@ -41,23 +45,19 @@ import {
 import { z } from "zod";
 
 const ANGELLIST_ORIGIN = "https://venture.angellist.com";
-const APP_DIRECTORY = path.join(
+const LEGACY_APP_DIRECTORY = path.join(
   os.homedir(),
   "Library",
   "Application Support",
   "Keel",
   "AngelList Agent",
 );
-const PROFILE_DIRECTORY = path.join(APP_DIRECTORY, "Chrome");
-const DEVTOOLS_ACTIVE_PORT = path.join(PROFILE_DIRECTORY, "DevToolsActivePort");
-const CONFIG_PATH = path.join(APP_DIRECTORY, "config.json");
-const DOWNLOAD_DIRECTORY_PREFIX = path.join(APP_DIRECTORY, "Downloads-");
-const LAUNCH_AGENT_LABEL = "com.keel.angellist-agent";
-const LAUNCH_AGENT_PATH = path.join(
+const LEGACY_LAUNCH_AGENT_LABEL = "com.keel.angellist-agent";
+const LEGACY_LAUNCH_AGENT_PATH = path.join(
   os.homedir(),
   "Library",
   "LaunchAgents",
-  `${LAUNCH_AGENT_LABEL}.plist`,
+  `${LEGACY_LAUNCH_AGENT_LABEL}.plist`,
 );
 const LOG_DIRECTORY = path.join(os.homedir(), "Library", "Logs", "Keel");
 const CHROME_PATH =
@@ -97,6 +97,28 @@ const AngelListLocalConfigSchema = z
 
 type Command = "once" | "run" | "serve" | "setup";
 
+function agentPaths(keelOrigin: URL) {
+  const instanceId = macAgentInstanceId(keelOrigin);
+  const appDirectory = path.join(LEGACY_APP_DIRECTORY, "Instances", instanceId);
+  const profileDirectory = path.join(appDirectory, "Chrome");
+  const launchAgentLabel = `${LEGACY_LAUNCH_AGENT_LABEL}.${instanceId}`;
+  return {
+    appDirectory,
+    configPath: path.join(appDirectory, "config.json"),
+    devToolsActivePort: path.join(profileDirectory, "DevToolsActivePort"),
+    downloadDirectoryPrefix: path.join(appDirectory, "Downloads-"),
+    instanceId,
+    launchAgentLabel,
+    launchAgentPath: path.join(
+      os.homedir(),
+      "Library",
+      "LaunchAgents",
+      `${launchAgentLabel}.plist`,
+    ),
+    profileDirectory,
+  };
+}
+
 class AgentFailure extends Error {
   public constructor(public readonly code: AngelListMacAgentErrorCode) {
     super(code);
@@ -130,9 +152,7 @@ function parseOptions(argv: readonly string[]) {
   const keelOrigin =
     keelUrlIndex < 0 ? undefined : args[keelUrlIndex + 1]?.trim();
   if (keelOrigin === undefined || keelOrigin.length === 0) {
-    throw new Error(
-      "Pass --keel-url with the Keel preview or production origin.",
-    );
+    throw new Error("Pass --keel-url with the target Keel origin.");
   }
   return CliOptionsSchema.parse({ command, keelOrigin });
 }
@@ -147,11 +167,12 @@ async function fileExists(file: string): Promise<boolean> {
     .catch(() => false);
 }
 
-async function activeDevToolsPort(): Promise<number | null> {
+async function activeDevToolsPort(keelOrigin: URL): Promise<number | null> {
+  const paths = agentPaths(keelOrigin);
   try {
-    const [line = ""] = (await readFile(DEVTOOLS_ACTIVE_PORT, "utf8")).split(
-      /\r?\n/u,
-    );
+    const [line = ""] = (
+      await readFile(paths.devToolsActivePort, "utf8")
+    ).split(/\r?\n/u);
     if (!/^\d{1,5}$/u.test(line)) {
       return null;
     }
@@ -168,15 +189,16 @@ async function activeDevToolsPort(): Promise<number | null> {
   }
 }
 
-async function ensureChrome(): Promise<number> {
-  await mkdir(PROFILE_DIRECTORY, { mode: 0o700, recursive: true });
-  await chmod(APP_DIRECTORY, 0o700);
-  await chmod(PROFILE_DIRECTORY, 0o700);
-  const active = await activeDevToolsPort();
+async function ensureChrome(keelOrigin: URL): Promise<number> {
+  const paths = agentPaths(keelOrigin);
+  await mkdir(paths.profileDirectory, { mode: 0o700, recursive: true });
+  await chmod(paths.appDirectory, 0o700);
+  await chmod(paths.profileDirectory, 0o700);
+  const active = await activeDevToolsPort(keelOrigin);
   if (active !== null) {
     return active;
   }
-  await rm(DEVTOOLS_ACTIVE_PORT, { force: true });
+  await rm(paths.devToolsActivePort, { force: true });
   if (!(await fileExists(CHROME_PATH))) {
     throw new Error("Google Chrome is required in /Applications.");
   }
@@ -184,7 +206,7 @@ async function ensureChrome(): Promise<number> {
   const chrome = spawn(
     CHROME_PATH,
     [
-      `--user-data-dir=${PROFILE_DIRECTORY}`,
+      `--user-data-dir=${paths.profileDirectory}`,
       "--remote-debugging-address=127.0.0.1",
       "--remote-debugging-port=0",
       "--no-first-run",
@@ -196,7 +218,7 @@ async function ensureChrome(): Promise<number> {
 
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
-    const port = await activeDevToolsPort();
+    const port = await activeDevToolsPort(keelOrigin);
     if (port !== null) {
       return port;
     }
@@ -221,11 +243,12 @@ type DownloadCapture = {
 };
 
 async function connectContext(
-  getPort: () => Promise<number> = ensureChrome,
+  keelOrigin: URL,
+  getPort: (keelOrigin: URL) => Promise<number> = ensureChrome,
   connectOverCDP: ConnectOverCDP = (endpointUrl, options) =>
     chromium.connectOverCDP(endpointUrl, options),
 ): Promise<BrowserContext> {
-  const port = await getPort();
+  const port = await getPort(keelOrigin);
   const browser = await connectOverCDP(`http://127.0.0.1:${port.toString()}`, {
     noDefaults: true,
   });
@@ -333,10 +356,11 @@ function parseAngelListPortfolioUrl(value: string): URL {
   return new URL(AngelListPortfolioUrlSchema.parse(value));
 }
 
-async function readAngelListPortfolioUrl(): Promise<URL | null> {
+async function readAngelListPortfolioUrl(keelOrigin: URL): Promise<URL | null> {
+  const paths = agentPaths(keelOrigin);
   try {
     const config = AngelListLocalConfigSchema.parse(
-      JSON.parse(await readFile(CONFIG_PATH, "utf8")) as unknown,
+      JSON.parse(await readFile(paths.configPath, "utf8")) as unknown,
     );
     return new URL(config.portfolioUrl);
   } catch (error) {
@@ -352,22 +376,26 @@ async function readAngelListPortfolioUrl(): Promise<URL | null> {
   }
 }
 
-async function writeAngelListPortfolioUrl(rawUrl: string): Promise<URL> {
+async function writeAngelListPortfolioUrl(
+  keelOrigin: URL,
+  rawUrl: string,
+): Promise<URL> {
+  const paths = agentPaths(keelOrigin);
   const portfolioUrl = parseAngelListPortfolioUrl(rawUrl);
   const config = AngelListLocalConfigSchema.parse({
     version: 1,
     portfolioUrl: portfolioUrl.href,
   });
-  const temporaryPath = `${CONFIG_PATH}.${process.pid.toString()}.tmp`;
-  await mkdir(APP_DIRECTORY, { mode: 0o700, recursive: true });
-  await chmod(APP_DIRECTORY, 0o700);
+  const temporaryPath = `${paths.configPath}.${process.pid.toString()}.tmp`;
+  await mkdir(paths.appDirectory, { mode: 0o700, recursive: true });
+  await chmod(paths.appDirectory, 0o700);
   try {
     await writeFile(temporaryPath, `${JSON.stringify(config)}\n`, {
       mode: 0o600,
     });
     await chmod(temporaryPath, 0o600);
-    await rename(temporaryPath, CONFIG_PATH);
-    await chmod(CONFIG_PATH, 0o600);
+    await rename(temporaryPath, paths.configPath);
+    await chmod(paths.configPath, 0o600);
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
   }
@@ -434,11 +462,14 @@ async function waitForKeelSignIn(page: Page, keelOrigin: URL): Promise<void> {
   throw new Error("Keel sign-in was not completed within 30 minutes.");
 }
 
-async function waitForAngelListSignIn(page: Page): Promise<URL> {
+async function waitForAngelListSignIn(
+  page: Page,
+  keelOrigin: URL,
+): Promise<URL> {
   await page
     .getByRole("button", { exact: true, name: "Export CSV" })
     .waitFor({ state: "visible", timeout: SETUP_TIMEOUT_MS });
-  return writeAngelListPortfolioUrl(page.url());
+  return writeAngelListPortfolioUrl(keelOrigin, page.url());
 }
 
 type PageApiResult = {
@@ -625,13 +656,15 @@ async function reportFailure(
 
 async function executeRun(
   context: BrowserContext,
+  keelOrigin: URL,
   authorization: MacAgentAuthorization,
   run: NonNullable<AngelListMacAgentLease["run"]>,
 ): Promise<void> {
+  const paths = agentPaths(keelOrigin);
   let downloadDirectory: string | null = null;
   let downloadSession: CDPSession | null = null;
   try {
-    const portfolioUrl = await readAngelListPortfolioUrl();
+    const portfolioUrl = await readAngelListPortfolioUrl(keelOrigin);
     const target = await angelListPage(context, portfolioUrl);
     const exportButton = target.getByRole("button", {
       exact: true,
@@ -645,12 +678,12 @@ async function executeRun(
       await target.bringToFront();
       throw new AgentFailure("angellist_sign_in_required");
     }
-    await writeAngelListPortfolioUrl(target.url());
+    await writeAngelListPortfolioUrl(keelOrigin, target.url());
     const browser = context.browser();
     if (browser === null) {
       throw new AgentFailure("download_failed");
     }
-    downloadDirectory = await mkdtemp(DOWNLOAD_DIRECTORY_PREFIX);
+    downloadDirectory = await mkdtemp(paths.downloadDirectoryPrefix);
     await chmod(downloadDirectory, 0o700);
     downloadSession = await browser.newBrowserCDPSession();
     try {
@@ -700,7 +733,7 @@ async function pollOnce(
   if (work.run === null) {
     return false;
   }
-  await executeRun(context, authorization, work.run);
+  await executeRun(context, origin, authorization, work.run);
   return true;
 }
 
@@ -723,6 +756,7 @@ type LaunchAgentPlistOptions = {
 };
 
 function buildLaunchAgentPlist(options: LaunchAgentPlistOptions): string {
+  const paths = agentPaths(options.keelOrigin);
   const arguments_ = [
     options.nodeExecutable,
     options.pnpmCli,
@@ -748,7 +782,7 @@ function buildLaunchAgentPlist(options: LaunchAgentPlistOptions): string {
 <plist version="1.0">
   <dict>
     <key>Label</key>
-    <string>${LAUNCH_AGENT_LABEL}</string>
+    <string>${paths.launchAgentLabel}</string>
     <key>ProgramArguments</key>
     <array>
 ${argumentXml}
@@ -767,9 +801,9 @@ ${argumentXml}
     <key>ProcessType</key>
     <string>Background</string>
     <key>StandardOutPath</key>
-    <string>${xml(path.join(options.logDirectory, "angellist-agent.log"))}</string>
+    <string>${xml(path.join(options.logDirectory, `angellist-agent-${paths.instanceId}.log`))}</string>
     <key>StandardErrorPath</key>
-    <string>${xml(path.join(options.logDirectory, "angellist-agent.error.log"))}</string>
+    <string>${xml(path.join(options.logDirectory, `angellist-agent-${paths.instanceId}.error.log`))}</string>
   </dict>
 </plist>
 `;
@@ -787,7 +821,8 @@ async function installLaunchAgent(keelOrigin: URL): Promise<void> {
   }
   const scriptPath = fileURLToPath(import.meta.url);
   const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
-  await mkdir(path.dirname(LAUNCH_AGENT_PATH), { recursive: true });
+  const paths = agentPaths(keelOrigin);
+  await mkdir(path.dirname(paths.launchAgentPath), { recursive: true });
   await mkdir(LOG_DIRECTORY, { mode: 0o700, recursive: true });
   const plist = buildLaunchAgentPlist({
     keelOrigin,
@@ -797,20 +832,20 @@ async function installLaunchAgent(keelOrigin: URL): Promise<void> {
     repositoryRoot,
     scriptPath,
   });
-  await writeFile(LAUNCH_AGENT_PATH, plist, { mode: 0o600 });
-  await chmod(LAUNCH_AGENT_PATH, 0o600);
+  await writeFile(paths.launchAgentPath, plist, { mode: 0o600 });
+  await chmod(paths.launchAgentPath, 0o600);
 
   const getuid = process.getuid;
   if (getuid === undefined) {
     throw new Error("macOS user identity is unavailable.");
   }
   const domain = `gui/${getuid().toString()}`;
-  spawnSync("launchctl", ["bootout", domain, LAUNCH_AGENT_PATH], {
+  spawnSync("launchctl", ["bootout", domain, paths.launchAgentPath], {
     stdio: "ignore",
   });
   const bootstrap = spawnSync(
     "launchctl",
-    ["bootstrap", domain, LAUNCH_AGENT_PATH],
+    ["bootstrap", domain, paths.launchAgentPath],
     { encoding: "utf8" },
   );
   if (bootstrap.status !== 0) {
@@ -819,16 +854,21 @@ async function installLaunchAgent(keelOrigin: URL): Promise<void> {
         "macOS could not install the background agent.",
     );
   }
+  await retireMatchingLegacyLaunchAgent(
+    domain,
+    LEGACY_LAUNCH_AGENT_PATH,
+    keelOrigin,
+  );
 }
 
 async function setup(keelOrigin: URL): Promise<void> {
-  const context = await connectContext();
+  const context = await connectContext(keelOrigin);
   const angellist = await angelListPage(context);
   await angellist.bringToFront();
   console.info(
     "Finish signing in to AngelList, including 2FA if requested. Setup will continue when Export CSV is visible.",
   );
-  await waitForAngelListSignIn(angellist);
+  await waitForAngelListSignIn(angellist, keelOrigin);
 
   const keel = await keelPage(context, keelOrigin);
   await keel.bringToFront();
@@ -840,12 +880,12 @@ async function setup(keelOrigin: URL): Promise<void> {
   storeMacAgentAuthorization(keelOrigin, authorization);
   await installLaunchAgent(keelOrigin);
   console.info(
-    `AngelList updates are ready. The credential is in macOS Keychain, and Keel will check once daily without another Keel sign-in. Run make provider-agent-run PROVIDER=angellist KEEL_URL=${keelOrigin.origin} for an immediate local update.`,
+    `AngelList updates are ready for ${keelOrigin.origin}. The credential is in macOS Keychain, and Keel will check once daily without another Keel sign-in. Run make provider-agent-run PROVIDER=angellist KEEL_URL=${keelOrigin.origin} for an immediate update.`,
   );
 }
 
 async function runLocally(keelOrigin: URL): Promise<void> {
-  const context = await connectContext();
+  const context = await connectContext(keelOrigin);
   const authorization = readMacAgentAuthorization(keelOrigin, "angellist");
   const requested = await requestRun(authorization);
   if (requested.status === "running") {
@@ -857,7 +897,7 @@ async function runLocally(keelOrigin: URL): Promise<void> {
     console.info("The AngelList update is queued for another agent check.");
     return;
   }
-  await executeRun(context, authorization, work.run);
+  await executeRun(context, keelOrigin, authorization, work.run);
   console.info("AngelList CSV uploaded to Keel and ready for review.");
 }
 
@@ -866,7 +906,7 @@ async function serve(
   keelOrigin: URL,
 ): Promise<void> {
   if (command === "once") {
-    const context = await connectContext();
+    const context = await connectContext(keelOrigin);
     await pollOnce(context, keelOrigin);
     return;
   }
@@ -874,7 +914,7 @@ async function serve(
   while (true) {
     try {
       if (context?.browser()?.isConnected() !== true) {
-        context = await connectContext();
+        context = await connectContext(keelOrigin);
       }
       await pollOnce(context, keelOrigin);
     } catch (error) {
@@ -909,6 +949,7 @@ async function main(): Promise<void> {
 }
 
 export const __angellistMacAgentTest = {
+  agentPaths,
   angelListPage,
   buildLaunchAgentPlist,
   captureNextDownload,

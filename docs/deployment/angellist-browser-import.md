@@ -13,17 +13,17 @@ browser session, or AngelList-specific deployment secret.
 
 ## Trust boundary
 
-- The Chrome profile lives at
-  `~/Library/Application Support/Keel/AngelList Agent/Chrome` with owner-only
-  directory permissions.
+- Each Keel origin gets its own Chrome profile under
+  `~/Library/Application Support/Keel/AngelList Agent/Instances/<instance>/Chrome`
+  with owner-only directory permissions. Local and preview sessions can run at
+  the same time without controlling the same browser.
 - Chrome's DevTools endpoint binds to loopback on a random nonzero port and uses
   this non-default profile. It is not exposed to the network.
 - Credentials, passwords, magic links, 2FA codes, cookies, and local storage
   stay in the dedicated Chrome profile. The user enters authentication directly
   in Chrome.
 - The account-scoped portfolio dashboard URL is captured after sign-in and
-  stored only in
-  `~/Library/Application Support/Keel/AngelList Agent/config.json` with
+  stored only beside that origin's Chrome profile as `config.json`, with
   owner-only permissions. It is not uploaded to Keel or checked into the
   repository.
 - The Mac agent uploads only a bounded AngelList CSV to the dedicated agent API.
@@ -63,17 +63,29 @@ prompt, then sign in through Cloudflare Access once to approve the Mac. Setup
 waits until the exact `Export CSV` button is visible, stores the returned opaque
 credential in Keychain without an interactive password-data prompt, records the
 current account-scoped `/v/.../i/.../portfolio/dashboard` route locally, and
-installs `~/Library/LaunchAgents/com.keel.angellist-agent.plist`.
+installs a destination-scoped
+`~/Library/LaunchAgents/com.keel.angellist-agent.<instance>.plist`.
 
-The LaunchAgent records only bounded operational events in:
+The LaunchAgent records only bounded operational events in origin-scoped files:
 
-- `~/Library/Logs/Keel/angellist-agent.log`
-- `~/Library/Logs/Keel/angellist-agent.error.log`
+- `~/Library/Logs/Keel/angellist-agent-<instance>.log`
+- `~/Library/Logs/Keel/angellist-agent-<instance>.error.log`
 
 The plist points to the checkout used during setup. Keep that checkout in place.
-Rerun setup after moving the repository, changing the Keel origin, or changing
-the Node/pnpm installation. Rerun setup once after upgrading from an agent that
-polled every 30 seconds so launchd installs the daily schedule.
+Rerun setup after moving the repository or changing the Node/pnpm installation.
+Run setup once for every Keel origin that should receive updates. Each origin
+keeps an independent schedule, Keychain credential, Chrome profile, config, and
+logs. Installing one no longer replaces another. When the matching scoped job is
+installed, setup unloads and removes the former single-origin plist. Loopback
+URLs share one `local` slot, so moving development to another local port
+replaces only the prior local job and never the preview job.
+
+For example, local development and preview can coexist:
+
+```bash
+make provider-agent-setup PROVIDER=angellist KEEL_URL=http://127.0.0.1:5422
+make provider-agent-setup PROVIDER=angellist KEEL_URL=https://keel-preview.example.com
+```
 
 ## Regular operation
 
@@ -90,8 +102,8 @@ From Holdings, the user can:
 - see the last Mac check, last completion, next scheduled date, and bounded
   attention states.
 
-To run the complete local flow immediately instead of waiting for the next daily
-check:
+To run the complete flow for one destination immediately instead of waiting for
+its next daily check:
 
 ```bash
 make provider-agent-run PROVIDER=angellist KEEL_URL=https://keel-preview.example.com
@@ -159,12 +171,12 @@ appears as a pending Keel import, and Holdings remains unchanged until review.
 
 ## Disable or reinstall
 
-Choose `Off` in Holdings to stop automatic runs while preserving phone-triggered
-queued updates and the local run command. To remove the background process
-entirely, unload and delete only
-`~/Library/LaunchAgents/com.keel.angellist-agent.plist`; the dedicated Chrome
-profile can then be archived or deleted separately after confirming no sign-in
-needs to be retained.
+Choose `Off` in that environment's Holdings screen to stop automatic runs while
+preserving queued updates and the run command. To remove one background process
+entirely, unload and delete only its
+`~/Library/LaunchAgents/com.keel.angellist-agent.<instance>.plist`; its scoped
+Chrome profile can then be archived or deleted separately after confirming no
+sign-in needs to be retained.
 
 Cloudflare Browser Run resources created for the retired design are not
 referenced by the Worker after this release. They may be removed from the
