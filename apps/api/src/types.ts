@@ -18,6 +18,7 @@ export interface Env {
   ENVIRONMENT: Environment;
   INGESTION_QUEUE: Queue;
   INVESTMENTS_NEW_CONNECTIONS_ENABLED?: string;
+  MAC_AGENT_API_ORIGIN?: string;
   CONNECTOR_CREDENTIAL_KEY?: string;
   PLAID_CLIENT_ID?: string;
   PLAID_ENVIRONMENT?: string;

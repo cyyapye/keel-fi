@@ -1,6 +1,10 @@
 import {
   AngelListCsvParseError,
   parseAngelListInvestmentsCsv,
+  parseProviderHoldingsTemplateCsv,
+  providerHoldingsTemplateCsv,
+  ProviderHoldingsTemplateCsvParseError,
+  type ProviderHoldingsTemplateProvider,
 } from "@keel/connectors";
 import {
   AngelListMacAgentRepositoryError,
@@ -13,10 +17,13 @@ import {
   D1HoldingImportRepository,
   D1InvestmentExposureViewRepository,
   D1LiabilitiesRepository,
+  D1MacAgentCredentialRepository,
   D1PlanActualMonitoringRepository,
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
+  D1ProviderPortfolioAgentRepository,
   PrivateExposureReviewError,
+  ProviderPortfolioAgentRepositoryError,
   D1InvestmentConnectionsRepository,
   D1InvestmentPositionViewRepository,
   type AlphaRepository,
@@ -24,9 +31,11 @@ import {
   type CashAccountsRepository,
   type CashFlowRepository,
   type LiabilitiesRepository,
+  type MacAgentCredentialRepository,
   type PlanActualMonitoringRepository,
   type PlanInputsRepository,
   type PortfolioBaselineRepository,
+  type ProviderPortfolioAgentRepository,
   type PrivateExposureReviewRepository,
   type InvestmentConnectionsRepository,
   type InvestmentExposureViewRepository,
@@ -48,8 +57,14 @@ import {
   LiabilitiesErrorCodeSchema,
   LiabilityApplyInputSchema,
   LiabilityExchangeInputSchema,
+  MacAgentApiOriginSchema,
+  MacAgentAuthorizationSchema,
+  MacAgentTokenSchema,
   ManualLiabilityInputSchema,
   PlanInputSaveSchema,
+  ProviderPortfolioAgentConfigInputSchema,
+  ProviderPortfolioAgentFailureInputSchema,
+  ProviderPortfolioAgentProviderSchema,
   PrivateExposureExactBatchInputSchema,
   PrivateExposureExactBatchResultSchema,
   PrivateExposureResolutionInputSchema,
@@ -60,6 +75,8 @@ import {
   InvestmentConnectionLifecycleActionInputSchema,
   InvestmentExchangeInputSchema,
   ScenarioDraftInputSchema,
+  type ProviderPortfolioAgentProvider,
+  type MacAgentTarget,
 } from "@keel/domain";
 import { InvestmentHoldingsViewSchema } from "@keel/domain/investment-holdings-view";
 import { PlanActualSnoozeInputSchema } from "@keel/domain/plan-actual-monitoring";
@@ -76,8 +93,12 @@ import {
 import {
   HoldingImportUploadError,
   readAngelListCsvUpload,
+  readProviderTemplateCsvUpload,
 } from "./holding-import-upload";
-import { buildAngelListCanonicalScope } from "./holding-import-scope";
+import {
+  buildAngelListCanonicalScope,
+  buildProviderTemplateCanonicalScope,
+} from "./holding-import-scope";
 import { PlaidWebhookRequestError, receivePlaidWebhook } from "./plaid-webhook";
 import {
   cashFlowConfigured,
@@ -131,6 +152,7 @@ type AppEnvironment = {
 
 type AppOptions = {
   angelListMacAgentRepository?: AngelListMacAgentRepository;
+  providerPortfolioAgentRepository?: ProviderPortfolioAgentRepository;
   holdingImportRepository?: Pick<
     D1HoldingImportRepository,
     | "stagePlaidInvestmentsHoldingImport"
@@ -142,6 +164,7 @@ type AppOptions = {
   cashFlowPlaidClient?: PlaidCashFlowClient;
   liabilitiesRepository?: LiabilitiesRepository;
   liabilitiesPlaidClient?: PlaidLiabilitiesClient;
+  macAgentCredentialRepository?: MacAgentCredentialRepository;
   plaidClient?: PlaidInvestmentsClient;
   planActualMonitoringRepository?: PlanActualMonitoringRepository;
   planInputsRepository?: PlanInputsRepository;
@@ -498,6 +521,146 @@ async function stageAngelListUpload(
   }
 }
 
+class ProviderTemplateImportRequestError extends Error {
+  public constructor(
+    public readonly status: 400 | 413 | 500,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ProviderTemplateImportRequestError";
+  }
+}
+
+async function stageProviderTemplateUpload(
+  env: Env,
+  repository: AlphaRepository,
+  accessSubject: string,
+  provider: ProviderHoldingsTemplateProvider,
+  upload: Awaited<ReturnType<typeof readProviderTemplateCsvUpload>>,
+) {
+  const label = provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+  let parsed: Awaited<ReturnType<typeof parseProviderHoldingsTemplateCsv>>;
+  try {
+    parsed = await parseProviderHoldingsTemplateCsv(provider, upload.bytes);
+  } catch (error) {
+    throw new ProviderTemplateImportRequestError(
+      error instanceof ProviderHoldingsTemplateCsvParseError &&
+        error.code === "file_too_large"
+        ? 413
+        : 400,
+      error instanceof ProviderHoldingsTemplateCsvParseError
+        ? error.message
+        : `This is not a supported Keel ${label} holdings template.`,
+    );
+  }
+  if (parsed.effectiveDate > upload.retrievedAt.slice(0, 10)) {
+    throw new ProviderTemplateImportRequestError(
+      400,
+      `${label} template As Of Date cannot be in the future.`,
+    );
+  }
+
+  const objectKey = `holding-imports/${provider}/${crypto.randomUUID()}.csv`;
+  try {
+    await env.DOCUMENTS.put(objectKey, upload.bytes, {
+      httpMetadata: { contentType: "text/csv" },
+    });
+  } catch {
+    throw new ProviderTemplateImportRequestError(
+      500,
+      "Keel could not retain this import for review.",
+    );
+  }
+
+  try {
+    const canonicalScope = await buildProviderTemplateCanonicalScope({
+      env,
+      accessSubject,
+      provider,
+      rows: parsed.rows,
+    });
+    const staged = await repository.stageHoldingImport(accessSubject, {
+      provider,
+      objectKey,
+      sha256: await sha256Bytes(upload.bytes),
+      byteSize: upload.bytes.byteLength,
+      effectiveDate: parsed.effectiveDate,
+      retrievedAt: upload.retrievedAt,
+      rows: parsed.rows,
+      canonicalScope,
+    });
+    if (!staged.created) {
+      await discardPrivateObject(env.DOCUMENTS, objectKey);
+    }
+    return staged;
+  } catch {
+    await discardPrivateObject(env.DOCUMENTS, objectKey);
+    throw new ProviderTemplateImportRequestError(
+      500,
+      "Keel could not prepare this import for review.",
+    );
+  }
+}
+
+function providerPortfolioAgentProvider(
+  rawProvider: string,
+): ProviderPortfolioAgentProvider | null {
+  const parsed = ProviderPortfolioAgentProviderSchema.safeParse(rawProvider);
+  return parsed.success ? parsed.data : null;
+}
+
+function providerPortfolioLabel(provider: ProviderPortfolioAgentProvider) {
+  return provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+}
+
+function machineRouteTarget(
+  method: string,
+  pathname: string,
+): MacAgentTarget | null {
+  if (method !== "POST") {
+    return null;
+  }
+  if (pathname === "/api/automation/angellist/mac-agent/lease") {
+    return "angellist";
+  }
+  if (pathname === "/api/automation/angellist/mac-agent/run") {
+    return "angellist";
+  }
+  if (
+    /^\/api\/automation\/angellist\/mac-agent\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:fail|complete)$/iu.test(
+      pathname,
+    )
+  ) {
+    return "angellist";
+  }
+  const providerLease =
+    /^\/api\/automation\/provider-holdings\/(tokenfolio|sydecar)\/mac-agent\/(?:lease|run)$/u.exec(
+      pathname,
+    );
+  if (providerLease !== null) {
+    return providerLease[1] as ProviderPortfolioAgentProvider;
+  }
+  const providerRun =
+    /^\/api\/automation\/provider-holdings\/(tokenfolio|sydecar)\/mac-agent\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:fail|complete)$/iu.exec(
+      pathname,
+    );
+  return providerRun === null
+    ? null
+    : (providerRun[1]?.toLowerCase() as ProviderPortfolioAgentProvider);
+}
+
+function macAgentApiOrigin(env: Env, requestUrl: string): string | null {
+  const raw =
+    env.ENVIRONMENT === "local"
+      ? new URL(requestUrl).origin
+      : env.MAC_AGENT_API_ORIGIN;
+  if (raw === undefined) {
+    return null;
+  }
+  const parsed = MacAgentApiOriginSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
 export function createApp(options: AppOptions = {}) {
   const app = new Hono<AppEnvironment>();
   const verifier = options.verifyAccess ?? verifyAccessToken;
@@ -506,6 +669,12 @@ export function createApp(options: AppOptions = {}) {
   const angelListMacAgentRepositoryFor = (env: Env) =>
     options.angelListMacAgentRepository ??
     new D1AngelListMacAgentRepository(env.DB);
+  const providerPortfolioAgentRepositoryFor = (env: Env) =>
+    options.providerPortfolioAgentRepository ??
+    new D1ProviderPortfolioAgentRepository(env.DB);
+  const macAgentCredentialRepositoryFor = (env: Env) =>
+    options.macAgentCredentialRepository ??
+    new D1MacAgentCredentialRepository(env.DB);
   const investmentConnectionsRepositoryFor = (env: Env) =>
     options.investmentConnectionsRepository ??
     new D1InvestmentConnectionsRepository(env.DB);
@@ -640,6 +809,45 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.use("/api/*", async (context, next) => {
+    const target = machineRouteTarget(context.req.method, context.req.path);
+    const authorization = context.req.header("Authorization");
+    if (target !== null && authorization !== undefined) {
+      const expectedOrigin = macAgentApiOrigin(context.env, context.req.url);
+      if (expectedOrigin === null) {
+        return context.json(
+          { error: "Mac agent access is unavailable." },
+          503,
+          { "Cache-Control": "no-store" },
+        );
+      }
+      if (new URL(context.req.url).origin !== expectedOrigin) {
+        return context.json({ error: "Not found." }, 404, {
+          "Cache-Control": "no-store",
+        });
+      }
+      const bearer = /^Bearer (.+)$/u.exec(authorization)?.[1] ?? "";
+      const parsedToken = MacAgentTokenSchema.safeParse(bearer);
+      const accessSubject = parsedToken.success
+        ? await macAgentCredentialRepositoryFor(context.env)
+            .authenticate(target, parsedToken.data)
+            .catch(() => null)
+        : null;
+      if (accessSubject === null) {
+        return context.json(
+          { error: "Mac agent access could not be validated." },
+          401,
+          { "Cache-Control": "no-store" },
+        );
+      }
+      context.set("identity", {
+        kind: "user",
+        subject: accessSubject,
+        email: null,
+      });
+      await next();
+      return;
+    }
+
     const token = context.req.header("Cf-Access-Jwt-Assertion");
 
     if (context.env.ENVIRONMENT === "local" && token === undefined) {
@@ -2047,6 +2255,70 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.post("/api/automation/angellist/mac-agent/authorize", async (context) => {
+    if (context.req.header("X-Keel-Mac-Setup") !== "1") {
+      return context.json({ error: "Mac setup request is invalid." }, 403, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const apiOrigin = macAgentApiOrigin(context.env, context.req.url);
+    if (apiOrigin === null) {
+      return context.json(
+        { error: "Secure Mac access is not configured." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    try {
+      const accessSubject = context.get("identity").subject;
+      await angelListMacAgentRepositoryFor(context.env).register(accessSubject);
+      const token = await macAgentCredentialRepositoryFor(
+        context.env,
+      ).issueToken(accessSubject, "angellist");
+      return context.json(
+        MacAgentAuthorizationSchema.parse({
+          version: 1,
+          target: "angellist",
+          apiOrigin,
+          token,
+        }),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch {
+      return context.json(
+        { error: "Secure Mac access could not be created." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/automation/angellist/mac-agent/run", async (context) => {
+    try {
+      return context.json(
+        await angelListMacAgentRepositoryFor(context.env).requestRun(
+          context.get("identity").subject,
+        ),
+        202,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      const notRegistered =
+        error instanceof AngelListMacAgentRepositoryError &&
+        error.code === "agent_not_registered";
+      return context.json(
+        {
+          error: notRegistered
+            ? "Approve this Mac in Keel before requesting work."
+            : "Keel could not queue this AngelList update.",
+        },
+        notRegistered ? 409 : 503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
   app.put("/api/automation/angellist/mac-agent/config", async (context) => {
     let rawInput: unknown;
     try {
@@ -2298,6 +2570,439 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.get(
+    "/api/automation/provider-holdings/:provider/status",
+    async (context) => {
+      const provider = providerPortfolioAgentProvider(
+        context.req.param("provider"),
+      );
+      if (provider === null) {
+        return context.json({ error: "Provider not found." }, 404);
+      }
+      try {
+        const status = await providerPortfolioAgentRepositoryFor(
+          context.env,
+        ).getOverview(context.get("identity").subject, provider);
+        return context.json(status, 200, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch {
+        return context.json(
+          {
+            error: `${providerPortfolioLabel(provider)} update status is unavailable.`,
+          },
+          503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-holdings/:provider/run",
+    async (context) => {
+      const provider = providerPortfolioAgentProvider(
+        context.req.param("provider"),
+      );
+      if (provider === null) {
+        return context.json({ error: "Provider not found." }, 404);
+      }
+      const label = providerPortfolioLabel(provider);
+      try {
+        const status = await providerPortfolioAgentRepositoryFor(
+          context.env,
+        ).requestRun(context.get("identity").subject, provider);
+        return context.json(status, 202, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        const notRegistered =
+          error instanceof ProviderPortfolioAgentRepositoryError &&
+          error.code === "agent_not_registered";
+        return context.json(
+          {
+            error: notRegistered
+              ? `Finish ${label} setup on your Mac first.`
+              : `Keel could not queue this ${label} update.`,
+          },
+          notRegistered ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-holdings/:provider/mac-agent/register",
+    async (context) => {
+      const provider = providerPortfolioAgentProvider(
+        context.req.param("provider"),
+      );
+      if (provider === null) {
+        return context.json({ error: "Provider not found." }, 404);
+      }
+      try {
+        return context.json(
+          await providerPortfolioAgentRepositoryFor(context.env).register(
+            context.get("identity").subject,
+            provider,
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch {
+        return context.json(
+          {
+            error: `${providerPortfolioLabel(provider)} Mac setup could not be registered.`,
+          },
+          503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-holdings/:provider/mac-agent/authorize",
+    async (context) => {
+      if (context.req.header("X-Keel-Mac-Setup") !== "1") {
+        return context.json({ error: "Mac setup request is invalid." }, 403, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+      const provider = providerPortfolioAgentProvider(
+        context.req.param("provider"),
+      );
+      if (provider === null) {
+        return context.json({ error: "Provider not found." }, 404);
+      }
+      const apiOrigin = macAgentApiOrigin(context.env, context.req.url);
+      if (apiOrigin === null) {
+        return context.json(
+          { error: "Secure Mac access is not configured." },
+          503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      try {
+        const accessSubject = context.get("identity").subject;
+        await providerPortfolioAgentRepositoryFor(context.env).register(
+          accessSubject,
+          provider,
+        );
+        const token = await macAgentCredentialRepositoryFor(
+          context.env,
+        ).issueToken(accessSubject, provider);
+        return context.json(
+          MacAgentAuthorizationSchema.parse({
+            version: 1,
+            target: provider,
+            apiOrigin,
+            token,
+          }),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch {
+        return context.json(
+          {
+            error: `${providerPortfolioLabel(provider)} secure Mac access could not be created.`,
+          },
+          503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-holdings/:provider/mac-agent/run",
+    async (context) => {
+      const provider = providerPortfolioAgentProvider(
+        context.req.param("provider"),
+      );
+      if (provider === null) {
+        return context.json({ error: "Provider not found." }, 404);
+      }
+      try {
+        return context.json(
+          await providerPortfolioAgentRepositoryFor(context.env).requestRun(
+            context.get("identity").subject,
+            provider,
+          ),
+          202,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const notRegistered =
+          error instanceof ProviderPortfolioAgentRepositoryError &&
+          error.code === "agent_not_registered";
+        return context.json(
+          {
+            error: notRegistered
+              ? "Approve this Mac in Keel before requesting work."
+              : `Keel could not queue this ${providerPortfolioLabel(provider)} update.`,
+          },
+          notRegistered ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.put(
+    "/api/automation/provider-holdings/:provider/mac-agent/config",
+    async (context) => {
+      const provider = providerPortfolioAgentProvider(
+        context.req.param("provider"),
+      );
+      if (provider === null) {
+        return context.json({ error: "Provider not found." }, 404);
+      }
+      let rawInput: unknown;
+      try {
+        rawInput = await context.req.json();
+      } catch {
+        return context.json({ error: "A JSON request body is required." }, 400);
+      }
+      const parsed =
+        ProviderPortfolioAgentConfigInputSchema.safeParse(rawInput);
+      if (!parsed.success) {
+        return context.json(
+          { error: "Choose a supported update interval." },
+          400,
+        );
+      }
+      const label = providerPortfolioLabel(provider);
+      try {
+        return context.json(
+          await providerPortfolioAgentRepositoryFor(context.env).configure(
+            context.get("identity").subject,
+            provider,
+            parsed.data,
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const notRegistered =
+          error instanceof ProviderPortfolioAgentRepositoryError &&
+          error.code === "agent_not_registered";
+        return context.json(
+          {
+            error: notRegistered
+              ? `Finish ${label} setup on your Mac first.`
+              : `The ${label} interval could not be saved.`,
+          },
+          notRegistered ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-holdings/:provider/mac-agent/lease",
+    async (context) => {
+      const provider = providerPortfolioAgentProvider(
+        context.req.param("provider"),
+      );
+      if (provider === null) {
+        return context.json({ error: "Provider not found." }, 404);
+      }
+      try {
+        return context.json(
+          await providerPortfolioAgentRepositoryFor(context.env).lease(
+            context.get("identity").subject,
+            provider,
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const notRegistered =
+          error instanceof ProviderPortfolioAgentRepositoryError &&
+          error.code === "agent_not_registered";
+        return context.json(
+          {
+            error: notRegistered
+              ? "Register this Mac before requesting work."
+              : `Keel could not check for a ${providerPortfolioLabel(provider)} update.`,
+          },
+          notRegistered ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-holdings/:provider/mac-agent/runs/:runId/fail",
+    async (context) => {
+      const provider = providerPortfolioAgentProvider(
+        context.req.param("provider"),
+      );
+      if (provider === null) {
+        return context.json({ error: "Provider not found." }, 404);
+      }
+      const leaseToken = context.req.header("X-Keel-Agent-Lease") ?? "";
+      if (!/^[A-Za-z0-9_-]{43}$/u.test(leaseToken)) {
+        return context.json(
+          { error: "This run lease is no longer valid." },
+          409,
+        );
+      }
+      let rawInput: unknown;
+      try {
+        rawInput = await context.req.json();
+      } catch {
+        return context.json({ error: "A JSON request body is required." }, 400);
+      }
+      const parsed =
+        ProviderPortfolioAgentFailureInputSchema.safeParse(rawInput);
+      if (!parsed.success) {
+        return context.json({ error: "Choose a supported failure code." }, 400);
+      }
+      try {
+        return context.json(
+          await providerPortfolioAgentRepositoryFor(context.env).fail(
+            context.get("identity").subject,
+            provider,
+            context.req.param("runId"),
+            leaseToken,
+            parsed.data,
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const invalidLease =
+          error instanceof ProviderPortfolioAgentRepositoryError &&
+          error.code === "lease_invalid";
+        return context.json(
+          {
+            error: invalidLease
+              ? "This run lease is no longer valid."
+              : `Keel could not record the ${providerPortfolioLabel(provider)} update failure.`,
+          },
+          invalidLease ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-holdings/:provider/mac-agent/runs/:runId/complete",
+    async (context) => {
+      const provider = providerPortfolioAgentProvider(
+        context.req.param("provider"),
+      );
+      if (provider === null) {
+        return context.json({ error: "Provider not found." }, 404);
+      }
+      const leaseToken = context.req.header("X-Keel-Agent-Lease") ?? "";
+      if (!/^[A-Za-z0-9_-]{43}$/u.test(leaseToken)) {
+        return context.json(
+          { error: "This run lease is no longer valid." },
+          409,
+        );
+      }
+      const accessSubject = context.get("identity").subject;
+      const runId = context.req.param("runId");
+      const agentRepository = providerPortfolioAgentRepositoryFor(context.env);
+      try {
+        await agentRepository.assertLease(
+          accessSubject,
+          provider,
+          runId,
+          leaseToken,
+        );
+      } catch (error) {
+        const invalidLease =
+          error instanceof ProviderPortfolioAgentRepositoryError &&
+          error.code === "lease_invalid";
+        return context.json(
+          {
+            error: invalidLease
+              ? "This run lease is no longer valid."
+              : `Keel could not validate this ${providerPortfolioLabel(provider)} update.`,
+          },
+          invalidLease ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+
+      let upload: Awaited<ReturnType<typeof readProviderTemplateCsvUpload>>;
+      try {
+        upload = await readProviderTemplateCsvUpload(context.req.raw, provider);
+      } catch (error) {
+        if (error instanceof HoldingImportUploadError) {
+          return context.json(
+            { error: error.message },
+            error.code === "file_too_large" ? 413 : 400,
+            { "Cache-Control": "private, no-store" },
+          );
+        }
+        return context.json(
+          { error: "Keel could not read that local capture." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+
+      let importId: string;
+      try {
+        const staged = await stageProviderTemplateUpload(
+          context.env,
+          repositoryFor(context.env),
+          accessSubject,
+          provider,
+          upload,
+        );
+        importId = staged.preview.id;
+      } catch (error) {
+        const failure =
+          error instanceof ProviderTemplateImportRequestError
+            ? error
+            : new ProviderTemplateImportRequestError(
+                500,
+                "Keel could not prepare this update for review.",
+              );
+        return context.json({ error: failure.message }, failure.status, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+
+      try {
+        return context.json(
+          await agentRepository.complete(
+            accessSubject,
+            provider,
+            runId,
+            leaseToken,
+            importId,
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const invalidLease =
+          error instanceof ProviderPortfolioAgentRepositoryError &&
+          error.code === "lease_invalid";
+        return context.json(
+          {
+            error: invalidLease
+              ? "The update is saved for review, but this run lease expired."
+              : "The update is saved for review, but Keel could not close the run.",
+          },
+          invalidLease ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
   app.post("/api/holding-imports/angellist", async (context) => {
     let upload: Awaited<ReturnType<typeof readAngelListCsvUpload>>;
     try {
@@ -2340,6 +3045,79 @@ export function createApp(options: AppOptions = {}) {
       });
     }
   });
+
+  const reviewProviderTemplateUpload = async (
+    context: Context<AppEnvironment>,
+    provider: ProviderHoldingsTemplateProvider,
+  ) => {
+    let upload: Awaited<ReturnType<typeof readProviderTemplateCsvUpload>>;
+    try {
+      upload = await readProviderTemplateCsvUpload(context.req.raw, provider);
+    } catch (error) {
+      if (error instanceof HoldingImportUploadError) {
+        return context.json(
+          { error: error.message },
+          error.code === "file_too_large" ? 413 : 400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      return context.json(
+        { error: "Keel could not read that CSV template." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+
+    try {
+      const staged = await stageProviderTemplateUpload(
+        context.env,
+        repositoryFor(context.env),
+        context.get("identity").subject,
+        provider,
+        upload,
+      );
+      return context.json(staged.preview, staged.created ? 201 : 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      const failure =
+        error instanceof ProviderTemplateImportRequestError
+          ? error
+          : new ProviderTemplateImportRequestError(
+              500,
+              "Keel could not prepare this import for review.",
+            );
+      return context.json({ error: failure.message }, failure.status, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+  };
+
+  app.post("/api/holding-imports/tokenfolio", (context) =>
+    reviewProviderTemplateUpload(context, "tokenfolio"),
+  );
+
+  app.post("/api/holding-imports/sydecar", (context) =>
+    reviewProviderTemplateUpload(context, "sydecar"),
+  );
+
+  const downloadProviderTemplate = (
+    context: Context<AppEnvironment>,
+    provider: ProviderHoldingsTemplateProvider,
+  ) =>
+    context.body(providerHoldingsTemplateCsv(provider), 200, {
+      "Cache-Control": "private, no-store",
+      "Content-Disposition": `attachment; filename="${provider}-holdings.csv"`,
+      "Content-Type": "text/csv; charset=utf-8",
+    });
+
+  app.get("/api/holding-import-templates/tokenfolio", (context) =>
+    downloadProviderTemplate(context, "tokenfolio"),
+  );
+
+  app.get("/api/holding-import-templates/sydecar", (context) =>
+    downloadProviderTemplate(context, "sydecar"),
+  );
 
   app.get("/api/holding-imports", async (context) => {
     try {

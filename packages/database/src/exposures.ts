@@ -616,7 +616,7 @@ export class D1ExposureRepository {
            AND (
              position.position_kind = 'spv_interest'
              OR (
-               position.provider = 'angellist'
+               position.provider IN ('angellist', 'tokenfolio', 'sydecar')
                AND position.position_kind = 'direct'
              )
            )`,
@@ -1982,7 +1982,7 @@ export class D1ExposureRepository {
                AND (
                  position.position_kind = 'spv_interest'
                  OR (
-                   position.provider = 'angellist'
+                   position.provider IN ('angellist', 'tokenfolio', 'sydecar')
                    AND position.position_kind = 'direct'
                  )
                )

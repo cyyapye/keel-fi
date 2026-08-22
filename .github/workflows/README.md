@@ -67,7 +67,10 @@ deployment validation rejects a partial group. See
 The deployment derives a second custom domain by adding `-webhooks` to the first
 label of `KEEL_PREVIEW_URL`. That hostname exposes only `POST /webhooks/plaid`;
 preview smoke proves its root is `404` and an unsigned delivery fails closed
-before the protected dashboard checks continue.
+before the protected dashboard checks continue. The deployment also derives a
+`-agents` custom domain. That hostname forwards only exact Mac-agent POST
+routes; the API requires a target-scoped bearer token, and preview smoke proves
+the root is `404` and an unauthenticated lease is rejected.
 
 Use a custom Cloudflare API token scoped to the private preview account and only
 the Worker, D1, Queue, and route/domain permissions required by these commands.

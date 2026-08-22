@@ -224,6 +224,28 @@ test("leads with the investment and opens a truthful holding detail", async ({
       },
     });
   });
+  await page.route(
+    "**/api/automation/provider-holdings/*/status",
+    async (route) => {
+      const provider = new URL(route.request().url()).pathname
+        .split("/")
+        .at(-2);
+      await route.fulfill({
+        json: {
+          version: 1,
+          provider,
+          status: "setup_required",
+          interval: "daily",
+          runStatus: null,
+          lastSeenAt: null,
+          lastCompletedAt: null,
+          nextRunAt: null,
+          latestImportId: null,
+          errorCode: null,
+        },
+      });
+    },
+  );
   await page.route("**/api/holding-imports", async (route) => {
     await route.fulfill({ json: [] });
   });

@@ -36,6 +36,8 @@
 - [ ] When Plaid is enabled, only `POST /webhooks/plaid` is exposed on its
       dedicated hostname; invalid signatures fail closed and replay creates no
       second job.
+- [ ] The Mac-agent hostname exposes only exact POST routes; missing, malformed,
+      revoked, cross-target, and wrong-origin device tokens fail closed.
 - [ ] Source allowlists, SSRF protection, redirect limits, timeouts, and byte
       limits are tested before any network connector is enabled.
 - [ ] Upload types, sizes, quarantine, and malware scanning are enforced before

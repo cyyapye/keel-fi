@@ -51,6 +51,7 @@ import {
 
 export * from "./holding-imports";
 export * from "./angellist-mac-agent";
+export * from "./provider-portfolio-agent";
 export * from "./portfolio-baseline";
 export * from "./plan-inputs";
 export * from "./investment-connections";
@@ -58,6 +59,7 @@ export * from "./portfolio-watch";
 export * from "./cash-accounts";
 export * from "./cash-flow";
 export * from "./liabilities";
+export * from "./mac-agent-credentials";
 export * from "./exposures";
 export * from "./exposure-read-model";
 export * from "./position-read-model";
@@ -717,6 +719,8 @@ export class D1AlphaRepository implements AlphaRepository {
                  END AS source_status,
                  CASE position.provider
                    WHEN 'plaid_investments' THEN 'Plaid Investments'
+                   WHEN 'tokenfolio' THEN 'Tokenfolio template'
+                   WHEN 'sydecar' THEN 'Sydecar template'
                    ELSE 'AngelList export'
                  END AS source_label,
                  COALESCE(

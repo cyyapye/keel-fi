@@ -36,6 +36,16 @@ function successfulFetch(): ReturnType<typeof vi.fn> {
         }),
       );
     }
+    if (url.hostname === "keel-preview-agents.example.com") {
+      return Promise.resolve(
+        new Response(null, {
+          status:
+            url.pathname === "/api/automation/angellist/mac-agent/lease"
+              ? 401
+              : 404,
+        }),
+      );
+    }
     const authenticated =
       headers.get("CF-Access-Client-Id") ===
         "synthetic-preview-service-token.access" &&
@@ -106,7 +116,7 @@ describe("preview deployment runtime verification", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(fetchImplementation).toHaveBeenCalledTimes(8);
+    expect(fetchImplementation).toHaveBeenCalledTimes(10);
   });
 
   it("fails when the public health route reports a different merged SHA", async () => {

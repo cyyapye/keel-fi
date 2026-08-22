@@ -15,6 +15,7 @@ import {
   HttpsSourceUrlSchema,
   InvestmentConnectionsStateSchema,
   InvestmentConnectionStatusSchema,
+  MacAgentAuthorizationSchema,
   multiplyMinorByPpm,
   PrivateExposureResolutionInputSchema,
   PrivateExposureReviewStateSchema,
@@ -26,6 +27,36 @@ import {
   reconcileFinancingSignals,
   summarizeLiquidityPaths,
 } from "./index";
+
+describe("Mac agent authorization boundary", () => {
+  it("accepts HTTPS or loopback origins and rejects an insecure remote host", () => {
+    const token = `keel_agent_v1_${"a".repeat(43)}`;
+    expect(
+      MacAgentAuthorizationSchema.parse({
+        version: 1,
+        target: "angellist",
+        apiOrigin: "https://keel-agents.example.com",
+        token,
+      }),
+    ).toMatchObject({ apiOrigin: "https://keel-agents.example.com" });
+    expect(
+      MacAgentAuthorizationSchema.safeParse({
+        version: 1,
+        target: "angellist",
+        apiOrigin: "http://keel-agents.example.com",
+        token,
+      }).success,
+    ).toBe(false);
+    expect(
+      MacAgentAuthorizationSchema.safeParse({
+        version: 1,
+        target: "angellist",
+        apiOrigin: "http://127.0.0.1:8787",
+        token,
+      }).success,
+    ).toBe(true);
+  });
+});
 
 describe("reviewed holding exposure identity", () => {
   const holding = {

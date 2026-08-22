@@ -1,12 +1,15 @@
 import {
   ANGELLIST_INVESTMENTS_CSV_HEADERS,
   ANGELLIST_INVESTMENTS_CSV_PREAMBLE,
+  providerHoldingsTemplateCsv,
 } from "@keel/connectors";
 import type {
   AlphaRepository,
   AngelListMacAgentRepository,
+  MacAgentCredentialRepository,
   PlanInputsRepository,
   PortfolioBaselineRepository,
+  ProviderPortfolioAgentRepository,
 } from "@keel/database";
 import type {
   AlphaData,
@@ -16,6 +19,7 @@ import type {
   PlanInputState,
   PortfolioBaselineConfirmResult,
   PortfolioBaselineState,
+  ProviderPortfolioAgentOverview,
 } from "@keel/domain";
 import { describe, expect, it, vi } from "vitest";
 
@@ -163,6 +167,31 @@ function syntheticAngelListCsv(): string {
   ].join("\n");
 }
 
+function syntheticProviderTemplateCsv(
+  provider: "tokenfolio" | "sydecar",
+  asOfDate = "2026-08-20",
+): string {
+  const row = [
+    provider === "tokenfolio" ? "Synthetic Robotics" : "Example Climate Fund",
+    provider === "tokenfolio"
+      ? "Synthetic Robotics direct shares"
+      : "Example Climate Fund SPV I",
+    provider === "tokenfolio" ? "Direct" : "SPV",
+    provider === "tokenfolio"
+      ? "Synthetic Family Trust"
+      : "Synthetic Investment Profile",
+    "Live",
+    "2025-02-01",
+    asOfDate,
+    provider === "tokenfolio" ? "$1250.00" : "$5000.00",
+    provider === "tokenfolio" ? "" : "$7500.00",
+    provider === "tokenfolio" ? "$1800.25" : "",
+    "",
+    provider === "tokenfolio" ? "Common stock" : "Membership interest",
+  ];
+  return `${providerHoldingsTemplateCsv(provider)}${row.join(",")}\n`;
+}
+
 function testEnv(environment: Env["ENVIRONMENT"]): Env {
   return {
     CONNECTOR_CREDENTIAL_KEY: btoa("k".repeat(32))
@@ -184,6 +213,19 @@ const readyAgentOverview: AngelListMacAgentOverview = {
   lastSeenAt: "2026-08-09T12:00:00.000Z",
   lastCompletedAt: null,
   nextRunAt: "2026-08-16T12:00:00.000Z",
+  latestImportId: null,
+  errorCode: null,
+};
+
+const readyProviderAgentOverview: ProviderPortfolioAgentOverview = {
+  version: 1,
+  provider: "tokenfolio",
+  status: "ready",
+  interval: "daily",
+  runStatus: null,
+  lastSeenAt: "2026-08-21T12:00:00.000Z",
+  lastCompletedAt: null,
+  nextRunAt: "2026-08-22T12:00:00.000Z",
   latestImportId: null,
   errorCode: null,
 };
@@ -341,6 +383,42 @@ function macAgentRepository(
     assertLease: vi.fn().mockResolvedValue(undefined),
     complete: vi.fn().mockResolvedValue(readyAgentOverview),
     fail: vi.fn().mockResolvedValue(readyAgentOverview),
+    ...overrides,
+  };
+}
+
+function providerAgentRepository(
+  overrides: Partial<ProviderPortfolioAgentRepository> = {},
+): ProviderPortfolioAgentRepository {
+  return {
+    getOverview: vi.fn().mockResolvedValue(readyProviderAgentOverview),
+    register: vi.fn().mockResolvedValue(readyProviderAgentOverview),
+    configure: vi.fn().mockResolvedValue(readyProviderAgentOverview),
+    requestRun: vi.fn().mockResolvedValue({
+      version: 1,
+      provider: "tokenfolio",
+      runId: "11111111-1111-4111-8111-111111111111",
+      status: "queued",
+    }),
+    lease: vi.fn().mockResolvedValue({
+      version: 1,
+      provider: "tokenfolio",
+      serverTime: "2026-08-21T12:00:00.000Z",
+      run: null,
+    }),
+    assertLease: vi.fn().mockResolvedValue(undefined),
+    complete: vi.fn().mockResolvedValue(readyProviderAgentOverview),
+    fail: vi.fn().mockResolvedValue(readyProviderAgentOverview),
+    ...overrides,
+  };
+}
+
+function macAgentCredentialRepository(
+  overrides: Partial<MacAgentCredentialRepository> = {},
+): MacAgentCredentialRepository {
+  return {
+    issueToken: vi.fn().mockResolvedValue(`keel_agent_v1_${"a".repeat(43)}`),
+    authenticate: vi.fn().mockResolvedValue("synthetic-access-subject"),
     ...overrides,
   };
 }
@@ -783,6 +861,145 @@ describe("Keel API", () => {
     );
   });
 
+  it.each(["tokenfolio", "sydecar"] as const)(
+    "stages a bounded %s template in private storage before review",
+    async (provider) => {
+      const providerPreview: HoldingImportPreview = {
+        ...holdingImportPreview,
+        id: `import_synthetic_${provider}`,
+        provider,
+        observedAt: "2026-08-20T00:00:00.000Z",
+      };
+      const stageHoldingImport = vi
+        .fn<AlphaRepository["stageHoldingImport"]>()
+        .mockResolvedValue({ created: true, preview: providerPreview });
+      const repository: AlphaRepository = {
+        getAlphaData: vi.fn(),
+        preparePortfolioWatchScan: vi.fn(),
+        stageHoldingImport,
+        getHoldingImport: vi.fn(),
+        listPendingHoldingImports: vi.fn(),
+        applyHoldingImport: vi.fn(),
+        saveGoal: vi.fn(),
+        saveScenario: vi.fn(),
+        createSignalUpdateProposal: vi.fn(),
+        reviewEvidence: vi.fn(),
+        applyEvidence: vi.fn(),
+      };
+      const put = vi.fn().mockResolvedValue({});
+      const remove = vi.fn().mockResolvedValue(undefined);
+      const env = testEnv("local");
+      env.DOCUMENTS = { put, delete: remove } as unknown as R2Bucket;
+      const template = syntheticProviderTemplateCsv(provider);
+      const formData = new FormData();
+      formData.set(
+        "file",
+        new File([template], `${provider}-holdings.csv`, { type: "text/csv" }),
+      );
+
+      const response = await createApp({ repository }).request(
+        `/api/holding-imports/${provider}`,
+        { method: "POST", body: formData },
+        env,
+      );
+
+      expect(response.status).toBe(201);
+      await expect(response.json()).resolves.toEqual(providerPreview);
+      expect(put).toHaveBeenCalledOnce();
+      expect(remove).not.toHaveBeenCalled();
+      expect(stageHoldingImport).toHaveBeenCalledWith(
+        "synthetic-access-subject",
+        expect.objectContaining({
+          provider,
+          effectiveDate: "2026-08-20",
+          byteSize: new TextEncoder().encode(template).byteLength,
+          canonicalScope: expect.objectContaining({
+            connection: expect.objectContaining({
+              adapterType: "manual",
+              institutionKey: provider,
+              mode: "ensure",
+            }),
+            containers: [expect.objectContaining({ completeness: "partial" })],
+          }),
+          rows: [
+            expect.objectContaining({
+              companyOrFund:
+                provider === "tokenfolio"
+                  ? "Synthetic Robotics"
+                  : "Example Climate Fund",
+              positionKind:
+                provider === "tokenfolio" ? "direct" : "spv_interest",
+            }),
+          ],
+        }),
+      );
+    },
+  );
+
+  it.each(["tokenfolio", "sydecar"] as const)(
+    "downloads the versioned %s template without caching it",
+    async (provider) => {
+      const response = await createApp().request(
+        `/api/holding-import-templates/${provider}`,
+        {},
+        testEnv("local"),
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+      expect(response.headers.get("Content-Disposition")).toBe(
+        `attachment; filename="${provider}-holdings.csv"`,
+      );
+      await expect(response.text()).resolves.toBe(
+        providerHoldingsTemplateCsv(provider),
+      );
+    },
+  );
+
+  it("rejects a provider template dated in the future before storage", async () => {
+    const repository = {
+      getAlphaData: vi.fn(),
+      preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport: vi.fn(),
+      getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
+      applyHoldingImport: vi.fn(),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    } satisfies AlphaRepository;
+    const put = vi.fn().mockResolvedValue({});
+    const env = testEnv("local");
+    env.DOCUMENTS = {
+      put,
+      delete: vi.fn().mockResolvedValue(undefined),
+    } as unknown as R2Bucket;
+    const formData = new FormData();
+    formData.set(
+      "file",
+      new File(
+        [syntheticProviderTemplateCsv("tokenfolio", "2099-01-01")],
+        "tokenfolio-holdings.csv",
+        { type: "text/csv" },
+      ),
+    );
+
+    const response = await createApp({ repository }).request(
+      "/api/holding-imports/tokenfolio",
+      { method: "POST", body: formData },
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Tokenfolio template As Of Date cannot be in the future.",
+    });
+    expect(put).not.toHaveBeenCalled();
+    expect(repository.stageHoldingImport).not.toHaveBeenCalled();
+  });
+
   it("lists only the authenticated household's pending holding imports", async () => {
     const pendingImports = [
       {
@@ -1207,6 +1424,122 @@ describe("Keel API", () => {
     expect(saveScenario).not.toHaveBeenCalled();
   });
 
+  it("issues a target-scoped Mac credential during one-time browser setup", async () => {
+    const register = vi
+      .fn<AngelListMacAgentRepository["register"]>()
+      .mockResolvedValue(readyAgentOverview);
+    const issueToken = vi
+      .fn<MacAgentCredentialRepository["issueToken"]>()
+      .mockResolvedValue(`keel_agent_v1_${"c".repeat(43)}`);
+    const app = createApp({
+      angelListMacAgentRepository: macAgentRepository({ register }),
+      macAgentCredentialRepository: macAgentCredentialRepository({
+        issueToken,
+      }),
+    });
+    const rejected = await app.request(
+      "/api/automation/angellist/mac-agent/authorize",
+      { method: "POST" },
+      testEnv("local"),
+    );
+    expect(rejected.status).toBe(403);
+    expect(register).not.toHaveBeenCalled();
+
+    const response = await app.request(
+      "/api/automation/angellist/mac-agent/authorize",
+      { method: "POST", headers: { "X-Keel-Mac-Setup": "1" } },
+      testEnv("local"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual({
+      version: 1,
+      target: "angellist",
+      apiOrigin: "http://localhost",
+      token: `keel_agent_v1_${"c".repeat(43)}`,
+    });
+    expect(register).toHaveBeenCalledWith("synthetic-access-subject");
+    expect(issueToken).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "angellist",
+    );
+  });
+
+  it("authenticates only exact machine routes on the dedicated agent origin", async () => {
+    const authenticate = vi
+      .fn<MacAgentCredentialRepository["authenticate"]>()
+      .mockResolvedValue("synthetic-access-subject");
+    const lease = vi
+      .fn<ProviderPortfolioAgentRepository["lease"]>()
+      .mockResolvedValue({
+        version: 1,
+        provider: "tokenfolio",
+        serverTime: "2026-08-21T12:00:00.000Z",
+        run: null,
+      });
+    const app = createApp({
+      macAgentCredentialRepository: macAgentCredentialRepository({
+        authenticate,
+      }),
+      providerPortfolioAgentRepository: providerAgentRepository({ lease }),
+    });
+    const token = `keel_agent_v1_${"d".repeat(43)}`;
+    const env = {
+      ...testEnv("preview"),
+      MAC_AGENT_API_ORIGIN: "https://keel-preview-agents.example.com",
+    };
+
+    const response = await app.request(
+      "https://keel-preview-agents.example.com/api/automation/provider-holdings/tokenfolio/mac-agent/lease",
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(authenticate).toHaveBeenCalledWith("tokenfolio", token);
+    expect(lease).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "tokenfolio",
+    );
+
+    const queued = await app.request(
+      "https://keel-preview-agents.example.com/api/automation/provider-holdings/tokenfolio/mac-agent/run",
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      env,
+    );
+    expect(queued.status).toBe(202);
+
+    const status = await app.request(
+      "https://keel-preview-agents.example.com/api/automation/provider-holdings/tokenfolio/status",
+      { headers: { Authorization: `Bearer ${token}` } },
+      env,
+    );
+    expect(status.status).toBe(401);
+    expect(authenticate).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a machine token sent through the user origin", async () => {
+    const authenticate = vi
+      .fn<MacAgentCredentialRepository["authenticate"]>()
+      .mockResolvedValue("synthetic-access-subject");
+    const token = `keel_agent_v1_${"e".repeat(43)}`;
+    const response = await createApp({
+      macAgentCredentialRepository: macAgentCredentialRepository({
+        authenticate,
+      }),
+    }).request(
+      "https://keel-preview.example.com/api/automation/angellist/mac-agent/lease",
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      {
+        ...testEnv("preview"),
+        MAC_AGENT_API_ORIGIN: "https://keel-preview-agents.example.com",
+      },
+    );
+
+    expect(response.status).toBe(404);
+    expect(authenticate).not.toHaveBeenCalled();
+  });
+
   it("returns Mac agent status and queues a phone request", async () => {
     const requestRun = vi
       .fn<AngelListMacAgentRepository["requestRun"]>()
@@ -1319,6 +1652,150 @@ describe("Keel API", () => {
       "11111111-1111-4111-8111-111111111111",
       leaseToken,
       holdingImportPreview.id,
+    );
+  });
+
+  it("keeps provider-agent status and update requests provider-scoped", async () => {
+    const requestRun = vi
+      .fn<ProviderPortfolioAgentRepository["requestRun"]>()
+      .mockResolvedValue({
+        version: 1,
+        provider: "sydecar",
+        runId: "22222222-2222-4222-8222-222222222222",
+        status: "queued",
+      });
+    const getOverview = vi
+      .fn<ProviderPortfolioAgentRepository["getOverview"]>()
+      .mockResolvedValue({
+        ...readyProviderAgentOverview,
+        provider: "sydecar",
+      });
+    const app = createApp({
+      providerPortfolioAgentRepository: providerAgentRepository({
+        getOverview,
+        requestRun,
+      }),
+    });
+
+    const status = await app.request(
+      "/api/automation/provider-holdings/sydecar/status",
+      undefined,
+      testEnv("local"),
+    );
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toMatchObject({
+      provider: "sydecar",
+      status: "ready",
+    });
+    expect(getOverview).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "sydecar",
+    );
+
+    const requested = await app.request(
+      "/api/automation/provider-holdings/sydecar/run",
+      { method: "POST" },
+      testEnv("local"),
+    );
+    expect(requested.status).toBe(202);
+    expect(requestRun).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "sydecar",
+    );
+
+    const unsupported = await app.request(
+      "/api/automation/provider-holdings/unknown/status",
+      undefined,
+      testEnv("local"),
+    );
+    expect(unsupported.status).toBe(404);
+  });
+
+  it("stages a leased provider capture for review before completing its run", async () => {
+    const tokenfolioPreview: HoldingImportPreview = {
+      ...holdingImportPreview,
+      id: "import_synthetic_tokenfolio",
+      provider: "tokenfolio",
+      rows: holdingImportPreview.rows.map((row) => ({
+        ...row,
+        administratorNavMinor: 180_025,
+      })),
+    };
+    const stageHoldingImport = vi
+      .fn<AlphaRepository["stageHoldingImport"]>()
+      .mockResolvedValue({ created: true, preview: tokenfolioPreview });
+    const repository: AlphaRepository = {
+      getAlphaData: vi.fn(),
+      preparePortfolioWatchScan: vi.fn(),
+      stageHoldingImport,
+      getHoldingImport: vi.fn(),
+      listPendingHoldingImports: vi.fn(),
+      applyHoldingImport: vi.fn(),
+      saveGoal: vi.fn(),
+      saveScenario: vi.fn(),
+      createSignalUpdateProposal: vi.fn(),
+      reviewEvidence: vi.fn(),
+      applyEvidence: vi.fn(),
+    };
+    const assertLease = vi
+      .fn<ProviderPortfolioAgentRepository["assertLease"]>()
+      .mockResolvedValue(undefined);
+    const complete = vi
+      .fn<ProviderPortfolioAgentRepository["complete"]>()
+      .mockResolvedValue({
+        ...readyProviderAgentOverview,
+        latestImportId: tokenfolioPreview.id,
+      });
+    const put = vi.fn().mockResolvedValue(undefined);
+    const env = {
+      ...testEnv("local"),
+      DOCUMENTS: { put } as unknown as R2Bucket,
+    };
+    const body = new FormData();
+    body.append(
+      "file",
+      new File(
+        [syntheticProviderTemplateCsv("tokenfolio")],
+        "keel-tokenfolio-capture-2026-08-21.csv",
+        { type: "text/csv" },
+      ),
+    );
+    const leaseToken = "b".repeat(43);
+    const runId = "33333333-3333-4333-8333-333333333333";
+
+    const response = await createApp({
+      providerPortfolioAgentRepository: providerAgentRepository({
+        assertLease,
+        complete,
+      }),
+      repository,
+    }).request(
+      `/api/automation/provider-holdings/tokenfolio/mac-agent/runs/${runId}/complete`,
+      {
+        method: "POST",
+        headers: { "X-Keel-Agent-Lease": leaseToken },
+        body,
+      },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(assertLease).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "tokenfolio",
+      runId,
+      leaseToken,
+    );
+    expect(stageHoldingImport).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      expect.objectContaining({ provider: "tokenfolio" }),
+    );
+    expect(complete).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "tokenfolio",
+      runId,
+      leaseToken,
+      tokenfolioPreview.id,
     );
   });
 });

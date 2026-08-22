@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
@@ -18,9 +19,17 @@ import {
   AngelListMacAgentLeaseSchema,
   AngelListMacAgentOverviewSchema,
   AngelListMacAgentRunRequestSchema,
+  MacAgentAuthorizationSchema,
   type AngelListMacAgentErrorCode,
   type AngelListMacAgentLease,
+  type MacAgentAuthorization,
 } from "../packages/domain/src/index";
+import {
+  MacAgentAccessError,
+  macAgentApi,
+  readMacAgentAuthorization,
+  storeMacAgentAuthorization,
+} from "./mac-agent-auth";
 import {
   chromium,
   type Browser,
@@ -41,6 +50,7 @@ const APP_DIRECTORY = path.join(
 );
 const PROFILE_DIRECTORY = path.join(APP_DIRECTORY, "Chrome");
 const DEVTOOLS_ACTIVE_PORT = path.join(PROFILE_DIRECTORY, "DevToolsActivePort");
+const CONFIG_PATH = path.join(APP_DIRECTORY, "config.json");
 const DOWNLOAD_DIRECTORY_PREFIX = path.join(APP_DIRECTORY, "Downloads-");
 const LAUNCH_AGENT_LABEL = "com.keel.angellist-agent";
 const LAUNCH_AGENT_PATH = path.join(
@@ -56,6 +66,34 @@ const SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
 const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
 const DOWNLOAD_TIMEOUT_MS = 60_000;
+const ANGELLIST_PORTFOLIO_PATH =
+  /^\/v\/[a-z0-9-]{1,128}\/i\/[a-z0-9-]{1,128}\/portfolio\/dashboard\/?$/iu;
+
+const AngelListPortfolioUrlSchema = z.url().transform((value, context) => {
+  const url = new URL(value);
+  if (
+    url.origin !== ANGELLIST_ORIGIN ||
+    url.username !== "" ||
+    url.password !== "" ||
+    (url.pathname !== "/" && !ANGELLIST_PORTFOLIO_PATH.test(url.pathname))
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "AngelList portfolio URL is not supported.",
+    });
+    return z.NEVER;
+  }
+  url.search = "";
+  url.hash = "";
+  return url.href;
+});
+
+const AngelListLocalConfigSchema = z
+  .object({
+    version: z.literal(1),
+    portfolioUrl: AngelListPortfolioUrlSchema,
+  })
+  .strict();
 
 type Command = "once" | "run" | "serve" | "setup";
 
@@ -291,6 +329,51 @@ function pageAtOrigin(context: BrowserContext, origin: string): Page | null {
   );
 }
 
+function parseAngelListPortfolioUrl(value: string): URL {
+  return new URL(AngelListPortfolioUrlSchema.parse(value));
+}
+
+async function readAngelListPortfolioUrl(): Promise<URL | null> {
+  try {
+    const config = AngelListLocalConfigSchema.parse(
+      JSON.parse(await readFile(CONFIG_PATH, "utf8")) as unknown,
+    );
+    return new URL(config.portfolioUrl);
+  } catch (error) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return null;
+    }
+    throw new AgentFailure("unexpected_failure");
+  }
+}
+
+async function writeAngelListPortfolioUrl(rawUrl: string): Promise<URL> {
+  const portfolioUrl = parseAngelListPortfolioUrl(rawUrl);
+  const config = AngelListLocalConfigSchema.parse({
+    version: 1,
+    portfolioUrl: portfolioUrl.href,
+  });
+  const temporaryPath = `${CONFIG_PATH}.${process.pid.toString()}.tmp`;
+  await mkdir(APP_DIRECTORY, { mode: 0o700, recursive: true });
+  await chmod(APP_DIRECTORY, 0o700);
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(config)}\n`, {
+      mode: 0o600,
+    });
+    await chmod(temporaryPath, 0o600);
+    await rename(temporaryPath, CONFIG_PATH);
+    await chmod(CONFIG_PATH, 0o600);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+  return portfolioUrl;
+}
+
 async function keelPage(
   context: BrowserContext,
   keelOrigin: URL,
@@ -305,13 +388,22 @@ async function keelPage(
   return page;
 }
 
-async function angelListPage(context: BrowserContext): Promise<Page> {
-  const page =
-    pageAtOrigin(context, ANGELLIST_ORIGIN) ?? (await context.newPage());
-  await page.goto(ANGELLIST_ORIGIN, {
-    timeout: 30_000,
-    waitUntil: "domcontentloaded",
-  });
+async function angelListPage(
+  context: BrowserContext,
+  portfolioUrl: URL | null = null,
+): Promise<Page> {
+  const existing = pageAtOrigin(context, ANGELLIST_ORIGIN);
+  const page = existing ?? (await context.newPage());
+  const targetUrl = portfolioUrl?.href ?? ANGELLIST_ORIGIN;
+  if (
+    existing === null ||
+    (portfolioUrl !== null && page.url() !== targetUrl)
+  ) {
+    await page.goto(targetUrl, {
+      timeout: 30_000,
+      waitUntil: "domcontentloaded",
+    });
+  }
   return page;
 }
 
@@ -342,10 +434,11 @@ async function waitForKeelSignIn(page: Page, keelOrigin: URL): Promise<void> {
   throw new Error("Keel sign-in was not completed within 30 minutes.");
 }
 
-async function waitForAngelListSignIn(page: Page): Promise<void> {
+async function waitForAngelListSignIn(page: Page): Promise<URL> {
   await page
     .getByRole("button", { exact: true, name: "Export CSV" })
     .waitFor({ state: "visible", timeout: SETUP_TIMEOUT_MS });
+  return writeAngelListPortfolioUrl(page.url());
 }
 
 type PageApiResult = {
@@ -353,70 +446,60 @@ type PageApiResult = {
   status: number;
 };
 
-async function pageApi(
-  page: Page,
-  pathName: string,
-  method: "POST" | "PUT" = "POST",
-  body?: unknown,
-  leaseToken?: string,
-): Promise<PageApiResult> {
-  return page.evaluate(
-    async ({ apiPath, apiMethod, apiBody, token }) => {
-      const request: RequestInit = {
-        method: apiMethod,
-        credentials: "same-origin",
-        headers: {
-          Accept: "application/json",
-          ...(apiBody === undefined
-            ? {}
-            : { "Content-Type": "application/json" }),
-          ...(token === undefined ? {} : { "X-Keel-Agent-Lease": token }),
-        },
-      };
-      if (apiBody !== undefined) {
-        request.body = JSON.stringify(apiBody);
-      }
-      const response = await fetch(apiPath, request);
-      return {
-        status: response.status,
-        body: await response.json().catch(() => null),
-      };
-    },
-    {
-      apiPath: pathName,
-      apiMethod: method,
-      apiBody: body,
-      token: leaseToken,
-    },
-  );
+async function pageApi(page: Page, pathName: string): Promise<PageApiResult> {
+  return page.evaluate(async (apiPath) => {
+    const response = await fetch(apiPath, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "X-Keel-Mac-Setup": "1",
+      },
+    });
+    return {
+      status: response.status,
+      body: await response.json().catch(() => null),
+    };
+  }, pathName);
 }
 
-async function register(page: Page): Promise<void> {
+async function authorize(page: Page): Promise<MacAgentAuthorization> {
   const response = await pageApi(
     page,
-    "/api/automation/angellist/mac-agent/register",
+    "/api/automation/angellist/mac-agent/authorize",
   );
   if (response.status !== 200) {
     throw new AgentFailure("keel_sign_in_required");
   }
-  AngelListMacAgentOverviewSchema.parse(response.body);
+  const authorization = MacAgentAuthorizationSchema.parse(response.body);
+  if (authorization.target !== "angellist") {
+    throw new AgentFailure("unexpected_failure");
+  }
+  return authorization;
 }
 
-async function lease(page: Page): Promise<AngelListMacAgentLease> {
-  const response = await pageApi(
-    page,
+async function lease(
+  authorization: MacAgentAuthorization,
+): Promise<AngelListMacAgentLease> {
+  const response = await macAgentApi(
+    authorization,
     "/api/automation/angellist/mac-agent/lease",
+    { method: "POST" },
   );
   if (response.status !== 200) {
-    throw new AgentFailure("keel_sign_in_required");
+    throw new AgentFailure("upload_failed");
   }
   return AngelListMacAgentLeaseSchema.parse(response.body);
 }
 
-async function requestRun(page: Page) {
-  const response = await pageApi(page, "/api/automation/angellist/run");
+async function requestRun(authorization: MacAgentAuthorization) {
+  const response = await macAgentApi(
+    authorization,
+    "/api/automation/angellist/mac-agent/run",
+    { method: "POST" },
+  );
   if (response.status !== 202) {
-    throw new AgentFailure("keel_sign_in_required");
+    throw new AgentFailure("upload_failed");
   }
   return AngelListMacAgentRunRequestSchema.parse(response.body);
 }
@@ -494,89 +577,62 @@ async function readCapturedDownload(
   });
 }
 
-function base64(bytes: Uint8Array): string {
-  let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary);
-}
-
 async function uploadCompletion(
-  page: Page,
+  authorization: MacAgentAuthorization,
   run: NonNullable<AngelListMacAgentLease["run"]>,
   filename: string,
   bytes: Uint8Array,
 ): Promise<void> {
-  const result = await page.evaluate(
-    async ({ runId, token, fileName, contents }) => {
-      const binary = atob(contents);
-      const fileBytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) {
-        fileBytes[index] = binary.charCodeAt(index);
-      }
-      const body = new FormData();
-      body.append(
-        "file",
-        new File([fileBytes], fileName, { type: "text/csv" }),
-      );
-      const response = await fetch(
-        `/api/automation/angellist/mac-agent/runs/${encodeURIComponent(runId)}/complete`,
-        {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            Accept: "application/json",
-            "X-Keel-Agent-Lease": token,
-          },
-          body,
-        },
-      );
-      return {
-        status: response.status,
-        body: await response.json().catch(() => null),
-      };
-    },
+  const body = new FormData();
+  body.append(
+    "file",
+    new Blob([Uint8Array.from(bytes)], { type: "text/csv" }),
+    filename,
+  );
+  const result = await macAgentApi(
+    authorization,
+    `/api/automation/angellist/mac-agent/runs/${encodeURIComponent(run.id)}/complete`,
     {
-      runId: run.id,
-      token: run.leaseToken,
-      fileName: filename,
-      contents: base64(bytes),
+      method: "POST",
+      headers: { "X-Keel-Agent-Lease": run.leaseToken },
+      body,
     },
   );
   if (result.status !== 200) {
-    throw new AgentFailure(
-      result.status === 401 || result.status === 403
-        ? "keel_sign_in_required"
-        : "upload_failed",
-    );
+    throw new AgentFailure("upload_failed");
   }
   AngelListMacAgentOverviewSchema.parse(result.body);
 }
 
 async function reportFailure(
-  page: Page,
+  authorization: MacAgentAuthorization,
   run: NonNullable<AngelListMacAgentLease["run"]>,
   code: AngelListMacAgentErrorCode,
 ): Promise<void> {
-  await pageApi(
-    page,
+  await macAgentApi(
+    authorization,
     `/api/automation/angellist/mac-agent/runs/${encodeURIComponent(run.id)}/fail`,
-    "POST",
-    { errorCode: code },
-    run.leaseToken,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Keel-Agent-Lease": run.leaseToken,
+      },
+      body: JSON.stringify({ errorCode: code }),
+    },
   ).catch(() => undefined);
 }
 
 async function executeRun(
   context: BrowserContext,
-  page: Page,
+  authorization: MacAgentAuthorization,
   run: NonNullable<AngelListMacAgentLease["run"]>,
 ): Promise<void> {
   let downloadDirectory: string | null = null;
   let downloadSession: CDPSession | null = null;
   try {
-    const target = await angelListPage(context);
+    const portfolioUrl = await readAngelListPortfolioUrl();
+    const target = await angelListPage(context, portfolioUrl);
     const exportButton = target.getByRole("button", {
       exact: true,
       name: "Export CSV",
@@ -589,6 +645,7 @@ async function executeRun(
       await target.bringToFront();
       throw new AgentFailure("angellist_sign_in_required");
     }
+    await writeAngelListPortfolioUrl(target.url());
     const browser = context.browser();
     if (browser === null) {
       throw new AgentFailure("download_failed");
@@ -612,11 +669,14 @@ async function executeRun(
     }
     const filename = validateFilename(download.suggestedFilename);
     const bytes = await readCapturedDownload(downloadDirectory, download.guid);
-    await uploadCompletion(page, run, filename, bytes);
+    await uploadCompletion(authorization, run, filename, bytes);
   } catch (error) {
+    if (error instanceof MacAgentAccessError) {
+      throw error;
+    }
     const code =
       error instanceof AgentFailure ? error.code : "unexpected_failure";
-    await reportFailure(page, run, code);
+    await reportFailure(authorization, run, code);
     throw error instanceof AgentFailure ? error : new AgentFailure(code);
   } finally {
     if (downloadSession !== null) {
@@ -635,13 +695,12 @@ async function pollOnce(
   context: BrowserContext,
   origin: URL,
 ): Promise<boolean> {
-  const page = await keelPage(context, origin);
-  await register(page);
-  const work = await lease(page);
+  const authorization = readMacAgentAuthorization(origin, "angellist");
+  const work = await lease(authorization);
   if (work.run === null) {
     return false;
   }
-  await executeRun(context, page, work.run);
+  await executeRun(context, authorization, work.run);
   return true;
 }
 
@@ -764,41 +823,41 @@ async function installLaunchAgent(keelOrigin: URL): Promise<void> {
 
 async function setup(keelOrigin: URL): Promise<void> {
   const context = await connectContext();
-  const keel = await keelPage(context, keelOrigin);
-  await keel.bringToFront();
-  console.info(
-    "Finish signing in to Keel in the dedicated Chrome window. Setup will continue automatically.",
-  );
-  await waitForKeelSignIn(keel, keelOrigin);
-
   const angellist = await angelListPage(context);
   await angellist.bringToFront();
   console.info(
     "Finish signing in to AngelList, including 2FA if requested. Setup will continue when Export CSV is visible.",
   );
   await waitForAngelListSignIn(angellist);
-  await register(keel);
+
+  const keel = await keelPage(context, keelOrigin);
+  await keel.bringToFront();
+  console.info(
+    "Sign in to Keel once to approve secure access for this Mac. Daily checks will not use your Keel browser session.",
+  );
+  await waitForKeelSignIn(keel, keelOrigin);
+  const authorization = await authorize(keel);
+  storeMacAgentAuthorization(keelOrigin, authorization);
   await installLaunchAgent(keelOrigin);
   console.info(
-    `AngelList updates are ready. Keel will check once daily. Run pnpm angellist:run -- --keel-url ${keelOrigin.origin} for an immediate local update.`,
+    `AngelList updates are ready. The credential is in macOS Keychain, and Keel will check once daily without another Keel sign-in. Run make provider-agent-run PROVIDER=angellist KEEL_URL=${keelOrigin.origin} for an immediate local update.`,
   );
 }
 
 async function runLocally(keelOrigin: URL): Promise<void> {
   const context = await connectContext();
-  const page = await keelPage(context, keelOrigin);
-  await register(page);
-  const requested = await requestRun(page);
+  const authorization = readMacAgentAuthorization(keelOrigin, "angellist");
+  const requested = await requestRun(authorization);
   if (requested.status === "running") {
     console.info("An AngelList update is already in progress.");
     return;
   }
-  const work = await lease(page);
+  const work = await lease(authorization);
   if (work.run === null) {
     console.info("The AngelList update is queued for another agent check.");
     return;
   }
-  await executeRun(context, page, work.run);
+  await executeRun(context, authorization, work.run);
   console.info("AngelList CSV uploaded to Keel and ready for review.");
 }
 
@@ -820,7 +879,11 @@ async function serve(
       await pollOnce(context, keelOrigin);
     } catch (error) {
       const code =
-        error instanceof AgentFailure ? error.code : "unexpected_failure";
+        error instanceof MacAgentAccessError
+          ? "mac_access_required"
+          : error instanceof AgentFailure
+            ? error.code
+            : "unexpected_failure";
       console.error(
         JSON.stringify({ event: "angellist_agent_poll_failed", code }),
       );
@@ -846,11 +909,13 @@ async function main(): Promise<void> {
 }
 
 export const __angellistMacAgentTest = {
+  angelListPage,
   buildLaunchAgentPlist,
   captureNextDownload,
   configureDownloads,
   connectContext,
   parseOptions,
+  parseAngelListPortfolioUrl,
   readDownload,
   resetDownloads,
   validateFilename,
@@ -866,11 +931,13 @@ if (
   void main().then(
     () => process.exit(0),
     (error: unknown) => {
-      console.error(
-        error instanceof Error
-          ? error.message
-          : "AngelList Mac setup could not complete.",
-      );
+      const code =
+        error instanceof MacAgentAccessError
+          ? "mac_access_required"
+          : error instanceof AgentFailure
+            ? error.code
+            : "unexpected_failure";
+      console.error(JSON.stringify({ event: "angellist_agent_failed", code }));
       process.exit(1);
     },
   );

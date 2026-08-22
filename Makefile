@@ -12,7 +12,7 @@ WRANGLER_LOG_PATH ?= $(CURDIR)/.wrangler/logs/wrangler.log
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean angellist-setup angellist-run e2e verify
+.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify
 
 help:
 	@echo "Keel developer commands"
@@ -33,8 +33,8 @@ help:
 	@echo "  make local-acceptance-apply   Apply a runtime-only real-company source profile to local D1"
 	@echo "  make local-acceptance-dev     Start the disposable real-company local profile"
 	@echo "  make local-acceptance-restore Remove the disposable real-company local state"
-	@echo "  make angellist-setup KEEL_URL=https://...   Install the Mac update agent"
-	@echo "  make angellist-run KEEL_URL=https://...     Download and stage an update now"
+	@echo "  make provider-agent-setup PROVIDER=angellist|tokenfolio|sydecar KEEL_URL=https://..."
+	@echo "  make provider-agent-run PROVIDER=angellist|tokenfolio|sydecar KEEL_URL=https://..."
 	@echo "  make e2e           Run browser tests (optional E2E_ARGS=...)"
 
 bootstrap:
@@ -116,14 +116,23 @@ local-acceptance-restore:
 local-acceptance-clean:
 	$(PNPM) local:acceptance:clean
 
-angellist-setup:
+provider-agent-setup:
+	@test -n "$(PROVIDER)" || { echo "PROVIDER is required."; exit 2; }
 	@test -n "$(KEEL_URL)" || { echo "KEEL_URL is required."; exit 2; }
-	$(PNPM) angellist:setup -- --keel-url "$(KEEL_URL)"
+	@case "$(PROVIDER)" in \
+		angellist) $(PNPM) angellist:setup -- --keel-url "$(KEEL_URL)" ;; \
+		tokenfolio|sydecar) $(PNPM) provider:setup -- --provider "$(PROVIDER)" --keel-url "$(KEEL_URL)" ;; \
+		*) echo "PROVIDER must be angellist, tokenfolio, or sydecar."; exit 2 ;; \
+	esac
 
-angellist-run:
+provider-agent-run:
+	@test -n "$(PROVIDER)" || { echo "PROVIDER is required."; exit 2; }
 	@test -n "$(KEEL_URL)" || { echo "KEEL_URL is required."; exit 2; }
-	$(PNPM) angellist:run -- --keel-url "$(KEEL_URL)"
-
+	@case "$(PROVIDER)" in \
+		angellist) $(PNPM) angellist:run -- --keel-url "$(KEEL_URL)" ;; \
+		tokenfolio|sydecar) $(PNPM) provider:run -- --provider "$(PROVIDER)" --keel-url "$(KEEL_URL)" ;; \
+		*) echo "PROVIDER must be angellist, tokenfolio, or sydecar."; exit 2 ;; \
+	esac
 e2e:
 	$(MAKE) db-reset
 	$(PNPM) test:e2e $(E2E_ARGS)

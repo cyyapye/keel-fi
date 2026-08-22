@@ -175,7 +175,12 @@ export class D1AngelListMacAgentRepository implements AngelListMacAgentRepositor
         this.db
           .prepare(
             `UPDATE angellist_mac_agents
-             SET last_seen_at = ?, updated_at = ?
+             SET last_seen_at = ?,
+               last_error_code = CASE
+                 WHEN last_error_code = 'keel_sign_in_required' THEN NULL
+                 ELSE last_error_code
+               END,
+               updated_at = ?
              WHERE id = ? AND household_id = ?`,
           )
           .bind(timestamp, timestamp, existing.id, identity.household_id),

@@ -10,6 +10,9 @@ import {
   plaidInvestmentsPositionKey,
   plaidInvestmentsProviderSecurityExposureKey,
   plaidInvestmentsSourceKey,
+  providerTemplateInvestmentsSourceKey,
+  providerTemplateOwnershipContainerKey,
+  providerTemplatePositionKey,
 } from "./investment-identity";
 import type { Env } from "./types";
 
@@ -163,6 +166,61 @@ describe("protected investment identity", () => {
     for (const key of [source, firstContainer, position]) {
       expect(key).toMatch(/^[a-f0-9]{64}$/u);
     }
+  });
+
+  it("keeps identical template positions scoped to their provider", async () => {
+    const [tokenfolioSource, sydecarSource] = await Promise.all([
+      providerTemplateInvestmentsSourceKey(
+        env,
+        "synthetic-access-subject",
+        "tokenfolio",
+      ),
+      providerTemplateInvestmentsSourceKey(
+        env,
+        "synthetic-access-subject",
+        "sydecar",
+      ),
+    ]);
+    const [tokenfolioContainer, sydecarContainer] = await Promise.all([
+      providerTemplateOwnershipContainerKey(
+        env,
+        tokenfolioSource,
+        "Synthetic Family Trust",
+        "tokenfolio",
+      ),
+      providerTemplateOwnershipContainerKey(
+        env,
+        sydecarSource,
+        "Synthetic Family Trust",
+        "sydecar",
+      ),
+    ]);
+    const [tokenfolioPosition, sydecarPosition] = await Promise.all([
+      providerTemplatePositionKey(
+        env,
+        tokenfolioContainer,
+        "a".repeat(64),
+        "tokenfolio",
+      ),
+      providerTemplatePositionKey(
+        env,
+        sydecarContainer,
+        "a".repeat(64),
+        "sydecar",
+      ),
+    ]);
+
+    expect(tokenfolioSource).not.toBe(sydecarSource);
+    expect(tokenfolioContainer).not.toBe(sydecarContainer);
+    expect(tokenfolioPosition).not.toBe(sydecarPosition);
+    await expect(
+      providerTemplateOwnershipContainerKey(
+        env,
+        tokenfolioSource,
+        "  synthetic family trust  ",
+        "tokenfolio",
+      ),
+    ).resolves.toBe(tokenfolioContainer);
   });
 
   it("fails closed on malformed secrets, parents, and raw identifiers", async () => {

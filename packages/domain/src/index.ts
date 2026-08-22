@@ -940,6 +940,8 @@ export const PrivateExposureExactBatchResultSchema = z
 
 export const HoldingImportProviderSchema = z.enum([
   "angellist",
+  "tokenfolio",
+  "sydecar",
   "plaid_investments",
 ]);
 
@@ -1167,6 +1169,120 @@ export const AngelListMacAgentLeaseSchema = z
 export const AngelListMacAgentFailureInputSchema = z
   .object({
     errorCode: AngelListMacAgentErrorCodeSchema,
+  })
+  .strict();
+
+export const MacAgentTargetSchema = z.enum([
+  "angellist",
+  "tokenfolio",
+  "sydecar",
+]);
+
+export const MacAgentTokenSchema = z
+  .string()
+  .regex(/^keel_agent_v1_[A-Za-z0-9_-]{43}$/u);
+
+export const MacAgentApiOriginSchema = z.url().transform((value, context) => {
+  const url = new URL(value);
+  const localHttp =
+    url.protocol === "http:" &&
+    ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+  if (
+    (!localHttp && url.protocol !== "https:") ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Mac agent API URL must be a secure origin.",
+    });
+    return z.NEVER;
+  }
+  return url.origin;
+});
+
+export const MacAgentAuthorizationSchema = z
+  .object({
+    version: z.literal(1),
+    target: MacAgentTargetSchema,
+    apiOrigin: MacAgentApiOriginSchema,
+    token: MacAgentTokenSchema,
+  })
+  .strict();
+
+export const ProviderPortfolioAgentProviderSchema = z.enum([
+  "tokenfolio",
+  "sydecar",
+]);
+
+export const ProviderPortfolioAgentErrorCodeSchema = z.enum([
+  "provider_sign_in_required",
+  "page_not_supported",
+  "incomplete_snapshot",
+  "identity_ambiguous",
+  "keel_sign_in_required",
+  "upload_failed",
+  "unexpected_failure",
+]);
+
+export const ProviderPortfolioAgentOverviewSchema = z
+  .object({
+    version: z.literal(1),
+    provider: ProviderPortfolioAgentProviderSchema,
+    status: z.enum([
+      "setup_required",
+      "offline",
+      "ready",
+      "running",
+      "needs_attention",
+    ]),
+    interval: AngelListMacAgentIntervalSchema,
+    runStatus: z.enum(["queued", "running"]).nullable(),
+    lastSeenAt: IsoTimestampSchema.nullable(),
+    lastCompletedAt: IsoTimestampSchema.nullable(),
+    nextRunAt: IsoTimestampSchema.nullable(),
+    latestImportId: z.string().min(1).nullable(),
+    errorCode: ProviderPortfolioAgentErrorCodeSchema.nullable(),
+  })
+  .strict();
+
+export const ProviderPortfolioAgentConfigInputSchema = z
+  .object({
+    interval: AngelListMacAgentIntervalSchema,
+  })
+  .strict();
+
+export const ProviderPortfolioAgentRunRequestSchema = z
+  .object({
+    version: z.literal(1),
+    provider: ProviderPortfolioAgentProviderSchema,
+    runId: z.uuid(),
+    status: z.enum(["queued", "running"]),
+  })
+  .strict();
+
+export const ProviderPortfolioAgentLeaseSchema = z
+  .object({
+    version: z.literal(1),
+    provider: ProviderPortfolioAgentProviderSchema,
+    serverTime: IsoTimestampSchema,
+    run: z
+      .object({
+        id: z.uuid(),
+        leaseToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+        expiresAt: IsoTimestampSchema,
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+export const ProviderPortfolioAgentFailureInputSchema = z
+  .object({
+    errorCode: ProviderPortfolioAgentErrorCodeSchema,
   })
   .strict();
 
@@ -3586,6 +3702,31 @@ export type AngelListMacAgentOverview = z.infer<
 >;
 export type AngelListMacAgentRunRequest = z.infer<
   typeof AngelListMacAgentRunRequestSchema
+>;
+export type MacAgentApiOrigin = z.infer<typeof MacAgentApiOriginSchema>;
+export type MacAgentAuthorization = z.infer<typeof MacAgentAuthorizationSchema>;
+export type MacAgentTarget = z.infer<typeof MacAgentTargetSchema>;
+export type MacAgentToken = z.infer<typeof MacAgentTokenSchema>;
+export type ProviderPortfolioAgentConfigInput = z.infer<
+  typeof ProviderPortfolioAgentConfigInputSchema
+>;
+export type ProviderPortfolioAgentErrorCode = z.infer<
+  typeof ProviderPortfolioAgentErrorCodeSchema
+>;
+export type ProviderPortfolioAgentFailureInput = z.infer<
+  typeof ProviderPortfolioAgentFailureInputSchema
+>;
+export type ProviderPortfolioAgentLease = z.infer<
+  typeof ProviderPortfolioAgentLeaseSchema
+>;
+export type ProviderPortfolioAgentOverview = z.infer<
+  typeof ProviderPortfolioAgentOverviewSchema
+>;
+export type ProviderPortfolioAgentProvider = z.infer<
+  typeof ProviderPortfolioAgentProviderSchema
+>;
+export type ProviderPortfolioAgentRunRequest = z.infer<
+  typeof ProviderPortfolioAgentRunRequestSchema
 >;
 export type AngelListSignInRefresh = z.infer<
   typeof AngelListSignInRefreshSchema

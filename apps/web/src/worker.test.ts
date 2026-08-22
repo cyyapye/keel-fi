@@ -90,6 +90,57 @@ describe("web Worker routing", () => {
     ).toMatchObject({ status: 404 });
   });
 
+  it("exposes only scoped POST routes on the Mac agent host", async () => {
+    const testBindings = bindings();
+    const agentBindings = {
+      ...testBindings.value,
+      MAC_AGENT_API_HOST: "keel-preview-agents.example.com",
+    };
+    const routes = [
+      "/api/automation/angellist/mac-agent/lease",
+      "/api/automation/angellist/mac-agent/run",
+      "/api/automation/angellist/mac-agent/runs/11111111-1111-4111-8111-111111111111/complete",
+      "/api/automation/provider-holdings/tokenfolio/mac-agent/lease",
+      "/api/automation/provider-holdings/sydecar/mac-agent/runs/22222222-2222-4222-8222-222222222222/fail",
+    ];
+
+    for (const route of routes) {
+      const response = await handleRequest(
+        new Request(`https://keel-preview-agents.example.com${route}`, {
+          method: "POST",
+        }),
+        agentBindings,
+      );
+      expect(await response.text()).toBe("api");
+    }
+    await expect(
+      handleRequest(
+        new Request(
+          "https://keel-preview-agents.example.com/api/automation/angellist/status",
+        ),
+        agentBindings,
+      ),
+    ).resolves.toMatchObject({ status: 404 });
+    await expect(
+      handleRequest(
+        new Request(
+          "https://keel-preview-agents.example.com/api/automation/angellist/mac-agent/lease",
+          { method: "GET" },
+        ),
+        agentBindings,
+      ),
+    ).resolves.toMatchObject({ status: 404 });
+    await expect(
+      handleRequest(
+        new Request(
+          "https://keel-preview-agents.example.com/api/automation/provider-holdings/tokenfolio/mac-agent/authorize",
+          { method: "POST" },
+        ),
+        agentBindings,
+      ),
+    ).resolves.toMatchObject({ status: 404 });
+  });
+
   it("identifies the exact web deployment on the health response", async () => {
     const testBindings = bindings();
     const request = new Request("https://keel-preview.example.com/health");

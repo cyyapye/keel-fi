@@ -1,0 +1,113 @@
+# Tokenfolio and Sydecar Mac portfolio agents
+
+Keel can read an authorized Tokenfolio or Sydecar investor portfolio from a
+dedicated Chrome profile on the user's Mac. This path is intended for providers
+that do not offer a supported investor API or holding export.
+
+Each provider uses a separate Chrome profile and macOS LaunchAgent:
+
+| Provider   | LaunchAgent label           | Local Chrome profile |
+| ---------- | --------------------------- | -------------------- |
+| Tokenfolio | `com.keel.tokenfolio-agent` | Tokenfolio Agent     |
+| Sydecar    | `com.keel.sydecar-agent`    | Sydecar Agent        |
+
+Provider credentials remain in those local Chrome profiles. The agent does not
+read cookies or passwords. A one-time Keel sign-in authorizes an opaque,
+provider-scoped credential stored in macOS Keychain; D1 stores only its SHA-256
+digest. Daily checks submit directly to the dedicated agent API hostname and do
+not reuse the Keel browser session. The CSV exists only in memory and is
+discarded when the process exits.
+
+An update only creates a pending holding import. It never applies a holding,
+removes a missing position, or changes a forecast without review.
+
+## One-time setup
+
+Run setup from the stable checkout used by the LaunchAgent:
+
+```sh
+make provider-agent-setup PROVIDER=tokenfolio KEEL_URL=https://keel.example.com
+make provider-agent-setup PROVIDER=sydecar KEEL_URL=https://keel.example.com
+```
+
+Each command opens a dedicated Chrome window. Complete the provider sign-in,
+including 2FA, then sign in to Keel once to approve that Mac. Setup rotates the
+provider-scoped credential in Keychain and installs a daily macOS check. Rerun
+setup after moving the checkout, changing Node or pnpm, when provider sign-in
+expires, or when Holdings reports that Mac access needs renewal.
+
+Request an immediate local update with:
+
+```sh
+make provider-agent-run PROVIDER=tokenfolio KEEL_URL=https://keel.example.com
+make provider-agent-run PROVIDER=sydecar KEEL_URL=https://keel.example.com
+```
+
+The Holdings screen can set the import interval to daily, weekly, or off. The
+LaunchAgent still wakes once per day to report health and pick up queued work.
+
+## Capture contracts
+
+The agent fails closed if a provider page changes, a visible count changes
+during capture, a required field is missing, money cannot be parsed as exact
+integer cents, or two positions produce the same identity.
+
+### Tokenfolio
+
+- Reads the `Active Holdings` tab only.
+- Requires the tab count to equal the visible holding rows before and after the
+  capture.
+- Opens every row and requires the company, committed amount, and current value
+  to reconcile with its detail drawer.
+- Uses the detail `Entity` and `Committed On` fields for ownership and date.
+- Treats the active holding's committed amount as funded and committed capital.
+- Keeps a missing current value as `not_reported`; it never substitutes zero.
+- Creates a provider-scoped identity from company, entity, and committed date.
+
+[Tokenfolio describes its model](https://www.tokenfolio.co/faqs) as grouping
+investors into an investing vehicle and managing the investment over its
+lifetime. Keel therefore labels these as private vehicle interests without
+claiming the exact legal vehicle name.
+
+### Sydecar
+
+- Reads only the visible desktop investments table after its row count is stable
+  across multiple passes.
+- Opens every funded row and requires its stable detail URL, title, commitment,
+  and funded amount to reconcile with the list.
+- Uses the `Initial investment` activity date.
+- Maps `Closed` and `Participating In` to a live Keel position. A closed Sydecar
+  vehicle is funded; it is not evidence that the investor realized the asset.
+- Leaves current value `not_reported` because the investor page does not provide
+  one.
+- Uses the provider position identifier for collision detection without writing
+  it to logs.
+
+## Operational state
+
+D1 stores only the household-scoped provider, interval, heartbeat, leases,
+completion timestamps, pending import identifier, bounded error code, and
+device-token digest. Issuing a replacement token revokes the prior token. Run
+and credential history cannot be deleted or reassigned to another household or
+provider.
+
+The agent logs only its provider and bounded failure code. It must not log page
+text, provider identifiers, holdings, entities, dates, or amounts.
+
+The Holdings screen distinguishes:
+
+- setup required;
+- ready or working;
+- queued or running;
+- Mac check overdue;
+- provider sign-in expired or Mac access needs renewal;
+- provider page changed;
+- incomplete snapshot;
+- ambiguous position identity; and
+- upload or unexpected failure.
+
+Any failure leaves accepted holdings unchanged and exposes a repair action.
+
+The device token can only queue, lease, fail, or complete a run for its exact
+provider. It cannot read holdings, configure the schedule, authorize another
+device, review an import, or apply a change.

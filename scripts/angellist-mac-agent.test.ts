@@ -21,6 +21,67 @@ describe("AngelList Mac agent boundaries", () => {
     });
   });
 
+  it("accepts an account-scoped portfolio dashboard without retaining URL extras", () => {
+    expect(
+      __angellistMacAgentTest.parseAngelListPortfolioUrl(
+        "https://venture.angellist.com/v/synthetic-venture/i/synthetic-investor/portfolio/dashboard?source=test#holdings",
+      ).href,
+    ).toBe(
+      "https://venture.angellist.com/v/synthetic-venture/i/synthetic-investor/portfolio/dashboard",
+    );
+    expect(() =>
+      __angellistMacAgentTest.parseAngelListPortfolioUrl(
+        "https://example.com/v/synthetic-venture/i/synthetic-investor/portfolio/dashboard",
+      ),
+    ).toThrow();
+    expect(() =>
+      __angellistMacAgentTest.parseAngelListPortfolioUrl(
+        "https://venture.angellist.com/v/synthetic-venture/i/synthetic-investor/settings",
+      ),
+    ).toThrow();
+  });
+
+  it("preserves the signed-in dashboard during setup", async () => {
+    const goto = vi.fn();
+    const page = {
+      goto,
+      url: () =>
+        "https://venture.angellist.com/v/synthetic-venture/i/synthetic-investor/portfolio/dashboard",
+    };
+    const context = {
+      newPage: vi.fn(),
+      pages: () => [page],
+    } as unknown as Parameters<typeof __angellistMacAgentTest.angelListPage>[0];
+
+    await expect(__angellistMacAgentTest.angelListPage(context)).resolves.toBe(
+      page,
+    );
+    expect(goto).not.toHaveBeenCalled();
+  });
+
+  it("returns to the locally captured dashboard for a daily run", async () => {
+    const goto = vi.fn().mockResolvedValue(undefined);
+    const page = {
+      goto,
+      url: () => "https://venture.angellist.com/",
+    };
+    const context = {
+      newPage: vi.fn(),
+      pages: () => [page],
+    } as unknown as Parameters<typeof __angellistMacAgentTest.angelListPage>[0];
+    const portfolioUrl = new URL(
+      "https://venture.angellist.com/v/synthetic-venture/i/synthetic-investor/portfolio/dashboard",
+    );
+
+    await expect(
+      __angellistMacAgentTest.angelListPage(context, portfolioUrl),
+    ).resolves.toBe(page);
+    expect(goto).toHaveBeenCalledWith(portfolioUrl.href, {
+      timeout: 30_000,
+      waitUntil: "domcontentloaded",
+    });
+  });
+
   it("enables browser-level downloads without a browser context id", async () => {
     const send = vi.fn().mockResolvedValue({});
     const session = {

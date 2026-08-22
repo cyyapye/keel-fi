@@ -118,6 +118,28 @@ test.beforeEach(async ({ page }) => {
       },
     });
   });
+  await page.route(
+    "**/api/automation/provider-holdings/*/status",
+    async (route) => {
+      const provider = new URL(route.request().url()).pathname
+        .split("/")
+        .at(-2);
+      await route.fulfill({
+        json: {
+          version: 1,
+          provider,
+          status: "setup_required",
+          interval: "daily",
+          runStatus: null,
+          lastSeenAt: null,
+          lastCompletedAt: null,
+          nextRunAt: null,
+          latestImportId: null,
+          errorCode: null,
+        },
+      });
+    },
+  );
 });
 
 const alphaFixture = {
@@ -257,6 +279,57 @@ const importPreview = {
   rows: previewRows,
 };
 
+const tokenfolioImportPreview = {
+  id: "holding_import_synthetic_tokenfolio",
+  provider: "tokenfolio",
+  status: "pending_review",
+  observedAt: "2026-08-20T00:00:00.000Z",
+  summary: {
+    rowCount: 2,
+    administratorValueCount: 1,
+    lockedValueCount: 0,
+    createCount: 2,
+    updateCount: 0,
+    unchangedCount: 0,
+    needsAttentionCount: 0,
+    autoAppliedCount: 0,
+    quarantinedCount: 0,
+    preservedPositionCount: 0,
+  },
+  rows: [
+    {
+      id: "tokenfolio_row_1",
+      sourceRowNumber: 3,
+      positionName: "Synthetic Robotics direct shares",
+      exposureName: "Synthetic Robotics",
+      ownerLabel: "Synthetic Family Trust",
+      providerStatus: "Live",
+      investedOn: "2025-02-01",
+      investedMinor: 125_000,
+      administratorNavMinor: 180_025,
+      administratorNavState: "reported",
+      realizedValueMinor: 0,
+      action: "create_position",
+      issues: [],
+    },
+    {
+      id: "tokenfolio_row_2",
+      sourceRowNumber: 4,
+      positionName: "Example Climate Fund SPV I",
+      exposureName: "Example Climate Fund",
+      ownerLabel: "Synthetic Investment Profile",
+      providerStatus: "Live",
+      investedOn: "2025-04-12",
+      investedMinor: 500_000,
+      administratorNavMinor: null,
+      administratorNavState: "not_reported",
+      realizedValueMinor: 0,
+      action: "create_position",
+      issues: [],
+    },
+  ],
+};
+
 const robinhoodImportPreview = {
   id: "holding_import_synthetic_robinhood",
   provider: "plaid_investments",
@@ -346,6 +419,198 @@ const robinhoodImportPreview = {
     },
   ],
 };
+
+test("imports Tokenfolio and Sydecar through provider-specific Keel templates", async ({
+  page,
+}) => {
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route(/\/api\/holding-imports$/, async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "ready",
+        interval: "weekly",
+        runStatus: null,
+        lastSeenAt: "2026-08-20T16:00:00.000Z",
+        lastCompletedAt: "2026-08-20T16:00:00.000Z",
+        nextRunAt: "2026-08-27T16:00:00.000Z",
+        latestImportId: null,
+        errorCode: null,
+      },
+    });
+  });
+  await page.route("**/api/holding-imports/tokenfolio", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({ json: tokenfolioImportPreview, status: 201 });
+  });
+
+  await page.goto("/holdings");
+  await page.getByRole("button", { name: "Import holdings" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Import holdings" }),
+  ).toBeFocused();
+
+  const source = page.getByLabel("Source");
+  await source.selectOption("sydecar");
+  await expect(
+    page.getByRole("link", { name: "Download Sydecar template" }),
+  ).toHaveAttribute("href", "/api/holding-import-templates/sydecar");
+  await source.selectOption("tokenfolio");
+  await expect(
+    page.getByRole("link", { name: "Download Tokenfolio template" }),
+  ).toHaveAttribute("href", "/api/holding-import-templates/tokenfolio");
+  await expect(
+    page.getByText(/Enter funded capital as Invested/),
+  ).toBeVisible();
+
+  const viewportWidths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(viewportWidths.scroll).toBe(viewportWidths.client);
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-import-tokenfolio-template.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  await page.getByLabel("Tokenfolio template").setInputFiles({
+    name: "tokenfolio-holdings.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      "Keel Tokenfolio holdings template v1\nInvestment,Legal Position,Position Type,Held Through,Status,Investment Date,As Of Date,Invested USD,Committed USD,Current Value USD,Realized Value USD,Instrument\nSynthetic Robotics,Synthetic Robotics direct shares,Direct,Synthetic Family Trust,Live,2025-02-01,2026-08-20,$1250.00,,$1800.25,,Common stock\n",
+    ),
+  });
+  await page.getByRole("button", { name: "Review file" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Review Tokenfolio import" }),
+  ).toBeFocused();
+  const summary = page.getByLabel("Import summary");
+  await expect(summary).toContainText("2Positions");
+  await expect(summary).toContainText("1Current values");
+  await expect(summary).toContainText("1Unavailable values");
+  await expect(page.getByText("Not reported")).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "I confirm the template’s $ values are USD.",
+    }),
+  ).toBeVisible();
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-import-tokenfolio-review.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+});
+
+test("uses one setup command interface for every local portfolio agent", async ({
+  page,
+}) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "setup_required",
+        interval: "daily",
+        runStatus: null,
+        lastSeenAt: null,
+        lastCompletedAt: null,
+        nextRunAt: null,
+        latestImportId: null,
+        errorCode: null,
+      },
+    });
+  });
+
+  await page.goto("/holdings");
+  const keelOrigin = new URL(page.url()).origin;
+  const expectedCommands = ["angellist", "tokenfolio", "sydecar"].map(
+    (provider) =>
+      `make provider-agent-setup PROVIDER=${provider} KEEL_URL=${keelOrigin}`,
+  );
+
+  await expect(
+    page.getByRole("button", { name: "Copy setup command" }),
+  ).toHaveCount(3);
+  await expect(page.getByText("Set up on this Mac")).toHaveCount(0);
+  await expect(page.locator("code")).toHaveCount(0);
+
+  const viewportWidths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(viewportWidths.scroll).toBe(viewportWidths.client);
+
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-provider-agent-setup.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  const copyButtons = page.getByRole("button", { name: "Copy setup command" });
+  for (const [index, expectedCommand] of expectedCommands.entries()) {
+    await copyButtons.nth(index).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      expectedCommand,
+    );
+  }
+  await expect(page.getByText("Copied. Paste in Terminal.")).toHaveCount(3);
+
+  const providerRows = page.locator(".provider-agent-row");
+  for (const index of [0, 1]) {
+    const buttonBox = await providerRows
+      .nth(index)
+      .getByRole("button")
+      .boundingBox();
+    const noticeBox = await providerRows
+      .nth(index)
+      .getByText("Copied. Paste in Terminal.")
+      .boundingBox();
+    expect(buttonBox).not.toBeNull();
+    expect(noticeBox).not.toBeNull();
+    expect(Math.abs((buttonBox?.x ?? 0) - (noticeBox?.x ?? 0))).toBeLessThan(1);
+  }
+});
 
 test("reviews a scheduled AngelList export from a persistent phone-safe route", async ({
   page,
@@ -938,13 +1203,14 @@ test("requests a Mac AngelList update from the phone-safe Holdings flow", async 
 
   await page.goto("/holdings");
   await expect(
-    page.getByRole("heading", { name: "AngelList updates are ready" }),
+    page.getByRole("heading", { name: "AngelList is working" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Automatic updates")).toHaveValue("weekly");
+  const intervalSelect = page
+    .locator(".angellist-agent")
+    .getByRole("combobox", { name: "Automatic updates" });
+  await expect(intervalSelect).toHaveText("Weekly");
   await expect(
-    page.getByText(
-      "Your Mac checks daily. Exports follow the interval below. Every CSV still waits for your review.",
-    ),
+    page.getByText("New exports follow your schedule and wait for review."),
   ).toBeVisible();
 
   const viewportWidths = await page.evaluate(() => ({
@@ -971,7 +1237,8 @@ test("requests a Mac AngelList update from the phone-safe Holdings flow", async 
     },
   );
 
-  await page.getByLabel("Automatic updates").selectOption("daily");
+  await intervalSelect.click();
+  await page.getByRole("option", { name: "Daily" }).click();
   await expect(page.getByText("AngelList will update daily.")).toBeVisible();
   expect(intervalUpdates).toEqual([{ interval: "daily" }]);
 
@@ -985,6 +1252,108 @@ test("requests a Mac AngelList update from the phone-safe Holdings flow", async 
   await expect(
     page.getByRole("button", { name: "Update queued" }),
   ).toBeDisabled();
+});
+
+test("shows clear health and repair actions for local portfolio agents", async ({
+  page,
+}) => {
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "needs_attention",
+        interval: "daily",
+        runStatus: null,
+        lastSeenAt: "2026-08-21T12:00:00.000Z",
+        lastCompletedAt: "2026-08-20T12:00:00.000Z",
+        nextRunAt: "2026-08-22T12:00:00.000Z",
+        latestImportId: "import_synthetic_angellist",
+        errorCode: "keel_sign_in_required",
+      },
+    });
+  });
+  await page.unroute("**/api/automation/provider-holdings/*/status");
+  await page.route(
+    "**/api/automation/provider-holdings/*/status",
+    async (route) => {
+      const provider = new URL(route.request().url()).pathname
+        .split("/")
+        .at(-2);
+      await route.fulfill({
+        json:
+          provider === "tokenfolio"
+            ? {
+                version: 1,
+                provider,
+                status: "ready",
+                interval: "daily",
+                runStatus: null,
+                lastSeenAt: "2026-08-21T12:00:00.000Z",
+                lastCompletedAt: "2026-08-21T12:00:00.000Z",
+                nextRunAt: "2026-08-22T12:00:00.000Z",
+                latestImportId: "import_synthetic_tokenfolio",
+                errorCode: null,
+              }
+            : {
+                version: 1,
+                provider,
+                status: "needs_attention",
+                interval: "daily",
+                runStatus: null,
+                lastSeenAt: "2026-08-21T12:00:00.000Z",
+                lastCompletedAt: "2026-08-20T12:00:00.000Z",
+                nextRunAt: "2026-08-22T12:00:00.000Z",
+                latestImportId: "import_synthetic_sydecar",
+                errorCode: "incomplete_snapshot",
+              },
+      });
+    },
+  );
+
+  await page.goto("/holdings");
+  await expect(
+    page.getByRole("heading", {
+      name: "AngelList is paused — Mac access needs renewal",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".provider-agent-row").filter({ hasText: "Tokenfolio" }),
+  ).toContainText("Working");
+  await expect(
+    page.locator(".provider-agent-row").filter({ hasText: "Sydecar" }),
+  ).toContainText("Paused — totals did not reconcile");
+  await expect(
+    page.getByRole("button", { name: "Copy repair command" }),
+  ).toHaveCount(2);
+  const viewportWidths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(viewportWidths.scroll).toBe(viewportWidths.client);
+
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-provider-agents.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
 });
 
 test("keeps invalid AngelList agent responses out of user-facing copy", async ({
