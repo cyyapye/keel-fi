@@ -157,18 +157,23 @@ export async function runPreviewDeploymentSmoke(
     throw new Error("Plaid webhook endpoint did not fail closed.");
   }
 
-  const agentRootResponse = await request(fetchImplementation, agentApiOrigin);
-  if (agentRootResponse.status !== 404) {
-    throw new Error("Mac agent host exposed an unexpected route.");
-  }
-  const unauthenticatedAgentResponse = await request(
-    fetchImplementation,
-    new URL("/api/automation/angellist/mac-agent/lease", agentApiOrigin),
-    { method: "POST" },
-  );
-  if (unauthenticatedAgentResponse.status !== 401) {
-    throw new Error("Mac agent endpoint did not require its device token.");
-  }
+  await eventually(async () => {
+    const agentRootResponse = await request(
+      fetchImplementation,
+      agentApiOrigin,
+    );
+    if (agentRootResponse.status !== 404) {
+      throw new Error("Mac agent host exposed an unexpected route.");
+    }
+    const unauthenticatedAgentResponse = await request(
+      fetchImplementation,
+      new URL("/api/automation/angellist/mac-agent/lease", agentApiOrigin),
+      { method: "POST" },
+    );
+    if (unauthenticatedAgentResponse.status !== 401) {
+      throw new Error("Mac agent endpoint did not require its device token.");
+    }
+  }, delay);
 
   const authenticatedHeaders = accessHeaders(configuration);
   await eventually(async () => {
