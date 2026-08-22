@@ -44,6 +44,7 @@ const migrationFiles = [
   "packages/database/migrations/0029_structured_asset_exposure.sql",
   "packages/database/migrations/0030_reconnected_position_continuity.sql",
   "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql",
+  "packages/database/migrations/0032_provider_template_holdings.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -257,6 +258,83 @@ function robinhoodStageInput(
   };
 }
 
+function providerTemplateStageInput(
+  provider: "tokenfolio" | "sydecar",
+): HoldingImportStageInput {
+  const source = stageInput(
+    provider === "tokenfolio" ? "4".repeat(64) : "5".repeat(64),
+  );
+  const sourceRow = source.rows[0];
+  if (sourceRow === undefined) {
+    throw new Error("Synthetic template fixture is missing its row.");
+  }
+  const tokenfolio = provider === "tokenfolio";
+  return {
+    ...source,
+    provider,
+    objectKey: `holding-imports/${provider}/synthetic.csv`,
+    effectiveDate: "2026-08-20",
+    retrievedAt: "2026-08-20T12:00:00.000Z",
+    rows: [
+      {
+        ...sourceRow,
+        rowNumber: 3,
+        naturalKeySha256: tokenfolio ? "d".repeat(64) : "e".repeat(64),
+        companyOrFund: tokenfolio
+          ? "Synthetic Robotics"
+          : "Example Climate Fund",
+        fundName: tokenfolio
+          ? "Synthetic Robotics direct shares"
+          : "Example Climate Fund SPV I",
+        investmentEntity: tokenfolio
+          ? "Synthetic Family Trust"
+          : "Synthetic Investment Profile",
+        investDate: "2025-02-01",
+        investedMinor: tokenfolio ? 125_000 : 500_000,
+        unrealizedValueMinor: tokenfolio ? 180_025 : null,
+        unrealizedValueState: tokenfolio ? "reported" : "not_reported",
+        netValueMinor: tokenfolio ? 180_025 : null,
+        netValueState: tokenfolio ? "reported" : "not_reported",
+        positionKind: tokenfolio ? "direct" : "spv_interest",
+        dealMetadata: {
+          ...sourceRow.dealMetadata,
+          allocationMinor: tokenfolio ? 125_000 : 750_000,
+          instrument: tokenfolio ? "Common stock" : "Membership interest",
+        },
+      },
+    ],
+    canonicalScope: {
+      connection: {
+        mode: "ensure",
+        adapterType: "manual",
+        protectedSourceKey: tokenfolio ? "8".repeat(64) : "9".repeat(64),
+        institutionKey: provider,
+        institutionLabel: tokenfolio ? "Tokenfolio" : "Sydecar",
+        lifecycleState: "pending",
+        credentialReference: null,
+      },
+      containers: [
+        {
+          protectedAccountKey: tokenfolio ? "6".repeat(64) : "7".repeat(64),
+          displayLabel: tokenfolio
+            ? "Synthetic Family Trust"
+            : "Synthetic Investment Profile",
+          containerKind: tokenfolio ? "trust" : "entity",
+          taxTreatment: "unknown",
+          completeness: "complete",
+        },
+      ],
+      rows: [
+        {
+          sourceRowNumber: 3,
+          protectedAccountKey: tokenfolio ? "6".repeat(64) : "7".repeat(64),
+          protectedPositionKey: tokenfolio ? "d".repeat(64) : "e".repeat(64),
+        },
+      ],
+    },
+  };
+}
+
 describe("AngelList holding import persistence", () => {
   let sqlite: DatabaseSync;
   let repository: D1HoldingImportRepository;
@@ -400,6 +478,129 @@ describe("AngelList holding import persistence", () => {
         confidencePpm: null,
       }),
     );
+  });
+
+  it.each(["tokenfolio", "sydecar"] as const)(
+    "stages %s template evidence for review before accepting a provider-scoped position",
+    async (provider) => {
+      const staged = await repository.stageHoldingImport(
+        "synthetic-access-subject",
+        providerTemplateStageInput(provider),
+      );
+      expect(staged.preview).toMatchObject({
+        provider,
+        status: "pending_review",
+        summary: { createCount: 1, rowCount: 1 },
+      });
+      expect(
+        sqlite
+          .prepare(
+            "SELECT COUNT(*) AS count FROM holding_positions WHERE provider = ?",
+          )
+          .get(provider),
+      ).toEqual({ count: 0 });
+
+      await repository.applyHoldingImport(
+        "synthetic-access-subject",
+        staged.preview.id,
+        {
+          currency: "USD",
+          decisions: [
+            {
+              rowId: staged.preview.rows[0]!.id,
+              decision: "accepted",
+              rationale: `Reviewed synthetic ${provider} template position.`,
+            },
+          ],
+        },
+      );
+
+      const expected =
+        provider === "tokenfolio"
+          ? {
+              adapter_type: "manual",
+              file_name: "tokenfolio-holdings.csv",
+              institution_key: "tokenfolio",
+              opened_on: "2025-02-01",
+              position_kind: "direct",
+              source_label: "Tokenfolio template",
+            }
+          : {
+              adapter_type: "manual",
+              file_name: "sydecar-holdings.csv",
+              institution_key: "sydecar",
+              opened_on: "2025-02-01",
+              position_kind: "spv_interest",
+              source_label: "Sydecar template",
+            };
+      expect(
+        sqlite
+          .prepare(
+            `SELECT connection.adapter_type, version.institution_key,
+                    position.position_kind, position.opened_on,
+                    document.file_name, document.source_label
+             FROM holding_positions position
+             JOIN holding_position_ownerships ownership
+               ON ownership.position_id = position.id
+             JOIN ownership_containers container
+               ON container.id = ownership.container_id
+             JOIN investment_connections connection
+               ON connection.id = container.connection_id
+             JOIN investment_connection_versions version
+               ON version.connection_id = connection.id
+             JOIN holding_position_snapshots snapshot
+               ON snapshot.position_id = position.id
+             JOIN source_documents document
+               ON document.id = snapshot.source_document_id
+             WHERE position.provider = ?`,
+          )
+          .get(provider),
+      ).toEqual(expected);
+
+      const baselineState = await new D1PortfolioBaselineRepository(
+        new TestD1Database(sqlite) as unknown as D1Database,
+      ).getState("synthetic-access-subject");
+      expect(baselineState.positions).toContainEqual(
+        expect.objectContaining({
+          provider,
+          classification: "private_paper",
+          sourceLabel: provider === "tokenfolio" ? "Tokenfolio" : "Sydecar",
+        }),
+      );
+
+      const exposureReview = await new D1ExposureRepository(
+        new TestD1Database(sqlite) as unknown as D1Database,
+      ).getPrivateExposureReviewState("synthetic-access-subject");
+      expect(exposureReview.positions).toContainEqual(
+        expect.objectContaining({
+          reportedExposureName:
+            provider === "tokenfolio"
+              ? "Synthetic Robotics"
+              : "Example Climate Fund",
+        }),
+      );
+    },
+  );
+
+  it("rejects a provider template staged under another source identity", async () => {
+    const input = providerTemplateStageInput("tokenfolio");
+    if (input.canonicalScope.connection.mode !== "ensure") {
+      throw new Error("Synthetic template fixture must ensure its source.");
+    }
+
+    await expect(
+      repository.stageHoldingImport("synthetic-access-subject", {
+        ...input,
+        canonicalScope: {
+          ...input.canonicalScope,
+          connection: {
+            ...input.canonicalScope.connection,
+            institutionKey: "sydecar",
+            institutionLabel: "Sydecar",
+          },
+        },
+      }),
+    ).rejects.toThrow("source scope does not match its provider");
   });
 
   it("appends a revised snapshot and records a repeated observation as no change", async () => {

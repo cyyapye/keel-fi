@@ -4,7 +4,10 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
 import { DeploymentSmokeResultSchema } from "../apps/api/src/deployment-smoke";
-import { plaidWebhookUrl } from "./preview-deployment-config";
+import {
+  macAgentApiOrigin,
+  plaidWebhookUrl,
+} from "./preview-deployment-config";
 
 const GitShaSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const PreviewUrlSchema = z
@@ -114,6 +117,7 @@ export async function runPreviewDeploymentSmoke(
 ): Promise<void> {
   const configuration = PreviewSmokeEnvironmentSchema.parse(rawEnvironment);
   const baseUrl = configuration.KEEL_PREVIEW_URL;
+  const agentApiOrigin = macAgentApiOrigin(baseUrl);
   const webhookUrl = plaidWebhookUrl(baseUrl);
 
   const unauthenticatedResponse = await request(fetchImplementation, baseUrl);
@@ -151,6 +155,19 @@ export async function runPreviewDeploymentSmoke(
   );
   if (![401, 503].includes(unsignedWebhookResponse.status)) {
     throw new Error("Plaid webhook endpoint did not fail closed.");
+  }
+
+  const agentRootResponse = await request(fetchImplementation, agentApiOrigin);
+  if (agentRootResponse.status !== 404) {
+    throw new Error("Mac agent host exposed an unexpected route.");
+  }
+  const unauthenticatedAgentResponse = await request(
+    fetchImplementation,
+    new URL("/api/automation/angellist/mac-agent/lease", agentApiOrigin),
+    { method: "POST" },
+  );
+  if (unauthenticatedAgentResponse.status !== 401) {
+    throw new Error("Mac agent endpoint did not require its device token.");
   }
 
   const authenticatedHeaders = accessHeaders(configuration);

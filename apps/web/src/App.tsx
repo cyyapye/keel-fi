@@ -24,6 +24,8 @@ import {
   type HoldingImportSummary,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineState,
+  type ProviderPortfolioAgentOverview,
+  type ProviderPortfolioAgentProvider,
   type PublicSourceObservation,
   type Scenario,
   type ScenarioDraftInput,
@@ -46,6 +48,11 @@ import {
   PageHeader,
   Panel,
   Screen as ScreenLayout,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   SectionHeader,
   Tabs,
   TabsContent,
@@ -69,6 +76,7 @@ import {
   cancelAngelListSignInRefresh,
   confirmPortfolioBaseline,
   configureAngelListMacAgent,
+  configureProviderPortfolioAgent,
   createCashAccountLinkToken,
   createSignalUpdateProposal as submitSignalUpdateProposal,
   getAngelListSignInRefresh,
@@ -80,8 +88,10 @@ import {
   loadLegacyAngelListAutomationOverview,
   loadCashAccounts,
   loadPortfolioBaseline,
-  previewAngelListHoldingImport,
+  loadProviderPortfolioAgentOverview,
+  previewHoldingImport,
   requestAngelListUpdate,
+  requestProviderPortfolioUpdate,
   refreshCashAccount,
   refreshDueCashAccounts,
   reviewCashAccountIdentity,
@@ -92,6 +102,7 @@ import {
   submitAngelListHandoffInput,
   submitAngelListMagicLink,
   submitEvidenceReview,
+  type UploadHoldingImportProvider,
 } from "./api";
 import {
   formatCompactCurrency,
@@ -1330,6 +1341,13 @@ function administratorValueLabel(holding: Holding): string {
       ? "Locked by AngelList"
       : `Locked by ${holding.sourceLabel}`;
   }
+  if (
+    holding.administratorNavState === "not_set" &&
+    (holding.sourceLabel === "Tokenfolio template" ||
+      holding.sourceLabel === "Sydecar template")
+  ) {
+    return "Not reported";
+  }
   return holdingValueLabel(holding.administratorNavMinor);
 }
 
@@ -1412,8 +1430,30 @@ function importDecisionForRow(
     rationale:
       row.action === "no_change"
         ? "Reviewed; no accepted holding change was required."
-        : `Accepted during the ${provider === "plaid_investments" ? "investment account" : "AngelList"} holdings import review.`,
+        : `Accepted during the ${holdingImportProviderName(provider)} holdings import review.`,
   };
+}
+
+function holdingImportProviderName(
+  provider: HoldingImportPreview["provider"],
+): string {
+  return {
+    angellist: "AngelList",
+    plaid_investments: "investment account",
+    sydecar: "Sydecar",
+    tokenfolio: "Tokenfolio",
+  }[provider];
+}
+
+function holdingImportSourceLabel(
+  provider: HoldingImportPreview["provider"],
+): string {
+  return {
+    angellist: "AngelList export",
+    plaid_investments: "Investment account",
+    sydecar: "Sydecar template",
+    tokenfolio: "Tokenfolio template",
+  }[provider];
 }
 
 function ImportResult({ row }: { row: HoldingImportRowPreview }) {
@@ -1448,8 +1488,19 @@ function HoldingImportWorkspace({
     input: HoldingImportApplyInput,
   ) => Promise<HoldingImportApplyResult>;
   onClose: () => void;
-  onPreview: (file: File) => Promise<HoldingImportPreview>;
+  onPreview: (
+    provider: UploadHoldingImportProvider,
+    file: File,
+  ) => Promise<HoldingImportPreview>;
 }) {
+  const [selectedProvider, setSelectedProvider] =
+    useState<UploadHoldingImportProvider>(
+      initialPreview === null ||
+        initialPreview === undefined ||
+        initialPreview.provider === "plaid_investments"
+        ? "angellist"
+        : initialPreview.provider,
+    );
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<HoldingImportPreview | null>(
     initialPreview,
@@ -1467,10 +1518,13 @@ function HoldingImportWorkspace({
   const workspaceHeadingRef = useRef<HTMLHeadingElement>(null);
   const confirmationHeadingRef = useRef<HTMLHeadingElement>(null);
   const messageRef = useRef<HTMLDivElement>(null);
-  const provider = preview?.provider ?? "angellist";
-  const providerName =
-    provider === "plaid_investments" ? "Investment account" : "AngelList";
+  const provider = preview?.provider ?? selectedProvider;
+  const providerName = holdingImportProviderName(provider);
   const isPlaidInvestments = provider === "plaid_investments";
+  const isAngelList = provider === "angellist";
+  const unavailableValueCount =
+    preview?.rows.filter((row) => row.administratorNavState !== "reported")
+      .length ?? 0;
 
   useEffect(() => {
     workspaceHeadingRef.current?.focus();
@@ -1505,12 +1559,16 @@ function HoldingImportWorkspace({
   const requestPreview = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (selectedFile === null) {
-      setError("Choose an AngelList investments CSV export to continue.");
+      setError(
+        selectedProvider === "angellist"
+          ? "Choose an AngelList investments CSV export to continue."
+          : `Choose the completed Keel ${holdingImportProviderName(selectedProvider)} CSV template to continue.`,
+      );
       return;
     }
     setWorking("previewing");
     setError(null);
-    void onPreview(selectedFile)
+    void onPreview(selectedProvider, selectedFile)
       .then((nextPreview) => {
         setPreview(nextPreview);
         setPage(0);
@@ -1522,7 +1580,7 @@ function HoldingImportWorkspace({
         setError(
           previewError instanceof Error
             ? previewError.message
-            : "This file could not be reviewed. Choose an AngelList investments CSV export.",
+            : `This file could not be reviewed. Choose a supported ${holdingImportSourceLabel(selectedProvider)}.`,
         );
       })
       .finally(() => setWorking("idle"));
@@ -1581,12 +1639,19 @@ function HoldingImportWorkspace({
               {preview.summary.administratorValueCount} market values were
               recorded from this snapshot.
             </p>
-          ) : (
+          ) : isAngelList ? (
             <p>
               Reviewed {preview.summary.rowCount} AngelList positions.{" "}
               {preview.summary.administratorValueCount} administrator values
               were available; {applyResult.lockedValueCount} locked values
               remain unavailable.
+            </p>
+          ) : (
+            <p>
+              Reviewed {preview.summary.rowCount} {providerName} positions.{" "}
+              {preview.summary.administratorValueCount} current values were
+              available; {unavailableValueCount} unavailable values remain
+              explicit.
             </p>
           )}
           {applyResult.rejectedCount > 0 && (
@@ -1614,23 +1679,68 @@ function HoldingImportWorkspace({
         className="holding-import-workspace"
       >
         <div className="import-heading">
-          <p className="eyebrow">AngelList CSV</p>
+          <p className="eyebrow">Review first</p>
           <h2 id="holding-import-title" ref={workspaceHeadingRef} tabIndex={-1}>
-            Import from AngelList
+            Import holdings
           </h2>
           <p id="holding-import-boundary">
-            Choose your AngelList investments CSV export. Nothing changes until
-            you review it.
+            {selectedProvider === "angellist"
+              ? "Choose your AngelList investments CSV export. Nothing changes until you review it."
+              : `Use Keel’s ${holdingImportProviderName(selectedProvider)} template and copy one row per legal position. Enter funded capital as Invested; leave unavailable current values blank. Nothing changes until review.`}
           </p>
         </div>
         <form className="import-upload" onSubmit={requestPreview}>
-          <Field htmlFor="angellist-import-file" label="AngelList CSV export">
+          <Field htmlFor="holding-import-provider" label="Source">
+            <NativeSelect
+              disabled={working !== "idle"}
+              id="holding-import-provider"
+              onChange={(event) => {
+                const nextProvider = event.currentTarget
+                  .value as UploadHoldingImportProvider;
+                setSelectedProvider(nextProvider);
+                setSelectedFile(null);
+                setCurrencyConfirmed(false);
+                setError(null);
+                if (fileInputRef.current !== null) {
+                  fileInputRef.current.value = "";
+                }
+              }}
+              value={selectedProvider}
+            >
+              <option value="angellist">AngelList</option>
+              <option value="tokenfolio">Tokenfolio</option>
+              <option value="sydecar">Sydecar</option>
+            </NativeSelect>
+          </Field>
+          {selectedProvider !== "angellist" && (
+            <div className="import-template-help">
+              <a
+                className="button button--secondary button--compact"
+                download
+                href={`/api/holding-import-templates/${selectedProvider}`}
+              >
+                Download {holdingImportProviderName(selectedProvider)} template
+              </a>
+              <small>
+                Keep the first two lines. Use Direct, SPV, or Fund; Live or
+                Realized; YYYY-MM-DD dates; and USD values such as $1250.00.
+              </small>
+            </div>
+          )}
+          <Field
+            htmlFor="holding-import-file"
+            label={
+              selectedProvider === "angellist"
+                ? "AngelList CSV export"
+                : `${holdingImportProviderName(selectedProvider)} template`
+            }
+          >
             <Input
               accept=".csv,text/csv"
               aria-describedby={`holding-import-boundary${error === null ? "" : " holding-import-error"}`}
               aria-invalid={error === null ? undefined : true}
               disabled={working !== "idle"}
-              id="angellist-import-file"
+              id="holding-import-file"
               onChange={(event) => {
                 setSelectedFile(event.currentTarget.files?.[0] ?? null);
                 setCurrencyConfirmed(false);
@@ -1819,8 +1929,9 @@ function HoldingImportWorkspace({
               </>
             ) : (
               <>
-                Reviewed {preview.summary.rowCount} positions from the export
-                dated {formatDate(preview.observedAt)}.
+                Reviewed {preview.summary.rowCount} positions from the{" "}
+                {holdingImportSourceLabel(provider).toLowerCase()} dated{" "}
+                {formatDate(preview.observedAt)}.
               </>
             )}
           </p>
@@ -1860,7 +1971,9 @@ function HoldingImportWorkspace({
     >
       <div className="import-heading">
         <p className="eyebrow">
-          {isPlaidInvestments ? "Investment sync" : "AngelList CSV"}
+          {isPlaidInvestments
+            ? "Investment sync"
+            : holdingImportSourceLabel(provider)}
         </p>
         <h2 id="holding-import-title" ref={workspaceHeadingRef} tabIndex={-1}>
           Review {providerName} import
@@ -1870,10 +1983,15 @@ function HoldingImportWorkspace({
             Snapshot dated {formatDate(preview.observedAt)}. Positions missing
             from this snapshot are not treated as sales.
           </p>
-        ) : (
+        ) : isAngelList ? (
           <p>
             Export dated {formatDate(preview.observedAt)}. Locked values stay
             unavailable; Keel will not treat them as zero.
+          </p>
+        ) : (
+          <p>
+            Snapshot dated {formatDate(preview.observedAt)}. Missing current
+            values stay unavailable; Keel will not treat them as zero.
           </p>
         )}
       </div>
@@ -1886,16 +2004,28 @@ function HoldingImportWorkspace({
         <div>
           <strong>{preview.summary.administratorValueCount}</strong>
           <span>
-            {isPlaidInvestments ? "Market values" : "Administrator values"}
+            {isPlaidInvestments
+              ? "Market values"
+              : isAngelList
+                ? "Administrator values"
+                : "Current values"}
           </span>
         </div>
         <div>
           <strong>
             {isPlaidInvestments
               ? preview.summary.needsAttentionCount
-              : preview.summary.lockedValueCount}
+              : isAngelList
+                ? preview.summary.lockedValueCount
+                : unavailableValueCount}
           </strong>
-          <span>{isPlaidInvestments ? "Need attention" : "Locked values"}</span>
+          <span>
+            {isPlaidInvestments
+              ? "Need attention"
+              : isAngelList
+                ? "Locked values"
+                : "Unavailable values"}
+          </span>
         </div>
       </div>
 
@@ -1938,7 +2068,7 @@ function HoldingImportWorkspace({
                   <th>Status</th>
                   <th>Invested</th>
                   <th>Realized</th>
-                  <th>Admin value</th>
+                  <th>{isAngelList ? "Admin value" : "Current value"}</th>
                   <th>Import result</th>
                 </tr>
               )}
@@ -1990,7 +2120,7 @@ function HoldingImportWorkspace({
                           ? "import-value--locked"
                           : undefined
                       }
-                      data-label="Admin value"
+                      data-label={isAngelList ? "Admin value" : "Current value"}
                     >
                       {importAdministratorValueLabel(row, preview.provider)}
                     </td>
@@ -2044,8 +2174,12 @@ function HoldingImportWorkspace({
         />
         <span>
           I confirm the{" "}
-          {isPlaidInvestments ? "investment account’s" : "export’s"} $ values
-          are USD.
+          {isPlaidInvestments
+            ? "investment account’s"
+            : isAngelList
+              ? "export’s"
+              : "template’s"}{" "}
+          $ values are USD.
         </span>
       </label>
 
@@ -2071,7 +2205,7 @@ function HoldingImportWorkspace({
                 will not be recorded as sales. No forecast, underwriting value,
                 or usable liquidity will be inferred.
               </p>
-            ) : (
+            ) : isAngelList ? (
               <p>
                 Create {preview.summary.createCount}, update{" "}
                 {preview.summary.updateCount}, and confirm{" "}
@@ -2079,6 +2213,15 @@ function HoldingImportWorkspace({
                 {preview.summary.lockedValueCount} locked values will remain
                 unavailable. No forecast, underwriting value, or liquidity value
                 will be inferred.
+              </p>
+            ) : (
+              <p>
+                Create {preview.summary.createCount}, update{" "}
+                {preview.summary.updateCount}, and confirm{" "}
+                {preview.summary.unchangedCount} unchanged.{" "}
+                {unavailableValueCount} unavailable values will remain explicit.
+                No forecast, underwriting value, or liquidity value will be
+                inferred.
               </p>
             )}
             {preview.summary.needsAttentionCount > 0 && (
@@ -2143,23 +2286,32 @@ function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const primaryName = holdingPrimaryName(holding);
   const legalPositionLabel = holdingLegalPositionLabel(holding);
+  const isProviderTemplateHolding =
+    holding.sourceLabel === "Tokenfolio template" ||
+    holding.sourceLabel === "Sydecar template";
   const sourceSectionTitle = isPlaidInvestmentsHolding(holding)
     ? "Brokerage source"
-    : holding.externalMarkMinor === null
-      ? "Administrator source"
-      : "External mark source";
+    : isProviderTemplateHolding
+      ? "Imported source"
+      : holding.externalMarkMinor === null
+        ? "Administrator source"
+        : "External mark source";
   const valueLenses = [
     {
       label: isPlaidInvestmentsHolding(holding)
         ? "Market value"
-        : "Administrator NAV",
+        : isProviderTemplateHolding
+          ? "Current value"
+          : "Administrator NAV",
       value: administratorValueLabel(holding),
       helper: isPlaidInvestmentsHolding(holding)
         ? "Brokerage-reported market value as of the source date."
-        : holding.administratorNavState === "locked" &&
-            holding.sourceLabel === "AngelList export"
-          ? "AngelList did not disclose this value in the export."
-          : "Administrator-reported value as of the source date.",
+        : isProviderTemplateHolding
+          ? "Reviewed value copied into the provider template as of the source date."
+          : holding.administratorNavState === "locked" &&
+              holding.sourceLabel === "AngelList export"
+            ? "AngelList did not disclose this value in the export."
+            : "Administrator-reported value as of the source date.",
       wide: holding.administratorNavState === "locked",
     },
     {
@@ -2312,15 +2464,14 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
   if (overview.status === "setup_required") {
     return {
       title: "Finish setup on your Mac",
-      description:
-        "Run the one-time setup command on your Mac, then sign in to Keel and AngelList. Keel will check for work once a day.",
+      description: "Sign in to AngelList, then approve this Mac once.",
     };
   }
   if (overview.status === "offline") {
     return {
-      title: "Daily Mac check is overdue",
+      title: "AngelList is paused — Mac check overdue",
       description:
-        "Wake your Mac or rerun setup. Queued updates will wait safely for the next check.",
+        "Wake your Mac or rerun setup. No holding changes were applied.",
     };
   }
   if (overview.status === "running") {
@@ -2339,16 +2490,16 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
   if (overview.status === "needs_attention") {
     if (overview.errorCode === "angellist_sign_in_required") {
       return {
-        title: "AngelList needs attention on your Mac",
+        title: "AngelList is paused — sign-in expired",
         description:
           "Open the dedicated Chrome window on your Mac and finish signing in to AngelList.",
       };
     }
     if (overview.errorCode === "keel_sign_in_required") {
       return {
-        title: "Keel needs attention on your Mac",
+        title: "AngelList is paused — Mac access needs renewal",
         description:
-          "Open the dedicated Chrome window on your Mac and finish signing in to Keel.",
+          "Rerun setup to approve this Mac again. Your AngelList sign-in can stay as-is.",
       };
     }
     if (overview.errorCode === "export_unavailable") {
@@ -2365,11 +2516,28 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
     };
   }
   return {
-    title: "AngelList updates are ready",
-    description:
-      "Your Mac checks daily. Exports follow the interval below. Every CSV still waits for your review.",
+    title: "AngelList is working",
+    description: "New exports follow your schedule and wait for review.",
   };
 }
+
+function providerAgentSetupCommand(
+  provider: "angellist" | ProviderPortfolioAgentProvider,
+): string {
+  return `make provider-agent-setup PROVIDER=${provider} KEEL_URL=${window.location.origin}`;
+}
+
+const PORTFOLIO_AGENT_INTERVAL_OPTIONS = [
+  { label: "Daily", value: "daily" },
+  { label: "Weekly", value: "weekly" },
+  { label: "Off", value: "off" },
+] satisfies ReadonlyArray<{
+  label: string;
+  value: AngelListMacAgentInterval;
+}>;
+
+const COPY_AGENT_COMMAND_ERROR =
+  "Copy was blocked. Select and copy the command below.";
 
 function AngelListMacAgentControl() {
   const [overview, setOverview] = useState<AngelListMacAgentOverview | null>(
@@ -2405,9 +2573,11 @@ function AngelListMacAgentControl() {
     return () => window.clearInterval(timer);
   }, [overview?.status, reload]);
 
-  const setupCommand = `pnpm angellist:setup -- --keel-url ${window.location.origin}`;
+  const setupCommand = providerAgentSetupCommand("angellist");
   const message = angelListAgentMessage(overview);
   const setupRequired = overview?.status === "setup_required";
+  const repairRequired =
+    overview?.status === "offline" || overview?.status === "needs_attention";
   const running = overview?.status === "running";
 
   const copySetupCommand = async () => {
@@ -2415,9 +2585,9 @@ function AngelListMacAgentControl() {
     setError(null);
     try {
       await navigator.clipboard.writeText(setupCommand);
-      setNotice("Mac setup command copied.");
+      setNotice("Copied. Paste in Terminal.");
     } catch {
-      setError("Copy was blocked. Select and copy the command below.");
+      setError(COPY_AGENT_COMMAND_ERROR);
     } finally {
       setBusyAction(null);
     }
@@ -2481,40 +2651,56 @@ function AngelListMacAgentControl() {
           <span className="angellist-agent__checking" role="status">
             Checking…
           </span>
-        ) : setupRequired ? (
+        ) : setupRequired || repairRequired ? (
           <div className="angellist-agent__setup">
             <Button
               disabled={busyAction !== null}
               onClick={() => void copySetupCommand()}
               tone="primary"
             >
-              {busyAction === "copy" ? "Copying…" : "Copy Mac setup command"}
+              {busyAction === "copy"
+                ? "Copying…"
+                : setupRequired
+                  ? "Copy setup command"
+                  : "Copy repair command"}
             </Button>
-            <code>{setupCommand}</code>
-            <small>
-              The dedicated Chrome profile stays on your Mac. Keel checks once a
-              day and receives only the CSV export.
-            </small>
+            {error === COPY_AGENT_COMMAND_ERROR && <code>{setupCommand}</code>}
           </div>
         ) : (
           <div className="angellist-agent__controls">
-            <label htmlFor="angellist-update-interval">
-              <span>Automatic updates</span>
-              <NativeSelect
+            <div className="angellist-agent__interval">
+              <span id="angellist-update-interval-label">
+                Automatic updates
+              </span>
+              <Select
                 disabled={busyAction !== null}
-                id="angellist-update-interval"
-                onChange={(event) =>
-                  void changeInterval(
-                    event.currentTarget.value as AngelListMacAgentInterval,
-                  )
-                }
+                items={PORTFOLIO_AGENT_INTERVAL_OPTIONS}
+                onValueChange={(value) => {
+                  if (
+                    value === "daily" ||
+                    value === "weekly" ||
+                    value === "off"
+                  ) {
+                    void changeInterval(value);
+                  }
+                }}
                 value={overview?.interval ?? "weekly"}
               >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="off">Off</option>
-              </NativeSelect>
-            </label>
+                <SelectTrigger
+                  aria-labelledby="angellist-update-interval-label"
+                  id="angellist-update-interval"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PORTFOLIO_AGENT_INTERVAL_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Button
               disabled={busyAction !== null || running}
               onClick={() => void runNow()}
@@ -2570,6 +2756,347 @@ function AngelListMacAgentControl() {
             {error}
           </p>
         )}
+      </div>
+    </section>
+  );
+}
+
+const PROVIDER_PORTFOLIO_AGENTS = ["tokenfolio", "sydecar"] as const;
+
+function providerPortfolioAgentLabel(
+  provider: ProviderPortfolioAgentProvider,
+): string {
+  return provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+}
+
+function providerPortfolioAgentMessage(
+  provider: ProviderPortfolioAgentProvider,
+  overview: ProviderPortfolioAgentOverview | null,
+): { title: string | null; description: string | null } {
+  const label = providerPortfolioAgentLabel(provider);
+  if (overview === null) {
+    return {
+      title: null,
+      description: null,
+    };
+  }
+  if (overview.status === "setup_required") {
+    return {
+      title: null,
+      description: null,
+    };
+  }
+  if (overview.status === "offline") {
+    return {
+      title: "Paused — Mac check overdue",
+      description:
+        "Wake your Mac or rerun setup. No holding changes were applied.",
+    };
+  }
+  if (overview.status === "running") {
+    return overview.runStatus === "queued"
+      ? {
+          title: "Update queued",
+          description: "Your Mac will pick it up at its next daily check.",
+        }
+      : {
+          title: "Reading portfolio",
+          description:
+            "Keel will show the result for review before anything changes.",
+        };
+  }
+  if (overview.status === "needs_attention") {
+    if (overview.errorCode === "provider_sign_in_required") {
+      return {
+        title: `Paused — ${label} sign-in expired`,
+        description: `Open the dedicated browser and finish signing in to ${label}.`,
+      };
+    }
+    if (overview.errorCode === "keel_sign_in_required") {
+      return {
+        title: "Paused — Mac access needs renewal",
+        description: `Rerun setup to approve this Mac again. Your ${label} sign-in can stay as-is.`,
+      };
+    }
+    if (overview.errorCode === "incomplete_snapshot") {
+      return {
+        title: "Paused — totals did not reconcile",
+        description:
+          "The update stopped before upload. Your prior holdings are unchanged.",
+      };
+    }
+    if (overview.errorCode === "identity_ambiguous") {
+      return {
+        title: "Paused — position match is unclear",
+        description:
+          "The update stopped instead of guessing which position to change.",
+      };
+    }
+    if (overview.errorCode === "page_not_supported") {
+      return {
+        title: `Paused — ${label} page changed`,
+        description:
+          "The update stopped before upload. Rerun setup after Keel is updated.",
+      };
+    }
+    return {
+      title: "Paused — update failed",
+      description: "Rerun setup, then request another update.",
+    };
+  }
+  return {
+    title:
+      overview.lastCompletedAt === null ? "Ready for first update" : "Working",
+    description: null,
+  };
+}
+
+function ProviderPortfolioAgentRow({
+  provider,
+}: {
+  provider: ProviderPortfolioAgentProvider;
+}) {
+  const label = providerPortfolioAgentLabel(provider);
+  const [overview, setOverview] =
+    useState<ProviderPortfolioAgentOverview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<
+    "copy" | "interval" | "run" | null
+  >(null);
+
+  const reload = useCallback(async () => {
+    try {
+      setOverview(await loadProviderPortfolioAgentOverview(provider));
+      setError(null);
+    } catch {
+      setError(`Keel could not check ${label} updates. Try again shortly.`);
+    }
+  }, [label, provider]);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void reload(), 0);
+    return () => window.clearTimeout(initial);
+  }, [reload]);
+
+  useEffect(() => {
+    if (overview?.status !== "running") {
+      return;
+    }
+    const timer = window.setInterval(() => void reload(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [overview?.status, reload]);
+
+  const setupCommand = providerAgentSetupCommand(provider);
+  const message = providerPortfolioAgentMessage(provider, overview);
+  const setupRequired = overview?.status === "setup_required";
+  const repairRequired =
+    overview?.status === "offline" || overview?.status === "needs_attention";
+  const running = overview?.status === "running";
+
+  const copySetupCommand = async () => {
+    setBusyAction("copy");
+    setError(null);
+    try {
+      await navigator.clipboard.writeText(setupCommand);
+      setNotice("Copied. Paste in Terminal.");
+    } catch {
+      setError(COPY_AGENT_COMMAND_ERROR);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const changeInterval = async (interval: AngelListMacAgentInterval) => {
+    setBusyAction("interval");
+    setError(null);
+    setNotice(null);
+    try {
+      setOverview(
+        await configureProviderPortfolioAgent(provider, { interval }),
+      );
+      setNotice(
+        interval === "off"
+          ? `${label} automatic updates are off.`
+          : `${label} will update ${interval}.`,
+      );
+    } catch {
+      setError("Keel could not save that interval. Try again.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const runNow = async () => {
+    setBusyAction("run");
+    setError(null);
+    setNotice(null);
+    try {
+      const requested = await requestProviderPortfolioUpdate(provider);
+      setOverview((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              status: "running",
+              runStatus: requested.status,
+            },
+      );
+      setNotice(`${label} update queued for your Mac’s next daily check.`);
+      window.setTimeout(() => void reload(), 1_000);
+    } catch {
+      setError(`Keel could not request a ${label} update. Try again.`);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const labelId = `${provider}-agent-label`;
+  const titleId = `${provider}-agent-title`;
+  return (
+    <article
+      aria-labelledby={
+        message.title === null ? labelId : `${labelId} ${titleId}`
+      }
+      className="provider-agent-row"
+    >
+      <div className="provider-agent-row__heading">
+        <p className="eyebrow" id={labelId}>
+          {label}
+        </p>
+        {message.title !== null && <h3 id={titleId}>{message.title}</h3>}
+        {message.description !== null && <p>{message.description}</p>}
+      </div>
+
+      <div className="provider-agent-row__action" aria-live="polite">
+        {overview === null && error === null ? (
+          <span className="provider-agent-row__checking" role="status">
+            Checking…
+          </span>
+        ) : setupRequired || repairRequired ? (
+          <div className="provider-agent-row__setup">
+            <Button
+              disabled={busyAction !== null}
+              onClick={() => void copySetupCommand()}
+              tone="primary"
+            >
+              {busyAction === "copy"
+                ? "Copying…"
+                : setupRequired
+                  ? "Copy setup command"
+                  : "Copy repair command"}
+            </Button>
+            {error === COPY_AGENT_COMMAND_ERROR && <code>{setupCommand}</code>}
+          </div>
+        ) : (
+          <div className="provider-agent-row__controls">
+            <div className="provider-agent-row__interval">
+              <span id={`${provider}-update-interval-label`}>
+                Automatic updates
+              </span>
+              <Select
+                disabled={busyAction !== null}
+                items={PORTFOLIO_AGENT_INTERVAL_OPTIONS}
+                onValueChange={(value) => {
+                  if (
+                    value === "daily" ||
+                    value === "weekly" ||
+                    value === "off"
+                  ) {
+                    void changeInterval(value);
+                  }
+                }}
+                value={overview?.interval ?? "daily"}
+              >
+                <SelectTrigger
+                  aria-labelledby={`${provider}-update-interval-label`}
+                  id={`${provider}-update-interval`}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PORTFOLIO_AGENT_INTERVAL_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              disabled={busyAction !== null || running}
+              onClick={() => void runNow()}
+              tone="primary"
+            >
+              {busyAction === "run"
+                ? "Requesting…"
+                : running
+                  ? overview?.runStatus === "queued"
+                    ? "Update queued"
+                    : "Update in progress"
+                  : "Queue update"}
+            </Button>
+          </div>
+        )}
+
+        {overview !== null && !setupRequired && (
+          <dl className="provider-agent-row__meta">
+            <div>
+              <dt>Last Mac check</dt>
+              <dd>
+                {overview.lastSeenAt === null
+                  ? "Not yet"
+                  : formatDate(overview.lastSeenAt)}
+              </dd>
+            </div>
+            <div>
+              <dt>Last completed</dt>
+              <dd>
+                {overview.lastCompletedAt === null
+                  ? "Not yet"
+                  : formatDate(overview.lastCompletedAt)}
+              </dd>
+            </div>
+            <div>
+              <dt>Next scheduled</dt>
+              <dd>
+                {overview.nextRunAt === null
+                  ? "Off"
+                  : formatDate(overview.nextRunAt)}
+              </dd>
+            </div>
+          </dl>
+        )}
+        {notice !== null && (
+          <p className="provider-agent-row__notice" role="status">
+            {notice}
+          </p>
+        )}
+        {error !== null && (
+          <p className="provider-agent-row__error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function ProviderPortfolioAgentsControl() {
+  return (
+    <section
+      aria-labelledby="provider-portfolio-agents-title"
+      className="provider-agents"
+    >
+      <div className="provider-agents__heading">
+        <p className="eyebrow">Other portfolio updates</p>
+        <h2 id="provider-portfolio-agents-title">Tokenfolio and Sydecar</h2>
+        <p>Set up each once. New updates wait for your review.</p>
+      </div>
+      <div className="provider-agents__rows">
+        {PROVIDER_PORTFOLIO_AGENTS.map((provider) => (
+          <ProviderPortfolioAgentRow key={provider} provider={provider} />
+        ))}
       </div>
     </section>
   );
@@ -4410,7 +4937,10 @@ function Holdings({
   onImportRouteChange: (importId: string | null) => void;
   onListPendingImports: () => Promise<HoldingImportSummary[]>;
   onLoadImport: (importId: string) => Promise<HoldingImportPreview>;
-  onPreviewImport: (file: File) => Promise<HoldingImportPreview>;
+  onPreviewImport: (
+    provider: UploadHoldingImportProvider,
+    file: File,
+  ) => Promise<HoldingImportPreview>;
   requestedImportId: string | null;
 }) {
   const [showImporter, setShowImporter] = useState(false);
@@ -4458,7 +4988,7 @@ function Holdings({
         const imports = await onListPendingImports();
         if (!cancelled) {
           setPendingImports(
-            imports.filter((item) => item.provider === "angellist"),
+            imports.filter((item) => item.provider !== "plaid_investments"),
           );
           setPendingImportError(null);
         }
@@ -4582,7 +5112,7 @@ function Holdings({
                   }}
                   tone="primary"
                 >
-                  Import AngelList CSV
+                  Import holdings
                 </Button>
               </>
             )}
@@ -4646,11 +5176,12 @@ function Holdings({
                     <span>
                       <strong>{item.rowCount} positions</strong>
                       <small>
-                        AngelList export · {formatDate(item.observedAt)}
+                        {holdingImportSourceLabel(item.provider)} ·{" "}
+                        {formatDate(item.observedAt)}
                       </small>
                     </span>
                     <Button
-                      aria-label={`Review AngelList import dated ${formatDate(item.observedAt)}`}
+                      aria-label={`Review ${holdingImportProviderName(item.provider)} import dated ${formatDate(item.observedAt)}`}
                       onClick={() => reviewPendingImport(item.id)}
                       tone="primary"
                     >
@@ -4667,6 +5198,7 @@ function Holdings({
             </Notice>
           )}
           <AngelListSignInControl />
+          <ProviderPortfolioAgentsControl />
           <CashAccountsControl
             onAccepted={() => {
               setCashRefreshVersion((current) => current + 1);
@@ -6224,7 +6756,7 @@ export function App() {
             onImportRouteChange={navigateToHoldingImport}
             onListPendingImports={listPendingHoldingImports}
             onLoadImport={loadHoldingImport}
-            onPreviewImport={previewAngelListHoldingImport}
+            onPreviewImport={previewHoldingImport}
             requestedImportId={holdingImportId}
           />
         );

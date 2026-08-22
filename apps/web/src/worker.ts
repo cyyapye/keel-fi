@@ -12,14 +12,44 @@ export type WebWorkerBindings = {
   ASSETS: FetchBinding;
   CF_VERSION_METADATA?: VersionMetadata;
   DEPLOYED_GIT_SHA?: string;
+  MAC_AGENT_API_HOST?: string;
   PLAID_WEBHOOK_HOST?: string;
 };
+
+function isMacAgentRequest(method: string, pathname: string): boolean {
+  if (method !== "POST") {
+    return false;
+  }
+  return (
+    /^\/api\/automation\/angellist\/mac-agent\/(?:lease|run)$/u.test(
+      pathname,
+    ) ||
+    /^\/api\/automation\/angellist\/mac-agent\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:fail|complete)$/iu.test(
+      pathname,
+    ) ||
+    /^\/api\/automation\/provider-holdings\/(?:tokenfolio|sydecar)\/mac-agent\/(?:lease|run)$/u.test(
+      pathname,
+    ) ||
+    /^\/api\/automation\/provider-holdings\/(?:tokenfolio|sydecar)\/mac-agent\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:fail|complete)$/iu.test(
+      pathname,
+    )
+  );
+}
 
 export async function handleRequest(
   request: Request,
   bindings: WebWorkerBindings,
 ): Promise<Response> {
   const { hostname, pathname } = new URL(request.url);
+
+  if (
+    bindings.MAC_AGENT_API_HOST !== undefined &&
+    hostname === bindings.MAC_AGENT_API_HOST
+  ) {
+    return isMacAgentRequest(request.method, pathname)
+      ? bindings.API.fetch(request)
+      : new Response(null, { status: 404 });
+  }
 
   if (
     bindings.PLAID_WEBHOOK_HOST !== undefined &&

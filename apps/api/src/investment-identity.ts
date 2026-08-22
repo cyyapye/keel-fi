@@ -12,6 +12,10 @@ const SupportedCashCurrencySchema = z.literal("USD");
 const AngelListOwnershipLabelSchema = z.string().trim().min(1).max(1_000);
 const INVESTMENT_KEY_SALT = "keel-provider-account-key-v1";
 const ANGELLIST_SOURCE_ID = "angellist-investments-export";
+const PROVIDER_TEMPLATE_SOURCE_IDS = {
+  sydecar: "sydecar-keel-holdings-template-v1",
+  tokenfolio: "tokenfolio-keel-holdings-template-v1",
+} as const;
 
 function scopedValue(parentKey: string, rawIdentifier: string): string {
   return JSON.stringify([
@@ -158,6 +162,60 @@ export async function angelListPositionKey(
     credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
     salt: INVESTMENT_KEY_SALT,
     info: "angellist-position-id",
+    value: scopedValue(accountKey, naturalKeySha256),
+  });
+}
+
+export async function providerTemplateInvestmentsSourceKey(
+  env: Env,
+  accessSubject: string,
+  provider: keyof typeof PROVIDER_TEMPLATE_SOURCE_IDS,
+): Promise<string> {
+  return deriveProtectedProviderKey({
+    credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+    salt: INVESTMENT_KEY_SALT,
+    info: `${provider}-holdings-template-source`,
+    value: scopedValue(
+      await deriveProtectedProviderKey({
+        credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+        salt: INVESTMENT_KEY_SALT,
+        info: "keel-access-subject",
+        value: RawProviderIdentifierSchema.parse(accessSubject),
+      }),
+      PROVIDER_TEMPLATE_SOURCE_IDS[provider],
+    ),
+  });
+}
+
+export async function providerTemplateOwnershipContainerKey(
+  env: Env,
+  sourceKey: string,
+  ownershipLabel: string,
+  provider: keyof typeof PROVIDER_TEMPLATE_SOURCE_IDS,
+): Promise<string> {
+  const normalizedLabel =
+    AngelListOwnershipLabelSchema.parse(ownershipLabel).toLowerCase();
+  return deriveProtectedProviderKey({
+    credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+    salt: INVESTMENT_KEY_SALT,
+    info: `${provider}-holdings-template-container`,
+    value: JSON.stringify([
+      ProtectedProviderKeySchema.parse(sourceKey),
+      normalizedLabel,
+    ]),
+  });
+}
+
+export async function providerTemplatePositionKey(
+  env: Env,
+  accountKey: string,
+  naturalKeySha256: string,
+  provider: keyof typeof PROVIDER_TEMPLATE_SOURCE_IDS,
+): Promise<string> {
+  return deriveProtectedProviderKey({
+    credentialKey: env.CONNECTOR_CREDENTIAL_KEY,
+    salt: INVESTMENT_KEY_SALT,
+    info: `${provider}-holdings-template-position`,
     value: scopedValue(accountKey, naturalKeySha256),
   });
 }

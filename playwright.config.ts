@@ -3,6 +3,7 @@ import { resolveDevPorts } from "./scripts/dev-ports";
 
 const { webPort } = resolveDevPorts();
 const baseURL = `http://127.0.0.1:${webPort}`;
+const readinessURL = `${baseURL}/api/alpha`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -33,6 +34,7 @@ export default defineConfig({
     command: "pnpm dev",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
-    url: baseURL,
+    // Waiting through Vite's API proxy proves both local services are ready.
+    url: readinessURL,
   },
 });

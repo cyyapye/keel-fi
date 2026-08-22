@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   PreviewDeploymentEnvironmentSchema,
+  macAgentApiOrigin,
   plaidWebhookUrl,
   writePreviewApiSecrets,
   writePreviewDeploymentFiles,
@@ -61,6 +62,9 @@ describe("preview deployment configuration", () => {
     expect(() =>
       plaidWebhookUrl(new URL(`https://${"a".repeat(60)}.example.com`)),
     ).toThrow();
+    expect(
+      macAgentApiOrigin(new URL("https://keel-preview.example.com")).href,
+    ).toBe("https://keel-preview-agents.example.com/");
   });
 
   it("fails closed on a non-origin preview URL or partial Git SHA", () => {
@@ -97,6 +101,7 @@ describe("preview deployment configuration", () => {
         ENVIRONMENT: "preview",
         DEPLOYED_GIT_SHA: "b".repeat(40),
         INVESTMENTS_NEW_CONNECTIONS_ENABLED: "true",
+        MAC_AGENT_API_ORIGIN: "https://keel-preview-agents.example.com",
         PLAID_WEBHOOK_URL:
           "https://keel-preview-webhooks.example.com/webhooks/plaid",
       },
@@ -128,10 +133,12 @@ describe("preview deployment configuration", () => {
       routes: [
         { pattern: "keel-preview.example.com" },
         { pattern: "keel-preview-webhooks.example.com" },
+        { pattern: "keel-preview-agents.example.com" },
       ],
       services: [{ service: "keel-preview-api" }],
       vars: {
         DEPLOYED_GIT_SHA: "b".repeat(40),
+        MAC_AGENT_API_HOST: "keel-preview-agents.example.com",
         PLAID_WEBHOOK_HOST: "keel-preview-webhooks.example.com",
       },
       assets: { run_worker_first: true },

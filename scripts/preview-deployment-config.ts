@@ -141,6 +141,22 @@ export function plaidWebhookUrl(previewUrl: URL): URL {
   return webhook;
 }
 
+export function macAgentApiOrigin(previewUrl: URL): URL {
+  const labels = previewUrl.hostname.split(".");
+  if (labels.length < 3) {
+    throw new Error("Preview URL must use a subdomain in a managed zone.");
+  }
+  const first = labels.shift();
+  if (first === undefined) {
+    throw new Error("Preview URL must include a hostname.");
+  }
+  const agentApi = new URL(previewUrl);
+  agentApi.hostname = HostnameSchema.parse(
+    `${first}-agents.${labels.join(".")}`,
+  );
+  return agentApi;
+}
+
 export type PreviewDeploymentPaths = {
   apiConfigPath: string;
   apiSecretsPath: string;
@@ -150,6 +166,7 @@ export type PreviewDeploymentPaths = {
 
 function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
   const webhookUrl = plaidWebhookUrl(configuration.KEEL_PREVIEW_URL);
+  const agentApiOrigin = macAgentApiOrigin(configuration.KEEL_PREVIEW_URL);
   return {
     $schema: "node_modules/wrangler/config-schema.json",
     name: configuration.KEEL_PREVIEW_API_WORKER,
@@ -162,6 +179,7 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
       ENVIRONMENT: "preview",
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
       INVESTMENTS_NEW_CONNECTIONS_ENABLED: "true",
+      MAC_AGENT_API_ORIGIN: agentApiOrigin.origin,
       PLAID_WEBHOOK_URL: webhookUrl.href,
     },
     secrets: {
@@ -221,6 +239,7 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
 
 function webConfiguration(configuration: PreviewDeploymentEnvironment) {
   const webhookUrl = plaidWebhookUrl(configuration.KEEL_PREVIEW_URL);
+  const agentApiOrigin = macAgentApiOrigin(configuration.KEEL_PREVIEW_URL);
   return {
     $schema: "node_modules/wrangler/config-schema.json",
     name: configuration.KEEL_PREVIEW_WEB_WORKER,
@@ -239,9 +258,15 @@ function webConfiguration(configuration: PreviewDeploymentEnvironment) {
         custom_domain: true,
         previews_enabled: false,
       },
+      {
+        pattern: agentApiOrigin.hostname,
+        custom_domain: true,
+        previews_enabled: false,
+      },
     ],
     vars: {
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
+      MAC_AGENT_API_HOST: agentApiOrigin.hostname,
       PLAID_WEBHOOK_HOST: webhookUrl.hostname,
     },
     version_metadata: { binding: "CF_VERSION_METADATA" },

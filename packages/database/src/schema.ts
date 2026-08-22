@@ -2608,7 +2608,7 @@ export const portfolioBaselineItems = sqliteTable(
     ),
     check(
       "portfolio_baseline_items_provider_check",
-      sql`${table.provider} IN ('angellist', 'plaid_investments')`,
+      sql`${table.provider} IN ('angellist', 'tokenfolio', 'sydecar', 'plaid_investments')`,
     ),
     check(
       "portfolio_baseline_items_classification_check",
@@ -2624,7 +2624,7 @@ export const portfolioBaselineItems = sqliteTable(
     ),
     check(
       "portfolio_baseline_items_provider_classification_check",
-      sql`(${table.provider} = 'plaid_investments' AND ${table.classification} = 'public_market') OR (${table.provider} = 'angellist' AND ${table.classification} = 'private_paper')`,
+      sql`(${table.provider} = 'plaid_investments' AND ${table.classification} = 'public_market') OR (${table.provider} IN ('angellist', 'tokenfolio', 'sydecar') AND ${table.classification} = 'private_paper')`,
     ),
     check(
       "portfolio_baseline_items_value_state_check",

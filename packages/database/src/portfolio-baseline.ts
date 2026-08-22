@@ -36,7 +36,7 @@ type SourcePositionRow = {
   position_id: string;
   snapshot_id: string;
   snapshot_fingerprint: string;
-  provider: "angellist" | "plaid_investments";
+  provider: "angellist" | "tokenfolio" | "sydecar" | "plaid_investments";
   legal_vehicle_name: string;
   owner_label: string;
   exposure_label: string | null;
@@ -272,7 +272,11 @@ function sourcePositions(
       sourceLabel:
         row.provider === "plaid_investments"
           ? "Plaid Investments"
-          : "AngelList",
+          : row.provider === "angellist"
+            ? "AngelList"
+            : row.provider === "tokenfolio"
+              ? "Tokenfolio"
+              : "Sydecar",
       provider: row.provider,
       classification:
         row.provider === "plaid_investments"
@@ -297,7 +301,11 @@ function sourcePositionRows(view: InvestmentExposureView): SourcePositionRow[] {
           ? "plaid_investments"
           : position.adapterType === "angellist-import"
             ? "angellist"
-            : null;
+            : position.institutionKey === "tokenfolio"
+              ? "tokenfolio"
+              : position.institutionKey === "sydecar"
+                ? "sydecar"
+                : null;
       if (
         provider === null ||
         (provider === "plaid_investments" &&

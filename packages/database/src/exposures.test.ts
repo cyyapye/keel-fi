@@ -21,6 +21,8 @@ const reconnectedPositionContinuityMigrationFile =
   "packages/database/migrations/0030_reconnected_position_continuity.sql";
 const oneSidedPositionIdentityMigrationFile =
   "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql";
+const providerTemplateHoldingsMigrationFile =
+  "packages/database/migrations/0032_provider_template_holdings.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -52,6 +54,7 @@ const migrationFiles = [
   structuredAssetIdentityMigrationFile,
   reconnectedPositionContinuityMigrationFile,
   oneSidedPositionIdentityMigrationFile,
+  providerTemplateHoldingsMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 

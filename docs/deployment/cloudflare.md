@@ -15,7 +15,8 @@ Create in a private Cloudflare account:
 - Access application protecting the public app origin. When Robinhood is
   enabled, the same web Worker also owns a dedicated webhook custom domain that
   exposes only `POST /webhooks/plaid` and relies on Plaid signature validation
-  instead of Access.
+  instead of Access. Local portfolio agents use a separate custom domain that
+  exposes only exact machine routes and requires a Keel device token.
 
 Replace the D1 template ID in `apps/api/wrangler.jsonc` only in private
 deployment configuration. Do not commit account IDs, database IDs, audiences,
@@ -53,7 +54,8 @@ one serialized deployment:
 5. Use a dedicated Access service token to prove unauthenticated and invalid
    requests are denied, while an authenticated request reaches the protected
    health and dashboard surfaces. Separately prove the webhook hostname root is
-   `404` and its unsigned Plaid endpoint fails closed.
+   `404`, its unsigned Plaid endpoint fails closed, the agent hostname root is
+   `404`, and an unauthenticated agent request is rejected.
 6. Run the preview-only resource smoke. It performs `SELECT 1` through the D1
    binding, writes/reads/deletes a constant non-financial R2 canary, and
    publishes a typed Queue canary whose handler has an acknowledge-only path. It
@@ -90,6 +92,8 @@ Configure these bindings outside Git:
 
 - `ACCESS_AUD`: Access application audience;
 - `ACCESS_TEAM_DOMAIN`: the exact team hostname used as JWT issuer;
+- `MAC_AGENT_API_ORIGIN`: the dedicated HTTPS origin that accepts only scoped
+  Mac agent requests;
 - the complete shared Plaid connector secret group documented in
   [Robinhood holdings sync](robinhood-holdings-sync.md) and
   [cash accounts](cash-accounts.md), when either integration is enabled;
@@ -103,7 +107,9 @@ through the public web Worker to the API Worker with a service binding so the
 Access assertion is preserved. If Robinhood is enabled, route only
 `POST /webhooks/plaid` from a dedicated custom domain through the same service
 binding, set its exact URL as `PLAID_WEBHOOK_URL`, and return `404` for every
-other path on that hostname.
+other path on that hostname. Route only the documented Mac agent machine paths
+from a separate custom domain, set its origin as `MAC_AGENT_API_ORIGIN`, and
+return `404` for every other path on that hostname.
 
 ## Manually approved production sequence
 
@@ -136,7 +142,8 @@ The web Worker must keep `workers_dev` and preview URLs disabled in private
 deployment configuration. Public app routes remain Access-protected. The
 optional Plaid hostname is webhook-only and signature-authenticated. Queue
 consumers accept typed opaque internal IDs and resolve all provider or source
-state from D1 before work begins.
+state from D1 before work begins. The agent hostname is machine-route-only and
+each request is authenticated by a target-scoped token whose digest lives in D1.
 
 ## Access validation
 

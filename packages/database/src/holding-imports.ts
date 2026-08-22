@@ -1,10 +1,10 @@
 import {
-  AngelListInvestmentCsvRowSchema,
   isPlaidInvestmentsFiPlanningSecurityType,
   isPlaidInvestmentsOutsideFiSecurityType,
   PLAID_INVESTMENTS_CRYPTO_OUTSIDE_FI_ISSUE,
   PlaidInvestmentHoldingRowSchema,
-  type AngelListInvestmentCsvRow,
+  PrivateInvestmentImportRowSchema,
+  type PrivateInvestmentImportRow,
   type PlaidInvestmentHoldingRow,
 } from "@keel/connectors";
 import {
@@ -30,6 +30,12 @@ const MAX_IMPORT_ROWS = 500;
 const ANGELLIST_PROVIDER = "angellist";
 const ANGELLIST_PARSER_SCHEMA = "angellist_investments_v1";
 const ANGELLIST_SOURCE_LABEL = "AngelList export";
+const TOKENFOLIO_PROVIDER = "tokenfolio";
+const TOKENFOLIO_PARSER_SCHEMA = "tokenfolio_keel_template_v1";
+const TOKENFOLIO_SOURCE_LABEL = "Tokenfolio template";
+const SYDECAR_PROVIDER = "sydecar";
+const SYDECAR_PARSER_SCHEMA = "sydecar_keel_template_v1";
+const SYDECAR_SOURCE_LABEL = "Sydecar template";
 const PLAID_INVESTMENTS_PROVIDER = "plaid_investments";
 const PLAID_INVESTMENTS_PARSER_SCHEMA = "plaid_investments_holdings_v1";
 const PLAID_INVESTMENTS_SOURCE_LABEL = "Plaid Investments";
@@ -40,14 +46,39 @@ const NON_BLOCKING_PLAID_INVESTMENTS_ISSUES = new Set([
   PLAID_INVESTMENTS_CRYPTO_OUTSIDE_FI_ISSUE,
 ]);
 
+const PrivateHoldingImportProviderSchema = z.enum([
+  ANGELLIST_PROVIDER,
+  TOKENFOLIO_PROVIDER,
+  SYDECAR_PROVIDER,
+]);
+
+const PRIVATE_HOLDING_IMPORT_METADATA = {
+  [ANGELLIST_PROVIDER]: {
+    fileName: "angellist-investments.csv",
+    parserSchema: ANGELLIST_PARSER_SCHEMA,
+    sourceLabel: ANGELLIST_SOURCE_LABEL,
+  },
+  [TOKENFOLIO_PROVIDER]: {
+    fileName: "tokenfolio-holdings.csv",
+    parserSchema: TOKENFOLIO_PARSER_SCHEMA,
+    sourceLabel: TOKENFOLIO_SOURCE_LABEL,
+  },
+  [SYDECAR_PROVIDER]: {
+    fileName: "sydecar-holdings.csv",
+    parserSchema: SYDECAR_PARSER_SCHEMA,
+    sourceLabel: SYDECAR_SOURCE_LABEL,
+  },
+} as const;
+
 const HoldingImportStageInputSchema = z
   .object({
+    provider: PrivateHoldingImportProviderSchema.default(ANGELLIST_PROVIDER),
     objectKey: z.string().min(1).max(1_024),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     byteSize: z.number().int().positive().max(MAX_IMPORT_BYTES),
     effectiveDate: IsoDateSchema,
     retrievedAt: IsoTimestampSchema,
-    rows: z.array(AngelListInvestmentCsvRowSchema).min(1).max(MAX_IMPORT_ROWS),
+    rows: z.array(PrivateInvestmentImportRowSchema).min(1).max(MAX_IMPORT_ROWS),
     canonicalScope: HoldingImportCanonicalScopeSchema,
   })
   .strict()
@@ -60,7 +91,35 @@ const HoldingImportStageInputSchema = z
       context.addIssue({
         code: "custom",
         path: ["canonicalScope", "rows"],
-        message: "Every AngelList row requires one canonical row scope.",
+        message: "Every private holding row requires one canonical row scope.",
+      });
+    }
+    const connection = value.canonicalScope.connection;
+    const expectedAdapter =
+      value.provider === ANGELLIST_PROVIDER ? "angellist-import" : "manual";
+    if (
+      connection.mode !== "ensure" ||
+      connection.adapterType !== expectedAdapter ||
+      connection.institutionKey !== value.provider
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["canonicalScope", "connection"],
+        message: "Private holding source scope does not match its provider.",
+      });
+    }
+    if (
+      value.provider !== ANGELLIST_PROVIDER &&
+      value.rows.some(
+        (row) =>
+          row.unrealizedValueState === "locked" ||
+          row.netValueState === "locked",
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["rows"],
+        message: "Provider templates cannot claim provider-locked values.",
       });
     }
   });
@@ -350,12 +409,15 @@ async function sha256(value: string): Promise<string> {
 }
 
 async function snapshotFingerprint(
-  row: AngelListInvestmentCsvRow,
+  row: PrivateInvestmentImportRow,
   protectedPositionKey: string,
+  provider: "angellist" | "tokenfolio" | "sydecar",
 ): Promise<string> {
   return sha256(
     JSON.stringify([
-      "angellist-position-snapshot-v1",
+      provider === ANGELLIST_PROVIDER
+        ? "angellist-position-snapshot-v1"
+        : `${provider}-keel-template-position-snapshot-v1`,
       protectedPositionKey,
       row.status,
       row.investedMinor,
@@ -458,7 +520,9 @@ export class D1HoldingImportRepository {
            JOIN source_documents document
              ON document.id = import.source_document_id
            WHERE import.household_id = ?
-             AND import.provider IN ('angellist', 'plaid_investments')
+             AND import.provider IN (
+               'angellist', 'tokenfolio', 'sydecar', 'plaid_investments'
+             )
              AND document.review_status = 'pending_review'
            ORDER BY import.created_at DESC
            LIMIT 20`,
@@ -516,6 +580,7 @@ export class D1HoldingImportRepository {
     rawInput: HoldingImportStageInput,
   ): Promise<HoldingImportStageResult> {
     const input = HoldingImportStageInputSchema.parse(rawInput);
+    const importMetadata = PRIVATE_HOLDING_IMPORT_METADATA[input.provider];
     const identity = await this.findIdentity(accessSubject);
     const createdAt = new Date().toISOString();
     const canonical = await this.prepareCanonicalScope(
@@ -553,6 +618,7 @@ export class D1HoldingImportRepository {
           snapshotFingerprint: await snapshotFingerprint(
             row,
             scope.protectedPositionKey,
+            input.provider,
           ),
           duplicate: (duplicateCounts.get(scope.protectedPositionKey) ?? 0) > 1,
         };
@@ -568,18 +634,19 @@ export class D1HoldingImportRepository {
              id, household_id, object_key, file_name, content_type, byte_size,
              sha256, effective_date, retrieved_at, source_label, review_status,
              created_at
-           ) VALUES (?, ?, ?, 'angellist-investments.csv', 'text/csv', ?, ?, ?,
-             ?, ?, 'pending_review', ?)`,
+           ) VALUES (?, ?, ?, ?, 'text/csv', ?, ?, ?, ?, ?,
+             'pending_review', ?)`,
         )
         .bind(
           sourceDocumentId,
           identity.household_id,
           input.objectKey,
+          importMetadata.fileName,
           input.byteSize,
           input.sha256,
           input.effectiveDate,
           input.retrievedAt,
-          ANGELLIST_SOURCE_LABEL,
+          importMetadata.sourceLabel,
           createdAt,
         ),
       this.db
@@ -593,8 +660,8 @@ export class D1HoldingImportRepository {
           importId,
           identity.household_id,
           sourceDocumentId,
-          ANGELLIST_PROVIDER,
-          ANGELLIST_PARSER_SCHEMA,
+          input.provider,
+          importMetadata.parserSchema,
           preparedRows.length,
           identity.user_id,
           createdAt,
@@ -662,9 +729,9 @@ export class D1HoldingImportRepository {
                invested_minor, allocation_minor, unrealized_value_minor,
                unrealized_value_state, realized_value_minor, net_value_minor,
                net_value_state, instrument_type, currency_hint, parse_status,
-               issue_codes_json, created_at
+               issue_codes_json, position_kind, created_at
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-               'USD', ?, ?, ?)`,
+               'USD', ?, ?, ?, ?)`,
             )
             .bind(
               rowId,
@@ -688,6 +755,7 @@ export class D1HoldingImportRepository {
               row.dealMetadata.instrument,
               duplicate ? "needs_attention" : "ready",
               JSON.stringify(issueCodes),
+              row.positionKind,
               createdAt,
             ),
           this.db
@@ -1759,7 +1827,7 @@ export class D1HoldingImportRepository {
               row.owner_label,
               row.position_kind,
               row.instrument_type,
-              provider === ANGELLIST_PROVIDER ? row.invested_on : null,
+              provider === PLAID_INVESTMENTS_PROVIDER ? null : row.invested_on,
               input.currency,
               identity.user_id,
               createdAt,

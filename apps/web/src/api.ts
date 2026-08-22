@@ -31,6 +31,10 @@ import {
   PlanInputSaveResultSchema,
   PlanInputSaveSchema,
   PlanInputStateSchema,
+  ProviderPortfolioAgentConfigInputSchema,
+  ProviderPortfolioAgentOverviewSchema,
+  ProviderPortfolioAgentProviderSchema,
+  ProviderPortfolioAgentRunRequestSchema,
   PrivateExposureExactBatchInputSchema,
   PrivateExposureExactBatchResultSchema,
   PrivateExposureResolutionInputSchema,
@@ -75,6 +79,10 @@ import {
   type PlanInputSave,
   type PlanInputSaveResult,
   type PlanInputState,
+  type ProviderPortfolioAgentConfigInput,
+  type ProviderPortfolioAgentOverview,
+  type ProviderPortfolioAgentProvider,
+  type ProviderPortfolioAgentRunRequest,
   type PrivateExposureExactBatchInput,
   type PrivateExposureExactBatchResult,
   type PrivateExposureResolutionInput,
@@ -636,12 +644,16 @@ export async function scanPortfolioWatch(): Promise<PortfolioWatchScanResult> {
   return PortfolioWatchScanResultSchema.parse(await response.json());
 }
 
-export async function previewAngelListHoldingImport(
+export type UploadHoldingImportProvider =
+  "angellist" | "tokenfolio" | "sydecar";
+
+export async function previewHoldingImport(
+  provider: UploadHoldingImportProvider,
   file: File,
 ): Promise<HoldingImportPreview> {
   const body = new FormData();
   body.append("file", file);
-  const response = await fetch("/api/holding-imports/angellist", {
+  const response = await fetch(`/api/holding-imports/${provider}`, {
     method: "POST",
     credentials: "same-origin",
     headers: { Accept: "application/json" },
@@ -649,13 +661,24 @@ export async function previewAngelListHoldingImport(
   });
 
   if (!response.ok) {
+    const providerLabel = {
+      angellist: "AngelList",
+      sydecar: "Sydecar",
+      tokenfolio: "Tokenfolio",
+    }[provider];
     throw await responseError(
       response,
-      `AngelList import review returned ${response.status}.`,
+      `${providerLabel} import review returned ${response.status}.`,
     );
   }
 
   return HoldingImportPreviewSchema.parse(await response.json());
+}
+
+export async function previewAngelListHoldingImport(
+  file: File,
+): Promise<HoldingImportPreview> {
+  return previewHoldingImport("angellist", file);
 }
 
 export async function loadAngelListAutomationOverview(): Promise<AngelListMacAgentOverview> {
@@ -721,6 +744,74 @@ export async function configureAngelListMacAgent(
     );
   }
   return AngelListMacAgentOverviewSchema.parse(await response.json());
+}
+
+export async function loadProviderPortfolioAgentOverview(
+  rawProvider: ProviderPortfolioAgentProvider,
+): Promise<ProviderPortfolioAgentOverview> {
+  const provider = ProviderPortfolioAgentProviderSchema.parse(rawProvider);
+  const response = await fetch(
+    `/api/automation/provider-holdings/${provider}/status`,
+    {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `${provider} update status returned ${response.status}.`,
+    );
+  }
+  return ProviderPortfolioAgentOverviewSchema.parse(await response.json());
+}
+
+export async function requestProviderPortfolioUpdate(
+  rawProvider: ProviderPortfolioAgentProvider,
+): Promise<ProviderPortfolioAgentRunRequest> {
+  const provider = ProviderPortfolioAgentProviderSchema.parse(rawProvider);
+  const response = await fetch(
+    `/api/automation/provider-holdings/${provider}/run`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `${provider} update request returned ${response.status}.`,
+    );
+  }
+  return ProviderPortfolioAgentRunRequestSchema.parse(await response.json());
+}
+
+export async function configureProviderPortfolioAgent(
+  rawProvider: ProviderPortfolioAgentProvider,
+  input: ProviderPortfolioAgentConfigInput,
+): Promise<ProviderPortfolioAgentOverview> {
+  const provider = ProviderPortfolioAgentProviderSchema.parse(rawProvider);
+  const body = ProviderPortfolioAgentConfigInputSchema.parse(input);
+  const response = await fetch(
+    `/api/automation/provider-holdings/${provider}/mac-agent/config`,
+    {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `${provider} interval update returned ${response.status}.`,
+    );
+  }
+  return ProviderPortfolioAgentOverviewSchema.parse(await response.json());
 }
 
 // Kept only as a one-release rollback path while the Mac agent is accepted in

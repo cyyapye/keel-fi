@@ -154,3 +154,25 @@ export async function readAngelListCsvUpload(request: Request): Promise<{
     retrievedAt,
   };
 }
+
+export async function readProviderTemplateCsvUpload(
+  request: Request,
+  provider: "tokenfolio" | "sydecar",
+): Promise<{ bytes: Uint8Array; retrievedAt: string }> {
+  try {
+    const upload = await readAngelListCsvUpload(request);
+    return { bytes: upload.bytes, retrievedAt: upload.retrievedAt };
+  } catch (error) {
+    if (!(error instanceof HoldingImportUploadError)) {
+      throw error;
+    }
+    const label = provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+    const message =
+      error.code === "file_too_large"
+        ? "The CSV must be 1 MB or smaller."
+        : error.code === "invalid_file"
+          ? `Choose the completed Keel ${label} .csv template.`
+          : `Choose exactly one Keel ${label} CSV template.`;
+    throw new HoldingImportUploadError(error.code, message);
+  }
+}

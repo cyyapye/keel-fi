@@ -1,4 +1,8 @@
-import type { AngelListInvestmentCsvRow } from "@keel/connectors";
+import type {
+  AngelListInvestmentCsvRow,
+  PrivateInvestmentImportRow,
+  ProviderHoldingsTemplateProvider,
+} from "@keel/connectors";
 import {
   HoldingImportCanonicalScopeSchema,
   type HoldingImportCanonicalScope,
@@ -8,6 +12,9 @@ import {
   angelListInvestmentsSourceKey,
   angelListOwnershipContainerKey,
   angelListPositionKey,
+  providerTemplateInvestmentsSourceKey,
+  providerTemplateOwnershipContainerKey,
+  providerTemplatePositionKey,
 } from "./investment-identity";
 import type { Env } from "./types";
 
@@ -68,6 +75,73 @@ export async function buildAngelListCanonicalScope(input: {
       protectedSourceKey: sourceKey,
       institutionKey: "angellist",
       institutionLabel: "AngelList",
+      lifecycleState: "pending",
+      credentialReference: null,
+    },
+    containers,
+    rows,
+  });
+}
+
+export async function buildProviderTemplateCanonicalScope(input: {
+  env: Env;
+  accessSubject: string;
+  provider: ProviderHoldingsTemplateProvider;
+  rows: readonly PrivateInvestmentImportRow[];
+}): Promise<HoldingImportCanonicalScope> {
+  const sourceKey = await providerTemplateInvestmentsSourceKey(
+    input.env,
+    input.accessSubject,
+    input.provider,
+  );
+  const ownershipLabels = [
+    ...new Set(input.rows.map((row) => row.investmentEntity.trim())),
+  ];
+  const containers = await Promise.all(
+    ownershipLabels.map(async (displayLabel) => ({
+      protectedAccountKey: await providerTemplateOwnershipContainerKey(
+        input.env,
+        sourceKey,
+        displayLabel,
+        input.provider,
+      ),
+      displayLabel,
+      containerKind: angelListContainerKind(displayLabel),
+      taxTreatment: "unknown" as const,
+      completeness: "partial" as const,
+    })),
+  );
+  const containersByLabel = new Map(
+    containers.map((container) => [container.displayLabel, container]),
+  );
+  const rows = await Promise.all(
+    input.rows.map(async (row) => {
+      const container = containersByLabel.get(row.investmentEntity.trim());
+      if (container === undefined) {
+        throw new Error("Provider template ownership could not be resolved.");
+      }
+      return {
+        sourceRowNumber: row.rowNumber,
+        protectedAccountKey: container.protectedAccountKey,
+        protectedPositionKey: await providerTemplatePositionKey(
+          input.env,
+          container.protectedAccountKey,
+          row.naturalKeySha256,
+          input.provider,
+        ),
+      };
+    }),
+  );
+  const institutionLabel =
+    input.provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+
+  return HoldingImportCanonicalScopeSchema.parse({
+    connection: {
+      mode: "ensure",
+      adapterType: "manual",
+      protectedSourceKey: sourceKey,
+      institutionKey: input.provider,
+      institutionLabel,
       lifecycleState: "pending",
       credentialReference: null,
     },
