@@ -2799,7 +2799,7 @@ describe("exact reviewed private exposure migration", () => {
 });
 
 describe("private provider position continuity migration", () => {
-  it("backfills one current position for each exact retained provider match", async () => {
+  it("backfills 90 exact provider matches and remains retry safe", async () => {
     const database = new DatabaseSync(":memory:");
     database.exec("PRAGMA foreign_keys = ON");
     try {
@@ -2819,6 +2819,7 @@ describe("private provider position continuity migration", () => {
         ),
       );
 
+      const matchesPerProvider = 30;
       for (const provider of ["angellist", "tokenfolio", "sydecar"] as const) {
         const historyConnectionId = `reconciled-holding-connection-v1:hh_demo:${provider}`;
         const currentConnectionId = `connection_synthetic_current_${provider}`;
@@ -2833,27 +2834,29 @@ describe("private provider position continuity migration", () => {
           label: provider,
           provider,
         });
-        const shared = {
-          containerLabel: `Synthetic ${provider} family trust`,
-          label: `Synthetic ${provider} access SPV`,
-          positionKind: "spv_interest" as const,
-          provider,
-          reportedExposureName: `Synthetic ${provider} systems`,
-          valueMinor: 1_000_000,
-          valueState: "reported" as const,
-        };
-        seedAcceptedPosition(database, {
-          ...shared,
-          connectionId: historyConnectionId,
-          id: `position_synthetic_${provider}_history`,
-          observedAt: "2026-08-15T00:00:00.000Z",
-        });
-        seedAcceptedPosition(database, {
-          ...shared,
-          connectionId: currentConnectionId,
-          id: `position_synthetic_${provider}_current`,
-          observedAt: "2026-08-23T00:00:00.000Z",
-        });
+        for (let index = 1; index <= matchesPerProvider; index += 1) {
+          const shared = {
+            containerLabel: `Synthetic ${provider} family trust`,
+            label: `Synthetic ${provider} access SPV ${index}`,
+            positionKind: "spv_interest" as const,
+            provider,
+            reportedExposureName: `Synthetic ${provider} systems ${index}`,
+            valueMinor: 1_000_000 + index,
+            valueState: "reported" as const,
+          };
+          seedAcceptedPosition(database, {
+            ...shared,
+            connectionId: historyConnectionId,
+            id: `position_synthetic_${provider}_${index}_history`,
+            observedAt: "2026-08-15T00:00:00.000Z",
+          });
+          seedAcceptedPosition(database, {
+            ...shared,
+            connectionId: currentConnectionId,
+            id: `position_synthetic_${provider}_${index}_current`,
+            observedAt: "2026-08-23T00:00:00.000Z",
+          });
+        }
       }
 
       const d1 = new TestD1Database(database) as unknown as D1Database;
@@ -2863,59 +2866,49 @@ describe("private provider position continuity migration", () => {
         "2026-08-23T12:00:00.000Z",
       );
       expect(
-        before.positions.filter(
-          (position) =>
-            position.id.startsWith("position_synthetic_") &&
-            ["angellist", "tokenfolio", "sydecar"].some((provider) =>
-              position.id.includes(`_${provider}_`),
-            ),
+        before.positions.filter((position) =>
+          position.id.startsWith("position_synthetic_"),
         ),
-      ).toHaveLength(6);
+      ).toHaveLength(180);
 
-      database.exec(
-        readFileSync(
-          resolve(
-            process.cwd(),
-            privateProviderPositionContinuityMigrationFile,
-          ),
-          "utf8",
-        ),
+      const migrationSql = readFileSync(
+        resolve(process.cwd(), privateProviderPositionContinuityMigrationFile),
+        "utf8",
       );
+      database.exec(migrationSql);
+      database.exec(migrationSql);
 
       const after = await exposureView.list(
         accessSubject,
         "2026-08-23T12:00:00.000Z",
       );
       expect(
-        after.positions
-          .filter((position) =>
-            ["angellist", "tokenfolio", "sydecar"].some(
-              (provider) =>
-                position.id === `position_synthetic_${provider}_current`,
-            ),
-          )
-          .map((position) => position.id)
-          .sort(),
-      ).toEqual(
-        ["angellist", "sydecar", "tokenfolio"]
-          .map((provider) => `position_synthetic_${provider}_current`)
-          .sort(),
-      );
+        after.positions.filter(
+          (position) =>
+            position.id.startsWith("position_synthetic_") &&
+            position.id.endsWith("_current"),
+        ),
+      ).toHaveLength(90);
       expect(
         database
           .prepare(
-            `SELECT predecessor_position_id, successor_position_id
+            `SELECT COUNT(*) AS count
+             FROM holding_position_continuities
+             WHERE predecessor_position_id LIKE 'position_synthetic_%_history'`,
+          )
+          .get(),
+      ).toEqual({ count: 90 });
+      expect(
+        database
+          .prepare(
+            `SELECT COUNT(*) AS count
              FROM holding_position_continuities
              WHERE predecessor_position_id LIKE 'position_synthetic_%_history'
-             ORDER BY predecessor_position_id`,
+               AND replace(predecessor_position_id, '_history', '') <>
+                   replace(successor_position_id, '_current', '')`,
           )
-          .all(),
-      ).toEqual(
-        ["angellist", "sydecar", "tokenfolio"].map((provider) => ({
-          predecessor_position_id: `position_synthetic_${provider}_history`,
-          successor_position_id: `position_synthetic_${provider}_current`,
-        })),
-      );
+          .get(),
+      ).toEqual({ count: 0 });
       expect(
         database
           .prepare(
@@ -2924,7 +2917,7 @@ describe("private provider position continuity migration", () => {
              WHERE position_id LIKE 'position_synthetic_%'`,
           )
           .get(),
-      ).toEqual({ count: 6 });
+      ).toEqual({ count: 180 });
       expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(database.prepare("PRAGMA integrity_check").get()).toEqual({
         integrity_check: "ok",
