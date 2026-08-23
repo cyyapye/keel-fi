@@ -237,6 +237,24 @@ function systemdQuote(value: string): string {
     .replaceAll("%", "%%")}"`;
 }
 
+function systemdAbsolutePath(value: string): string {
+  if (
+    !path.isAbsolute(value) ||
+    /[\s%"'\\]/u.test(value) ||
+    [...value].some((character) => {
+      const codePoint = character.codePointAt(0);
+      return (
+        codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)
+      );
+    })
+  ) {
+    throw new Error(
+      "Linux agent service paths must be absolute and contain no whitespace, quotes, backslashes, or systemd specifiers.",
+    );
+  }
+  return value;
+}
+
 export function systemdAgentUnitName(
   target: MacAgentTarget,
   instanceId: string,
@@ -313,7 +331,7 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-WorkingDirectory=${systemdQuote(options.repositoryRoot)}
+WorkingDirectory=${systemdAbsolutePath(options.repositoryRoot)}
 ${environmentLines}
 ExecStart=${arguments_.map(systemdQuote).join(" ")}
 Restart=always
@@ -323,7 +341,7 @@ UMask=0077
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=${systemdQuote(options.appDirectory)}
+ReadWritePaths=${systemdAbsolutePath(options.appDirectory)}
 
 [Install]
 WantedBy=default.target
