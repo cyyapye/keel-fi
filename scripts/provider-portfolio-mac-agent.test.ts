@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { parseProviderHoldingsTemplateCsv } from "../packages/connectors/src/index";
 import { __providerPortfolioMacAgentTest } from "./provider-portfolio-mac-agent";
@@ -8,6 +8,7 @@ const {
   chromeProcessIdsForProfile,
   formatUsdMinor,
   manualSetupChromeArguments,
+  openSydecarRow,
   parseOptions,
   parseProviderDate,
   parseUsdMinor,
@@ -160,6 +161,14 @@ describe("provider portfolio Mac agent", () => {
       netValueMinor: null,
       netValueState: "not_reported",
     });
+  });
+
+  it("opens animated Sydecar rows without waiting for visual stability", async () => {
+    const click = vi.fn().mockResolvedValue(undefined);
+
+    await openSydecarRow({ click } as never);
+
+    expect(click).toHaveBeenCalledWith({ force: true, noWaitAfter: true });
   });
 
   it("installs an isolated daily LaunchAgent for each provider and origin", () => {
