@@ -49,13 +49,20 @@ describe("AngelList Mac agent boundaries", () => {
     });
   });
 
-  it("accepts an account-scoped portfolio dashboard without retaining URL extras", () => {
+  it("accepts account-scoped portfolio routes without retaining URL extras", () => {
     expect(
       __angellistMacAgentTest.parseAngelListPortfolioUrl(
         "https://venture.angellist.com/v/synthetic-venture/i/synthetic-investor/portfolio/dashboard?source=test#holdings",
       ).href,
     ).toBe(
       "https://venture.angellist.com/v/synthetic-venture/i/synthetic-investor/portfolio/dashboard",
+    );
+    expect(
+      __angellistMacAgentTest.parseAngelListPortfolioUrl(
+        "https://venture.angellist.com/v/synthetic-venture/i/synthetic-investor/portfolio?source=test#holdings",
+      ).href,
+    ).toBe(
+      "https://venture.angellist.com/v/synthetic-venture/i/synthetic-investor/portfolio",
     );
     expect(() =>
       __angellistMacAgentTest.parseAngelListPortfolioUrl(

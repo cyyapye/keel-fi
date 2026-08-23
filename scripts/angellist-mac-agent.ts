@@ -75,7 +75,7 @@ const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
 const FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000;
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const ANGELLIST_PORTFOLIO_PATH =
-  /^\/v\/[a-z0-9-]{1,128}\/i\/[a-z0-9-]{1,128}\/portfolio\/dashboard\/?$/iu;
+  /^\/v\/[a-z0-9-]{1,128}\/i\/[a-z0-9-]{1,128}\/portfolio(?:\/dashboard)?\/?$/iu;
 
 const AngelListPortfolioUrlSchema = z.url().transform((value, context) => {
   const url = new URL(value);
