@@ -43,7 +43,6 @@ import {
   Input,
   InputGroup,
   MetricCard,
-  NativeSelect,
   Notice,
   PageHeader,
   Panel,
@@ -213,6 +212,13 @@ function SourceBadge({
 }
 
 type GoalUnit = GoalDraftInput["targetUnit"];
+
+const GOAL_UNIT_OPTIONS = [
+  { label: "USD", value: "minor_units" },
+  { label: "Months", value: "months" },
+  { label: "Count", value: "count" },
+  { label: "Percentage", value: "ppm" },
+] satisfies ReadonlyArray<{ label: string; value: GoalUnit }>;
 
 function latestGoalVersion(goal: Goal) {
   const version = goal.versions[0];
@@ -1126,18 +1132,32 @@ function Goals({
                   />
                 </Field>
                 <Field label="Unit">
-                  <NativeSelect
+                  <Select
                     disabled={form.templateKey !== "custom"}
-                    onChange={(event) =>
-                      updateForm("targetUnit", event.target.value as GoalUnit)
-                    }
+                    items={GOAL_UNIT_OPTIONS}
+                    onValueChange={(value) => {
+                      if (
+                        value === "minor_units" ||
+                        value === "months" ||
+                        value === "count" ||
+                        value === "ppm"
+                      ) {
+                        updateForm("targetUnit", value);
+                      }
+                    }}
                     value={form.targetUnit}
                   >
-                    <option value="minor_units">USD</option>
-                    <option value="months">Months</option>
-                    <option value="count">Count</option>
-                    <option value="ppm">Percentage</option>
-                  </NativeSelect>
+                    <SelectTrigger aria-label="Unit">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {GOAL_UNIT_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </Field>
                 <Field label="Current value">
                   <InputGroup
@@ -1445,6 +1465,15 @@ function holdingImportProviderName(
   }[provider];
 }
 
+const HOLDING_IMPORT_PROVIDER_OPTIONS = [
+  { label: "AngelList", value: "angellist" },
+  { label: "Tokenfolio", value: "tokenfolio" },
+  { label: "Sydecar", value: "sydecar" },
+] satisfies ReadonlyArray<{
+  label: string;
+  value: UploadHoldingImportProvider;
+}>;
+
 function holdingImportSourceLabel(
   provider: HoldingImportPreview["provider"],
 ): string {
@@ -1691,12 +1720,17 @@ function HoldingImportWorkspace({
         </div>
         <form className="import-upload" onSubmit={requestPreview}>
           <Field htmlFor="holding-import-provider" label="Source">
-            <NativeSelect
+            <Select
               disabled={working !== "idle"}
-              id="holding-import-provider"
-              onChange={(event) => {
-                const nextProvider = event.currentTarget
-                  .value as UploadHoldingImportProvider;
+              items={HOLDING_IMPORT_PROVIDER_OPTIONS}
+              onValueChange={(nextProvider) => {
+                if (
+                  nextProvider !== "angellist" &&
+                  nextProvider !== "tokenfolio" &&
+                  nextProvider !== "sydecar"
+                ) {
+                  return;
+                }
                 setSelectedProvider(nextProvider);
                 setSelectedFile(null);
                 setCurrencyConfirmed(false);
@@ -1707,10 +1741,17 @@ function HoldingImportWorkspace({
               }}
               value={selectedProvider}
             >
-              <option value="angellist">AngelList</option>
-              <option value="tokenfolio">Tokenfolio</option>
-              <option value="sydecar">Sydecar</option>
-            </NativeSelect>
+              <SelectTrigger aria-label="Source" id="holding-import-provider">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {HOLDING_IMPORT_PROVIDER_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           {selectedProvider !== "angellist" && (
             <div className="import-template-help">
@@ -5918,6 +5959,10 @@ function SignalProposalComposer({
   const selectedScenario =
     availableScenarios.find((scenario) => scenario.id === selectedScenarioId) ??
     preferredScenario;
+  const scenarioOptions = availableScenarios.map((scenario) => ({
+    label: `${scenario.name} v${scenario.latestSnapshotVersion}`,
+    value: scenario.id,
+  }));
 
   if (currentProposal !== undefined) {
     return (
@@ -5983,23 +6028,32 @@ function SignalProposalComposer({
       </div>
       <label>
         Start from
-        <NativeSelect
-          aria-label={
-            "Scenario baseline for " +
-            group.companyName +
-            " " +
-            group.roundLabel
-          }
+        <Select
           disabled={busy}
-          onChange={(event) => setSelectedScenarioId(event.target.value)}
+          items={scenarioOptions}
+          onValueChange={(value) => {
+            if (typeof value === "string") setSelectedScenarioId(value);
+          }}
           value={selectedScenario.id}
         >
-          {availableScenarios.map((scenario) => (
-            <option key={scenario.id} value={scenario.id}>
-              {scenario.name} v{scenario.latestSnapshotVersion}
-            </option>
-          ))}
-        </NativeSelect>
+          <SelectTrigger
+            aria-label={
+              "Scenario baseline for " +
+              group.companyName +
+              " " +
+              group.roundLabel
+            }
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {scenarioOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </label>
       <Button
         disabled={busy}

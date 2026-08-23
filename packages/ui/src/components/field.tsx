@@ -61,16 +61,3 @@ export function Input({ className, ...props }: ComponentProps<"input">) {
     <input className={cn("input", className)} data-slot="input" {...props} />
   );
 }
-
-export function NativeSelect({
-  className,
-  ...props
-}: ComponentProps<"select">) {
-  return (
-    <select
-      className={cn("native-select", className)}
-      data-slot="native-select"
-      {...props}
-    />
-  );
-}

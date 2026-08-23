@@ -48,6 +48,7 @@ const migrationFiles = [
   "packages/database/migrations/0033_provider_portfolio_agents.sql",
   "packages/database/migrations/0034_mac_agent_credentials.sql",
   "packages/database/migrations/0035_nullable_private_investment_date.sql",
+  "packages/database/migrations/0036_exact_reviewed_private_exposures.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -622,6 +623,67 @@ describe("AngelList holding import persistence", () => {
         confidencePpm: null,
       }),
     );
+  });
+
+  it("automatically groups an accepted exact label under one existing reviewed company", async () => {
+    const staged = await repository.stageHoldingImport(
+      "synthetic-access-subject",
+      stageInput("1".repeat(64), {
+        companyOrFund: "  HARBOR   HEALTH SYSTEMS ",
+        fundName: "Synthetic Harbor Access SPV",
+      }),
+    );
+
+    await repository.applyHoldingImport(
+      "synthetic-access-subject",
+      staged.preview.id,
+      {
+        currency: "USD",
+        decisions: [
+          {
+            rowId: staged.preview.rows[0]!.id,
+            decision: "accepted",
+            rationale: "Reviewed synthetic Harbor position.",
+          },
+        ],
+      },
+    );
+
+    expect(
+      sqlite
+        .prepare(
+          `SELECT
+             exposure.company_id,
+             mapping.decision_source,
+             mapping.decision_reference,
+             mapping.relationship_kind,
+             mapping.allocation_ppm
+           FROM holding_positions position
+           JOIN holding_position_exposure_mappings mapping
+             ON mapping.position_id = position.id
+           JOIN canonical_exposures exposure
+             ON exposure.id = mapping.exposure_id
+           WHERE position.legal_vehicle_name = 'Synthetic Harbor Access SPV'
+             AND mapping.status = 'active'
+             AND NOT EXISTS (
+               SELECT 1
+               FROM holding_position_exposure_mappings later
+               WHERE later.supersedes_mapping_id = mapping.id
+             )`,
+        )
+        .get(),
+    ).toEqual({
+      company_id: "co_harbor",
+      decision_source: "deterministic_policy",
+      decision_reference: "private-company-exact-reviewed-v1",
+      relationship_kind: "look_through",
+      allocation_ppm: 1_000_000,
+    });
+    await expect(
+      new D1ExposureRepository(
+        new TestD1Database(sqlite) as unknown as D1Database,
+      ).getPrivateExposureReviewState("synthetic-access-subject"),
+    ).resolves.toMatchObject({ positions: [] });
   });
 
   it.each(["tokenfolio", "sydecar"] as const)(

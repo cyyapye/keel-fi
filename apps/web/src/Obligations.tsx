@@ -12,10 +12,14 @@ import {
   Field,
   Input,
   InputGroup,
-  NativeSelect,
   Notice,
   PageHeader,
   Screen,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@keel/ui";
 import {
   type FormEvent,
@@ -77,6 +81,23 @@ function treatmentLabel(treatment: LiabilityPaymentTreatment): string {
     already_in_plan: "Already included in the plan",
   }[treatment];
 }
+
+const liabilityKindOptions = [
+  { label: "Credit card", value: "credit_card" },
+  { label: "Mortgage", value: "mortgage" },
+  { label: "Student loan", value: "student_loan" },
+  { label: "Other revolving", value: "other_revolving" },
+  { label: "Other scheduled", value: "other_scheduled" },
+] satisfies ReadonlyArray<{
+  label: string;
+  value: ManualLiabilityInput["kind"];
+}>;
+
+const paymentStatusOptions = [
+  { label: "Unknown", value: "unknown" },
+  { label: "Current", value: "no" },
+  { label: "Overdue", value: "yes" },
+] as const;
 
 function defaultTreatment(
   row: LiabilityProposal["rows"][number],
@@ -334,27 +355,43 @@ function ObligationReview({
                   </span>
                 </label>
                 {selection.included && (
-                  <NativeSelect
-                    aria-label={`Planning treatment for ${row.accountLabel}`}
+                  <Select
                     disabled={working}
-                    onChange={(event) =>
+                    items={treatments.map((treatment) => ({
+                      label: treatmentLabel(treatment),
+                      value: treatment,
+                    }))}
+                    onValueChange={(value) => {
+                      if (
+                        value !== "reserve_from_liquidity" &&
+                        value !== "add_to_household_burn" &&
+                        value !== "already_in_plan"
+                      ) {
+                        return;
+                      }
                       setSelections((current) => ({
                         ...current,
                         [row.id]: {
                           ...selection,
-                          treatment: event.currentTarget
-                            .value as LiabilityPaymentTreatment,
+                          treatment: value,
                         },
-                      }))
-                    }
+                      }));
+                    }}
                     value={selection.treatment}
                   >
-                    {treatments.map((treatment) => (
-                      <option key={treatment} value={treatment}>
-                        {treatmentLabel(treatment)}
-                      </option>
-                    ))}
-                  </NativeSelect>
+                    <SelectTrigger
+                      aria-label={`Planning treatment for ${row.accountLabel}`}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {treatments.map((treatment) => (
+                        <SelectItem key={treatment} value={treatment}>
+                          {treatmentLabel(treatment)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
               </div>
             </article>
@@ -491,21 +528,33 @@ function ManualObligationForm({
             <Input maxLength={512} name="accountLabel" required />
           </Field>
           <Field label="Type">
-            <NativeSelect
+            <Select
+              items={liabilityKindOptions}
               name="kind"
-              onChange={(event) =>
-                setKind(
-                  event.currentTarget.value as ManualLiabilityInput["kind"],
-                )
-              }
+              onValueChange={(value) => {
+                if (
+                  value === "credit_card" ||
+                  value === "mortgage" ||
+                  value === "student_loan" ||
+                  value === "other_revolving" ||
+                  value === "other_scheduled"
+                ) {
+                  setKind(value);
+                }
+              }}
               value={kind}
             >
-              <option value="credit_card">Credit card</option>
-              <option value="mortgage">Mortgage</option>
-              <option value="student_loan">Student loan</option>
-              <option value="other_revolving">Other revolving</option>
-              <option value="other_scheduled">Other scheduled</option>
-            </NativeSelect>
+              <SelectTrigger aria-label="Type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {liabilityKindOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           <Field label="Outstanding balance">
             <InputGroup prefix="$">
@@ -526,11 +575,22 @@ function ManualObligationForm({
             <Input name="dueDate" type="date" />
           </Field>
           <Field label="Payment status">
-            <NativeSelect defaultValue="unknown" name="overdue">
-              <option value="unknown">Unknown</option>
-              <option value="no">Current</option>
-              <option value="yes">Overdue</option>
-            </NativeSelect>
+            <Select
+              defaultValue="unknown"
+              items={paymentStatusOptions}
+              name="overdue"
+            >
+              <SelectTrigger aria-label="Payment status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {paymentStatusOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           <Field label="Values effective">
             <Input

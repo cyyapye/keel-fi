@@ -341,6 +341,7 @@ type PrivateExposureReviewEvidenceRow = PrivateExposureReviewPositionRow & {
 };
 
 type PrivateExposureExactBatchRow = PrivateExposureReviewEvidenceRow & {
+  provider: string;
   reported_exposure_count: number;
 };
 
@@ -530,6 +531,309 @@ function mappingFrom(row: PositionExposureMappingRow): PositionExposureMapping {
 async function all<T>(statement: D1PreparedStatement): Promise<T[]> {
   const result = await statement.all<T>();
   return result.results;
+}
+
+type PrivateExposureAssignmentOptions = {
+  allowCompanyCreation: boolean;
+  decisionReference: string;
+  decisionSource: "deterministic_policy" | "review";
+};
+
+type PrivateExposureAssignmentResult = {
+  assignedPositionCount: number;
+  companyCount: number;
+  createdCompanyCount: number;
+  existingCompanyCount: number;
+};
+
+async function applyPrivateExposureGroups(
+  db: D1Database,
+  identity: HouseholdIdentity,
+  groups: readonly PrivateExposureExactBatchGroup[],
+  options: PrivateExposureAssignmentOptions,
+): Promise<PrivateExposureAssignmentResult> {
+  if (groups.length === 0) {
+    return {
+      assignedPositionCount: 0,
+      companyCount: 0,
+      createdCompanyCount: 0,
+      existingCompanyCount: 0,
+    };
+  }
+
+  const candidatePositionIds = new Set(
+    groups.flatMap((group) =>
+      group.positions.map((position) => position.position_id),
+    ),
+  );
+  const [existingExposures, allCurrentMappings] = await Promise.all([
+    all<CanonicalExposureRow>(
+      db
+        .prepare(
+          `SELECT
+             id, household_id, exposure_kind, canonical_name,
+             protected_identity_key, company_id, resolution_method,
+             evidence_sha256, created_at
+           FROM canonical_exposures
+           WHERE household_id = ? AND company_id IS NOT NULL
+           ORDER BY company_id, id`,
+        )
+        .bind(identity.household_id),
+    ),
+    all<CurrentExposureMappingRow>(
+      db
+        .prepare(
+          `SELECT
+             mapping.id, mapping.household_id, mapping.position_id,
+             mapping.exposure_id, mapping.relationship_kind,
+             mapping.allocation_ppm, mapping.status,
+             mapping.decision_source, mapping.decision_reference,
+             mapping.evidence_sha256, mapping.effective_at,
+             mapping.version, mapping.supersedes_mapping_id,
+             exposure.exposure_kind
+           FROM holding_position_exposure_mappings mapping
+           JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
+           WHERE mapping.household_id = ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM holding_position_exposure_mappings later
+               WHERE later.supersedes_mapping_id = mapping.id
+             )
+           ORDER BY mapping.position_id, mapping.exposure_id`,
+        )
+        .bind(identity.household_id),
+    ),
+  ]);
+  const exposuresByCompanyId = new Map(
+    existingExposures.flatMap((exposure) =>
+      exposure.company_id === null ? [] : [[exposure.company_id, exposure]],
+    ),
+  );
+  const mappingsByPositionId = new Map<string, CurrentExposureMappingRow[]>();
+  for (const mapping of allCurrentMappings) {
+    if (!candidatePositionIds.has(mapping.position_id)) {
+      continue;
+    }
+    const mappings = mappingsByPositionId.get(mapping.position_id) ?? [];
+    mappings.push(mapping);
+    mappingsByPositionId.set(mapping.position_id, mappings);
+  }
+  if (
+    [...mappingsByPositionId.values()].some((mappings) =>
+      mappings.some(
+        (mapping) =>
+          mapping.status === "active" && mapping.exposure_kind !== "unresolved",
+      ),
+    )
+  ) {
+    throw new PrivateExposureReviewError(
+      "stale",
+      "An exact company assignment is no longer unresolved.",
+    );
+  }
+
+  const acceptedAt = new Date().toISOString();
+  const companyRows: Array<Record<string, unknown>> = [];
+  const exposureRows: Array<Record<string, unknown>> = [];
+  const mappingRows: Array<Record<string, unknown>> = [];
+  const assignedCompanyIds = new Set<string>();
+  let assignedPositionCount = 0;
+  let createdCompanyCount = 0;
+
+  for (const group of groups) {
+    if (group.company === null && !options.allowCompanyCreation) {
+      continue;
+    }
+    const companyId = group.company?.id ?? crypto.randomUUID();
+    if (group.company === null) {
+      companyRows.push({
+        id: companyId,
+        householdId: identity.household_id,
+        legalName: group.companyName,
+        createdAt: acceptedAt,
+      });
+      createdCompanyCount += 1;
+    }
+    const existingExposure = exposuresByCompanyId.get(companyId);
+    const exposureId = existingExposure?.id ?? crypto.randomUUID();
+    if (existingExposure === undefined) {
+      exposureRows.push({
+        id: exposureId,
+        householdId: identity.household_id,
+        canonicalName: group.company?.legal_name ?? group.companyName,
+        companyId,
+        evidenceSha256: group.positions[0]!.evidence_sha256,
+        createdByUserId: identity.user_id,
+        createdAt: acceptedAt,
+      });
+    }
+
+    for (const position of group.positions) {
+      const currentMappings =
+        mappingsByPositionId.get(position.position_id) ?? [];
+      const currentTarget = currentMappings.find(
+        (mapping) => mapping.exposure_id === exposureId,
+      );
+      if (
+        options.decisionSource === "deterministic_policy" &&
+        currentTarget?.status === "withdrawn"
+      ) {
+        continue;
+      }
+      for (const mapping of currentMappings.filter(
+        (candidate) =>
+          candidate.status === "active" &&
+          candidate.exposure_kind === "unresolved",
+      )) {
+        mappingRows.push({
+          id: crypto.randomUUID(),
+          householdId: identity.household_id,
+          positionId: position.position_id,
+          exposureId: mapping.exposure_id,
+          relationshipKind: mapping.relationship_kind,
+          allocationPpm: null,
+          status: "withdrawn",
+          decisionSource: options.decisionSource,
+          decisionReference: options.decisionReference,
+          evidenceSha256: position.evidence_sha256,
+          effectiveAt:
+            mapping.effective_at > acceptedAt
+              ? mapping.effective_at
+              : acceptedAt,
+          version: mapping.version + 1,
+          supersedesMappingId: mapping.id,
+          acceptedByUserId: identity.user_id,
+          acceptedAt,
+        });
+      }
+
+      mappingRows.push({
+        id: crypto.randomUUID(),
+        householdId: identity.household_id,
+        positionId: position.position_id,
+        exposureId,
+        relationshipKind:
+          position.position_kind === "direct" ? "direct" : "look_through",
+        allocationPpm: 1_000_000,
+        status: "active",
+        decisionSource: options.decisionSource,
+        decisionReference: options.decisionReference,
+        evidenceSha256: position.evidence_sha256,
+        effectiveAt:
+          currentTarget !== undefined && currentTarget.effective_at > acceptedAt
+            ? currentTarget.effective_at
+            : acceptedAt,
+        version: (currentTarget?.version ?? 0) + 1,
+        supersedesMappingId: currentTarget?.id ?? null,
+        acceptedByUserId: identity.user_id,
+        acceptedAt,
+      });
+      assignedCompanyIds.add(companyId);
+      assignedPositionCount += 1;
+    }
+  }
+
+  const statements: D1PreparedStatement[] = [];
+  if (companyRows.length > 0) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO companies (
+             id, household_id, legal_name, website_host, status,
+             created_at, updated_at
+           )
+           SELECT
+             json_extract(value, '$.id'),
+             json_extract(value, '$.householdId'),
+             json_extract(value, '$.legalName'),
+             NULL,
+             'active',
+             json_extract(value, '$.createdAt'),
+             json_extract(value, '$.createdAt')
+           FROM json_each(?)`,
+        )
+        .bind(JSON.stringify(companyRows)),
+    );
+  }
+  if (exposureRows.length > 0) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO canonical_exposures (
+             id, household_id, exposure_kind, canonical_name,
+             protected_identity_key, company_id, resolution_method,
+             evidence_sha256, created_by_user_id, created_at, immutable
+           )
+           SELECT
+             json_extract(value, '$.id'),
+             json_extract(value, '$.householdId'),
+             'private_company',
+             json_extract(value, '$.canonicalName'),
+             NULL,
+             json_extract(value, '$.companyId'),
+             'reviewed_company',
+             json_extract(value, '$.evidenceSha256'),
+             json_extract(value, '$.createdByUserId'),
+             json_extract(value, '$.createdAt'),
+             1
+           FROM json_each(?)`,
+        )
+        .bind(JSON.stringify(exposureRows)),
+    );
+  }
+  if (mappingRows.length > 0) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO holding_position_exposure_mappings (
+             id, household_id, position_id, exposure_id, relationship_kind,
+             allocation_ppm, status, decision_source, decision_reference,
+             evidence_sha256, effective_at, version, supersedes_mapping_id,
+             accepted_by_user_id, accepted_at, immutable
+           )
+           SELECT
+             json_extract(value, '$.id'),
+             json_extract(value, '$.householdId'),
+             json_extract(value, '$.positionId'),
+             json_extract(value, '$.exposureId'),
+             json_extract(value, '$.relationshipKind'),
+             CAST(json_extract(value, '$.allocationPpm') AS INTEGER),
+             json_extract(value, '$.status'),
+             json_extract(value, '$.decisionSource'),
+             json_extract(value, '$.decisionReference'),
+             json_extract(value, '$.evidenceSha256'),
+             json_extract(value, '$.effectiveAt'),
+             CAST(json_extract(value, '$.version') AS INTEGER),
+             json_extract(value, '$.supersedesMappingId'),
+             json_extract(value, '$.acceptedByUserId'),
+             json_extract(value, '$.acceptedAt'),
+             1
+           FROM json_each(?)`,
+        )
+        .bind(JSON.stringify(mappingRows)),
+    );
+  }
+
+  try {
+    if (statements.length > 0) {
+      await db.batch(statements);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("UNIQUE")) {
+      throw new PrivateExposureReviewError(
+        "stale",
+        "The exact company assignments are no longer current.",
+      );
+    }
+    throw error;
+  }
+
+  return {
+    assignedPositionCount,
+    companyCount: assignedCompanyIds.size,
+    existingCompanyCount: assignedCompanyIds.size - createdCompanyCount,
+    createdCompanyCount,
+  };
 }
 
 export class D1ExposureRepository {
@@ -889,254 +1193,11 @@ export class D1ExposureRepository {
       );
     }
 
-    const candidatePositionIds = new Set(
-      plan.groups.flatMap((group) =>
-        group.positions.map((position) => position.position_id),
-      ),
-    );
-    const [existingExposures, allCurrentMappings] = await Promise.all([
-      all<CanonicalExposureRow>(
-        this.db
-          .prepare(
-            `SELECT
-               id, household_id, exposure_kind, canonical_name,
-               protected_identity_key, company_id, resolution_method,
-               evidence_sha256, created_at
-             FROM canonical_exposures
-             WHERE household_id = ? AND company_id IS NOT NULL
-             ORDER BY company_id, id`,
-          )
-          .bind(identity.household_id),
-      ),
-      all<CurrentExposureMappingRow>(
-        this.db
-          .prepare(
-            `SELECT
-               mapping.id, mapping.household_id, mapping.position_id,
-               mapping.exposure_id, mapping.relationship_kind,
-               mapping.allocation_ppm, mapping.status,
-               mapping.decision_source, mapping.decision_reference,
-               mapping.evidence_sha256, mapping.effective_at,
-               mapping.version, mapping.supersedes_mapping_id,
-               exposure.exposure_kind
-             FROM holding_position_exposure_mappings mapping
-             JOIN canonical_exposures exposure ON exposure.id = mapping.exposure_id
-             WHERE mapping.household_id = ?
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM holding_position_exposure_mappings later
-                 WHERE later.supersedes_mapping_id = mapping.id
-               )
-             ORDER BY mapping.position_id, mapping.exposure_id`,
-          )
-          .bind(identity.household_id),
-      ),
-    ]);
-    const exposuresByCompanyId = new Map(
-      existingExposures.flatMap((exposure) =>
-        exposure.company_id === null ? [] : [[exposure.company_id, exposure]],
-      ),
-    );
-    const mappingsByPositionId = new Map<string, CurrentExposureMappingRow[]>();
-    for (const mapping of allCurrentMappings) {
-      if (!candidatePositionIds.has(mapping.position_id)) {
-        continue;
-      }
-      const mappings = mappingsByPositionId.get(mapping.position_id) ?? [];
-      mappings.push(mapping);
-      mappingsByPositionId.set(mapping.position_id, mappings);
-    }
-    if (
-      [...mappingsByPositionId.values()].some((mappings) =>
-        mappings.some(
-          (mapping) =>
-            mapping.status === "active" &&
-            mapping.exposure_kind !== "unresolved",
-        ),
-      )
-    ) {
-      throw new PrivateExposureReviewError(
-        "stale",
-        "An exact company assignment is no longer unresolved.",
-      );
-    }
-
-    const acceptedAt = new Date().toISOString();
-    const decisionReference = `Reviewed exact company batch ${plan.preview.revision.slice(0, 12)}`;
-    const companyRows: Array<Record<string, unknown>> = [];
-    const exposureRows: Array<Record<string, unknown>> = [];
-    const mappingRows: Array<Record<string, unknown>> = [];
-
-    for (const group of plan.groups) {
-      const companyId = group.company?.id ?? crypto.randomUUID();
-      if (group.company === null) {
-        companyRows.push({
-          id: companyId,
-          householdId: identity.household_id,
-          legalName: group.companyName,
-          createdAt: acceptedAt,
-        });
-      }
-      const existingExposure = exposuresByCompanyId.get(companyId);
-      const exposureId = existingExposure?.id ?? crypto.randomUUID();
-      if (existingExposure === undefined) {
-        exposureRows.push({
-          id: exposureId,
-          householdId: identity.household_id,
-          canonicalName: group.company?.legal_name ?? group.companyName,
-          companyId,
-          evidenceSha256: group.positions[0]!.evidence_sha256,
-          createdByUserId: identity.user_id,
-          createdAt: acceptedAt,
-        });
-      }
-
-      for (const position of group.positions) {
-        const currentMappings =
-          mappingsByPositionId.get(position.position_id) ?? [];
-        for (const mapping of currentMappings.filter(
-          (candidate) =>
-            candidate.status === "active" &&
-            candidate.exposure_kind === "unresolved",
-        )) {
-          mappingRows.push({
-            id: crypto.randomUUID(),
-            householdId: identity.household_id,
-            positionId: position.position_id,
-            exposureId: mapping.exposure_id,
-            relationshipKind: mapping.relationship_kind,
-            allocationPpm: null,
-            status: "withdrawn",
-            decisionReference,
-            evidenceSha256: position.evidence_sha256,
-            effectiveAt:
-              mapping.effective_at > acceptedAt
-                ? mapping.effective_at
-                : acceptedAt,
-            version: mapping.version + 1,
-            supersedesMappingId: mapping.id,
-            acceptedByUserId: identity.user_id,
-            acceptedAt,
-          });
-        }
-
-        const currentTarget = currentMappings.find(
-          (mapping) => mapping.exposure_id === exposureId,
-        );
-        mappingRows.push({
-          id: crypto.randomUUID(),
-          householdId: identity.household_id,
-          positionId: position.position_id,
-          exposureId,
-          relationshipKind:
-            position.position_kind === "direct" ? "direct" : "look_through",
-          allocationPpm: 1_000_000,
-          status: "active",
-          decisionReference,
-          evidenceSha256: position.evidence_sha256,
-          effectiveAt:
-            currentTarget !== undefined &&
-            currentTarget.effective_at > acceptedAt
-              ? currentTarget.effective_at
-              : acceptedAt,
-          version: (currentTarget?.version ?? 0) + 1,
-          supersedesMappingId: currentTarget?.id ?? null,
-          acceptedByUserId: identity.user_id,
-          acceptedAt,
-        });
-      }
-    }
-
-    const statements: D1PreparedStatement[] = [];
-    if (companyRows.length > 0) {
-      statements.push(
-        this.db
-          .prepare(
-            `INSERT INTO companies (
-               id, household_id, legal_name, website_host, status,
-               created_at, updated_at
-             )
-             SELECT
-               json_extract(value, '$.id'),
-               json_extract(value, '$.householdId'),
-               json_extract(value, '$.legalName'),
-               NULL,
-               'active',
-               json_extract(value, '$.createdAt'),
-               json_extract(value, '$.createdAt')
-             FROM json_each(?)`,
-          )
-          .bind(JSON.stringify(companyRows)),
-      );
-    }
-    if (exposureRows.length > 0) {
-      statements.push(
-        this.db
-          .prepare(
-            `INSERT INTO canonical_exposures (
-               id, household_id, exposure_kind, canonical_name,
-               protected_identity_key, company_id, resolution_method,
-               evidence_sha256, created_by_user_id, created_at, immutable
-             )
-             SELECT
-               json_extract(value, '$.id'),
-               json_extract(value, '$.householdId'),
-               'private_company',
-               json_extract(value, '$.canonicalName'),
-               NULL,
-               json_extract(value, '$.companyId'),
-               'reviewed_company',
-               json_extract(value, '$.evidenceSha256'),
-               json_extract(value, '$.createdByUserId'),
-               json_extract(value, '$.createdAt'),
-               1
-             FROM json_each(?)`,
-          )
-          .bind(JSON.stringify(exposureRows)),
-      );
-    }
-    statements.push(
-      this.db
-        .prepare(
-          `INSERT INTO holding_position_exposure_mappings (
-             id, household_id, position_id, exposure_id, relationship_kind,
-             allocation_ppm, status, decision_source, decision_reference,
-             evidence_sha256, effective_at, version, supersedes_mapping_id,
-             accepted_by_user_id, accepted_at, immutable
-           )
-           SELECT
-             json_extract(value, '$.id'),
-             json_extract(value, '$.householdId'),
-             json_extract(value, '$.positionId'),
-             json_extract(value, '$.exposureId'),
-             json_extract(value, '$.relationshipKind'),
-             CAST(json_extract(value, '$.allocationPpm') AS INTEGER),
-             json_extract(value, '$.status'),
-             'review',
-             json_extract(value, '$.decisionReference'),
-             json_extract(value, '$.evidenceSha256'),
-             json_extract(value, '$.effectiveAt'),
-             CAST(json_extract(value, '$.version') AS INTEGER),
-             json_extract(value, '$.supersedesMappingId'),
-             json_extract(value, '$.acceptedByUserId'),
-             json_extract(value, '$.acceptedAt'),
-             1
-           FROM json_each(?)`,
-        )
-        .bind(JSON.stringify(mappingRows)),
-    );
-
-    try {
-      await this.db.batch(statements);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("UNIQUE")) {
-        throw new PrivateExposureReviewError(
-          "stale",
-          "The exact company assignments are no longer current.",
-        );
-      }
-      throw error;
-    }
+    await applyPrivateExposureGroups(this.db, identity, plan.groups, {
+      allowCompanyCreation: true,
+      decisionReference: `Reviewed exact company batch ${plan.preview.revision.slice(0, 12)}`,
+      decisionSource: "review",
+    });
 
     return PrivateExposureExactBatchResultSchema.parse({
       version: 1,
@@ -1382,6 +1443,7 @@ export class D1ExposureRepository {
     importId: string,
   ): Promise<void> {
     await this.reconcileAcceptedPublicExposureRows(accessSubject, importId);
+    await this.reconcileAcceptedPrivateExposureRows(accessSubject, importId);
     await this.reconcileRetainedPositionContinuity(accessSubject);
   }
 
@@ -1934,7 +1996,40 @@ export class D1ExposureRepository {
     return this.readModel.list(accessSubject);
   }
 
-  private async loadPrivateExposureReviewData(householdId: string): Promise<{
+  private async reconcileAcceptedPrivateExposureRows(
+    accessSubject: string,
+    importId: string | null,
+  ): Promise<void> {
+    const identity = await this.findIdentity(accessSubject);
+    const { positions, companies } = await this.loadPrivateExposureReviewData(
+      identity.household_id,
+      importId,
+    );
+    const plan = await buildPrivateExposureExactBatchPlan(
+      positions.filter(
+        (position) =>
+          position.provider === "angellist" ||
+          position.provider === "tokenfolio" ||
+          position.provider === "sydecar",
+      ),
+      companies,
+    );
+    await applyPrivateExposureGroups(
+      this.db,
+      identity,
+      plan.groups.filter((group) => group.company !== null),
+      {
+        allowCompanyCreation: false,
+        decisionReference: "private-company-exact-reviewed-v1",
+        decisionSource: "deterministic_policy",
+      },
+    );
+  }
+
+  private async loadPrivateExposureReviewData(
+    householdId: string,
+    importId: string | null = null,
+  ): Promise<{
     positions: PrivateExposureExactBatchRow[];
     companies: PrivateExposureCompanyRow[];
   }> {
@@ -1961,6 +2056,7 @@ export class D1ExposureRepository {
                    AND reported_count.exposure_label IS NOT NULL
                ) AS reported_exposure_count,
                position.position_kind,
+               position.provider,
                position.owner_label,
                snapshot.observed_at,
                document.sha256 AS evidence_sha256
@@ -1973,12 +2069,15 @@ export class D1ExposureRepository {
                  ORDER BY latest.applied_at DESC, latest.id DESC
                  LIMIT 1
                )
+             JOIN holding_import_rows applied_row
+               ON applied_row.id = application.import_row_id
              JOIN holding_position_snapshots snapshot
                ON snapshot.id = application.snapshot_id
               AND snapshot.position_id = position.id
              JOIN source_documents document
                ON document.id = snapshot.source_document_id
              WHERE position.household_id = ?
+               AND (? IS NULL OR applied_row.import_id = ?)
                AND (
                  position.position_kind = 'spv_interest'
                  OR (
@@ -2007,7 +2106,7 @@ export class D1ExposureRepository {
                position.id
              LIMIT 500`,
           )
-          .bind(householdId),
+          .bind(householdId, importId, importId),
       ),
       all<PrivateExposureCompanyRow>(
         this.db

@@ -213,7 +213,8 @@ test("reviews observed burn and prepares the existing runway plan", async ({
   await expect(review.getByText("36 mo", { exact: true })).toBeVisible();
   await review
     .getByRole("combobox", { name: "General services treatment" })
-    .selectOption("business");
+    .click();
+  await page.getByRole("option", { name: "Business burn" }).click();
   await expect(review).toHaveScreenshot("observed-cash-flow-review.png", {
     animations: "disabled",
     caret: "hide",

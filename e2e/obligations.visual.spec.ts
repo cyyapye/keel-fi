@@ -343,7 +343,7 @@ test("reviews obligations and preserves unknown and stale states", async ({
   await expect(review).toContainText("Only USD liabilities are supported.");
   await expect(
     page.getByLabel("Planning treatment for Graduate loan"),
-  ).toHaveValue("add_to_household_burn");
+  ).toContainText("Add next payment to monthly burn");
   await review.evaluate((element) =>
     element.scrollIntoView({ block: "start", behavior: "auto" }),
   );
@@ -386,11 +386,13 @@ test("reviews obligations and preserves unknown and stale states", async ({
   const manual = page.locator(".manual-obligation");
   await manual.getByLabel("Institution").fill("Manual entry");
   await manual.getByLabel("Account label").fill("Synthetic mortgage");
-  await manual.getByLabel("Type").selectOption("mortgage");
+  await manual.getByRole("combobox", { name: "Type" }).click();
+  await page.getByRole("option", { name: "Mortgage" }).click();
   await manual.getByLabel("Next required payment").fill("2200");
   await manual.getByLabel("APR").fill("5.125");
   await manual.getByLabel("Next payment due").fill("2026-09-01");
-  await manual.getByLabel("Payment status").selectOption("no");
+  await manual.getByRole("combobox", { name: "Payment status" }).click();
+  await page.getByRole("option", { name: "Current" }).click();
   await manual.getByLabel("Values effective").fill("2026-08-14");
   await manual.getByRole("button", { name: "Continue to review" }).click();
   await expect(

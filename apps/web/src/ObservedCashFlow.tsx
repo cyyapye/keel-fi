@@ -12,9 +12,13 @@ import {
   Field,
   FormMessage,
   Input,
-  NativeSelect,
   Notice,
   Panel,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@keel/ui";
 import { useEffect, useMemo, useState } from "react";
 
@@ -32,6 +36,10 @@ const treatmentLabels: Record<CashFlowTreatment, string> = {
   excluded: "Exclude from burn",
   debt_payment: "Debt payment",
 };
+
+const treatmentOptions = (
+  Object.entries(treatmentLabels) as Array<[CashFlowTreatment, string]>
+).map(([value, label]) => ({ label, value }));
 
 function monthLabel(month: string): string {
   const [year, monthNumber] = month.split("-").map(Number);
@@ -359,13 +367,21 @@ export function ObservedCashFlow({
                 </small>
               </span>
               <b>{formatCompactMoney(category.averageMonthlyMinor)}</b>
-              <NativeSelect
-                aria-label={`${category.label} treatment`}
+              <Select
                 disabled={readyForPlan}
-                onChange={(event) => {
+                items={treatmentOptions}
+                onValueChange={(value) => {
+                  if (
+                    value !== "household" &&
+                    value !== "business" &&
+                    value !== "excluded" &&
+                    value !== "debt_payment"
+                  ) {
+                    return;
+                  }
                   setTreatments((current) => ({
                     ...current,
-                    [category.id]: event.target.value as CashFlowTreatment,
+                    [category.id]: value,
                   }));
                   setMessage(null);
                   setActionError(null);
@@ -376,12 +392,17 @@ export function ObservedCashFlow({
                   category.defaultTreatment
                 }
               >
-                {Object.entries(treatmentLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </NativeSelect>
+                <SelectTrigger aria-label={`${category.label} treatment`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {treatmentOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
           ))}
         </div>

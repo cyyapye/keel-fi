@@ -559,7 +559,7 @@ h3 {
 }
 
 .field .input,
-.field .native-select {
+.field .select-trigger {
   width: 100%;
   min-width: 0;
   height: 44px;
@@ -572,14 +572,13 @@ h3 {
 }
 
 .field .input:hover,
-.field .native-select:hover {
+.field .select-trigger:hover {
   border-bottom-color: var(--ink);
 }
 
-.field .native-select:disabled {
+.field .select-trigger:disabled {
   color: var(--ink);
   opacity: 1;
-  appearance: none;
 }
 
 .field__value {

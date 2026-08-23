@@ -535,7 +535,12 @@ test("leads with the investment and opens a truthful holding detail", async ({
   );
   await exposureReview
     .getByRole("combobox", { name: "Company", exact: true })
-    .selectOption("company_lattice_synthetic");
+    .click();
+  await page
+    .getByRole("option", {
+      name: "Lattice Grove Energy · lattice-grove.example",
+    })
+    .click();
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "holdings-private-exposure-review.png",
