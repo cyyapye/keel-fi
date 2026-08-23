@@ -1,11 +1,11 @@
-# AngelList Mac agent
+# AngelList portfolio agent
 
-Keel uses a dedicated Chrome profile on the user's Mac to request AngelList's
-investments CSV. The Mac keeps the AngelList session; neither browser cookies
-nor credentials are uploaded to Keel. A one-time Cloudflare Access sign-in
-authorizes a target-scoped credential in macOS Keychain. Daily checks use that
-credential to send only the CSV to Keel's dedicated agent API, where it enters
-the existing holding-import review flow.
+Keel uses a dedicated Chrome profile on macOS or an always-on Linux worker to
+request AngelList's investments CSV. The update computer keeps the AngelList
+session; neither browser cookies nor credentials are uploaded to Keel. A
+one-time Cloudflare Access sign-in authorizes a target-scoped machine
+credential. Daily checks use it to send only the CSV to Keel's dedicated agent
+API, where it enters the existing holding-import review flow.
 
 Cloudflare Browser Run is retired for this workflow. The API Worker no longer
 needs a Browser Rendering binding, AngelList KV namespace, cron trigger, stored
@@ -13,10 +13,9 @@ browser session, or AngelList-specific deployment secret.
 
 ## Trust boundary
 
-- Each Keel origin gets its own Chrome profile under
-  `~/Library/Application Support/Keel/AngelList Agent/Instances/<instance>/Chrome`
-  with owner-only directory permissions. Local and preview sessions can run at
-  the same time without controlling the same browser.
+- Each Keel origin gets its own owner-only Chrome profile. macOS stores it under
+  `~/Library/Application Support/Keel/AngelList Agent/Instances/<instance>/Chrome`;
+  Linux stores it under `~/.local/state/keel/portfolio-agents`.
 - Chrome's DevTools endpoint binds to loopback on a random nonzero port and uses
   this non-default profile. It is not exposed to the network.
 - Credentials, passwords, magic links, 2FA codes, cookies, and local storage
@@ -26,26 +25,26 @@ browser session, or AngelList-specific deployment secret.
   stored only beside that origin's Chrome profile as `config.json`, with
   owner-only permissions. It is not uploaded to Keel or checked into the
   repository.
-- The Mac agent uploads only a bounded AngelList CSV to the dedicated agent API.
-  It does not need a Keel browser session after setup. The API validates the
-  file again before private R2 storage and D1 staging.
+- The agent uploads only a bounded AngelList CSV to the dedicated agent API. It
+  does not need a Keel browser session after setup. The API validates the file
+  again before private R2 storage and D1 staging.
 - A completed agent run creates or reuses a pending holding import. It never
   applies holdings or forecasts. The user must review the import in Keel.
 - D1 is canonical for registration, interval, heartbeat, run leases, failures,
   and completion state. Lease tokens are short-lived and only their SHA-256
   digests are stored.
-- The long-lived Mac credential is scoped to AngelList agent routes, stored in
-  Keychain, and represented in D1 only by a SHA-256 digest. Rerunning setup
-  revokes the prior credential.
+- The long-lived machine credential is scoped to AngelList agent routes, stored
+  in macOS Keychain or a mode-`0600` Linux user file, and represented in D1 only
+  by a SHA-256 digest. Rerunning setup revokes the prior credential.
 
 The local profile has the same practical risk as another signed-in Chrome
-profile on the Mac: malware or another process running as the same macOS user
-could attempt to inspect or control it. Full-disk encryption, a locked macOS
-account, and the dedicated read-only AngelList account remain required.
+profile: malware or another process running as the same operating-system user
+could attempt to inspect or control it. Host encryption, a locked account, and
+the dedicated read-only AngelList account remain required.
 
 ## One-time setup
 
-Prerequisites:
+macOS prerequisites:
 
 - macOS with Google Chrome installed in `/Applications`;
 - a stable checkout of this repository with dependencies installed;
@@ -59,12 +58,17 @@ make provider-agent-setup PROVIDER=angellist KEEL_URL=https://keel-preview.examp
 ```
 
 Setup opens the dedicated Chrome profile. Finish AngelList sign-in and any 2FA
-prompt, then sign in through Cloudflare Access once to approve the Mac. Setup
+prompt, then sign in through Cloudflare Access once to approve the agent. Setup
 waits until the exact `Export CSV` button is visible, stores the returned opaque
 credential in Keychain without an interactive password-data prompt, records the
 current account-scoped `/v/.../i/.../portfolio/dashboard` route locally, and
 installs a destination-scoped
 `~/Library/LaunchAgents/com.keel.angellist-agent.<instance>.plist`.
+
+On a headless OVH worker, the same command starts a localhost-only temporary
+desktop and prints the SSH tunnel needed to view it from a Mac. Follow
+[Linux portfolio agents on an OVH worker](./linux-browser-agents.md) for the
+worker prerequisites, sign-in steps, and `systemd` operations.
 
 The LaunchAgent records only bounded operational events in origin-scoped files:
 
@@ -89,17 +93,17 @@ make provider-agent-setup PROVIDER=angellist KEEL_URL=https://keel-preview.examp
 
 ## Regular operation
 
-launchd starts one short-lived check after setup or login and then once every 24
-hours. The check reuses the AngelList Chrome profile, reads its target-scoped
-credential from Keychain, asks Keel directly for queued or due work, and exits.
-It does not create scheduled work while the Mac is asleep or offline. When the
-Mac next checks, D1 creates a due scheduled run if needed.
+launchd starts a short-lived macOS check once every 24 hours. On Linux, a
+long-running `systemd --user` service stays available after SSH disconnects.
+Both reuse the AngelList Chrome profile, read the target-scoped credential, and
+ask Keel directly for queued or due work. When an agent next checks, D1 creates
+a due scheduled run if needed.
 
 From Holdings, the user can:
 
 - choose daily, weekly, or off;
-- queue an update from a phone or desktop for the next daily Mac check; and
-- see the last Mac check, last completion, next scheduled date, and bounded
+- queue an update from a phone or desktop for the next daily agent check; and
+- see the last agent check, last completion, next scheduled date, and bounded
   attention states.
 
 To run the complete flow for one destination immediately instead of waiting for
@@ -114,14 +118,14 @@ downloads the CSV, and uploads it to Keel as a pending import. It never applies
 the import. If an update was already queued from a phone, the same command picks
 it up immediately.
 
-Queueing an update is safe when the Mac is offline: one active run remains
+Queueing an update is safe when the agent is offline: one active run remains
 queued until the next daily check or local command. A lease lasts five minutes.
 Completion or failure advances the next scheduled date so a broken sign-in
 cannot create a tight retry loop.
 
 When AngelList authentication expires, Holdings directs the user to the
-dedicated Chrome window. When Mac access is rejected or missing, rerun setup to
-rotate the Keychain credential. A failed attempt never replaces a previously
+dedicated Chrome window. When agent access is rejected or missing, rerun setup
+to rotate the machine credential. A failed attempt never replaces a previously
 staged import or changes accepted holdings.
 
 ## API routes
@@ -134,8 +138,8 @@ dedicated agent hostname and only for the machine routes below.
 | ------ | ---------------------------------------------------------- | ------------------------------------------------------ |
 | `GET`  | `/api/automation/angellist/status`                         | Household-scoped overview for Holdings                 |
 | `POST` | `/api/automation/angellist/run`                            | Queue one manual run; idempotent while a run is active |
-| `POST` | `/api/automation/angellist/mac-agent/register`             | Register or heartbeat the authenticated Mac            |
-| `POST` | `/api/automation/angellist/mac-agent/authorize`            | Rotate and return one Keychain credential              |
+| `POST` | `/api/automation/angellist/mac-agent/register`             | Register or heartbeat the authenticated agent          |
+| `POST` | `/api/automation/angellist/mac-agent/authorize`            | Rotate and return one machine credential               |
 | `PUT`  | `/api/automation/angellist/mac-agent/config`               | Set `daily`, `weekly`, or `off`                        |
 | `POST` | `/api/automation/angellist/mac-agent/run`                  | Queue one device-requested run                         |
 | `POST` | `/api/automation/angellist/mac-agent/lease`                | Heartbeat and lease one queued or due run              |
@@ -147,8 +151,8 @@ The complete and fail routes require the raw lease token in
 and retains the existing 1 MB and 500-row bounds.
 
 The device credential cannot call status, config, authorize, review, or apply
-routes. Its raw value is returned once, never logged, never placed in launchd
-arguments, and never stored in D1.
+routes. Its raw value is returned once, never logged, never placed in background
+service arguments, and never stored in D1.
 
 ## Deployment and verification
 
@@ -173,10 +177,12 @@ appears as a pending Keel import, and Holdings remains unchanged until review.
 
 Choose `Off` in that environment's Holdings screen to stop automatic runs while
 preserving queued updates and the run command. To remove one background process
-entirely, unload and delete only its
-`~/Library/LaunchAgents/com.keel.angellist-agent.<instance>.plist`; its scoped
-Chrome profile can then be archived or deleted separately after confirming no
-sign-in needs to be retained.
+entirely on macOS, unload and delete only its
+`~/Library/LaunchAgents/com.keel.angellist-agent.<instance>.plist`. On Linux,
+disable only the exact unit printed by setup with
+`systemctl --user disable --now <unit-name>`. Its scoped Chrome profile can then
+be archived or deleted separately after confirming no sign-in needs to be
+retained.
 
 Cloudflare Browser Run resources created for the retired design are not
 referenced by the Worker after this release. They may be removed from the

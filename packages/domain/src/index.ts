@@ -1198,7 +1198,7 @@ export const MacAgentApiOriginSchema = z.url().transform((value, context) => {
   ) {
     context.addIssue({
       code: "custom",
-      message: "Mac agent API URL must be a secure origin.",
+      message: "Portfolio agent API URL must be a secure origin.",
     });
     return z.NEVER;
   }

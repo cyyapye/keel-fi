@@ -827,7 +827,7 @@ export function createApp(options: AppOptions = {}) {
       const expectedOrigin = macAgentApiOrigin(context.env, context.req.url);
       if (expectedOrigin === null) {
         return context.json(
-          { error: "Mac agent access is unavailable." },
+          { error: "Portfolio agent access is unavailable." },
           503,
           { "Cache-Control": "no-store" },
         );
@@ -846,7 +846,7 @@ export function createApp(options: AppOptions = {}) {
         : null;
       if (accessSubject === null) {
         return context.json(
-          { error: "Mac agent access could not be validated." },
+          { error: "Portfolio agent access could not be validated." },
           401,
           { "Cache-Control": "no-store" },
         );
@@ -2238,7 +2238,7 @@ export function createApp(options: AppOptions = {}) {
       return context.json(
         {
           error: notRegistered
-            ? "Finish AngelList setup on your Mac first."
+            ? "Finish AngelList agent setup first."
             : "Keel could not queue this AngelList update.",
         },
         notRegistered ? 409 : 503,
@@ -2258,7 +2258,7 @@ export function createApp(options: AppOptions = {}) {
       );
     } catch {
       return context.json(
-        { error: "Mac setup could not be registered." },
+        { error: "Agent setup could not be registered." },
         503,
         {
           "Cache-Control": "private, no-store",
@@ -2269,14 +2269,14 @@ export function createApp(options: AppOptions = {}) {
 
   app.post("/api/automation/angellist/mac-agent/authorize", async (context) => {
     if (context.req.header("X-Keel-Mac-Setup") !== "1") {
-      return context.json({ error: "Mac setup request is invalid." }, 403, {
+      return context.json({ error: "Agent setup request is invalid." }, 403, {
         "Cache-Control": "private, no-store",
       });
     }
     const apiOrigin = macAgentApiOrigin(context.env, context.req.url);
     if (apiOrigin === null) {
       return context.json(
-        { error: "Secure Mac access is not configured." },
+        { error: "Secure agent access is not configured." },
         503,
         { "Cache-Control": "private, no-store" },
       );
@@ -2299,7 +2299,7 @@ export function createApp(options: AppOptions = {}) {
       );
     } catch {
       return context.json(
-        { error: "Secure Mac access could not be created." },
+        { error: "Secure agent access could not be created." },
         503,
         { "Cache-Control": "private, no-store" },
       );
@@ -2322,7 +2322,7 @@ export function createApp(options: AppOptions = {}) {
       return context.json(
         {
           error: notRegistered
-            ? "Approve this Mac in Keel before requesting work."
+            ? "Finish agent setup before requesting work."
             : "Keel could not queue this AngelList update.",
         },
         notRegistered ? 409 : 503,
@@ -2361,7 +2361,7 @@ export function createApp(options: AppOptions = {}) {
       return context.json(
         {
           error: notRegistered
-            ? "Finish AngelList setup on your Mac first."
+            ? "Finish AngelList agent setup first."
             : "The AngelList interval could not be saved.",
         },
         notRegistered ? 409 : 503,
@@ -2386,7 +2386,7 @@ export function createApp(options: AppOptions = {}) {
       return context.json(
         {
           error: notRegistered
-            ? "Register this Mac before requesting work."
+            ? "Register this agent before requesting work."
             : "Keel could not check for an AngelList update.",
         },
         notRegistered ? 409 : 503,
@@ -2634,7 +2634,7 @@ export function createApp(options: AppOptions = {}) {
         return context.json(
           {
             error: notRegistered
-              ? `Finish ${label} setup on your Mac first.`
+              ? `Finish ${label} agent setup first.`
               : `Keel could not queue this ${label} update.`,
           },
           notRegistered ? 409 : 503,
@@ -2665,7 +2665,7 @@ export function createApp(options: AppOptions = {}) {
       } catch {
         return context.json(
           {
-            error: `${providerPortfolioLabel(provider)} Mac setup could not be registered.`,
+            error: `${providerPortfolioLabel(provider)} agent setup could not be registered.`,
           },
           503,
           { "Cache-Control": "private, no-store" },
@@ -2678,7 +2678,7 @@ export function createApp(options: AppOptions = {}) {
     "/api/automation/provider-holdings/:provider/mac-agent/authorize",
     async (context) => {
       if (context.req.header("X-Keel-Mac-Setup") !== "1") {
-        return context.json({ error: "Mac setup request is invalid." }, 403, {
+        return context.json({ error: "Agent setup request is invalid." }, 403, {
           "Cache-Control": "private, no-store",
         });
       }
@@ -2691,7 +2691,7 @@ export function createApp(options: AppOptions = {}) {
       const apiOrigin = macAgentApiOrigin(context.env, context.req.url);
       if (apiOrigin === null) {
         return context.json(
-          { error: "Secure Mac access is not configured." },
+          { error: "Secure agent access is not configured." },
           503,
           { "Cache-Control": "private, no-store" },
         );
@@ -2718,7 +2718,7 @@ export function createApp(options: AppOptions = {}) {
       } catch {
         return context.json(
           {
-            error: `${providerPortfolioLabel(provider)} secure Mac access could not be created.`,
+            error: `${providerPortfolioLabel(provider)} secure agent access could not be created.`,
           },
           503,
           { "Cache-Control": "private, no-store" },
@@ -2752,7 +2752,7 @@ export function createApp(options: AppOptions = {}) {
         return context.json(
           {
             error: notRegistered
-              ? "Approve this Mac in Keel before requesting work."
+              ? "Finish agent setup before requesting work."
               : `Keel could not queue this ${providerPortfolioLabel(provider)} update.`,
           },
           notRegistered ? 409 : 503,
@@ -2803,7 +2803,7 @@ export function createApp(options: AppOptions = {}) {
         return context.json(
           {
             error: notRegistered
-              ? `Finish ${label} setup on your Mac first.`
+              ? `Finish ${label} agent setup first.`
               : `The ${label} interval could not be saved.`,
           },
           notRegistered ? 409 : 503,
@@ -2838,7 +2838,7 @@ export function createApp(options: AppOptions = {}) {
         return context.json(
           {
             error: notRegistered
-              ? "Register this Mac before requesting work."
+              ? "Register this agent before requesting work."
               : `Keel could not check for a ${providerPortfolioLabel(provider)} update.`,
           },
           notRegistered ? 409 : 503,

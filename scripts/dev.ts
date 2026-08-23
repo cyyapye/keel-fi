@@ -54,17 +54,29 @@ const environment = {
 };
 const localPersistTo = process.env.KEEL_LOCAL_PERSIST_TO;
 const acceptancePersistRoot = path.resolve(rootDir, ".keel-local/acceptance");
+const e2ePersistRoot = path.resolve(rootDir, ".keel-local/e2e");
 const isAcceptanceProfile =
   localPersistTo !== undefined &&
   path.resolve(rootDir, localPersistTo) === acceptancePersistRoot;
-if (localPersistTo !== undefined && !isAcceptanceProfile) {
+const isE2eProfile =
+  process.env.KEEL_E2E_ISOLATED === "1" &&
+  localPersistTo !== undefined &&
+  path.resolve(rootDir, localPersistTo) === e2ePersistRoot;
+if (localPersistTo !== undefined && !isAcceptanceProfile && !isE2eProfile) {
   throw new Error(
-    "KEEL_LOCAL_PERSIST_TO may only select the disposable local acceptance profile.",
+    "KEEL_LOCAL_PERSIST_TO may only select a disposable Keel runtime profile.",
   );
 }
-if (isAcceptanceProfile && !existsSync(acceptancePersistRoot)) {
+const selectedPersistRoot = isAcceptanceProfile
+  ? acceptancePersistRoot
+  : isE2eProfile
+    ? e2ePersistRoot
+    : null;
+if (selectedPersistRoot !== null && !existsSync(selectedPersistRoot)) {
   throw new Error(
-    "The local acceptance profile is missing. Run make local-acceptance-apply first.",
+    isAcceptanceProfile
+      ? "The local acceptance profile is missing. Run make local-acceptance-apply first."
+      : "The isolated browser-test profile is missing. Run make db-reset-e2e first.",
   );
 }
 const childEnvironment = {
@@ -79,7 +91,11 @@ const childEnvironment = {
           "wrangler.log",
         ),
       }
-    : {}),
+    : isE2eProfile
+      ? {
+          WRANGLER_LOG_PATH: path.join(e2ePersistRoot, "logs", "wrangler.log"),
+        }
+      : {}),
 };
 const children = new Map<ChildProcess, string>();
 

@@ -8,11 +8,13 @@ PNPM ?= npx --yes pnpm@11.9.0
 COMPOSE ?= docker compose
 TEST_ARGS ?=
 E2E_ARGS ?=
+override E2E_PERSIST_TO := $(CURDIR)/.keel-local/e2e
 WRANGLER_LOG_PATH ?= $(CURDIR)/.wrangler/logs/wrangler.log
+AGENT_PLATFORM ?= $(shell uname -s)
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify
+.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify
 
 help:
 	@echo "Keel developer commands"
@@ -104,6 +106,18 @@ db-verify:
 	$(MAKE) db-reset
 	$(MAKE) db-check
 
+db-reset-e2e:
+	node scripts/reset-e2e-state.mjs
+	$(PNPM) exec wrangler d1 migrations apply keel-local --env local --local --config apps/api/wrangler.jsonc --persist-to "$(E2E_PERSIST_TO)"
+	$(PNPM) exec wrangler d1 execute keel-local --env local --local --config apps/api/wrangler.jsonc --persist-to "$(E2E_PERSIST_TO)" --file packages/database/seed/synthetic.sql
+
+db-check-e2e:
+	$(PNPM) exec wrangler d1 execute keel-local --env local --local --config apps/api/wrangler.jsonc --persist-to "$(E2E_PERSIST_TO)" --command "SELECT COUNT(*) AS households FROM households; SELECT COUNT(*) AS snapshots FROM forecast_snapshots; SELECT COUNT(*) AS goals FROM goals; SELECT COUNT(*) AS primary_goals FROM goals WHERE is_primary = 1 AND archived_at IS NULL; SELECT COUNT(*) AS goal_versions_without_snapshot FROM goal_versions version LEFT JOIN goal_forecast_snapshots snapshot ON snapshot.goal_version_id = version.id WHERE snapshot.id IS NULL;"
+
+db-verify-e2e:
+	$(MAKE) db-reset-e2e
+	$(MAKE) db-check-e2e
+
 local-acceptance-apply:
 	$(PNPM) local:acceptance:apply
 
@@ -119,11 +133,15 @@ local-acceptance-clean:
 provider-agent-setup:
 	@test -n "$(PROVIDER)" || { echo "PROVIDER is required."; exit 2; }
 	@test -n "$(KEEL_URL)" || { echo "KEEL_URL is required."; exit 2; }
-	@case "$(PROVIDER)" in \
-		angellist) $(PNPM) angellist:setup -- --keel-url "$(KEEL_URL)" ;; \
-		tokenfolio|sydecar) $(PNPM) provider:setup -- --provider "$(PROVIDER)" --keel-url "$(KEEL_URL)" ;; \
-		*) echo "PROVIDER must be angellist, tokenfolio, or sydecar."; exit 2 ;; \
-	esac
+	@case "$(PROVIDER)" in angellist|tokenfolio|sydecar) ;; *) echo "PROVIDER must be angellist, tokenfolio, or sydecar."; exit 2 ;; esac
+	@if [ "$(AGENT_PLATFORM)" = "Linux" ] && [ -z "$${DISPLAY:-}" ]; then \
+		$(PNPM) exec tsx scripts/linux-agent-setup-session.ts --provider "$(PROVIDER)" --keel-url "$(KEEL_URL)"; \
+	else \
+		case "$(PROVIDER)" in \
+			angellist) $(PNPM) angellist:setup -- --keel-url "$(KEEL_URL)" ;; \
+			tokenfolio|sydecar) $(PNPM) provider:setup -- --provider "$(PROVIDER)" --keel-url "$(KEEL_URL)" ;; \
+		esac; \
+	fi
 
 provider-agent-run:
 	@test -n "$(PROVIDER)" || { echo "PROVIDER is required."; exit 2; }
@@ -134,10 +152,9 @@ provider-agent-run:
 		*) echo "PROVIDER must be angellist, tokenfolio, or sydecar."; exit 2 ;; \
 	esac
 e2e:
-	$(MAKE) db-reset
-	$(PNPM) test:e2e $(E2E_ARGS)
+	$(MAKE) db-verify-e2e
+	KEEL_E2E_ISOLATED=1 KEEL_LOCAL_PERSIST_TO="$(E2E_PERSIST_TO)" $(PNPM) test:e2e $(E2E_ARGS)
 
 verify:
 	$(MAKE) check
-	$(MAKE) db-verify
 	$(MAKE) e2e

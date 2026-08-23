@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { MAX_ANGELLIST_CSV_BYTES } from "../packages/connectors/src/index";
@@ -34,6 +35,15 @@ import {
   macAgentInstanceId,
   retireMatchingLegacyLaunchAgent,
 } from "./mac-agent-instance";
+import {
+  agentApplicationDirectory,
+  agentLogDirectory,
+  chromeExecutable,
+  controlledChromeArguments,
+  installSystemdAgentService,
+  validateInteractiveSetupEnvironment,
+  validateLinuxSystemdUser,
+} from "./browser-agent-runtime";
 import {
   chromium,
   type Browser,
@@ -59,12 +69,10 @@ const LEGACY_LAUNCH_AGENT_PATH = path.join(
   "LaunchAgents",
   `${LEGACY_LAUNCH_AGENT_LABEL}.plist`,
 );
-const LOG_DIRECTORY = path.join(os.homedir(), "Library", "Logs", "Keel");
-const CHROME_PATH =
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
 const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
+const FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000;
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const ANGELLIST_PORTFOLIO_PATH =
   /^\/v\/[a-z0-9-]{1,128}\/i\/[a-z0-9-]{1,128}\/portfolio\/dashboard\/?$/iu;
@@ -97,9 +105,16 @@ const AngelListLocalConfigSchema = z
 
 type Command = "once" | "run" | "serve" | "setup";
 
-function agentPaths(keelOrigin: URL) {
+function agentPaths(
+  keelOrigin: URL,
+  platform: NodeJS.Platform = process.platform,
+) {
   const instanceId = macAgentInstanceId(keelOrigin);
-  const appDirectory = path.join(LEGACY_APP_DIRECTORY, "Instances", instanceId);
+  const baseDirectory =
+    platform === "darwin"
+      ? LEGACY_APP_DIRECTORY
+      : agentApplicationDirectory("AngelList Agent", { platform });
+  const appDirectory = path.join(baseDirectory, "Instances", instanceId);
   const profileDirectory = path.join(appDirectory, "Chrome");
   const launchAgentLabel = `${LEGACY_LAUNCH_AGENT_LABEL}.${instanceId}`;
   return {
@@ -199,19 +214,11 @@ async function ensureChrome(keelOrigin: URL): Promise<number> {
     return active;
   }
   await rm(paths.devToolsActivePort, { force: true });
-  if (!(await fileExists(CHROME_PATH))) {
-    throw new Error("Google Chrome is required in /Applications.");
-  }
+  const chromePath = await chromeExecutable();
 
   const chrome = spawn(
-    CHROME_PATH,
-    [
-      `--user-data-dir=${paths.profileDirectory}`,
-      "--remote-debugging-address=127.0.0.1",
-      "--remote-debugging-port=0",
-      "--no-first-run",
-      "--no-default-browser-check",
-    ],
+    chromePath,
+    controlledChromeArguments(paths.profileDirectory),
     { detached: true, stdio: "ignore" },
   );
   chrome.unref();
@@ -225,6 +232,155 @@ async function ensureChrome(keelOrigin: URL): Promise<number> {
     await sleep(250);
   }
   throw new Error("Keel could not start the dedicated Chrome profile.");
+}
+
+function manualSetupChromeArguments(keelOrigin: URL): string[] {
+  const paths = agentPaths(keelOrigin);
+  return [
+    `--user-data-dir=${paths.profileDirectory}`,
+    "--disable-background-mode",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--new-window",
+    ANGELLIST_ORIGIN,
+    new URL("/holdings", keelOrigin).toString(),
+  ];
+}
+
+function chromeProcessIdsForProfile(
+  processList: string,
+  profileDirectory: string,
+  chromePath: string,
+): number[] {
+  const userDataArgument = `--user-data-dir=${profileDirectory}`;
+  return processList.split(/\r?\n/u).flatMap((line) => {
+    const match = /^\s*(\d+)\s+(.+)$/u.exec(line);
+    const rawPid = match?.[1];
+    const command = match?.[2];
+    if (rawPid === undefined || command === undefined) {
+      return [];
+    }
+    if (command !== chromePath && !command.startsWith(`${chromePath} `)) {
+      return [];
+    }
+    if (
+      command !== `${chromePath} ${userDataArgument}` &&
+      !command.includes(`${userDataArgument} `) &&
+      !command.endsWith(` ${userDataArgument}`)
+    ) {
+      return [];
+    }
+    const pid = Number(rawPid);
+    return Number.isSafeInteger(pid) && pid > 0 ? [pid] : [];
+  });
+}
+
+function profileChromeProcessIds(
+  profileDirectory: string,
+  chromePath: string,
+): number[] {
+  const result = spawnSync("ps", ["-axo", "pid=,command="], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      result.stderr.trim() ||
+        result.error?.message ||
+        "Keel could not inspect the dedicated Chrome process.",
+    );
+  }
+  return chromeProcessIdsForProfile(
+    result.stdout,
+    profileDirectory,
+    chromePath,
+  );
+}
+
+async function stopProfileChrome(
+  keelOrigin: URL,
+  chromePath: string,
+): Promise<void> {
+  const paths = agentPaths(keelOrigin);
+  for (const pid of profileChromeProcessIds(
+    paths.profileDirectory,
+    chromePath,
+  )) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+        throw error;
+      }
+    }
+  }
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (
+      profileChromeProcessIds(paths.profileDirectory, chromePath).length === 0
+    ) {
+      return;
+    }
+    await sleep(250);
+  }
+  throw new Error(
+    "Quit the dedicated AngelList Chrome window, then rerun setup.",
+  );
+}
+
+async function closeControlledChrome(keelOrigin: URL): Promise<void> {
+  const port = await activeDevToolsPort(keelOrigin);
+  if (port !== null) {
+    const browser = await chromium
+      .connectOverCDP(`http://127.0.0.1:${port.toString()}`, {
+        noDefaults: true,
+      })
+      .catch(() => null);
+    const session = await browser?.newBrowserCDPSession().catch(() => null);
+    await session?.send("Browser.close").catch(() => undefined);
+    await browser?.close().catch(() => undefined);
+  }
+  await stopProfileChrome(keelOrigin, await chromeExecutable());
+}
+
+async function waitForSignInConfirmation(): Promise<void> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      "AngelList setup needs an interactive Terminal. Run the setup command directly in Terminal.",
+    );
+  }
+  const terminal = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    await terminal.question(
+      "When AngelList and Keel are ready, return to Terminal and press Enter. ",
+    );
+  } finally {
+    terminal.close();
+  }
+}
+
+async function completeLinuxSignIn(keelOrigin: URL): Promise<void> {
+  validateInteractiveSetupEnvironment();
+  await closeControlledChrome(keelOrigin);
+  const paths = agentPaths(keelOrigin, "linux");
+  await mkdir(paths.profileDirectory, { mode: 0o700, recursive: true });
+  await chmod(paths.appDirectory, 0o700);
+  await chmod(paths.profileDirectory, 0o700);
+  const chromePath = await chromeExecutable();
+  console.info(
+    "Sign in to AngelList and Keel in the private desktop window. Keep it open while you sign in.",
+  );
+  const chrome = spawn(chromePath, manualSetupChromeArguments(keelOrigin), {
+    stdio: "ignore",
+  });
+  await new Promise<void>((resolve, reject) => {
+    chrome.once("spawn", resolve);
+    chrome.once("error", reject);
+  });
+  await waitForSignInConfirmation();
+  await stopProfileChrome(keelOrigin, chromePath);
 }
 
 type ConnectOverCDP = (
@@ -823,10 +979,11 @@ async function installLaunchAgent(keelOrigin: URL): Promise<void> {
   const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
   const paths = agentPaths(keelOrigin);
   await mkdir(path.dirname(paths.launchAgentPath), { recursive: true });
-  await mkdir(LOG_DIRECTORY, { mode: 0o700, recursive: true });
+  const logDirectory = agentLogDirectory({ platform: "darwin" });
+  await mkdir(logDirectory, { mode: 0o700, recursive: true });
   const plist = buildLaunchAgentPlist({
     keelOrigin,
-    logDirectory: LOG_DIRECTORY,
+    logDirectory,
     nodeExecutable: process.execPath,
     pnpmCli,
     repositoryRoot,
@@ -861,27 +1018,82 @@ async function installLaunchAgent(keelOrigin: URL): Promise<void> {
   );
 }
 
+async function installLinuxService(keelOrigin: URL): Promise<string> {
+  const tsxCli = fileURLToPath(import.meta.resolve("tsx/cli"));
+  if (!(await fileExists(tsxCli))) {
+    throw new Error(
+      "Run make bootstrap so Keel can install the background agent.",
+    );
+  }
+  const scriptPath = fileURLToPath(import.meta.url);
+  const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
+  const paths = agentPaths(keelOrigin, "linux");
+  const chromePath = process.env.KEEL_CHROME_PATH?.trim();
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+  const xdgStateHome = process.env.XDG_STATE_HOME?.trim();
+  return installSystemdAgentService({
+    appDirectory: paths.appDirectory,
+    ...(chromePath ? { chromePath } : {}),
+    instanceId: paths.instanceId,
+    keelOrigin,
+    label: "AngelList",
+    nodeExecutable: process.execPath,
+    platform: "linux",
+    repositoryRoot,
+    scriptPath,
+    target: "angellist",
+    tsxCli,
+    ...(xdgConfigHome ? { xdgConfigHome } : {}),
+    ...(xdgStateHome ? { xdgStateHome } : {}),
+  });
+}
+
+async function installBackgroundAgent(keelOrigin: URL): Promise<string | null> {
+  if (process.platform === "darwin") {
+    await installLaunchAgent(keelOrigin);
+    return null;
+  }
+  if (process.platform === "linux") {
+    return installLinuxService(keelOrigin);
+  }
+  throw new Error("Keel portfolio agents support macOS and Linux only.");
+}
+
 async function setup(keelOrigin: URL): Promise<void> {
+  if (process.platform === "linux") {
+    validateLinuxSystemdUser();
+    await completeLinuxSignIn(keelOrigin);
+  }
   const context = await connectContext(keelOrigin);
   const angellist = await angelListPage(context);
   await angellist.bringToFront();
   console.info(
-    "Finish signing in to AngelList, including 2FA if requested. Setup will continue when Export CSV is visible.",
+    process.platform === "linux"
+      ? "Checking the AngelList session from the private desktop window."
+      : "Finish signing in to AngelList, including 2FA if requested. Setup will continue when Export CSV is visible.",
   );
   await waitForAngelListSignIn(angellist, keelOrigin);
 
   const keel = await keelPage(context, keelOrigin);
   await keel.bringToFront();
   console.info(
-    "Sign in to Keel once to approve secure access for this Mac. Daily checks will not use your Keel browser session.",
+    process.platform === "linux"
+      ? "Checking the Keel session from the private desktop window."
+      : "Sign in to Keel once to approve secure access for this Mac. Daily checks will not use your Keel browser session.",
   );
   await waitForKeelSignIn(keel, keelOrigin);
   const authorization = await authorize(keel);
   storeMacAgentAuthorization(keelOrigin, authorization);
-  await installLaunchAgent(keelOrigin);
-  console.info(
-    `AngelList updates are ready for ${keelOrigin.origin}. The credential is in macOS Keychain, and Keel will check once daily without another Keel sign-in. Run make provider-agent-run PROVIDER=angellist KEEL_URL=${keelOrigin.origin} for an immediate update.`,
-  );
+  const linuxUnit = await installBackgroundAgent(keelOrigin);
+  if (linuxUnit === null) {
+    console.info(
+      `AngelList updates are ready for ${keelOrigin.origin}. The credential is in macOS Keychain, and Keel will check once daily without another Keel sign-in. Run make provider-agent-run PROVIDER=angellist KEEL_URL=${keelOrigin.origin} for an immediate update.`,
+    );
+  } else {
+    console.info(
+      `AngelList updates are ready for ${keelOrigin.origin}. The credential is stored for this Linux user, and ${linuxUnit} will check once daily. Run make provider-agent-run PROVIDER=angellist KEEL_URL=${keelOrigin.origin} for an immediate update.`,
+    );
+  }
 }
 
 async function runLocally(keelOrigin: URL): Promise<void> {
@@ -912,6 +1124,7 @@ async function serve(
   }
   let context: BrowserContext | null = null;
   while (true) {
+    let nextCheckMs = POLL_INTERVAL_MS;
     try {
       if (context?.browser()?.isConnected() !== true) {
         context = await connectContext(keelOrigin);
@@ -927,11 +1140,12 @@ async function serve(
       console.error(
         JSON.stringify({ event: "angellist_agent_poll_failed", code }),
       );
+      nextCheckMs = FAILURE_RETRY_INTERVAL_MS;
       if (context?.browser()?.isConnected() !== true) {
         context = null;
       }
     }
-    await sleep(POLL_INTERVAL_MS);
+    await sleep(nextCheckMs);
   }
 }
 
@@ -953,8 +1167,10 @@ export const __angellistMacAgentTest = {
   angelListPage,
   buildLaunchAgentPlist,
   captureNextDownload,
+  chromeProcessIdsForProfile,
   configureDownloads,
   connectContext,
+  manualSetupChromeArguments,
   parseOptions,
   parseAngelListPortfolioUrl,
   readDownload,

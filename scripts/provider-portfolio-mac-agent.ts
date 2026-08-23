@@ -33,6 +33,15 @@ import {
   retireMatchingLegacyLaunchAgent,
 } from "./mac-agent-instance";
 import {
+  agentApplicationDirectory,
+  agentLogDirectory,
+  chromeExecutable,
+  controlledChromeArguments,
+  installSystemdAgentService,
+  validateInteractiveSetupEnvironment,
+  validateLinuxSystemdUser,
+} from "./browser-agent-runtime";
+import {
   chromium,
   type Browser,
   type BrowserContext,
@@ -42,14 +51,13 @@ import {
 } from "@playwright/test";
 import { z } from "zod";
 
-const CHROME_PATH =
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const SETUP_SESSION_CHECK_TIMEOUT_MS = 30_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
+const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
+const FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000;
 const PAGE_TIMEOUT_MS = 45_000;
-const LOG_DIRECTORY = path.join(os.homedir(), "Library", "Logs", "Keel");
 
-type Command = "once" | "run" | "setup";
+type Command = "once" | "run" | "serve" | "setup";
 
 type ProviderConfig = {
   label: string;
@@ -82,7 +90,7 @@ class AgentFailure extends Error {
 
 const CliOptionsSchema = z
   .object({
-    command: z.enum(["once", "run", "setup"]),
+    command: z.enum(["once", "run", "serve", "setup"]),
     provider: ProviderPortfolioAgentProviderSchema,
     keelOrigin: z
       .url()
@@ -175,15 +183,12 @@ function parseOptions(argv: readonly string[]) {
 function providerPaths(
   provider: ProviderPortfolioAgentProvider,
   keelOrigin: URL,
+  platform: NodeJS.Platform = process.platform,
 ) {
   const config = PROVIDERS[provider];
-  const legacyAppDirectory = path.join(
-    os.homedir(),
-    "Library",
-    "Application Support",
-    "Keel",
-    config.profileName,
-  );
+  const legacyAppDirectory = agentApplicationDirectory(config.profileName, {
+    platform,
+  });
   const instanceId = macAgentInstanceId(keelOrigin);
   const appDirectory = path.join(legacyAppDirectory, "Instances", instanceId);
   const profileDirectory = path.join(appDirectory, "Chrome");
@@ -260,19 +265,11 @@ async function ensureChrome(
     return active;
   }
   await rm(paths.devToolsActivePort, { force: true });
-  if (!(await fileExists(CHROME_PATH))) {
-    throw new Error("Google Chrome is required in /Applications.");
-  }
+  const chromePath = await chromeExecutable();
 
   const chrome = spawn(
-    CHROME_PATH,
-    [
-      `--user-data-dir=${paths.profileDirectory}`,
-      "--remote-debugging-address=127.0.0.1",
-      "--remote-debugging-port=0",
-      "--no-first-run",
-      "--no-default-browser-check",
-    ],
+    chromePath,
+    controlledChromeArguments(paths.profileDirectory),
     { detached: true, stdio: "ignore" },
   );
   chrome.unref();
@@ -307,6 +304,7 @@ function manualSetupChromeArguments(
 function chromeProcessIdsForProfile(
   processList: string,
   profileDirectory: string,
+  chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 ): number[] {
   const userDataArgument = `--user-data-dir=${profileDirectory}`;
   return processList.split(/\r?\n/u).flatMap((line) => {
@@ -319,11 +317,11 @@ function chromeProcessIdsForProfile(
     if (rawPid === undefined || command === undefined) {
       return [];
     }
-    if (command !== CHROME_PATH && !command.startsWith(`${CHROME_PATH} `)) {
+    if (command !== chromePath && !command.startsWith(`${chromePath} `)) {
       return [];
     }
     if (
-      command !== `${CHROME_PATH} ${userDataArgument}` &&
+      command !== `${chromePath} ${userDataArgument}` &&
       !command.includes(`${userDataArgument} `) &&
       !command.endsWith(` ${userDataArgument}`)
     ) {
@@ -334,7 +332,10 @@ function chromeProcessIdsForProfile(
   });
 }
 
-function profileChromeProcessIds(profileDirectory: string): number[] {
+function profileChromeProcessIds(
+  profileDirectory: string,
+  chromePath: string,
+): number[] {
   const result = spawnSync("ps", ["-axo", "pid=,command="], {
     encoding: "utf8",
   });
@@ -345,15 +346,23 @@ function profileChromeProcessIds(profileDirectory: string): number[] {
         "Keel could not inspect the dedicated Chrome process.",
     );
   }
-  return chromeProcessIdsForProfile(result.stdout, profileDirectory);
+  return chromeProcessIdsForProfile(
+    result.stdout,
+    profileDirectory,
+    chromePath,
+  );
 }
 
 async function stopProfileChrome(
   provider: ProviderPortfolioAgentProvider,
   keelOrigin: URL,
+  chromePath: string,
 ): Promise<void> {
   const paths = providerPaths(provider, keelOrigin);
-  for (const pid of profileChromeProcessIds(paths.profileDirectory)) {
+  for (const pid of profileChromeProcessIds(
+    paths.profileDirectory,
+    chromePath,
+  )) {
     try {
       process.kill(pid, "SIGTERM");
     } catch (error) {
@@ -365,7 +374,9 @@ async function stopProfileChrome(
 
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    if (profileChromeProcessIds(paths.profileDirectory).length === 0) {
+    if (
+      profileChromeProcessIds(paths.profileDirectory, chromePath).length === 0
+    ) {
       return;
     }
     await sleep(250);
@@ -390,7 +401,7 @@ async function closeControlledChrome(
     await session?.send("Browser.close").catch(() => undefined);
     await browser?.close().catch(() => undefined);
   }
-  await stopProfileChrome(provider, keelOrigin);
+  await stopProfileChrome(provider, keelOrigin, await chromeExecutable());
 }
 
 async function waitForProviderSignInConfirmation(
@@ -419,20 +430,19 @@ async function completeProviderSignIn(
   provider: ProviderPortfolioAgentProvider,
   keelOrigin: URL,
 ): Promise<void> {
+  validateInteractiveSetupEnvironment();
   await closeControlledChrome(provider, keelOrigin);
   const paths = providerPaths(provider, keelOrigin);
   await mkdir(paths.profileDirectory, { mode: 0o700, recursive: true });
   await chmod(paths.appDirectory, 0o700);
   await chmod(paths.profileDirectory, 0o700);
-  if (!(await fileExists(CHROME_PATH))) {
-    throw new Error("Google Chrome is required in /Applications.");
-  }
+  const chromePath = await chromeExecutable();
 
   console.info(
     `Sign in to ${PROVIDERS[provider].label} and Keel in the normal Chrome window. Keep it open while you sign in.`,
   );
   const chrome = spawn(
-    CHROME_PATH,
+    chromePath,
     manualSetupChromeArguments(provider, keelOrigin),
     { stdio: "ignore" },
   );
@@ -441,7 +451,7 @@ async function completeProviderSignIn(
     chrome.once("error", reject);
   });
   await waitForProviderSignInConfirmation(provider);
-  await stopProfileChrome(provider, keelOrigin);
+  await stopProfileChrome(provider, keelOrigin, chromePath);
 }
 
 type ConnectOverCDP = (
@@ -1579,10 +1589,11 @@ async function installLaunchAgent(
   const scriptPath = fileURLToPath(import.meta.url);
   const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
   await mkdir(path.dirname(paths.launchAgentPath), { recursive: true });
-  await mkdir(LOG_DIRECTORY, { mode: 0o700, recursive: true });
+  const logDirectory = agentLogDirectory({ platform: "darwin" });
+  await mkdir(logDirectory, { mode: 0o700, recursive: true });
   const plist = buildLaunchAgentPlist({
     keelOrigin,
-    logDirectory: LOG_DIRECTORY,
+    logDirectory,
     nodeExecutable: process.execPath,
     pnpmCli,
     provider,
@@ -1618,10 +1629,61 @@ async function installLaunchAgent(
   );
 }
 
+async function installLinuxService(
+  keelOrigin: URL,
+  provider: ProviderPortfolioAgentProvider,
+): Promise<string> {
+  const tsxCli = fileURLToPath(import.meta.resolve("tsx/cli"));
+  if (!(await fileExists(tsxCli))) {
+    throw new Error(
+      "Run make bootstrap so Keel can install the background agent.",
+    );
+  }
+  const scriptPath = fileURLToPath(import.meta.url);
+  const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
+  const paths = providerPaths(provider, keelOrigin, "linux");
+  const chromePath = process.env.KEEL_CHROME_PATH?.trim();
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+  const xdgStateHome = process.env.XDG_STATE_HOME?.trim();
+  return installSystemdAgentService({
+    appDirectory: paths.appDirectory,
+    ...(chromePath ? { chromePath } : {}),
+    instanceId: paths.instanceId,
+    keelOrigin,
+    label: PROVIDERS[provider].label,
+    nodeExecutable: process.execPath,
+    platform: "linux",
+    providerArgument: provider,
+    repositoryRoot,
+    scriptPath,
+    target: provider,
+    tsxCli,
+    ...(xdgConfigHome ? { xdgConfigHome } : {}),
+    ...(xdgStateHome ? { xdgStateHome } : {}),
+  });
+}
+
+async function installBackgroundAgent(
+  keelOrigin: URL,
+  provider: ProviderPortfolioAgentProvider,
+): Promise<string | null> {
+  if (process.platform === "darwin") {
+    await installLaunchAgent(keelOrigin, provider);
+    return null;
+  }
+  if (process.platform === "linux") {
+    return installLinuxService(keelOrigin, provider);
+  }
+  throw new Error("Keel portfolio agents support macOS and Linux only.");
+}
+
 async function setup(
   keelOrigin: URL,
   provider: ProviderPortfolioAgentProvider,
 ): Promise<void> {
+  if (process.platform === "linux") {
+    validateLinuxSystemdUser();
+  }
   await completeProviderSignIn(provider, keelOrigin);
   const context = await connectContext(provider, keelOrigin);
   const portfolio = await portfolioPage(context, provider);
@@ -1636,10 +1698,16 @@ async function setup(
   await validateSetupSessions(portfolio, keel, keelOrigin, provider);
   const authorization = await authorize(keel, provider);
   storeMacAgentAuthorization(keelOrigin, authorization);
-  await installLaunchAgent(keelOrigin, provider);
-  console.info(
-    `${PROVIDERS[provider].label} updates are ready for ${keelOrigin.origin}. The credential is in macOS Keychain, and Keel will check once daily without another Keel sign-in. Run make provider-agent-run PROVIDER=${provider} KEEL_URL=${keelOrigin.origin} for an immediate update.`,
-  );
+  const linuxUnit = await installBackgroundAgent(keelOrigin, provider);
+  if (linuxUnit === null) {
+    console.info(
+      `${PROVIDERS[provider].label} updates are ready for ${keelOrigin.origin}. The credential is in macOS Keychain, and Keel will check once daily without another Keel sign-in. Run make provider-agent-run PROVIDER=${provider} KEEL_URL=${keelOrigin.origin} for an immediate update.`,
+    );
+  } else {
+    console.info(
+      `${PROVIDERS[provider].label} updates are ready for ${keelOrigin.origin}. The credential is stored for this Linux user, and ${linuxUnit} will check once daily. Run make provider-agent-run PROVIDER=${provider} KEEL_URL=${keelOrigin.origin} for an immediate update.`,
+    );
+  }
 }
 
 async function runLocally(
@@ -1666,6 +1734,47 @@ async function runLocally(
   );
 }
 
+async function serve(
+  command: "once" | "serve",
+  keelOrigin: URL,
+  provider: ProviderPortfolioAgentProvider,
+): Promise<void> {
+  if (command === "once") {
+    const context = await connectContext(provider, keelOrigin);
+    await pollOnce(context, keelOrigin, provider);
+    return;
+  }
+  let context: BrowserContext | null = null;
+  while (true) {
+    let nextCheckMs = POLL_INTERVAL_MS;
+    try {
+      if (context?.browser()?.isConnected() !== true) {
+        context = await connectContext(provider, keelOrigin);
+      }
+      await pollOnce(context, keelOrigin, provider);
+    } catch (error) {
+      const code =
+        error instanceof MacAgentAccessError
+          ? "mac_access_required"
+          : error instanceof AgentFailure
+            ? error.code
+            : "unexpected_failure";
+      console.error(
+        JSON.stringify({
+          event: "provider_portfolio_agent_poll_failed",
+          provider,
+          code,
+        }),
+      );
+      nextCheckMs = FAILURE_RETRY_INTERVAL_MS;
+      if (context?.browser()?.isConnected() !== true) {
+        context = null;
+      }
+    }
+    await sleep(nextCheckMs);
+  }
+}
+
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
   if (options.command === "setup") {
@@ -1676,8 +1785,7 @@ async function main(): Promise<void> {
     await runLocally(options.keelOrigin, options.provider);
     return;
   }
-  const context = await connectContext(options.provider, options.keelOrigin);
-  await pollOnce(context, options.keelOrigin, options.provider);
+  await serve(options.command, options.keelOrigin, options.provider);
 }
 
 export const __providerPortfolioMacAgentTest = {
