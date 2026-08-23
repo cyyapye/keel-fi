@@ -633,7 +633,7 @@ test("uses one setup command interface for every portfolio agent", async ({
     });
   });
 
-  await page.goto("/holdings");
+  await page.goto("/holdings/sources");
   const keelOrigin = new URL(page.url()).origin;
   const expectedCommands = ["angellist", "tokenfolio", "sydecar"].map(
     (provider) =>
@@ -978,7 +978,7 @@ test("connects Robinhood through Investments and isolates exceptions", async ({
     },
   );
 
-  await page.goto("/holdings");
+  await page.goto("/holdings/sources");
   await expect(page.getByRole("heading", { name: "Brokerages" })).toBeVisible();
   await page.getByRole("button", { name: "Add brokerage" }).click();
 
@@ -1080,7 +1080,7 @@ test("shows one Robinhood exception entry point", async ({ page }) => {
     });
   });
 
-  await page.goto("/holdings");
+  await page.goto("/holdings/sources");
   const robinhoodCard = page
     .locator(".investment-institution")
     .filter({ hasText: "Robinhood" });
@@ -1161,7 +1161,7 @@ test("shows automatic Robinhood checks with exception-only review", async ({
     },
   );
 
-  await page.goto("/holdings");
+  await page.goto("/holdings/sources");
   const robinhoodCard = page
     .locator(".investment-institution")
     .filter({ hasText: "Robinhood" });
@@ -1284,7 +1284,7 @@ test("requests an AngelList update from the phone-safe Holdings flow", async ({
     });
   });
 
-  await page.goto("/holdings");
+  await page.goto("/holdings/sources");
   await expect(
     page.getByRole("heading", { name: "AngelList is working" }),
   ).toBeVisible();
@@ -1399,7 +1399,7 @@ test("shows clear health and repair actions for portfolio agents", async ({
     },
   );
 
-  await page.goto("/holdings");
+  await page.goto("/holdings/sources");
   await expect(
     page.getByRole("heading", {
       name: "AngelList is paused — agent access needs renewal",
@@ -1452,7 +1452,7 @@ test("keeps invalid AngelList agent responses out of user-facing copy", async ({
     await route.fulfill({ json: { version: 1, status: "unexpected" } });
   });
 
-  await page.goto("/holdings");
+  await page.goto("/holdings/sources");
 
   await expect(page.getByRole("alert")).toHaveText(
     "Keel could not check AngelList updates. Try again shortly.",

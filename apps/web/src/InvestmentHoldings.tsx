@@ -885,6 +885,132 @@ function ExposureView({
   }
   return (
     <div className="exposure-groups">
+      {canonicalUnallocated.length > 0 && (
+        <section className="unallocated-positions">
+          <div className="unallocated-positions__heading">
+            <p className="eyebrow">Needs attention</p>
+            <h3>Resolve positions</h3>
+            <p>
+              These positions stay outside exposure totals until their company
+              or allocation is clear.
+            </p>
+          </div>
+          {(exposureReviewState?.exactBatch.positionCount ?? 0) > 0 && (
+            <div className="private-exposure-exact-batch">
+              <div>
+                <p className="eyebrow">Exact company matches</p>
+                <h4>
+                  {exposureReviewState!.exactBatch.positionCount} exact{" "}
+                  {exposureReviewState!.exactBatch.positionCount === 1
+                    ? "match is"
+                    : "matches are"}{" "}
+                  ready
+                </h4>
+                <p>
+                  Assign these positions to{" "}
+                  {exposureReviewState!.exactBatch.companyCount}{" "}
+                  {exposureReviewState!.exactBatch.companyCount === 1
+                    ? "company"
+                    : "companies"}
+                  . Legal positions and values stay unchanged.
+                </p>
+                {exposureReviewState!.exactBatch.excludedPositionCount > 0 && (
+                  <p>
+                    {exposureReviewState!.exactBatch.excludedPositionCount}{" "}
+                    {exposureReviewState!.exactBatch.excludedPositionCount === 1
+                      ? "other position needs"
+                      : "other positions need"}{" "}
+                    individual review.
+                  </p>
+                )}
+                {exposureReviewBatchError !== null && (
+                  <p
+                    className="private-exposure-exact-batch__error"
+                    role="alert"
+                  >
+                    {exposureReviewBatchError}
+                  </p>
+                )}
+              </div>
+              <Button
+                disabled={
+                  exposureReviewBatchBusy ||
+                  exposureReviewBusyPositionId !== null
+                }
+                onClick={onApplyExactBatch}
+                tone="primary"
+              >
+                {exposureReviewBatchBusy
+                  ? "Assigning…"
+                  : `Assign ${exposureReviewState!.exactBatch.positionCount} exact ${exposureReviewState!.exactBatch.positionCount === 1 ? "match" : "matches"}`}
+              </Button>
+            </div>
+          )}
+          {canonicalUnallocated.map((position) => {
+            const reviewPosition = reviewPositionById.get(position.id) ?? null;
+            const reviewOpen = exposureReviewPositionId === position.id;
+            const positionName = positionDisplayName(position);
+            return (
+              <Fragment key={position.id}>
+                <article>
+                  <span>
+                    <strong
+                      title={
+                        positionName === position.legalVehicleName
+                          ? undefined
+                          : position.legalVehicleName
+                      }
+                    >
+                      {positionName}
+                    </strong>
+                    <small>{positionContext(position)}</small>
+                  </span>
+                  <span className="position-row__value">
+                    {exposurePositionValue(position)}
+                  </span>
+                  <span className="unallocated-positions__status">
+                    {position.hasUnknownAllocation
+                      ? "Allocation unknown"
+                      : position.mappedExposureIds.length === 0
+                        ? "Company unresolved"
+                        : formatHoldingCurrency(
+                            position.unallocatedValueMinor ?? 0,
+                            position.currency,
+                          )}
+                    {reviewPosition !== null && !reviewOpen && (
+                      <Button
+                        aria-label={
+                          "Choose company for " + position.legalVehicleName
+                        }
+                        className="private-exposure-review__open"
+                        disabled={exposureReviewBatchBusy}
+                        onClick={() => onBeginExposureReview(position.id)}
+                        tone="secondary"
+                      >
+                        Choose company
+                      </Button>
+                    )}
+                  </span>
+                  {holdingDetailAction(position.id, positionName)}
+                </article>
+                {reviewPosition !== null && reviewOpen && (
+                  <PrivateExposureAssignmentForm
+                    busy={exposureReviewBusyPositionId === position.id}
+                    companies={exposureReviewState?.companies ?? []}
+                    error={exposureReviewError}
+                    key={position.id}
+                    onCancel={onCancelExposureReview}
+                    onSubmit={(input) =>
+                      onSubmitExposureReview(reviewPosition, input)
+                    }
+                    position={reviewPosition}
+                  />
+                )}
+              </Fragment>
+            );
+          })}
+        </section>
+      )}
       {visibleCanonicalExposureGroups.map((group) => {
         const positions = group.contributions
           .map((contribution) =>
@@ -961,139 +1087,6 @@ function ExposureView({
           </details>
         );
       })}
-      {canonicalUnallocated.length > 0 && (
-        <section className="unallocated-positions">
-          <div>
-            <p className="eyebrow">Not assigned to an exposure total</p>
-            <h3>Unallocated or unresolved value</h3>
-          </div>
-          {(exposureReviewState?.exactBatch.positionCount ?? 0) > 0 && (
-            <div className="private-exposure-exact-batch">
-              <div>
-                <p className="eyebrow">Exact company matches</p>
-                <h4>
-                  Resolve {exposureReviewState!.exactBatch.positionCount}{" "}
-                  {exposureReviewState!.exactBatch.positionCount === 1
-                    ? "position"
-                    : "positions"}{" "}
-                  at once
-                </h4>
-                <p>
-                  Keel uses each holding’s company name—not the legal vehicle
-                  name—and skips ambiguous rows. This will group the positions
-                  under {exposureReviewState!.exactBatch.companyCount}{" "}
-                  {exposureReviewState!.exactBatch.companyCount === 1
-                    ? "company"
-                    : "companies"}
-                  .{" "}
-                  {exposureReviewState!.exactBatch.newCompanyCount > 0
-                    ? `It creates ${exposureReviewState!.exactBatch.newCompanyCount} reviewed ${exposureReviewState!.exactBatch.newCompanyCount === 1 ? "company" : "companies"}${
-                        exposureReviewState!.exactBatch.existingCompanyCount > 0
-                          ? ` and reuses ${exposureReviewState!.exactBatch.existingCompanyCount}`
-                          : ""
-                      }. `
-                    : exposureReviewState!.exactBatch.existingCompanyCount > 0
-                      ? `It reuses ${exposureReviewState!.exactBatch.existingCompanyCount} reviewed ${exposureReviewState!.exactBatch.existingCompanyCount === 1 ? "company" : "companies"}. `
-                      : ""}
-                  Legal positions and values stay unchanged.
-                </p>
-                {exposureReviewState!.exactBatch.excludedPositionCount > 0 && (
-                  <p>
-                    {exposureReviewState!.exactBatch.excludedPositionCount}{" "}
-                    {exposureReviewState!.exactBatch.excludedPositionCount === 1
-                      ? "other position remains"
-                      : "other positions remain"}{" "}
-                    for individual review.
-                  </p>
-                )}
-                {exposureReviewBatchError !== null && (
-                  <p
-                    className="private-exposure-exact-batch__error"
-                    role="alert"
-                  >
-                    {exposureReviewBatchError}
-                  </p>
-                )}
-              </div>
-              <Button
-                disabled={
-                  exposureReviewBatchBusy ||
-                  exposureReviewBusyPositionId !== null
-                }
-                onClick={onApplyExactBatch}
-                tone="primary"
-              >
-                {exposureReviewBatchBusy
-                  ? "Assigning…"
-                  : `Assign ${exposureReviewState!.exactBatch.positionCount} exact ${exposureReviewState!.exactBatch.positionCount === 1 ? "match" : "matches"}`}
-              </Button>
-            </div>
-          )}
-          {canonicalUnallocated.map((position) => {
-            const reviewPosition = reviewPositionById.get(position.id) ?? null;
-            const reviewOpen = exposureReviewPositionId === position.id;
-            const positionName = positionDisplayName(position);
-            return (
-              <Fragment key={position.id}>
-                <article>
-                  <span>
-                    <strong
-                      title={
-                        positionName === position.legalVehicleName
-                          ? undefined
-                          : position.legalVehicleName
-                      }
-                    >
-                      {positionName}
-                    </strong>
-                    <small>{positionContext(position)}</small>
-                  </span>
-                  <span className="position-row__value">
-                    {exposurePositionValue(position)}
-                  </span>
-                  <span className="unallocated-positions__status">
-                    {position.hasUnknownAllocation
-                      ? "Allocation unknown"
-                      : position.mappedExposureIds.length === 0
-                        ? "Exposure unresolved"
-                        : formatHoldingCurrency(
-                            position.unallocatedValueMinor ?? 0,
-                            position.currency,
-                          )}
-                    {reviewPosition !== null && !reviewOpen && (
-                      <Button
-                        aria-label={
-                          "Choose company for " + position.legalVehicleName
-                        }
-                        className="private-exposure-review__open"
-                        disabled={exposureReviewBatchBusy}
-                        onClick={() => onBeginExposureReview(position.id)}
-                        tone="secondary"
-                      >
-                        Choose company
-                      </Button>
-                    )}
-                  </span>
-                  {holdingDetailAction(position.id, positionName)}
-                </article>
-                {reviewPosition !== null && reviewOpen && (
-                  <PrivateExposureAssignmentForm
-                    busy={exposureReviewBusyPositionId === position.id}
-                    companies={exposureReviewState?.companies ?? []}
-                    error={exposureReviewError}
-                    key={position.id}
-                    onCancel={onCancelExposureReview}
-                    onSubmit={(input) =>
-                      onSubmitExposureReview(reviewPosition, input)
-                    }
-                    position={reviewPosition}
-                  />
-                )}
-              </Fragment>
-            );
-          })}
-        </section>
-      )}
       {hasMoreExposures && (
         <div className="exposure-pagination" ref={loadMoreRef}>
           <span>
@@ -1111,6 +1104,7 @@ function ExposureView({
 
 export function InvestmentHoldings({
   holdings,
+  mode,
   onExposureResolved,
   onLoadMoreExposures,
   onOpenHolding,
@@ -1118,6 +1112,7 @@ export function InvestmentHoldings({
   visibleExposureCount,
 }: {
   holdings: readonly Holding[];
+  mode: "exposures" | "sources";
   onExposureResolved: () => Promise<void>;
   onLoadMoreExposures: () => void;
   onOpenHolding: (holdingId: string) => void;
@@ -1634,8 +1629,8 @@ export function InvestmentHoldings({
     ) ?? 0;
   const exposureCount = data?.exposureView.exposures.length ?? 0;
 
-  return (
-    <>
+  if (mode === "sources") {
+    return (
       <section
         aria-labelledby="investment-institutions-title"
         className="investment-institutions"
@@ -1757,118 +1752,114 @@ export function InvestmentHoldings({
           </p>
         )}
       </section>
+    );
+  }
 
-      <section
-        aria-labelledby="investment-views-title"
-        className="investment-views"
-      >
-        <div className="investment-views__heading">
-          <div>
-            <p className="eyebrow">Reviewed ownership</p>
-            <h2 id="investment-views-title">Exposures</h2>
-            <p>
-              Legal positions stay separate inside each exposure. Open one for
-              ownership and source details.
-            </p>
-          </div>
-          {data !== null && (
-            <div className="investment-views__controls">
-              {exposureCount > 1 && (
-                <div className="exposure-sort">
-                  <span>Sort by value</span>
-                  <Select
-                    items={EXPOSURE_SORT_OPTIONS}
-                    onValueChange={(value) => {
-                      if (value === "ascending" || value === "descending") {
-                        setExposureSortDirection(value);
-                      }
-                    }}
-                    value={exposureSortDirection}
-                  >
-                    <SelectTrigger aria-label="Sort exposures and positions by value">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EXPOSURE_SORT_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <span className="investment-views__total">
-                <small>Total exposure</small>
-                <strong>{exposureGrandTotalLabel(data)}</strong>
-                <span>
-                  {exposureCount}{" "}
-                  {exposureCount === 1 ? "exposure" : "exposures"}
-                  {" · "}
-                  {positionCount} legal{" "}
-                  {positionCount === 1 ? "position" : "positions"}
-                </span>
-              </span>
-            </div>
-          )}
+  return (
+    <section
+      aria-labelledby="investment-views-title"
+      className="investment-views"
+    >
+      <div className="investment-views__heading">
+        <div>
+          <p className="eyebrow">Reviewed ownership</p>
+          <h2 id="investment-views-title">Exposures</h2>
+          <p>
+            Legal positions stay separate inside each exposure. Open one for
+            ownership and source details.
+          </p>
         </div>
-        {exposureReviewNotice !== null && (
-          <p className="private-exposure-review__notice" role="status">
-            {exposureReviewNotice}
-          </p>
-        )}
-        {exposureReviewLoadError !== null && (
-          <div className="investment-views__error" role="alert">
-            <p>
-              {exposureReviewLoadError} Reviewed positions were not changed.
-            </p>
-            <Button
-              onClick={() => void reloadExposureReviews()}
-              tone="secondary"
-            >
-              Try again
-            </Button>
-          </div>
-        )}
-        {data === null && viewError === null ? (
-          <p className="investment-views__loading" role="status">
-            Loading reviewed exposures…
-          </p>
-        ) : (
-          <>
-            {viewError !== null && (
-              <div className="investment-views__error" role="alert">
-                <p>{viewError}</p>
-                <Button onClick={() => void reload()} tone="secondary">
-                  Try again
-                </Button>
+        {data !== null && (
+          <div className="investment-views__controls">
+            {exposureCount > 1 && (
+              <div className="exposure-sort">
+                <span>Sort by value</span>
+                <Select
+                  items={EXPOSURE_SORT_OPTIONS}
+                  onValueChange={(value) => {
+                    if (value === "ascending" || value === "descending") {
+                      setExposureSortDirection(value);
+                    }
+                  }}
+                  value={exposureSortDirection}
+                >
+                  <SelectTrigger aria-label="Sort exposures and positions by value">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXPOSURE_SORT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
-            {data !== null && (
-              <ExposureView
-                data={data}
-                exposureReviewBatchBusy={exposureReviewBatchBusy}
-                exposureReviewBatchError={exposureReviewBatchError}
-                exposureReviewBusyPositionId={exposureReviewBusyPositionId}
-                exposureReviewError={exposureReviewError}
-                exposureReviewPositionId={exposureReviewPositionId}
-                exposureReviewState={exposureReviewState}
-                openableHoldingIds={knownHoldingIds}
-                onBeginExposureReview={beginExposureReview}
-                onApplyExactBatch={() => void applyExactExposureBatch()}
-                onCancelExposureReview={cancelExposureReview}
-                onOpenHolding={onOpenHolding}
-                onLoadMoreExposures={onLoadMoreExposures}
-                onSubmitExposureReview={(position, input) =>
-                  void submitExposureReview(position, input)
-                }
-                sortDirection={exposureSortDirection}
-                visibleExposureCount={visibleExposureCount}
-              />
-            )}
-          </>
+            <span className="investment-views__total">
+              <small>Total exposure</small>
+              <strong>{exposureGrandTotalLabel(data)}</strong>
+              <span>
+                {exposureCount} {exposureCount === 1 ? "exposure" : "exposures"}
+                {" · "}
+                {positionCount} legal{" "}
+                {positionCount === 1 ? "position" : "positions"}
+              </span>
+            </span>
+          </div>
         )}
-      </section>
-    </>
+      </div>
+      {exposureReviewNotice !== null && (
+        <p className="private-exposure-review__notice" role="status">
+          {exposureReviewNotice}
+        </p>
+      )}
+      {exposureReviewLoadError !== null && (
+        <div className="investment-views__error" role="alert">
+          <p>{exposureReviewLoadError} Reviewed positions were not changed.</p>
+          <Button onClick={() => void reloadExposureReviews()} tone="secondary">
+            Try again
+          </Button>
+        </div>
+      )}
+      {data === null && viewError === null ? (
+        <p className="investment-views__loading" role="status">
+          Loading reviewed exposures…
+        </p>
+      ) : (
+        <>
+          {viewError !== null && (
+            <div className="investment-views__error" role="alert">
+              <p>{viewError}</p>
+              <Button onClick={() => void reload()} tone="secondary">
+                Try again
+              </Button>
+            </div>
+          )}
+          {data !== null && (
+            <ExposureView
+              data={data}
+              exposureReviewBatchBusy={exposureReviewBatchBusy}
+              exposureReviewBatchError={exposureReviewBatchError}
+              exposureReviewBusyPositionId={exposureReviewBusyPositionId}
+              exposureReviewError={exposureReviewError}
+              exposureReviewPositionId={exposureReviewPositionId}
+              exposureReviewState={exposureReviewState}
+              openableHoldingIds={knownHoldingIds}
+              onBeginExposureReview={beginExposureReview}
+              onApplyExactBatch={() => void applyExactExposureBatch()}
+              onCancelExposureReview={cancelExposureReview}
+              onOpenHolding={onOpenHolding}
+              onLoadMoreExposures={onLoadMoreExposures}
+              onSubmitExposureReview={(position, input) =>
+                void submitExposureReview(position, input)
+              }
+              sortDirection={exposureSortDirection}
+              visibleExposureCount={visibleExposureCount}
+            />
+          )}
+        </>
+      )}
+    </section>
   );
 }

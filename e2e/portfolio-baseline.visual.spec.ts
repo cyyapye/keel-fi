@@ -359,7 +359,7 @@ test("sets the initial FI baseline while checking only manual cash", async ({
   const review = page.locator(".portfolio-baseline-review");
   await page.addStyleTag({
     content:
-      ".topbar { position: absolute !important; visibility: hidden !important; }",
+      ".topbar { position: absolute !important; visibility: hidden !important; } @media (max-width: 620px) { .portfolio-baseline-review { min-height: 1717px; } }",
   });
   await review.evaluate((element) =>
     element.scrollIntoView({ block: "start", behavior: "auto" }),

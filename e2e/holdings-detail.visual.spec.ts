@@ -517,7 +517,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
   ).toBeVisible();
   await expect(page.locator(".unallocated-positions__status")).toContainText(
-    "Exposure unresolved",
+    "Company unresolved",
   );
   const chooseCompany = page.getByRole("button", {
     name: "Choose company for Ridge Demo SPV",

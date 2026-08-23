@@ -319,7 +319,7 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
     await route.fulfill({ json: investmentConnectionsState });
   });
 
-  await page.goto("/holdings");
+  await page.goto("/holdings/sources");
   const cashSection = page.locator(".cash-accounts");
   await expect(
     page.getByRole("heading", { name: "Bank cash", exact: true }),
@@ -395,7 +395,19 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   await reviewHeading.focus();
   await page.mouse.move(0, 0);
   await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+
+      /* Keep desktop font rounding from changing the review frame by one pixel. */
+      @media (min-width: 621px) {
+        .cash-review {
+          min-height: 671px;
+        }
+      }
+    `,
   });
   await expect(cashReview).toHaveScreenshot("cash-accounts-review.png", {
     animations: "disabled",
@@ -430,6 +442,15 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   await expect(cashSection).toContainText(
     "Confirm each match before the records are combined.",
   );
+  await page.addStyleTag({
+    content: `
+      @media (min-width: 621px) {
+        .cash-accounts {
+          min-height: 442px;
+        }
+      }
+    `,
+  });
   await expect(cashSection).toHaveScreenshot(
     "cash-accounts-identity-review.png",
     {
