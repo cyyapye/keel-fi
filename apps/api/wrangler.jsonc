@@ -47,6 +47,9 @@
     "local": {
       "name": "keel-api-local",
       "vars": {
+        // Public, deterministic test material for synthetic local identities.
+        // Production continues to receive this binding as a secret.
+        "CONNECTOR_CREDENTIAL_KEY": "a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s",
         "ENVIRONMENT": "local",
         "INVESTMENTS_NEW_CONNECTIONS_ENABLED": "false",
       },

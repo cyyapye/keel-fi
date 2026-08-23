@@ -40,7 +40,8 @@ export const PrivateInvestmentImportRowSchema = z
     naturalKeySha256: z.string().regex(/^[a-f0-9]{64}$/u),
     companyOrFund: RequiredTemplateTextSchema,
     status: z.enum(["Live", "Realized"]),
-    investDate: IsoDateSchema,
+    investDate: IsoDateSchema.nullable(),
+    investDateState: z.enum(["reported", "not_reported"]).default("reported"),
     investedMinor: NonNegativeMoneyMinorSchema.positive(),
     unrealizedValueMinor: NonNegativeMoneyMinorSchema.nullable(),
     unrealizedValueState: z.enum(["reported", "locked", "not_reported"]),
@@ -71,6 +72,16 @@ export const PrivateInvestmentImportRowSchema = z
         code: "custom",
         message: "Current value state must match its value.",
         path: ["unrealizedValueState"],
+      });
+    }
+    const dateMatchesState =
+      (row.investDateState === "reported" && row.investDate !== null) ||
+      (row.investDateState === "not_reported" && row.investDate === null);
+    if (!dateMatchesState) {
+      context.addIssue({
+        code: "custom",
+        message: "Investment date state must match its value.",
+        path: ["investDateState"],
       });
     }
     const netMatchesState =
@@ -369,14 +380,14 @@ async function createNaturalKeySha256(input: {
   readonly provider: ProviderHoldingsTemplateProvider;
   readonly legalPosition: string;
   readonly heldThrough: string;
-  readonly investmentDate: string;
+  readonly investmentDate: string | null;
   readonly investment: string;
 }): Promise<string> {
   const canonical = JSON.stringify([
     `${input.provider}-keel-template-position-v1`,
     canonicalNaturalKeyPart(input.legalPosition),
     canonicalNaturalKeyPart(input.heldThrough),
-    input.investmentDate,
+    input.investmentDate ?? "not_reported",
     canonicalNaturalKeyPart(input.investment),
   ]);
   const digest = await crypto.subtle.digest(
@@ -395,7 +406,7 @@ const RawTemplateRowSchema = z
     positionType: z.enum(["Direct", "SPV", "Fund"]),
     heldThrough: RequiredTemplateTextSchema,
     status: z.enum(["Live", "Realized"]),
-    investmentDate: RequiredTemplateTextSchema,
+    investmentDate: z.string().trim().max(1_000),
     asOfDate: RequiredTemplateTextSchema,
     investedUsd: RequiredTemplateTextSchema,
     committedUsd: z.string().trim().max(1_000),
@@ -449,13 +460,20 @@ async function parseTemplateRow(
     );
   }
   const raw = parsedRaw.data;
-  if (!validIsoDate(raw.investmentDate) || !validIsoDate(raw.asOfDate)) {
+  const investmentDate =
+    provider === "sydecar" && raw.investmentDate === ""
+      ? null
+      : raw.investmentDate;
+  if (
+    (investmentDate !== null && !validIsoDate(investmentDate)) ||
+    !validIsoDate(raw.asOfDate)
+  ) {
     throw new ProviderHoldingsTemplateCsvParseError(
       "invalid_row",
       `${label} template row ${record.rowNumber.toString()} must use YYYY-MM-DD dates.`,
     );
   }
-  if (raw.asOfDate < raw.investmentDate) {
+  if (investmentDate !== null && raw.asOfDate < investmentDate) {
     throw new ProviderHoldingsTemplateCsvParseError(
       "invalid_row",
       `${label} template row ${record.rowNumber.toString()} has an as-of date before its investment date.`,
@@ -521,13 +539,14 @@ async function parseTemplateRow(
       naturalKeySha256: await createNaturalKeySha256({
         heldThrough: raw.heldThrough,
         investment: raw.investment,
-        investmentDate: raw.investmentDate,
+        investmentDate,
         legalPosition: raw.legalPosition,
         provider,
       }),
       companyOrFund: raw.investment,
       status: raw.status,
-      investDate: raw.investmentDate,
+      investDate: investmentDate,
+      investDateState: investmentDate === null ? "not_reported" : "reported",
       investedMinor,
       unrealizedValueMinor: currentValueMinor,
       unrealizedValueState: valueState,

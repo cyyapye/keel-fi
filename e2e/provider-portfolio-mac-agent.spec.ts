@@ -5,7 +5,13 @@ import { __providerPortfolioMacAgentTest } from "../scripts/provider-portfolio-m
 
 const { captureSydecar, captureTokenfolio } = __providerPortfolioMacAgentTest;
 
-function tokenfolioPage(activeCount = 2): string {
+function tokenfolioPage(
+  activeCount = 2,
+  statuses: readonly [string, string] = ["Funds Received", "Completed"],
+  drawerInitiallyOpen = false,
+  detailDelayMs = 0,
+  tabCountDelayMs = 0,
+): string {
   const rows = [
     {
       company: "Synthetic Atlas",
@@ -14,6 +20,7 @@ function tokenfolioPage(activeCount = 2): string {
       currentSuffix: "(+50.0%)",
       entity: "Synthetic Family LLC",
       date: "Aug 20th, 2025",
+      status: statuses[0],
     },
     {
       company: "Synthetic Beacon",
@@ -22,6 +29,7 @@ function tokenfolioPage(activeCount = 2): string {
       currentSuffix: "",
       entity: "Synthetic Family Trust",
       date: "Jan 3rd, 2026",
+      status: statuses[1],
     },
   ];
   const rowMarkup = rows
@@ -38,17 +46,25 @@ function tokenfolioPage(activeCount = 2): string {
             <div><span>Committed:</span><span>${row.committed}</span></div>
             <div><span>TF Price:</span><span>$15.00</span></div>
             <div><span>Current Value:</span><span>${row.current}<span>${row.currentSuffix}</span></span></div>
-            <div><span>Status:</span><span>Active</span></div>
+            <div><span>Status:</span><span>${row.status}</span></div>
           </div>
         </div>`,
     )
     .join("");
   return `<!doctype html>
-    <html><body>
-      <button role="tab" aria-selected="true">Active Holdings${activeCount.toString()}</button>
+    <html><head><style>
+      @keyframes tokenfolio-row-motion {
+        from { transform: translateX(0); }
+        to { transform: translateX(1px); }
+      }
+      div[role="button"].relative.cursor-pointer {
+        animation: tokenfolio-row-motion 1ms infinite alternate;
+      }
+    </style></head><body>
+      <button id="portfolio-tab-active" role="tab" aria-selected="true" onclick="this.dataset.clicked = 'true'">Active Holdings${tabCountDelayMs > 0 ? "" : activeCount.toString()}</button>
       <button role="tab" aria-selected="false">Exited Investments0</button>
       ${rowMarkup}
-      <div role="dialog" hidden>
+      <div role="dialog"${drawerInitiallyOpen ? "" : " hidden"}>
         <h2></h2>
         <div><div class="text-xs text-gray-400 mb-1 truncate">Committed</div><div data-summary="committed"></div></div>
         <div><div class="text-xs text-gray-400 mb-1 truncate">Current Value</div><div data-summary="current"></div></div>
@@ -61,15 +77,20 @@ function tokenfolioPage(activeCount = 2): string {
         <button aria-label="Close drawer">Close</button>
       </div>
       <script>
+        setTimeout(() => {
+          document.querySelector('#portfolio-tab-active').textContent = 'Active Holdings${activeCount.toString()}';
+        }, ${tabCountDelayMs.toString()});
         const dialog = document.querySelector('[role="dialog"]');
         document.querySelectorAll('div[role="button"].relative.cursor-pointer').forEach((row) => {
           row.addEventListener('click', () => {
             dialog.hidden = false;
-            dialog.querySelector('h2').textContent = row.dataset.company.toUpperCase();
-            dialog.querySelector('[data-summary="committed"]').textContent = row.dataset.committed;
-            dialog.querySelector('[data-summary="current"]').textContent = row.dataset.current;
-            dialog.querySelector('[data-detail="entity"]').textContent = row.dataset.entity;
-            dialog.querySelector('[data-detail="date"]').textContent = row.dataset.date;
+            setTimeout(() => {
+              dialog.querySelector('h2').textContent = row.dataset.company.toUpperCase();
+              dialog.querySelector('[data-summary="committed"]').textContent = row.dataset.committed;
+              dialog.querySelector('[data-summary="current"]').textContent = row.dataset.current;
+              dialog.querySelector('[data-detail="entity"]').textContent = row.dataset.entity;
+              dialog.querySelector('[data-detail="date"]').textContent = row.dataset.date;
+            }, ${detailDelayMs.toString()});
           });
         });
         dialog.querySelector('[aria-label="Close drawer"]').addEventListener('click', () => {
@@ -79,7 +100,7 @@ function tokenfolioPage(activeCount = 2): string {
     </body></html>`;
 }
 
-function sydecarListPage(): string {
+function sydecarListPage(duplicateFundedAmounts = false): string {
   return `<!doctype html>
     <html><body>
       <table data-testid="investments-table"><tbody>
@@ -96,8 +117,8 @@ function sydecarListPage(): string {
         <tr data-testid="investment-row" onclick="location.href='/investments/22222222-2222-4222-8222-222222222222'">
           <td><span data-testid="investment-name">Synthetic Offered Deal</span></td>
           <td><span data-testid="investment-investing-as">Synthetic Investor LLC</span></td>
-          <td><span data-testid="investment-status-offered">OFFERED</span></td>
-          <td><span>$5,000.00</span></td><td><span>$0.00</span></td>
+          <td><span data-testid="investment-status-${duplicateFundedAmounts ? "closed" : "offered"}">${duplicateFundedAmounts ? "CLOSED" : "OFFERED"}</span></td>
+          <td><span>${duplicateFundedAmounts ? "$15,000.00" : "$5,000.00"}</span></td><td><span>${duplicateFundedAmounts ? "$12,500.00" : "$0.00"}</span></td>
           <td><span data-testid="investment-mgmt-fee">2%</span></td>
           <td><span data-testid="investment-carry">20%</span></td>
           <td><span>Open</span></td><td><span>Today</span></td><td></td>
@@ -106,23 +127,61 @@ function sydecarListPage(): string {
     </body></html>`;
 }
 
-function sydecarDetailPage(): string {
+function sydecarDetailPage(
+  detailDelayMs = 0,
+  detailTitle = "Synthetic Deal Vehicle",
+  detailDate = "Apr 14, 2025",
+  undated = false,
+): string {
+  const title = detailDelayMs === 0 ? detailTitle : "";
+  const commitment = detailDelayMs === 0 ? "$15,000.00" : "";
+  const funded = detailDelayMs === 0 ? "$12,500.00" : "";
+  const activityLabel = detailDelayMs === 0 ? "Initial investment" : "";
+  const activityDate = detailDelayMs === 0 ? detailDate : "";
   return `<!doctype html>
     <html><body>
-      <section data-testid="invest-deal-card.desktop">
-        <h1 data-testid="invest-deal-card.title">Synthetic Climate Labs</h1>
-        <div data-testid="invest-deal-card.commitment-amount-fixed">$15,000.00</div>
+      <section hidden>
+        <h1 data-testid="invest-deal-card.title">Hidden duplicate</h1>
+        <div data-testid="invest-deal-card.commitment-amount-fixed">$1.00</div>
+        <div data-testid="amount-funded-value.currently-funded">$1.00</div>
+        <fieldset data-testid="investor-activity-log">
+          <div>
+            <div data-testid="investor-activity-log.label">Hidden activity</div>
+            <div data-testid="investor-activity-log.date">Jan 1, 2000</div>
+          </div>
+        </fieldset>
       </section>
-      <div data-testid="amount-funded-value.currently-funded">$12,500.00</div>
+      <section data-testid="invest-deal-card.desktop">
+        <h1 id="sydecar-detail-title" data-testid="invest-deal-card.title">${title}</h1>
+        <div id="sydecar-detail-commitment" data-testid="invest-deal-card.commitment-amount-fixed">${commitment}</div>
+      </section>
+      ${
+        undated
+          ? '<h2 data-testid="investment-docs-heading">Documents</h2>'
+          : `<div id="sydecar-detail-funded" data-testid="amount-funded-value.currently-funded">${funded}</div>
       <fieldset data-testid="investor-activity-log">
         <div>
           <div>
-            <div data-testid="investor-activity-log.label">Initial investment</div>
-            <div data-testid="investor-activity-log.date">Apr 14, 2025</div>
+            <div id="sydecar-detail-activity-label" data-testid="investor-activity-log.label">${activityLabel}</div>
+            <div id="sydecar-detail-activity-date" data-testid="investor-activity-log.date">${activityDate}</div>
           </div>
           <div data-testid="investor-activity-log.amount">$12,500.00</div>
         </div>
-      </fieldset>
+      </fieldset>`
+      }
+      <script>
+        setTimeout(() => {
+          document.querySelector('#sydecar-detail-title').textContent = ${JSON.stringify(detailTitle)};
+          document.querySelector('#sydecar-detail-commitment').textContent = '$15,000.00';
+          ${
+            undated
+              ? ""
+              : `document.querySelector('#sydecar-detail-funded').textContent = '$12,500.00';
+          document.querySelector('#sydecar-detail-activity-label').textContent = 'Initial investment';
+          document.querySelector('#sydecar-detail-activity-date').textContent = ${JSON.stringify(detailDate)};`
+          }
+        }, ${detailDelayMs.toString()});
+      </script>
     </body></html>`;
 }
 
@@ -137,6 +196,9 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
   await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
 
   const bytes = await captureTokenfolio(page, "2026-08-21");
+  await expect(
+    page.getByRole("tab", { name: /^Active Holdings/u }),
+  ).not.toHaveAttribute("data-clicked", "true");
   const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
   expect(parsed.rows).toMatchObject([
     {
@@ -174,7 +236,79 @@ test("fails closed when the Tokenfolio visible count does not reconcile", async 
   );
 });
 
-test("captures funded Sydecar positions and leaves value unreported", async ({
+test("recovers from a Tokenfolio drawer left open by an interrupted run", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  await page.route("https://app.tokenfolio.co/**", async (route) => {
+    await route.fulfill({
+      body: tokenfolioPage(2, ["Funds Received", "Completed"], true),
+      contentType: "text/html",
+    });
+  });
+  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
+
+  const bytes = await captureTokenfolio(page, "2026-08-21");
+  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
+  expect(parsed.rows).toHaveLength(2);
+});
+
+test("waits for asynchronously rendered Tokenfolio drawer details", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  await page.route("https://app.tokenfolio.co/**", async (route) => {
+    await route.fulfill({
+      body: tokenfolioPage(2, ["Funds Received", "Completed"], false, 250),
+      contentType: "text/html",
+    });
+  });
+  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
+
+  const bytes = await captureTokenfolio(page, "2026-08-21");
+  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
+  expect(parsed.rows).toHaveLength(2);
+});
+
+test("waits for the Tokenfolio active count after navigation", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  await page.route("https://app.tokenfolio.co/**", async (route) => {
+    await route.fulfill({
+      body: tokenfolioPage(2, ["Funds Received", "Completed"], false, 0, 250),
+      contentType: "text/html",
+    });
+  });
+  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
+
+  const bytes = await captureTokenfolio(page, "2026-08-21");
+  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
+  expect(parsed.rows).toHaveLength(2);
+});
+
+test("fails closed for an unknown Tokenfolio active-row status", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  await page.route("https://app.tokenfolio.co/**", async (route) => {
+    await route.fulfill({
+      body: tokenfolioPage(2, ["Exited", "Completed"]),
+      contentType: "text/html",
+    });
+  });
+  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
+
+  await expect(captureTokenfolio(page, "2026-08-21")).rejects.toThrow(
+    "page_not_supported",
+  );
+});
+
+test("captures the visible funded Sydecar position and leaves value unreported", async ({
   isMobile,
   page,
 }) => {
@@ -186,14 +320,19 @@ test("captures funded Sydecar positions and leaves value unreported", async ({
     "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111",
     async (route) => {
       await route.fulfill({
-        body: sydecarDetailPage(),
+        body: sydecarDetailPage(250),
         contentType: "text/html",
       });
     },
   );
   await page.goto("https://app.sydecar.io/investments");
 
-  const bytes = await captureSydecar(page, "2026-08-21");
+  const stages: string[] = [];
+  const bytes = await captureSydecar(page, "2026-08-21", (stage) => {
+    stages.push(stage);
+  });
+  expect(stages.at(-1)).toBe("csv");
+  expect(stages).toContain("detail");
   const parsed = await parseProviderHoldingsTemplateCsv("sydecar", bytes);
   expect(parsed.rows).toMatchObject([
     {
@@ -206,4 +345,52 @@ test("captures funded Sydecar positions and leaves value unreported", async ({
       investDate: "2025-04-14",
     },
   ]);
+});
+
+test("keeps equal-amount Sydecar rows distinct by row and destination", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  await page.route("https://app.sydecar.io/investments", async (route) => {
+    await route.fulfill({
+      body: sydecarListPage(true),
+      contentType: "text/html",
+    });
+  });
+  await page.route(
+    "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111",
+    async (route) => {
+      await route.fulfill({
+        body: sydecarDetailPage(),
+        contentType: "text/html",
+      });
+    },
+  );
+  await page.route(
+    "https://app.sydecar.io/investments/22222222-2222-4222-8222-222222222222",
+    async (route) => {
+      await route.fulfill({
+        body: sydecarDetailPage(
+          0,
+          "Synthetic Second Vehicle",
+          "May 15, 2025",
+          true,
+        ),
+        contentType: "text/html",
+      });
+    },
+  );
+  await page.goto("https://app.sydecar.io/investments");
+
+  const bytes = await captureSydecar(page, "2026-08-21");
+  const parsed = await parseProviderHoldingsTemplateCsv("sydecar", bytes);
+  expect(parsed.rows.map((row) => row.companyOrFund)).toEqual([
+    "Synthetic Climate Labs",
+    "Synthetic Offered Deal",
+  ]);
+  expect(parsed.rows[1]).toMatchObject({
+    investDate: null,
+    investDateState: "not_reported",
+  });
 });

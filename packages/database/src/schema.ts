@@ -2011,7 +2011,8 @@ export const holdingImportRows = sqliteTable(
     ownerLabel: text("owner_label").notNull(),
     exposureLabel: text("exposure_label").notNull(),
     providerStatus: text("provider_status").notNull(),
-    investedOn: text("invested_on").notNull(),
+    investedOn: text("invested_on"),
+    investedOnState: text("invested_on_state").notNull().default("reported"),
     investedMinor: integer("invested_minor").notNull(),
     allocationMinor: integer("allocation_minor").notNull(),
     unrealizedValueMinor: integer("unrealized_value_minor"),
@@ -2050,6 +2051,10 @@ export const holdingImportRows = sqliteTable(
     check(
       "holding_import_rows_provider_status_check",
       sql`${table.providerStatus} IN ('live', 'realized')`,
+    ),
+    check(
+      "holding_import_rows_invested_on_state_check",
+      sql`(${table.investedOnState} = 'reported' AND ${table.investedOn} IS NOT NULL) OR (${table.investedOnState} = 'not_reported' AND ${table.investedOn} IS NULL)`,
     ),
     check(
       "holding_import_rows_parse_status_check",

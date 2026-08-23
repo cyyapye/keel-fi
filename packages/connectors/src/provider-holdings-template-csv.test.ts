@@ -93,6 +93,8 @@ describe("provider holdings template CSV", () => {
 
     expect(result.rows[0]).toMatchObject({
       investedMinor: 500_000,
+      investDate: "2025-02-01",
+      investDateState: "reported",
       unrealizedValueMinor: null,
       unrealizedValueState: "not_reported",
       netValueMinor: null,
@@ -100,6 +102,24 @@ describe("provider holdings template CSV", () => {
       positionKind: "spv_interest",
       dealMetadata: { allocationMinor: 750_000 },
     });
+  });
+
+  it("keeps an unavailable Sydecar investment date explicit", async () => {
+    const result = await parseProviderHoldingsTemplateCsv(
+      "sydecar",
+      documentBytes("sydecar", [sydecarRow.replace("2025-02-01", "")]),
+    );
+
+    expect(result.rows[0]).toMatchObject({
+      investDate: null,
+      investDateState: "not_reported",
+    });
+    await expect(
+      parseProviderHoldingsTemplateCsv(
+        "tokenfolio",
+        documentBytes("tokenfolio", [tokenfolioRow.replace("2024-03-15", "")]),
+      ),
+    ).rejects.toThrow("must use YYYY-MM-DD dates");
   });
 
   it("rejects a commitment below funded capital", async () => {

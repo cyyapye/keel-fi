@@ -4,12 +4,13 @@ Keel can read an authorized Tokenfolio or Sydecar investor portfolio from a
 dedicated Chrome profile on the user's Mac. This path is intended for providers
 that do not offer a supported investor API or holding export.
 
-Each provider uses a separate Chrome profile and macOS LaunchAgent:
+Each provider and Keel origin uses a separate Chrome profile and macOS
+LaunchAgent:
 
-| Provider   | LaunchAgent label           | Local Chrome profile |
-| ---------- | --------------------------- | -------------------- |
-| Tokenfolio | `com.keel.tokenfolio-agent` | Tokenfolio Agent     |
-| Sydecar    | `com.keel.sydecar-agent`    | Sydecar Agent        |
+| Provider   | LaunchAgent label                      | Local Chrome profile                    |
+| ---------- | -------------------------------------- | --------------------------------------- |
+| Tokenfolio | `com.keel.tokenfolio-agent.<instance>` | `Tokenfolio Agent/Instances/<instance>` |
+| Sydecar    | `com.keel.sydecar-agent.<instance>`    | `Sydecar Agent/Instances/<instance>`    |
 
 Provider credentials remain in those local Chrome profiles. The agent does not
 read cookies or passwords. A one-time Keel sign-in authorizes an opaque,
@@ -32,11 +33,28 @@ make provider-agent-setup PROVIDER=sydecar KEEL_URL=https://keel.example.com
 
 Each command opens a dedicated Chrome window. Complete the provider sign-in,
 including 2FA, then sign in to Keel once to approve that Mac. Setup rotates the
-provider-scoped credential in Keychain and installs a daily macOS check. Rerun
-setup after moving the checkout, changing Node or pnpm, when provider sign-in
-expires, or when Holdings reports that Mac access needs renewal.
+provider-and-origin-scoped credential in Keychain and installs a daily macOS
+check. Rerun setup after moving the checkout, changing Node or pnpm, when
+provider sign-in expires, or when Holdings reports that Mac access needs
+renewal.
 
-Request an immediate local update with:
+Provider setup uses two phases because Google does not allow its sign-in flow
+inside a software-controlled browser. The first dedicated Chrome window has no
+browser-control flags. Sign in to the selected provider and Keel there, return
+to Terminal, and press Enter. Setup closes that window, reopens the same
+isolated profile for read-only checks, and verifies both sessions before
+installing the schedule. Never enter a Google password or 2FA code after the
+controlled window opens; rerun setup instead.
+
+Run setup separately from local and preview Holdings when both should stay
+connected. Their jobs, Chrome profiles, credentials, and logs are independent,
+so either environment can be reconfigured without replacing the other. The
+former single-origin job is unloaded and removed only after its matching scoped
+replacement installs successfully. All loopback URLs share one `local` slot, so
+a new worktree port replaces only the previous local job and leaves preview
+untouched.
+
+Request an immediate update for one destination with:
 
 ```sh
 make provider-agent-run PROVIDER=tokenfolio KEEL_URL=https://keel.example.com
@@ -55,6 +73,8 @@ integer cents, or two positions produce the same identity.
 ### Tokenfolio
 
 - Reads the `Active Holdings` tab only.
+- Accepts only the observed active-row statuses `Active`, `Funds Received`, and
+  `Completed`; any other status fails closed.
 - Requires the tab count to equal the visible holding rows before and after the
   capture.
 - Opens every row and requires the company, committed amount, and current value
@@ -73,9 +93,12 @@ claiming the exact legal vehicle name.
 
 - Reads only the visible desktop investments table after its row count is stable
   across multiple passes.
-- Opens every funded row and requires its stable detail URL, title, commitment,
-  and funded amount to reconcile with the list.
-- Uses the `Initial investment` activity date.
+- Reconciles each funded table row before opening its stable detail URL, then
+  requires the detail commitment to match. Detail titles may differ from the
+  table's investment label.
+- Uses the detail funded amount and `Initial investment` activity date when
+  reported. On the alternate documents layout, the already-reconciled table
+  funded amount remains evidence and the investment date stays `not_reported`.
 - Maps `Closed` and `Participating In` to a live Keel position. A closed Sydecar
   vehicle is funded; it is not evidence that the investor realized the asset.
 - Leaves current value `not_reported` because the investor page does not provide

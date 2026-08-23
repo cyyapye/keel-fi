@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
@@ -28,17 +29,22 @@ import {
   storeMacAgentAuthorization,
 } from "./mac-agent-auth";
 import {
+  macAgentInstanceId,
+  retireMatchingLegacyLaunchAgent,
+} from "./mac-agent-instance";
+import {
   chromium,
   type Browser,
   type BrowserContext,
   type ConnectOverCDPOptions,
+  type Locator,
   type Page,
 } from "@playwright/test";
 import { z } from "zod";
 
 const CHROME_PATH =
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
+const SETUP_SESSION_CHECK_TIMEOUT_MS = 30_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
 const PAGE_TIMEOUT_MS = 45_000;
 const LOG_DIRECTORY = path.join(os.homedir(), "Library", "Logs", "Keel");
@@ -104,7 +110,7 @@ const TokenfolioDetailSchema = z
   })
   .strict();
 
-const SydecarDetailSchema = z
+const SydecarReportedDetailSchema = z
   .object({
     title: z.string().trim().min(1).max(1_000),
     commitment: z.string().trim().min(1).max(100),
@@ -123,13 +129,22 @@ const SydecarDetailSchema = z
   })
   .strict();
 
+const SydecarUndatedDetailSchema = z
+  .object({
+    title: z.string().trim().min(1).max(1_000),
+    commitment: z.string().trim().min(1).max(100),
+    funded: z.null(),
+    activities: z.tuple([]),
+  })
+  .strict();
+
 type CaptureRow = {
   investment: string;
   legalPosition: string;
   positionType: "SPV";
   heldThrough: string;
   status: "Live";
-  investmentDate: string;
+  investmentDate: string | null;
   asOfDate: string;
   investedMinor: bigint;
   committedMinor: bigint;
@@ -152,28 +167,39 @@ function parseOptions(argv: readonly string[]) {
     throw new Error("Pass --provider tokenfolio or --provider sydecar.");
   }
   if (keelOrigin === undefined || keelOrigin.length === 0) {
-    throw new Error(
-      "Pass --keel-url with the Keel preview or production origin.",
-    );
+    throw new Error("Pass --keel-url with the target Keel origin.");
   }
   return CliOptionsSchema.parse({ command, provider, keelOrigin });
 }
 
-function providerPaths(provider: ProviderPortfolioAgentProvider) {
+function providerPaths(
+  provider: ProviderPortfolioAgentProvider,
+  keelOrigin: URL,
+) {
   const config = PROVIDERS[provider];
-  const appDirectory = path.join(
+  const legacyAppDirectory = path.join(
     os.homedir(),
     "Library",
     "Application Support",
     "Keel",
     config.profileName,
   );
+  const instanceId = macAgentInstanceId(keelOrigin);
+  const appDirectory = path.join(legacyAppDirectory, "Instances", instanceId);
   const profileDirectory = path.join(appDirectory, "Chrome");
-  const launchAgentLabel = `com.keel.${provider}-agent`;
+  const legacyLaunchAgentLabel = `com.keel.${provider}-agent`;
+  const launchAgentLabel = `${legacyLaunchAgentLabel}.${instanceId}`;
   return {
     appDirectory,
     profileDirectory,
     devToolsActivePort: path.join(profileDirectory, "DevToolsActivePort"),
+    instanceId,
+    legacyLaunchAgentPath: path.join(
+      os.homedir(),
+      "Library",
+      "LaunchAgents",
+      `${legacyLaunchAgentLabel}.plist`,
+    ),
     launchAgentLabel,
     launchAgentPath: path.join(
       os.homedir(),
@@ -196,10 +222,14 @@ async function fileExists(file: string): Promise<boolean> {
 
 async function activeDevToolsPort(
   provider: ProviderPortfolioAgentProvider,
+  keelOrigin: URL,
 ): Promise<number | null> {
   try {
     const [line = ""] = (
-      await readFile(providerPaths(provider).devToolsActivePort, "utf8")
+      await readFile(
+        providerPaths(provider, keelOrigin).devToolsActivePort,
+        "utf8",
+      )
     ).split(/\r?\n/u);
     if (!/^\d{1,5}$/u.test(line)) {
       return null;
@@ -219,12 +249,13 @@ async function activeDevToolsPort(
 
 async function ensureChrome(
   provider: ProviderPortfolioAgentProvider,
+  keelOrigin: URL,
 ): Promise<number> {
-  const paths = providerPaths(provider);
+  const paths = providerPaths(provider, keelOrigin);
   await mkdir(paths.profileDirectory, { mode: 0o700, recursive: true });
   await chmod(paths.appDirectory, 0o700);
   await chmod(paths.profileDirectory, 0o700);
-  const active = await activeDevToolsPort(provider);
+  const active = await activeDevToolsPort(provider, keelOrigin);
   if (active !== null) {
     return active;
   }
@@ -248,13 +279,169 @@ async function ensureChrome(
 
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
-    const port = await activeDevToolsPort(provider);
+    const port = await activeDevToolsPort(provider, keelOrigin);
     if (port !== null) {
       return port;
     }
     await sleep(250);
   }
   throw new Error("Keel could not start the dedicated Chrome profile.");
+}
+
+function manualSetupChromeArguments(
+  provider: ProviderPortfolioAgentProvider,
+  keelOrigin: URL,
+): string[] {
+  const paths = providerPaths(provider, keelOrigin);
+  return [
+    `--user-data-dir=${paths.profileDirectory}`,
+    "--disable-background-mode",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--new-window",
+    PROVIDERS[provider].portfolioUrl,
+    new URL("/holdings", keelOrigin).toString(),
+  ];
+}
+
+function chromeProcessIdsForProfile(
+  processList: string,
+  profileDirectory: string,
+): number[] {
+  const userDataArgument = `--user-data-dir=${profileDirectory}`;
+  return processList.split(/\r?\n/u).flatMap((line) => {
+    const match = /^\s*(\d+)\s+(.+)$/u.exec(line);
+    if (match === null) {
+      return [];
+    }
+    const rawPid = match[1];
+    const command = match[2];
+    if (rawPid === undefined || command === undefined) {
+      return [];
+    }
+    if (command !== CHROME_PATH && !command.startsWith(`${CHROME_PATH} `)) {
+      return [];
+    }
+    if (
+      command !== `${CHROME_PATH} ${userDataArgument}` &&
+      !command.includes(`${userDataArgument} `) &&
+      !command.endsWith(` ${userDataArgument}`)
+    ) {
+      return [];
+    }
+    const pid = Number(rawPid);
+    return Number.isSafeInteger(pid) && pid > 0 ? [pid] : [];
+  });
+}
+
+function profileChromeProcessIds(profileDirectory: string): number[] {
+  const result = spawnSync("ps", ["-axo", "pid=,command="], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      result.stderr.trim() ||
+        result.error?.message ||
+        "Keel could not inspect the dedicated Chrome process.",
+    );
+  }
+  return chromeProcessIdsForProfile(result.stdout, profileDirectory);
+}
+
+async function stopProfileChrome(
+  provider: ProviderPortfolioAgentProvider,
+  keelOrigin: URL,
+): Promise<void> {
+  const paths = providerPaths(provider, keelOrigin);
+  for (const pid of profileChromeProcessIds(paths.profileDirectory)) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+        throw error;
+      }
+    }
+  }
+
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (profileChromeProcessIds(paths.profileDirectory).length === 0) {
+      return;
+    }
+    await sleep(250);
+  }
+  throw new Error(
+    `Quit the dedicated ${PROVIDERS[provider].label} Chrome window, then rerun setup.`,
+  );
+}
+
+async function closeControlledChrome(
+  provider: ProviderPortfolioAgentProvider,
+  keelOrigin: URL,
+): Promise<void> {
+  const port = await activeDevToolsPort(provider, keelOrigin);
+  if (port !== null) {
+    const browser = await chromium
+      .connectOverCDP(`http://127.0.0.1:${port.toString()}`, {
+        noDefaults: true,
+      })
+      .catch(() => null);
+    const session = await browser?.newBrowserCDPSession().catch(() => null);
+    await session?.send("Browser.close").catch(() => undefined);
+    await browser?.close().catch(() => undefined);
+  }
+  await stopProfileChrome(provider, keelOrigin);
+}
+
+async function waitForProviderSignInConfirmation(
+  provider: ProviderPortfolioAgentProvider,
+): Promise<void> {
+  const providerLabel = PROVIDERS[provider].label;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      `${providerLabel} setup needs an interactive Terminal. Run the copied setup command directly in Terminal.`,
+    );
+  }
+  const terminal = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    await terminal.question(
+      "When both pages are ready, return to Terminal and press Enter. Keel will close the setup window and continue. ",
+    );
+  } finally {
+    terminal.close();
+  }
+}
+
+async function completeProviderSignIn(
+  provider: ProviderPortfolioAgentProvider,
+  keelOrigin: URL,
+): Promise<void> {
+  await closeControlledChrome(provider, keelOrigin);
+  const paths = providerPaths(provider, keelOrigin);
+  await mkdir(paths.profileDirectory, { mode: 0o700, recursive: true });
+  await chmod(paths.appDirectory, 0o700);
+  await chmod(paths.profileDirectory, 0o700);
+  if (!(await fileExists(CHROME_PATH))) {
+    throw new Error("Google Chrome is required in /Applications.");
+  }
+
+  console.info(
+    `Sign in to ${PROVIDERS[provider].label} and Keel in the normal Chrome window. Keep it open while you sign in.`,
+  );
+  const chrome = spawn(
+    CHROME_PATH,
+    manualSetupChromeArguments(provider, keelOrigin),
+    { stdio: "ignore" },
+  );
+  await new Promise<void>((resolve, reject) => {
+    chrome.once("spawn", resolve);
+    chrome.once("error", reject);
+  });
+  await waitForProviderSignInConfirmation(provider);
+  await stopProfileChrome(provider, keelOrigin);
 }
 
 type ConnectOverCDP = (
@@ -264,13 +451,15 @@ type ConnectOverCDP = (
 
 async function connectContext(
   provider: ProviderPortfolioAgentProvider,
+  keelOrigin: URL,
   getPort: (
     provider: ProviderPortfolioAgentProvider,
+    keelOrigin: URL,
   ) => Promise<number> = ensureChrome,
   connectOverCDP: ConnectOverCDP = (endpointUrl, options) =>
     chromium.connectOverCDP(endpointUrl, options),
 ): Promise<BrowserContext> {
-  const port = await getPort(provider);
+  const port = await getPort(provider, keelOrigin);
   const browser = await connectOverCDP(`http://127.0.0.1:${port.toString()}`, {
     noDefaults: true,
   });
@@ -322,8 +511,12 @@ async function portfolioPage(
   return page;
 }
 
-async function waitForKeelSignIn(page: Page, keelOrigin: URL): Promise<void> {
-  const deadline = Date.now() + SETUP_TIMEOUT_MS;
+async function waitForKeelSession(
+  page: Page,
+  keelOrigin: URL,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (new URL(page.url()).origin === keelOrigin.origin) {
       const ready = await page
@@ -341,12 +534,12 @@ async function waitForKeelSignIn(page: Page, keelOrigin: URL): Promise<void> {
         })
         .catch(() => false);
       if (ready) {
-        return;
+        return true;
       }
     }
     await sleep(1_000);
   }
-  throw new Error("Keel sign-in was not completed within 30 minutes.");
+  return false;
 }
 
 async function providerPageReady(
@@ -371,20 +564,37 @@ async function providerPageReady(
     .catch(() => false);
 }
 
-async function waitForProviderSignIn(
-  page: Page,
+async function validateSetupSessions(
+  portfolio: Page,
+  keel: Page,
+  keelOrigin: URL,
   provider: ProviderPortfolioAgentProvider,
 ): Promise<void> {
-  const deadline = Date.now() + SETUP_TIMEOUT_MS;
+  const deadline = Date.now() + SETUP_SESSION_CHECK_TIMEOUT_MS;
+  let providerReady = false;
   while (Date.now() < deadline) {
-    if (await providerPageReady(page, provider)) {
-      return;
+    if (await providerPageReady(portfolio, provider)) {
+      providerReady = true;
+      break;
     }
     await sleep(1_000);
   }
-  throw new Error(
-    `${PROVIDERS[provider].label} sign-in was not completed within 30 minutes.`,
-  );
+  if (!providerReady) {
+    throw new Error(
+      `${PROVIDERS[provider].label} sign-in was not completed in the first Chrome window. Rerun setup and finish both sign-ins before closing it.`,
+    );
+  }
+  if (
+    !(await waitForKeelSession(
+      keel,
+      keelOrigin,
+      SETUP_SESSION_CHECK_TIMEOUT_MS,
+    ))
+  ) {
+    throw new Error(
+      "Keel sign-in was not completed in the first Chrome window. Rerun setup and finish both sign-ins before closing it.",
+    );
+  }
 }
 
 type PageApiResult = { body: unknown; status: number };
@@ -566,7 +776,7 @@ function rowsToCsv(
       row.positionType,
       row.heldThrough,
       row.status,
-      row.investmentDate,
+      row.investmentDate ?? "",
       row.asOfDate,
       formatUsdMinor(row.investedMinor),
       formatUsdMinor(row.committedMinor),
@@ -588,7 +798,7 @@ function rowsToCsv(
 }
 
 function tokenfolioTabCount(value: string): number {
-  const match = /(\d[\d,]*)\s*$/u.exec(normalizedText(value));
+  const match = /^Active Holdings\s*(\d[\d,]*)$/u.exec(normalizedText(value));
   if (match === null) {
     throw new AgentFailure("page_not_supported");
   }
@@ -603,44 +813,136 @@ function tokenfolioTabCount(value: string): number {
   return count;
 }
 
-async function readTokenfolioDetail(page: Page) {
-  const raw = await page.evaluate(() => {
-    const dialog = document.querySelector('[role="dialog"]');
-    if (dialog === null) {
-      return null;
+async function waitForTokenfolioTabCount(activeTab: Locator): Promise<number> {
+  const deadline = Date.now() + PAGE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      return tokenfolioTabCount(await activeTab.innerText());
+    } catch (error) {
+      if (
+        !(error instanceof AgentFailure) ||
+        error.code !== "page_not_supported"
+      ) {
+        throw error;
+      }
     }
-    const exactText = (selector: string, label: string) =>
-      [...dialog.querySelectorAll<HTMLElement>(selector)].find(
-        (element) => element.textContent?.trim() === label,
-      );
-    const detailValue = (label: string) =>
-      exactText("dt", label)?.nextElementSibling?.textContent?.trim() ?? "";
-    const summaryValue = (label: string) => {
-      const labelElement = exactText(
-        ".text-xs.text-gray-400.mb-1.truncate",
-        label,
-      );
-      return labelElement?.nextElementSibling?.textContent?.trim() ?? "";
-    };
-    return {
-      company:
-        dialog.querySelector<HTMLElement>("h1, h2, h3")?.textContent?.trim() ??
-        "",
-      entity: detailValue("Entity"),
-      committedOn: detailValue("Committed On"),
-      committed: summaryValue("Committed"),
-      currentValue: summaryValue("Current Value"),
-    };
-  });
-  const parsed = TokenfolioDetailSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new AgentFailure("page_not_supported");
+    await sleep(250);
   }
-  return parsed.data;
+  throw new AgentFailure("page_not_supported");
 }
 
-async function captureTokenfolio(page: Page, asOfDate: string) {
-  const activeTab = page.getByRole("tab", { name: /^Active Holdings/u });
+function tokenfolioActiveHoldingStatus(value: string): boolean {
+  return ["active", "completed", "funds received"].includes(
+    normalizedText(value).toLowerCase(),
+  );
+}
+
+type TokenfolioCaptureStage =
+  | "active_tab"
+  | "company"
+  | "committed"
+  | "current_value"
+  | "csv"
+  | "detail_reconcile"
+  | "drawer_close"
+  | "drawer_open"
+  | "entity"
+  | "final_reconcile"
+  | "investment_date"
+  | "row_count"
+  | "row_shape"
+  | "stale_drawer"
+  | "status"
+  | "tab_count"
+  | "tab_selection";
+
+type TokenfolioCaptureStageObserver = (stage: TokenfolioCaptureStage) => void;
+
+async function readTokenfolioDetail(
+  closeDrawer: Locator,
+  expected: {
+    committed: bigint;
+    company: string;
+    currentValue: bigint | null;
+  },
+) {
+  const deadline = Date.now() + PAGE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const dialog = closeDrawer.locator('xpath=ancestor::*[@role="dialog"][1]');
+    const siblingText = async (label: Locator) => {
+      if ((await label.count()) !== 1) {
+        return "";
+      }
+      return label
+        .locator("xpath=following-sibling::*[1]")
+        .innerText({ timeout: 1_000 })
+        .catch(() => "");
+    };
+    const raw = {
+      company: await dialog
+        .locator("h1, h2, h3")
+        .first()
+        .innerText({ timeout: 1_000 })
+        .catch(() => ""),
+      entity: await siblingText(
+        dialog.locator("dt").filter({ hasText: /^Entity$/u }),
+      ),
+      committedOn: await siblingText(
+        dialog.locator("dt").filter({ hasText: /^Committed On$/u }),
+      ),
+      committed: await siblingText(
+        dialog
+          .locator(".text-xs.text-gray-400.mb-1.truncate")
+          .filter({ hasText: /^Committed$/u }),
+      ),
+      currentValue: await siblingText(
+        dialog
+          .locator(".text-xs.text-gray-400.mb-1.truncate")
+          .filter({ hasText: /^Current Value$/u }),
+      ),
+    };
+    const parsed = TokenfolioDetailSchema.safeParse(raw);
+    if (parsed.success) {
+      try {
+        const committed = parseUsdMinor(parsed.data.committed);
+        const currentValue = parseOptionalUsdMinor(parsed.data.currentValue);
+        if (
+          normalizedText(parsed.data.company).toLowerCase() ===
+            expected.company.toLowerCase() &&
+          committed === expected.committed &&
+          currentValue === expected.currentValue &&
+          committed !== 0n
+        ) {
+          return parsed.data;
+        }
+      } catch (error) {
+        if (!(error instanceof AgentFailure)) {
+          throw error;
+        }
+      }
+    }
+    await sleep(250);
+  }
+  throw new AgentFailure("page_not_supported");
+}
+
+async function activateHtmlElement(element: Locator): Promise<void> {
+  await element.dispatchEvent("click");
+}
+
+async function captureTokenfolio(
+  page: Page,
+  asOfDate: string,
+  onStage: TokenfolioCaptureStageObserver = () => undefined,
+) {
+  onStage("stale_drawer");
+  const staleClose = page.getByRole("button", { name: "Close drawer" });
+  if (await staleClose.isVisible().catch(() => false)) {
+    await activateHtmlElement(staleClose);
+    await staleClose.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
+  }
+  onStage("active_tab");
+  const activeTab = page.locator('button#portfolio-tab-active[role="tab"]');
   const tabReady = await activeTab
     .waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS })
     .then(() => true)
@@ -649,10 +951,18 @@ async function captureTokenfolio(page: Page, asOfDate: string) {
     await page.bringToFront();
     throw new AgentFailure("provider_sign_in_required");
   }
-  await activeTab.click();
-  const expectedCount = tokenfolioTabCount(await activeTab.innerText());
+  onStage("tab_selection");
+  if ((await activeTab.getAttribute("aria-selected")) !== "true") {
+    await activeTab.click();
+    if ((await activeTab.getAttribute("aria-selected")) !== "true") {
+      throw new AgentFailure("page_not_supported");
+    }
+  }
+  onStage("tab_count");
+  const expectedCount = await waitForTokenfolioTabCount(activeTab);
   const rowSelector = 'div[role="button"].relative.cursor-pointer';
   const rows = page.locator(rowSelector);
+  onStage("row_count");
   await rows.first().waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
   if ((await rows.count()) !== expectedCount) {
     throw new AgentFailure("incomplete_snapshot");
@@ -662,38 +972,48 @@ async function captureTokenfolio(page: Page, asOfDate: string) {
   for (let index = 0; index < expectedCount; index += 1) {
     const row = page.locator(rowSelector).nth(index);
     const cells = row.locator(":scope > div").first().locator(":scope > div");
+    onStage("row_shape");
     if ((await cells.count()) !== 7) {
       throw new AgentFailure("page_not_supported");
     }
+    onStage("company");
     const company = requiredText(
       await cells.nth(0).locator("span").last().innerText(),
     );
+    onStage("committed");
     const listCommitted = parseUsdMinor(
       await cells.nth(3).locator(":scope > span").last().innerText(),
     );
-    const listCurrentText = await cells
-      .nth(5)
+    onStage("current_value");
+    const currentValueCell = cells.nth(5).locator(":scope > span").last();
+    let listCurrentText = await currentValueCell.innerText();
+    for (const suffix of await currentValueCell
+      .locator(":scope > span")
+      .allInnerTexts()) {
+      listCurrentText = listCurrentText.replace(suffix, "");
+    }
+    listCurrentText = listCurrentText.trim();
+    const listCurrent = parseOptionalUsdMinor(listCurrentText);
+    onStage("status");
+    const status = await cells
+      .nth(6)
       .locator(":scope > span")
       .last()
-      .evaluate((element) =>
-        [...element.childNodes]
-          .filter((node) => node.nodeType === Node.TEXT_NODE)
-          .map((node) => node.textContent ?? "")
-          .join("")
-          .trim(),
-      );
-    const listCurrent = parseOptionalUsdMinor(listCurrentText);
-    const status = normalizedText(
-      await cells.nth(6).locator(":scope > span").last().innerText(),
-    ).toLowerCase();
-    if (status !== "active") {
+      .innerText();
+    if (!tokenfolioActiveHoldingStatus(status)) {
       throw new AgentFailure("page_not_supported");
     }
 
-    await row.click();
-    const dialog = page.locator('[role="dialog"]');
-    await dialog.waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
-    const detail = await readTokenfolioDetail(page);
+    onStage("drawer_open");
+    await activateHtmlElement(row);
+    const close = page.getByRole("button", { name: "Close drawer" });
+    await close.waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
+    onStage("detail_reconcile");
+    const detail = await readTokenfolioDetail(close, {
+      committed: listCommitted,
+      company,
+      currentValue: listCurrent,
+    });
     const committed = parseUsdMinor(detail.committed);
     const currentValue = parseOptionalUsdMinor(detail.currentValue);
     if (
@@ -704,7 +1024,9 @@ async function captureTokenfolio(page: Page, asOfDate: string) {
     ) {
       throw new AgentFailure("incomplete_snapshot");
     }
+    onStage("entity");
     const heldThrough = requiredText(detail.entity);
+    onStage("investment_date");
     const investmentDate = parseProviderDate(detail.committedOn);
     captured.push({
       investment: company,
@@ -723,17 +1045,19 @@ async function captureTokenfolio(page: Page, asOfDate: string) {
         .map((part) => normalizedText(part).toLowerCase())
         .join("\u0000"),
     });
-    const close = page.getByRole("button", { name: "Close drawer" });
-    await close.click();
-    await dialog.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
+    onStage("drawer_close");
+    await activateHtmlElement(close);
+    await close.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
   }
 
+  onStage("final_reconcile");
   if (
     tokenfolioTabCount(await activeTab.innerText()) !== expectedCount ||
     (await page.locator(rowSelector).count()) !== expectedCount
   ) {
     throw new AgentFailure("incomplete_snapshot");
   }
+  onStage("csv");
   return rowsToCsv("tokenfolio", captured);
 }
 
@@ -745,6 +1069,62 @@ type SydecarListRow = {
   funded: string;
 };
 
+type SydecarCaptureStage =
+  | "amounts"
+  | "activity"
+  | "csv"
+  | "date"
+  | "detail"
+  | "detail_commitment"
+  | "detail_funded"
+  | "detail_read"
+  | "detail_reconcile"
+  | "final_list"
+  | "initial_list"
+  | "return_list"
+  | "row_open"
+  | "row_reconcile"
+  | "status"
+  | "table";
+
+type SydecarCaptureStageObserver = (stage: SydecarCaptureStage) => void;
+
+async function readSydecarListRow(row: Locator): Promise<SydecarListRow> {
+  const cells = row.locator(":scope > td");
+  if ((await cells.count()) !== 10) {
+    throw new AgentFailure("page_not_supported");
+  }
+  return {
+    investment: requiredText(
+      await row.getByTestId("investment-name").innerText(),
+    ),
+    heldThrough: requiredText(
+      await row.getByTestId("investment-investing-as").innerText(),
+    ),
+    status: normalizedText(
+      await row.locator('[data-testid^="investment-status-"]').innerText(),
+    ).toLowerCase(),
+    commitment: await cells.nth(3).innerText(),
+    funded: await cells.nth(4).innerText(),
+  };
+}
+
+function sydecarListRowsMatch(
+  expected: SydecarListRow,
+  actual: SydecarListRow,
+): boolean {
+  return (
+    normalizedText(expected.investment).toLowerCase() ===
+      normalizedText(actual.investment).toLowerCase() &&
+    normalizedText(expected.heldThrough).toLowerCase() ===
+      normalizedText(actual.heldThrough).toLowerCase() &&
+    normalizedText(expected.status).toLowerCase() ===
+      normalizedText(actual.status).toLowerCase() &&
+    parseUsdMinor(expected.commitment) === parseUsdMinor(actual.commitment) &&
+    parseUsdMinor(expected.funded) === parseUsdMinor(actual.funded)
+  );
+}
+
 async function readSydecarList(page: Page): Promise<SydecarListRow[]> {
   const table = page.locator('[data-testid="investments-table"]:visible');
   const rows = table.locator('tbody tr[data-testid="investment-row"]');
@@ -754,24 +1134,7 @@ async function readSydecarList(page: Page): Promise<SydecarListRow[]> {
   }
   const result: SydecarListRow[] = [];
   for (let index = 0; index < count; index += 1) {
-    const row = rows.nth(index);
-    const cells = row.locator(":scope > td");
-    if ((await cells.count()) !== 10) {
-      throw new AgentFailure("page_not_supported");
-    }
-    result.push({
-      investment: requiredText(
-        await row.getByTestId("investment-name").innerText(),
-      ),
-      heldThrough: requiredText(
-        await row.getByTestId("investment-investing-as").innerText(),
-      ),
-      status: normalizedText(
-        await row.locator('[data-testid^="investment-status-"]').innerText(),
-      ).toLowerCase(),
-      commitment: await cells.nth(3).innerText(),
-      funded: await cells.nth(4).innerText(),
-    });
+    result.push(await readSydecarListRow(rows.nth(index)));
   }
   return result;
 }
@@ -797,50 +1160,79 @@ async function stableSydecarList(page: Page): Promise<SydecarListRow[]> {
 }
 
 async function readSydecarDetail(page: Page) {
-  const raw = await page.evaluate(() => {
-    const visible = (element: Element) => {
-      const box = element.getBoundingClientRect();
-      return box.width > 0 || box.height > 0;
+  const deadline = Date.now() + PAGE_TIMEOUT_MS;
+  let undatedStablePasses = 0;
+  while (Date.now() < deadline) {
+    const visibleText = async (testId: string) => {
+      const field = page.locator(`[data-testid="${testId}"]:visible`);
+      if ((await field.count()) !== 1) {
+        return "";
+      }
+      return field.innerText({ timeout: 1_000 }).catch(() => "");
     };
-    const text = (testId: string) =>
-      [...document.querySelectorAll<HTMLElement>(`[data-testid="${testId}"]`)]
-        .find(visible)
-        ?.textContent?.trim() ?? "";
-    const history = [
-      ...document.querySelectorAll<HTMLElement>(
-        '[data-testid="investor-activity-log"]',
-      ),
-    ].find(visible);
-    const activities = history
-      ? [
-          ...history.querySelectorAll<HTMLElement>(
-            '[data-testid="investor-activity-log.label"]',
-          ),
-        ].map((label) => ({
-          label: label.textContent?.trim() ?? "",
+    const history = page.locator(
+      '[data-testid="investor-activity-log"]:visible',
+    );
+    const activities: Array<{ date: string; label: string }> = [];
+    if ((await history.count()) === 1) {
+      const labels = history.getByTestId("investor-activity-log.label");
+      for (let index = 0; index < (await labels.count()); index += 1) {
+        const label = labels.nth(index);
+        const date = label
+          .locator("xpath=..")
+          .getByTestId("investor-activity-log.date");
+        activities.push({
+          label: await label.innerText({ timeout: 1_000 }).catch(() => ""),
           date:
-            label.parentElement
-              ?.querySelector<HTMLElement>(
-                '[data-testid="investor-activity-log.date"]',
-              )
-              ?.textContent?.trim() ?? "",
-        }))
-      : [];
-    return {
-      title: text("invest-deal-card.title"),
-      commitment: text("invest-deal-card.commitment-amount-fixed"),
-      funded: text("amount-funded-value.currently-funded"),
+            (await date.count()) === 1
+              ? await date.innerText({ timeout: 1_000 }).catch(() => "")
+              : "",
+        });
+      }
+    }
+    const title = await visibleText("invest-deal-card.title");
+    const commitment = await visibleText(
+      "invest-deal-card.commitment-amount-fixed",
+    );
+    const funded = await visibleText("amount-funded-value.currently-funded");
+    const reported = SydecarReportedDetailSchema.safeParse({
+      title,
+      commitment,
+      funded,
       activities,
-    };
-  });
-  const parsed = SydecarDetailSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new AgentFailure("page_not_supported");
+    });
+    if (reported.success) {
+      return reported.data;
+    }
+    const undated = SydecarUndatedDetailSchema.safeParse({
+      title,
+      commitment,
+      funded: funded === "" ? null : funded,
+      activities,
+    });
+    const alternateLayout = await page
+      .getByTestId("investment-docs-heading")
+      .isVisible()
+      .catch(() => false);
+    if (undated.success && alternateLayout) {
+      undatedStablePasses += 1;
+      if (undatedStablePasses >= 12) {
+        return undated.data;
+      }
+    } else {
+      undatedStablePasses = 0;
+    }
+    await sleep(250);
   }
-  return parsed.data;
+  throw new AgentFailure("page_not_supported");
 }
 
-async function captureSydecar(page: Page, asOfDate: string) {
+async function captureSydecar(
+  page: Page,
+  asOfDate: string,
+  onStage: SydecarCaptureStageObserver = () => undefined,
+) {
+  onStage("table");
   const tableReady = await page
     .locator('[data-testid="investments-table"]:visible')
     .waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS })
@@ -850,6 +1242,7 @@ async function captureSydecar(page: Page, asOfDate: string) {
     await page.bringToFront();
     throw new AgentFailure("provider_sign_in_required");
   }
+  onStage("initial_list");
   const initial = await stableSydecarList(page);
   const captured: CaptureRow[] = [];
   const providerIds = new Set<string>();
@@ -859,11 +1252,13 @@ async function captureSydecar(page: Page, asOfDate: string) {
     if (listRow === undefined) {
       throw new AgentFailure("incomplete_snapshot");
     }
+    onStage("amounts");
     const commitment = parseUsdMinor(listRow.commitment);
     const funded = parseUsdMinor(listRow.funded);
     if (funded === 0n) {
       continue;
     }
+    onStage("status");
     if (
       commitment < funded ||
       !["closed", "participating in", "participating"].includes(listRow.status)
@@ -871,12 +1266,18 @@ async function captureSydecar(page: Page, asOfDate: string) {
       throw new AgentFailure("page_not_supported");
     }
 
+    onStage("row_reconcile");
     const rows = page
       .locator('[data-testid="investments-table"]:visible')
       .locator('tbody tr[data-testid="investment-row"]');
     if ((await rows.count()) !== initial.length) {
       throw new AgentFailure("incomplete_snapshot");
     }
+    const currentListRow = await readSydecarListRow(rows.nth(index));
+    if (!sydecarListRowsMatch(listRow, currentListRow)) {
+      throw new AgentFailure("incomplete_snapshot");
+    }
+    onStage("row_open");
     await rows.nth(index).click();
     await page.waitForURL(
       (url) =>
@@ -889,25 +1290,31 @@ async function captureSydecar(page: Page, asOfDate: string) {
       throw new AgentFailure("identity_ambiguous");
     }
     providerIds.add(providerId);
+    onStage("detail");
     const detail = await readSydecarDetail(page);
+    onStage("detail_read");
     const detailCommitment = parseUsdMinor(detail.commitment);
-    const detailFunded = parseUsdMinor(detail.funded);
-    if (
-      normalizedText(detail.title).toLowerCase() !==
-        listRow.investment.toLowerCase() ||
-      detailCommitment !== commitment ||
-      detailFunded !== funded
-    ) {
+    onStage("detail_commitment");
+    const detailFunded =
+      detail.funded === null ? funded : parseUsdMinor(detail.funded);
+    onStage("detail_funded");
+    onStage("detail_reconcile");
+    if (detailCommitment !== commitment || detailFunded !== funded) {
       throw new AgentFailure("incomplete_snapshot");
     }
+    onStage("activity");
     const initialActivity = detail.activities.find(
       (activity) =>
         normalizedText(activity.label).toLowerCase() === "initial investment",
     );
-    if (initialActivity === undefined) {
+    if (initialActivity === undefined && detail.funded !== null) {
       throw new AgentFailure("page_not_supported");
     }
-    const investmentDate = parseProviderDate(initialActivity.date);
+    onStage("date");
+    const investmentDate =
+      initialActivity === undefined
+        ? null
+        : parseProviderDate(initialActivity.date);
     captured.push({
       investment: listRow.investment,
       legalPosition: requiredText(`Sydecar SPV in ${listRow.investment}`),
@@ -923,6 +1330,7 @@ async function captureSydecar(page: Page, asOfDate: string) {
       instrument: "Sydecar SPV interest",
       identityKey: providerId,
     });
+    onStage("return_list");
     await page.goto(PROVIDERS.sydecar.portfolioUrl, {
       timeout: PAGE_TIMEOUT_MS,
       waitUntil: "domcontentloaded",
@@ -932,10 +1340,19 @@ async function captureSydecar(page: Page, asOfDate: string) {
       .waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
   }
 
+  onStage("final_list");
   const finalRows = await stableSydecarList(page);
-  if (finalRows.length !== initial.length) {
+  if (
+    finalRows.length !== initial.length ||
+    finalRows.some(
+      (row, index) =>
+        initial[index] === undefined ||
+        !sydecarListRowsMatch(initial[index], row),
+    )
+  ) {
     throw new AgentFailure("incomplete_snapshot");
   }
+  onStage("csv");
   return rowsToCsv("sydecar", captured);
 }
 
@@ -965,6 +1382,31 @@ async function uploadCompletion(
     },
   );
   if (result.status !== 200) {
+    const serverError = z
+      .object({
+        error: z.string(),
+        reason: z
+          .enum([
+            "canonical_scope",
+            "document_store",
+            "review_staging",
+            "validation",
+            "unexpected",
+          ])
+          .optional(),
+      })
+      .safeParse(result.body);
+    const category = serverError.success
+      ? (serverError.data.reason ?? "rejected")
+      : "rejected";
+    console.error(
+      JSON.stringify({
+        category,
+        event: "provider_portfolio_upload_rejected",
+        provider,
+        status: result.status,
+      }),
+    );
     throw new AgentFailure("upload_failed");
   }
   ProviderPortfolioAgentOverviewSchema.parse(result.body);
@@ -996,13 +1438,20 @@ async function executeRun(
   provider: ProviderPortfolioAgentProvider,
   run: NonNullable<ProviderPortfolioAgentLease["run"]>,
 ): Promise<void> {
+  let captureStage: SydecarCaptureStage | TokenfolioCaptureStage | null = null;
+  let captureComplete = false;
   try {
     const page = await portfolioPage(context, provider);
     const asOfDate = new Date().toISOString().slice(0, 10);
     const bytes =
       provider === "tokenfolio"
-        ? await captureTokenfolio(page, asOfDate)
-        : await captureSydecar(page, asOfDate);
+        ? await captureTokenfolio(page, asOfDate, (stage) => {
+            captureStage = stage;
+          })
+        : await captureSydecar(page, asOfDate, (stage) => {
+            captureStage = stage;
+          });
+    captureComplete = true;
     await uploadCompletion(authorization, provider, run, asOfDate, bytes);
   } catch (error) {
     if (error instanceof MacAgentAccessError) {
@@ -1010,6 +1459,15 @@ async function executeRun(
     }
     const code =
       error instanceof AgentFailure ? error.code : "unexpected_failure";
+    if (captureStage !== null && !captureComplete) {
+      console.error(
+        JSON.stringify({
+          event: "provider_portfolio_capture_failed",
+          provider,
+          stage: captureStage,
+        }),
+      );
+    }
     await reportFailure(authorization, provider, run, code);
     throw error instanceof AgentFailure ? error : new AgentFailure(code);
   }
@@ -1049,7 +1507,7 @@ type LaunchAgentPlistOptions = {
 };
 
 function buildLaunchAgentPlist(options: LaunchAgentPlistOptions): string {
-  const paths = providerPaths(options.provider);
+  const paths = providerPaths(options.provider, options.keelOrigin);
   const arguments_ = [
     options.nodeExecutable,
     options.pnpmCli,
@@ -1096,9 +1554,9 @@ ${argumentXml}
     <key>ProcessType</key>
     <string>Background</string>
     <key>StandardOutPath</key>
-    <string>${xml(path.join(options.logDirectory, `${options.provider}-agent.log`))}</string>
+    <string>${xml(path.join(options.logDirectory, `${options.provider}-agent-${paths.instanceId}.log`))}</string>
     <key>StandardErrorPath</key>
-    <string>${xml(path.join(options.logDirectory, `${options.provider}-agent.error.log`))}</string>
+    <string>${xml(path.join(options.logDirectory, `${options.provider}-agent-${paths.instanceId}.error.log`))}</string>
   </dict>
 </plist>
 `;
@@ -1117,7 +1575,7 @@ async function installLaunchAgent(
       "Run setup through pnpm so Keel can install the background agent.",
     );
   }
-  const paths = providerPaths(provider);
+  const paths = providerPaths(provider, keelOrigin);
   const scriptPath = fileURLToPath(import.meta.url);
   const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
   await mkdir(path.dirname(paths.launchAgentPath), { recursive: true });
@@ -1153,31 +1611,34 @@ async function installLaunchAgent(
         "macOS could not install the background agent.",
     );
   }
+  await retireMatchingLegacyLaunchAgent(
+    domain,
+    paths.legacyLaunchAgentPath,
+    keelOrigin,
+  );
 }
 
 async function setup(
   keelOrigin: URL,
   provider: ProviderPortfolioAgentProvider,
 ): Promise<void> {
-  const context = await connectContext(provider);
+  await completeProviderSignIn(provider, keelOrigin);
+  const context = await connectContext(provider, keelOrigin);
   const portfolio = await portfolioPage(context, provider);
   await portfolio.bringToFront();
   console.info(
-    `Finish signing in to ${PROVIDERS[provider].label}, including 2FA if requested. Setup continues when the portfolio is visible.`,
+    `Checking the ${PROVIDERS[provider].label} session from the first Chrome window.`,
   );
-  await waitForProviderSignIn(portfolio, provider);
 
   const keel = await keelPage(context, keelOrigin);
   await keel.bringToFront();
-  console.info(
-    "Sign in to Keel once to approve secure access for this Mac. Daily updates will not use your Keel browser session.",
-  );
-  await waitForKeelSignIn(keel, keelOrigin);
+  console.info("Checking the Keel session from the first Chrome window.");
+  await validateSetupSessions(portfolio, keel, keelOrigin, provider);
   const authorization = await authorize(keel, provider);
   storeMacAgentAuthorization(keelOrigin, authorization);
   await installLaunchAgent(keelOrigin, provider);
   console.info(
-    `${PROVIDERS[provider].label} updates are ready. The credential is in macOS Keychain, and Keel will check once daily without another Keel sign-in. Run make provider-agent-run PROVIDER=${provider} KEEL_URL=${keelOrigin.origin} for an immediate local update.`,
+    `${PROVIDERS[provider].label} updates are ready for ${keelOrigin.origin}. The credential is in macOS Keychain, and Keel will check once daily without another Keel sign-in. Run make provider-agent-run PROVIDER=${provider} KEEL_URL=${keelOrigin.origin} for an immediate update.`,
   );
 }
 
@@ -1185,7 +1646,7 @@ async function runLocally(
   keelOrigin: URL,
   provider: ProviderPortfolioAgentProvider,
 ): Promise<void> {
-  const context = await connectContext(provider);
+  const context = await connectContext(provider, keelOrigin);
   const authorization = readMacAgentAuthorization(keelOrigin, provider);
   const requested = await requestRun(authorization, provider);
   if (requested.status === "running") {
@@ -1215,7 +1676,7 @@ async function main(): Promise<void> {
     await runLocally(options.keelOrigin, options.provider);
     return;
   }
-  const context = await connectContext(options.provider);
+  const context = await connectContext(options.provider, options.keelOrigin);
   await pollOnce(context, options.keelOrigin, options.provider);
 }
 
@@ -1223,12 +1684,15 @@ export const __providerPortfolioMacAgentTest = {
   buildLaunchAgentPlist,
   captureSydecar,
   captureTokenfolio,
+  chromeProcessIdsForProfile,
   formatUsdMinor,
+  manualSetupChromeArguments,
   parseOptions,
   parseProviderDate,
   parseUsdMinor,
   providerPaths,
   rowsToCsv,
+  tokenfolioActiveHoldingStatus,
   tokenfolioTabCount,
 };
 

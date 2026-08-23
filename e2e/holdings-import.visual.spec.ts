@@ -330,6 +330,43 @@ const tokenfolioImportPreview = {
   ],
 };
 
+const sydecarImportPreview = {
+  id: "holding_import_synthetic_sydecar",
+  provider: "sydecar",
+  status: "pending_review",
+  observedAt: "2026-08-20T00:00:00.000Z",
+  summary: {
+    rowCount: 1,
+    administratorValueCount: 0,
+    lockedValueCount: 0,
+    createCount: 1,
+    updateCount: 0,
+    unchangedCount: 0,
+    needsAttentionCount: 0,
+    autoAppliedCount: 0,
+    quarantinedCount: 0,
+    preservedPositionCount: 0,
+  },
+  rows: [
+    {
+      id: "sydecar_row_1",
+      sourceRowNumber: 3,
+      positionName: "Synthetic Climate SPV I",
+      exposureName: "Synthetic Climate Systems",
+      ownerLabel: "Synthetic Investment Profile",
+      providerStatus: "Live",
+      investedOn: null,
+      investedOnState: "not_reported",
+      investedMinor: 500_000,
+      administratorNavMinor: null,
+      administratorNavState: "not_reported",
+      realizedValueMinor: 0,
+      action: "create_position",
+      issues: [],
+    },
+  ],
+};
+
 const robinhoodImportPreview = {
   id: "holding_import_synthetic_robinhood",
   provider: "plaid_investments",
@@ -448,6 +485,10 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
     expect(route.request().method()).toBe("POST");
     await route.fulfill({ json: tokenfolioImportPreview, status: 201 });
   });
+  await page.route("**/api/holding-imports/sydecar", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({ json: sydecarImportPreview, status: 201 });
+  });
 
   await page.goto("/holdings");
   await page.getByRole("button", { name: "Import holdings" }).click();
@@ -515,6 +556,45 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
   ).toBeVisible();
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "holdings-import-tokenfolio-review.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  await page.goto("/holdings");
+  await page.getByRole("button", { name: "Import holdings" }).click();
+  await page.getByLabel("Source").selectOption("sydecar");
+  await page.getByLabel("Sydecar template").setInputFiles({
+    name: "sydecar-holdings.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      "Keel Sydecar holdings template v1\nInvestment,Legal Position,Position Type,Held Through,Status,Investment Date,As Of Date,Invested USD,Committed USD,Current Value USD,Realized Value USD,Instrument\nSynthetic Climate Systems,Synthetic Climate SPV I,SPV,Synthetic Investment Profile,Live,,2026-08-20,$5000.00,$7500.00,,,Membership interest\n",
+    ),
+  });
+  await page.getByRole("button", { name: "Review file" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Review Sydecar import" }),
+  ).toBeFocused();
+  await expect(page.getByText("Investment date not reported")).toBeVisible();
+  const sydecarViewportWidths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(sydecarViewportWidths.scroll).toBe(sydecarViewportWidths.client);
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-import-sydecar-review.png",
     {
       animations: "disabled",
       caret: "hide",

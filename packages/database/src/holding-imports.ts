@@ -238,7 +238,8 @@ type ImportPreviewRow = {
   exposure_label: string;
   owner_label: string;
   provider_status: "live" | "realized";
-  invested_on: string;
+  invested_on: string | null;
+  invested_on_state: "not_reported" | "reported";
   invested_minor: number;
   unrealized_value_minor: number | null;
   unrealized_value_state: "reported" | "locked" | "not_reported";
@@ -276,7 +277,8 @@ type ApplyImportRow = {
   owner_label: string;
   exposure_label: string;
   provider_status: "live" | "realized";
-  invested_on: string;
+  invested_on: string | null;
+  invested_on_state: "not_reported" | "reported";
   invested_minor: number;
   allocation_minor: number;
   unrealized_value_minor: number | null;
@@ -726,11 +728,11 @@ export class D1HoldingImportRepository {
                id, household_id, import_id, source_row_number,
                position_fingerprint, snapshot_fingerprint, legal_vehicle_name,
                owner_label, exposure_label, provider_status, invested_on,
-               invested_minor, allocation_minor, unrealized_value_minor,
+               invested_on_state, invested_minor, allocation_minor, unrealized_value_minor,
                unrealized_value_state, realized_value_minor, net_value_minor,
                net_value_state, instrument_type, currency_hint, parse_status,
                issue_codes_json, position_kind, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                'USD', ?, ?, ?, ?)`,
             )
             .bind(
@@ -745,6 +747,7 @@ export class D1HoldingImportRepository {
               row.companyOrFund,
               row.status.toLowerCase(),
               row.investDate,
+              row.investDateState,
               row.investedMinor,
               row.dealMetadata.allocationMinor,
               row.unrealizedValueMinor,
@@ -982,13 +985,13 @@ export class D1HoldingImportRepository {
                id, household_id, import_id, source_row_number,
                position_fingerprint, snapshot_fingerprint, legal_vehicle_name,
                owner_label, exposure_label, provider_status, invested_on,
-               invested_minor, allocation_minor, unrealized_value_minor,
+               invested_on_state, invested_minor, allocation_minor, unrealized_value_minor,
                unrealized_value_state, realized_value_minor, net_value_minor,
                net_value_state, instrument_type, currency_hint, parse_status,
                issue_codes_json, position_kind, quantity_micros, ticker,
                cost_basis_minor, public_exposure_identity_kind,
                protected_exposure_key, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', NULL, 'not_reported', ?, ?, ?,
                'reported', 0, ?, 'reported', ?, 'USD', ?, ?, 'direct', ?, ?,
                ?, ?, ?, ?)`,
           )
@@ -1002,7 +1005,6 @@ export class D1HoldingImportRepository {
             row.securityName,
             row.accountLabel,
             exposureLabel,
-            row.observedOn,
             costBasisPlaceholder,
             costBasisPlaceholder,
             row.marketValueMinor,
@@ -1397,6 +1399,7 @@ export class D1HoldingImportRepository {
              row.owner_label,
              row.provider_status,
              row.invested_on,
+             row.invested_on_state,
              row.invested_minor,
              row.unrealized_value_minor,
              row.unrealized_value_state,
@@ -1477,6 +1480,7 @@ export class D1HoldingImportRepository {
       ownerLabel: row.owner_label,
       providerStatus: row.provider_status === "live" ? "Live" : "Realized",
       investedOn: row.invested_on,
+      investedOnState: row.invested_on_state,
       investedMinor: row.invested_minor,
       administratorNavMinor: row.unrealized_value_minor,
       administratorNavState: row.unrealized_value_state,
@@ -1578,6 +1582,7 @@ export class D1HoldingImportRepository {
              row.exposure_label,
              row.provider_status,
              row.invested_on,
+             row.invested_on_state,
              row.invested_minor,
              row.allocation_minor,
              row.unrealized_value_minor,
@@ -1827,7 +1832,7 @@ export class D1HoldingImportRepository {
               row.owner_label,
               row.position_kind,
               row.instrument_type,
-              provider === PLAID_INVESTMENTS_PROVIDER ? null : row.invested_on,
+              row.invested_on,
               input.currency,
               identity.user_id,
               createdAt,
