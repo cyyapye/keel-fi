@@ -5,9 +5,12 @@ PRAGMA defer_foreign_keys = ON;
 -- exact, unique natural-position match as one continuing legal position so its
 -- value appears only once in current position, exposure, and baseline views.
 -- Company identity alone is never sufficient: distinct SPVs remain distinct.
-DROP TRIGGER holding_position_continuities_integrity_insert;
-DROP TRIGGER holding_position_continuities_unique_candidate_insert;
-DROP VIEW holding_position_continuity_candidates_v1;
+-- A D1 CPU reset may interrupt the remote request after SQLite has begun the
+-- batch. Make the retry safe whether that batch was rolled back or retained.
+DROP TRIGGER IF EXISTS holding_position_continuities_integrity_insert;
+DROP TRIGGER IF EXISTS holding_position_continuities_unique_candidate_insert;
+DROP VIEW IF EXISTS holding_position_continuity_candidates_v1;
+DROP VIEW IF EXISTS holding_position_continuity_evidence_v1;
 
 CREATE VIEW holding_position_continuity_evidence_v1 AS
 WITH latest_positions AS (
@@ -159,20 +162,51 @@ WITH latest_positions AS (
 SELECT * FROM candidate_pairs;
 
 CREATE VIEW holding_position_continuity_candidates_v1 AS
-SELECT candidate.*
-FROM holding_position_continuity_evidence_v1 candidate
-WHERE 1 = (
-    SELECT COUNT(*)
-    FROM holding_position_continuity_evidence_v1 same_predecessor
-    WHERE same_predecessor.predecessor_position_id =
-          candidate.predecessor_position_id
-  )
-  AND 1 = (
-    SELECT COUNT(*)
-    FROM holding_position_continuity_evidence_v1 same_successor
-    WHERE same_successor.successor_position_id = candidate.successor_position_id
-  );
+WITH candidate_counts AS (
+  SELECT
+    candidate.*,
+    COUNT(*) OVER (
+      PARTITION BY candidate.predecessor_position_id
+    ) AS predecessor_candidate_count,
+    COUNT(*) OVER (
+      PARTITION BY candidate.successor_position_id
+    ) AS successor_candidate_count
+  FROM holding_position_continuity_evidence_v1 candidate
+)
+SELECT
+  household_id,
+  predecessor_position_id,
+  predecessor_snapshot_id,
+  successor_position_id,
+  successor_snapshot_id,
+  recorded_at
+FROM candidate_counts
+WHERE predecessor_candidate_count = 1
+  AND successor_candidate_count = 1;
 
+INSERT OR IGNORE INTO holding_position_continuities (
+  id, household_id, predecessor_position_id, predecessor_snapshot_id,
+  successor_position_id, successor_snapshot_id, resolution_method,
+  recorded_by_user_id, recorded_at, immutable
+)
+SELECT
+  'holding-position-continuity-v1:' || candidate.predecessor_position_id || ':' ||
+    candidate.successor_position_id,
+  candidate.household_id,
+  candidate.predecessor_position_id,
+  candidate.predecessor_snapshot_id,
+  candidate.successor_position_id,
+  candidate.successor_snapshot_id,
+  'exact_reconnect_snapshot_v1',
+  household.owner_user_id,
+  candidate.recorded_at,
+  1
+FROM holding_position_continuity_candidates_v1 candidate
+JOIN households household ON household.id = candidate.household_id;
+
+-- The backfill above is already sourced from the exact, unique evidence view.
+-- Restore row-level validation after the set-based insert so D1 does not
+-- recompute the entire candidate graph for every historical row.
 CREATE TRIGGER holding_position_continuities_integrity_insert
 BEFORE INSERT ON holding_position_continuities
 BEGIN
@@ -204,25 +238,5 @@ BEGIN
       AND candidate.successor_snapshot_id = NEW.successor_snapshot_id
   );
 END;
-
-INSERT OR IGNORE INTO holding_position_continuities (
-  id, household_id, predecessor_position_id, predecessor_snapshot_id,
-  successor_position_id, successor_snapshot_id, resolution_method,
-  recorded_by_user_id, recorded_at, immutable
-)
-SELECT
-  'holding-position-continuity-v1:' || candidate.predecessor_position_id || ':' ||
-    candidate.successor_position_id,
-  candidate.household_id,
-  candidate.predecessor_position_id,
-  candidate.predecessor_snapshot_id,
-  candidate.successor_position_id,
-  candidate.successor_snapshot_id,
-  'exact_reconnect_snapshot_v1',
-  household.owner_user_id,
-  candidate.recorded_at,
-  1
-FROM holding_position_continuity_candidates_v1 candidate
-JOIN households household ON household.id = candidate.household_id;
 
 PRAGMA defer_foreign_keys = OFF;
