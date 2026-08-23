@@ -1099,6 +1099,13 @@ type SydecarCaptureStage =
 
 type SydecarCaptureStageObserver = (stage: SydecarCaptureStage) => void;
 
+async function openSydecarRow(row: Locator): Promise<void> {
+  // Sydecar continuously animates its investment rows, so Playwright never
+  // considers them stable. The row was reconciled immediately before this
+  // click; force only bypasses that animation check.
+  await row.click({ force: true, noWaitAfter: true });
+}
+
 async function readSydecarListRow(row: Locator): Promise<SydecarListRow> {
   const cells = row.locator(":scope > td");
   if ((await cells.count()) !== 10) {
@@ -1288,7 +1295,7 @@ async function captureSydecar(
       throw new AgentFailure("incomplete_snapshot");
     }
     onStage("row_open");
-    await rows.nth(index).click();
+    await openSydecarRow(rows.nth(index));
     await page.waitForURL(
       (url) =>
         url.origin === PROVIDERS.sydecar.origin &&
@@ -1795,6 +1802,7 @@ export const __providerPortfolioMacAgentTest = {
   chromeProcessIdsForProfile,
   formatUsdMinor,
   manualSetupChromeArguments,
+  openSydecarRow,
   parseOptions,
   parseProviderDate,
   parseUsdMinor,

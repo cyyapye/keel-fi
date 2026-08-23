@@ -50,6 +50,7 @@ import {
   type BrowserContext,
   type CDPSession,
   type ConnectOverCDPOptions,
+  type Locator,
   type Page,
 } from "@playwright/test";
 import { z } from "zod";
@@ -75,7 +76,7 @@ const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
 const FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000;
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const ANGELLIST_PORTFOLIO_PATH =
-  /^\/v\/[a-z0-9-]{1,128}\/i\/[a-z0-9-]{1,128}\/portfolio\/dashboard\/?$/iu;
+  /^\/v\/[a-z0-9-]{1,128}\/i\/[a-z0-9-]{1,128}\/portfolio(?:\/dashboard)?\/?$/iu;
 
 const AngelListPortfolioUrlSchema = z.url().transform((value, context) => {
   const url = new URL(value);
@@ -431,6 +432,12 @@ async function resetDownloads(session: CDPSession): Promise<void> {
     behavior: "default",
     eventsEnabled: false,
   });
+}
+
+async function clickAngelListExport(exportButton: Locator): Promise<void> {
+  // AngelList continuously animates this control, so Playwright never marks
+  // it stable. Visibility is checked immediately before this click.
+  await exportButton.click({ force: true, noWaitAfter: true });
 }
 
 function captureNextDownload(
@@ -850,7 +857,7 @@ async function executeRun(
     const capture = captureNextDownload(downloadSession);
     let download: CapturedDownload;
     try {
-      await exportButton.click({ timeout: 15_000 });
+      await clickAngelListExport(exportButton);
       download = await capture.result;
     } finally {
       capture.cancel();
@@ -1167,6 +1174,7 @@ export const __angellistMacAgentTest = {
   angelListPage,
   buildLaunchAgentPlist,
   captureNextDownload,
+  clickAngelListExport,
   chromeProcessIdsForProfile,
   configureDownloads,
   connectContext,

@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -114,7 +115,8 @@ describe("portfolio agent platform runtime", () => {
     expect(unit).toContain('"--keel-url" "https://keel-preview.example.com"');
     expect(unit).toContain("Restart=always");
     expect(unit).toContain("ProtectHome=read-only");
-    expect(unit).toContain(`ReadWritePaths="${linuxService.appDirectory}"`);
+    expect(unit).toContain(`WorkingDirectory=${linuxService.repositoryRoot}`);
+    expect(unit).toContain(`ReadWritePaths=${linuxService.appDirectory}`);
     expect(unit).toContain(
       'Environment="KEEL_CHROME_PATH=/opt/chrome/google-chrome"',
     );
@@ -127,6 +129,51 @@ describe("portfolio agent platform runtime", () => {
       `keel-sydecar-agent-${linuxService.instanceId}.service`,
     );
   });
+
+  it("rejects service paths that systemd would reinterpret", () => {
+    expect(() =>
+      buildSystemdAgentService({
+        ...linuxService,
+        repositoryRoot: "/srv/keel fi",
+      }),
+    ).toThrow("contain no whitespace");
+    expect(() =>
+      buildSystemdAgentService({
+        ...linuxService,
+        appDirectory: "/home/synthetic/%i",
+      }),
+    ).toThrow("systemd specifiers");
+  });
+
+  it.runIf(process.platform === "linux")(
+    "emits a unit accepted by the installed systemd parser",
+    async () => {
+      const directory = await mkdtemp(
+        path.join(os.tmpdir(), "keel-systemd-unit-"),
+      );
+      const unitPath = path.join(directory, "keel-agent-test.service");
+      try {
+        await writeFile(
+          unitPath,
+          buildSystemdAgentService({
+            ...linuxService,
+            appDirectory: directory,
+            nodeExecutable: process.execPath,
+            repositoryRoot: directory,
+            scriptPath: "/bin/true",
+            tsxCli: "/bin/true",
+          }),
+        );
+        const result = spawnSync("systemd-analyze", ["verify", unitPath], {
+          encoding: "utf8",
+        });
+        expect(result.stderr).toBe("");
+        expect(result.status).toBe(0);
+      } finally {
+        await rm(directory, { force: true, recursive: true });
+      }
+    },
+  );
 
   it("writes and enables only the exact systemd user service", async () => {
     const homeDirectory = await mkdtemp(
