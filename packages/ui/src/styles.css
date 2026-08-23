@@ -659,6 +659,10 @@ h3 {
 .select-list {
   display: grid;
   gap: 2px;
+  max-height: min(24rem, var(--available-height));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 4px;
 }
 
 .select-item {

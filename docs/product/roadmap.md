@@ -1120,6 +1120,16 @@ still requires exact legal vehicle, account label, ticker, instrument type,
 currency, quantity, cost basis, later observation, and one candidate on each
 side; two present but different protected identities continue to fail closed.
 
+**2026-08-23 private-provider continuity follow-up:** Forward migration
+`0037_private_provider_position_continuity.sql` prevents an exact retained
+AngelList, Tokenfolio, or Sydecar position and its later live-provider copy from
+counting twice after company assignment. It links only a unique one-to-one match
+with the same provider, legal vehicle, owner, reported exposure, investment
+date, instrument, currency, invested amount, and allocation amount. Distinct
+SPVs and ambiguous matches remain separate. Both accepted snapshots remain
+auditable; only the successor participates in current position, exposure, and
+baseline totals.
+
 The subsequent source-label comparison proved the remaining rendered row came
 from the parallel Alpha supplement, not the canonical Position or Exposure
 projection. Holdings now uses those canonical projections exclusively for
