@@ -1,8 +1,13 @@
+import { chmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import type { MacAgentAuthorization } from "../packages/domain/src/index";
 import {
   MacAgentAccessError,
+  linuxAgentAuthorizationPath,
   macAgentApi,
   readMacAgentAuthorization,
   storeMacAgentAuthorization,
@@ -29,7 +34,7 @@ describe("Mac agent authorization", () => {
     storeMacAgentAuthorization(
       new URL("https://keel-preview.example.com"),
       authorization,
-      execute,
+      { executeSecurity: execute, platform: "darwin" },
     );
 
     const [arguments_, input] = execute.mock.calls[0] ?? [];
@@ -52,7 +57,7 @@ describe("Mac agent authorization", () => {
       storeMacAgentAuthorization(
         new URL("https://keel-preview.example.com"),
         authorization,
-        execute,
+        { executeSecurity: execute, platform: "darwin" },
       ),
     ).toThrow(MacAgentAccessError);
   });
@@ -67,16 +72,78 @@ describe("Mac agent authorization", () => {
       readMacAgentAuthorization(
         new URL("https://keel-preview.example.com"),
         "tokenfolio",
-        execute,
+        { executeSecurity: execute, platform: "darwin" },
       ),
     ).toEqual(authorization);
     expect(() =>
       readMacAgentAuthorization(
         new URL("https://keel-preview.example.com"),
         "sydecar",
-        execute,
+        { executeSecurity: execute, platform: "darwin" },
       ),
     ).toThrow(MacAgentAccessError);
+  });
+
+  it("stores a Linux credential in a private origin-scoped file", async () => {
+    const homeDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "keel-agent-auth-"),
+    );
+    const options = {
+      environment: {} satisfies NodeJS.ProcessEnv,
+      homeDirectory,
+      platform: "linux" as const,
+      uid: process.getuid?.() ?? 1_001,
+    };
+    try {
+      storeMacAgentAuthorization(
+        new URL("https://keel-preview.example.com"),
+        authorization,
+        options,
+      );
+      const file = linuxAgentAuthorizationPath(
+        new URL("https://keel-preview.example.com"),
+        "tokenfolio",
+        options,
+      );
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+      expect(await readFile(file, "utf8")).not.toContain("synthetic holdings");
+      expect(
+        readMacAgentAuthorization(
+          new URL("https://keel-preview.example.com"),
+          "tokenfolio",
+          options,
+        ),
+      ).toEqual(authorization);
+    } finally {
+      await rm(homeDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects a Linux credential readable by another user", async () => {
+    const homeDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "keel-agent-auth-"),
+    );
+    const keelOrigin = new URL("https://keel-preview.example.com");
+    const options = {
+      environment: {} satisfies NodeJS.ProcessEnv,
+      homeDirectory,
+      platform: "linux" as const,
+      uid: process.getuid?.() ?? 1_001,
+    };
+    try {
+      storeMacAgentAuthorization(keelOrigin, authorization, options);
+      const file = linuxAgentAuthorizationPath(
+        keelOrigin,
+        "tokenfolio",
+        options,
+      );
+      await chmod(file, 0o644);
+      expect(() =>
+        readMacAgentAuthorization(keelOrigin, "tokenfolio", options),
+      ).toThrow(MacAgentAccessError);
+    } finally {
+      await rm(homeDirectory, { force: true, recursive: true });
+    }
   });
 
   it("sends the bearer only to the authorized API origin", async () => {

@@ -48,4 +48,23 @@ describe("resolveDevPorts", () => {
       }),
     ).toThrow(/must be different/);
   });
+
+  it("isolates browser-test ports from a running development server", () => {
+    const rootDir = "/tmp/keel-worktree-e2e";
+    const development = resolveDevPorts({
+      env: {},
+      linkedWorktree: true,
+      rootDir,
+    });
+    const browserTests = resolveDevPorts({
+      env: { KEEL_E2E_ISOLATED: "1" },
+      linkedWorktree: true,
+      rootDir,
+    });
+
+    expect(browserTests.webPort).not.toBe(development.webPort);
+    expect(browserTests.apiPort).not.toBe(development.apiPort);
+    expect(browserTests.webPort).toBeLessThan(45_000);
+    expect(browserTests.apiPort).toBeLessThan(60_000);
+  });
 });

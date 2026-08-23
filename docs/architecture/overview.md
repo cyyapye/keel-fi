@@ -153,10 +153,11 @@ flowchart LR
   the signed raw body and queues only an opaque internal delivery ID. Processing
   stages a holding proposal for the exact investment connection and stops at the
   same review boundary as a manual investment check.
-- A separate Mac-agent hostname exposes only exact queue, lease, completion, and
-  failure routes. One-time user authorization stores a target-scoped token in
-  macOS Keychain and only its SHA-256 digest in D1. Agent uploads create pending
-  imports and never cross the review boundary.
+- A separate portfolio-agent hostname exposes only exact queue, lease,
+  completion, and failure routes. One-time user authorization stores a
+  target-scoped token in macOS Keychain or a mode-`0600` Linux user file and
+  only its SHA-256 digest in D1. Agent uploads create pending imports and never
+  cross the review boundary.
 
 ## Value semantics
 

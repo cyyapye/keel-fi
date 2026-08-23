@@ -32,7 +32,8 @@ export default defineConfig({
   ],
   webServer: {
     command: "pnpm dev",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer:
+      !process.env.CI && process.env.KEEL_E2E_ISOLATED !== "1",
     timeout: 120_000,
     // Waiting through Vite's API proxy proves both local services are ready.
     url: readinessURL,

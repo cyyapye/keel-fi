@@ -9,6 +9,8 @@ export const PRIMARY_API_PORT = 8789;
 
 const WORKTREE_WEB_PORT_BASE = 5_000;
 const WORKTREE_API_PORT_BASE = 20_000;
+const E2E_WEB_PORT_BASE = 35_000;
+const E2E_API_PORT_BASE = 50_000;
 const WORKTREE_PORT_SLOTS = 10_000;
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -58,12 +60,21 @@ export function resolveDevPorts(options: ResolveDevPortOptions = {}): DevPorts {
   const env = options.env ?? process.env;
   const linkedWorktree = options.linkedWorktree ?? isLinkedWorktree(rootDir);
   const slot = linkedWorktree ? worktreeSlot(rootDir) : 0;
+  const isolatedE2e = env.KEEL_E2E_ISOLATED === "1";
   const webPort =
     parsePort(env.KEEL_WEB_PORT, "KEEL_WEB_PORT") ??
-    (linkedWorktree ? WORKTREE_WEB_PORT_BASE + slot : PRIMARY_WEB_PORT);
+    (isolatedE2e
+      ? E2E_WEB_PORT_BASE + slot
+      : linkedWorktree
+        ? WORKTREE_WEB_PORT_BASE + slot
+        : PRIMARY_WEB_PORT);
   const apiPort =
     parsePort(env.KEEL_API_PORT, "KEEL_API_PORT") ??
-    (linkedWorktree ? WORKTREE_API_PORT_BASE + slot : PRIMARY_API_PORT);
+    (isolatedE2e
+      ? E2E_API_PORT_BASE + slot
+      : linkedWorktree
+        ? WORKTREE_API_PORT_BASE + slot
+        : PRIMARY_API_PORT);
 
   if (webPort === apiPort) {
     throw new Error("KEEL_WEB_PORT and KEEL_API_PORT must be different.");

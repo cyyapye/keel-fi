@@ -341,6 +341,20 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
   await expect(cashSection).not.toContainText("Review waiting");
   await expect(cashSection).not.toContainText("ready to review");
   expect(automaticRefreshRequests).toBe(0);
+  await page.addStyleTag({
+    content: `
+      /* Keep font-metric rounding from changing the screenshot frame by one pixel. */
+      .cash-accounts {
+        min-height: 359px;
+      }
+
+      @media (max-width: 620px) {
+        .cash-accounts {
+          min-height: 523px;
+        }
+      }
+    `,
+  });
   await expect(cashSection).toHaveScreenshot("cash-accounts-ready.png", {
     animations: "disabled",
     caret: "hide",

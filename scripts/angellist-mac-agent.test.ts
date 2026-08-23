@@ -4,6 +4,33 @@ import { MAX_ANGELLIST_CSV_BYTES } from "../packages/connectors/src/index";
 import { __angellistMacAgentTest } from "./angellist-mac-agent";
 
 describe("AngelList Mac agent boundaries", () => {
+  it("opens Linux sign-in in normal Chrome before automation", () => {
+    const keelOrigin = new URL("https://keel-preview.example.com");
+    const arguments_ =
+      __angellistMacAgentTest.manualSetupChromeArguments(keelOrigin);
+    expect(arguments_).toContain("https://venture.angellist.com");
+    expect(arguments_).toContain("https://keel-preview.example.com/holdings");
+    expect(arguments_).not.toContain("--remote-debugging-port=0");
+    expect(arguments_).not.toContain("--headless=new");
+  });
+
+  it("stops only Linux Chrome using the exact isolated profile", () => {
+    const profile = "/home/synthetic/.local/state/keel/angellist/chrome";
+    const chromePath = "/usr/bin/google-chrome-stable";
+    const processList = [
+      `100 ${chromePath}`,
+      `101 ${chromePath} --user-data-dir=${profile} --no-first-run`,
+      `102 ${chromePath} --user-data-dir=${profile}-copy`,
+    ].join("\n");
+    expect(
+      __angellistMacAgentTest.chromeProcessIdsForProfile(
+        processList,
+        profile,
+        chromePath,
+      ),
+    ).toEqual([101]);
+  });
+
   it("does not override download behavior when attaching to existing Chrome", async () => {
     const context = {};
     const connectOverCDP = vi.fn().mockResolvedValue({

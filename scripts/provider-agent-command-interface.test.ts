@@ -6,18 +6,28 @@ import { describe, expect, it } from "vitest";
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const KEEL_URL = "https://keel.example";
 
-function runMake(target: string, provider?: string) {
+function runMake(
+  target: string,
+  provider?: string,
+  agentPlatform: "Darwin" | "Linux" = "Darwin",
+) {
+  const environment = { ...process.env };
+  if (agentPlatform === "Linux") {
+    delete environment.DISPLAY;
+  }
   return spawnSync(
     "make",
     [
       target,
       ...(provider === undefined ? [] : [`PROVIDER=${provider}`]),
       `KEEL_URL=${KEEL_URL}`,
+      `AGENT_PLATFORM=${agentPlatform}`,
       "PNPM=echo",
     ],
     {
       cwd: REPOSITORY_ROOT,
       encoding: "utf8",
+      env: environment,
     },
   );
 }
@@ -53,6 +63,19 @@ describe("provider agent command interface", () => {
 
       expect(result.status).not.toBe(0);
       expect(result.stdout).not.toContain("--keel-url");
+    },
+  );
+
+  it.each(["angellist", "tokenfolio", "sydecar"])(
+    "starts a private setup desktop for headless Linux %s",
+    (provider) => {
+      const result = runMake("provider-agent-setup", provider, "Linux");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(
+        "exec tsx scripts/linux-agent-setup-session.ts",
+      );
+      expect(result.stdout).toContain(`--provider ${provider}`);
+      expect(result.stdout).toContain(KEEL_URL);
     },
   );
 

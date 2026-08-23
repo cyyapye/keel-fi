@@ -50,7 +50,7 @@ The first unchecked milestone is next. Keep exactly one milestone marked
     [`32d566f`](https://github.com/cyyapye/keel-fi/commit/32d566f4b8ea742cea3af2aae7e7f42f6b5e30d7).
 - [x] **M3 — Review-gated private holdings imports.** AngelList exports stage in
       private storage, require review, preserve locked values as unknown, and
-      can be collected by the bounded daily Mac agent.
+      can be collected by the bounded daily portfolio agent.
   - Evidence: [PR #22](https://github.com/cyyapye/keel-fi/pull/22) at
     [`41c36d6`](https://github.com/cyyapye/keel-fi/commit/41c36d6642e9ac2d22547511061dc30f96a3923f),
     [PR #36](https://github.com/cyyapye/keel-fi/pull/36) at

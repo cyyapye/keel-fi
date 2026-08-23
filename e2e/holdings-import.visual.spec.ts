@@ -604,7 +604,7 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
   );
 });
 
-test("uses one setup command interface for every local portfolio agent", async ({
+test("uses one setup command interface for every portfolio agent", async ({
   page,
 }) => {
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -1227,7 +1227,7 @@ test("shows automatic Robinhood checks with exception-only review", async ({
   expect(disconnectCalls).toBe(1);
 });
 
-test("requests a Mac AngelList update from the phone-safe Holdings flow", async ({
+test("requests an AngelList update from the phone-safe Holdings flow", async ({
   page,
 }) => {
   const intervalUpdates: unknown[] = [];
@@ -1327,14 +1327,14 @@ test("requests a Mac AngelList update from the phone-safe Holdings flow", async 
     page.getByRole("heading", { name: "AngelList update is queued" }),
   ).toBeVisible();
   await expect(
-    page.getByText("AngelList update queued for your Mac’s next daily check."),
+    page.getByText("AngelList update queued for the agent’s next daily check."),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Update queued" }),
   ).toBeDisabled();
 });
 
-test("shows clear health and repair actions for local portfolio agents", async ({
+test("shows clear health and repair actions for portfolio agents", async ({
   page,
 }) => {
   await page.route("**/api/alpha", async (route) => {
@@ -1399,7 +1399,7 @@ test("shows clear health and repair actions for local portfolio agents", async (
   await page.goto("/holdings");
   await expect(
     page.getByRole("heading", {
-      name: "AngelList is paused — Mac access needs renewal",
+      name: "AngelList is paused — agent access needs renewal",
     }),
   ).toBeVisible();
   await expect(

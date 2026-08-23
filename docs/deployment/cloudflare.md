@@ -93,7 +93,7 @@ Configure these bindings outside Git:
 - `ACCESS_AUD`: Access application audience;
 - `ACCESS_TEAM_DOMAIN`: the exact team hostname used as JWT issuer;
 - `MAC_AGENT_API_ORIGIN`: the dedicated HTTPS origin that accepts only scoped
-  Mac agent requests;
+  portfolio-agent requests;
 - the complete shared Plaid connector secret group documented in
   [Robinhood holdings sync](robinhood-holdings-sync.md) and
   [cash accounts](cash-accounts.md), when either integration is enabled;
@@ -107,9 +107,9 @@ through the public web Worker to the API Worker with a service binding so the
 Access assertion is preserved. If Robinhood is enabled, route only
 `POST /webhooks/plaid` from a dedicated custom domain through the same service
 binding, set its exact URL as `PLAID_WEBHOOK_URL`, and return `404` for every
-other path on that hostname. Route only the documented Mac agent machine paths
-from a separate custom domain, set its origin as `MAC_AGENT_API_ORIGIN`, and
-return `404` for every other path on that hostname.
+other path on that hostname. Route only the documented portfolio-agent machine
+paths from a separate custom domain, set its origin as `MAC_AGENT_API_ORIGIN`,
+and return `404` for every other path on that hostname.
 
 ## Manually approved production sequence
 

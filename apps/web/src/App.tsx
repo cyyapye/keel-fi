@@ -2461,20 +2461,20 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
   if (overview === null) {
     return {
       title: "Checking AngelList updates",
-      description: "Keel is checking whether your Mac is ready.",
+      description: "Keel is checking whether your update agent is ready.",
     };
   }
   if (overview.status === "setup_required") {
     return {
-      title: "Finish setup on your Mac",
-      description: "Sign in to AngelList, then approve this Mac once.",
+      title: "Finish AngelList setup",
+      description: "Sign in once on the computer that will run updates.",
     };
   }
   if (overview.status === "offline") {
     return {
-      title: "AngelList is paused — Mac check overdue",
+      title: "AngelList is paused — agent check overdue",
       description:
-        "Wake your Mac or rerun setup. No holding changes were applied.",
+        "Restart the update computer or rerun setup. No holdings changed.",
     };
   }
   if (overview.status === "running") {
@@ -2482,40 +2482,37 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
       ? {
           title: "AngelList update is queued",
           description:
-            "Your Mac will pick it up at its next daily check. Use the local run command on your Mac if you need it sooner.",
+            "It will start at the next daily check. Run the update command if you need it sooner.",
         }
       : {
           title: "Importing AngelList CSV",
           description:
-            "Your Mac is downloading the latest CSV. It will still wait for your review in Keel.",
+            "Downloading the latest CSV. Nothing changes until you review it.",
         };
   }
   if (overview.status === "needs_attention") {
     if (overview.errorCode === "angellist_sign_in_required") {
       return {
         title: "AngelList is paused — sign-in expired",
-        description:
-          "Open the dedicated Chrome window on your Mac and finish signing in to AngelList.",
+        description: "Rerun setup and sign in to AngelList again.",
       };
     }
     if (overview.errorCode === "keel_sign_in_required") {
       return {
-        title: "AngelList is paused — Mac access needs renewal",
+        title: "AngelList is paused — agent access needs renewal",
         description:
-          "Rerun setup to approve this Mac again. Your AngelList sign-in can stay as-is.",
+          "Rerun setup on the update computer. Your AngelList sign-in can stay as-is.",
       };
     }
     if (overview.errorCode === "export_unavailable") {
       return {
         title: "AngelList export needs attention",
-        description:
-          "Open AngelList on your Mac and confirm the read-only account can see Export CSV.",
+        description: "Rerun setup and confirm Export CSV is available.",
       };
     }
     return {
       title: "AngelList update needs attention",
-      description:
-        "Open the dedicated Chrome window on your Mac, then run the update again.",
+      description: "Rerun setup, then run the update again.",
     };
   }
   return {
@@ -2629,7 +2626,7 @@ function AngelListMacAgentControl() {
               runStatus: requested.status,
             },
       );
-      setNotice("AngelList update queued for your Mac’s next daily check.");
+      setNotice("AngelList update queued for the agent’s next daily check.");
       window.setTimeout(() => void reload(), 1_000);
     } catch {
       setError("Keel could not request an AngelList update. Try again.");
@@ -2723,7 +2720,7 @@ function AngelListMacAgentControl() {
         {overview !== null && !setupRequired && (
           <dl className="angellist-agent__meta">
             <div>
-              <dt>Last Mac check</dt>
+              <dt>Last agent check</dt>
               <dd>
                 {overview.lastSeenAt === null
                   ? "Not yet"
@@ -2791,16 +2788,16 @@ function providerPortfolioAgentMessage(
   }
   if (overview.status === "offline") {
     return {
-      title: "Paused — Mac check overdue",
+      title: "Paused — agent check overdue",
       description:
-        "Wake your Mac or rerun setup. No holding changes were applied.",
+        "Restart the update computer or rerun setup. No holdings changed.",
     };
   }
   if (overview.status === "running") {
     return overview.runStatus === "queued"
       ? {
           title: "Update queued",
-          description: "Your Mac will pick it up at its next daily check.",
+          description: "It will start at the agent’s next daily check.",
         }
       : {
           title: "Reading portfolio",
@@ -2812,13 +2809,13 @@ function providerPortfolioAgentMessage(
     if (overview.errorCode === "provider_sign_in_required") {
       return {
         title: `Paused — ${label} sign-in expired`,
-        description: `Open the dedicated browser and finish signing in to ${label}.`,
+        description: `Rerun setup and sign in to ${label} again.`,
       };
     }
     if (overview.errorCode === "keel_sign_in_required") {
       return {
-        title: "Paused — Mac access needs renewal",
-        description: `Rerun setup to approve this Mac again. Your ${label} sign-in can stay as-is.`,
+        title: "Paused — agent access needs renewal",
+        description: `Rerun setup on the update computer. Your ${label} sign-in can stay as-is.`,
       };
     }
     if (overview.errorCode === "incomplete_snapshot") {
@@ -2945,7 +2942,7 @@ function ProviderPortfolioAgentRow({
               runStatus: requested.status,
             },
       );
-      setNotice(`${label} update queued for your Mac’s next daily check.`);
+      setNotice(`${label} update queued for the agent’s next daily check.`);
       window.setTimeout(() => void reload(), 1_000);
     } catch {
       setError(`Keel could not request a ${label} update. Try again.`);
@@ -3045,7 +3042,7 @@ function ProviderPortfolioAgentRow({
         {overview !== null && !setupRequired && (
           <dl className="provider-agent-row__meta">
             <div>
-              <dt>Last Mac check</dt>
+              <dt>Last agent check</dt>
               <dd>
                 {overview.lastSeenAt === null
                   ? "Not yet"

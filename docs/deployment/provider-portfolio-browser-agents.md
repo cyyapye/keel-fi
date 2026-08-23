@@ -1,10 +1,11 @@
-# Tokenfolio and Sydecar Mac portfolio agents
+# Tokenfolio and Sydecar portfolio agents
 
 Keel can read an authorized Tokenfolio or Sydecar investor portfolio from a
-dedicated Chrome profile on the user's Mac. This path is intended for providers
-that do not offer a supported investor API or holding export.
+dedicated Chrome profile on macOS or an always-on Linux worker. This path is
+intended for providers that do not offer a supported investor API or holding
+export.
 
-Each provider and Keel origin uses a separate Chrome profile and macOS
+On macOS, each provider and Keel origin uses a separate Chrome profile and
 LaunchAgent:
 
 | Provider   | LaunchAgent label                      | Local Chrome profile                    |
@@ -14,10 +15,10 @@ LaunchAgent:
 
 Provider credentials remain in those local Chrome profiles. The agent does not
 read cookies or passwords. A one-time Keel sign-in authorizes an opaque,
-provider-scoped credential stored in macOS Keychain; D1 stores only its SHA-256
-digest. Daily checks submit directly to the dedicated agent API hostname and do
-not reuse the Keel browser session. The CSV exists only in memory and is
-discarded when the process exits.
+provider-scoped credential stored in macOS Keychain or a mode-`0600` Linux user
+file; D1 stores only its SHA-256 digest. Daily checks submit directly to the
+dedicated agent API hostname and do not reuse the Keel browser session. The CSV
+exists only in memory and is discarded when the process exits.
 
 An update only creates a pending holding import. It never applies a holding,
 removes a missing position, or changes a forecast without review.
@@ -32,10 +33,10 @@ make provider-agent-setup PROVIDER=sydecar KEEL_URL=https://keel.example.com
 ```
 
 Each command opens a dedicated Chrome window. Complete the provider sign-in,
-including 2FA, then sign in to Keel once to approve that Mac. Setup rotates the
-provider-and-origin-scoped credential in Keychain and installs a daily macOS
-check. Rerun setup after moving the checkout, changing Node or pnpm, when
-provider sign-in expires, or when Holdings reports that Mac access needs
+including 2FA, then sign in to Keel once to approve that agent. Setup rotates
+the provider-and-origin-scoped credential and installs the platform's background
+service. Rerun setup after moving the checkout, changing Node or pnpm, when
+provider sign-in expires, or when Holdings reports that agent access needs
 renewal.
 
 Provider setup uses two phases because Google does not allow its sign-in flow
@@ -45,6 +46,11 @@ to Terminal, and press Enter. Setup closes that window, reopens the same
 isolated profile for read-only checks, and verifies both sessions before
 installing the schedule. Never enter a Google password or 2FA code after the
 controlled window opens; rerun setup instead.
+
+On a headless OVH worker, the same command creates a localhost-only temporary
+desktop and prints the SSH tunnel needed to view it from a Mac. See
+[Linux portfolio agents on an OVH worker](./linux-browser-agents.md) for the
+one-time worker preparation and recovery commands.
 
 Run setup separately from local and preview Holdings when both should stay
 connected. Their jobs, Chrome profiles, credentials, and logs are independent,
@@ -62,7 +68,8 @@ make provider-agent-run PROVIDER=sydecar KEEL_URL=https://keel.example.com
 ```
 
 The Holdings screen can set the import interval to daily, weekly, or off. The
-LaunchAgent still wakes once per day to report health and pick up queued work.
+background agent still checks once per day to report health and pick up queued
+work.
 
 ## Capture contracts
 
@@ -122,8 +129,8 @@ The Holdings screen distinguishes:
 - setup required;
 - ready or working;
 - queued or running;
-- Mac check overdue;
-- provider sign-in expired or Mac access needs renewal;
+- agent check overdue;
+- provider sign-in expired or agent access needs renewal;
 - provider page changed;
 - incomplete snapshot;
 - ambiguous position identity; and
