@@ -138,6 +138,14 @@ describe("AngelList Mac agent boundaries", () => {
     expect(send.mock.calls[0]?.[1]).not.toHaveProperty("browserContextId");
   });
 
+  it("clicks the animated export control after its visibility check", async () => {
+    const click = vi.fn().mockResolvedValue(undefined);
+
+    await __angellistMacAgentTest.clickAngelListExport({ click } as never);
+
+    expect(click).toHaveBeenCalledWith({ force: true, noWaitAfter: true });
+  });
+
   it("restores Chrome's default download behavior after a run", async () => {
     const send = vi.fn().mockResolvedValue({});
     const session = {
