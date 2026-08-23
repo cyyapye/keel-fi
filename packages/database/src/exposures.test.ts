@@ -23,6 +23,8 @@ const oneSidedPositionIdentityMigrationFile =
   "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql";
 const providerTemplateHoldingsMigrationFile =
   "packages/database/migrations/0032_provider_template_holdings.sql";
+const exactReviewedPrivateExposuresMigrationFile =
+  "packages/database/migrations/0036_exact_reviewed_private_exposures.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -55,6 +57,7 @@ const migrationFiles = [
   reconnectedPositionContinuityMigrationFile,
   oneSidedPositionIdentityMigrationFile,
   providerTemplateHoldingsMigrationFile,
+  exactReviewedPrivateExposuresMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -2393,6 +2396,119 @@ describe("holding ownership and exposure reconciliation migration", () => {
       ).rejects.toThrow(
         "exposure mapping requires canonical position ownership",
       );
+    } finally {
+      database.close();
+    }
+  });
+});
+
+describe("exact reviewed private exposure migration", () => {
+  it("backfills only unique existing reviewed-company matches", () => {
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    try {
+      migrationFiles
+        .filter(
+          (file) =>
+            file !== exactReviewedPrivateExposuresMigrationFile &&
+            file !== "packages/database/seed/synthetic.sql",
+        )
+        .forEach((file) => {
+          database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+        });
+      database.exec(
+        readFileSync(
+          resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
+          "utf8",
+        ),
+      );
+      seedManualConnection(database);
+      seedAcceptedPosition(database, {
+        id: "position_exact_reviewed_harbor",
+        label: "Synthetic Harbor Access SPV",
+        provider: "angellist",
+        reportedExposureName: "  HARBOR HEALTH SYSTEMS  ",
+        positionKind: "spv_interest",
+        valueMinor: 4_000_000,
+        valueState: "reported",
+      });
+      seedAcceptedPosition(database, {
+        id: "position_exact_unreviewed",
+        label: "Synthetic New Company Access SPV",
+        provider: "angellist",
+        reportedExposureName: "Synthetic New Company",
+        positionKind: "spv_interest",
+        valueMinor: 2_000_000,
+        valueState: "reported",
+      });
+      database
+        .prepare(
+          `INSERT INTO companies (
+             id, household_id, legal_name, website_host, status,
+             created_at, updated_at
+           ) VALUES
+             ('co_ambiguous_exact_a', 'hh_demo', 'Synthetic Ambiguous Exact',
+              NULL, 'active', ?, ?),
+             ('co_ambiguous_exact_b', 'hh_demo', 'synthetic ambiguous exact',
+              NULL, 'active', ?, ?)`,
+        )
+        .run(recordedAt, recordedAt, recordedAt, recordedAt);
+      seedAcceptedPosition(database, {
+        id: "position_exact_ambiguous_reviewed",
+        label: "Synthetic Ambiguous Access SPV",
+        provider: "angellist",
+        reportedExposureName: "Synthetic Ambiguous Exact",
+        positionKind: "spv_interest",
+        valueMinor: 3_000_000,
+        valueState: "reported",
+      });
+      const companyCount = database
+        .prepare("SELECT COUNT(*) AS count FROM companies")
+        .get();
+
+      const migration = readFileSync(
+        resolve(process.cwd(), exactReviewedPrivateExposuresMigrationFile),
+        "utf8",
+      );
+      database.exec(migration);
+      database.exec(migration);
+
+      expect(
+        database
+          .prepare(
+            `SELECT
+               mapping.position_id,
+               exposure.company_id,
+               mapping.decision_source,
+               mapping.decision_reference,
+               mapping.relationship_kind,
+               mapping.allocation_ppm
+             FROM holding_position_exposure_mappings mapping
+             JOIN canonical_exposures exposure
+               ON exposure.id = mapping.exposure_id
+             WHERE mapping.position_id LIKE 'position_exact_%'
+               AND mapping.status = 'active'
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM holding_position_exposure_mappings later
+                 WHERE later.supersedes_mapping_id = mapping.id
+               )
+             ORDER BY mapping.position_id`,
+          )
+          .all(),
+      ).toEqual([
+        {
+          position_id: "position_exact_reviewed_harbor",
+          company_id: "co_harbor",
+          decision_source: "deterministic_policy",
+          decision_reference: "private-company-exact-reviewed-v1",
+          relationship_kind: "look_through",
+          allocation_ppm: 1_000_000,
+        },
+      ]);
+      expect(
+        database.prepare("SELECT COUNT(*) AS count FROM companies").get(),
+      ).toEqual(companyCount);
     } finally {
       database.close();
     }

@@ -3,7 +3,7 @@ export { Badge } from "./components/badge";
 export { BrandMark } from "./components/brand-mark";
 export { Button } from "./components/button";
 export { EmptyState, FormMessage, Notice } from "./components/feedback";
-export { Field, Input, InputGroup, NativeSelect } from "./components/field";
+export { Field, Input, InputGroup } from "./components/field";
 export {
   ActionGroup,
   PageHeader,

@@ -22,7 +22,6 @@ import {
   Badge,
   Button,
   Input,
-  NativeSelect,
   Select,
   SelectContent,
   SelectItem,
@@ -624,6 +623,12 @@ function PrivateExposureAssignmentForm({
     position.reportedExposureName ?? "",
   );
   const [websiteHost, setWebsiteHost] = useState("");
+  const companyOptions = companies.map((company) => ({
+    label: `${company.legalName} · ${
+      company.websiteHost ?? companyStatusLabel(company.status)
+    }`,
+    value: company.id,
+  }));
   const canSubmit =
     !busy &&
     (mode === "existing" ? companyId.length > 0 : legalName.trim().length > 0);
@@ -682,19 +687,25 @@ function PrivateExposureAssignmentForm({
         {mode === "existing" && companies.length > 0 && (
           <label>
             Company
-            <NativeSelect
+            <Select
               disabled={busy}
-              onChange={(event) => setCompanyId(event.target.value)}
-              value={companyId}
+              items={companyOptions}
+              onValueChange={(value) =>
+                setCompanyId(typeof value === "string" ? value : "")
+              }
+              value={companyId.length === 0 ? null : companyId}
             >
-              <option value="">Select a company</option>
-              {companies.map((company) => (
-                <option key={company.id} value={company.id}>
-                  {company.legalName} ·{" "}
-                  {company.websiteHost ?? companyStatusLabel(company.status)}
-                </option>
-              ))}
-            </NativeSelect>
+              <SelectTrigger aria-label="Company">
+                <SelectValue placeholder="Select a company" />
+              </SelectTrigger>
+              <SelectContent>
+                {companyOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
         )}
         <label className="private-exposure-review__choice">

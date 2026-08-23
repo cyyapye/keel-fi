@@ -952,7 +952,7 @@ h1,
 }
 
 .holdings-screen .field .input:is(:hover, :focus, :focus-visible),
-.holdings-screen .field .native-select:is(:hover, :focus, :focus-visible) {
+.holdings-screen .field .select-trigger:is(:hover, :focus, :focus-visible) {
   border-color: transparent;
 }
 
@@ -2485,7 +2485,7 @@ h1,
   accent-color: var(--ink);
 }
 
-.private-exposure-review select,
+.private-exposure-review .select-trigger,
 .private-exposure-review__new-company input {
   width: 100%;
   min-height: 44px;
@@ -3589,7 +3589,7 @@ h1,
   gap: 7px;
 }
 
-.signal-proposal select {
+.signal-proposal .select-trigger {
   width: 100%;
   min-width: 0;
   height: 34px;
@@ -4043,7 +4043,7 @@ h1,
   font-weight: 650;
 }
 
-.cash-flow__category select {
+.cash-flow__category .select-trigger {
   width: 100%;
   min-height: 36px;
   padding: 0 30px 0 10px;
@@ -4055,7 +4055,7 @@ h1,
   border-radius: 0;
 }
 
-.cash-flow__category select:disabled {
+.cash-flow__category .select-trigger:disabled {
   color: var(--muted);
   background: var(--wash);
 }
@@ -4811,7 +4811,7 @@ h1,
   accent-color: var(--ink);
 }
 
-.obligation-review__decision select {
+.obligation-review__decision .select-trigger {
   width: 100%;
   min-width: 0;
   height: 38px;
@@ -5305,7 +5305,7 @@ h1,
     grid-column: 2;
   }
 
-  .cash-flow__category select {
+  .cash-flow__category .select-trigger {
     grid-column: 1 / -1;
   }
 

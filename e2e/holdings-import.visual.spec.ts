@@ -497,11 +497,13 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
   ).toBeFocused();
 
   const source = page.getByLabel("Source");
-  await source.selectOption("sydecar");
+  await source.click();
+  await page.getByRole("option", { name: "Sydecar" }).click();
   await expect(
     page.getByRole("link", { name: "Download Sydecar template" }),
   ).toHaveAttribute("href", "/api/holding-import-templates/sydecar");
-  await source.selectOption("tokenfolio");
+  await source.click();
+  await page.getByRole("option", { name: "Tokenfolio" }).click();
   await expect(
     page.getByRole("link", { name: "Download Tokenfolio template" }),
   ).toHaveAttribute("href", "/api/holding-import-templates/tokenfolio");
@@ -566,7 +568,8 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
 
   await page.goto("/holdings");
   await page.getByRole("button", { name: "Import holdings" }).click();
-  await page.getByLabel("Source").selectOption("sydecar");
+  await page.getByLabel("Source").click();
+  await page.getByRole("option", { name: "Sydecar" }).click();
   await page.getByLabel("Sydecar template").setInputFiles({
     name: "sydecar-holdings.csv",
     mimeType: "text/csv",
