@@ -25,6 +25,8 @@ const providerTemplateHoldingsMigrationFile =
   "packages/database/migrations/0032_provider_template_holdings.sql";
 const exactReviewedPrivateExposuresMigrationFile =
   "packages/database/migrations/0036_exact_reviewed_private_exposures.sql";
+const privateProviderPositionContinuityMigrationFile =
+  "packages/database/migrations/0037_private_provider_position_continuity.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -58,6 +60,7 @@ const migrationFiles = [
   oneSidedPositionIdentityMigrationFile,
   providerTemplateHoldingsMigrationFile,
   exactReviewedPrivateExposuresMigrationFile,
+  privateProviderPositionContinuityMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -206,12 +209,56 @@ function seedPlaidInvestmentConnection(
     );
 }
 
+function seedPrivateProviderConnection(
+  database: DatabaseSync,
+  input: {
+    id: string;
+    label: string;
+    provider: "angellist" | "tokenfolio" | "sydecar";
+    lifecycle?: "active" | "pending";
+  },
+): void {
+  database
+    .prepare(
+      `INSERT INTO investment_connections (
+         id, household_id, adapter_type, protected_source_key,
+         created_by_user_id, created_at, immutable
+       ) VALUES (?, 'hh_demo', ?, ?, 'usr_demo', ?, 1)`,
+    )
+    .run(
+      input.id,
+      input.provider === "angellist" ? "angellist-import" : "manual",
+      hash(`source:${input.id}`),
+      recordedAt,
+    );
+  database
+    .prepare(
+      `INSERT INTO investment_connection_versions (
+         id, household_id, connection_id, version, institution_key,
+         institution_label, lifecycle_state, credential_reference,
+         supersedes_version_id, recorded_by_user_id, recorded_at, immutable
+       ) VALUES (?, 'hh_demo', ?, 1, ?, ?, ?, ?, NULL, 'usr_demo', ?, 1)`,
+    )
+    .run(
+      `${input.id}_v1`,
+      input.id,
+      input.provider,
+      input.label,
+      input.lifecycle ?? "active",
+      input.lifecycle === "pending"
+        ? null
+        : `connector-secrets/${input.id}.json.enc`,
+      recordedAt,
+    );
+}
+
 function seedAcceptedPosition(
   database: DatabaseSync,
   input: {
     id: string;
     label: string;
-    provider?: "angellist" | "manual" | "plaid_investments";
+    provider?:
+      "angellist" | "manual" | "plaid_investments" | "sydecar" | "tokenfolio";
     reportedExposureName?: string;
     reportedCompanyId?: string;
     publicExposureIdentityKind?: "cusip" | "isin" | "sedol";
@@ -824,6 +871,240 @@ describe("canonical exposure resolution and aggregation", () => {
         )
         .run("position_synthetic_alphabet_history"),
     ).toThrow(/holding position continuity is immutable/u);
+  });
+
+  it("replaces one exact retained private position with its live provider position without doubling value", async () => {
+    const historyConnectionId =
+      "reconciled-holding-connection-v1:hh_demo:angellist";
+    const currentConnectionId = "connection_synthetic_live_angellist";
+    seedPrivateProviderConnection(sqlite, {
+      id: historyConnectionId,
+      label: "AngelList reviewed history",
+      lifecycle: "pending",
+      provider: "angellist",
+    });
+    seedPrivateProviderConnection(sqlite, {
+      id: currentConnectionId,
+      label: "AngelList",
+      provider: "angellist",
+    });
+    sqlite
+      .prepare(
+        `INSERT INTO companies (
+           id, household_id, legal_name, website_host, status,
+           created_at, updated_at
+         ) VALUES (
+           'co_synthetic_continuity', 'hh_demo',
+           'Synthetic Continuity Systems', NULL, 'active', ?, ?
+         )`,
+      )
+      .run(recordedAt, recordedAt);
+    const shared = {
+      containerLabel: "Synthetic Family Trust",
+      label: "Synthetic Continuity Access SPV",
+      positionKind: "spv_interest" as const,
+      provider: "angellist" as const,
+      reportedExposureName: "Synthetic Continuity Systems",
+      valueMinor: 2_500_000,
+      valueState: "reported" as const,
+    };
+    seedAcceptedPosition(sqlite, {
+      ...shared,
+      connectionId: historyConnectionId,
+      id: "position_synthetic_private_history",
+      observedAt: "2026-08-15T00:00:00.000Z",
+    });
+    seedAcceptedPosition(sqlite, {
+      ...shared,
+      connectionId: currentConnectionId,
+      id: "position_synthetic_private_current",
+      observedAt: "2026-08-23T00:00:00.000Z",
+    });
+    seedAcceptedPosition(sqlite, {
+      ...shared,
+      connectionId: currentConnectionId,
+      id: "position_synthetic_private_second_spv",
+      label: "Synthetic Continuity Access II SPV",
+      observedAt: "2026-08-23T00:00:00.000Z",
+      valueMinor: 1_500_000,
+    });
+    const exposure = await repository.resolveExposure(accessSubject, {
+      exposureKind: "private_company",
+      canonicalName: "Synthetic Continuity Systems",
+      companyId: "co_synthetic_continuity",
+      evidenceSha256: hash("synthetic private continuity evidence"),
+    });
+    for (const [positionId, effectiveAt] of [
+      ["position_synthetic_private_history", "2026-08-15T00:00:00.000Z"],
+      ["position_synthetic_private_current", "2026-08-23T00:00:00.000Z"],
+      ["position_synthetic_private_second_spv", "2026-08-23T00:00:00.000Z"],
+    ] as const) {
+      await repository.recordMapping(accessSubject, {
+        positionId,
+        exposureId: exposure.id,
+        relationshipKind: "look_through",
+        allocationPpm: 1_000_000,
+        status: "active",
+        decisionSource: "review",
+        decisionReference: "synthetic reviewed company",
+        evidenceSha256: hash(`mapping:${positionId}`),
+        effectiveAt,
+      });
+    }
+
+    const before = await readModel.list(
+      accessSubject,
+      "2026-08-23T12:00:00.000Z",
+    );
+    expect(
+      before.exposures.find((group) => group.exposure.id === exposure.id),
+    ).toMatchObject({
+      contributions: expect.arrayContaining([
+        expect.objectContaining({
+          positionId: "position_synthetic_private_current",
+        }),
+        expect.objectContaining({
+          positionId: "position_synthetic_private_history",
+        }),
+        expect.objectContaining({
+          positionId: "position_synthetic_private_second_spv",
+        }),
+      ]),
+      totals: [{ allocatedValueMinor: 6_500_000 }],
+    });
+
+    await repository.reconcileRetainedPositionContinuity(accessSubject);
+    await repository.reconcileRetainedPositionContinuity(accessSubject);
+
+    const after = await readModel.list(
+      accessSubject,
+      "2026-08-23T12:00:00.000Z",
+    );
+    expect(
+      after.positions.filter((position) =>
+        position.id.startsWith("position_synthetic_private_"),
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "position_synthetic_private_current",
+          valueMinor: 2_500_000,
+        }),
+        expect.objectContaining({
+          id: "position_synthetic_private_second_spv",
+          valueMinor: 1_500_000,
+        }),
+      ]),
+    );
+    expect(
+      after.positions.filter((position) =>
+        position.id.startsWith("position_synthetic_private_"),
+      ),
+    ).toHaveLength(2);
+    expect(
+      after.exposures.find((group) => group.exposure.id === exposure.id),
+    ).toMatchObject({
+      contributions: expect.arrayContaining([
+        expect.objectContaining({
+          allocatedValueMinor: 2_500_000,
+          positionId: "position_synthetic_private_current",
+        }),
+        expect.objectContaining({
+          allocatedValueMinor: 1_500_000,
+          positionId: "position_synthetic_private_second_spv",
+        }),
+      ]),
+      totals: [{ allocatedValueMinor: 4_000_000 }],
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT predecessor_position_id, successor_position_id,
+                  resolution_method
+           FROM holding_position_continuities
+           WHERE predecessor_position_id =
+                 'position_synthetic_private_history'`,
+        )
+        .get(),
+    ).toEqual({
+      predecessor_position_id: "position_synthetic_private_history",
+      successor_position_id: "position_synthetic_private_current",
+      resolution_method: "exact_reconnect_snapshot_v1",
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_snapshots
+           WHERE position_id IN (
+             'position_synthetic_private_history',
+             'position_synthetic_private_current'
+           )`,
+        )
+        .get(),
+    ).toEqual({ count: 2 });
+  });
+
+  it("leaves ambiguous private-provider continuity candidates separate", async () => {
+    const historyConnectionId =
+      "reconciled-holding-connection-v1:hh_demo:angellist";
+    const currentConnectionId = "connection_synthetic_ambiguous_angellist";
+    seedPrivateProviderConnection(sqlite, {
+      id: historyConnectionId,
+      label: "AngelList reviewed history",
+      lifecycle: "pending",
+      provider: "angellist",
+    });
+    seedPrivateProviderConnection(sqlite, {
+      id: currentConnectionId,
+      label: "AngelList",
+      provider: "angellist",
+    });
+    const shared = {
+      containerLabel: "Synthetic Family Trust",
+      label: "Synthetic Ambiguous Access SPV",
+      positionKind: "spv_interest" as const,
+      provider: "angellist" as const,
+      reportedExposureName: "Synthetic Ambiguous Systems",
+      valueMinor: 1_000_000,
+      valueState: "reported" as const,
+    };
+    seedAcceptedPosition(sqlite, {
+      ...shared,
+      connectionId: historyConnectionId,
+      id: "position_synthetic_private_ambiguous_history",
+      observedAt: "2026-08-15T00:00:00.000Z",
+    });
+    for (const suffix of ["one", "two"] as const) {
+      seedAcceptedPosition(sqlite, {
+        ...shared,
+        connectionId: currentConnectionId,
+        id: `position_synthetic_private_ambiguous_${suffix}`,
+        observedAt: "2026-08-23T00:00:00.000Z",
+      });
+    }
+
+    await repository.reconcileRetainedPositionContinuity(accessSubject);
+
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_position_continuities
+           WHERE predecessor_position_id =
+                 'position_synthetic_private_ambiguous_history'`,
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+    const projection = await readModel.list(
+      accessSubject,
+      "2026-08-23T12:00:00.000Z",
+    );
+    expect(
+      projection.positions.filter((position) =>
+        position.id.startsWith("position_synthetic_private_ambiguous_"),
+      ),
+    ).toHaveLength(3);
   });
 
   it("does not infer reconnect continuity when exact candidates are ambiguous", async () => {
@@ -1965,6 +2246,7 @@ describe("holding ownership and exposure reconciliation migration", () => {
             file !== structuredAssetIdentityMigrationFile &&
             file !== reconnectedPositionContinuityMigrationFile &&
             file !== oneSidedPositionIdentityMigrationFile &&
+            file !== privateProviderPositionContinuityMigrationFile &&
             file !== "packages/database/seed/synthetic.sql",
         )
         .forEach((file) => {
@@ -2411,6 +2693,7 @@ describe("exact reviewed private exposure migration", () => {
         .filter(
           (file) =>
             file !== exactReviewedPrivateExposuresMigrationFile &&
+            file !== privateProviderPositionContinuityMigrationFile &&
             file !== "packages/database/seed/synthetic.sql",
         )
         .forEach((file) => {
@@ -2509,6 +2792,143 @@ describe("exact reviewed private exposure migration", () => {
       expect(
         database.prepare("SELECT COUNT(*) AS count FROM companies").get(),
       ).toEqual(companyCount);
+    } finally {
+      database.close();
+    }
+  });
+});
+
+describe("private provider position continuity migration", () => {
+  it("backfills one current position for each exact retained provider match", async () => {
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    try {
+      migrationFiles
+        .filter(
+          (file) =>
+            file !== privateProviderPositionContinuityMigrationFile &&
+            file !== "packages/database/seed/synthetic.sql",
+        )
+        .forEach((file) => {
+          database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+        });
+      database.exec(
+        readFileSync(
+          resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
+          "utf8",
+        ),
+      );
+
+      for (const provider of ["angellist", "tokenfolio", "sydecar"] as const) {
+        const historyConnectionId = `reconciled-holding-connection-v1:hh_demo:${provider}`;
+        const currentConnectionId = `connection_synthetic_current_${provider}`;
+        seedPrivateProviderConnection(database, {
+          id: historyConnectionId,
+          label: `${provider} reviewed history`,
+          lifecycle: "pending",
+          provider,
+        });
+        seedPrivateProviderConnection(database, {
+          id: currentConnectionId,
+          label: provider,
+          provider,
+        });
+        const shared = {
+          containerLabel: `Synthetic ${provider} family trust`,
+          label: `Synthetic ${provider} access SPV`,
+          positionKind: "spv_interest" as const,
+          provider,
+          reportedExposureName: `Synthetic ${provider} systems`,
+          valueMinor: 1_000_000,
+          valueState: "reported" as const,
+        };
+        seedAcceptedPosition(database, {
+          ...shared,
+          connectionId: historyConnectionId,
+          id: `position_synthetic_${provider}_history`,
+          observedAt: "2026-08-15T00:00:00.000Z",
+        });
+        seedAcceptedPosition(database, {
+          ...shared,
+          connectionId: currentConnectionId,
+          id: `position_synthetic_${provider}_current`,
+          observedAt: "2026-08-23T00:00:00.000Z",
+        });
+      }
+
+      const d1 = new TestD1Database(database) as unknown as D1Database;
+      const exposureView = new D1InvestmentExposureViewRepository(d1);
+      const before = await exposureView.list(
+        accessSubject,
+        "2026-08-23T12:00:00.000Z",
+      );
+      expect(
+        before.positions.filter(
+          (position) =>
+            position.id.startsWith("position_synthetic_") &&
+            ["angellist", "tokenfolio", "sydecar"].some((provider) =>
+              position.id.includes(`_${provider}_`),
+            ),
+        ),
+      ).toHaveLength(6);
+
+      database.exec(
+        readFileSync(
+          resolve(
+            process.cwd(),
+            privateProviderPositionContinuityMigrationFile,
+          ),
+          "utf8",
+        ),
+      );
+
+      const after = await exposureView.list(
+        accessSubject,
+        "2026-08-23T12:00:00.000Z",
+      );
+      expect(
+        after.positions
+          .filter((position) =>
+            ["angellist", "tokenfolio", "sydecar"].some(
+              (provider) =>
+                position.id === `position_synthetic_${provider}_current`,
+            ),
+          )
+          .map((position) => position.id)
+          .sort(),
+      ).toEqual(
+        ["angellist", "sydecar", "tokenfolio"]
+          .map((provider) => `position_synthetic_${provider}_current`)
+          .sort(),
+      );
+      expect(
+        database
+          .prepare(
+            `SELECT predecessor_position_id, successor_position_id
+             FROM holding_position_continuities
+             WHERE predecessor_position_id LIKE 'position_synthetic_%_history'
+             ORDER BY predecessor_position_id`,
+          )
+          .all(),
+      ).toEqual(
+        ["angellist", "sydecar", "tokenfolio"].map((provider) => ({
+          predecessor_position_id: `position_synthetic_${provider}_history`,
+          successor_position_id: `position_synthetic_${provider}_current`,
+        })),
+      );
+      expect(
+        database
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM holding_position_snapshots
+             WHERE position_id LIKE 'position_synthetic_%'`,
+          )
+          .get(),
+      ).toEqual({ count: 6 });
+      expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(database.prepare("PRAGMA integrity_check").get()).toEqual({
+        integrity_check: "ok",
+      });
     } finally {
       database.close();
     }

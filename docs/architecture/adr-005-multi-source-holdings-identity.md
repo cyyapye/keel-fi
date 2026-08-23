@@ -374,6 +374,17 @@ sides have protected global identities, they must match. All snapshot facts,
 directionality, provenance, and one-to-one uniqueness gates from `0030` remain
 unchanged.
 
+Migration `0037_private_provider_position_continuity.sql` applies the same
+one-to-one continuity model when a live AngelList, Tokenfolio, or Sydecar
+connection follows reviewed history. It requires the same provider, adapter,
+position kind, normalized legal vehicle, ownership label, reported exposure,
+investment date, instrument, and currency, plus exact invested and allocation
+amounts. The live observation must be newer, and each side must have exactly one
+candidate. Company identity alone is insufficient: distinct SPVs and ambiguous
+matches remain separate. The predecessor leaves current Position, Exposure, and
+Portfolio Baseline projections without changing either accepted snapshot or its
+value.
+
 The canonical Position and Exposure projections are the only Holdings list
 source. The Alpha holding collection may supply detail content for a canonical
 position ID, but the UI must not union an Alpha-only record back into either

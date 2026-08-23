@@ -180,6 +180,31 @@ const alphaFixture = {
   forecastHistory: [],
 } satisfies AlphaData;
 
+const reviewedCompanyFixtures = [
+  {
+    id: "company_harbor_synthetic",
+    legalName: "Harbor Health Systems",
+    websiteHost: "harbor-health.example",
+    status: "active",
+  },
+  {
+    id: "company_lattice_synthetic",
+    legalName: "Lattice Grove Energy",
+    websiteHost: "lattice-grove.example",
+    status: "active",
+  },
+  ...Array.from({ length: 48 }, (_, index) => {
+    const suffix = String(index + 1).padStart(2, "0");
+
+    return {
+      id: `company_review_${suffix}_synthetic`,
+      legalName: `Synthetic Review Company ${suffix}`,
+      websiteHost: `review-${suffix}.example`,
+      status: "active",
+    };
+  }),
+] as const;
+
 async function expectNoHorizontalOverflow(page: Page) {
   const widths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -292,20 +317,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
                 observedAt: "2026-06-14T12:00:00.000Z",
               },
             ],
-        companies: [
-          {
-            id: "company_harbor_synthetic",
-            legalName: "Harbor Health Systems",
-            websiteHost: "harbor-health.example",
-            status: "active",
-          },
-          {
-            id: "company_lattice_synthetic",
-            legalName: "Lattice Grove Energy",
-            websiteHost: "lattice-grove.example",
-            status: "active",
-          },
-        ],
+        companies: reviewedCompanyFixtures,
         exactBatch: {
           revision: (exposureResolved ? "b" : "a").repeat(64),
           positionCount: exposureResolved ? 0 : 1,
@@ -533,9 +545,65 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(exposureReview).toContainText(
     "The legal position and value stay unchanged.",
   );
-  await exposureReview
-    .getByRole("combobox", { name: "Company", exact: true })
-    .click();
+  const companySelect = exposureReview.getByRole("combobox", {
+    name: "Company",
+    exact: true,
+  });
+  await companySelect.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    window.scrollBy({
+      top: rect.bottom - window.innerHeight + 16,
+    });
+  });
+  await companySelect.click();
+  const companyList = page.locator(".select-list");
+  await expect(companyList).toBeVisible();
+  const companyListMetrics = await companyList.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+
+    return {
+      bottom: rect.bottom,
+      clientHeight: element.clientHeight,
+      overflowY: window.getComputedStyle(element).overflowY,
+      scrollHeight: element.scrollHeight,
+      top: rect.top,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(companyListMetrics.top).toBeGreaterThanOrEqual(0);
+  expect(companyListMetrics.bottom).toBeLessThanOrEqual(
+    companyListMetrics.viewportHeight,
+  );
+  expect(companyListMetrics.overflowY).toBe("auto");
+  expect(companyListMetrics.scrollHeight).toBeGreaterThan(
+    companyListMetrics.clientHeight,
+  );
+  await companyList.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const companyListBottom = await companyList.evaluate(
+    (element) => element.scrollTop,
+  );
+  expect(companyListBottom).toBeGreaterThan(0);
+  await companyList.hover();
+  await page.mouse.wheel(0, -480);
+  await expect
+    .poll(() => companyList.evaluate((element) => element.scrollTop))
+    .toBeLessThan(companyListBottom);
+  await companyList.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await page.mouse.move(1, 1);
+  await page.keyboard.press("Home");
+  await expect(page).toHaveScreenshot(
+    "holdings-private-exposure-company-menu.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
   await page
     .getByRole("option", {
       name: "Lattice Grove Energy · lattice-grove.example",
