@@ -168,9 +168,17 @@ function pageHeading(screen: Screen) {
 type AppRoute = {
   screen: Screen;
   holdingImportId: string | null;
+  holdingsView: "overview" | "sources";
 };
 
 function routeFromLocation(): AppRoute {
+  if (/^\/holdings\/sources\/?$/u.test(window.location.pathname)) {
+    return {
+      screen: "holdings",
+      holdingImportId: null,
+      holdingsView: "sources",
+    };
+  }
   const importMatch = window.location.pathname.match(
     /^\/holdings\/imports\/([^/]+)\/?$/,
   );
@@ -179,9 +187,14 @@ function routeFromLocation(): AppRoute {
       return {
         screen: "holdings",
         holdingImportId: decodeURIComponent(importMatch[1]),
+        holdingsView: "overview",
       };
     } catch {
-      return { screen: "holdings", holdingImportId: null };
+      return {
+        screen: "holdings",
+        holdingImportId: null,
+        holdingsView: "overview",
+      };
     }
   }
   const screen = navigation.find(
@@ -190,6 +203,7 @@ function routeFromLocation(): AppRoute {
   return {
     screen: screen ?? "dashboard",
     holdingImportId: null,
+    holdingsView: "overview",
   };
 }
 
@@ -4966,7 +4980,9 @@ function Holdings({
   onListPendingImports,
   onLoadImport,
   onPreviewImport,
+  onViewChange,
   requestedImportId,
+  requestedView,
 }: {
   data: AlphaData;
   onBaselineConfirmed: () => Promise<void>;
@@ -4982,7 +4998,9 @@ function Holdings({
     provider: UploadHoldingImportProvider,
     file: File,
   ) => Promise<HoldingImportPreview>;
+  onViewChange: (view: "overview" | "sources") => void;
   requestedImportId: string | null;
+  requestedView: "overview" | "sources";
 }) {
   const [showImporter, setShowImporter] = useState(false);
   const [pendingImports, setPendingImports] = useState<HoldingImportSummary[]>(
@@ -5007,6 +5025,8 @@ function Holdings({
   const selectedHolding =
     data.holdings.find((holding) => holding.id === selectedHoldingId) ?? null;
   const importerVisible = showImporter || requestedImportId !== null;
+  const sourcesVisible =
+    selectedHolding === null && !importerVisible && requestedView === "sources";
   const activeRoutedPreview =
     routedPreview?.id === requestedImportId ? routedPreview : null;
   const activeRoutedError =
@@ -5141,11 +5161,18 @@ function Holdings({
               <Button onClick={closeImporter} tone="quiet">
                 Close import
               </Button>
+            ) : sourcesVisible ? (
+              <Button onClick={() => onViewChange("overview")} tone="quiet">
+                Back to holdings
+              </Button>
             ) : (
               <>
                 <span className="page-count">
                   {data.holdings.length} holdings
                 </span>
+                <Button onClick={() => onViewChange("sources")} tone="quiet">
+                  Manage sources
+                </Button>
                 <Button
                   onClick={() => {
                     setSelectedHoldingId(null);
@@ -5159,9 +5186,13 @@ function Holdings({
             )}
           </>
         }
-        description="See shared economic exposure, then open each legal position for ownership and source details."
-        eyebrow="Portfolio evidence"
-        title="Holdings"
+        description={
+          sourcesVisible
+            ? "Manage automatic updates, bank accounts, and brokerages."
+            : "See shared economic exposure, then open each legal position for ownership and source details."
+        }
+        eyebrow={sourcesVisible ? "Holdings" : "Portfolio evidence"}
+        title={sourcesVisible ? "Holding sources" : "Holdings"}
       />
 
       {selectedHolding !== null ? (
@@ -5195,6 +5226,26 @@ function Holdings({
             onPreview={onPreviewImport}
           />
         )
+      ) : sourcesVisible ? (
+        <>
+          <AngelListSignInControl />
+          <ProviderPortfolioAgentsControl />
+          <CashAccountsControl
+            onAccepted={() => {
+              setCashRefreshVersion((current) => current + 1);
+              return Promise.resolve();
+            }}
+          />
+          <InvestmentHoldings
+            holdings={data.holdings}
+            mode="sources"
+            onExposureResolved={onExposureResolved}
+            onLoadMoreExposures={loadMoreExposures}
+            onOpenHolding={setSelectedHoldingId}
+            onReviewImport={reviewPendingImport}
+            visibleExposureCount={visibleExposureCount}
+          />
+        </>
       ) : (
         <>
           {pendingImports.length > 0 && (
@@ -5238,20 +5289,13 @@ function Holdings({
               {pendingImportError}
             </Notice>
           )}
-          <AngelListSignInControl />
-          <ProviderPortfolioAgentsControl />
-          <CashAccountsControl
-            onAccepted={() => {
-              setCashRefreshVersion((current) => current + 1);
-              return Promise.resolve();
-            }}
-          />
           <PortfolioBaselineSection
             onConfirmed={onBaselineConfirmed}
             refreshKey={baselineRefreshKey}
           />
           <InvestmentHoldings
             holdings={data.holdings}
+            mode="exposures"
             onExposureResolved={onExposureResolved}
             onLoadMoreExposures={loadMoreExposures}
             onOpenHolding={setSelectedHoldingId}
@@ -6721,6 +6765,9 @@ export function App() {
   const [holdingImportId, setHoldingImportId] = useState<string | null>(
     () => routeFromLocation().holdingImportId,
   );
+  const [holdingsView, setHoldingsView] = useState<"overview" | "sources">(
+    () => routeFromLocation().holdingsView,
+  );
   const [data, setData] = useState<AlphaData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -6735,6 +6782,7 @@ export function App() {
     }
     setActiveScreen(screen);
     setHoldingImportId(null);
+    setHoldingsView("overview");
   }, []);
 
   const navigateToHoldingImport = useCallback((importId: string | null) => {
@@ -6747,6 +6795,17 @@ export function App() {
     }
     setActiveScreen("holdings");
     setHoldingImportId(importId);
+    setHoldingsView("overview");
+  }, []);
+
+  const navigateToHoldingsView = useCallback((view: "overview" | "sources") => {
+    const path = view === "sources" ? "/holdings/sources" : "/holdings";
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, "", path);
+    }
+    setActiveScreen("holdings");
+    setHoldingImportId(null);
+    setHoldingsView(view);
   }, []);
 
   useEffect(() => {
@@ -6754,6 +6813,7 @@ export function App() {
       const route = routeFromLocation();
       setActiveScreen(route.screen);
       setHoldingImportId(route.holdingImportId);
+      setHoldingsView(route.holdingsView);
     };
     window.addEventListener("popstate", updateRoute);
     return () => window.removeEventListener("popstate", updateRoute);
@@ -6777,7 +6837,7 @@ export function App() {
 
   useEffect(() => {
     window.scrollTo({ behavior: "auto", top: 0 });
-  }, [activeScreen, holdingImportId]);
+  }, [activeScreen, holdingImportId, holdingsView]);
 
   const content = useMemo(() => {
     if (data === null) {
@@ -6808,10 +6868,12 @@ export function App() {
               return result;
             }}
             onImportRouteChange={navigateToHoldingImport}
+            onViewChange={navigateToHoldingsView}
             onListPendingImports={listPendingHoldingImports}
             onLoadImport={loadHoldingImport}
             onPreviewImport={previewHoldingImport}
             requestedImportId={holdingImportId}
+            requestedView={holdingsView}
           />
         );
       case "obligations":
@@ -6915,7 +6977,9 @@ export function App() {
     busyEvent,
     data,
     holdingImportId,
+    holdingsView,
     navigateToHoldingImport,
+    navigateToHoldingsView,
     navigateToScreen,
     reviewError,
     scenarioContext,

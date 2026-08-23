@@ -9,6 +9,14 @@ import {
 } from "./investment-holdings-fixtures";
 import { navigateToScreen } from "./navigation";
 
+async function openHoldingSources(page: Page) {
+  await page.getByRole("button", { name: "Manage sources" }).click();
+  await expect(page).toHaveURL(/\/holdings\/sources$/u);
+  await expect(
+    page.getByRole("heading", { name: "Holding sources", exact: true }),
+  ).toBeVisible();
+}
+
 const holdingsView = multiInstitutionInvestmentHoldingsView();
 
 const paginatedHoldings: Holding[] = Array.from({ length: 25 }, (_, index) => ({
@@ -386,6 +394,10 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
+  await expect(
+    page.getByRole("button", { name: "Manage sources" }),
+  ).toBeVisible();
+  await openHoldingSources(page);
 
   await expect(
     page.getByRole("heading", { name: "Brokerages", exact: true }),
@@ -460,6 +472,8 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     disconnectedCard.getByRole("button", { name: "Connect again" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(page).toHaveURL(/\/holdings$/u);
 
   const exposureView = page.locator(".investment-views");
   await expect(
@@ -621,7 +635,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page
       .locator(".unallocated-positions")
-      .getByText("Exposure unresolved", { exact: true }),
+      .getByText("Company unresolved", { exact: true }),
   ).toHaveCount(0);
   await expect(
     page
@@ -635,8 +649,16 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       .filter({ hasText: "Synthetic Cloud Basket" }),
   ).not.toContainText("$0");
   await expect(
-    page.getByRole("heading", { name: "Unallocated or unresolved value" }),
+    page.getByRole("heading", { name: "Resolve positions" }),
   ).toBeVisible();
+  const resolutionTop = await page
+    .locator(".unallocated-positions")
+    .evaluate((element) => element.getBoundingClientRect().top);
+  const firstExposureTop = await page
+    .locator(".exposure-group")
+    .first()
+    .evaluate((element) => element.getBoundingClientRect().top);
+  expect(resolutionTop).toBeLessThan(firstExposureTop);
   await expect(
     nvda.getByRole("button", {
       name: "View NVDA holding details",
@@ -737,6 +759,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(nvdaDetailAction).toBeFocused();
 
+  await openHoldingSources(page);
   await robinhoodCard.getByRole("button", { name: "Disconnect" }).click();
   await expect(
     robinhoodCard.getByText(
@@ -794,6 +817,8 @@ test("checks a stale brokerage after rendering current holdings", async ({
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
+  await expect(page.locator(".exposure-group")).toHaveCount(5);
+  await openHoldingSources(page);
 
   const robinhoodCard = page
     .locator(".investment-institution")
@@ -802,7 +827,6 @@ test("checks a stale brokerage after rendering current holdings", async ({
     "Data as of Aug 15, 2026 · Checked Aug 17, 2026",
   );
   try {
-    await expect(page.locator(".exposure-group")).toHaveCount(5);
     await expect.poll(() => automaticRequestCount).toBe(1);
   } finally {
     releaseAutomaticSync();
@@ -843,6 +867,7 @@ test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
+  await openHoldingSources(page);
   const robinhoodCard = page
     .locator(".investment-institution")
     .filter({ hasText: "Robinhood" });
@@ -908,6 +933,7 @@ test("automatically retries an old generic brokerage failure", async ({
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
+  await openHoldingSources(page);
   const robinhoodCard = page
     .locator(".investment-institution")
     .filter({ hasText: "Robinhood" });
@@ -955,6 +981,7 @@ test("opens a new Item flow for a disconnected brokerage", async ({
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
+  await openHoldingSources(page);
   const disconnectedCard = page.locator(".investment-institution").filter({
     hasText: "Synthetic Former Brokerage",
   });
@@ -994,6 +1021,7 @@ test("keeps a same-label disconnected Item when it has a reviewed account", asyn
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
+  await openHoldingSources(page);
 
   const fidelityCards = page
     .locator(".investment-institution")
@@ -1047,12 +1075,14 @@ test("keeps reviewed history in exposures without showing fake brokerage account
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
+  await openHoldingSources(page);
 
   const accounts = page.locator(".investment-institutions");
   await expect(accounts.locator(".investment-institution")).toHaveCount(0);
   await expect(accounts).not.toContainText("AngelList reviewed history");
   await expect(accounts).not.toContainText("Original account details");
   await expectNoHorizontalOverflow(page);
+  await page.getByRole("button", { name: "Back to holdings" }).click();
 
   const exposureView = page.locator(".investment-views");
   await expect(exposureView.getByRole("tab")).toHaveCount(0);
@@ -1132,10 +1162,12 @@ test("keeps one reviewed-history legal position without a fake account", async (
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
 
+  await openHoldingSources(page);
   await expect(page.locator(".investment-institution")).toHaveCount(0);
   await expect(page.locator(".investment-institutions")).not.toContainText(
     "AngelList reviewed history",
   );
+  await page.getByRole("button", { name: "Back to holdings" }).click();
   const exposure = page.locator(".exposure-group").filter({
     has: page.getByText("Demo Pharmacy", { exact: true }),
   });

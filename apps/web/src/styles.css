@@ -2360,6 +2360,14 @@ h1,
   letter-spacing: -0.035em;
 }
 
+.unallocated-positions__heading > p:last-child {
+  max-width: 620px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
 .unallocated-positions__status {
   display: grid;
   justify-items: start;
