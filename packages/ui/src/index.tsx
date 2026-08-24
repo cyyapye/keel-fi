@@ -2,6 +2,11 @@ export { AppShell, type NavigationItem } from "./components/app-shell";
 export { Badge } from "./components/badge";
 export { BrandMark } from "./components/brand-mark";
 export { Button } from "./components/button";
+export {
+  ChartContainer,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "./components/chart";
 export { EmptyState, FormMessage, Notice } from "./components/feedback";
 export { Field, Input, InputGroup, Textarea } from "./components/field";
 export {

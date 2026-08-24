@@ -63,11 +63,17 @@ type InvestmentPositionRow = {
   quantity_micros: number | null;
   ticker: string | null;
   cost_basis_minor: number | null;
+  prior_snapshot_id: string | null;
+  prior_snapshot_observed_at: string | null;
+  prior_snapshot_unrealized_value_minor: number | null;
+  prior_snapshot_unrealized_value_state:
+    "reported" | "locked" | "not_reported" | null;
   accepted_at: string;
   source_label: string;
   effective_date: string;
   retrieved_at: string;
   adjustment_id: string | null;
+  adjustment_supersedes_proposal_id: string | null;
   adjustment_snapshot_id: string | null;
   adjustment_prior_value_state: "reported" | "locked" | "not_reported" | null;
   adjustment_prior_value_minor: number | null;
@@ -79,6 +85,7 @@ type InvestmentPositionRow = {
   adjustment_source_url: string | null;
   adjustment_commentary: string | null;
   adjustment_accepted_at: string | null;
+  prior_adjustment_effective_date: string | null;
 };
 
 type ConnectionBuilder = {
@@ -116,6 +123,25 @@ function positionFromRow(
           commentary: row.adjustment_commentary,
           acceptedAt: row.adjustment_accepted_at,
         });
+  const priorValue =
+    acceptedValueAdjustment !== null
+      ? {
+          state: acceptedValueAdjustment.priorValueState,
+          minor: acceptedValueAdjustment.priorValueMinor,
+          observedAt:
+            row.adjustment_supersedes_proposal_id === null
+              ? row.snapshot_observed_at
+              : `${row.prior_adjustment_effective_date}T00:00:00.000Z`,
+        }
+      : row.prior_snapshot_id === null ||
+          row.prior_snapshot_observed_at === null ||
+          row.prior_snapshot_unrealized_value_state === null
+        ? null
+        : {
+            state: row.prior_snapshot_unrealized_value_state,
+            minor: row.prior_snapshot_unrealized_value_minor,
+            observedAt: row.prior_snapshot_observed_at,
+          };
   return {
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
@@ -155,6 +181,7 @@ function positionFromRow(
       costBasisMinor: row.cost_basis_minor,
     },
     acceptedValueAdjustment,
+    priorValue,
   };
 }
 
@@ -329,6 +356,12 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              snapshot.quantity_micros,
              snapshot.ticker,
              snapshot.cost_basis_minor,
+             prior_snapshot.id AS prior_snapshot_id,
+             prior_snapshot.observed_at AS prior_snapshot_observed_at,
+             prior_snapshot.unrealized_value_minor
+               AS prior_snapshot_unrealized_value_minor,
+             prior_snapshot.unrealized_value_state
+               AS prior_snapshot_unrealized_value_state,
              application.applied_at AS accepted_at,
              document.source_label,
              COALESCE(
@@ -337,6 +370,8 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ) AS effective_date,
              document.retrieved_at,
              adjustment.id AS adjustment_id,
+             adjustment.supersedes_proposal_id
+               AS adjustment_supersedes_proposal_id,
              adjustment.snapshot_id AS adjustment_snapshot_id,
              adjustment.prior_value_state AS adjustment_prior_value_state,
              adjustment.prior_value_minor AS adjustment_prior_value_minor,
@@ -347,7 +382,9 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              adjustment.source_label AS adjustment_source_label,
              adjustment.source_url AS adjustment_source_url,
              adjustment.commentary AS adjustment_commentary,
-             adjustment_review.decided_at AS adjustment_accepted_at
+             adjustment_review.decided_at AS adjustment_accepted_at,
+             prior_adjustment.effective_date
+               AS prior_adjustment_effective_date
            FROM holding_positions position
            JOIN holding_position_ownerships ownership
              ON ownership.position_id = position.id
@@ -372,6 +409,21 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              )
            JOIN holding_position_snapshots snapshot
              ON snapshot.id = application.snapshot_id
+           LEFT JOIN holding_import_applications prior_application
+             ON prior_application.id = (
+               SELECT candidate.id
+               FROM holding_import_applications candidate
+               JOIN holding_position_snapshots candidate_snapshot
+                 ON candidate_snapshot.id = candidate.snapshot_id
+               WHERE candidate.position_id = position.id
+                 AND candidate.id <> application.id
+               ORDER BY candidate.applied_at DESC,
+                        candidate_snapshot.observed_at DESC,
+                        candidate.id DESC
+               LIMIT 1
+             )
+           LEFT JOIN holding_position_snapshots prior_snapshot
+             ON prior_snapshot.id = prior_application.snapshot_id
            JOIN holding_import_rows accepted_row
              ON accepted_row.id = application.import_row_id
            JOIN holding_imports accepted_import
@@ -401,6 +453,8 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            LEFT JOIN holding_position_value_reviews adjustment_review
              ON adjustment_review.proposal_id = adjustment.id
             AND adjustment_review.decision = 'accepted'
+           LEFT JOIN holding_position_value_proposals prior_adjustment
+             ON prior_adjustment.id = adjustment.supersedes_proposal_id
            WHERE position.household_id = ?
              AND NOT EXISTS (
                SELECT 1

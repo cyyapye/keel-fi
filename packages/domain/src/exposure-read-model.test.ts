@@ -238,6 +238,11 @@ describe("investment exposure read model", () => {
         commentary: "Synthetic progress supports the reviewed mark.",
         acceptedAt: "2026-08-16T10:00:00.000Z",
       },
+      priorValue: {
+        state: "reported",
+        minor: 1_000_000,
+        observedAt: "2026-07-16T10:00:00.000Z",
+      },
     };
     const reviewedExposure = exposure(
       "exposure_7",
@@ -256,6 +261,9 @@ describe("investment exposure read model", () => {
       valueSource: "reviewed_adjustment",
       valueEffectiveDate: "2026-08-16",
       valueSourceLabel: "Synthetic GP update",
+      priorValueState: "reported",
+      priorValueMinor: 1_000_000,
+      priorValueObservedAt: "2026-07-16T10:00:00.000Z",
     });
     expect(view.exposures[0]?.totals).toEqual([
       {

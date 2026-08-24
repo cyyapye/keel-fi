@@ -8,6 +8,7 @@
     "./exposure-read-model": "./src/exposure-read-model.ts",
     "./investment-holdings-view": "./src/investment-holdings-view.ts",
     "./plan-actual-monitoring": "./src/plan-actual-monitoring.ts",
+    "./portfolio-dashboard": "./src/portfolio-dashboard.ts",
     "./position-read-model": "./src/position-read-model.ts",
     "./position-value": "./src/position-value.ts"
   },
