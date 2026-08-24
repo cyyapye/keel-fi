@@ -130,8 +130,22 @@ export const emptyInvestmentHoldingsView: InvestmentHoldingsView =
 
 export function investmentHoldingsViewFor(
   holdings: readonly Holding[],
+  priorValuesByPosition: Readonly<Record<string, number>> = {},
 ): InvestmentHoldingsView {
-  const records = holdings.map(recordFromHolding);
+  const records = holdings.map((holding, index) => {
+    const record = recordFromHolding(holding, index);
+    const priorValueMinor = priorValuesByPosition[holding.id];
+    return priorValueMinor === undefined
+      ? record
+      : {
+          ...record,
+          priorValue: {
+            state: "reported" as const,
+            minor: priorValueMinor,
+            observedAt: "2026-07-16T12:00:00.000Z",
+          },
+        };
+  });
   const privatePositions = records.filter(
     (record) => record.snapshot.ticker === null,
   );

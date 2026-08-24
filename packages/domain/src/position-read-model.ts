@@ -23,6 +23,10 @@ const NullableReportedValueSchema = z
     }
   });
 
+const PriorPositionValueSchema = NullableReportedValueSchema.extend({
+  observedAt: IsoTimestampSchema,
+});
+
 export const InvestmentCoverageCompletenessSchema = z.enum([
   "complete",
   "partial",
@@ -69,6 +73,7 @@ export const InvestmentPositionRecordSchema = z.object({
   }),
   snapshot: InvestmentPositionSnapshotSchema,
   acceptedValueAdjustment: PositionValueAdjustmentSchema.nullable().optional(),
+  priorValue: PriorPositionValueSchema.nullable().optional(),
 });
 
 export const InvestmentPositionContainerSchema = z.object({

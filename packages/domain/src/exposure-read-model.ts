@@ -108,6 +108,12 @@ export const InvestmentExposurePositionSchema = z
       .optional(),
     valueEffectiveDate: z.iso.date().optional(),
     valueSourceLabel: z.string().trim().min(1).max(240).optional(),
+    priorValueState: z
+      .enum(["reported", "locked", "not_reported"])
+      .nullable()
+      .optional(),
+    priorValueMinor: NonNegativeMoneyMinorSchema.nullable().optional(),
+    priorValueObservedAt: IsoTimestampSchema.nullable().optional(),
     mappings: z.array(InvestmentExposureMappingViewSchema),
     mappedExposureIds: z.array(z.string().min(1)),
     knownAllocationPpm: z.number().int().safe().min(0).max(PARTS_PER_MILLION),
@@ -347,6 +353,9 @@ export function createInvestmentExposureView(
             adjustment?.effectiveDate ??
             position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length),
           valueSourceLabel: adjustment?.sourceLabel ?? position.source.label,
+          priorValueState: position.priorValue?.state ?? null,
+          priorValueMinor: position.priorValue?.minor ?? null,
+          priorValueObservedAt: position.priorValue?.observedAt ?? null,
           valueState,
           valueMinor,
           mappings: mappingViews,

@@ -1255,7 +1255,7 @@ test("keeps failed canonical holdings out of unresolved exposures and retries", 
   await page.unroute("**/api/investment-holdings");
   await page.route("**/api/investment-holdings", async (route) => {
     holdingsRequestCount += 1;
-    if (holdingsRequestCount === 1) {
+    if (holdingsRequestCount === 2) {
       await route.fulfill({
         status: 503,
         json: { error: "Reviewed holdings are temporarily unavailable." },
@@ -1265,6 +1265,7 @@ test("keeps failed canonical holdings out of unresolved exposures and retries", 
     await route.fulfill({ json: holdingsView });
   });
   await page.goto("/");
+  await expect.poll(() => holdingsRequestCount).toBe(1);
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
 
@@ -1292,7 +1293,7 @@ test("keeps failed canonical holdings out of unresolved exposures and retries", 
   );
 
   await errorState.getByRole("button", { name: "Try again" }).click();
-  await expect.poll(() => holdingsRequestCount).toBe(2);
+  await expect.poll(() => holdingsRequestCount).toBe(3);
   await expect(errorState.getByRole("alert")).toHaveCount(0);
   const nvda = errorState.locator(".exposure-group").filter({
     has: page.locator('summary strong[title="NVIDIA common stock"]'),

@@ -696,6 +696,11 @@ describe("canonical investment position view", () => {
       valueMinor: 1_250_000,
       commentary: "Synthetic progress supports a reviewed position mark.",
     });
+    expect(position?.priorValue).toEqual({
+      state: "reported",
+      minor: 1_000_000,
+      observedAt: "2026-08-15T12:00:00.000Z",
+    });
     expect(
       sqlite
         .prepare(
@@ -1229,6 +1234,11 @@ describe("canonical investment position view", () => {
       snapshot: {
         id: "snapshot_taxable_v1",
         unrealizedValue: { state: "reported", minor: 125_000 },
+      },
+      priorValue: {
+        state: "reported",
+        minor: 150_000,
+        observedAt: "2026-08-15T12:00:00.000Z",
       },
     });
     const ira = primary?.containers.find(

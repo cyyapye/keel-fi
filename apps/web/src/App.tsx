@@ -119,6 +119,7 @@ import { Obligations } from "./Obligations";
 import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanActualMonitoring } from "./PlanActualMonitoring";
 import { PlanInputsEditor } from "./PlanInputsEditor";
+import { PortfolioSnapshot } from "./PortfolioSnapshot";
 
 type Screen =
   | "dashboard"
@@ -670,6 +671,8 @@ function Dashboard({
           </div>
         </section>
       )}
+
+      <PortfolioSnapshot onViewHoldings={() => onNavigate("holdings")} />
 
       <div className="dashboard-grid">
         <Panel

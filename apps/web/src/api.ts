@@ -956,10 +956,13 @@ export async function loadInvestmentConnections(): Promise<InvestmentConnections
   return InvestmentConnectionsStateSchema.parse(await response.json());
 }
 
-export async function loadInvestmentHoldings(): Promise<InvestmentHoldingsView> {
+export async function loadInvestmentHoldings(
+  signal?: AbortSignal,
+): Promise<InvestmentHoldingsView> {
   const response = await fetch("/api/investment-holdings", {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
+    signal: signal ?? null,
   });
   if (!response.ok) {
     throw await responseError(
