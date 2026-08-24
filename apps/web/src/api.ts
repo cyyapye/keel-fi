@@ -100,6 +100,12 @@ import {
   type SignalUpdateProposal,
 } from "@keel/domain";
 import {
+  AcceptPositionValueAdjustmentInputSchema,
+  PositionValueAdjustmentSchema,
+  type AcceptPositionValueAdjustmentInput,
+  type PositionValueAdjustment,
+} from "@keel/domain/position-value";
+import {
   InvestmentHoldingsViewSchema,
   type InvestmentHoldingsView,
 } from "@keel/domain/investment-holdings-view";
@@ -962,6 +968,32 @@ export async function loadInvestmentHoldings(): Promise<InvestmentHoldingsView> 
     );
   }
   return InvestmentHoldingsViewSchema.parse(await response.json());
+}
+
+export async function acceptPositionValueAdjustment(
+  positionId: string,
+  input: AcceptPositionValueAdjustmentInput,
+): Promise<PositionValueAdjustment> {
+  const body = AcceptPositionValueAdjustmentInputSchema.parse(input);
+  const response = await fetch(
+    `/api/investment-positions/${encodeURIComponent(positionId)}/value-adjustments`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Position value review returned ${response.status}.`,
+    );
+  }
+  return PositionValueAdjustmentSchema.parse(await response.json());
 }
 
 export async function loadPrivateExposureReviews(): Promise<PrivateExposureReviewState> {

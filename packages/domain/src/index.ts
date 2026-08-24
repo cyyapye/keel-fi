@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { PositionValueContextSchema } from "./position-value";
+
 export const PARTS_PER_MILLION = 1_000_000;
 
 export const MoneyMinorSchema = z.number().int().safe();
@@ -403,6 +405,7 @@ export const HoldingSchema = z.object({
     .nullable()
     .default(null),
   costBasisMinor: NonNegativeMoneyMinorSchema.nullable().default(null),
+  positionValueContext: PositionValueContextSchema.nullable().optional(),
 });
 
 export const ProtectedIdentityKeySchema = z

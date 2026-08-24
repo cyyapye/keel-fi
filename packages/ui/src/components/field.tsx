@@ -61,3 +61,13 @@ export function Input({ className, ...props }: ComponentProps<"input">) {
     <input className={cn("input", className)} data-slot="input" {...props} />
   );
 }
+
+export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
+  return (
+    <textarea
+      className={cn("input", "textarea", className)}
+      data-slot="textarea"
+      {...props}
+    />
+  );
+}

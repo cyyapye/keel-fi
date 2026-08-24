@@ -1,8 +1,17 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { AlphaData } from "../packages/domain/src/index";
+import type { PositionValueAdjustment } from "../packages/domain/src/position-value";
 
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { navigateToScreen } from "./navigation";
+
+const beaconValueContext = {
+  snapshotId: "snapshot_holding_demo_spv",
+  currency: "USD",
+  providerValueState: "reported",
+  providerValueMinor: 12_500_000,
+  acceptedAdjustment: null,
+} as const;
 
 const alphaFixture = {
   dashboard: {
@@ -82,6 +91,7 @@ const alphaFixture = {
       ticker: null,
       quantityMicros: null,
       costBasisMinor: null,
+      positionValueContext: beaconValueContext,
     },
     {
       id: "holding_demo_spv_second",
@@ -217,20 +227,32 @@ test("leads with the investment and opens a truthful holding detail", async ({
   page,
 }, testInfo) => {
   let exposureResolved = false;
+  let acceptedValueAdjustment: PositionValueAdjustment | null = null;
+  const currentHoldings = () =>
+    alphaFixture.holdings.map((holding) => {
+      if (holding.id === "holding_demo_spv") {
+        return {
+          ...holding,
+          externalMarkMinor: acceptedValueAdjustment?.valueMinor ?? null,
+          positionValueContext: {
+            ...beaconValueContext,
+            acceptedAdjustment: acceptedValueAdjustment,
+          },
+        };
+      }
+      if (holding.id === "holding_demo_locked") {
+        return {
+          ...holding,
+          companyId: exposureResolved ? "company_lattice_synthetic" : null,
+        };
+      }
+      return holding;
+    });
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({
       json: {
         ...alphaFixture,
-        holdings: alphaFixture.holdings.map((holding) =>
-          holding.id === "holding_demo_locked"
-            ? {
-                ...holding,
-                companyId: exposureResolved
-                  ? "company_lattice_synthetic"
-                  : null,
-              }
-            : holding,
-        ),
+        holdings: currentHoldings(),
       },
     });
   });
@@ -286,20 +308,41 @@ test("leads with the investment and opens a truthful holding detail", async ({
   });
   await page.route("**/api/investment-holdings", async (route) => {
     await route.fulfill({
-      json: investmentHoldingsViewFor(
-        alphaFixture.holdings.map((holding) =>
-          holding.id === "holding_demo_locked"
-            ? {
-                ...holding,
-                companyId: exposureResolved
-                  ? "company_lattice_synthetic"
-                  : null,
-              }
-            : holding,
-        ),
-      ),
+      json: investmentHoldingsViewFor(currentHoldings()),
     });
   });
+  await page.route(
+    "**/api/investment-positions/holding_demo_spv/value-adjustments",
+    async (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        expectedSnapshotId: "snapshot_holding_demo_spv",
+        expectedAdjustmentId: null,
+        valueMinor: 15_000_000,
+        currency: "USD",
+        effectiveDate: "2026-08-18",
+        sourceKind: "news_article",
+        sourceLabel: "Synthetic Health Journal",
+        sourceUrl: "https://news.example/harbor-mark",
+        commentary: "A secondary transaction supports this position mark.",
+      });
+      acceptedValueAdjustment = {
+        id: "adjustment_holding_demo_spv",
+        positionId: "holding_demo_spv",
+        snapshotId: "snapshot_holding_demo_spv",
+        priorValueState: "reported",
+        priorValueMinor: 12_500_000,
+        valueMinor: 15_000_000,
+        currency: "USD",
+        effectiveDate: "2026-08-18",
+        sourceKind: "news_article",
+        sourceLabel: "Synthetic Health Journal",
+        sourceUrl: "https://news.example/harbor-mark",
+        commentary: "A secondary transaction supports this position mark.",
+        acceptedAt: "2026-08-19T12:00:00.000Z",
+      };
+      await route.fulfill({ status: 201, json: acceptedValueAdjustment });
+    },
+  );
   await page.route("**/api/private-exposure-reviews", async (route) => {
     await route.fulfill({
       json: {
@@ -645,7 +688,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(page.getByText("Legal SPV")).toBeVisible();
   await expect(page.getByText("Held through")).toBeVisible();
   await expect(page.getByText("Demo Family LLC")).toBeVisible();
-  await expect(page.getByText("Administrator source")).toBeVisible();
+  await expect(page.getByText("Imported source")).toBeVisible();
   await expect(
     page.getByText("Administrator-reported value as of the source date."),
   ).toBeVisible();
@@ -661,8 +704,72 @@ test("leads with the investment and opens a truthful holding detail", async ({
     },
   );
 
+  await page.getByRole("button", { name: "Add value evidence" }).click();
+  await page.getByLabel("Value · USD").fill("150000");
+  await page.getByLabel("As of").fill("2026-08-18");
+  await page
+    .getByRole("combobox", { name: "Position value source type" })
+    .click();
+  await page.getByRole("option", { name: "News article" }).click();
+  await page.getByLabel("Source name").fill("Synthetic Health Journal");
+  await page.getByLabel("Source link").fill("https://news.example/harbor-mark");
+  await page
+    .getByLabel("What this value reflects")
+    .fill("A secondary transaction supports this position mark.");
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-value-evidence-form.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  await page.getByRole("button", { name: "Review value" }).click();
+  await expect(
+    page.locator(".position-value-adjustment__review"),
+  ).toContainText("$125k → $150k");
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-value-evidence-review.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  await page.getByRole("button", { name: "Accept value" }).click();
+  await expect(
+    page.getByText(
+      "Reviewed value accepted. Exposure totals now use this mark.",
+    ),
+  ).toBeVisible();
+  const reviewedMark = page.locator(".holding-reviewed-mark");
+  await expect(reviewedMark).toContainText("Synthetic Health Journal");
+  await expect(reviewedMark).toContainText("$150k");
+  await expect(
+    reviewedMark.getByRole("link", { name: "Open source" }),
+  ).toHaveAttribute("href", "https://news.example/harbor-mark");
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-value-evidence-accepted.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(harborAction).toBeFocused();
+  await expect(harborExposure).toContainText("$235k");
+  const adjustedBeaconPosition = harborExposure
+    .locator(".exposure-group__positions article")
+    .filter({ hasText: "Beacon Demo SPV" });
+  await expect(adjustedBeaconPosition).toContainText("Reviewed mark");
 
   await latticeExposure.locator("summary").click();
   await page

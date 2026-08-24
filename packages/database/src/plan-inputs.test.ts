@@ -38,6 +38,7 @@ const migrationFiles = [
   "packages/database/migrations/0030_reconnected_position_continuity.sql",
   "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql",
   "packages/database/migrations/0032_provider_template_holdings.sql",
+  "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

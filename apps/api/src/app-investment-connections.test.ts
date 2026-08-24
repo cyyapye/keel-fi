@@ -2,6 +2,7 @@ import type {
   InvestmentConnectionsRepository,
   InvestmentExposureViewRepository,
   InvestmentPositionViewRepository,
+  PositionValueAdjustmentRepository,
   PrivateExposureReviewRepository,
 } from "@keel/database";
 import { PrivateExposureReviewError } from "@keel/database";
@@ -337,6 +338,90 @@ describe("investment-connections API", () => {
       expect.stringContaining("retained_public_exposure_reconciliation_failed"),
     );
     error.mockRestore();
+  });
+
+  it("accepts reviewed position value evidence with the authenticated subject", async () => {
+    const accepted = {
+      id: "position-value-proposal-synthetic",
+      positionId: "position-synthetic",
+      snapshotId: "snapshot-synthetic",
+      priorValueState: "reported" as const,
+      priorValueMinor: 1_000_000,
+      valueMinor: 1_250_000,
+      currency: "USD",
+      effectiveDate: "2026-08-16",
+      sourceKind: "gp_update" as const,
+      sourceLabel: "Synthetic Q2 GP update",
+      sourceUrl: null,
+      commentary: "Synthetic company progress supports the reviewed mark.",
+      acceptedAt: "2026-08-16T12:00:00.000Z",
+    };
+    const positionValueAdjustmentRepository = {
+      accept: vi.fn().mockResolvedValue(accepted),
+    } satisfies PositionValueAdjustmentRepository;
+    const app = createApp({ positionValueAdjustmentRepository });
+
+    const response = await app.request(
+      "/api/investment-positions/position-synthetic/value-adjustments",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedSnapshotId: "snapshot-synthetic",
+          expectedAdjustmentId: null,
+          valueMinor: 1_250_000,
+          currency: "USD",
+          effectiveDate: "2026-08-16",
+          sourceKind: "gp_update",
+          sourceLabel: "Synthetic Q2 GP update",
+          sourceUrl: null,
+          commentary: "Synthetic company progress supports the reviewed mark.",
+        }),
+      },
+      env(),
+    );
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual(accepted);
+    expect(positionValueAdjustmentRepository.accept).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "position-synthetic",
+      expect.objectContaining({
+        valueMinor: 1_250_000,
+        sourceKind: "gp_update",
+      }),
+    );
+  });
+
+  it("rejects a news value without an HTTPS source URL", async () => {
+    const positionValueAdjustmentRepository = {
+      accept: vi.fn(),
+    } satisfies PositionValueAdjustmentRepository;
+    const app = createApp({ positionValueAdjustmentRepository });
+
+    const response = await app.request(
+      "/api/investment-positions/position-synthetic/value-adjustments",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedSnapshotId: "snapshot-synthetic",
+          expectedAdjustmentId: null,
+          valueMinor: 1_250_000,
+          currency: "USD",
+          effectiveDate: "2026-08-16",
+          sourceKind: "news_article",
+          sourceLabel: "Synthetic news report",
+          sourceUrl: null,
+          commentary: "Synthetic report supports the reviewed mark.",
+        }),
+      },
+      env(),
+    );
+
+    expect(response.status).toBe(400);
+    expect(positionValueAdjustmentRepository.accept).not.toHaveBeenCalled();
   });
 
   it("loads and records an explicit private-company exposure review", async () => {

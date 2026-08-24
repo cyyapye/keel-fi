@@ -1202,6 +1202,128 @@ h1,
   line-height: 1.55;
 }
 
+.position-value-adjustment,
+.holding-reviewed-mark {
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+
+.position-value-adjustment__heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 32px;
+}
+
+.position-value-adjustment__heading h3,
+.holding-reviewed-mark h3 {
+  margin-top: 3px;
+}
+
+.position-value-adjustment__heading p:last-child {
+  max-width: 620px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.position-value-adjustment > .form-message {
+  margin: 14px 0 0;
+}
+
+.position-value-adjustment__form,
+.position-value-adjustment__review {
+  display: grid;
+  gap: 24px;
+  margin-top: 28px;
+}
+
+.position-value-adjustment__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 28px;
+}
+
+.position-value-adjustment__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.position-value-adjustment__review {
+  max-width: 760px;
+}
+
+.position-value-adjustment__review > div:first-child {
+  display: grid;
+  gap: 7px;
+}
+
+.position-value-adjustment__review span,
+.position-value-adjustment__review small,
+.holding-reviewed-mark dt {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.position-value-adjustment__review strong {
+  font-size: 24px;
+  letter-spacing: -0.035em;
+}
+
+.position-value-adjustment__review p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.position-value-adjustment__review a,
+.holding-reviewed-mark a {
+  width: fit-content;
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-underline-offset: 3px;
+}
+
+.position-value-adjustment__review > small {
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.55;
+  text-transform: none;
+}
+
+.holding-reviewed-mark dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin: 20px 0 0;
+}
+
+.holding-reviewed-mark dl > div {
+  display: grid;
+  gap: 7px;
+}
+
+.holding-reviewed-mark dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.holding-reviewed-mark__commentary {
+  grid-column: 1 / -1;
+  max-width: 760px;
+}
+
 .cash-accounts {
   padding: 30px 0;
   border-top: 1px solid var(--ink);
@@ -2132,6 +2254,103 @@ h1,
   padding: 38px 0 12px;
 }
 
+.cash-holdings {
+  padding: 34px 0;
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+
+.cash-holdings__heading {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  align-items: end;
+  gap: 32px;
+}
+
+.cash-holdings__heading h2 {
+  margin-bottom: 8px;
+  font-size: clamp(22px, 2.8vw, 34px);
+  font-weight: 630;
+  letter-spacing: -0.045em;
+}
+
+.cash-holdings__heading p:last-child,
+.cash-holdings__error {
+  max-width: 680px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.cash-holdings__total {
+  display: grid;
+  justify-items: end;
+  min-width: 180px;
+}
+
+.cash-holdings__total small {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cash-holdings__total strong {
+  margin-top: 4px;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+  text-align: right;
+}
+
+.cash-holdings__total > span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 8px;
+  text-align: right;
+}
+
+.cash-holdings__rows {
+  display: grid;
+  margin-top: 24px;
+}
+
+.cash-holdings__rows article {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto;
+  align-items: center;
+  gap: 24px;
+  padding: 15px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.cash-holdings__rows strong,
+.cash-holdings__rows small {
+  display: block;
+}
+
+.cash-holdings__rows strong {
+  font-size: 11px;
+}
+
+.cash-holdings__rows small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.cash-holdings__rows article > strong {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cash-holdings__error {
+  margin-top: 18px;
+}
+
 .investment-views__heading {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) auto;
@@ -2344,6 +2563,14 @@ h1,
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   letter-spacing: -0.015em;
+}
+
+.exposure-group__positions article > .position-row__value small,
+.unallocated-positions article > .position-row__value small {
+  margin-top: 3px;
+  color: var(--faint);
+  font-size: 7px;
+  font-weight: 700;
 }
 
 .unallocated-positions {
@@ -5401,6 +5628,49 @@ h1,
     grid-template-columns: 100px minmax(0, 1fr);
   }
 
+  .position-value-adjustment__heading,
+  .cash-holdings__heading {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .position-value-adjustment__heading .button,
+  .position-value-adjustment__actions .button {
+    width: 100%;
+  }
+
+  .position-value-adjustment__fields,
+  .holding-reviewed-mark dl {
+    grid-template-columns: 1fr;
+  }
+
+  .position-value-adjustment__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .holding-reviewed-mark__commentary {
+    grid-column: 1;
+  }
+
+  .cash-holdings__total {
+    justify-items: start;
+  }
+
+  .cash-holdings__total strong,
+  .cash-holdings__total > span {
+    text-align: left;
+  }
+
+  .cash-holdings__rows article {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+
+  .cash-holdings__rows .position-row__action {
+    grid-column: 1 / -1;
+  }
+
   .holding-import-workspace {
     gap: 28px;
     padding-right: 0;
@@ -5690,15 +5960,20 @@ h1,
 
   .investment-views__controls {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: 1fr;
     align-items: end;
-    gap: 18px;
+    gap: 16px;
     width: 100%;
   }
 
   .investment-views__total {
-    justify-items: end;
+    justify-items: start;
     min-width: 0;
+  }
+
+  .investment-views__total strong,
+  .investment-views__total > span {
+    text-align: left;
   }
 
   .exposure-sort {

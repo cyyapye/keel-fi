@@ -2360,6 +2360,140 @@ export const holdingPositionSnapshots = sqliteTable(
   ],
 );
 
+export const holdingPositionValueProposals = sqliteTable(
+  "holding_position_value_proposals",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => holdingPositionSnapshots.id, {
+        onDelete: "restrict",
+      }),
+    supersedesProposalId: text("supersedes_proposal_id"),
+    priorValueState: text("prior_value_state").notNull(),
+    priorValueMinor: integer("prior_value_minor"),
+    valueMinor: integer("value_minor").notNull(),
+    currency: text("currency").notNull(),
+    effectiveDate: text("effective_date").notNull(),
+    sourceKind: text("source_kind").notNull(),
+    sourceLabel: text("source_label").notNull(),
+    sourceUrl: text("source_url"),
+    commentary: text("commentary").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesProposalId],
+      foreignColumns: [table.id],
+      name: "holding_position_value_proposals_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("holding_position_value_proposals_roots_unique")
+      .on(table.positionId)
+      .where(sql`${table.supersedesProposalId} IS NULL`),
+    uniqueIndex("holding_position_value_proposals_supersedes_unique")
+      .on(table.supersedesProposalId)
+      .where(sql`${table.supersedesProposalId} IS NOT NULL`),
+    index("holding_position_value_proposals_household_position_idx").on(
+      table.householdId,
+      table.positionId,
+      table.createdAt,
+    ),
+    check(
+      "holding_position_value_proposals_prior_value_state_check",
+      sql`${table.priorValueState} IN ('reported', 'locked', 'not_reported')`,
+    ),
+    check(
+      "holding_position_value_proposals_prior_value_check",
+      sql`${table.priorValueMinor} IS NULL OR ${table.priorValueMinor} >= 0`,
+    ),
+    check(
+      "holding_position_value_proposals_value_check",
+      sql`${table.valueMinor} >= 0`,
+    ),
+    check(
+      "holding_position_value_proposals_currency_check",
+      sql`length(${table.currency}) = 3 AND ${table.currency} = upper(${table.currency})`,
+    ),
+    check(
+      "holding_position_value_proposals_source_kind_check",
+      sql`${table.sourceKind} IN ('gp_update', 'news_article', 'other')`,
+    ),
+    check(
+      "holding_position_value_proposals_source_label_check",
+      sql`length(${table.sourceLabel}) BETWEEN 1 AND 240`,
+    ),
+    check(
+      "holding_position_value_proposals_source_url_check",
+      sql`${table.sourceUrl} IS NULL OR (length(${table.sourceUrl}) <= 2048 AND ${table.sourceUrl} LIKE 'https://%')`,
+    ),
+    check(
+      "holding_position_value_proposals_commentary_check",
+      sql`length(${table.commentary}) BETWEEN 3 AND 1000`,
+    ),
+    check(
+      "holding_position_value_proposals_prior_state_check",
+      sql`(${table.priorValueState} = 'reported' AND ${table.priorValueMinor} IS NOT NULL) OR (${table.priorValueState} <> 'reported' AND ${table.priorValueMinor} IS NULL)`,
+    ),
+    check(
+      "holding_position_value_proposals_news_url_check",
+      sql`${table.sourceKind} <> 'news_article' OR ${table.sourceUrl} IS NOT NULL`,
+    ),
+    check(
+      "holding_position_value_proposals_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const holdingPositionValueReviews = sqliteTable(
+  "holding_position_value_reviews",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => holdingPositionValueProposals.id, {
+        onDelete: "restrict",
+      }),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    decision: text("decision").notNull(),
+    rationale: text("rationale").notNull(),
+    decidedAt: timestamp("decided_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("holding_position_value_reviews_proposal_unique").on(
+      table.proposalId,
+    ),
+    index("holding_position_value_reviews_household_decided_idx").on(
+      table.householdId,
+      table.decidedAt,
+    ),
+    check(
+      "holding_position_value_reviews_decision_check",
+      sql`${table.decision} IN ('accepted', 'rejected')`,
+    ),
+    check(
+      "holding_position_value_reviews_rationale_check",
+      sql`length(${table.rationale}) BETWEEN 3 AND 1000`,
+    ),
+    check(
+      "holding_position_value_reviews_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
 export const connectorSyncImports = sqliteTable(
   "connector_sync_imports",
   {

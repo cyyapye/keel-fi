@@ -219,6 +219,54 @@ describe("investment exposure read model", () => {
     ]);
   });
 
+  it("rolls an accepted sourced position mark into exposure totals", () => {
+    const providerPosition = position("position_7", 1_000_000);
+    const adjustedPosition: InvestmentPositionRecord = {
+      ...providerPosition,
+      acceptedValueAdjustment: {
+        id: "adjustment_position_7",
+        positionId: providerPosition.id,
+        snapshotId: providerPosition.snapshot.id,
+        priorValueState: "reported",
+        priorValueMinor: 1_000_000,
+        valueMinor: 1_400_000,
+        currency: "USD",
+        effectiveDate: "2026-08-16",
+        sourceKind: "gp_update",
+        sourceLabel: "Synthetic GP update",
+        sourceUrl: null,
+        commentary: "Synthetic progress supports the reviewed mark.",
+        acceptedAt: "2026-08-16T10:00:00.000Z",
+      },
+    };
+    const reviewedExposure = exposure(
+      "exposure_7",
+      "Synthetic reviewed company",
+    );
+
+    const view = createInvestmentExposureView(
+      positionView([adjustedPosition]),
+      [reviewedExposure],
+      [mapping("mapping_7", adjustedPosition.id, reviewedExposure.id)],
+    );
+
+    expect(adjustedPosition.snapshot.unrealizedValue.minor).toBe(1_000_000);
+    expect(view.positions[0]).toMatchObject({
+      valueMinor: 1_400_000,
+      valueSource: "reviewed_adjustment",
+      valueEffectiveDate: "2026-08-16",
+      valueSourceLabel: "Synthetic GP update",
+    });
+    expect(view.exposures[0]?.totals).toEqual([
+      {
+        currency: "USD",
+        allocatedValueMinor: 1_400_000,
+        knownValuePositionCount: 1,
+        unknownValuePositionCount: 0,
+      },
+    ]);
+  });
+
   it("fails closed when a mapping is outside the authoritative position view", () => {
     expect(() =>
       createInvestmentExposureView(

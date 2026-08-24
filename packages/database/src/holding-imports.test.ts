@@ -50,6 +50,7 @@ const migrationFiles = [
   "packages/database/migrations/0035_nullable_private_investment_date.sql",
   "packages/database/migrations/0036_exact_reviewed_private_exposures.sql",
   "packages/database/migrations/0037_private_provider_position_continuity.sql",
+  "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -69,6 +70,7 @@ describe("nullable private investment date migration", () => {
               "packages/database/migrations/0035_nullable_private_investment_date.sql",
               "packages/database/migrations/0036_exact_reviewed_private_exposures.sql",
               "packages/database/migrations/0037_private_provider_position_continuity.sql",
+              "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
             ].includes(file),
         )
         .forEach((file) => {

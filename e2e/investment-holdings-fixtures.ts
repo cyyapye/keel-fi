@@ -55,6 +55,8 @@ function recordFromHolding(
       retrievedAt: holding.retrievedAt,
       freshness: "current",
     },
+    acceptedValueAdjustment:
+      holding.positionValueContext?.acceptedAdjustment ?? null,
     snapshot: {
       id: `snapshot_${holding.id}`,
       fingerprint: fingerprintForIndex(index),

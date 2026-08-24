@@ -116,10 +116,13 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
 
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Watch/);
+  await expect(page.locator(".watch-screen")).toContainText(
+    "A signal never changes a holding on its own; a value changes only after you review and apply it.",
+  );
   const checkButton = page.locator(".watch-control-panel .button");
   await expect(checkButton).toHaveText("Check now");
   await expect(page.getByTestId("portfolio-watch-control")).toContainText(
-    "Keel automatically finds and checks company sources when you check.",
+    "Keel finds company sources and sends new evidence to review. Company financing terms do not determine what your position is worth.",
   );
   await expect(page.getByTestId("watch-target-watch_harbor")).toContainText(
     "Monitoring active · Checked Aug 2, 2026",

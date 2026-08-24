@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { PositionValueAdjustmentSchema } from "./position-value";
+
 const IsoDateSchema = z.iso.date();
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
 const NonNegativeIntegerSchema = z.number().int().safe().nonnegative();
@@ -66,6 +68,7 @@ export const InvestmentPositionRecordSchema = z.object({
     freshness: InvestmentSourceFreshnessSchema,
   }),
   snapshot: InvestmentPositionSnapshotSchema,
+  acceptedValueAdjustment: PositionValueAdjustmentSchema.nullable().optional(),
 });
 
 export const InvestmentPositionContainerSchema = z.object({

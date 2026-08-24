@@ -26,6 +26,7 @@ import {
   ProviderPortfolioAgentRepositoryError,
   D1InvestmentConnectionsRepository,
   D1InvestmentPositionViewRepository,
+  D1PositionValueAdjustmentRepository,
   type AlphaRepository,
   type AngelListMacAgentRepository,
   type CashAccountsRepository,
@@ -40,6 +41,8 @@ import {
   type InvestmentConnectionsRepository,
   type InvestmentExposureViewRepository,
   type InvestmentPositionViewRepository,
+  type PositionValueAdjustmentRepository,
+  PositionValueAdjustmentError,
 } from "@keel/database";
 import {
   AngelListMacAgentConfigInputSchema,
@@ -80,6 +83,10 @@ import {
 } from "@keel/domain";
 import { InvestmentHoldingsViewSchema } from "@keel/domain/investment-holdings-view";
 import { PlanActualSnoozeInputSchema } from "@keel/domain/plan-actual-monitoring";
+import {
+  AcceptPositionValueAdjustmentInputSchema,
+  PositionValueAdjustmentSchema,
+} from "@keel/domain/position-value";
 import { ReviewInputSchema } from "@keel/evidence";
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -172,6 +179,7 @@ type AppOptions = {
   investmentConnectionsRepository?: InvestmentConnectionsRepository;
   investmentExposureViewRepository?: InvestmentExposureViewRepository;
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
+  positionValueAdjustmentRepository?: PositionValueAdjustmentRepository;
   privateExposureReviewRepository?: PrivateExposureReviewRepository;
   retainedPublicExposureReconciler?: RetainedPublicExposureReconciler;
   newInvestmentConnectionsAvailable?: boolean;
@@ -696,6 +704,9 @@ export function createApp(options: AppOptions = {}) {
   const investmentExposureViewRepositoryFor = (env: Env) =>
     options.investmentExposureViewRepository ??
     new D1InvestmentExposureViewRepository(env.DB);
+  const positionValueAdjustmentRepositoryFor = (env: Env) =>
+    options.positionValueAdjustmentRepository ??
+    new D1PositionValueAdjustmentRepository(env.DB);
   const privateExposureReviewRepositoryFor = (env: Env) =>
     options.privateExposureReviewRepository ?? new D1ExposureRepository(env.DB);
   const retainedPublicExposureReconcilerFor = (env: Env) =>
@@ -1797,6 +1808,73 @@ export function createApp(options: AppOptions = {}) {
       );
     }
   });
+
+  app.post(
+    "/api/investment-positions/:positionId/value-adjustments",
+    async (context) => {
+      let rawInput: unknown;
+      try {
+        rawInput = await context.req.json();
+      } catch {
+        return context.json({ error: "A JSON request body is required." }, 400);
+      }
+      const input =
+        AcceptPositionValueAdjustmentInputSchema.safeParse(rawInput);
+      if (!input.success) {
+        return context.json(
+          {
+            error: "Position value evidence is invalid.",
+            issues: input.error.issues.map((issue) => ({
+              path: issue.path.join("."),
+              message: issue.message,
+            })),
+          },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+
+      try {
+        const adjustment = await positionValueAdjustmentRepositoryFor(
+          context.env,
+        ).accept(
+          context.get("identity").subject,
+          context.req.param("positionId"),
+          input.data,
+        );
+        return context.json(
+          PositionValueAdjustmentSchema.parse(adjustment),
+          201,
+          {
+            "Cache-Control": "private, no-store",
+          },
+        );
+      } catch (error) {
+        if (error instanceof PositionValueAdjustmentError) {
+          if (error.code === "not_found") {
+            return context.json({ error: "Position was not found." }, 404, {
+              "Cache-Control": "private, no-store",
+            });
+          }
+          return context.json(
+            {
+              error:
+                error.code === "stale"
+                  ? "The position value changed. Review the latest value and try again."
+                  : error.message,
+            },
+            409,
+            { "Cache-Control": "private, no-store" },
+          );
+        }
+        return context.json(
+          { error: "Position value evidence could not be accepted." },
+          500,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
 
   app.get("/api/private-exposure-reviews", async (context) => {
     try {

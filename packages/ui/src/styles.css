@@ -576,6 +576,14 @@ h3 {
   border-bottom-color: var(--ink);
 }
 
+.field .textarea {
+  height: auto;
+  min-height: 92px;
+  padding: 12px 0;
+  line-height: 1.55;
+  resize: vertical;
+}
+
 .field .select-trigger:disabled {
   color: var(--ink);
   opacity: 1;
