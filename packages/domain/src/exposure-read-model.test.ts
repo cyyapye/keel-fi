@@ -267,6 +267,108 @@ describe("investment exposure read model", () => {
     ]);
   });
 
+  it("uses invested amount for a live exposure when current value is not reported", () => {
+    const missingMark = {
+      ...position("position_8", null, "not_reported"),
+      snapshot: {
+        ...position("position_8", null, "not_reported").snapshot,
+        investedMinor: 425_000,
+      },
+    };
+    const estimatedExposure = exposure(
+      "exposure_8",
+      "Synthetic estimated company",
+    );
+
+    const view = createInvestmentExposureView(
+      positionView([missingMark]),
+      [estimatedExposure],
+      [mapping("mapping_8", missingMark.id, estimatedExposure.id)],
+    );
+
+    expect(missingMark.snapshot.unrealizedValue).toEqual({
+      state: "not_reported",
+      minor: null,
+    });
+    expect(view.positions[0]).toMatchObject({
+      valueState: "reported",
+      valueMinor: 425_000,
+      valueSource: "invested_amount",
+      allocatedValueMinor: 425_000,
+      unallocatedValueMinor: 0,
+    });
+    expect(view.exposures[0]?.totals).toEqual([
+      {
+        currency: "USD",
+        allocatedValueMinor: 425_000,
+        knownValuePositionCount: 1,
+        unknownValuePositionCount: 0,
+      },
+    ]);
+  });
+
+  it("does not estimate missing cash, realized positions, or a zero basis", () => {
+    const missingCash = {
+      ...position("position_9", null, "not_reported"),
+      snapshot: {
+        ...position("position_9", null, "not_reported").snapshot,
+        investedMinor: 25_000,
+        instrumentType: "cash",
+      },
+    };
+    const realized = {
+      ...position("position_10", null, "not_reported"),
+      snapshot: {
+        ...position("position_10", null, "not_reported").snapshot,
+        investedMinor: 600_000,
+        providerStatus: "realized" as const,
+      },
+    };
+    const zeroBasis = {
+      ...position("position_11", null, "not_reported"),
+      snapshot: {
+        ...position("position_11", null, "not_reported").snapshot,
+        investedMinor: 0,
+      },
+    };
+    const first = exposure("exposure_9", "Synthetic cash");
+    const second = exposure("exposure_10", "Synthetic realized company");
+    const third = exposure("exposure_11", "Synthetic unknown basis");
+
+    const view = createInvestmentExposureView(
+      positionView([missingCash, realized, zeroBasis]),
+      [first, second, third],
+      [
+        mapping("mapping_9", missingCash.id, first.id),
+        mapping("mapping_10", realized.id, second.id),
+        mapping("mapping_11", zeroBasis.id, third.id),
+      ],
+    );
+
+    expect(view.positions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: missingCash.id,
+          valueState: "not_reported",
+          valueMinor: null,
+          valueSource: "provider",
+        }),
+        expect.objectContaining({
+          id: realized.id,
+          valueState: "not_reported",
+          valueMinor: null,
+          valueSource: "provider",
+        }),
+        expect.objectContaining({
+          id: zeroBasis.id,
+          valueState: "not_reported",
+          valueMinor: null,
+          valueSource: "provider",
+        }),
+      ]),
+    );
+  });
+
   it("fails closed when a mapping is outside the authoritative position view", () => {
     expect(() =>
       createInvestmentExposureView(
