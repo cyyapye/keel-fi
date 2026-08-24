@@ -64,6 +64,7 @@ const INVESTMENT_RECONNECT_PREFIX = "reconnect:";
 const INVESTMENT_OAUTH_RECONNECT_MESSAGE =
   "Open this connection again to finish signing in.";
 const AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1_000;
+const SMALL_CASH_BALANCE_MINOR = 10_000;
 
 type ConnectionAction =
   | "add"
@@ -239,6 +240,18 @@ function exposurePositionValue(position: InvestmentExposurePosition): string {
     return formatHoldingCurrency(position.valueMinor, position.currency);
   }
   return position.valueState === "locked" ? "Locked" : "Not reported";
+}
+
+function exposureValueSourceLabel(
+  position: InvestmentExposurePosition,
+): string | null {
+  if (position.valueSource === "reviewed_adjustment") {
+    return "Reviewed mark";
+  }
+  if (position.valueSource === "invested_amount") {
+    return "Invested amount estimate";
+  }
+  return null;
 }
 
 function isCashPosition(position: InvestmentExposurePosition): boolean {
@@ -968,6 +981,7 @@ function ExposureView({
             const reviewPosition = reviewPositionById.get(position.id) ?? null;
             const reviewOpen = exposureReviewPositionId === position.id;
             const positionName = positionDisplayName(position);
+            const valueSourceLabel = exposureValueSourceLabel(position);
             return (
               <Fragment key={position.id}>
                 <article>
@@ -985,8 +999,8 @@ function ExposureView({
                   </span>
                   <span className="position-row__value">
                     {exposurePositionValue(position)}
-                    {position.valueSource === "reviewed_adjustment" && (
-                      <small>Reviewed mark</small>
+                    {valueSourceLabel !== null && (
+                      <small>{valueSourceLabel}</small>
                     )}
                   </span>
                   <span className="unallocated-positions__status">
@@ -1048,6 +1062,9 @@ function ExposureView({
           );
         const positionCount = positions.length;
         const displayName = exposureDisplayName(group, positions);
+        const investedEstimateCount = positions.filter(
+          (position) => position.valueSource === "invested_amount",
+        ).length;
         return (
           <details className="exposure-group" key={group.exposure.id}>
             <summary>
@@ -1071,11 +1088,18 @@ function ExposureView({
               </span>
               <span className="exposure-group__totals">
                 {exposureTotalsLabel(group.totals)}
+                {investedEstimateCount > 0 && (
+                  <small>
+                    {investedEstimateCount} invested{" "}
+                    {investedEstimateCount === 1 ? "estimate" : "estimates"}
+                  </small>
+                )}
               </span>
             </summary>
             <div className="exposure-group__positions">
               {positions.map((position) => {
                 const positionName = positionDisplayName(position);
+                const valueSourceLabel = exposureValueSourceLabel(position);
                 return (
                   <article key={position.id}>
                     <span>
@@ -1092,8 +1116,8 @@ function ExposureView({
                     </span>
                     <span className="position-row__value">
                       {exposurePositionValue(position)}
-                      {position.valueSource === "reviewed_adjustment" && (
-                        <small>Reviewed mark</small>
+                      {valueSourceLabel !== null && (
+                        <small>{valueSourceLabel}</small>
                       )}
                     </span>
                     <span>
@@ -1139,6 +1163,7 @@ function CashHoldingsView({
   onOpenHolding: (holdingId: string) => void;
   openableHoldingIds: ReadonlySet<string>;
 }) {
+  const [showSmallBalances, setShowSmallBalances] = useState(false);
   const bankAccounts = accounts?.acceptedAccounts ?? [];
   const brokeragePositions = data.exposureView.positions.filter(isCashPosition);
   if (
@@ -1171,6 +1196,27 @@ function CashHoldingsView({
       );
     }
   }
+  const isSmallBankAccount = (account: (typeof bankAccounts)[number]) =>
+    account.valueMinor !== null &&
+    account.valueMinor < SMALL_CASH_BALANCE_MINOR;
+  const isSmallBrokeragePosition = (
+    position: (typeof brokeragePositions)[number],
+  ) =>
+    position.currency === "USD" &&
+    position.valueState === "reported" &&
+    position.valueMinor !== null &&
+    position.valueMinor < SMALL_CASH_BALANCE_MINOR;
+  const smallBalanceCount =
+    bankAccounts.filter(isSmallBankAccount).length +
+    brokeragePositions.filter(isSmallBrokeragePosition).length;
+  const visibleBankAccounts = showSmallBalances
+    ? bankAccounts
+    : bankAccounts.filter((account) => !isSmallBankAccount(account));
+  const visibleBrokeragePositions = showSmallBalances
+    ? brokeragePositions
+    : brokeragePositions.filter(
+        (position) => !isSmallBrokeragePosition(position),
+      );
 
   return (
     <section aria-labelledby="cash-holdings-title" className="cash-holdings">
@@ -1198,7 +1244,7 @@ function CashHoldingsView({
       {error !== null && <p className="cash-holdings__error">{error}</p>}
       {(bankAccounts.length > 0 || brokeragePositions.length > 0) && (
         <div className="cash-holdings__rows">
-          {bankAccounts.map((account) => (
+          {visibleBankAccounts.map((account) => (
             <article key={account.id}>
               <span>
                 <strong>{account.accountLabel}</strong>
@@ -1214,7 +1260,7 @@ function CashHoldingsView({
               </strong>
             </article>
           ))}
-          {brokeragePositions.map((position) => (
+          {visibleBrokeragePositions.map((position) => (
             <article key={position.id}>
               <span>
                 <strong>{positionDisplayName(position)}</strong>
@@ -1237,6 +1283,19 @@ function CashHoldingsView({
               )}
             </article>
           ))}
+        </div>
+      )}
+      {smallBalanceCount > 0 && (
+        <div className="cash-holdings__disclosure">
+          <Button
+            aria-expanded={showSmallBalances}
+            onClick={() => setShowSmallBalances((current) => !current)}
+            tone="quiet"
+          >
+            {showSmallBalances
+              ? "Hide balances under $100"
+              : `Show ${smallBalanceCount} ${smallBalanceCount === 1 ? "balance" : "balances"} under $100`}
+          </Button>
         </div>
       )}
     </section>
@@ -1796,6 +1855,11 @@ export function InvestmentHoldings({
       0,
     ) ?? 0;
   const exposureCount = data === null ? 0 : companyExposureGroups(data).length;
+  const investedEstimateCount =
+    data?.exposureView.positions.filter(
+      (position) =>
+        !isCashPosition(position) && position.valueSource === "invested_amount",
+    ).length ?? 0;
 
   if (mode === "sources") {
     return (
@@ -1983,6 +2047,9 @@ export function InvestmentHoldings({
                   {" · "}
                   {positionCount} legal{" "}
                   {positionCount === 1 ? "position" : "positions"}
+                  {investedEstimateCount === 0
+                    ? ""
+                    : ` · ${investedEstimateCount} invested ${investedEstimateCount === 1 ? "estimate" : "estimates"}`}
                 </span>
               </span>
             </div>

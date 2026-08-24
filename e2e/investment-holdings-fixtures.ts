@@ -344,6 +344,29 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
       instrumentType: "spv interest",
     },
   };
+  const investedAmountPosition: InvestmentPositionRecord = {
+    ...syntheticPublicPosition({
+      id: "position_invested_amount_8",
+      observedAt: "2026-08-15T11:45:00.000Z",
+      valueMinor: 4_000_000,
+    }),
+    legalVehicleName: "Synthetic Beacon SPV",
+    reportedExposureName: "Beacon Robotics",
+    kind: "spv_interest",
+    ownershipBasis: "reviewed_import",
+    snapshot: {
+      ...syntheticPublicPosition({
+        id: "position_invested_amount_8",
+        observedAt: "2026-08-15T11:45:00.000Z",
+        valueMinor: 4_000_000,
+      }).snapshot,
+      netValue: { state: "not_reported", minor: null },
+      unrealizedValue: { state: "not_reported", minor: null },
+      ticker: null,
+      quantityMicros: null,
+      instrumentType: "spv interest",
+    },
+  };
   const positionView: InvestmentPositionView = {
     asOf,
     connections: [
@@ -443,7 +466,7 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
               observedAt: "2026-08-15T11:45:00.000Z",
               freshness: "current",
             },
-            positions: [lockedPosition],
+            positions: [lockedPosition, investedAmountPosition],
           },
         ],
       },
@@ -488,6 +511,13 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
     resolutionMethod: "reviewed_company",
     evidenceSha256: fingerprint("e"),
     createdAt: "2026-08-15T12:00:00.000Z",
+  };
+  const investedAmountExposure: CanonicalExposure = {
+    ...privateExposure,
+    id: "exposure_invested_amount_synthetic",
+    canonicalName: "Beacon Robotics",
+    companyId: "company_beacon_synthetic",
+    evidenceSha256: fingerprint("7"),
   };
   const mappings: PositionExposureMapping[] = [
     robinhood,
@@ -560,6 +590,21 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
     version: 1,
     supersedesMappingId: null,
   });
+  mappings.push({
+    id: "mapping_invested_amount_1",
+    householdId,
+    positionId: investedAmountPosition.id,
+    exposureId: investedAmountExposure.id,
+    relationshipKind: "look_through",
+    allocationPpm: 1_000_000,
+    status: "active",
+    decisionSource: "review",
+    decisionReference: "synthetic invested amount mapping",
+    evidenceSha256: fingerprint("7"),
+    effectiveAt: "2026-08-15T12:00:00.000Z",
+    version: 1,
+    supersedesMappingId: null,
+  });
   const exposureView: InvestmentExposureView = createInvestmentExposureView(
     positionView,
     [
@@ -568,6 +613,7 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
       fundUnderlyingOne,
       fundUnderlyingTwo,
       privateExposure,
+      investedAmountExposure,
     ],
     mappings,
   );

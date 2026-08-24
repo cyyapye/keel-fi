@@ -45,36 +45,51 @@ const paginatedHoldings: Holding[] = Array.from({ length: 25 }, (_, index) => ({
 const paginatedHoldingsView = investmentHoldingsViewFor(paginatedHoldings);
 
 function alphaHoldingsFrom(view: InvestmentHoldingsView) {
-  return view.exposureView.positions.map((position) => ({
-    id: position.id,
-    companyId:
-      view.exposureView.exposures.find((group) =>
-        group.contributions.some(
-          (contribution) => contribution.positionId === position.id,
-        ),
-      )?.exposure.companyId ?? null,
-    positionName: position.legalVehicleName,
-    exposureName: position.reportedExposureName,
-    ownerLabel: position.containerLabel,
-    positionKind: position.positionKind,
-    administratorNavMinor: position.valueMinor,
-    administratorNavState:
-      position.valueState === "not_reported"
-        ? ("not_set" as const)
-        : position.valueState,
-    externalMarkMinor: null,
-    underwritingValueMinor: null,
-    scenarioValueMinor: null,
-    usableLiquidityMinor: null,
-    sourceStatus: "verified" as const,
-    sourceLabel: position.sourceLabel,
-    effectiveDate: position.observedAt.slice(0, 10),
-    retrievedAt: position.observedAt,
-    confidencePpm: null,
-    ticker: position.ticker,
-    quantityMicros: null,
-    costBasisMinor: null,
-  }));
+  const sourcePositionById = new Map(
+    view.positionView.connections.flatMap((connection) =>
+      connection.containers.flatMap((container) =>
+        container.positions.map((position) => [position.id, position] as const),
+      ),
+    ),
+  );
+  return view.exposureView.positions.map((position) => {
+    const sourcePosition = sourcePositionById.get(position.id);
+    if (sourcePosition === undefined) {
+      throw new Error(
+        "Synthetic exposure position is missing source evidence.",
+      );
+    }
+    return {
+      id: position.id,
+      companyId:
+        view.exposureView.exposures.find((group) =>
+          group.contributions.some(
+            (contribution) => contribution.positionId === position.id,
+          ),
+        )?.exposure.companyId ?? null,
+      positionName: position.legalVehicleName,
+      exposureName: position.reportedExposureName,
+      ownerLabel: position.containerLabel,
+      positionKind: position.positionKind,
+      administratorNavMinor: sourcePosition.snapshot.unrealizedValue.minor,
+      administratorNavState:
+        sourcePosition.snapshot.unrealizedValue.state === "not_reported"
+          ? ("not_set" as const)
+          : sourcePosition.snapshot.unrealizedValue.state,
+      externalMarkMinor: null,
+      underwritingValueMinor: null,
+      scenarioValueMinor: null,
+      usableLiquidityMinor: null,
+      sourceStatus: "verified" as const,
+      sourceLabel: position.sourceLabel,
+      effectiveDate: position.observedAt.slice(0, 10),
+      retrievedAt: position.observedAt,
+      confidencePpm: null,
+      ticker: position.ticker,
+      quantityMicros: null,
+      costBasisMinor: null,
+    };
+  });
 }
 
 const alphaFixture = {
@@ -269,6 +284,20 @@ test.beforeEach(async ({ page }) => {
             accountLabel: "Everyday checking",
             subtype: "checking",
             valueMinor: 2_500_000,
+            valueState: "reported",
+            balanceSource: "available",
+            refreshKind: "live",
+            observedAt: "2026-08-18T16:00:00.000Z",
+            acceptedAt: "2026-08-18T16:05:00.000Z",
+          },
+          {
+            id: "cash_fact_synthetic_wallet",
+            naturalKeySha256: "6".repeat(64),
+            connectionId: "cash_connection_synthetic_bank",
+            institutionLabel: "Northstar Demo Bank",
+            accountLabel: "Travel cash",
+            subtype: "checking",
+            valueMinor: 5_000,
             valueState: "reported",
             balanceSource: "available",
             refreshKind: "live",
@@ -497,14 +526,14 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(exposureView.getByRole("tab")).toHaveCount(0);
   await expect(
     exposureView.locator(".investment-views__heading"),
-  ).toContainText("4 exposures");
+  ).toContainText("5 exposures");
   await expect(
     exposureView.locator(".investment-views__heading"),
-  ).toContainText("5 legal positions");
+  ).toContainText("6 legal positions · 1 invested estimate");
   await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "Total exposure$740k · 2 values unavailable",
+    "Total exposure$780k · 2 values unavailable",
   );
-  await expect(exposureView.locator(".exposure-group")).toHaveCount(4);
+  await expect(exposureView.locator(".exposure-group")).toHaveCount(5);
   const exposureSort = exposureView.getByLabel(
     "Sort exposures and positions by value",
   );
@@ -557,10 +586,11 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ]);
   const cash = page.locator(".cash-holdings");
   await expect(cash.getByRole("heading", { name: "Cash" })).toBeVisible();
-  await expect(cash).toContainText("Total cash$28.5k");
-  await expect(cash).toContainText("1 bank account · 2 brokerage positions");
+  await expect(cash).toContainText("Total cash$28.55k");
+  await expect(cash).toContainText("2 bank accounts · 2 brokerage positions");
   await expect(cash.getByText("Everyday checking")).toBeVisible();
   await expect(cash.getByText("Northstar Demo Bank · Bank cash")).toBeVisible();
+  await expect(cash.getByText("Travel cash")).toHaveCount(0);
   await expect(cash.getByText("Robinhood · Robinhood brokerage")).toBeVisible();
   await expect(
     cash.getByText("Fidelity · Fidelity rollover IRA"),
@@ -568,6 +598,17 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     cash.locator(".cash-holdings__rows article > strong"),
   ).toHaveText(["$25k", "$1.25k", "$2.25k"]);
+  const smallCashDisclosure = cash.getByRole("button", {
+    name: "Show 1 balance under $100",
+  });
+  await expect(smallCashDisclosure).toHaveAttribute("aria-expanded", "false");
+  await smallCashDisclosure.click();
+  await expect(cash.getByText("Travel cash")).toBeVisible();
+  await expect(
+    cash.locator(".cash-holdings__rows article > strong"),
+  ).toHaveText(["$25k", "$50", "$1.25k", "$2.25k"]);
+  await cash.getByRole("button", { name: "Hide balances under $100" }).click();
+  await expect(cash.getByText("Travel cash")).toHaveCount(0);
   await expect(
     page.locator(".exposure-group").filter({
       has: page.getByText("US Dollar", { exact: true }),
@@ -587,7 +628,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(exposureSort).toContainText("Lowest first");
   await expect(
     exposureView.locator(".exposure-group summary strong").first(),
-  ).toHaveText("NVDA");
+  ).toHaveText("Beacon Robotics");
   await expect(nvda.locator(".position-row__value")).toHaveText([
     "$185k",
     "$240k",
@@ -664,6 +705,20 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       .locator(".exposure-group")
       .filter({ hasText: "Synthetic Cloud Basket" }),
   ).not.toContainText("$0");
+  const beacon = page.locator(".exposure-group").filter({
+    has: page.getByText("Beacon Robotics", { exact: true }),
+  });
+  await expect(beacon.locator("summary")).toContainText("$40k");
+  await expect(beacon.locator("summary")).toContainText("1 invested estimate");
+  await beacon.locator("summary").click();
+  await expect(beacon.getByText("Synthetic Beacon SPV")).toBeVisible();
+  await expect(beacon.locator(".position-row__value")).toContainText("$40k");
+  await expect(beacon.locator(".position-row__value")).toContainText(
+    "Invested amount estimate",
+  );
+  await expect(page.locator(".unallocated-positions")).not.toContainText(
+    "Synthetic Beacon SPV",
+  );
   await expect(
     page.getByRole("heading", { name: "Resolve positions" }),
   ).toBeVisible();
@@ -697,7 +752,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ).toBe(true);
   const targetHeights = await page
     .locator(
-      ".investment-institutions .button:visible, .position-row__action:visible",
+      ".investment-institutions .button:visible, .cash-holdings .button:visible, .position-row__action:visible",
     )
     .evaluateAll((elements) =>
       elements.map((element) => element.getBoundingClientRect().height),
@@ -833,7 +888,7 @@ test("checks a stale brokerage after rendering current holdings", async ({
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
-  await expect(page.locator(".exposure-group")).toHaveCount(4);
+  await expect(page.locator(".exposure-group")).toHaveCount(5);
   await openHoldingSources(page);
 
   const robinhoodCard = page

@@ -15,6 +15,7 @@ import {
   InvestmentPositionContainerSchema,
   InvestmentPositionRecordSchema,
   InvestmentPositionViewSchema,
+  type InvestmentPositionRecord,
   type InvestmentPositionView,
 } from "./position-read-model";
 
@@ -102,7 +103,9 @@ export const InvestmentExposurePositionSchema = z
       InvestmentPositionRecordSchema.shape.snapshot.shape.instrumentType,
     currency: InvestmentPositionRecordSchema.shape.snapshot.shape.currency,
     ticker: InvestmentPositionRecordSchema.shape.snapshot.shape.ticker,
-    valueSource: z.enum(["provider", "reviewed_adjustment"]).optional(),
+    valueSource: z
+      .enum(["provider", "invested_amount", "reviewed_adjustment"])
+      .optional(),
     valueEffectiveDate: z.iso.date().optional(),
     valueSourceLabel: z.string().trim().min(1).max(240).optional(),
     mappings: z.array(InvestmentExposureMappingViewSchema),
@@ -172,6 +175,17 @@ function safeMinorSum(values: readonly number[]): number {
   return NonNegativeMoneyMinorSchema.parse(Number(total));
 }
 
+function usesInvestedAmountFallback(
+  position: InvestmentPositionRecord,
+): boolean {
+  return (
+    position.snapshot.providerStatus === "live" &&
+    position.snapshot.unrealizedValue.state === "not_reported" &&
+    position.snapshot.investedMinor > 0 &&
+    position.snapshot.instrumentType.trim().toLowerCase() !== "cash"
+  );
+}
+
 export function createInvestmentExposureView(
   rawPositionView: InvestmentPositionView,
   rawExposures: readonly CanonicalExposure[],
@@ -238,14 +252,18 @@ export function createInvestmentExposureView(
           );
         }
         const adjustment = position.acceptedValueAdjustment ?? null;
+        const investedAmountFallback =
+          adjustment === null && usesInvestedAmountFallback(position);
         const valueState =
-          adjustment === null
-            ? position.snapshot.unrealizedValue.state
-            : "reported";
+          adjustment !== null || investedAmountFallback
+            ? "reported"
+            : position.snapshot.unrealizedValue.state;
         const valueMinor =
-          adjustment === null
-            ? position.snapshot.unrealizedValue.minor
-            : adjustment.valueMinor;
+          adjustment !== null
+            ? adjustment.valueMinor
+            : investedAmountFallback
+              ? position.snapshot.investedMinor
+              : position.snapshot.unrealizedValue.minor;
         const allocatedValues: number[] = [];
         const mappingViews = positionMappings.map((mapping) => {
           const allocatedValueMinor =
@@ -319,7 +337,12 @@ export function createInvestmentExposureView(
           instrumentType: position.snapshot.instrumentType,
           currency: position.snapshot.currency,
           ticker: position.snapshot.ticker,
-          valueSource: adjustment === null ? "provider" : "reviewed_adjustment",
+          valueSource:
+            adjustment !== null
+              ? "reviewed_adjustment"
+              : investedAmountFallback
+                ? "invested_amount"
+                : "provider",
           valueEffectiveDate:
             adjustment?.effectiveDate ??
             position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length),
