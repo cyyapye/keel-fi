@@ -8,7 +8,8 @@
     "./exposure-read-model": "./src/exposure-read-model.ts",
     "./investment-holdings-view": "./src/investment-holdings-view.ts",
     "./plan-actual-monitoring": "./src/plan-actual-monitoring.ts",
-    "./position-read-model": "./src/position-read-model.ts"
+    "./position-read-model": "./src/position-read-model.ts",
+    "./position-value": "./src/position-value.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

@@ -32,6 +32,7 @@ import {
   type SignalReconciliationGroup,
   type SignalUpdateProposal,
 } from "@keel/domain";
+import type { PositionValueSourceKind } from "@keel/domain/position-value";
 import {
   AppShell,
   Badge,
@@ -57,6 +58,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Textarea,
 } from "@keel/ui";
 import {
   type CSSProperties,
@@ -70,6 +72,7 @@ import {
 
 import {
   applyAcceptedEvidence,
+  acceptPositionValueAdjustment,
   applyCashAccountProposal,
   applyHoldingImport,
   cancelAngelListSignInRefresh,
@@ -2340,16 +2343,340 @@ function HoldingImportWorkspace({
   );
 }
 
-function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
+const POSITION_VALUE_SOURCE_OPTIONS = [
+  { label: "GP update", value: "gp_update" },
+  { label: "News article", value: "news_article" },
+  { label: "Other", value: "other" },
+] as const satisfies ReadonlyArray<{
+  label: string;
+  value: PositionValueSourceKind;
+}>;
+
+function positionValueSourceKindLabel(kind: PositionValueSourceKind): string {
+  return (
+    POSITION_VALUE_SOURCE_OPTIONS.find((option) => option.value === kind)
+      ?.label ?? "Other"
+  );
+}
+
+function positionValueSourceUrlIsValid(value: string): boolean {
+  if (value.length === 0) {
+    return true;
+  }
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" && url.username === "" && url.password === ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+function PositionValueAdjustmentEditor({
+  holding,
+  onAccepted,
+}: {
+  holding: Holding;
+  onAccepted: () => Promise<void>;
+}) {
+  const context = holding.positionValueContext ?? null;
+  const [open, setOpen] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [value, setValue] = useState("");
+  const [effectiveDate, setEffectiveDate] = useState(
+    new Date().toISOString().slice(0, "YYYY-MM-DD".length),
+  );
+  const [sourceKind, setSourceKind] =
+    useState<PositionValueSourceKind>("gp_update");
+  const [sourceLabel, setSourceLabel] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [commentary, setCommentary] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  if (context === null) {
+    return null;
+  }
+
+  const valueMinor = parseMoneyInput(value);
+  const trimmedUrl = sourceUrl.trim();
+  const canReview =
+    valueMinor !== null &&
+    effectiveDate.length > 0 &&
+    sourceLabel.trim().length > 0 &&
+    commentary.trim().length >= 3 &&
+    positionValueSourceUrlIsValid(trimmedUrl) &&
+    (sourceKind !== "news_article" || trimmedUrl.length > 0);
+  const currentValueMinor =
+    context.acceptedAdjustment?.valueMinor ?? context.providerValueMinor;
+  const currentValueLabel =
+    currentValueMinor === null
+      ? context.providerValueState === "locked"
+        ? "Locked"
+        : "Not reported"
+      : formatCompactCurrency(currentValueMinor, context.currency).replace(
+          /^USD /u,
+          "$",
+        );
+  const proposedValueLabel =
+    valueMinor === null
+      ? "Not set"
+      : formatCompactCurrency(valueMinor, context.currency).replace(
+          /^USD /u,
+          "$",
+        );
+
+  const reset = () => {
+    setOpen(false);
+    setReviewing(false);
+    setValue("");
+    setSourceKind("gp_update");
+    setSourceLabel("");
+    setSourceUrl("");
+    setCommentary("");
+    setError(null);
+  };
+
+  const accept = async () => {
+    if (!canReview || valueMinor === null) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await acceptPositionValueAdjustment(holding.id, {
+        expectedSnapshotId: context.snapshotId,
+        expectedAdjustmentId: context.acceptedAdjustment?.id ?? null,
+        valueMinor,
+        currency: context.currency,
+        effectiveDate,
+        sourceKind,
+        sourceLabel: sourceLabel.trim(),
+        sourceUrl: trimmedUrl.length === 0 ? null : trimmedUrl,
+        commentary: commentary.trim(),
+      });
+      await onAccepted();
+      reset();
+      setNotice("Reviewed value accepted. Exposure totals now use this mark.");
+    } catch (caught: unknown) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The reviewed value could not be accepted.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section
+      aria-labelledby="position-value-adjustment-title"
+      className="position-value-adjustment"
+    >
+      <div className="position-value-adjustment__heading">
+        <div>
+          <p className="eyebrow">Your evidence</p>
+          <h3 id="position-value-adjustment-title">Position value</h3>
+          <p>
+            Add a sourced mark when you know more than the latest provider
+            update.
+          </p>
+        </div>
+        {!open && (
+          <Button
+            onClick={() => {
+              setOpen(true);
+              setNotice(null);
+            }}
+            tone="secondary"
+          >
+            {context.acceptedAdjustment === null
+              ? "Add value evidence"
+              : "Update value evidence"}
+          </Button>
+        )}
+      </div>
+
+      {notice !== null && <FormMessage tone="success">{notice}</FormMessage>}
+      {open && !reviewing && (
+        <form
+          className="position-value-adjustment__form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canReview) {
+              setReviewing(true);
+              setError(null);
+            }
+          }}
+        >
+          <div className="position-value-adjustment__fields">
+            <Field label={`Value · ${context.currency}`}>
+              <InputGroup
+                prefix={context.currency === "USD" ? "$" : context.currency}
+              >
+                <Input
+                  inputMode="decimal"
+                  onChange={(event) => setValue(event.currentTarget.value)}
+                  required
+                  value={value}
+                />
+              </InputGroup>
+            </Field>
+            <Field label="As of">
+              <Input
+                max={new Date().toISOString().slice(0, "YYYY-MM-DD".length)}
+                onChange={(event) =>
+                  setEffectiveDate(event.currentTarget.value)
+                }
+                required
+                type="date"
+                value={effectiveDate}
+              />
+            </Field>
+            <Field label="Source type">
+              <Select
+                items={POSITION_VALUE_SOURCE_OPTIONS}
+                onValueChange={(next) => {
+                  if (
+                    next === "gp_update" ||
+                    next === "news_article" ||
+                    next === "other"
+                  ) {
+                    setSourceKind(next);
+                  }
+                }}
+                value={sourceKind}
+              >
+                <SelectTrigger aria-label="Position value source type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {POSITION_VALUE_SOURCE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Source name">
+              <Input
+                maxLength={240}
+                onChange={(event) => setSourceLabel(event.currentTarget.value)}
+                placeholder="Q2 GP update"
+                required
+                value={sourceLabel}
+              />
+            </Field>
+            <Field
+              description={
+                sourceKind === "news_article"
+                  ? "Required for a news article. HTTPS only."
+                  : "Optional. HTTPS only."
+              }
+              label="Source link"
+              wide
+            >
+              <Input
+                inputMode="url"
+                onChange={(event) => setSourceUrl(event.currentTarget.value)}
+                placeholder="https://…"
+                required={sourceKind === "news_article"}
+                type="url"
+                value={sourceUrl}
+              />
+            </Field>
+            <Field label="What this value reflects" wide>
+              <Textarea
+                maxLength={1_000}
+                onChange={(event) => setCommentary(event.currentTarget.value)}
+                required
+                rows={3}
+                value={commentary}
+              />
+            </Field>
+          </div>
+          {error !== null && <Notice tone="error">{error}</Notice>}
+          <div className="position-value-adjustment__actions">
+            <Button disabled={busy} onClick={reset} tone="quiet" type="button">
+              Cancel
+            </Button>
+            <Button disabled={!canReview || busy} tone="primary" type="submit">
+              Review value
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {open && reviewing && (
+        <div className="position-value-adjustment__review">
+          <div>
+            <span>Position value</span>
+            <strong>
+              {currentValueLabel} → {proposedValueLabel}
+            </strong>
+            <small>
+              {sourceLabel.trim()} · {positionValueSourceKindLabel(sourceKind)}{" "}
+              · As of {formatDate(effectiveDate)}
+            </small>
+          </div>
+          <p>{commentary.trim()}</p>
+          {trimmedUrl.length > 0 && (
+            <a href={trimmedUrl} rel="noreferrer" target="_blank">
+              Open source ↗
+            </a>
+          )}
+          <small>
+            The provider value stays in source history. Keel uses this mark
+            until you accept a newer one.
+          </small>
+          {error !== null && <Notice tone="error">{error}</Notice>}
+          <div className="position-value-adjustment__actions">
+            <Button
+              disabled={busy}
+              onClick={() => setReviewing(false)}
+              tone="quiet"
+            >
+              Back
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() => void accept()}
+              tone="primary"
+            >
+              {busy ? "Accepting…" : "Accept value"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HoldingDetailWorkspace({
+  holding,
+  onValueAccepted,
+}: {
+  holding: Holding;
+  onValueAccepted: () => Promise<void>;
+}) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const primaryName = holdingPrimaryName(holding);
   const legalPositionLabel = holdingLegalPositionLabel(holding);
+  const acceptedAdjustment =
+    holding.positionValueContext?.acceptedAdjustment ?? null;
+  const isImportedPosition =
+    holding.positionValueContext !== null &&
+    holding.positionValueContext !== undefined;
   const isProviderTemplateHolding =
     holding.sourceLabel === "Tokenfolio template" ||
     holding.sourceLabel === "Sydecar template";
   const sourceSectionTitle = isPlaidInvestmentsHolding(holding)
     ? "Brokerage source"
-    : isProviderTemplateHolding
+    : isImportedPosition || isProviderTemplateHolding
       ? "Imported source"
       : holding.externalMarkMinor === null
         ? "Administrator source"
@@ -2373,9 +2700,12 @@ function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
       wide: holding.administratorNavState === "locked",
     },
     {
-      label: "External mark",
+      label: acceptedAdjustment === null ? "External mark" : "Reviewed mark",
       value: holdingValueLabel(holding.externalMarkMinor),
-      helper: "Latest observed third-party economic mark.",
+      helper:
+        acceptedAdjustment === null
+          ? "Latest observed third-party economic mark."
+          : `Accepted from ${acceptedAdjustment.sourceLabel} as of ${formatDate(acceptedAdjustment.effectiveDate)}.`,
       wide: false,
     },
     {
@@ -2444,6 +2774,11 @@ function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
         </div>
       </section>
 
+      <PositionValueAdjustmentEditor
+        holding={holding}
+        onAccepted={onValueAccepted}
+      />
+
       <div className="holding-detail-records">
         <section aria-labelledby="holding-position-title">
           <p className="eyebrow">Accepted record</p>
@@ -2505,6 +2840,51 @@ function HoldingDetailWorkspace({ holding }: { holding: Holding }) {
           </dl>
         </section>
       </div>
+      {acceptedAdjustment !== null && (
+        <section
+          aria-labelledby="holding-reviewed-mark-title"
+          className="holding-reviewed-mark"
+        >
+          <p className="eyebrow">Reviewed position mark</p>
+          <h3 id="holding-reviewed-mark-title">
+            {acceptedAdjustment.sourceLabel}
+          </h3>
+          <dl>
+            <div>
+              <dt>Value</dt>
+              <dd>{holdingValueLabel(holding.externalMarkMinor)}</dd>
+            </div>
+            <div>
+              <dt>As of</dt>
+              <dd>{formatDate(acceptedAdjustment.effectiveDate)}</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>
+                {positionValueSourceKindLabel(acceptedAdjustment.sourceKind)}
+              </dd>
+            </div>
+            {acceptedAdjustment.sourceUrl !== null && (
+              <div>
+                <dt>Link</dt>
+                <dd>
+                  <a
+                    href={acceptedAdjustment.sourceUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Open source ↗
+                  </a>
+                </dd>
+              </div>
+            )}
+            <div className="holding-reviewed-mark__commentary">
+              <dt>Note</dt>
+              <dd>{acceptedAdjustment.commentary}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
     </section>
   );
 }
@@ -5196,7 +5576,10 @@ function Holdings({
       />
 
       {selectedHolding !== null ? (
-        <HoldingDetailWorkspace holding={selectedHolding} />
+        <HoldingDetailWorkspace
+          holding={selectedHolding}
+          onValueAccepted={onExposureResolved}
+        />
       ) : importerVisible ? (
         requestedImportId !== null &&
         activeRoutedPreview === null &&
@@ -5226,76 +5609,71 @@ function Holdings({
             onPreview={onPreviewImport}
           />
         )
-      ) : sourcesVisible ? (
-        <>
-          <AngelListSignInControl />
-          <ProviderPortfolioAgentsControl />
-          <CashAccountsControl
-            onAccepted={() => {
-              setCashRefreshVersion((current) => current + 1);
-              return Promise.resolve();
-            }}
-          />
-          <InvestmentHoldings
-            holdings={data.holdings}
-            mode="sources"
-            onExposureResolved={onExposureResolved}
-            onLoadMoreExposures={loadMoreExposures}
-            onOpenHolding={setSelectedHoldingId}
-            onReviewImport={reviewPendingImport}
-            visibleExposureCount={visibleExposureCount}
-          />
-        </>
       ) : (
         <>
-          {pendingImports.length > 0 && (
-            <section
-              aria-labelledby="pending-holding-imports-title"
-              className="holding-import-pending"
-            >
-              <div>
-                <p className="eyebrow">Holding updates</p>
-                <h2 id="pending-holding-imports-title">
-                  {pendingImports.length === 1
-                    ? "A holding update is ready"
-                    : `${pendingImports.length} holding updates are ready`}
-                </h2>
-                <p>Nothing changes until you review it.</p>
-              </div>
-              <div className="holding-import-pending__items">
-                {pendingImports.map((item) => (
-                  <div key={item.id}>
-                    <span>
-                      <strong>{item.rowCount} positions</strong>
-                      <small>
-                        {holdingImportSourceLabel(item.provider)} ·{" "}
-                        {formatDate(item.observedAt)}
-                      </small>
-                    </span>
-                    <Button
-                      aria-label={`Review ${holdingImportProviderName(item.provider)} import dated ${formatDate(item.observedAt)}`}
-                      onClick={() => reviewPendingImport(item.id)}
-                      tone="primary"
-                    >
-                      Review import
-                    </Button>
+          {sourcesVisible ? (
+            <>
+              <AngelListSignInControl />
+              <ProviderPortfolioAgentsControl />
+              <CashAccountsControl
+                onAccepted={() => {
+                  setCashRefreshVersion((current) => current + 1);
+                  return Promise.resolve();
+                }}
+              />
+            </>
+          ) : (
+            <>
+              {pendingImports.length > 0 && (
+                <section
+                  aria-labelledby="pending-holding-imports-title"
+                  className="holding-import-pending"
+                >
+                  <div>
+                    <p className="eyebrow">Holding updates</p>
+                    <h2 id="pending-holding-imports-title">
+                      {pendingImports.length === 1
+                        ? "A holding update is ready"
+                        : `${pendingImports.length} holding updates are ready`}
+                    </h2>
+                    <p>Nothing changes until you review it.</p>
                   </div>
-                ))}
-              </div>
-            </section>
+                  <div className="holding-import-pending__items">
+                    {pendingImports.map((item) => (
+                      <div key={item.id}>
+                        <span>
+                          <strong>{item.rowCount} positions</strong>
+                          <small>
+                            {holdingImportSourceLabel(item.provider)} ·{" "}
+                            {formatDate(item.observedAt)}
+                          </small>
+                        </span>
+                        <Button
+                          aria-label={`Review ${holdingImportProviderName(item.provider)} import dated ${formatDate(item.observedAt)}`}
+                          onClick={() => reviewPendingImport(item.id)}
+                          tone="primary"
+                        >
+                          Review import
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {pendingImportError !== null && requestedImportId === null && (
+                <Notice role="status" tone="error">
+                  {pendingImportError}
+                </Notice>
+              )}
+              <PortfolioBaselineSection
+                onConfirmed={onBaselineConfirmed}
+                refreshKey={baselineRefreshKey}
+              />
+            </>
           )}
-          {pendingImportError !== null && requestedImportId === null && (
-            <Notice role="status" tone="error">
-              {pendingImportError}
-            </Notice>
-          )}
-          <PortfolioBaselineSection
-            onConfirmed={onBaselineConfirmed}
-            refreshKey={baselineRefreshKey}
-          />
           <InvestmentHoldings
             holdings={data.holdings}
-            mode="exposures"
+            mode={sourcesVisible ? "sources" : "exposures"}
             onExposureResolved={onExposureResolved}
             onLoadMoreExposures={loadMoreExposures}
             onOpenHolding={setSelectedHoldingId}
@@ -5555,7 +5933,7 @@ function PortfolioWatch({
           </Badge>
         }
         className="watch-intro"
-        description="Follow public signals across your private holdings. Nothing changes until you review it."
+        description="Follow public signals across your private holdings. A signal never changes a holding on its own; a value changes only after you review and apply it."
         title="Portfolio Watch"
       />
 
@@ -5566,7 +5944,8 @@ function PortfolioWatch({
         <div>
           <h2>Check for updates</h2>
           <p>
-            Keel automatically finds and checks company sources when you check.
+            Keel finds company sources and sends new evidence to review. Company
+            financing terms do not determine what your position is worth.
           </p>
           <small data-testid="portfolio-watch-data-profile">
             {isRealCompanyAcceptanceProfile

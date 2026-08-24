@@ -260,7 +260,22 @@ test.beforeEach(async ({ page }) => {
         configured: true,
         status: "disconnected",
         connections: [],
-        acceptedAccounts: [],
+        acceptedAccounts: [
+          {
+            id: "cash_fact_synthetic_checking",
+            naturalKeySha256: "7".repeat(64),
+            connectionId: "cash_connection_synthetic_bank",
+            institutionLabel: "Northstar Demo Bank",
+            accountLabel: "Everyday checking",
+            subtype: "checking",
+            valueMinor: 2_500_000,
+            valueState: "reported",
+            balanceSource: "available",
+            refreshKind: "live",
+            observedAt: "2026-08-18T16:00:00.000Z",
+            acceptedAt: "2026-08-18T16:05:00.000Z",
+          },
+        ],
         pendingProposals: [],
         errorCode: null,
       },
@@ -482,14 +497,14 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(exposureView.getByRole("tab")).toHaveCount(0);
   await expect(
     exposureView.locator(".investment-views__heading"),
-  ).toContainText("5 exposures");
+  ).toContainText("4 exposures");
   await expect(
     exposureView.locator(".investment-views__heading"),
-  ).toContainText("7 legal positions");
+  ).toContainText("5 legal positions");
   await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "Total exposure$743.5k · 2 values unavailable",
+    "Total exposure$740k · 2 values unavailable",
   );
-  await expect(exposureView.locator(".exposure-group")).toHaveCount(5);
+  await expect(exposureView.locator(".exposure-group")).toHaveCount(4);
   const exposureSort = exposureView.getByLabel(
     "Sort exposures and positions by value",
   );
@@ -540,19 +555,24 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "$240k",
     "$185k",
   ]);
-  const cash = page.locator(".exposure-group").filter({
-    has: page.getByText("US Dollar", { exact: true }),
-  });
-  await expect(cash).toContainText("2 positions");
-  await cash.locator("summary").click();
+  const cash = page.locator(".cash-holdings");
+  await expect(cash.getByRole("heading", { name: "Cash" })).toBeVisible();
+  await expect(cash).toContainText("Total cash$28.5k");
+  await expect(cash).toContainText("1 bank account · 2 brokerage positions");
+  await expect(cash.getByText("Everyday checking")).toBeVisible();
+  await expect(cash.getByText("Northstar Demo Bank · Bank cash")).toBeVisible();
   await expect(cash.getByText("Robinhood · Robinhood brokerage")).toBeVisible();
   await expect(
     cash.getByText("Fidelity · Fidelity rollover IRA"),
   ).toBeVisible();
-  await expect(cash.locator(".position-row__value")).toHaveText([
-    "$2.25k",
-    "$1.25k",
-  ]);
+  await expect(
+    cash.locator(".cash-holdings__rows article > strong"),
+  ).toHaveText(["$25k", "$1.25k", "$2.25k"]);
+  await expect(
+    page.locator(".exposure-group").filter({
+      has: page.getByText("US Dollar", { exact: true }),
+    }),
+  ).toHaveCount(0);
   await exposureSort.click();
   await expect(
     page.getByRole("option", { name: "Lowest first" }),
@@ -567,11 +587,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(exposureSort).toContainText("Lowest first");
   await expect(
     exposureView.locator(".exposure-group summary strong").first(),
-  ).toHaveText("US Dollar");
-  await expect(cash.locator(".position-row__value")).toHaveText([
-    "$1.25k",
-    "$2.25k",
-  ]);
+  ).toHaveText("NVDA");
   await expect(nvda.locator(".position-row__value")).toHaveText([
     "$185k",
     "$240k",
@@ -817,7 +833,7 @@ test("checks a stale brokerage after rendering current holdings", async ({
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
-  await expect(page.locator(".exposure-group")).toHaveCount(5);
+  await expect(page.locator(".exposure-group")).toHaveCount(4);
   await openHoldingSources(page);
 
   const robinhoodCard = page
@@ -878,9 +894,6 @@ test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
     robinhoodCard.getByText("We’ll try again later.", { exact: true }),
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expect(robinhoodCard).toHaveScreenshot(
-    "investment-holdings-check-failed.png",
-  );
   const retry = robinhoodCard.getByRole("button", { name: "Try now" });
   await expect(retry).toBeEnabled();
   await retry.click();

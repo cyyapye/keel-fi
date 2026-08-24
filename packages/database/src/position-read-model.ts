@@ -7,6 +7,7 @@ import {
   type InvestmentPositionRecord,
   type InvestmentPositionView,
 } from "@keel/domain/position-read-model";
+import { PositionValueAdjustmentSchema } from "@keel/domain/position-value";
 
 type HouseholdIdentity = {
   household_id: string;
@@ -66,6 +67,18 @@ type InvestmentPositionRow = {
   source_label: string;
   effective_date: string;
   retrieved_at: string;
+  adjustment_id: string | null;
+  adjustment_snapshot_id: string | null;
+  adjustment_prior_value_state: "reported" | "locked" | "not_reported" | null;
+  adjustment_prior_value_minor: number | null;
+  adjustment_value_minor: number | null;
+  adjustment_currency: string | null;
+  adjustment_effective_date: string | null;
+  adjustment_source_kind: "gp_update" | "news_article" | "other" | null;
+  adjustment_source_label: string | null;
+  adjustment_source_url: string | null;
+  adjustment_commentary: string | null;
+  adjustment_accepted_at: string | null;
 };
 
 type ConnectionBuilder = {
@@ -85,6 +98,24 @@ function positionFromRow(
   row: InvestmentPositionRow,
   asOf: string,
 ): InvestmentPositionRecord {
+  const acceptedValueAdjustment =
+    row.adjustment_id === null
+      ? null
+      : PositionValueAdjustmentSchema.parse({
+          id: row.adjustment_id,
+          positionId: row.position_id,
+          snapshotId: row.adjustment_snapshot_id,
+          priorValueState: row.adjustment_prior_value_state,
+          priorValueMinor: row.adjustment_prior_value_minor,
+          valueMinor: row.adjustment_value_minor,
+          currency: row.adjustment_currency,
+          effectiveDate: row.adjustment_effective_date,
+          sourceKind: row.adjustment_source_kind,
+          sourceLabel: row.adjustment_source_label,
+          sourceUrl: row.adjustment_source_url,
+          commentary: row.adjustment_commentary,
+          acceptedAt: row.adjustment_accepted_at,
+        });
   return {
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
@@ -123,6 +154,7 @@ function positionFromRow(
       ticker: row.ticker,
       costBasisMinor: row.cost_basis_minor,
     },
+    acceptedValueAdjustment,
   };
 }
 
@@ -303,7 +335,19 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                document.effective_date,
                substr(document.retrieved_at, 1, 10)
              ) AS effective_date,
-             document.retrieved_at
+             document.retrieved_at,
+             adjustment.id AS adjustment_id,
+             adjustment.snapshot_id AS adjustment_snapshot_id,
+             adjustment.prior_value_state AS adjustment_prior_value_state,
+             adjustment.prior_value_minor AS adjustment_prior_value_minor,
+             adjustment.value_minor AS adjustment_value_minor,
+             adjustment.currency AS adjustment_currency,
+             adjustment.effective_date AS adjustment_effective_date,
+             adjustment.source_kind AS adjustment_source_kind,
+             adjustment.source_label AS adjustment_source_label,
+             adjustment.source_url AS adjustment_source_url,
+             adjustment.commentary AS adjustment_commentary,
+             adjustment_review.decided_at AS adjustment_accepted_at
            FROM holding_positions position
            JOIN holding_position_ownerships ownership
              ON ownership.position_id = position.id
@@ -334,6 +378,29 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ON accepted_import.id = accepted_row.import_id
            JOIN source_documents document
              ON document.id = accepted_import.source_document_id
+           LEFT JOIN holding_position_value_proposals adjustment
+             ON adjustment.id = (
+               SELECT proposal.id
+               FROM holding_position_value_proposals proposal
+               JOIN holding_position_value_reviews review
+                 ON review.proposal_id = proposal.id
+                AND review.decision = 'accepted'
+               WHERE proposal.position_id = position.id
+                 AND proposal.household_id = position.household_id
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM holding_position_value_proposals later
+                   JOIN holding_position_value_reviews later_review
+                     ON later_review.proposal_id = later.id
+                    AND later_review.decision = 'accepted'
+                   WHERE later.supersedes_proposal_id = proposal.id
+                 )
+               ORDER BY review.decided_at DESC, proposal.id DESC
+               LIMIT 1
+             )
+           LEFT JOIN holding_position_value_reviews adjustment_review
+             ON adjustment_review.proposal_id = adjustment.id
+            AND adjustment_review.decision = 'accepted'
            WHERE position.household_id = ?
              AND NOT EXISTS (
                SELECT 1

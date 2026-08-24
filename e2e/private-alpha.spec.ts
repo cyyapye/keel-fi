@@ -43,7 +43,7 @@ test("loads the database-backed dashboard and primary views", async ({
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { level: 3, name: "No reviewed positions" }),
+    page.getByRole("heading", { level: 3, name: "No company exposures" }),
   ).toBeVisible();
   for (const retiredCompany of [
     "Harbor Health Systems",
@@ -78,7 +78,7 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(page.getByText("Check for updates")).toBeVisible();
   await expect(
     page.getByText(
-      "Keel automatically finds and checks company sources when you check.",
+      "Keel finds company sources and sends new evidence to review. Company financing terms do not determine what your position is worth.",
     ),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();

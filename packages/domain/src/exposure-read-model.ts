@@ -102,6 +102,9 @@ export const InvestmentExposurePositionSchema = z
       InvestmentPositionRecordSchema.shape.snapshot.shape.instrumentType,
     currency: InvestmentPositionRecordSchema.shape.snapshot.shape.currency,
     ticker: InvestmentPositionRecordSchema.shape.snapshot.shape.ticker,
+    valueSource: z.enum(["provider", "reviewed_adjustment"]).optional(),
+    valueEffectiveDate: z.iso.date().optional(),
+    valueSourceLabel: z.string().trim().min(1).max(240).optional(),
     mappings: z.array(InvestmentExposureMappingViewSchema),
     mappedExposureIds: z.array(z.string().min(1)),
     knownAllocationPpm: z.number().int().safe().min(0).max(PARTS_PER_MILLION),
@@ -234,8 +237,15 @@ export function createInvestmentExposureView(
             "Exposure read model allocations exceed one million ppm.",
           );
         }
-        const valueState = position.snapshot.unrealizedValue.state;
-        const valueMinor = position.snapshot.unrealizedValue.minor;
+        const adjustment = position.acceptedValueAdjustment ?? null;
+        const valueState =
+          adjustment === null
+            ? position.snapshot.unrealizedValue.state
+            : "reported";
+        const valueMinor =
+          adjustment === null
+            ? position.snapshot.unrealizedValue.minor
+            : adjustment.valueMinor;
         const allocatedValues: number[] = [];
         const mappingViews = positionMappings.map((mapping) => {
           const allocatedValueMinor =
@@ -309,6 +319,11 @@ export function createInvestmentExposureView(
           instrumentType: position.snapshot.instrumentType,
           currency: position.snapshot.currency,
           ticker: position.snapshot.ticker,
+          valueSource: adjustment === null ? "provider" : "reviewed_adjustment",
+          valueEffectiveDate:
+            adjustment?.effectiveDate ??
+            position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length),
+          valueSourceLabel: adjustment?.sourceLabel ?? position.source.label,
           valueState,
           valueMinor,
           mappings: mappingViews,

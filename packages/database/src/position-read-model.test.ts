@@ -4,6 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
+import { D1PositionValueAdjustmentRepository } from "./position-value-adjustments";
 
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
@@ -37,6 +38,7 @@ const migrationFiles = [
   "packages/database/migrations/0030_reconnected_position_continuity.sql",
   "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql",
   "packages/database/migrations/0032_provider_template_holdings.sql",
+  "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -95,6 +97,10 @@ class TestD1Statement {
       results: this.database.prepare(this.sql).all(...this.values) as T[],
     });
   }
+
+  public execute(): void {
+    this.database.prepare(this.sql).run(...this.values);
+  }
 }
 
 class TestD1Database {
@@ -102,6 +108,18 @@ class TestD1Database {
 
   public prepare(sql: string): TestD1Statement {
     return new TestD1Statement(this.database, sql);
+  }
+
+  public batch(statements: readonly TestD1Statement[]): Promise<void> {
+    this.database.exec("BEGIN");
+    try {
+      statements.forEach((statement) => statement.execute());
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    return Promise.resolve();
   }
 }
 
@@ -603,6 +621,282 @@ describe("canonical investment position view", () => {
     await expect(
       repository.list("missing-subject", "2026-08-16T12:00:00.000Z"),
     ).rejects.toThrow(/Household not found/u);
+  });
+
+  it("uses the latest append-only reviewed value without replacing the provider snapshot", async () => {
+    addConnection(sqlite, demoHousehold, {
+      id: "connection_value_evidence",
+      protectedSourceKey: digest("1"),
+      institutionKey: "synthetic-value-evidence",
+      institutionLabel: "Synthetic Value Evidence",
+    });
+    addContainer(sqlite, demoHousehold, {
+      id: "container_value_evidence",
+      connectionId: "connection_value_evidence",
+      protectedAccountKey: digest("2"),
+      label: "Synthetic Taxable",
+      kind: "brokerage",
+      taxTreatment: "taxable",
+    });
+    addPositionObservation(sqlite, {
+      household: demoHousehold,
+      connectionId: "connection_value_evidence",
+      containerId: "container_value_evidence",
+      positionId: "position_value_evidence",
+      positionFingerprint: digest("3"),
+      observationId: "value_evidence",
+      observationDigest: digest("4"),
+      observedAt: "2026-08-15T12:00:00.000Z",
+      retrievedAt: "2026-08-15T12:05:00.000Z",
+      acceptedAt: "2026-08-15T12:10:00.000Z",
+      completeness: "complete",
+      unrealizedValueMinor: 1_000_000,
+      unrealizedValueState: "reported",
+      netValueMinor: 1_000_000,
+      netValueState: "reported",
+      createPosition: true,
+      acceptObservation: true,
+    });
+    const adjustmentRepository = new D1PositionValueAdjustmentRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    );
+
+    const accepted = await adjustmentRepository.accept(
+      "synthetic-access-subject",
+      "position_value_evidence",
+      {
+        expectedSnapshotId: "snapshot_value_evidence",
+        expectedAdjustmentId: null,
+        valueMinor: 1_250_000,
+        currency: "USD",
+        effectiveDate: "2026-08-16",
+        sourceKind: "gp_update",
+        sourceLabel: "Synthetic Q2 GP update",
+        sourceUrl: null,
+        commentary: "Synthetic progress supports a reviewed position mark.",
+      },
+    );
+    const view = await repository.list(
+      "synthetic-access-subject",
+      "2026-08-23T12:00:00.000Z",
+    );
+    const position = view.connections[0]?.containers[0]?.positions[0];
+
+    expect(accepted).toMatchObject({
+      priorValueMinor: 1_000_000,
+      valueMinor: 1_250_000,
+      sourceKind: "gp_update",
+    });
+    expect(position?.snapshot.unrealizedValue).toEqual({
+      state: "reported",
+      minor: 1_000_000,
+    });
+    expect(position?.acceptedValueAdjustment).toMatchObject({
+      id: accepted.id,
+      valueMinor: 1_250_000,
+      commentary: "Synthetic progress supports a reviewed position mark.",
+    });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM holding_position_value_proposals",
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      sqlite
+        .prepare("SELECT COUNT(*) AS count FROM holding_position_value_reviews")
+        .get(),
+    ).toEqual({ count: 1 });
+
+    addPositionObservation(sqlite, {
+      household: demoHousehold,
+      connectionId: "connection_value_evidence",
+      containerId: "container_value_evidence",
+      positionId: "position_value_evidence",
+      positionFingerprint: digest("3"),
+      observationId: "value_evidence_refresh",
+      observationDigest: digest("9"),
+      observedAt: "2026-08-22T12:00:00.000Z",
+      retrievedAt: "2026-08-22T12:05:00.000Z",
+      acceptedAt: "2026-08-22T12:10:00.000Z",
+      completeness: "complete",
+      unrealizedValueMinor: 1_100_000,
+      unrealizedValueState: "reported",
+      netValueMinor: 1_100_000,
+      netValueState: "reported",
+      createPosition: false,
+      acceptObservation: true,
+    });
+
+    await expect(
+      adjustmentRepository.accept(
+        "synthetic-access-subject",
+        "position_value_evidence",
+        {
+          expectedSnapshotId: "snapshot_value_evidence",
+          expectedAdjustmentId: accepted.id,
+          valueMinor: 1_300_000,
+          currency: "USD",
+          effectiveDate: "2026-08-22",
+          sourceKind: "gp_update",
+          sourceLabel: "Stale synthetic GP update",
+          sourceUrl: null,
+          commentary: "This editor predates the newest provider snapshot.",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "stale" });
+
+    expect(() =>
+      sqlite
+        .prepare(
+          `INSERT INTO holding_position_value_proposals (
+             id, household_id, position_id, snapshot_id,
+             supersedes_proposal_id, prior_value_state, prior_value_minor,
+             value_minor, currency, effective_date, source_kind,
+             source_label, source_url, commentary, created_by, created_at,
+             immutable
+           ) VALUES (
+             'proposal_stale_snapshot', 'hh_demo', 'position_value_evidence',
+             'snapshot_value_evidence', ?, 'reported', 1250000, 1300000,
+             'USD', '2026-08-22', 'gp_update', 'Stale synthetic GP update',
+             NULL, 'This write races the newest provider snapshot.',
+             'usr_demo', '2026-08-22T12:11:00.000Z', 1
+           )`,
+        )
+        .run(accepted.id),
+    ).toThrow(/snapshot is stale/u);
+
+    const refreshedView = await repository.list(
+      "synthetic-access-subject",
+      "2026-08-23T12:00:00.000Z",
+    );
+    expect(
+      refreshedView.connections[0]?.containers[0]?.positions[0],
+    ).toMatchObject({
+      snapshot: {
+        id: "snapshot_value_evidence_refresh",
+        unrealizedValue: { state: "reported", minor: 1_100_000 },
+      },
+      acceptedValueAdjustment: {
+        id: accepted.id,
+        valueMinor: 1_250_000,
+      },
+    });
+  });
+
+  it("supersedes reviewed marks append-only and rejects a stale editor", async () => {
+    addConnection(sqlite, demoHousehold, {
+      id: "connection_value_chain",
+      protectedSourceKey: digest("5"),
+      institutionKey: "synthetic-value-chain",
+      institutionLabel: "Synthetic Value Chain",
+    });
+    addContainer(sqlite, demoHousehold, {
+      id: "container_value_chain",
+      connectionId: "connection_value_chain",
+      protectedAccountKey: digest("6"),
+      label: "Synthetic Value Account",
+      kind: "brokerage",
+      taxTreatment: "unknown",
+    });
+    addPositionObservation(sqlite, {
+      household: demoHousehold,
+      connectionId: "connection_value_chain",
+      containerId: "container_value_chain",
+      positionId: "position_value_chain",
+      positionFingerprint: digest("7"),
+      observationId: "value_chain",
+      observationDigest: digest("8"),
+      observedAt: "2026-08-15T12:00:00.000Z",
+      retrievedAt: "2026-08-15T12:05:00.000Z",
+      acceptedAt: "2026-08-15T12:10:00.000Z",
+      completeness: "complete",
+      unrealizedValueMinor: 2_000_000,
+      unrealizedValueState: "reported",
+      netValueMinor: 2_000_000,
+      netValueState: "reported",
+      createPosition: true,
+      acceptObservation: true,
+    });
+    const adjustmentRepository = new D1PositionValueAdjustmentRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    );
+    const first = await adjustmentRepository.accept(
+      "synthetic-access-subject",
+      "position_value_chain",
+      {
+        expectedSnapshotId: "snapshot_value_chain",
+        expectedAdjustmentId: null,
+        valueMinor: 2_250_000,
+        currency: "USD",
+        effectiveDate: "2026-08-16",
+        sourceKind: "gp_update",
+        sourceLabel: "Synthetic GP update",
+        sourceUrl: null,
+        commentary: "The first synthetic reviewed position mark.",
+      },
+    );
+    const second = await adjustmentRepository.accept(
+      "synthetic-access-subject",
+      "position_value_chain",
+      {
+        expectedSnapshotId: "snapshot_value_chain",
+        expectedAdjustmentId: first.id,
+        valueMinor: 2_500_000,
+        currency: "USD",
+        effectiveDate: "2026-08-17",
+        sourceKind: "news_article",
+        sourceLabel: "Synthetic transaction report",
+        sourceUrl: "https://news.example/synthetic-transaction",
+        commentary: "A newer synthetic transaction supports this mark.",
+      },
+    );
+
+    await expect(
+      adjustmentRepository.accept(
+        "synthetic-access-subject",
+        "position_value_chain",
+        {
+          expectedSnapshotId: "snapshot_value_chain",
+          expectedAdjustmentId: first.id,
+          valueMinor: 2_600_000,
+          currency: "USD",
+          effectiveDate: "2026-08-17",
+          sourceKind: "other",
+          sourceLabel: "Stale synthetic editor",
+          sourceUrl: null,
+          commentary: "This stale editor must not replace the newer mark.",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "stale" });
+
+    const view = await repository.list(
+      "synthetic-access-subject",
+      "2026-08-23T12:00:00.000Z",
+    );
+    expect(
+      view.connections[0]?.containers[0]?.positions[0]?.acceptedValueAdjustment,
+    ).toMatchObject({
+      id: second.id,
+      priorValueMinor: first.valueMinor,
+      valueMinor: 2_500_000,
+      sourceUrl: "https://news.example/synthetic-transaction",
+    });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM holding_position_value_proposals",
+        )
+        .get(),
+    ).toEqual({ count: 2 });
+    expect(() =>
+      sqlite
+        .prepare(
+          "UPDATE holding_position_value_proposals SET value_minor = 1 WHERE id = ?",
+        )
+        .run(first.id),
+    ).toThrow(/immutable/u);
   });
 
   it("derives reviewed-history purpose only from the reserved connection id", async () => {

@@ -64,6 +64,7 @@ export * from "./exposures";
 export * from "./exposure-read-model";
 export * from "./position-read-model";
 export * from "./plan-actual-monitoring";
+export * from "./position-value-adjustments";
 
 type DashboardRow = {
   as_of_date: string;
@@ -142,6 +143,22 @@ type HoldingRow = {
   ticker: string | null;
   quantity_micros: number | null;
   cost_basis_minor: number | null;
+  position_snapshot_id: string | null;
+  position_currency: string | null;
+  position_provider_value_state: "reported" | "locked" | "not_reported" | null;
+  position_provider_value_minor: number | null;
+  adjustment_id: string | null;
+  adjustment_snapshot_id: string | null;
+  adjustment_prior_value_state: "reported" | "locked" | "not_reported" | null;
+  adjustment_prior_value_minor: number | null;
+  adjustment_value_minor: number | null;
+  adjustment_currency: string | null;
+  adjustment_effective_date: string | null;
+  adjustment_source_kind: "gp_update" | "news_article" | "other" | null;
+  adjustment_source_label: string | null;
+  adjustment_source_url: string | null;
+  adjustment_commentary: string | null;
+  adjustment_accepted_at: string | null;
 };
 
 type EvidenceRow = {
@@ -623,7 +640,23 @@ export class D1AlphaRepository implements AlphaRepository {
                  source.confidence_ppm,
                  NULL AS ticker,
                  NULL AS quantity_micros,
-                 NULL AS cost_basis_minor
+                 NULL AS cost_basis_minor,
+                 NULL AS position_snapshot_id,
+                 NULL AS position_currency,
+                 NULL AS position_provider_value_state,
+                 NULL AS position_provider_value_minor,
+                 NULL AS adjustment_id,
+                 NULL AS adjustment_snapshot_id,
+                 NULL AS adjustment_prior_value_state,
+                 NULL AS adjustment_prior_value_minor,
+                 NULL AS adjustment_value_minor,
+                 NULL AS adjustment_currency,
+                 NULL AS adjustment_effective_date,
+                 NULL AS adjustment_source_kind,
+                 NULL AS adjustment_source_label,
+                 NULL AS adjustment_source_url,
+                 NULL AS adjustment_commentary,
+                 NULL AS adjustment_accepted_at
                FROM asset_lots lot
                JOIN companies company ON company.id = lot.company_id
                JOIN asset_accounts account ON account.id = lot.asset_account_id
@@ -706,7 +739,7 @@ export class D1AlphaRepository implements AlphaRepository {
                    WHEN 'locked' THEN 'locked'
                    ELSE 'not_set'
                  END AS administrator_nav_state,
-                 NULL AS external_mark_minor,
+                 adjustment.value_minor AS external_mark_minor,
                  NULL AS underwriting_value_minor,
                  NULL AS scenario_value_minor,
                  NULL AS usable_liquidity_minor,
@@ -731,7 +764,23 @@ export class D1AlphaRepository implements AlphaRepository {
                  NULL AS confidence_ppm,
                  snapshot.ticker,
                  snapshot.quantity_micros,
-                 snapshot.cost_basis_minor
+                 snapshot.cost_basis_minor,
+                 snapshot.id AS position_snapshot_id,
+                 snapshot.currency AS position_currency,
+                 snapshot.unrealized_value_state AS position_provider_value_state,
+                 snapshot.unrealized_value_minor AS position_provider_value_minor,
+                 adjustment.id AS adjustment_id,
+                 adjustment.snapshot_id AS adjustment_snapshot_id,
+                 adjustment.prior_value_state AS adjustment_prior_value_state,
+                 adjustment.prior_value_minor AS adjustment_prior_value_minor,
+                 adjustment.value_minor AS adjustment_value_minor,
+                 adjustment.currency AS adjustment_currency,
+                 adjustment.effective_date AS adjustment_effective_date,
+                 adjustment.source_kind AS adjustment_source_kind,
+                 adjustment.source_label AS adjustment_source_label,
+                 adjustment.source_url AS adjustment_source_url,
+                 adjustment.commentary AS adjustment_commentary,
+                 adjustment_review.decided_at AS adjustment_accepted_at
                FROM holding_positions position
                JOIN holding_position_snapshots snapshot
                  ON snapshot.id = (
@@ -756,6 +805,29 @@ export class D1AlphaRepository implements AlphaRepository {
                  ON latest_import.id = latest_row.import_id
                JOIN source_documents document
                  ON document.id = latest_import.source_document_id
+               LEFT JOIN holding_position_value_proposals adjustment
+                 ON adjustment.id = (
+                   SELECT proposal.id
+                   FROM holding_position_value_proposals proposal
+                   JOIN holding_position_value_reviews review
+                     ON review.proposal_id = proposal.id
+                    AND review.decision = 'accepted'
+                   WHERE proposal.position_id = position.id
+                     AND proposal.household_id = position.household_id
+                     AND NOT EXISTS (
+                       SELECT 1
+                       FROM holding_position_value_proposals later
+                       JOIN holding_position_value_reviews later_review
+                         ON later_review.proposal_id = later.id
+                        AND later_review.decision = 'accepted'
+                       WHERE later.supersedes_proposal_id = proposal.id
+                     )
+                   ORDER BY review.decided_at DESC, proposal.id DESC
+                   LIMIT 1
+                 )
+               LEFT JOIN holding_position_value_reviews adjustment_review
+                 ON adjustment_review.proposal_id = adjustment.id
+                AND adjustment_review.decision = 'accepted'
                WHERE position.household_id = ?
              ) holdings
              ORDER BY exposure_name, position_name`,
@@ -1008,6 +1080,33 @@ export class D1AlphaRepository implements AlphaRepository {
         ticker: row.ticker,
         quantityMicros: row.quantity_micros,
         costBasisMinor: row.cost_basis_minor,
+        positionValueContext:
+          row.position_snapshot_id === null
+            ? undefined
+            : {
+                snapshotId: row.position_snapshot_id,
+                currency: row.position_currency,
+                providerValueState: row.position_provider_value_state,
+                providerValueMinor: row.position_provider_value_minor,
+                acceptedAdjustment:
+                  row.adjustment_id === null
+                    ? null
+                    : {
+                        id: row.adjustment_id,
+                        positionId: row.id,
+                        snapshotId: row.adjustment_snapshot_id,
+                        priorValueState: row.adjustment_prior_value_state,
+                        priorValueMinor: row.adjustment_prior_value_minor,
+                        valueMinor: row.adjustment_value_minor,
+                        currency: row.adjustment_currency,
+                        effectiveDate: row.adjustment_effective_date,
+                        sourceKind: row.adjustment_source_kind,
+                        sourceLabel: row.adjustment_source_label,
+                        sourceUrl: row.adjustment_source_url,
+                        commentary: row.adjustment_commentary,
+                        acceptedAt: row.adjustment_accepted_at,
+                      },
+              },
       })),
       evidenceInbox: evidence.map((row) => {
         const financingFacts = financingFactsFromClaim(row.claim_value_json);

@@ -1,5 +1,6 @@
 import {
   addMinorUnits,
+  type CashAccountsState,
   type Holding,
   type InvestmentConnectionStatus,
   type InvestmentConnectionsState,
@@ -48,6 +49,7 @@ import {
   exchangeInvestmentPublicToken,
   loadInvestmentConnections,
   loadInvestmentHoldings,
+  loadCashAccounts,
   loadPrivateExposureReviews,
   syncDueInvestmentHoldings,
   syncInvestmentHoldings,
@@ -239,6 +241,20 @@ function exposurePositionValue(position: InvestmentExposurePosition): string {
   return position.valueState === "locked" ? "Locked" : "Not reported";
 }
 
+function isCashPosition(position: InvestmentExposurePosition): boolean {
+  return position.instrumentType.trim().toLowerCase() === "cash";
+}
+
+function isCashExposure(group: InvestmentExposureGroup): boolean {
+  return group.contributions.some((contribution) =>
+    contribution.decisionReference.startsWith("cash-currency-v1:"),
+  );
+}
+
+function companyExposureGroups(data: InvestmentHoldingsView) {
+  return data.exposureView.exposures.filter((group) => !isCashExposure(group));
+}
+
 function exposureTotalsLabel(
   totals: InvestmentHoldingsView["exposureView"]["exposures"][number]["totals"],
 ): string {
@@ -259,7 +275,7 @@ function exposureTotalsLabel(
 
 function exposureGrandTotalLabel(data: InvestmentHoldingsView): string {
   const reportedByCurrency = new Map<string, number>();
-  for (const group of data.exposureView.exposures) {
+  for (const group of companyExposureGroups(data)) {
     for (const total of group.totals) {
       if (total.knownValuePositionCount === 0) {
         continue;
@@ -275,12 +291,13 @@ function exposureGrandTotalLabel(data: InvestmentHoldingsView): string {
   }
   const unavailableCount = data.exposureView.positions.filter(
     (position) =>
-      position.valueState !== "reported" || position.hasUnknownAllocation,
+      !isCashPosition(position) &&
+      (position.valueState !== "reported" || position.hasUnknownAllocation),
   ).length;
   return formatCurrencyTotals(
     reportedByCurrency,
     unavailableCount,
-    data.exposureView.exposures.length === 0
+    companyExposureGroups(data).length === 0
       ? formatHoldingCurrency(0, "USD")
       : "Value unavailable",
   );
@@ -828,9 +845,10 @@ function ExposureView({
       : `${position.institutionLabel} · ${position.containerLabel}`;
   const canonicalUnallocated = data.exposureView.positions.filter(
     (position) =>
-      position.hasUnknownAllocation ||
-      (position.unallocatedValueMinor ?? 0) > 0 ||
-      position.mappedExposureIds.length === 0,
+      !isCashPosition(position) &&
+      (position.hasUnknownAllocation ||
+        (position.unallocatedValueMinor ?? 0) > 0 ||
+        position.mappedExposureIds.length === 0),
   );
   const reviewPositionById = new Map(
     exposureReviewState?.positions.map((position) => [
@@ -840,10 +858,10 @@ function ExposureView({
   );
   const sortedExposureGroups = useMemo(
     () =>
-      [...data.exposureView.exposures].sort((left, right) =>
+      companyExposureGroups(data).sort((left, right) =>
         compareExposureGroups(left, right, sortDirection),
       ),
-    [data.exposureView.exposures, sortDirection],
+    [data, sortDirection],
   );
   const totalExposureCount = sortedExposureGroups.length;
   const visibleCanonicalExposureGroups = sortedExposureGroups.slice(
@@ -873,12 +891,12 @@ function ExposureView({
     return () => observer.disconnect();
   }, [hasMoreExposures, onLoadMoreExposures, visibleExposureCount]);
   if (
-    data.exposureView.exposures.length === 0 &&
+    companyExposureGroups(data).length === 0 &&
     canonicalUnallocated.length === 0
   ) {
     return (
       <div className="investment-views__empty">
-        <h3>No reviewed positions</h3>
+        <h3>No company exposures</h3>
         <p>Connect an investment institution or import a holding update.</p>
       </div>
     );
@@ -967,6 +985,9 @@ function ExposureView({
                   </span>
                   <span className="position-row__value">
                     {exposurePositionValue(position)}
+                    {position.valueSource === "reviewed_adjustment" && (
+                      <small>Reviewed mark</small>
+                    )}
                   </span>
                   <span className="unallocated-positions__status">
                     {position.hasUnknownAllocation
@@ -1071,6 +1092,9 @@ function ExposureView({
                     </span>
                     <span className="position-row__value">
                       {exposurePositionValue(position)}
+                      {position.valueSource === "reviewed_adjustment" && (
+                        <small>Reviewed mark</small>
+                      )}
                     </span>
                     <span>
                       {position.hasUnknownAllocation
@@ -1102,6 +1126,123 @@ function ExposureView({
   );
 }
 
+function CashHoldingsView({
+  accounts,
+  data,
+  error,
+  onOpenHolding,
+  openableHoldingIds,
+}: {
+  accounts: CashAccountsState | null;
+  data: InvestmentHoldingsView;
+  error: string | null;
+  onOpenHolding: (holdingId: string) => void;
+  openableHoldingIds: ReadonlySet<string>;
+}) {
+  const bankAccounts = accounts?.acceptedAccounts ?? [];
+  const brokeragePositions = data.exposureView.positions.filter(isCashPosition);
+  if (
+    bankAccounts.length === 0 &&
+    brokeragePositions.length === 0 &&
+    error === null
+  ) {
+    return null;
+  }
+
+  const totals = new Map<string, number>();
+  let unavailableCount = 0;
+  for (const account of bankAccounts) {
+    if (account.valueMinor === null) {
+      unavailableCount += 1;
+    } else {
+      totals.set(
+        "USD",
+        addMinorUnits(totals.get("USD") ?? 0, account.valueMinor),
+      );
+    }
+  }
+  for (const position of brokeragePositions) {
+    if (position.valueMinor === null || position.valueState !== "reported") {
+      unavailableCount += 1;
+    } else {
+      totals.set(
+        position.currency,
+        addMinorUnits(totals.get(position.currency) ?? 0, position.valueMinor),
+      );
+    }
+  }
+
+  return (
+    <section aria-labelledby="cash-holdings-title" className="cash-holdings">
+      <div className="cash-holdings__heading">
+        <div>
+          <p className="eyebrow">Reviewed liquidity</p>
+          <h2 id="cash-holdings-title">Cash</h2>
+          <p>
+            Bank balances and brokerage cash stay separate from company
+            exposures.
+          </p>
+        </div>
+        <span className="cash-holdings__total">
+          <small>Total cash</small>
+          <strong>{formatCurrencyTotals(totals, unavailableCount)}</strong>
+          <span>
+            {bankAccounts.length} bank{" "}
+            {bankAccounts.length === 1 ? "account" : "accounts"}
+            {" · "}
+            {brokeragePositions.length} brokerage{" "}
+            {brokeragePositions.length === 1 ? "position" : "positions"}
+          </span>
+        </span>
+      </div>
+      {error !== null && <p className="cash-holdings__error">{error}</p>}
+      {(bankAccounts.length > 0 || brokeragePositions.length > 0) && (
+        <div className="cash-holdings__rows">
+          {bankAccounts.map((account) => (
+            <article key={account.id}>
+              <span>
+                <strong>{account.accountLabel}</strong>
+                <small>
+                  {account.institutionLabel} · Bank cash · As of{" "}
+                  {formatDate(account.observedAt)}
+                </small>
+              </span>
+              <strong>
+                {account.valueMinor === null
+                  ? "Not reported"
+                  : formatHoldingCurrency(account.valueMinor, "USD")}
+              </strong>
+            </article>
+          ))}
+          {brokeragePositions.map((position) => (
+            <article key={position.id}>
+              <span>
+                <strong>{positionDisplayName(position)}</strong>
+                <small>
+                  {position.institutionLabel} · {position.containerLabel} · As
+                  of {formatDate(position.observedAt)}
+                </small>
+              </span>
+              <strong>{exposurePositionValue(position)}</strong>
+              {openableHoldingIds.has(position.id) && (
+                <button
+                  aria-label={`View ${positionDisplayName(position)} holding details`}
+                  className="position-row__action"
+                  data-holding-id={position.id}
+                  onClick={() => onOpenHolding(position.id)}
+                  type="button"
+                >
+                  View details →
+                </button>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function InvestmentHoldings({
   holdings,
   mode,
@@ -1122,6 +1263,10 @@ export function InvestmentHoldings({
   const [connectionState, setConnectionState] =
     useState<InvestmentConnectionsState | null>(null);
   const [data, setData] = useState<InvestmentHoldingsView | null>(null);
+  const [cashAccounts, setCashAccounts] = useState<CashAccountsState | null>(
+    null,
+  );
+  const [cashViewError, setCashViewError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [confirmDisconnectId, setConfirmDisconnectId] = useState<string | null>(
     null,
@@ -1190,14 +1335,32 @@ export function InvestmentHoldings({
     }
   }, []);
 
+  const reloadCashAccounts = useCallback(async () => {
+    try {
+      const next = await loadCashAccounts();
+      setCashAccounts(next);
+      setCashViewError(null);
+      return next;
+    } catch {
+      setCashViewError("Keel could not load reviewed bank cash.");
+      return null;
+    }
+  }, []);
+
   const reload = useCallback(
     () =>
       Promise.all([
         reloadConnections(),
         reloadHoldings(),
         reloadExposureReviews(),
+        reloadCashAccounts(),
       ]),
-    [reloadConnections, reloadExposureReviews, reloadHoldings],
+    [
+      reloadCashAccounts,
+      reloadConnections,
+      reloadExposureReviews,
+      reloadHoldings,
+    ],
   );
 
   useEffect(() => {
@@ -1622,12 +1785,17 @@ export function InvestmentHoldings({
         total +
         connection.containers.reduce(
           (containerTotal, container) =>
-            containerTotal + container.positions.length,
+            containerTotal +
+            container.positions.filter(
+              (position) =>
+                position.snapshot.instrumentType.trim().toLowerCase() !==
+                "cash",
+            ).length,
           0,
         ),
       0,
     ) ?? 0;
-  const exposureCount = data?.exposureView.exposures.length ?? 0;
+  const exposureCount = data === null ? 0 : companyExposureGroups(data).length;
 
   if (mode === "sources") {
     return (
@@ -1756,110 +1924,127 @@ export function InvestmentHoldings({
   }
 
   return (
-    <section
-      aria-labelledby="investment-views-title"
-      className="investment-views"
-    >
-      <div className="investment-views__heading">
-        <div>
-          <p className="eyebrow">Reviewed ownership</p>
-          <h2 id="investment-views-title">Exposures</h2>
-          <p>
-            Legal positions stay separate inside each exposure. Open one for
-            ownership and source details.
-          </p>
-        </div>
-        {data !== null && (
-          <div className="investment-views__controls">
-            {exposureCount > 1 && (
-              <div className="exposure-sort">
-                <span>Sort by value</span>
-                <Select
-                  items={EXPOSURE_SORT_OPTIONS}
-                  onValueChange={(value) => {
-                    if (value === "ascending" || value === "descending") {
-                      setExposureSortDirection(value);
-                    }
-                  }}
-                  value={exposureSortDirection}
-                >
-                  <SelectTrigger aria-label="Sort exposures and positions by value">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {EXPOSURE_SORT_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <span className="investment-views__total">
-              <small>Total exposure</small>
-              <strong>{exposureGrandTotalLabel(data)}</strong>
-              <span>
-                {exposureCount} {exposureCount === 1 ? "exposure" : "exposures"}
-                {" · "}
-                {positionCount} legal{" "}
-                {positionCount === 1 ? "position" : "positions"}
-              </span>
-            </span>
+    <>
+      {data !== null && (
+        <CashHoldingsView
+          accounts={cashAccounts}
+          data={data}
+          error={cashViewError}
+          onOpenHolding={onOpenHolding}
+          openableHoldingIds={knownHoldingIds}
+        />
+      )}
+      <section
+        aria-labelledby="investment-views-title"
+        className="investment-views"
+      >
+        <div className="investment-views__heading">
+          <div>
+            <p className="eyebrow">Reviewed ownership</p>
+            <h2 id="investment-views-title">Exposures</h2>
+            <p>
+              Legal positions stay separate inside each exposure. Open one for
+              ownership and source details.
+            </p>
           </div>
-        )}
-      </div>
-      {exposureReviewNotice !== null && (
-        <p className="private-exposure-review__notice" role="status">
-          {exposureReviewNotice}
-        </p>
-      )}
-      {exposureReviewLoadError !== null && (
-        <div className="investment-views__error" role="alert">
-          <p>{exposureReviewLoadError} Reviewed positions were not changed.</p>
-          <Button onClick={() => void reloadExposureReviews()} tone="secondary">
-            Try again
-          </Button>
-        </div>
-      )}
-      {data === null && viewError === null ? (
-        <p className="investment-views__loading" role="status">
-          Loading reviewed exposures…
-        </p>
-      ) : (
-        <>
-          {viewError !== null && (
-            <div className="investment-views__error" role="alert">
-              <p>{viewError}</p>
-              <Button onClick={() => void reload()} tone="secondary">
-                Try again
-              </Button>
+          {data !== null && (
+            <div className="investment-views__controls">
+              {exposureCount > 1 && (
+                <div className="exposure-sort">
+                  <span>Sort by value</span>
+                  <Select
+                    items={EXPOSURE_SORT_OPTIONS}
+                    onValueChange={(value) => {
+                      if (value === "ascending" || value === "descending") {
+                        setExposureSortDirection(value);
+                      }
+                    }}
+                    value={exposureSortDirection}
+                  >
+                    <SelectTrigger aria-label="Sort exposures and positions by value">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPOSURE_SORT_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <span className="investment-views__total">
+                <small>Total exposure</small>
+                <strong>{exposureGrandTotalLabel(data)}</strong>
+                <span>
+                  {exposureCount}{" "}
+                  {exposureCount === 1 ? "exposure" : "exposures"}
+                  {" · "}
+                  {positionCount} legal{" "}
+                  {positionCount === 1 ? "position" : "positions"}
+                </span>
+              </span>
             </div>
           )}
-          {data !== null && (
-            <ExposureView
-              data={data}
-              exposureReviewBatchBusy={exposureReviewBatchBusy}
-              exposureReviewBatchError={exposureReviewBatchError}
-              exposureReviewBusyPositionId={exposureReviewBusyPositionId}
-              exposureReviewError={exposureReviewError}
-              exposureReviewPositionId={exposureReviewPositionId}
-              exposureReviewState={exposureReviewState}
-              openableHoldingIds={knownHoldingIds}
-              onBeginExposureReview={beginExposureReview}
-              onApplyExactBatch={() => void applyExactExposureBatch()}
-              onCancelExposureReview={cancelExposureReview}
-              onOpenHolding={onOpenHolding}
-              onLoadMoreExposures={onLoadMoreExposures}
-              onSubmitExposureReview={(position, input) =>
-                void submitExposureReview(position, input)
-              }
-              sortDirection={exposureSortDirection}
-              visibleExposureCount={visibleExposureCount}
-            />
-          )}
-        </>
-      )}
-    </section>
+        </div>
+        {exposureReviewNotice !== null && (
+          <p className="private-exposure-review__notice" role="status">
+            {exposureReviewNotice}
+          </p>
+        )}
+        {exposureReviewLoadError !== null && (
+          <div className="investment-views__error" role="alert">
+            <p>
+              {exposureReviewLoadError} Reviewed positions were not changed.
+            </p>
+            <Button
+              onClick={() => void reloadExposureReviews()}
+              tone="secondary"
+            >
+              Try again
+            </Button>
+          </div>
+        )}
+        {data === null && viewError === null ? (
+          <p className="investment-views__loading" role="status">
+            Loading reviewed exposures…
+          </p>
+        ) : (
+          <>
+            {viewError !== null && (
+              <div className="investment-views__error" role="alert">
+                <p>{viewError}</p>
+                <Button onClick={() => void reload()} tone="secondary">
+                  Try again
+                </Button>
+              </div>
+            )}
+            {data !== null && (
+              <ExposureView
+                data={data}
+                exposureReviewBatchBusy={exposureReviewBatchBusy}
+                exposureReviewBatchError={exposureReviewBatchError}
+                exposureReviewBusyPositionId={exposureReviewBusyPositionId}
+                exposureReviewError={exposureReviewError}
+                exposureReviewPositionId={exposureReviewPositionId}
+                exposureReviewState={exposureReviewState}
+                openableHoldingIds={knownHoldingIds}
+                onBeginExposureReview={beginExposureReview}
+                onApplyExactBatch={() => void applyExactExposureBatch()}
+                onCancelExposureReview={cancelExposureReview}
+                onOpenHolding={onOpenHolding}
+                onLoadMoreExposures={onLoadMoreExposures}
+                onSubmitExposureReview={(position, input) =>
+                  void submitExposureReview(position, input)
+                }
+                sortDirection={exposureSortDirection}
+                visibleExposureCount={visibleExposureCount}
+              />
+            )}
+          </>
+        )}
+      </section>
+    </>
   );
 }
