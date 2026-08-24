@@ -131,8 +131,6 @@ h1,
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 25px 0 0;
   padding: 18px 0;
-  border-top: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
 }
 
 .plan-monitoring__coverage > div {
@@ -175,7 +173,6 @@ h1,
   align-items: start;
   gap: 34px;
   padding: 30px 0;
-  border-bottom: 1px solid var(--line-soft);
 }
 
 .plan-monitoring__item-copy {
@@ -248,7 +245,6 @@ h1,
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 24px;
   padding: 24px 0;
-  border-bottom: 1px solid var(--line-soft);
 }
 
 .plan-monitoring__deferred li {
@@ -353,7 +349,6 @@ h1,
 .portfolio-snapshot {
   min-width: 0;
   padding: 38px 0 10px;
-  border-top: 1px solid var(--ink);
 }
 
 .portfolio-snapshot > .section-heading {
@@ -395,8 +390,6 @@ h1,
   gap: 30px;
   margin: 30px 0 0;
   padding: 20px 0;
-  border-top: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
 }
 
 .portfolio-snapshot__metrics div {
@@ -451,7 +444,6 @@ h1,
 
 .portfolio-snapshot__movers {
   grid-column: 1 / -1;
-  border-top: 1px solid var(--line-soft);
 }
 
 .portfolio-chart__value-label {
@@ -476,7 +468,6 @@ h1,
   align-items: center;
   gap: 18px;
   padding: 11px 0;
-  border-bottom: 1px solid var(--line-soft);
 }
 
 .portfolio-liquidity-legend dt,
@@ -5460,11 +5451,6 @@ h1,
 
   .portfolio-snapshot__movers {
     grid-column: 1;
-  }
-
-  .portfolio-snapshot__liquidity,
-  .portfolio-snapshot__movers {
-    border-top: 1px solid var(--line-soft);
   }
 
   .plan-monitoring__item {
