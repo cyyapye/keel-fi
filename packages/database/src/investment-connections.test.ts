@@ -53,6 +53,7 @@ const migrationFiles = [
   "packages/database/migrations/0034_mac_agent_credentials.sql",
   "packages/database/migrations/0035_nullable_private_investment_date.sql",
   "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
+  "packages/database/migrations/0040_holdings_read_performance.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

@@ -39,6 +39,7 @@ const migrationFiles = [
   "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql",
   "packages/database/migrations/0032_provider_template_holdings.sql",
   "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
+  "packages/database/migrations/0040_holdings_read_performance.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -104,9 +105,12 @@ class TestD1Statement {
 }
 
 class TestD1Database {
+  public readonly preparedSql: string[] = [];
+
   public constructor(private readonly database: DatabaseSync) {}
 
   public prepare(sql: string): TestD1Statement {
+    this.preparedSql.push(sql);
     return new TestD1Statement(this.database, sql);
   }
 
@@ -595,6 +599,7 @@ function tableCounts(database: DatabaseSync) {
 
 describe("canonical investment position view", () => {
   let sqlite: DatabaseSync;
+  let database: TestD1Database;
   let repository: D1InvestmentPositionViewRepository;
   const demoHousehold = { id: "hh_demo", userId: "usr_demo" } as const;
 
@@ -604,8 +609,9 @@ describe("canonical investment position view", () => {
     for (const file of migrationFiles) {
       sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
     }
+    database = new TestD1Database(sqlite);
     repository = new D1InvestmentPositionViewRepository(
-      new TestD1Database(sqlite) as unknown as D1Database,
+      database as unknown as D1Database,
     );
   });
 
@@ -621,6 +627,71 @@ describe("canonical investment position view", () => {
     await expect(
       repository.list("missing-subject", "2026-08-16T12:00:00.000Z"),
     ).rejects.toThrow(/Household not found/u);
+  });
+
+  it("uses indexed current and prior application lookups for 120 positions", async () => {
+    addConnection(sqlite, demoHousehold, {
+      id: "connection_scale",
+      protectedSourceKey: digest("1"),
+      institutionKey: "synthetic-scale",
+      institutionLabel: "Synthetic Scale Institution",
+    });
+    addContainer(sqlite, demoHousehold, {
+      id: "container_scale",
+      connectionId: "connection_scale",
+      protectedAccountKey: digest("2"),
+      label: "Synthetic Scale Account",
+      kind: "brokerage",
+      taxTreatment: "taxable",
+    });
+    for (let index = 0; index < 120; index += 1) {
+      const suffix = index.toString().padStart(3, "0");
+      addPositionObservation(sqlite, {
+        household: demoHousehold,
+        connectionId: "connection_scale",
+        containerId: "container_scale",
+        positionId: `position_scale_${suffix}`,
+        positionFingerprint: (index + 1_000).toString(16).padStart(64, "0"),
+        observationId: `scale_${suffix}`,
+        observationDigest: (index + 2_000).toString(16).padStart(64, "0"),
+        observedAt: "2026-08-15T12:00:00.000Z",
+        retrievedAt: "2026-08-15T12:05:00.000Z",
+        acceptedAt: "2026-08-15T12:10:00.000Z",
+        completeness: "complete",
+        unrealizedValueMinor: 100_000 + index,
+        unrealizedValueState: "reported",
+        netValueMinor: 100_000 + index,
+        netValueState: "reported",
+        createPosition: true,
+        acceptObservation: true,
+      });
+    }
+
+    const view = await repository.list(
+      "synthetic-access-subject",
+      "2026-08-16T12:00:00.000Z",
+    );
+    expect(
+      view.connections
+        .flatMap((connection) => connection.containers)
+        .flatMap((container) => container.positions),
+    ).toHaveLength(120);
+
+    const positionSql = database.preparedSql.find(
+      (sql) =>
+        sql.includes("FROM holding_positions position") &&
+        sql.includes("prior_application"),
+    );
+    expect(positionSql).toBeDefined();
+    const plan = sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${positionSql ?? "SELECT 1"}`)
+      .all(demoHousehold.id) as Array<{ detail: string }>;
+    expect(plan.map((row) => row.detail)).not.toContain("SCAN candidate");
+    expect(
+      plan.filter((row) =>
+        row.detail.includes("holding_import_applications_position_applied_idx"),
+      ),
+    ).toHaveLength(2);
   });
 
   it("uses the latest append-only reviewed value without replacing the provider snapshot", async () => {
