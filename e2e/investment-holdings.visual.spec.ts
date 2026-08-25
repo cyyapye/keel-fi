@@ -87,7 +87,21 @@ function alphaHoldingsFrom(view: InvestmentHoldingsView) {
       confidencePpm: null,
       ticker: position.ticker,
       quantityMicros: null,
-      costBasisMinor: null,
+      costBasisMinor: position.providerCostBasisMinor,
+      investedMinor: position.investedMinor,
+      committedMinor: position.committedMinor,
+      realizedValueMinor: position.realizedValueMinor,
+      instrumentType: position.instrumentType,
+      positionEconomicsContext:
+        position.positionKind !== "spv_interest" || position.committedMinor <= 0
+          ? undefined
+          : {
+              snapshotId: position.snapshotId,
+              currency: position.currency,
+              committedMinor: position.committedMinor,
+              fundedMinor: position.investedMinor,
+              acceptedTerms: position.acceptedEconomicsTerms ?? null,
+            },
     };
   });
 }
@@ -441,7 +455,13 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page.getByRole("button", { name: "Manage sources" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Import holdings" }),
+  ).toHaveCount(0);
   await openHoldingSources(page);
+  await expect(
+    page.getByRole("button", { name: "Import holdings" }),
+  ).toBeVisible();
 
   await expect(
     page.getByRole("heading", { name: "Brokerages", exact: true }),
@@ -765,6 +785,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
         ".angellist-agent__controls select",
         ".angellist-agent__meta",
         ".cash-accounts",
+        ".cash-holdings",
         ".investment-institutions",
         ".investment-institution-list",
         ".investment-institution",
@@ -829,6 +850,24 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ).toBeFocused();
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(nvdaDetailAction).toBeFocused();
+
+  const cashDetailAction = cash
+    .getByRole("button", {
+      name: "View U S Dollar holding details",
+    })
+    .first();
+  await cashDetailAction.click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "US Dollar" }),
+  ).toBeFocused();
+  await expect(
+    page.getByRole("button", { name: "Add value evidence" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Position return" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(cashDetailAction).toBeFocused();
 
   await openHoldingSources(page);
   await robinhoodCard.getByRole("button", { name: "Disconnect" }).click();

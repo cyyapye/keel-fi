@@ -5,6 +5,7 @@ import { cn } from "../lib/utils";
 type FieldProps = LabelHTMLAttributes<HTMLLabelElement> & {
   description?: ReactNode;
   label: ReactNode;
+  variant?: "line" | "filled";
   wide?: boolean;
 };
 
@@ -13,12 +14,18 @@ export function Field({
   className,
   description,
   label,
+  variant = "line",
   wide = false,
   ...props
 }: FieldProps) {
   return (
     <label
-      className={cn("field", wide && "field--wide", className)}
+      className={cn(
+        "field",
+        variant === "filled" && "field--filled",
+        wide && "field--wide",
+        className,
+      )}
       data-slot="field"
       {...props}
     >

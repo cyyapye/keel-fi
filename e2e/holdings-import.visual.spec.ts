@@ -491,6 +491,7 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
   });
 
   await page.goto("/holdings");
+  await page.getByRole("button", { name: "Manage sources" }).click();
   await page.getByRole("button", { name: "Import holdings" }).click();
   await expect(
     page.getByRole("heading", { name: "Import holdings" }),
@@ -556,6 +557,15 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
       name: "I confirm the template’s $ values are USD.",
     }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Previous import preview page" }),
+  ).toHaveAttribute("data-slot", "text-link");
+  await expect(
+    page.getByRole("button", { name: "Next import preview page" }),
+  ).toHaveAttribute("data-slot", "text-link");
+  await expect(
+    page.getByRole("button", { name: "Close import" }),
+  ).toHaveAttribute("data-slot", "text-link");
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "holdings-import-tokenfolio-review.png",
     {
@@ -567,6 +577,7 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
   );
 
   await page.goto("/holdings");
+  await page.getByRole("button", { name: "Manage sources" }).click();
   await page.getByRole("button", { name: "Import holdings" }).click();
   await page.getByLabel("Source").click();
   await page.getByRole("option", { name: "Sydecar" }).click();

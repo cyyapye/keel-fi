@@ -34,10 +34,16 @@ import {
 } from "@keel/domain";
 import type { PositionValueSourceKind } from "@keel/domain/position-value";
 import {
+  calculatePositionEconomics,
+  calculatePositionPerformance,
+  type PositionEconomicsContext,
+} from "@keel/domain/position-economics";
+import {
   AppShell,
   Badge,
   BrandMark,
   Button,
+  DatePicker,
   EmptyState,
   Field,
   FormMessage,
@@ -58,6 +64,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  TextLink,
   Textarea,
 } from "@keel/ui";
 import {
@@ -72,6 +79,7 @@ import {
 
 import {
   applyAcceptedEvidence,
+  acceptPositionEconomics,
   acceptPositionValueAdjustment,
   applyCashAccountProposal,
   applyHoldingImport,
@@ -293,6 +301,31 @@ function parseMoneyInput(value: string): number | null {
     return null;
   }
   return Number(minor);
+}
+
+function percentageInputValue(valuePpm: number): string {
+  const whole = BigInt(valuePpm) / 10_000n;
+  const remainder = BigInt(valuePpm) % 10_000n;
+  return remainder === 0n
+    ? whole.toString()
+    : `${whole}.${remainder.toString().padStart(4, "0").replace(/0+$/u, "")}`;
+}
+
+function parsePercentageInput(value: string): number | null {
+  const normalized = value.trim();
+  if (!/^\d+(?:\.\d{0,4})?$/u.test(normalized)) {
+    return null;
+  }
+  const [whole = "0", decimal = ""] = normalized.split(".");
+  const ppm = BigInt(whole) * 10_000n + BigInt(decimal.padEnd(4, "0"));
+  return ppm <= 1_000_000n ? Number(ppm) : null;
+}
+
+function formatSignedProbability(valuePpm: number): string {
+  if (valuePpm === 0) {
+    return formatProbability(0);
+  }
+  return `${valuePpm > 0 ? "+" : "−"}${formatProbability(Math.abs(valuePpm))}`;
 }
 
 function parseGoalInteger(value: string, unit: GoalUnit): number | null {
@@ -560,13 +593,13 @@ function Dashboard({
                     : ` by ${formatDate(primaryVersion.targetDate)}.`
                 }`}
           </p>
-          <Button
+          <TextLink
             className="hero__action"
             onClick={() => onNavigate("goals")}
-            tone="quiet"
+            tone="inverse"
           >
-            Edit this goal →
-          </Button>
+            Edit this goal
+          </TextLink>
         </div>
         <div className="hero__runway">
           <span>Current measure</span>
@@ -637,9 +670,9 @@ function Dashboard({
               <p className="eyebrow">Other goals</p>
               <h2>Tracked alongside the primary goal</h2>
             </div>
-            <Button onClick={() => onNavigate("goals")} tone="quiet">
-              Manage goals →
-            </Button>
+            <TextLink onClick={() => onNavigate("goals")}>
+              Manage goals
+            </TextLink>
           </header>
           <div>
             {secondaryGoals.map((goal) => {
@@ -744,9 +777,7 @@ function Dashboard({
 
       <Panel
         action={
-          <Button onClick={() => onNavigate("goals")} tone="quiet">
-            Review goal →
-          </Button>
+          <TextLink onClick={() => onNavigate("goals")}>Review goal</TextLink>
         }
         eyebrow="Current readout"
         title="What the saved plan says"
@@ -2204,27 +2235,25 @@ function HoldingImportWorkspace({
           {pageStart + 1}–{pageEnd} of {preview.rows.length}
         </span>
         <div>
-          <Button
+          <TextLink
             aria-label="Previous import preview page"
             disabled={page === 0}
             onClick={() => setPage((current) => Math.max(0, current - 1))}
-            tone="quiet"
           >
             Previous
-          </Button>
+          </TextLink>
           <span>
             Page {page + 1} of {pageCount}
           </span>
-          <Button
+          <TextLink
             aria-label="Next import preview page"
             disabled={page + 1 >= pageCount}
             onClick={() =>
               setPage((current) => Math.min(pageCount - 1, current + 1))
             }
-            tone="quiet"
           >
             Next
-          </Button>
+          </TextLink>
         </div>
       </nav>
 
@@ -2516,7 +2545,7 @@ function PositionValueAdjustmentEditor({
           }}
         >
           <div className="position-value-adjustment__fields">
-            <Field label={`Value · ${context.currency}`}>
+            <Field label={`Value · ${context.currency}`} variant="filled">
               <InputGroup
                 prefix={context.currency === "USD" ? "$" : context.currency}
               >
@@ -2528,18 +2557,16 @@ function PositionValueAdjustmentEditor({
                 />
               </InputGroup>
             </Field>
-            <Field label="As of">
-              <Input
+            <Field label="As of" variant="filled">
+              <DatePicker
+                aria-label="As of"
                 max={new Date().toISOString().slice(0, "YYYY-MM-DD".length)}
-                onChange={(event) =>
-                  setEffectiveDate(event.currentTarget.value)
-                }
+                onValueChange={setEffectiveDate}
                 required
-                type="date"
                 value={effectiveDate}
               />
             </Field>
-            <Field label="Source type">
+            <Field label="Source type" variant="filled">
               <Select
                 items={POSITION_VALUE_SOURCE_OPTIONS}
                 onValueChange={(next) => {
@@ -2565,7 +2592,7 @@ function PositionValueAdjustmentEditor({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Source name">
+            <Field label="Source name" variant="filled">
               <Input
                 maxLength={240}
                 onChange={(event) => setSourceLabel(event.currentTarget.value)}
@@ -2581,6 +2608,7 @@ function PositionValueAdjustmentEditor({
                   : "Optional. HTTPS only."
               }
               label="Source link"
+              variant="filled"
               wide
             >
               <Input
@@ -2592,7 +2620,7 @@ function PositionValueAdjustmentEditor({
                 value={sourceUrl}
               />
             </Field>
-            <Field label="What this value reflects" wide>
+            <Field label="What this value reflects" variant="filled" wide>
               <Textarea
                 maxLength={1_000}
                 onChange={(event) => setCommentary(event.currentTarget.value)}
@@ -2628,9 +2656,9 @@ function PositionValueAdjustmentEditor({
           </div>
           <p>{commentary.trim()}</p>
           {trimmedUrl.length > 0 && (
-            <a href={trimmedUrl} rel="noreferrer" target="_blank">
-              Open source ↗
-            </a>
+            <TextLink href={trimmedUrl} rel="noreferrer" target="_blank">
+              Open source
+            </TextLink>
           )}
           <small>
             The provider value stays in source history. Keel uses this mark
@@ -2655,6 +2683,415 @@ function PositionValueAdjustmentEditor({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+function isCashLikeHolding(holding: Holding): boolean {
+  return holding.instrumentType?.trim().toLowerCase() === "cash";
+}
+
+function PositionEconomicsEditor({
+  holding,
+  onAccepted,
+}: {
+  holding: Holding;
+  onAccepted: () => Promise<void>;
+}) {
+  const context = holding.positionEconomicsContext ?? null;
+  const terms = context?.acceptedTerms ?? null;
+  const [open, setOpen] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [annualFee, setAnnualFee] = useState(
+    percentageInputValue(terms?.annualAdminFeePpm ?? 10_000),
+  );
+  const [feeYears, setFeeYears] = useState(
+    (terms?.adminFeeYears ?? 10).toString(),
+  );
+  const [carry, setCarry] = useState(
+    percentageInputValue(terms?.carryPpm ?? 200_000),
+  );
+  const [note, setNote] = useState(terms?.note ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  if (context === null) {
+    return null;
+  }
+
+  const annualAdminFeePpm = parsePercentageInput(annualFee);
+  const adminFeeYears = /^\d+$/u.test(feeYears.trim())
+    ? Number(feeYears)
+    : null;
+  const carryPpm = parsePercentageInput(carry);
+  const validYears =
+    adminFeeYears !== null &&
+    Number.isSafeInteger(adminFeeYears) &&
+    adminFeeYears >= 1 &&
+    adminFeeYears <= 100;
+  const validTotalFee =
+    annualAdminFeePpm !== null &&
+    validYears &&
+    BigInt(annualAdminFeePpm) * BigInt(adminFeeYears) <= 1_000_000n;
+  const canReview =
+    validTotalFee && carryPpm !== null && note.trim().length >= 3;
+  const draftContext: PositionEconomicsContext | null = canReview
+    ? {
+        ...context,
+        acceptedTerms: {
+          id: terms?.id ?? "draft-position-economics",
+          positionId: holding.id,
+          acceptedAgainstSnapshotId: context.snapshotId,
+          commitmentMinorAtAcceptance: context.committedMinor,
+          fundedMinorAtAcceptance: context.fundedMinor,
+          annualAdminFeePpm,
+          adminFeeYears,
+          carryPpm,
+          note: note.trim(),
+          acceptedAt: terms?.acceptedAt ?? new Date().toISOString(),
+        },
+      }
+    : null;
+  const draftEconomics =
+    draftContext === null ? null : calculatePositionEconomics(draftContext);
+  const acceptedEconomics = calculatePositionEconomics(context);
+  const termsNeedReview = terms !== null && acceptedEconomics === null;
+
+  const reset = () => {
+    setOpen(false);
+    setReviewing(false);
+    setAnnualFee(percentageInputValue(terms?.annualAdminFeePpm ?? 10_000));
+    setFeeYears((terms?.adminFeeYears ?? 10).toString());
+    setCarry(percentageInputValue(terms?.carryPpm ?? 200_000));
+    setNote(terms?.note ?? "");
+    setError(null);
+  };
+
+  const accept = async () => {
+    if (
+      !canReview ||
+      annualAdminFeePpm === null ||
+      adminFeeYears === null ||
+      carryPpm === null
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await acceptPositionEconomics(holding.id, {
+        expectedSnapshotId: context.snapshotId,
+        expectedTermsId: terms?.id ?? null,
+        annualAdminFeePpm,
+        adminFeeYears,
+        carryPpm,
+        note: note.trim(),
+      });
+      await onAccepted();
+      reset();
+      setNotice("SPV fee and carry terms accepted.");
+    } catch (caught: unknown) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The SPV terms could not be accepted.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const displayedEconomics = acceptedEconomics;
+  return (
+    <section
+      aria-labelledby="position-economics-title"
+      className="position-economics"
+    >
+      <div className="position-economics__heading">
+        <div>
+          <p className="eyebrow">Investment terms</p>
+          <h3 id="position-economics-title">SPV economics</h3>
+          <p>Commitment and funded capital come from the reviewed source.</p>
+        </div>
+        {!open && (
+          <Button
+            onClick={() => {
+              setOpen(true);
+              setNotice(null);
+            }}
+            tone="secondary"
+          >
+            {terms === null
+              ? "Add fee & carry"
+              : termsNeedReview
+                ? "Review fee & carry"
+                : "Update fee & carry"}
+          </Button>
+        )}
+      </div>
+
+      <div className="position-economics__values">
+        <article>
+          <span>Commitment</span>
+          <strong>{formatCompactMoney(context.committedMinor)}</strong>
+          <small>Accepted from {holding.sourceLabel}.</small>
+        </article>
+        <article>
+          <span>Funded capital</span>
+          <strong>{formatCompactMoney(context.fundedMinor)}</strong>
+          <small>Capital paid into the SPV so far.</small>
+        </article>
+        <article>
+          <span>Upfront admin fee</span>
+          <strong className={displayedEconomics === null ? "is-not-set" : ""}>
+            {displayedEconomics === null
+              ? termsNeedReview
+                ? "Needs review"
+                : "Not set"
+              : formatCompactMoney(displayedEconomics.upfrontAdminFeeMinor)}
+          </strong>
+          <small>
+            {terms === null
+              ? "Add the annual rate and fee term."
+              : termsNeedReview
+                ? "Commitment or funded capital changed after acceptance."
+                : `${formatProbability(terms.annualAdminFeePpm)} for ${terms.adminFeeYears} years, paid upfront.`}
+          </small>
+        </article>
+        <article>
+          <span>Position cost basis</span>
+          <strong className={displayedEconomics === null ? "is-not-set" : ""}>
+            {displayedEconomics === null
+              ? termsNeedReview
+                ? "Needs review"
+                : "Not set"
+              : formatCompactMoney(displayedEconomics.positionCostBasisMinor)}
+          </strong>
+          <small>Commitment less upfront admin fee. Not tax basis.</small>
+        </article>
+        <article>
+          <span>Carry</span>
+          <strong
+            className={terms === null || termsNeedReview ? "is-not-set" : ""}
+          >
+            {terms === null
+              ? "Not set"
+              : termsNeedReview
+                ? "Needs review"
+                : formatProbability(terms.carryPpm)}
+          </strong>
+          <small>
+            {termsNeedReview
+              ? "Review against the current source before applying carry."
+              : "Applied to gains when an exit is recorded."}
+          </small>
+        </article>
+      </div>
+
+      {notice !== null && <FormMessage tone="success">{notice}</FormMessage>}
+      {open && !reviewing && (
+        <form
+          className="position-economics__form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canReview) {
+              setReviewing(true);
+              setError(null);
+            }
+          }}
+        >
+          <div className="position-economics__fields">
+            <Field label="Annual admin fee">
+              <InputGroup suffix="%">
+                <Input
+                  inputMode="decimal"
+                  onChange={(event) => setAnnualFee(event.currentTarget.value)}
+                  required
+                  value={annualFee}
+                />
+              </InputGroup>
+            </Field>
+            <Field label="Fee term">
+              <InputGroup suffix="years">
+                <Input
+                  inputMode="numeric"
+                  max="100"
+                  min="1"
+                  onChange={(event) => setFeeYears(event.currentTarget.value)}
+                  required
+                  value={feeYears}
+                />
+              </InputGroup>
+            </Field>
+            <Field label="Carry">
+              <InputGroup suffix="%">
+                <Input
+                  inputMode="decimal"
+                  onChange={(event) => setCarry(event.currentTarget.value)}
+                  required
+                  value={carry}
+                />
+              </InputGroup>
+            </Field>
+            <Field label="What changed" wide>
+              <Input
+                maxLength={500}
+                onChange={(event) => setNote(event.currentTarget.value)}
+                placeholder="Reviewed SPV subscription terms"
+                required
+                value={note}
+              />
+            </Field>
+          </div>
+          {!validTotalFee && annualAdminFeePpm !== null && validYears && (
+            <Notice tone="error">
+              The total upfront fee cannot exceed 100%.
+            </Notice>
+          )}
+          {error !== null && <Notice tone="error">{error}</Notice>}
+          <div className="position-economics__actions">
+            <Button disabled={busy} onClick={reset} tone="quiet" type="button">
+              Cancel
+            </Button>
+            <Button disabled={!canReview || busy} tone="primary" type="submit">
+              Review terms
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {open && reviewing && draftEconomics !== null && (
+        <div className="position-economics__review">
+          <div>
+            <span>Upfront admin fee</span>
+            <strong>
+              {formatProbability(draftEconomics.totalAdminFeePpm)} ·{" "}
+              {formatCompactMoney(draftEconomics.upfrontAdminFeeMinor)}
+            </strong>
+          </div>
+          <div>
+            <span>Position cost basis</span>
+            <strong>
+              {formatCompactMoney(context.committedMinor)} →{" "}
+              {formatCompactMoney(draftEconomics.positionCostBasisMinor)}
+            </strong>
+          </div>
+          <div>
+            <span>Carry on exit gains</span>
+            <strong>{formatProbability(draftEconomics.carryPpm)}</strong>
+          </div>
+          <p>{note.trim()}</p>
+          <small>
+            Carry is recorded as a term now and applied only when a partial or
+            full exit is accepted.
+          </small>
+          {error !== null && <Notice tone="error">{error}</Notice>}
+          <div className="position-economics__actions">
+            <Button
+              disabled={busy}
+              onClick={() => setReviewing(false)}
+              tone="quiet"
+            >
+              Back
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() => void accept()}
+              tone="primary"
+            >
+              {busy ? "Accepting…" : "Accept terms"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PositionPerformanceSummary({ holding }: { holding: Holding }) {
+  if (isCashLikeHolding(holding)) {
+    return null;
+  }
+  const acceptedAdjustment =
+    holding.positionValueContext?.acceptedAdjustment ?? null;
+  const currentValueMinor =
+    acceptedAdjustment?.valueMinor ?? holding.administratorNavMinor;
+  const currentValueReported =
+    acceptedAdjustment !== null || holding.administratorNavState === "reported";
+  const performance = calculatePositionPerformance({
+    currentValueMinor,
+    currentValueReported,
+    realizedValueMinor: holding.realizedValueMinor ?? 0,
+    providerCostBasisMinor: holding.costBasisMinor,
+    fundedMinor: holding.investedMinor ?? null,
+    economicsContext: holding.positionEconomicsContext ?? null,
+    allowFundedAmountEstimate:
+      holding.positionKind === "spv_interest" ||
+      holding.positionKind === "fund_interest",
+  });
+  const basisHelper = {
+    provider: "Reported by the brokerage source.",
+    reviewed_spv_terms: "Commitment less the reviewed upfront admin fee.",
+    funded_amount_estimate: "Funded amount estimate; fee terms are not set.",
+  }[performance.costBasisSource ?? "funded_amount_estimate"];
+
+  return (
+    <section
+      aria-labelledby="holding-performance-title"
+      className="holding-performance"
+    >
+      <p className="eyebrow">Performance</p>
+      <h3 id="holding-performance-title">Position return</h3>
+      <div className="holding-performance__values">
+        <article>
+          <span>Cost basis</span>
+          <strong
+            className={performance.costBasisMinor === null ? "is-not-set" : ""}
+          >
+            {performance.costBasisMinor === null
+              ? "Not reported"
+              : formatCompactMoney(performance.costBasisMinor)}
+          </strong>
+          <small>
+            {performance.costBasisMinor === null
+              ? "Add SPV terms or wait for source cost basis."
+              : basisHelper}
+          </small>
+        </article>
+        <article>
+          <span>Total gain / loss</span>
+          <strong
+            className={performance.totalGainMinor === null ? "is-not-set" : ""}
+          >
+            {performance.totalGainMinor === null
+              ? "Unavailable"
+              : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)}`.replace(
+                  "-",
+                  "−",
+                )}
+          </strong>
+          <small>Current value plus realized proceeds, less cost basis.</small>
+        </article>
+        <article>
+          <span>Total return</span>
+          <strong
+            className={performance.totalReturnPpm === null ? "is-not-set" : ""}
+          >
+            {performance.totalReturnPpm === null
+              ? "Unavailable"
+              : formatSignedProbability(performance.totalReturnPpm)}
+          </strong>
+          <small>Not annualized. Carry is applied only after an exit.</small>
+        </article>
+        {isPlaidInvestmentsHolding(holding) && (
+          <article>
+            <span>Day gain / loss</span>
+            <strong className="is-not-set">Unavailable</strong>
+            <small>Needs a prior daily price at the same share count.</small>
+          </article>
+        )}
+      </div>
     </section>
   );
 }
@@ -2777,10 +3214,16 @@ function HoldingDetailWorkspace({
         </div>
       </section>
 
-      <PositionValueAdjustmentEditor
-        holding={holding}
-        onAccepted={onValueAccepted}
-      />
+      <PositionPerformanceSummary holding={holding} />
+
+      <PositionEconomicsEditor holding={holding} onAccepted={onValueAccepted} />
+
+      {!isCashLikeHolding(holding) && (
+        <PositionValueAdjustmentEditor
+          holding={holding}
+          onAccepted={onValueAccepted}
+        />
+      )}
 
       <div className="holding-detail-records">
         <section aria-labelledby="holding-position-title">
@@ -2871,13 +3314,13 @@ function HoldingDetailWorkspace({
               <div>
                 <dt>Link</dt>
                 <dd>
-                  <a
+                  <TextLink
                     href={acceptedAdjustment.sourceUrl}
                     rel="noreferrer"
                     target="_blank"
                   >
-                    Open source ↗
-                  </a>
+                    Open source
+                  </TextLink>
                 </dd>
               </div>
             )}
@@ -5537,25 +5980,14 @@ function Holdings({
         actions={
           <>
             {selectedHolding !== null ? (
-              <Button onClick={closeHoldingDetail} tone="quiet">
-                Back to holdings
-              </Button>
+              <TextLink onClick={closeHoldingDetail}>Back to holdings</TextLink>
             ) : importerVisible ? (
-              <Button onClick={closeImporter} tone="quiet">
-                Close import
-              </Button>
+              <TextLink onClick={closeImporter}>Close import</TextLink>
             ) : sourcesVisible ? (
-              <Button onClick={() => onViewChange("overview")} tone="quiet">
-                Back to holdings
-              </Button>
-            ) : (
               <>
-                <span className="page-count">
-                  {data.holdings.length} holdings
-                </span>
-                <Button onClick={() => onViewChange("sources")} tone="quiet">
-                  Manage sources
-                </Button>
+                <TextLink onClick={() => onViewChange("overview")}>
+                  Back to holdings
+                </TextLink>
                 <Button
                   onClick={() => {
                     setSelectedHoldingId(null);
@@ -5564,6 +5996,15 @@ function Holdings({
                   tone="primary"
                 >
                   Import holdings
+                </Button>
+              </>
+            ) : (
+              <>
+                <span className="page-count">
+                  {data.holdings.length} holdings
+                </span>
+                <Button onClick={() => onViewChange("sources")} tone="primary">
+                  Manage sources
                 </Button>
               </>
             )}
@@ -5593,9 +6034,7 @@ function Holdings({
         ) : requestedImportId !== null && activeRoutedPreview === null ? (
           <Notice tone="error">
             {activeRoutedError ?? "This holding import is unavailable."}
-            <Button onClick={closeImporter} tone="quiet">
-              Back to holdings
-            </Button>
+            <TextLink onClick={closeImporter}>Back to holdings</TextLink>
           </Notice>
         ) : (
           <HoldingImportWorkspace
@@ -6169,14 +6608,14 @@ function EvidenceCard({
             <strong key={source}>▣ {source}</strong>
           ))}
           {item.sourceUrl !== null && (
-            <a
+            <TextLink
               className="evidence-source-link"
               href={item.sourceUrl}
               rel="noreferrer"
               target="_blank"
             >
-              Open official source ↗
-            </a>
+              Open official source
+            </TextLink>
           )}
           <small>
             Effective {formatDate(item.effectiveDate)} · Retrieved{" "}

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { PositionValueContextSchema } from "./position-value";
+import { PositionEconomicsContextSchema } from "./position-economics";
 
 export const PARTS_PER_MILLION = 1_000_000;
 
@@ -405,6 +406,12 @@ export const HoldingSchema = z.object({
     .nullable()
     .default(null),
   costBasisMinor: NonNegativeMoneyMinorSchema.nullable().default(null),
+  investedMinor: NonNegativeMoneyMinorSchema.nullable().optional(),
+  committedMinor: NonNegativeMoneyMinorSchema.nullable().optional(),
+  realizedValueMinor: NonNegativeMoneyMinorSchema.nullable().optional(),
+  instrumentType: z.string().trim().min(1).max(1_000).nullable().optional(),
+  positionEconomicsContext:
+    PositionEconomicsContextSchema.nullable().optional(),
   positionValueContext: PositionValueContextSchema.nullable().optional(),
 });
 

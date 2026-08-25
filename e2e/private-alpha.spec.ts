@@ -225,7 +225,7 @@ test("loads the database-backed dashboard and primary views", async ({
   }
 
   await navigateToScreen(page, mobile, /Overview/);
-  await page.getByRole("button", { name: "Review goal →" }).click();
+  await page.getByRole("button", { name: "Review goal" }).click();
   await expect(page.getByRole("heading", { name: "Goals" })).toBeVisible();
 
   await navigateToScreen(page, mobile, /History/);

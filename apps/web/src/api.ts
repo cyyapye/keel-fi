@@ -106,6 +106,12 @@ import {
   type PositionValueAdjustment,
 } from "@keel/domain/position-value";
 import {
+  AcceptPositionEconomicsInputSchema,
+  PositionEconomicsTermsSchema,
+  type AcceptPositionEconomicsInput,
+  type PositionEconomicsTerms,
+} from "@keel/domain/position-economics";
+import {
   InvestmentHoldingsViewSchema,
   type InvestmentHoldingsView,
 } from "@keel/domain/investment-holdings-view";
@@ -997,6 +1003,32 @@ export async function acceptPositionValueAdjustment(
     );
   }
   return PositionValueAdjustmentSchema.parse(await response.json());
+}
+
+export async function acceptPositionEconomics(
+  positionId: string,
+  input: AcceptPositionEconomicsInput,
+): Promise<PositionEconomicsTerms> {
+  const body = AcceptPositionEconomicsInputSchema.parse(input);
+  const response = await fetch(
+    `/api/investment-positions/${encodeURIComponent(positionId)}/economics`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Position economics review returned ${response.status}.`,
+    );
+  }
+  return PositionEconomicsTermsSchema.parse(await response.json());
 }
 
 export async function loadPrivateExposureReviews(): Promise<PrivateExposureReviewState> {

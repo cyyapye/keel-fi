@@ -1,5 +1,6 @@
 import {
   addMinorUnits,
+  multiplyMinorByScalePpm,
   type CashAccountsState,
   type Holding,
   type InvestmentConnectionStatus,
@@ -9,6 +10,7 @@ import {
   type PrivateExposureReviewPosition,
   type PrivateExposureReviewState,
 } from "@keel/domain";
+import { calculatePositionPerformance } from "@keel/domain/position-economics";
 import type {
   InvestmentExposureGroup,
   InvestmentExposurePosition,
@@ -28,6 +30,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  TextLink,
 } from "@keel/ui";
 import {
   Fragment,
@@ -54,7 +57,7 @@ import {
   syncDueInvestmentHoldings,
   syncInvestmentHoldings,
 } from "./api";
-import { formatCompactCurrency, formatDate } from "./format";
+import { formatCompactCurrency, formatDate, formatProbability } from "./format";
 import { openPlaidLink } from "./plaid-link";
 
 const INVESTMENT_LINK_TOKEN_STORAGE_KEY = "keel.investmentLinkToken";
@@ -252,6 +255,132 @@ function exposureValueSourceLabel(
     return "Invested amount estimate";
   }
   return null;
+}
+
+function exposurePositionPerformance(position: InvestmentExposurePosition) {
+  return calculatePositionPerformance({
+    currentValueMinor: position.valueMinor,
+    currentValueReported:
+      position.valueState === "reported" &&
+      position.valueSource !== "invested_amount",
+    realizedValueMinor: position.realizedValueMinor,
+    providerCostBasisMinor: position.providerCostBasisMinor,
+    fundedMinor: position.investedMinor,
+    economicsContext:
+      position.positionKind === "spv_interest" && position.committedMinor > 0
+        ? {
+            snapshotId: position.snapshotId,
+            currency: position.currency,
+            committedMinor: position.committedMinor,
+            fundedMinor: position.investedMinor,
+            acceptedTerms: position.acceptedEconomicsTerms ?? null,
+          }
+        : null,
+    allowFundedAmountEstimate:
+      position.positionKind === "spv_interest" ||
+      position.positionKind === "fund_interest",
+  });
+}
+
+function signedReturnLabel(valuePpm: number): string {
+  if (valuePpm === 0) {
+    return formatProbability(0);
+  }
+  return `${valuePpm > 0 ? "+" : "−"}${formatProbability(Math.abs(valuePpm))}`;
+}
+
+function positionEconomicsLabel(
+  position: InvestmentExposurePosition,
+): string | null {
+  const performance = exposurePositionPerformance(position);
+  const labels: string[] = [];
+  if (position.positionKind === "spv_interest" && position.committedMinor > 0) {
+    labels.push(
+      `Commitment ${formatHoldingCurrency(position.committedMinor, position.currency)}`,
+    );
+  }
+  if (performance.costBasisMinor !== null) {
+    labels.push(
+      `${performance.costBasisSource === "funded_amount_estimate" ? "Cost basis estimate" : "Cost basis"} ${formatHoldingCurrency(performance.costBasisMinor, position.currency)}`,
+    );
+  }
+  if (performance.totalReturnPpm !== null) {
+    labels.push(`Return ${signedReturnLabel(performance.totalReturnPpm)}`);
+  }
+  return labels.length === 0 ? null : labels.join(" · ");
+}
+
+function exposurePerformanceLabel(
+  group: InvestmentExposureGroup,
+  positions: readonly InvestmentExposurePosition[],
+): string | null {
+  if (group.contributions.length === 0) {
+    return null;
+  }
+  const positionById = new Map(
+    positions.map((position) => [position.id, position]),
+  );
+  const currencies = new Set<string>();
+  const allocatedBases: number[] = [];
+  const allocatedValues: number[] = [];
+  let basisIsEstimated = false;
+  let returnAvailable = true;
+
+  for (const contribution of group.contributions) {
+    const position = positionById.get(contribution.positionId);
+    if (position === undefined || contribution.allocationPpm === null) {
+      return null;
+    }
+    const performance = exposurePositionPerformance(position);
+    if (performance.costBasisMinor === null) {
+      return null;
+    }
+    if (performance.costBasisSource === "funded_amount_estimate") {
+      basisIsEstimated = true;
+    }
+    currencies.add(position.currency);
+    allocatedBases.push(
+      multiplyMinorByScalePpm(
+        performance.costBasisMinor,
+        contribution.allocationPpm,
+      ),
+    );
+    if (performance.totalValueMinor === null) {
+      returnAvailable = false;
+    } else {
+      allocatedValues.push(
+        multiplyMinorByScalePpm(
+          performance.totalValueMinor,
+          contribution.allocationPpm,
+        ),
+      );
+    }
+  }
+  if (currencies.size !== 1) {
+    return null;
+  }
+  const currency = [...currencies][0]!;
+  const basisMinor = allocatedBases.reduce(
+    (total, value) => addMinorUnits(total, value),
+    0,
+  );
+  const basisLabel = `${basisIsEstimated ? "Cost basis estimate" : "Cost basis"} ${formatHoldingCurrency(basisMinor, currency)}`;
+  if (!returnAvailable || allocatedValues.length !== allocatedBases.length) {
+    return basisLabel;
+  }
+  const totalValueMinor = allocatedValues.reduce(
+    (total, value) => addMinorUnits(total, value),
+    0,
+  );
+  if (basisMinor === 0) {
+    return basisLabel;
+  }
+  const gainMinor = BigInt(totalValueMinor) - BigInt(basisMinor);
+  const returnPpm = Number((gainMinor * 1_000_000n) / BigInt(basisMinor));
+  if (!Number.isSafeInteger(returnPpm)) {
+    return basisLabel;
+  }
+  return `${basisLabel} · Return ${signedReturnLabel(returnPpm)}`;
 }
 
 function isCashPosition(position: InvestmentExposurePosition): boolean {
@@ -828,15 +957,14 @@ function ExposureView({
 }) {
   const holdingDetailAction = (holdingId: string, holdingName: string) =>
     openableHoldingIds.has(holdingId) ? (
-      <button
+      <TextLink
         aria-label={`View ${holdingName} holding details`}
         className="position-row__action"
         data-holding-id={holdingId}
         onClick={() => onOpenHolding(holdingId)}
-        type="button"
       >
-        View details →
-      </button>
+        View details
+      </TextLink>
     ) : null;
   const positionContextById = new Map(
     data.positionView.connections.flatMap((connection) =>
@@ -982,6 +1110,7 @@ function ExposureView({
             const reviewOpen = exposureReviewPositionId === position.id;
             const positionName = positionDisplayName(position);
             const valueSourceLabel = exposureValueSourceLabel(position);
+            const economicsLabel = positionEconomicsLabel(position);
             return (
               <Fragment key={position.id}>
                 <article>
@@ -1002,6 +1131,7 @@ function ExposureView({
                     {valueSourceLabel !== null && (
                       <small>{valueSourceLabel}</small>
                     )}
+                    {economicsLabel !== null && <small>{economicsLabel}</small>}
                   </span>
                   <span className="unallocated-positions__status">
                     {position.hasUnknownAllocation
@@ -1065,6 +1195,7 @@ function ExposureView({
         const investedEstimateCount = positions.filter(
           (position) => position.valueSource === "invested_amount",
         ).length;
+        const performanceLabel = exposurePerformanceLabel(group, positions);
         return (
           <details className="exposure-group" key={group.exposure.id}>
             <summary>
@@ -1094,12 +1225,14 @@ function ExposureView({
                     {investedEstimateCount === 1 ? "estimate" : "estimates"}
                   </small>
                 )}
+                {performanceLabel !== null && <small>{performanceLabel}</small>}
               </span>
             </summary>
             <div className="exposure-group__positions">
               {positions.map((position) => {
                 const positionName = positionDisplayName(position);
                 const valueSourceLabel = exposureValueSourceLabel(position);
+                const economicsLabel = positionEconomicsLabel(position);
                 return (
                   <article key={position.id}>
                     <span>
@@ -1118,6 +1251,9 @@ function ExposureView({
                       {exposurePositionValue(position)}
                       {valueSourceLabel !== null && (
                         <small>{valueSourceLabel}</small>
+                      )}
+                      {economicsLabel !== null && (
+                        <small>{economicsLabel}</small>
                       )}
                     </span>
                     <span>
@@ -1271,15 +1407,14 @@ function CashHoldingsView({
               </span>
               <strong>{exposurePositionValue(position)}</strong>
               {openableHoldingIds.has(position.id) && (
-                <button
+                <TextLink
                   aria-label={`View ${positionDisplayName(position)} holding details`}
                   className="position-row__action"
                   data-holding-id={position.id}
                   onClick={() => onOpenHolding(position.id)}
-                  type="button"
                 >
-                  View details →
-                </button>
+                  View details
+                </TextLink>
               )}
             </article>
           ))}
