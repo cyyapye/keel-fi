@@ -712,6 +712,33 @@ export function createApp(options: AppOptions = {}) {
   const retainedPublicExposureReconcilerFor = (env: Env) =>
     options.retainedPublicExposureReconciler ??
     new D1RetainedPublicExposureReconciler(env);
+  const reconcileRetainedPublicExposureHistory = async (
+    context: Context<AppEnvironment>,
+    accessSubject: string,
+  ): Promise<void> => {
+    try {
+      const reconciliation = await retainedPublicExposureReconcilerFor(
+        context.env,
+      ).reconcile(accessSubject);
+      if (reconciliation.skippedDocumentCount > 0) {
+        console.error(
+          JSON.stringify({
+            event: "retained_public_exposure_reconciliation_incomplete",
+            requestId: context.get("requestId"),
+            skippedDocumentCount: reconciliation.skippedDocumentCount,
+          }),
+        );
+      }
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "retained_public_exposure_reconciliation_failed",
+          requestId: context.get("requestId"),
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        }),
+      );
+    }
+  };
   const portfolioBaselineRepositoryFor = (env: Env) =>
     options.portfolioBaselineRepository ??
     new D1PortfolioBaselineRepository(env.DB);
@@ -1758,28 +1785,6 @@ export function createApp(options: AppOptions = {}) {
     const accessSubject = context.get("identity").subject;
     const asOf = new Date().toISOString();
     try {
-      const reconciliation = await retainedPublicExposureReconcilerFor(
-        context.env,
-      ).reconcile(accessSubject);
-      if (reconciliation.skippedDocumentCount > 0) {
-        console.error(
-          JSON.stringify({
-            event: "retained_public_exposure_reconciliation_incomplete",
-            requestId: context.get("requestId"),
-            skippedDocumentCount: reconciliation.skippedDocumentCount,
-          }),
-        );
-      }
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          event: "retained_public_exposure_reconciliation_failed",
-          requestId: context.get("requestId"),
-          errorType: error instanceof Error ? error.name : "UnknownError",
-        }),
-      );
-    }
-    try {
       const positionView = await investmentPositionViewRepositoryFor(
         context.env,
       ).list(accessSubject, asOf);
@@ -2129,6 +2134,7 @@ export function createApp(options: AppOptions = {}) {
         accessSubject,
         connectionId: connection.connectionId,
       });
+      await reconcileRetainedPublicExposureHistory(context, accessSubject);
       return context.json(status, 200, {
         "Cache-Control": "private, no-store",
       });
@@ -2145,6 +2151,7 @@ export function createApp(options: AppOptions = {}) {
         { "Cache-Control": "private, no-store" },
       );
     }
+    const accessSubject = context.get("identity").subject;
     try {
       const state = await syncDueInvestmentConnections({
         env: context.env,
@@ -2152,8 +2159,9 @@ export function createApp(options: AppOptions = {}) {
         holdingImports: holdingImportRepositoryFor(context.env),
         portfolioBaselines: portfolioBaselineRepositoryFor(context.env),
         client: plaidClientFor(context.env),
-        accessSubject: context.get("identity").subject,
+        accessSubject,
       });
+      await reconcileRetainedPublicExposureHistory(context, accessSubject);
       return context.json(state, 200, {
         "Cache-Control": "private, no-store",
       });
@@ -2181,6 +2189,7 @@ export function createApp(options: AppOptions = {}) {
           400,
         );
       }
+      const accessSubject = context.get("identity").subject;
       try {
         const status = await syncInvestmentConnection({
           env: context.env,
@@ -2188,9 +2197,10 @@ export function createApp(options: AppOptions = {}) {
           holdingImports: holdingImportRepositoryFor(context.env),
           portfolioBaselines: portfolioBaselineRepositoryFor(context.env),
           client: plaidClientFor(context.env),
-          accessSubject: context.get("identity").subject,
+          accessSubject,
           connectionId: connectionId.data,
         });
+        await reconcileRetainedPublicExposureHistory(context, accessSubject);
         return context.json(status, 200, {
           "Cache-Control": "private, no-store",
         });

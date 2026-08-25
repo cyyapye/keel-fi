@@ -13,6 +13,22 @@
 - Validate every external boundary with Zod and keep production authentication
   fail-closed.
 
+## Read-path architecture
+
+- Keep user-facing read endpoints projection-only. Do not put reconciliation,
+  backfills, provider or object-storage reads, or writes on a GET critical path;
+  perform that work during ingestion, review, sync, or an explicit bounded
+  maintenance operation.
+- Keep repository round trips independent of the number of returned rows. Do not
+  await database, object-storage, or network operations inside a row loop; use
+  set-based SQL or bounded batches and indexes that match join, filter, and
+  ordering keys.
+- For collection or read-model changes, add a deterministic synthetic scale case
+  with at least 120 items when the domain can exceed 100, or use its documented
+  maximum. Assert a fixed query or D1 round-trip budget and inspect
+  `EXPLAIN QUERY PLAN` for correlated full scans. Progressive rendering does not
+  excuse an inefficient server read.
+
 ## Interface and copy
 
 - Use the repo-local `$keel-ui-quality` skill for every task that creates,

@@ -263,6 +263,44 @@ type DeterministicPublicRow = {
   effective_at: string;
 };
 
+type CurrentPublicMappingRow = PositionExposureMappingRow & {
+  requested_position_id: string;
+  requested_exposure_id: string;
+};
+
+type PositionAllocationRow = {
+  position_id: string;
+  allocated_ppm: number;
+};
+
+type CanonicalPublicExposureInsert = {
+  id: string;
+  householdId: string;
+  canonicalName: string;
+  protectedIdentityKey: string;
+  evidenceSha256: string;
+  createdByUserId: string;
+  createdAt: string;
+};
+
+type PublicExposureMappingInsert = {
+  id: string;
+  householdId: string;
+  positionId: string;
+  exposureId: string;
+  relationshipKind: "direct";
+  allocationPpm: number;
+  status: "active";
+  decisionSource: "deterministic_policy";
+  decisionReference: string;
+  evidenceSha256: string;
+  effectiveAt: string;
+  version: number;
+  supersedesMappingId: string | null;
+  acceptedByUserId: string;
+  acceptedAt: string;
+};
+
 type RetainedPublicExposureDocumentRow = {
   import_id: string;
   object_key: string;
@@ -1962,14 +2000,225 @@ export class D1ExposureRepository {
         .bind(identity.household_id, importId, importId, importId, importId),
     );
 
+    if (rows.length === 0) {
+      return;
+    }
+
+    const rowsByProtectedKey = new Map<string, DeterministicPublicRow>();
+    const positionIds = new Set<string>();
     for (const row of rows) {
-      const exposure = await this.resolveExposure(accessSubject, {
-        exposureKind: "public_instrument",
-        canonicalName: row.canonical_name,
-        protectedIdentityKey: row.protected_exposure_key,
-        evidenceSha256: row.evidence_sha256,
+      if (positionIds.has(row.position_id)) {
+        throw new Error(
+          "Public exposure reconciliation received a duplicate position.",
+        );
+      }
+      positionIds.add(row.position_id);
+      if (!rowsByProtectedKey.has(row.protected_exposure_key)) {
+        rowsByProtectedKey.set(row.protected_exposure_key, row);
+      }
+    }
+
+    const protectedKeys = [...rowsByProtectedKey.keys()];
+    let exposureRows = await this.listPublicExposuresByProtectedKey(
+      identity.household_id,
+      protectedKeys,
+    );
+    const existingKeys = new Set<string>();
+    for (const exposure of exposureRows) {
+      if (
+        exposure.exposure_kind !== "public_instrument" ||
+        exposure.protected_identity_key === null
+      ) {
+        throw new Error(
+          "Canonical exposure identity is already used differently.",
+        );
+      }
+      existingKeys.add(exposure.protected_identity_key);
+    }
+
+    const createdAt = new Date().toISOString();
+    const exposureInserts: CanonicalPublicExposureInsert[] = protectedKeys
+      .filter((protectedKey) => !existingKeys.has(protectedKey))
+      .map((protectedKey) => {
+        const row = rowsByProtectedKey.get(protectedKey);
+        if (row === undefined) {
+          throw new Error("Public exposure reconciliation lost its identity.");
+        }
+        return {
+          id: crypto.randomUUID(),
+          householdId: identity.household_id,
+          canonicalName: row.canonical_name,
+          protectedIdentityKey: protectedKey,
+          evidenceSha256: row.evidence_sha256,
+          createdByUserId: identity.user_id,
+          createdAt,
+        };
       });
-      await this.recordMapping(accessSubject, {
+    if (exposureInserts.length > 0) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO canonical_exposures (
+             id, household_id, exposure_kind, canonical_name,
+             protected_identity_key, company_id, resolution_method,
+             evidence_sha256, created_by_user_id, created_at, immutable
+           )
+           SELECT
+             json_extract(value, '$.id'),
+             json_extract(value, '$.householdId'),
+             'public_instrument',
+             json_extract(value, '$.canonicalName'),
+             json_extract(value, '$.protectedIdentityKey'),
+             NULL,
+             'strong_identifier',
+             json_extract(value, '$.evidenceSha256'),
+             json_extract(value, '$.createdByUserId'),
+             json_extract(value, '$.createdAt'),
+             1
+           FROM json_each(?)`,
+        )
+        .bind(JSON.stringify(exposureInserts))
+        .run();
+      exposureRows = await this.listPublicExposuresByProtectedKey(
+        identity.household_id,
+        protectedKeys,
+      );
+    }
+
+    const exposuresByProtectedKey = new Map<string, CanonicalExposureRow>();
+    for (const exposure of exposureRows) {
+      if (
+        exposure.exposure_kind !== "public_instrument" ||
+        exposure.protected_identity_key === null
+      ) {
+        throw new Error(
+          "Canonical exposure identity is already used differently.",
+        );
+      }
+      exposuresByProtectedKey.set(exposure.protected_identity_key, exposure);
+    }
+    if (exposuresByProtectedKey.size !== protectedKeys.length) {
+      throw new Error(
+        "Canonical public exposure reconciliation is incomplete.",
+      );
+    }
+
+    const requestedMappings = rows.map((row) => {
+      const exposure = exposuresByProtectedKey.get(row.protected_exposure_key);
+      if (exposure === undefined) {
+        throw new Error("Canonical public exposure was not found.");
+      }
+      return { positionId: row.position_id, exposureId: exposure.id };
+    });
+    const [currentMappings, allocationRows] = await Promise.all([
+      all<CurrentPublicMappingRow>(
+        this.db
+          .prepare(
+            `WITH requested AS (
+               SELECT
+                 CAST(json_extract(value, '$.positionId') AS TEXT)
+                   AS position_id,
+                 CAST(json_extract(value, '$.exposureId') AS TEXT)
+                   AS exposure_id
+               FROM json_each(?)
+             )
+             SELECT
+               requested.position_id AS requested_position_id,
+               requested.exposure_id AS requested_exposure_id,
+               mapping.id, mapping.household_id, mapping.position_id,
+               mapping.exposure_id, mapping.relationship_kind,
+               mapping.allocation_ppm, mapping.status,
+               mapping.decision_source, mapping.decision_reference,
+               mapping.evidence_sha256, mapping.effective_at,
+               mapping.version, mapping.supersedes_mapping_id
+             FROM requested
+             JOIN holding_position_exposure_mappings mapping
+               ON mapping.position_id = requested.position_id
+              AND mapping.exposure_id = requested.exposure_id
+             WHERE mapping.household_id = ?
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM holding_position_exposure_mappings later
+                 WHERE later.supersedes_mapping_id = mapping.id
+               )`,
+          )
+          .bind(JSON.stringify(requestedMappings), identity.household_id),
+      ),
+      all<PositionAllocationRow>(
+        this.db
+          .prepare(
+            `SELECT
+               mapping.position_id,
+               COALESCE(SUM(mapping.allocation_ppm), 0) AS allocated_ppm
+             FROM holding_position_exposure_mappings mapping
+             WHERE mapping.household_id = ?
+               AND mapping.position_id IN (
+                 SELECT CAST(value AS TEXT) FROM json_each(?)
+               )
+               AND mapping.status = 'active'
+               AND mapping.allocation_ppm IS NOT NULL
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM holding_position_exposure_mappings later
+                 WHERE later.supersedes_mapping_id = mapping.id
+               )
+             GROUP BY mapping.position_id`,
+          )
+          .bind(identity.household_id, JSON.stringify([...positionIds])),
+      ),
+    ]);
+    const mappingKey = (positionId: string, exposureId: string) =>
+      JSON.stringify([positionId, exposureId]);
+    const currentByPair = new Map(
+      currentMappings.map((mapping) => [
+        mappingKey(
+          mapping.requested_position_id,
+          mapping.requested_exposure_id,
+        ),
+        mapping,
+      ]),
+    );
+    const allocationByPosition = new Map(
+      allocationRows.map((row) => [row.position_id, row.allocated_ppm]),
+    );
+    const acceptedAt = new Date().toISOString();
+    const mappingInserts: PublicExposureMappingInsert[] = [];
+    for (const row of rows) {
+      const exposure = exposuresByProtectedKey.get(row.protected_exposure_key);
+      if (exposure === undefined) {
+        throw new Error("Canonical public exposure was not found.");
+      }
+      const current = currentByPair.get(
+        mappingKey(row.position_id, exposure.id),
+      );
+      if (
+        current?.relationship_kind === "direct" &&
+        current.allocation_ppm === 1_000_000 &&
+        current.status === "active"
+      ) {
+        continue;
+      }
+      if (current?.status === "withdrawn") {
+        throw new Error(
+          "A withdrawn exposure mapping requires explicit review.",
+        );
+      }
+      if (current !== undefined && current.effective_at > row.effective_at) {
+        throw new Error(
+          "Exposure mapping corrections cannot move backward in time.",
+        );
+      }
+      const currentAllocation =
+        current?.status === "active" && current.allocation_ppm !== null
+          ? current.allocation_ppm
+          : 0;
+      const allocatedWithoutCurrent =
+        (allocationByPosition.get(row.position_id) ?? 0) - currentAllocation;
+      if (allocatedWithoutCurrent + 1_000_000 > 1_000_000) {
+        throw new Error("Exposure allocations exceed one million ppm.");
+      }
+      const parsed = PositionExposureMappingSchema.parse({
+        id: crypto.randomUUID(),
+        householdId: identity.household_id,
         positionId: row.position_id,
         exposureId: exposure.id,
         relationshipKind: "direct",
@@ -1986,8 +2235,74 @@ export class D1ExposureRepository {
                 : `public-strong-identifier-v1:${row.public_exposure_identity_kind}`,
         evidenceSha256: row.evidence_sha256,
         effectiveAt: row.effective_at,
+        version: (current?.version ?? 0) + 1,
+        supersedesMappingId: current?.id ?? null,
+      });
+      mappingInserts.push({
+        ...parsed,
+        relationshipKind: "direct",
+        allocationPpm: 1_000_000,
+        status: "active",
+        decisionSource: "deterministic_policy",
+        acceptedByUserId: identity.user_id,
+        acceptedAt,
       });
     }
+    if (mappingInserts.length > 0) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO holding_position_exposure_mappings (
+             id, household_id, position_id, exposure_id, relationship_kind,
+             allocation_ppm, status, decision_source, decision_reference,
+             evidence_sha256, effective_at, version, supersedes_mapping_id,
+             accepted_by_user_id, accepted_at, immutable
+           )
+           SELECT
+             json_extract(value, '$.id'),
+             json_extract(value, '$.householdId'),
+             json_extract(value, '$.positionId'),
+             json_extract(value, '$.exposureId'),
+             json_extract(value, '$.relationshipKind'),
+             CAST(json_extract(value, '$.allocationPpm') AS INTEGER),
+             json_extract(value, '$.status'),
+             json_extract(value, '$.decisionSource'),
+             json_extract(value, '$.decisionReference'),
+             json_extract(value, '$.evidenceSha256'),
+             json_extract(value, '$.effectiveAt'),
+             CAST(json_extract(value, '$.version') AS INTEGER),
+             json_extract(value, '$.supersedesMappingId'),
+             json_extract(value, '$.acceptedByUserId'),
+             json_extract(value, '$.acceptedAt'),
+             1
+           FROM json_each(?)`,
+        )
+        .bind(JSON.stringify(mappingInserts))
+        .run();
+    }
+  }
+
+  private async listPublicExposuresByProtectedKey(
+    householdId: string,
+    protectedKeys: readonly string[],
+  ): Promise<readonly CanonicalExposureRow[]> {
+    if (protectedKeys.length === 0) {
+      return [];
+    }
+    return all<CanonicalExposureRow>(
+      this.db
+        .prepare(
+          `SELECT
+             id, household_id, exposure_kind, canonical_name,
+             protected_identity_key, company_id, resolution_method,
+             evidence_sha256, created_at
+           FROM canonical_exposures
+           WHERE household_id = ?
+             AND protected_identity_key IN (
+               SELECT CAST(value AS TEXT) FROM json_each(?)
+             )`,
+        )
+        .bind(householdId, JSON.stringify(protectedKeys)),
+    );
   }
 
   public async getProjection(

@@ -391,10 +391,20 @@ position ID, but the UI must not union an Alpha-only record back into either
 projection. Otherwise an intentionally retired continuity predecessor can
 reappear as an unresolved current position after the database has excluded it.
 
-These repairs are derived relationships, not new financial facts, so they may
-run automatically and idempotently before the canonical Holdings read. A repair
-failure must fail closed for that relationship without making the authoritative
-position view unavailable.
+These repairs are derived relationships, not new financial facts, so they run
+automatically and idempotently after successful investment syncs. The canonical
+Holdings read is projection-only and never waits for retained-object access,
+reconciliation, or writes. A repair failure must fail closed for that
+relationship without making the authoritative position view unavailable.
+
+**2026-08-25 read-path amendment:** Migration
+`0040_holdings_read_performance.sql` indexes the current/prior accepted
+application lookups and household exposure mappings used by the canonical
+projections. Retained-history reconciliation moved from the Holdings GET to
+successful investment-sync flows, and public mapping reconciliation is
+set-based. A deterministic 120-position/exposure case now enforces a fixed D1
+round-trip budget and verifies both projection indexes with
+`EXPLAIN QUERY PLAN`.
 
 Robinhood and AngelList remain the operated holding sources. The released
 multi-institution experience and provider-neutral adapter are proven with

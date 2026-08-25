@@ -232,9 +232,17 @@ describe("investment-connections API", () => {
   it("checks due investment connections through the server cooldown", async () => {
     const investmentConnectionsRepository = repository();
     const plaidClient = client();
+    const retainedPublicExposureReconciler = {
+      reconcile: vi.fn().mockResolvedValue({
+        documentCount: 0,
+        skippedDocumentCount: 0,
+        identityCount: 0,
+      }),
+    };
     const app = createApp({
       investmentConnectionsRepository,
       plaidClient,
+      retainedPublicExposureReconciler,
     });
 
     const response = await app.request(
@@ -253,6 +261,9 @@ describe("investment-connections API", () => {
       expect.any(String),
     );
     expect(plaidClient.getHoldings).not.toHaveBeenCalled();
+    expect(retainedPublicExposureReconciler.reconcile).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+    );
   });
 
   it("returns canonical position and exposure views with authorization status", async () => {
@@ -299,12 +310,10 @@ describe("investment-connections API", () => {
       expect.any(String),
       positionView,
     );
-    expect(retainedPublicExposureReconciler.reconcile).toHaveBeenCalledWith(
-      "synthetic-access-subject",
-    );
+    expect(retainedPublicExposureReconciler.reconcile).not.toHaveBeenCalled();
   });
 
-  it("keeps canonical holdings available when retained-history repair fails", async () => {
+  it("keeps canonical holdings reads independent from retained-history repair", async () => {
     const investmentPositionViewRepository = {
       list: vi.fn().mockResolvedValue(positionView),
     } satisfies InvestmentPositionViewRepository;
@@ -334,9 +343,7 @@ describe("investment-connections API", () => {
       positionView,
       exposureView,
     });
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining("retained_public_exposure_reconciliation_failed"),
-    );
+    expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });
 

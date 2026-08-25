@@ -41,6 +41,12 @@ Before coding, identify:
 - the hierarchy that should remain after secondary copy is removed;
 - every line, box, badge, or label that must justify its presence.
 
+For a data-backed collection screen, trace the complete initial request before
+changing the UI. Use at least 120 deterministic synthetic items unless the
+domain has a smaller documented maximum. Initial content must not wait for sync,
+reconciliation, backfill, provider, or object-storage work, and the rendered DOM
+must remain bounded.
+
 Do not invent a new visual language when an existing Keel pattern solves the
 problem.
 
@@ -63,27 +69,30 @@ problem.
 
 1. Run the narrowest relevant lint, type, unit, and browser checks while
    iterating.
-2. For every material change, ensure a deterministic Playwright screenshot
+2. For a data-backed collection, run its backend scale regression. Assert a
+   row-count-independent query or D1 round-trip budget and indexed query plans;
+   client pagination or progressive rendering is not a substitute.
+3. For every material change, ensure a deterministic Playwright screenshot
    covers the affected screen on both configured desktop and mobile projects.
    Add coverage when none exists.
-3. Keep visual fixtures inside browser tests. Use fixed synthetic values and
+4. Keep visual fixtures inside browser tests. Use fixed synthetic values and
    retain separate functional coverage for real application behavior.
-4. Update snapshots only after confirming the rendered change is intentional:
+5. Update snapshots only after confirming the rendered change is intentional:
 
    `pnpm exec playwright test e2e/<visual-spec> --update-snapshots=all`
 
-5. Inspect every generated PNG with the image-viewing tool. Check hierarchy,
+6. Inspect every generated PNG with the image-viewing tool. Check hierarchy,
    spacing, copy density, borders, badges, contrast, clipping, sticky
    navigation, transient states, and horizontal overflow.
-6. Keep one expected baseline per covered state, project, and supported
+7. Keep one expected baseline per covered state, project, and supported
    platform. Snapshot updates must overwrite those canonical files rather than
    create dated copies.
-7. Commit only expected baselines. Never commit `test-results/`, actual or diff
+8. Commit only expected baselines. Never commit `test-results/`, actual or diff
    images, traces, Playwright reports, or downloaded CI artifacts. Delete
    obsolete baselines when their test, state, project, or platform is removed.
-8. Rerun the visual spec without snapshot-update mode.
-9. Run `make verify` before handoff. Keep browser tests serialized when they
-   share the seeded local D1 state.
+9. Rerun the visual spec without snapshot-update mode.
+10. Run `make verify` before handoff. Keep browser tests serialized when they
+    share the seeded local D1 state.
 
 Never update a baseline merely to make a test green. Fix unintended rendering or
 interaction first.

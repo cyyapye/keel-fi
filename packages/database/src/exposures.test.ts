@@ -53,6 +53,7 @@ const migrationFiles = [
   "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
   "packages/database/migrations/0025_retired_asset_lots.sql",
   "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
+  "packages/database/migrations/0040_holdings_read_performance.sql",
   reconciliationMigrationFile,
   retainedPublicIdentityMigrationFile,
   providerScopedIdentityMigrationFile,
@@ -73,52 +74,78 @@ class TestD1Statement {
     private readonly database: DatabaseSync,
     private readonly sql: string,
     private readonly values: readonly SQLInputValue[] = [],
+    private readonly recordRoundTrip: () => void = () => undefined,
   ) {}
 
   public bind(...values: SQLInputValue[]): TestD1Statement {
-    return new TestD1Statement(this.database, this.sql, values);
+    return new TestD1Statement(
+      this.database,
+      this.sql,
+      values,
+      this.recordRoundTrip,
+    );
   }
 
   public first<T>(): Promise<T | null> {
+    this.recordRoundTrip();
     return Promise.resolve(
       (this.database.prepare(this.sql).get(...this.values) as T) ?? null,
     );
   }
 
   public all<T>(): Promise<{ results: T[] }> {
+    this.recordRoundTrip();
     return Promise.resolve({
       results: this.database.prepare(this.sql).all(...this.values) as T[],
     });
   }
 
   public run(): Promise<{ meta: { changes: number } }> {
+    this.recordRoundTrip();
+    return Promise.resolve(this.execute());
+  }
+
+  public execute(): { meta: { changes: number } } {
     const result = this.database.prepare(this.sql).run(...this.values);
-    return Promise.resolve({ meta: { changes: Number(result.changes) } });
+    return { meta: { changes: Number(result.changes) } };
   }
 }
 
 class TestD1Database {
+  public roundTripCount = 0;
+  public readonly preparedSql: string[] = [];
+
   public constructor(private readonly database: DatabaseSync) {}
 
   public prepare(sql: string): TestD1Statement {
-    return new TestD1Statement(this.database, sql);
+    this.preparedSql.push(sql);
+    return new TestD1Statement(this.database, sql, [], () => {
+      this.roundTripCount += 1;
+    });
   }
 
-  public async batch(
+  public batch(
     statements: TestD1Statement[],
   ): Promise<{ meta: { changes: number } }[]> {
+    this.roundTripCount += 1;
     this.database.exec("BEGIN");
     try {
-      const results = [];
+      const results: { meta: { changes: number } }[] = [];
       for (const statement of statements) {
-        results.push(await statement.run());
+        results.push(statement.execute());
       }
       this.database.exec("COMMIT");
-      return results;
+      return Promise.resolve(results);
     } catch (error) {
       this.database.exec("ROLLBACK");
-      throw error;
+      return Promise.reject(
+        error instanceof Error ? error : new Error("Test D1 batch failed."),
+      );
     }
+  }
+
+  public resetRoundTripCount(): void {
+    this.roundTripCount = 0;
   }
 }
 
@@ -524,6 +551,7 @@ function seedAcceptedPosition(
 
 describe("canonical exposure resolution and aggregation", () => {
   let sqlite: DatabaseSync;
+  let database: TestD1Database;
   let repository: D1ExposureRepository;
   let readModel: D1InvestmentExposureViewRepository;
   let baselines: D1PortfolioBaselineRepository;
@@ -535,10 +563,14 @@ describe("canonical exposure resolution and aggregation", () => {
       sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
     });
     seedManualConnection(sqlite);
-    const database = new TestD1Database(sqlite) as unknown as D1Database;
-    repository = new D1ExposureRepository(database);
-    readModel = new D1InvestmentExposureViewRepository(database);
-    baselines = new D1PortfolioBaselineRepository(database);
+    database = new TestD1Database(sqlite);
+    repository = new D1ExposureRepository(database as unknown as D1Database);
+    readModel = new D1InvestmentExposureViewRepository(
+      database as unknown as D1Database,
+    );
+    baselines = new D1PortfolioBaselineRepository(
+      database as unknown as D1Database,
+    );
   });
 
   afterEach(() => sqlite.close());
@@ -2230,6 +2262,60 @@ describe("canonical exposure resolution and aggregation", () => {
         },
       ]),
     ).rejects.toThrow("Structured asset exposure evidence changed.");
+  });
+
+  it("reconciles 120 public positions with a row-count-independent D1 budget", async () => {
+    for (let index = 0; index < 120; index += 1) {
+      const id = `position_scale_${index.toString().padStart(3, "0")}`;
+      seedAcceptedPosition(sqlite, {
+        id,
+        label: `Synthetic Scale Security ${index.toString().padStart(3, "0")}`,
+        provider: "plaid_investments",
+        publicExposureIdentityKind: "cusip",
+        protectedExposureKey: hash(`scale-exposure:${index.toString()}`),
+        positionKind: "direct",
+        valueMinor: 100_000 + index,
+        valueState: "reported",
+        containerKind: "brokerage",
+      });
+    }
+
+    database.resetRoundTripCount();
+    await repository.reconcileAcceptedPublicExposureHistory(accessSubject);
+    expect(database.roundTripCount).toBeLessThanOrEqual(10);
+    expect(
+      sqlite
+        .prepare(
+          `SELECT
+             COUNT(*) AS mapping_count,
+             COUNT(DISTINCT exposure_id) AS exposure_count
+           FROM holding_position_exposure_mappings
+           WHERE position_id GLOB 'position_scale_*'`,
+        )
+        .get(),
+    ).toEqual({ mapping_count: 120, exposure_count: 120 });
+
+    database.resetRoundTripCount();
+    await repository.reconcileAcceptedPublicExposureHistory(accessSubject);
+    expect(database.roundTripCount).toBeLessThanOrEqual(4);
+
+    await readModel.list(accessSubject);
+    const exposureSql = database.preparedSql.find(
+      (sql) =>
+        sql.includes("FROM canonical_exposures") &&
+        sql.includes("current_mapping.exposure_id"),
+    );
+    expect(exposureSql).toBeDefined();
+    const plan = sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${exposureSql ?? "SELECT 1"}`)
+      .all("hh_demo") as Array<{ detail: string }>;
+    expect(
+      plan.some((row) =>
+        row.detail.includes(
+          "holding_position_exposure_mappings_household_exposure_idx",
+        ),
+      ),
+    ).toBe(true);
   });
 });
 

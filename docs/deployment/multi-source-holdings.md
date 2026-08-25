@@ -21,10 +21,11 @@ snapshot, value, Portfolio Baseline, plan, goal, or forecast. None of these
 migrations authorizes another live institution. Migration
 `0027_retained_public_exposure_identity.sql` adds an append-only evidence table
 for accepted public rows whose exact retained source document predates the
-strong-identifier columns. On the next Holdings read, Keel verifies the retained
-object's recorded byte length and SHA-256, validates its Plaid schema, protects
-only a checksum-valid CUSIP, ISIN, or SEDOL, and applies the same deterministic
-public-exposure policy. It never rewrites the accepted import row. Migration
+strong-identifier columns. After a successful investment sync, Keel verifies
+each unresolved retained object's recorded byte length and SHA-256, validates
+its Plaid schema, protects only a checksum-valid CUSIP, ISIN, or SEDOL, and
+applies the same deterministic public-exposure policy. Holdings reads remain
+projection-only, and the repair never rewrites an accepted import row. Migration
 `0028_provider_scoped_public_exposure.sql` records a second, append-only outcome
 only when that retained evidence has no valid global identifier. Eligible
 equity, ETF, and mutual-fund rows may share a protected Plaid security identity
@@ -45,6 +46,12 @@ eligible when a checksum-valid public identifier exists on only one side of the
 reconnect. It does not infer the missing identifier: every structured snapshot
 fact and the one-to-one candidate constraint still must agree, and two present
 identifiers must be equal.
+
+Migration `0040_holdings_read_performance.sql` adds the two indexes required by
+the canonical Position and Exposure query plans. Apply it before judging a large
+Holdings read: without it, current/prior application subqueries and the
+household exposure-mapping lookup can rescan candidate rows once per projected
+position or exposure.
 
 The public repository and release fixtures remain synthetic-only. A short-lived
 synthetic transition experiment was removed instead of becoming a permanent
@@ -162,10 +169,11 @@ repair for already accepted history, not an alternate ingestion or read path.
   CUSIP, ISIN, or SEDOL protected with the deployment identity key qualifies;
   reapplying the same decision is a no-op, while a missing or invalid identifier
   leaves the position unmapped.
-- Accepted public history that predates the row columns follows the same rule.
-  The runtime reads each unreconciled retained source object at most until its
-  append-only resolution evidence is recorded, then reconciliation runs entirely
-  from D1. A row without a valid global identifier can use the exact provider
+- Accepted public history that predates the row columns follows the same rule. A
+  successful investment sync reads each unreconciled retained source object at
+  most until its append-only resolution evidence is recorded, then
+  reconciliation runs entirely from D1. The Holdings GET never performs this
+  repair. A row without a valid global identifier can use the exact provider
   security ID only after it is protected with the exact Item identity and only
   for eligible public security types. The same provider ID in another Item does
   not match. Exact USD cash instead uses one currency identity across investment
