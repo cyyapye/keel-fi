@@ -14,17 +14,8 @@ import {
   TextLink,
   type ChartConfig,
 } from "@keel/ui";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  type BarShapeProps,
-  LabelList,
-  Rectangle,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { useCallback, useEffect, useState } from "react";
+import { Bar, BarChart, LabelList, Tooltip, XAxis, YAxis } from "recharts";
 
 import { loadInvestmentHoldings, loadPortfolioBaseline } from "./api";
 import {
@@ -77,59 +68,9 @@ function shortenLabel(value: unknown): string {
   return label.length <= 18 ? label : `${label.slice(0, 17)}…`;
 }
 
-function DrilldownBarShape({
-  accessibleName,
-  onActivate,
-  ...props
-}: BarShapeProps & {
-  accessibleName: string;
-  onActivate: () => void;
-}) {
-  const hitHeight = Math.max(props.height, 44);
-  const hitWidth = Math.max(props.width, 44);
-  const hitY = props.y - (hitHeight - props.height) / 2;
-  const activateFromKeyboard = (event: KeyboardEvent<SVGGElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    onActivate();
-  };
-
-  return (
-    <g
-      aria-label={accessibleName}
-      className="portfolio-chart__drilldown"
-      onClick={onActivate}
-      onKeyDown={activateFromKeyboard}
-      role="link"
-      tabIndex={0}
-    >
-      <Rectangle
-        className="portfolio-chart__hit-area"
-        fill="transparent"
-        height={hitHeight}
-        width={hitWidth}
-        x={props.x}
-        y={hitY}
-      />
-      <Rectangle
-        className="portfolio-chart__bar"
-        fill={props.fill}
-        height={props.height}
-        width={props.width}
-        x={props.x}
-        y={props.y}
-      />
-    </g>
-  );
-}
-
 function TopExposureChart({
-  onViewExposure,
   snapshot,
 }: {
-  onViewExposure: (exposureId: string) => void;
   snapshot: PortfolioDashboardSnapshot;
 }) {
   const rows = snapshot.topExposures.map((exposure) => ({
@@ -150,7 +91,7 @@ function TopExposureChart({
       <ChartContainer
         aria-label={`Top ${rows.length} holdings grouped by economic exposure in ${snapshot.currency}`}
         config={exposureChartConfig}
-        height={Math.max(250, rows.length * 44)}
+        height={Math.max(250, rows.length * 42)}
       >
         <BarChart
           accessibilityLayer
@@ -183,24 +124,12 @@ function TopExposureChart({
             fill="var(--color-valueMinor)"
             isAnimationActive={false}
             maxBarSize={18}
-            shape={(props: BarShapeProps) => {
-              const row = props.payload as (typeof rows)[number] | undefined;
-              return row === undefined ? (
-                <Rectangle {...props} />
-              ) : (
-                <DrilldownBarShape
-                  {...props}
-                  accessibleName={`View ${row.name} holdings detail, ${formatChartMoney(row.valueMinor, snapshot.currency)}`}
-                  onActivate={() => onViewExposure(row.id)}
-                />
-              );
-            }}
           >
             <LabelList
               className="portfolio-chart__value-label"
               dataKey="valueMinor"
               formatter={(value: unknown) =>
-                `${formatChartMoney(Number(value), snapshot.currency)} →`
+                formatChartMoney(Number(value), snapshot.currency)
               }
               position="right"
             />
@@ -219,10 +148,8 @@ function TopExposureChart({
 }
 
 function LiquidityChart({
-  onViewAccess,
   snapshot,
 }: {
-  onViewAccess: (accessKey: PortfolioDashboardLiquiditySegment["key"]) => void;
   snapshot: PortfolioDashboardSnapshot;
 }) {
   const total = snapshot.liquidity.reduce(
@@ -282,55 +209,38 @@ function LiquidityChart({
           />
           {snapshot.liquidity.map((segment) => (
             <Bar
-              className="portfolio-chart__access-segment"
               dataKey={segment.key}
               fill={`var(--color-${segment.key})`}
               isAnimationActive={false}
               key={segment.key}
-              onClick={() => onViewAccess(segment.key)}
               stackId="access"
             />
           ))}
         </BarChart>
       </ChartContainer>
-      <ul
-        aria-label="Portfolio access details"
-        className="portfolio-liquidity-legend"
-      >
+      <dl className="portfolio-liquidity-legend">
         {snapshot.liquidity.map((segment, index) => (
-          <li key={segment.key}>
-            <button
-              aria-label={`View ${segment.label} holdings detail, ${formatChartMoney(segment.valueMinor, snapshot.currency)}, ${formatProbability(ratioPpm(segment.valueMinor, total))}`}
-              onClick={() => onViewAccess(segment.key)}
-              type="button"
-            >
-              <span className="portfolio-liquidity-legend__label">
-                <i
-                  aria-hidden="true"
-                  style={{
-                    background: `rgb(38 34 56 / ${LIQUIDITY_OPACITY[index] ?? 0.16})`,
-                  }}
-                />
-                {segment.label}
-              </span>
-              <span className="portfolio-liquidity-legend__value">
-                <strong>
-                  {formatChartMoney(segment.valueMinor, snapshot.currency)}
-                </strong>
-                <small>
-                  {formatProbability(ratioPpm(segment.valueMinor, total))}
-                </small>
-              </span>
+          <div key={segment.key}>
+            <dt>
               <span
                 aria-hidden="true"
-                className="portfolio-liquidity-legend__arrow"
-              >
-                →
-              </span>
-            </button>
-          </li>
+                style={{
+                  background: `rgb(38 34 56 / ${LIQUIDITY_OPACITY[index] ?? 0.16})`,
+                }}
+              />
+              {segment.label}
+            </dt>
+            <dd>
+              <strong>
+                {formatChartMoney(segment.valueMinor, snapshot.currency)}
+              </strong>
+              <small>
+                {formatProbability(ratioPpm(segment.valueMinor, total))}
+              </small>
+            </dd>
+          </div>
         ))}
-      </ul>
+      </dl>
     </>
   );
 }
@@ -339,12 +249,10 @@ function MoverBarChart({
   currency,
   direction,
   movers,
-  onViewExposure,
 }: {
   currency: string;
   direction: "up" | "down";
   movers: readonly PortfolioDashboardMover[];
-  onViewExposure: (exposureId: string) => void;
 }) {
   if (movers.length === 0) {
     return <p className="portfolio-movers__empty">No comparable changes.</p>;
@@ -362,7 +270,7 @@ function MoverBarChart({
         aria-label={`${direction === "up" ? "Largest increases" : "Largest decreases"} in ${currency}`}
         className={direction === "down" ? "portfolio-mover-chart--down" : ""}
         config={moverChartConfig}
-        height={Math.max(190, rows.length * 44)}
+        height={Math.max(190, rows.length * 42)}
       >
         <BarChart
           accessibilityLayer
@@ -395,24 +303,12 @@ function MoverBarChart({
             fill="var(--color-magnitudeMinor)"
             isAnimationActive={false}
             maxBarSize={16}
-            shape={(props: BarShapeProps) => {
-              const row = props.payload as (typeof rows)[number] | undefined;
-              return row === undefined ? (
-                <Rectangle {...props} />
-              ) : (
-                <DrilldownBarShape
-                  {...props}
-                  accessibleName={`View ${row.name} holdings detail, ${formatSignedMoney(row.magnitudeMinor * sign, currency)}`}
-                  onActivate={() => onViewExposure(row.id)}
-                />
-              );
-            }}
           >
             <LabelList
               className="portfolio-chart__value-label"
               dataKey="magnitudeMinor"
               formatter={(value: unknown) =>
-                `${formatSignedMoney(Number(value) * sign, currency)} →`
+                formatSignedMoney(Number(value) * sign, currency)
               }
               position="right"
             />
@@ -431,10 +327,8 @@ function MoverBarChart({
 }
 
 export function PortfolioSnapshot({
-  onDrilldown,
   onViewHoldings,
 }: {
-  onDrilldown: (drilldown: PortfolioSnapshotDrilldown) => void;
   onViewHoldings: () => void;
 }) {
   const [snapshot, setSnapshot] = useState<PortfolioDashboardSnapshot | null>(
@@ -542,12 +436,7 @@ export function PortfolioSnapshot({
               eyebrow={`Economic exposure · ${snapshot.currency}`}
               title="Top 10 holdings"
             >
-              <TopExposureChart
-                onViewExposure={(exposureId) =>
-                  onDrilldown({ type: "exposure", exposureId })
-                }
-                snapshot={snapshot}
-              />
+              <TopExposureChart snapshot={snapshot} />
             </Panel>
 
             <Panel
@@ -555,12 +444,7 @@ export function PortfolioSnapshot({
               eyebrow="Current liquidity"
               title="Portfolio by access"
             >
-              <LiquidityChart
-                onViewAccess={(accessKey) =>
-                  onDrilldown({ type: "access", accessKey })
-                }
-                snapshot={snapshot}
-              />
+              <LiquidityChart snapshot={snapshot} />
             </Panel>
 
             <Panel
@@ -575,9 +459,6 @@ export function PortfolioSnapshot({
                     currency={snapshot.currency}
                     direction="up"
                     movers={snapshot.moversUp}
-                    onViewExposure={(exposureId) =>
-                      onDrilldown({ type: "exposure", exposureId })
-                    }
                   />
                 </section>
                 <section aria-labelledby="portfolio-movers-down-title">
@@ -586,9 +467,6 @@ export function PortfolioSnapshot({
                     currency={snapshot.currency}
                     direction="down"
                     movers={snapshot.moversDown}
-                    onViewExposure={(exposureId) =>
-                      onDrilldown({ type: "exposure", exposureId })
-                    }
                   />
                 </section>
               </div>

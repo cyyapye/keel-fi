@@ -569,11 +569,9 @@ function LiquidityChart({
 function Dashboard({
   data,
   onNavigate,
-  onPortfolioDrilldown,
 }: {
   data: AlphaData;
   onNavigate: (screen: Screen) => void;
-  onPortfolioDrilldown: (drilldown: PortfolioSnapshotDrilldown) => void;
 }) {
   const scenario =
     data.scenarios.find((item) => item.name === "FI Underwriting") ??
@@ -748,10 +746,7 @@ function Dashboard({
         </section>
       )}
 
-      <PortfolioSnapshot
-        onDrilldown={onPortfolioDrilldown}
-        onViewHoldings={() => onNavigate("holdings")}
-      />
+      <PortfolioSnapshot onViewHoldings={() => onNavigate("holdings")} />
 
       <div className="dashboard-grid">
         <Panel
@@ -8035,26 +8030,6 @@ export function App() {
     setHoldingsView(view);
   }, []);
 
-  const navigateToPortfolioDrilldown = useCallback(
-    (drilldown: PortfolioSnapshotDrilldown) => {
-      const search = new URLSearchParams();
-      if (drilldown.type === "exposure") {
-        search.set("exposure", drilldown.exposureId);
-      } else {
-        search.set("access", drilldown.accessKey);
-      }
-      const path = `/holdings?${search.toString()}`;
-      if (`${window.location.pathname}${window.location.search}` !== path) {
-        window.history.pushState(null, "", path);
-      }
-      setActiveScreen("holdings");
-      setHoldingImportId(null);
-      setHoldingsDrilldown(drilldown);
-      setHoldingsView("overview");
-    },
-    [],
-  );
-
   useEffect(() => {
     const updateRoute = () => {
       const route = routeFromLocation();
@@ -8093,13 +8068,7 @@ export function App() {
     }
     switch (activeScreen) {
       case "dashboard":
-        return (
-          <Dashboard
-            data={data}
-            onNavigate={navigateToScreen}
-            onPortfolioDrilldown={navigateToPortfolioDrilldown}
-          />
-        );
+        return <Dashboard data={data} onNavigate={navigateToScreen} />;
       case "goals":
         return (
           <Goals
@@ -8236,7 +8205,6 @@ export function App() {
     holdingsView,
     navigateToHoldingImport,
     navigateToHoldingsView,
-    navigateToPortfolioDrilldown,
     navigateToScreen,
     reviewError,
     scenarioContext,

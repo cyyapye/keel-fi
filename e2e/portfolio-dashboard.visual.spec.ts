@@ -295,7 +295,48 @@ test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
   });
 });
 
-test("drills each portfolio chart into its corresponding Holdings detail", async ({
+test("keeps every portfolio chart display-only", async ({ page }) => {
+  await page.goto("/");
+  const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+  await expect(
+    snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
+  ).toBeVisible();
+
+  await expect(snapshot).not.toContainText("→");
+  await expect(
+    snapshot.getByRole("link", { name: /holdings detail/u }),
+  ).toHaveCount(0);
+  await expect(
+    snapshot.getByRole("button", { name: /holdings detail/u }),
+  ).toHaveCount(0);
+  await expect(snapshot.locator(".portfolio-chart__drilldown")).toHaveCount(0);
+  await expect(
+    snapshot.locator(".portfolio-chart__access-segment"),
+  ).toHaveCount(0);
+  await expect(
+    snapshot.locator(".portfolio-liquidity-legend button"),
+  ).toHaveCount(0);
+
+  const initialUrl = page.url();
+  await snapshot
+    .getByLabel(/Top 10 holdings grouped by economic exposure/u)
+    .locator(".recharts-bar-rectangle")
+    .first()
+    .click({ force: true });
+  await expect(page).toHaveURL(initialUrl);
+  await snapshot
+    .getByLabel("Portfolio value by access in USD")
+    .locator(".recharts-bar-rectangle")
+    .first()
+    .click({ force: true });
+  await expect(page).toHaveURL(initialUrl);
+  await expectNoHorizontalOverflow(page);
+
+  await snapshot.getByText("View holdings", { exact: true }).click();
+  await expect(page).toHaveURL(/\/holdings$/u);
+});
+
+test("keeps Holdings detail URLs independent from the charts", async ({
   page,
 }) => {
   const exposureIdFor = (name: string) => {
@@ -304,14 +345,6 @@ test("drills each portfolio chart into its corresponding Holdings detail", async
     );
     expect(exposure, `${name} exposure fixture`).toBeDefined();
     return exposure!.exposure.id;
-  };
-  const openSnapshot = async () => {
-    await page.goto("/");
-    const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-    await expect(
-      snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
-    ).toBeVisible();
-    return snapshot;
   };
   const expectExposureOpen = async (exposureId: string) => {
     await expect(page).toHaveURL(/\/holdings\?exposure=/u);
@@ -323,15 +356,9 @@ test("drills each portfolio chart into its corresponding Holdings detail", async
     return exposure;
   };
 
-  let snapshot = await openSnapshot();
-  const topExposureLink = snapshot
-    .getByLabel(/Top 10 holdings grouped by economic exposure/u)
-    .getByRole("link", { name: /View Orion Compute holdings detail/u });
-  await expect(topExposureLink).toBeVisible();
-  const topExposureTarget = await topExposureLink.boundingBox();
-  expect(topExposureTarget?.height).toBeGreaterThanOrEqual(44);
-  await topExposureLink.press("Enter");
-  await expectExposureOpen(exposureIdFor("Orion Compute"));
+  const orionExposureId = exposureIdFor("Orion Compute");
+  await page.goto(`/holdings?exposure=${encodeURIComponent(orionExposureId)}`);
+  await expectExposureOpen(orionExposureId);
   await page.addStyleTag({
     content: ".topbar { visibility: hidden !important; }",
   });
@@ -339,15 +366,6 @@ test("drills each portfolio chart into its corresponding Holdings detail", async
     "portfolio-exposure-drilldown.png",
     { animations: "disabled" },
   );
-
-  await page.goBack();
-  snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-  await expect(snapshot).toBeVisible();
-  await snapshot
-    .getByLabel("Largest decreases in USD")
-    .getByRole("link", { name: /View Juniper Mobility holdings detail/u })
-    .click();
-  await expectExposureOpen(exposureIdFor("Juniper Mobility"));
 
   const accessCases = [
     { key: "cash", label: "Cash", row: "Reserve savings" },
@@ -359,18 +377,8 @@ test("drills each portfolio chart into its corresponding Holdings detail", async
       row: "Assets held elsewhere",
     },
   ] as const;
-  for (const [index, access] of accessCases.entries()) {
-    snapshot = await openSnapshot();
-    const accessButton = snapshot.getByRole("button", {
-      name: new RegExp(`View ${access.label} holdings detail`, "u"),
-    });
-    await expect(accessButton).toBeVisible();
-    if (index === 0) {
-      await accessButton.press("Enter");
-    } else {
-      await accessButton.click();
-    }
-    await expect(page).toHaveURL(/\/holdings\?access=/u);
+  for (const access of accessCases) {
+    await page.goto(`/holdings?access=${access.key}`);
     expect(new URL(page.url()).searchParams.get("access")).toBe(access.key);
     const detail = page.getByRole("region", { name: access.label });
     await expect(
