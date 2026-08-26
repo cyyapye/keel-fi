@@ -2494,6 +2494,113 @@ export const holdingPositionValueReviews = sqliteTable(
   ],
 );
 
+export const holdingPositionEconomicsProposals = sqliteTable(
+  "holding_position_economics_proposals",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => holdingPositionSnapshots.id, {
+        onDelete: "restrict",
+      }),
+    supersedesProposalId: text("supersedes_proposal_id"),
+    commitmentMinor: integer("commitment_minor").notNull(),
+    fundedMinor: integer("funded_minor").notNull(),
+    annualAdminFeePpm: integer("annual_admin_fee_ppm").notNull(),
+    adminFeeYears: integer("admin_fee_years").notNull(),
+    carryPpm: integer("carry_ppm").notNull(),
+    note: text("note").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesProposalId],
+      foreignColumns: [table.id],
+      name: "holding_position_economics_proposals_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("holding_position_economics_proposals_roots_unique")
+      .on(table.positionId)
+      .where(sql`${table.supersedesProposalId} IS NULL`),
+    uniqueIndex("holding_position_economics_proposals_supersedes_unique")
+      .on(table.supersedesProposalId)
+      .where(sql`${table.supersedesProposalId} IS NOT NULL`),
+    index("holding_position_economics_proposals_household_position_idx").on(
+      table.householdId,
+      table.positionId,
+      table.createdAt,
+    ),
+    check(
+      "holding_position_economics_proposals_amounts_check",
+      sql`${table.commitmentMinor} > 0 AND ${table.fundedMinor} >= 0`,
+    ),
+    check(
+      "holding_position_economics_proposals_fee_check",
+      sql`${table.annualAdminFeePpm} BETWEEN 0 AND 1000000 AND ${table.adminFeeYears} BETWEEN 1 AND 100 AND ${table.annualAdminFeePpm} * ${table.adminFeeYears} <= 1000000`,
+    ),
+    check(
+      "holding_position_economics_proposals_carry_check",
+      sql`${table.carryPpm} BETWEEN 0 AND 1000000`,
+    ),
+    check(
+      "holding_position_economics_proposals_note_check",
+      sql`length(${table.note}) BETWEEN 3 AND 500`,
+    ),
+    check(
+      "holding_position_economics_proposals_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const holdingPositionEconomicsReviews = sqliteTable(
+  "holding_position_economics_reviews",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => holdingPositionEconomicsProposals.id, {
+        onDelete: "restrict",
+      }),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    decision: text("decision").notNull(),
+    rationale: text("rationale").notNull(),
+    decidedAt: timestamp("decided_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("holding_position_economics_reviews_proposal_unique").on(
+      table.proposalId,
+    ),
+    index("holding_position_economics_reviews_household_decided_idx").on(
+      table.householdId,
+      table.decidedAt,
+    ),
+    check(
+      "holding_position_economics_reviews_decision_check",
+      sql`${table.decision} IN ('accepted', 'rejected')`,
+    ),
+    check(
+      "holding_position_economics_reviews_rationale_check",
+      sql`length(${table.rationale}) BETWEEN 3 AND 1000`,
+    ),
+    check(
+      "holding_position_economics_reviews_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
 export const connectorSyncImports = sqliteTable(
   "connector_sync_imports",
   {

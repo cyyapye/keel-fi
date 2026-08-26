@@ -26,6 +26,7 @@ import {
   ProviderPortfolioAgentRepositoryError,
   D1InvestmentConnectionsRepository,
   D1InvestmentPositionViewRepository,
+  D1PositionEconomicsRepository,
   D1PositionValueAdjustmentRepository,
   type AlphaRepository,
   type AngelListMacAgentRepository,
@@ -41,7 +42,9 @@ import {
   type InvestmentConnectionsRepository,
   type InvestmentExposureViewRepository,
   type InvestmentPositionViewRepository,
+  type PositionEconomicsRepository,
   type PositionValueAdjustmentRepository,
+  PositionEconomicsError,
   PositionValueAdjustmentError,
 } from "@keel/database";
 import {
@@ -82,6 +85,10 @@ import {
   type MacAgentTarget,
 } from "@keel/domain";
 import { InvestmentHoldingsViewSchema } from "@keel/domain/investment-holdings-view";
+import {
+  AcceptPositionEconomicsInputSchema,
+  PositionEconomicsTermsSchema,
+} from "@keel/domain/position-economics";
 import { PlanActualSnoozeInputSchema } from "@keel/domain/plan-actual-monitoring";
 import {
   AcceptPositionValueAdjustmentInputSchema,
@@ -179,6 +186,7 @@ type AppOptions = {
   investmentConnectionsRepository?: InvestmentConnectionsRepository;
   investmentExposureViewRepository?: InvestmentExposureViewRepository;
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
+  positionEconomicsRepository?: PositionEconomicsRepository;
   positionValueAdjustmentRepository?: PositionValueAdjustmentRepository;
   privateExposureReviewRepository?: PrivateExposureReviewRepository;
   retainedPublicExposureReconciler?: RetainedPublicExposureReconciler;
@@ -707,6 +715,9 @@ export function createApp(options: AppOptions = {}) {
   const positionValueAdjustmentRepositoryFor = (env: Env) =>
     options.positionValueAdjustmentRepository ??
     new D1PositionValueAdjustmentRepository(env.DB);
+  const positionEconomicsRepositoryFor = (env: Env) =>
+    options.positionEconomicsRepository ??
+    new D1PositionEconomicsRepository(env.DB);
   const privateExposureReviewRepositoryFor = (env: Env) =>
     options.privateExposureReviewRepository ?? new D1ExposureRepository(env.DB);
   const retainedPublicExposureReconcilerFor = (env: Env) =>
@@ -1874,6 +1885,66 @@ export function createApp(options: AppOptions = {}) {
         }
         return context.json(
           { error: "Position value evidence could not be accepted." },
+          500,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/investment-positions/:positionId/economics",
+    async (context) => {
+      let rawInput: unknown;
+      try {
+        rawInput = await context.req.json();
+      } catch {
+        return context.json({ error: "A JSON request body is required." }, 400);
+      }
+      const input = AcceptPositionEconomicsInputSchema.safeParse(rawInput);
+      if (!input.success) {
+        return context.json(
+          {
+            error: "SPV fee and carry terms are invalid.",
+            issues: input.error.issues.map((issue) => ({
+              path: issue.path.join("."),
+              message: issue.message,
+            })),
+          },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+
+      try {
+        const terms = await positionEconomicsRepositoryFor(context.env).accept(
+          context.get("identity").subject,
+          context.req.param("positionId"),
+          input.data,
+        );
+        return context.json(PositionEconomicsTermsSchema.parse(terms), 201, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        if (error instanceof PositionEconomicsError) {
+          if (error.code === "not_found") {
+            return context.json({ error: "Position was not found." }, 404, {
+              "Cache-Control": "private, no-store",
+            });
+          }
+          return context.json(
+            {
+              error:
+                error.code === "stale"
+                  ? "The position changed. Review the latest terms and try again."
+                  : error.message,
+            },
+            409,
+            { "Cache-Control": "private, no-store" },
+          );
+        }
+        return context.json(
+          { error: "SPV fee and carry terms could not be accepted." },
           500,
           { "Cache-Control": "private, no-store" },
         );

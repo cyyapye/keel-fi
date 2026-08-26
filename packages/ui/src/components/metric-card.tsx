@@ -29,7 +29,7 @@ export function MetricCard({
         <span className="metric-card__detail">{detail}</span>
       )}
       {actionLabel !== undefined && (
-        <span className="metric-card__action">{actionLabel} →</span>
+        <span className="keel-link metric-card__action">{actionLabel}</span>
       )}
     </>
   );

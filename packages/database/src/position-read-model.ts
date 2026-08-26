@@ -7,6 +7,7 @@ import {
   type InvestmentPositionRecord,
   type InvestmentPositionView,
 } from "@keel/domain/position-read-model";
+import { PositionEconomicsTermsSchema } from "@keel/domain/position-economics";
 import { PositionValueAdjustmentSchema } from "@keel/domain/position-value";
 
 type HouseholdIdentity = {
@@ -86,6 +87,15 @@ type InvestmentPositionRow = {
   adjustment_commentary: string | null;
   adjustment_accepted_at: string | null;
   prior_adjustment_effective_date: string | null;
+  economics_id: string | null;
+  economics_snapshot_id: string | null;
+  economics_commitment_minor: number | null;
+  economics_funded_minor: number | null;
+  economics_annual_admin_fee_ppm: number | null;
+  economics_admin_fee_years: number | null;
+  economics_carry_ppm: number | null;
+  economics_note: string | null;
+  economics_accepted_at: string | null;
 };
 
 type ConnectionBuilder = {
@@ -142,6 +152,21 @@ function positionFromRow(
             minor: row.prior_snapshot_unrealized_value_minor,
             observedAt: row.prior_snapshot_observed_at,
           };
+  const acceptedEconomicsTerms =
+    row.economics_id === null
+      ? null
+      : PositionEconomicsTermsSchema.parse({
+          id: row.economics_id,
+          positionId: row.position_id,
+          acceptedAgainstSnapshotId: row.economics_snapshot_id,
+          commitmentMinorAtAcceptance: row.economics_commitment_minor,
+          fundedMinorAtAcceptance: row.economics_funded_minor,
+          annualAdminFeePpm: row.economics_annual_admin_fee_ppm,
+          adminFeeYears: row.economics_admin_fee_years,
+          carryPpm: row.economics_carry_ppm,
+          note: row.economics_note,
+          acceptedAt: row.economics_accepted_at,
+        });
   return {
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
@@ -181,6 +206,7 @@ function positionFromRow(
       costBasisMinor: row.cost_basis_minor,
     },
     acceptedValueAdjustment,
+    acceptedEconomicsTerms,
     priorValue,
   };
 }
@@ -384,7 +410,17 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              adjustment.commentary AS adjustment_commentary,
              adjustment_review.decided_at AS adjustment_accepted_at,
              prior_adjustment.effective_date
-               AS prior_adjustment_effective_date
+               AS prior_adjustment_effective_date,
+             economics.id AS economics_id,
+             economics.snapshot_id AS economics_snapshot_id,
+             economics.commitment_minor AS economics_commitment_minor,
+             economics.funded_minor AS economics_funded_minor,
+             economics.annual_admin_fee_ppm
+               AS economics_annual_admin_fee_ppm,
+             economics.admin_fee_years AS economics_admin_fee_years,
+             economics.carry_ppm AS economics_carry_ppm,
+             economics.note AS economics_note,
+             economics_review.decided_at AS economics_accepted_at
            FROM holding_positions position
            JOIN holding_position_ownerships ownership
              ON ownership.position_id = position.id
@@ -455,6 +491,29 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
             AND adjustment_review.decision = 'accepted'
            LEFT JOIN holding_position_value_proposals prior_adjustment
              ON prior_adjustment.id = adjustment.supersedes_proposal_id
+           LEFT JOIN holding_position_economics_proposals economics
+             ON economics.id = (
+               SELECT proposal.id
+               FROM holding_position_economics_proposals proposal
+               JOIN holding_position_economics_reviews review
+                 ON review.proposal_id = proposal.id
+                AND review.decision = 'accepted'
+               WHERE proposal.position_id = position.id
+                 AND proposal.household_id = position.household_id
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM holding_position_economics_proposals later
+                   JOIN holding_position_economics_reviews later_review
+                     ON later_review.proposal_id = later.id
+                    AND later_review.decision = 'accepted'
+                   WHERE later.supersedes_proposal_id = proposal.id
+                 )
+               ORDER BY review.decided_at DESC, proposal.id DESC
+               LIMIT 1
+             )
+           LEFT JOIN holding_position_economics_reviews economics_review
+             ON economics_review.proposal_id = economics.id
+            AND economics_review.decision = 'accepted'
            WHERE position.household_id = ?
              AND NOT EXISTS (
                SELECT 1

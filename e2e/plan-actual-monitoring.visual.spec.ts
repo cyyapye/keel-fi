@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { AlphaData } from "../packages/domain/src/index";
+
+import { withStableOverviewValues } from "./overview-alpha-fixture";
 
 const sourceRevision = "a".repeat(64);
 const evaluatedAt = "2026-08-16T12:00:00.000Z";
@@ -108,7 +111,9 @@ test("keeps material plan drift actionable without changing the plan", async ({
 }) => {
   const alphaResponse = await page.request.get("/api/alpha");
   expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
+  const alphaFixture = withStableOverviewValues(
+    (await alphaResponse.json()) as AlphaData,
+  );
   let monitoringState: object = {
     ...monitoringBase,
     status: "needs_action",

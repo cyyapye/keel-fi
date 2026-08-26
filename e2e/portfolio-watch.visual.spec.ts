@@ -247,11 +247,14 @@ test("keeps a financing review focused on reported company terms", async ({
     ),
   ).toBeVisible();
   await expect(
-    card.getByRole("link", { name: "Open official source ↗" }),
+    card.getByRole("link", { name: "Open official source" }),
   ).toHaveAttribute(
     "href",
     "https://newsroom.harbor-health.example/updates/series-c-financing",
   );
+  await expect(
+    card.getByRole("link", { name: "Open official source" }),
+  ).toHaveAttribute("data-slot", "text-link");
   await expect(card.getByText("Holding impact")).toBeVisible();
   await expect(card.getByText("Not calculated")).toBeVisible();
   await expect(
@@ -823,7 +826,7 @@ test("keeps conflicting financing amounts unchosen and reviewable", async ({
   ).toBeVisible();
   await expect(card.getByText(/USD 40M|USD 15M/)).toHaveCount(0);
   await expect(
-    card.getByRole("link", { name: "Open official source ↗" }),
+    card.getByRole("link", { name: "Open official source" }),
   ).toHaveAttribute("href", sourceUrl);
   await expect(card.getByText("Holding impact")).toBeVisible();
 });

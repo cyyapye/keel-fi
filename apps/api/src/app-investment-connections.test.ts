@@ -2,6 +2,7 @@ import type {
   InvestmentConnectionsRepository,
   InvestmentExposureViewRepository,
   InvestmentPositionViewRepository,
+  PositionEconomicsRepository,
   PositionValueAdjustmentRepository,
   PrivateExposureReviewRepository,
 } from "@keel/database";
@@ -429,6 +430,82 @@ describe("investment-connections API", () => {
 
     expect(response.status).toBe(400);
     expect(positionValueAdjustmentRepository.accept).not.toHaveBeenCalled();
+  });
+
+  it("accepts reviewed SPV economics with the authenticated subject", async () => {
+    const accepted = {
+      id: "position-economics-proposal-synthetic",
+      positionId: "position-synthetic-spv",
+      acceptedAgainstSnapshotId: "snapshot-synthetic-spv",
+      commitmentMinorAtAcceptance: 10_000_000,
+      fundedMinorAtAcceptance: 10_000_000,
+      annualAdminFeePpm: 10_000,
+      adminFeeYears: 10,
+      carryPpm: 200_000,
+      note: "Synthetic reviewed subscription terms.",
+      acceptedAt: "2026-08-24T12:00:00.000Z",
+    };
+    const positionEconomicsRepository = {
+      accept: vi.fn().mockResolvedValue(accepted),
+    } satisfies PositionEconomicsRepository;
+    const app = createApp({ positionEconomicsRepository });
+
+    const response = await app.request(
+      "/api/investment-positions/position-synthetic-spv/economics",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedSnapshotId: "snapshot-synthetic-spv",
+          expectedTermsId: null,
+          annualAdminFeePpm: 10_000,
+          adminFeeYears: 10,
+          carryPpm: 200_000,
+          note: "Synthetic reviewed subscription terms.",
+        }),
+      },
+      env(),
+    );
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual(accepted);
+    expect(positionEconomicsRepository.accept).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "position-synthetic-spv",
+      expect.objectContaining({
+        annualAdminFeePpm: 10_000,
+        adminFeeYears: 10,
+        carryPpm: 200_000,
+      }),
+    );
+  });
+
+  it("rejects SPV economics whose total upfront fee exceeds commitment", async () => {
+    const positionEconomicsRepository = {
+      accept: vi.fn(),
+    } satisfies PositionEconomicsRepository;
+    const app = createApp({ positionEconomicsRepository });
+
+    const response = await app.request(
+      "/api/investment-positions/position-synthetic-spv/economics",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedSnapshotId: "snapshot-synthetic-spv",
+          expectedTermsId: null,
+          annualAdminFeePpm: 200_000,
+          adminFeeYears: 6,
+          carryPpm: 200_000,
+          note: "Synthetic invalid subscription terms.",
+        }),
+      },
+      env(),
+    );
+
+    expect(response.status).toBe(400);
+    expect(positionEconomicsRepository.accept).not.toHaveBeenCalled();
   });
 
   it("loads and records an explicit private-company exposure review", async () => {

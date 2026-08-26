@@ -57,23 +57,29 @@ function recordFromHolding(
     },
     acceptedValueAdjustment:
       holding.positionValueContext?.acceptedAdjustment ?? null,
+    acceptedEconomicsTerms:
+      holding.positionEconomicsContext?.acceptedTerms ?? null,
     snapshot: {
       id: `snapshot_${holding.id}`,
       fingerprint: fingerprintForIndex(index),
       observedAt: holding.retrievedAt,
       providerStatus: "live",
-      investedMinor: holding.administratorNavMinor ?? 0,
-      allocationMinor: holding.administratorNavMinor ?? 0,
+      investedMinor:
+        holding.investedMinor ?? holding.administratorNavMinor ?? 0,
+      allocationMinor:
+        holding.committedMinor ?? holding.administratorNavMinor ?? 0,
       unrealizedValue: {
         state: valueState,
         minor: holding.administratorNavMinor,
       },
-      realizedValueMinor: 0,
+      realizedValueMinor: holding.realizedValueMinor ?? 0,
       netValue: {
         state: valueState,
         minor: holding.administratorNavMinor,
       },
-      instrumentType: holding.ticker === null ? "private" : "equity",
+      instrumentType:
+        holding.instrumentType ??
+        (holding.ticker === null ? "private" : "equity"),
       currency: "USD",
       quantityMicros: holding.quantityMicros ?? null,
       ticker: holding.ticker ?? null,

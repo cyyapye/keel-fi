@@ -53,6 +53,7 @@ const migrationFiles = [
   "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
   "packages/database/migrations/0025_retired_asset_lots.sql",
   "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
+  "packages/database/migrations/0039_reviewed_position_economics.sql",
   "packages/database/migrations/0040_holdings_read_performance.sql",
   reconciliationMigrationFile,
   retainedPublicIdentityMigrationFile,

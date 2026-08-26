@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { PositionValueAdjustmentSchema } from "./position-value";
+import { PositionEconomicsTermsSchema } from "./position-economics";
 
 const IsoDateSchema = z.iso.date();
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
@@ -73,6 +74,7 @@ export const InvestmentPositionRecordSchema = z.object({
   }),
   snapshot: InvestmentPositionSnapshotSchema,
   acceptedValueAdjustment: PositionValueAdjustmentSchema.nullable().optional(),
+  acceptedEconomicsTerms: PositionEconomicsTermsSchema.nullable().optional(),
   priorValue: PriorPositionValueSchema.nullable().optional(),
 });
 

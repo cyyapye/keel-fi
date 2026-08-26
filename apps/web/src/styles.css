@@ -40,17 +40,8 @@ h1,
   line-height: 1.65;
 }
 
-.hero .button.hero__action {
+.hero .keel-link.hero__action {
   margin-top: 22px;
-  padding: 0;
-  color: var(--canvas);
-  background: transparent;
-}
-
-.hero .button.hero__action:hover:not(:disabled) {
-  color: var(--canvas);
-  background: transparent;
-  text-decoration-thickness: 2px;
 }
 
 .hero__runway {
@@ -363,7 +354,7 @@ h1,
   letter-spacing: -0.05em;
 }
 
-.portfolio-snapshot > .section-heading .button {
+.portfolio-snapshot > .section-heading .keel-link {
   justify-self: end;
 }
 
@@ -1315,6 +1306,156 @@ h1,
   display: block;
 }
 
+.position-economics,
+.holding-performance {
+  min-width: 0;
+}
+
+.position-economics__heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 32px;
+}
+
+.position-economics__heading h3 {
+  margin-top: 3px;
+}
+
+.position-economics__heading p:last-child {
+  max-width: 620px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.position-economics__values,
+.holding-performance__values {
+  display: grid;
+  gap: 28px;
+  margin-top: 18px;
+}
+
+.position-economics__values {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.holding-performance__values {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.position-economics__values article,
+.holding-performance__values article {
+  min-width: 0;
+  padding: 14px 0 8px;
+}
+
+.position-economics__values :is(span, strong, small),
+.holding-performance__values :is(span, strong, small) {
+  display: block;
+}
+
+.position-economics__values span,
+.holding-performance__values span,
+.position-economics__review span {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.position-economics__values strong,
+.holding-performance__values strong {
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: clamp(18px, 2vw, 25px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.position-economics__values strong.is-not-set,
+.holding-performance__values strong.is-not-set {
+  color: var(--faint);
+  font-size: 16px;
+  font-weight: 550;
+  letter-spacing: -0.015em;
+}
+
+.position-economics__values small,
+.holding-performance__values small {
+  max-width: 210px;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.position-economics > .form-message {
+  margin: 16px 0 0;
+}
+
+.position-economics__form,
+.position-economics__review {
+  display: grid;
+  gap: 24px;
+  margin-top: 28px;
+}
+
+.position-economics__fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px 28px;
+}
+
+.position-economics__fields .field--wide {
+  grid-column: 1 / -1;
+}
+
+.position-economics__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.position-economics__review {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-width: 900px;
+}
+
+.position-economics__review > div:not(.position-economics__actions) {
+  display: grid;
+  gap: 7px;
+}
+
+.position-economics__review strong {
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.position-economics__review p,
+.position-economics__review > small,
+.position-economics__review > .notice,
+.position-economics__review > .position-economics__actions {
+  grid-column: 1 / -1;
+}
+
+.position-economics__review p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.position-economics__review > small {
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.55;
+}
+
 .holding-detail-value > span {
   color: var(--faint);
   font-size: 8px;
@@ -1463,14 +1604,13 @@ h1,
   line-height: 1.6;
 }
 
-.position-value-adjustment__review a,
-.holding-reviewed-mark a {
+.position-value-adjustment__review .keel-link,
+.holding-reviewed-mark .keel-link {
   width: fit-content;
   color: var(--ink);
   font-size: 9px;
   font-weight: 700;
   line-height: 14px;
-  text-underline-offset: 3px;
 }
 
 .position-value-adjustment__review > small {
@@ -2437,7 +2577,6 @@ h1,
 
 .cash-holdings {
   padding: 34px 0;
-  border-top: 1px solid var(--ink);
   border-bottom: 1px solid var(--line);
 }
 
@@ -2662,10 +2801,6 @@ h1,
   color: var(--muted);
   font-size: 8px;
   font-weight: 800;
-  background: transparent;
-  border: 0;
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 .exposure-group summary {
@@ -4100,13 +4235,10 @@ h1,
 }
 
 .evidence-source-link {
-  display: inline-block;
   margin-top: 8px;
   color: var(--ink);
   font-size: 8px;
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .evidence-body span {
@@ -5563,7 +5695,7 @@ h1,
     gap: 18px;
   }
 
-  .portfolio-snapshot > .section-heading .button {
+  .portfolio-snapshot > .section-heading .keel-link {
     justify-self: start;
   }
 
@@ -5860,6 +5992,44 @@ h1,
   .holding-detail-records {
     grid-template-columns: 1fr;
     gap: 40px;
+  }
+
+  .position-economics__heading {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .position-economics__heading .button,
+  .position-economics__actions .button {
+    width: 100%;
+  }
+
+  .position-economics__values,
+  .holding-performance__values {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 22px;
+  }
+
+  .position-economics__values article:last-child,
+  .holding-performance__values article:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .position-economics__fields,
+  .position-economics__review {
+    grid-template-columns: 1fr;
+  }
+
+  .position-economics__review > p,
+  .position-economics__review > small,
+  .position-economics__review > .notice,
+  .position-economics__review > .position-economics__actions {
+    grid-column: 1;
+  }
+
+  .position-economics__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 
   .holding-detail-records dl > div {

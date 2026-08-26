@@ -65,6 +65,7 @@ export * from "./exposure-read-model";
 export * from "./position-read-model";
 export * from "./plan-actual-monitoring";
 export * from "./position-value-adjustments";
+export * from "./position-economics";
 
 type DashboardRow = {
   as_of_date: string;
@@ -143,6 +144,10 @@ type HoldingRow = {
   ticker: string | null;
   quantity_micros: number | null;
   cost_basis_minor: number | null;
+  invested_minor: number | null;
+  committed_minor: number | null;
+  realized_value_minor: number | null;
+  instrument_type: string | null;
   position_snapshot_id: string | null;
   position_currency: string | null;
   position_provider_value_state: "reported" | "locked" | "not_reported" | null;
@@ -159,6 +164,15 @@ type HoldingRow = {
   adjustment_source_url: string | null;
   adjustment_commentary: string | null;
   adjustment_accepted_at: string | null;
+  economics_id: string | null;
+  economics_snapshot_id: string | null;
+  economics_commitment_minor: number | null;
+  economics_funded_minor: number | null;
+  economics_annual_admin_fee_ppm: number | null;
+  economics_admin_fee_years: number | null;
+  economics_carry_ppm: number | null;
+  economics_note: string | null;
+  economics_accepted_at: string | null;
 };
 
 type EvidenceRow = {
@@ -641,6 +655,10 @@ export class D1AlphaRepository implements AlphaRepository {
                  NULL AS ticker,
                  NULL AS quantity_micros,
                  NULL AS cost_basis_minor,
+                 NULL AS invested_minor,
+                 NULL AS committed_minor,
+                 NULL AS realized_value_minor,
+                 NULL AS instrument_type,
                  NULL AS position_snapshot_id,
                  NULL AS position_currency,
                  NULL AS position_provider_value_state,
@@ -656,7 +674,16 @@ export class D1AlphaRepository implements AlphaRepository {
                  NULL AS adjustment_source_label,
                  NULL AS adjustment_source_url,
                  NULL AS adjustment_commentary,
-                 NULL AS adjustment_accepted_at
+                 NULL AS adjustment_accepted_at,
+                 NULL AS economics_id,
+                 NULL AS economics_snapshot_id,
+                 NULL AS economics_commitment_minor,
+                 NULL AS economics_funded_minor,
+                 NULL AS economics_annual_admin_fee_ppm,
+                 NULL AS economics_admin_fee_years,
+                 NULL AS economics_carry_ppm,
+                 NULL AS economics_note,
+                 NULL AS economics_accepted_at
                FROM asset_lots lot
                JOIN companies company ON company.id = lot.company_id
                JOIN asset_accounts account ON account.id = lot.asset_account_id
@@ -765,6 +792,10 @@ export class D1AlphaRepository implements AlphaRepository {
                  snapshot.ticker,
                  snapshot.quantity_micros,
                  snapshot.cost_basis_minor,
+                 snapshot.invested_minor,
+                 snapshot.allocation_minor AS committed_minor,
+                 snapshot.realized_value_minor,
+                 snapshot.instrument_type,
                  snapshot.id AS position_snapshot_id,
                  snapshot.currency AS position_currency,
                  snapshot.unrealized_value_state AS position_provider_value_state,
@@ -780,7 +811,17 @@ export class D1AlphaRepository implements AlphaRepository {
                  adjustment.source_label AS adjustment_source_label,
                  adjustment.source_url AS adjustment_source_url,
                  adjustment.commentary AS adjustment_commentary,
-                 adjustment_review.decided_at AS adjustment_accepted_at
+                 adjustment_review.decided_at AS adjustment_accepted_at,
+                 economics.id AS economics_id,
+                 economics.snapshot_id AS economics_snapshot_id,
+                 economics.commitment_minor AS economics_commitment_minor,
+                 economics.funded_minor AS economics_funded_minor,
+                 economics.annual_admin_fee_ppm
+                   AS economics_annual_admin_fee_ppm,
+                 economics.admin_fee_years AS economics_admin_fee_years,
+                 economics.carry_ppm AS economics_carry_ppm,
+                 economics.note AS economics_note,
+                 economics_review.decided_at AS economics_accepted_at
                FROM holding_positions position
                JOIN holding_position_snapshots snapshot
                  ON snapshot.id = (
@@ -828,6 +869,29 @@ export class D1AlphaRepository implements AlphaRepository {
                LEFT JOIN holding_position_value_reviews adjustment_review
                  ON adjustment_review.proposal_id = adjustment.id
                 AND adjustment_review.decision = 'accepted'
+               LEFT JOIN holding_position_economics_proposals economics
+                 ON economics.id = (
+                   SELECT proposal.id
+                   FROM holding_position_economics_proposals proposal
+                   JOIN holding_position_economics_reviews review
+                     ON review.proposal_id = proposal.id
+                    AND review.decision = 'accepted'
+                   WHERE proposal.position_id = position.id
+                     AND proposal.household_id = position.household_id
+                     AND NOT EXISTS (
+                       SELECT 1
+                       FROM holding_position_economics_proposals later
+                       JOIN holding_position_economics_reviews later_review
+                         ON later_review.proposal_id = later.id
+                        AND later_review.decision = 'accepted'
+                       WHERE later.supersedes_proposal_id = proposal.id
+                     )
+                   ORDER BY review.decided_at DESC, proposal.id DESC
+                   LIMIT 1
+                 )
+               LEFT JOIN holding_position_economics_reviews economics_review
+                 ON economics_review.proposal_id = economics.id
+                AND economics_review.decision = 'accepted'
                WHERE position.household_id = ?
              ) holdings
              ORDER BY exposure_name, position_name`,
@@ -1080,6 +1144,39 @@ export class D1AlphaRepository implements AlphaRepository {
         ticker: row.ticker,
         quantityMicros: row.quantity_micros,
         costBasisMinor: row.cost_basis_minor,
+        investedMinor: row.invested_minor,
+        committedMinor: row.committed_minor,
+        realizedValueMinor: row.realized_value_minor,
+        instrumentType: row.instrument_type,
+        positionEconomicsContext:
+          row.position_snapshot_id === null ||
+          row.position_kind !== "spv_interest" ||
+          row.committed_minor === null ||
+          row.committed_minor <= 0 ||
+          row.invested_minor === null
+            ? undefined
+            : {
+                snapshotId: row.position_snapshot_id,
+                currency: row.position_currency,
+                committedMinor: row.committed_minor,
+                fundedMinor: row.invested_minor,
+                acceptedTerms:
+                  row.economics_id === null
+                    ? null
+                    : {
+                        id: row.economics_id,
+                        positionId: row.id,
+                        acceptedAgainstSnapshotId: row.economics_snapshot_id,
+                        commitmentMinorAtAcceptance:
+                          row.economics_commitment_minor,
+                        fundedMinorAtAcceptance: row.economics_funded_minor,
+                        annualAdminFeePpm: row.economics_annual_admin_fee_ppm,
+                        adminFeeYears: row.economics_admin_fee_years,
+                        carryPpm: row.economics_carry_ppm,
+                        note: row.economics_note,
+                        acceptedAt: row.economics_accepted_at,
+                      },
+              },
         positionValueContext:
           row.position_snapshot_id === null
             ? undefined

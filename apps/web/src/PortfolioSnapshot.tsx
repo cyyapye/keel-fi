@@ -10,6 +10,7 @@ import {
   EmptyState,
   Panel,
   SectionHeader,
+  TextLink,
   type ChartConfig,
 } from "@keel/ui";
 import { useCallback, useEffect, useState } from "react";
@@ -368,11 +369,7 @@ export function PortfolioSnapshot({
   return (
     <section aria-label="Portfolio snapshot" className="portfolio-snapshot">
       <SectionHeader
-        action={
-          <Button onClick={onViewHoldings} tone="quiet">
-            View holdings →
-          </Button>
-        }
+        action={<TextLink onClick={onViewHoldings}>View holdings</TextLink>}
         eyebrow="Current portfolio"
         title="Portfolio snapshot"
       />

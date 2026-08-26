@@ -4,6 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
+import { D1PositionEconomicsRepository } from "./position-economics";
 import { D1PositionValueAdjustmentRepository } from "./position-value-adjustments";
 
 const migrationFiles = [
@@ -39,6 +40,7 @@ const migrationFiles = [
   "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql",
   "packages/database/migrations/0032_provider_template_holdings.sql",
   "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
+  "packages/database/migrations/0039_reviewed_position_economics.sql",
   "packages/database/migrations/0040_holdings_read_performance.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
@@ -72,6 +74,11 @@ type AcceptedPositionInput = {
   readonly unrealizedValueState: "reported" | "locked" | "not_reported";
   readonly netValueMinor: number | null;
   readonly netValueState: "reported" | "locked" | "not_reported";
+  readonly positionKind?: "direct" | "spv_interest" | "fund_interest";
+  readonly instrumentType?: string;
+  readonly investedMinor?: number;
+  readonly allocationMinor?: number;
+  readonly costBasisMinor?: number | null;
   readonly createPosition: boolean;
   readonly acceptObservation: boolean;
 };
@@ -272,6 +279,11 @@ function addPositionObservation(
   const snapshotFingerprint =
     input.snapshotFingerprint ?? input.observationDigest;
   const effectiveDate = input.observedAt.slice(0, 10);
+  const positionKind = input.positionKind ?? "direct";
+  const instrumentType = input.instrumentType ?? "equity";
+  const investedMinor = input.investedMinor ?? 100_000;
+  const allocationMinor = input.allocationMinor ?? 100_000;
+  const costBasisMinor = input.costBasisMinor ?? 100_000;
 
   database
     .prepare(
@@ -321,8 +333,8 @@ function addPositionObservation(
          cost_basis_minor, created_at
        ) VALUES (
          ?, ?, ?, 1, ?, ?, 'Synthetic Security', 'Synthetic Account',
-         'Synthetic Security', 'live', ?, 100000, 100000, ?, ?, 0, ?, ?,
-         'equity', 'USD', 'ready', '[]', 'direct', 1000000, 'SYN', 100000, ?
+         'Synthetic Security', 'live', ?, ?, ?, ?, ?, 0, ?, ?,
+         ?, 'USD', 'ready', '[]', ?, 1000000, 'SYN', ?, ?
        )`,
     )
     .run(
@@ -332,10 +344,15 @@ function addPositionObservation(
       input.positionFingerprint,
       snapshotFingerprint,
       effectiveDate,
+      investedMinor,
+      allocationMinor,
       input.unrealizedValueMinor,
       input.unrealizedValueState,
       input.netValueMinor,
       input.netValueState,
+      instrumentType,
+      positionKind,
+      costBasisMinor,
       input.retrievedAt,
     );
   database
@@ -391,13 +408,15 @@ function addPositionObservation(
            opened_on, currency, created_by, created_at
          ) VALUES (
            ?, ?, 'plaid_investments', ?, 'Synthetic Security', 'Synthetic Account',
-           'direct', 'equity', '2026-01-15', 'USD', ?, ?
+           ?, ?, '2026-01-15', 'USD', ?, ?
          )`,
       )
       .run(
         input.positionId,
         input.household.id,
         input.positionFingerprint,
+        positionKind,
+        instrumentType,
         input.household.userId,
         input.retrievedAt,
       );
@@ -458,8 +477,8 @@ function addPositionObservation(
            net_value_state, instrument_type, currency, observed_at,
            quantity_micros, ticker, cost_basis_minor, created_at
          ) VALUES (
-           ?, ?, ?, ?, ?, ?, 'live', 100000, 100000, ?, ?, 0, ?, ?, 'equity',
-           'USD', ?, 1000000, 'SYN', 100000, ?
+           ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?, 0, ?, ?, ?,
+           'USD', ?, 1000000, 'SYN', ?, ?
          )`,
       )
       .run(
@@ -469,11 +488,15 @@ function addPositionObservation(
         documentId,
         rowId,
         snapshotFingerprint,
+        investedMinor,
+        allocationMinor,
         input.unrealizedValueMinor,
         input.unrealizedValueState,
         input.netValueMinor,
         input.netValueState,
+        instrumentType,
         input.observedAt,
+        costBasisMinor,
         input.acceptedAt,
       );
   }
@@ -859,6 +882,120 @@ describe("canonical investment position view", () => {
         valueMinor: 1_250_000,
       },
     });
+  });
+
+  it("accepts reviewed SPV economics append-only and exposes only the latest terms", async () => {
+    addConnection(sqlite, demoHousehold, {
+      id: "connection_spv_economics",
+      protectedSourceKey: digest("1"),
+      institutionKey: "synthetic-spv-economics",
+      institutionLabel: "Synthetic SPV Economics",
+    });
+    addContainer(sqlite, demoHousehold, {
+      id: "container_spv_economics",
+      connectionId: "connection_spv_economics",
+      protectedAccountKey: digest("2"),
+      label: "Synthetic SPV Account",
+      kind: "brokerage",
+      taxTreatment: "unknown",
+    });
+    addPositionObservation(sqlite, {
+      household: demoHousehold,
+      connectionId: "connection_spv_economics",
+      containerId: "container_spv_economics",
+      positionId: "position_spv_economics",
+      positionFingerprint: digest("3"),
+      observationId: "spv_economics",
+      observationDigest: digest("4"),
+      observedAt: "2026-08-23T12:00:00.000Z",
+      retrievedAt: "2026-08-23T12:05:00.000Z",
+      acceptedAt: "2026-08-23T12:10:00.000Z",
+      completeness: "complete",
+      unrealizedValueMinor: null,
+      unrealizedValueState: "not_reported",
+      netValueMinor: null,
+      netValueState: "not_reported",
+      positionKind: "spv_interest",
+      instrumentType: "spv interest",
+      investedMinor: 10_000_000,
+      allocationMinor: 10_000_000,
+      costBasisMinor: null,
+      createPosition: true,
+      acceptObservation: true,
+    });
+    const economicsRepository = new D1PositionEconomicsRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    );
+
+    const first = await economicsRepository.accept(
+      "synthetic-access-subject",
+      "position_spv_economics",
+      {
+        expectedSnapshotId: "snapshot_spv_economics",
+        expectedTermsId: null,
+        annualAdminFeePpm: 10_000,
+        adminFeeYears: 10,
+        carryPpm: 200_000,
+        note: "Synthetic reviewed subscription terms.",
+      },
+    );
+    const second = await economicsRepository.accept(
+      "synthetic-access-subject",
+      "position_spv_economics",
+      {
+        expectedSnapshotId: "snapshot_spv_economics",
+        expectedTermsId: first.id,
+        annualAdminFeePpm: 12_500,
+        adminFeeYears: 8,
+        carryPpm: 150_000,
+        note: "Synthetic corrected subscription terms.",
+      },
+    );
+
+    await expect(
+      economicsRepository.accept(
+        "synthetic-access-subject",
+        "position_spv_economics",
+        {
+          expectedSnapshotId: "snapshot_spv_economics",
+          expectedTermsId: first.id,
+          annualAdminFeePpm: 10_000,
+          adminFeeYears: 10,
+          carryPpm: 200_000,
+          note: "Synthetic stale editor terms.",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "stale" });
+
+    const view = await repository.list(
+      "synthetic-access-subject",
+      "2026-08-24T12:00:00.000Z",
+    );
+    expect(
+      view.connections[0]?.containers[0]?.positions[0]?.acceptedEconomicsTerms,
+    ).toMatchObject({
+      id: second.id,
+      acceptedAgainstSnapshotId: "snapshot_spv_economics",
+      commitmentMinorAtAcceptance: 10_000_000,
+      fundedMinorAtAcceptance: 10_000_000,
+      annualAdminFeePpm: 12_500,
+      adminFeeYears: 8,
+      carryPpm: 150_000,
+    });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM holding_position_economics_proposals",
+        )
+        .get(),
+    ).toEqual({ count: 2 });
+    expect(() =>
+      sqlite
+        .prepare(
+          "UPDATE holding_position_economics_proposals SET carry_ppm = 1 WHERE id = ?",
+        )
+        .run(first.id),
+    ).toThrow(/immutable/u);
   });
 
   it("supersedes reviewed marks append-only and rejects a stale editor", async () => {
