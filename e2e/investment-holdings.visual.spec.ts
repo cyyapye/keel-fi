@@ -621,7 +621,15 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   const smallCashDisclosure = cash.getByRole("button", {
     name: "Show 1 balance under $100",
   });
+  await expect(smallCashDisclosure).toHaveAttribute("data-slot", "text-link");
   await expect(smallCashDisclosure).toHaveAttribute("aria-expanded", "false");
+  await expect
+    .poll(() =>
+      smallCashDisclosure.evaluate(
+        (element) => window.getComputedStyle(element).textDecorationLine,
+      ),
+    )
+    .toBe("none");
   await smallCashDisclosure.click();
   await expect(cash.getByText("Travel cash")).toBeVisible();
   await expect(
