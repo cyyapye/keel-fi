@@ -294,3 +294,94 @@ test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
     animations: "disabled",
   });
 });
+
+test("drills each portfolio chart into its corresponding Holdings detail", async ({
+  page,
+}) => {
+  const exposureIdFor = (name: string) => {
+    const exposure = holdingsView.exposureView.exposures.find(
+      (item) => item.exposure.canonicalName === name,
+    );
+    expect(exposure, `${name} exposure fixture`).toBeDefined();
+    return exposure!.exposure.id;
+  };
+  const openSnapshot = async () => {
+    await page.goto("/");
+    const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+    await expect(
+      snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
+    ).toBeVisible();
+    return snapshot;
+  };
+  const expectExposureOpen = async (exposureId: string) => {
+    await expect(page).toHaveURL(/\/holdings\?exposure=/u);
+    expect(new URL(page.url()).searchParams.get("exposure")).toBe(exposureId);
+    const exposure = page.locator(`[data-exposure-id="${exposureId}"]`);
+    await expect(exposure).toHaveJSProperty("open", true);
+    await expect(exposure.locator("summary")).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+    return exposure;
+  };
+
+  let snapshot = await openSnapshot();
+  const topExposureLink = snapshot
+    .getByLabel(/Top 10 holdings grouped by economic exposure/u)
+    .getByRole("link", { name: /View Orion Compute holdings detail/u });
+  await expect(topExposureLink).toBeVisible();
+  const topExposureTarget = await topExposureLink.boundingBox();
+  expect(topExposureTarget?.height).toBeGreaterThanOrEqual(44);
+  await topExposureLink.press("Enter");
+  await expectExposureOpen(exposureIdFor("Orion Compute"));
+  await page.addStyleTag({
+    content: ".topbar { visibility: hidden !important; }",
+  });
+  await expect(page.locator(".investment-views")).toHaveScreenshot(
+    "portfolio-exposure-drilldown.png",
+    { animations: "disabled" },
+  );
+
+  await page.goBack();
+  snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+  await expect(snapshot).toBeVisible();
+  await snapshot
+    .getByLabel("Largest decreases in USD")
+    .getByRole("link", { name: /View Juniper Mobility holdings detail/u })
+    .click();
+  await expectExposureOpen(exposureIdFor("Juniper Mobility"));
+
+  const accessCases = [
+    { key: "cash", label: "Cash", row: "Reserve savings" },
+    { key: "public_market", label: "Public market", row: "Orion Compute" },
+    { key: "private_paper", label: "Private paper", row: "Meridian Bio" },
+    {
+      key: "other_liquid",
+      label: "Other liquid",
+      row: "Assets held elsewhere",
+    },
+  ] as const;
+  for (const [index, access] of accessCases.entries()) {
+    snapshot = await openSnapshot();
+    const accessButton = snapshot.getByRole("button", {
+      name: new RegExp(`View ${access.label} holdings detail`, "u"),
+    });
+    await expect(accessButton).toBeVisible();
+    if (index === 0) {
+      await accessButton.press("Enter");
+    } else {
+      await accessButton.click();
+    }
+    await expect(page).toHaveURL(/\/holdings\?access=/u);
+    expect(new URL(page.url()).searchParams.get("access")).toBe(access.key);
+    const detail = page.getByRole("region", { name: access.label });
+    await expect(
+      detail.getByRole("heading", { name: access.label }),
+    ).toBeFocused();
+    await expect(detail).toContainText(access.row);
+    await expectNoHorizontalOverflow(page);
+    if (access.key === "cash") {
+      await expect(detail).toHaveScreenshot("portfolio-access-drilldown.png", {
+        animations: "disabled",
+      });
+    }
+  }
+});
