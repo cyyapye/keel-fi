@@ -1471,15 +1471,14 @@ function CashHoldingsView({
       )}
       {smallBalanceCount > 0 && (
         <div className="cash-holdings__disclosure">
-          <Button
+          <TextLink
             aria-expanded={showSmallBalances}
             onClick={() => setShowSmallBalances((current) => !current)}
-            tone="quiet"
           >
             {showSmallBalances
               ? "Hide balances under $100"
               : `Show ${smallBalanceCount} ${smallBalanceCount === 1 ? "balance" : "balances"} under $100`}
-          </Button>
+          </TextLink>
         </div>
       )}
     </section>
