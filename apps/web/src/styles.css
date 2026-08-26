@@ -479,7 +479,7 @@ h1,
 
 .portfolio-liquidity-legend button {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   width: 100%;
@@ -525,21 +525,6 @@ h1,
 .portfolio-liquidity-legend small {
   margin-top: 3px;
   letter-spacing: 0;
-}
-
-.portfolio-liquidity-legend__arrow {
-  color: var(--faint);
-  font-size: 11px;
-  transition:
-    color 140ms ease,
-    transform 140ms ease;
-}
-
-.portfolio-liquidity-legend
-  button:is(:hover, :focus-visible)
-  .portfolio-liquidity-legend__arrow {
-  color: var(--ink);
-  transform: translateX(2px);
 }
 
 .portfolio-movers {

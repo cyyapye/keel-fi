@@ -200,7 +200,7 @@ function TopExposureChart({
               className="portfolio-chart__value-label"
               dataKey="valueMinor"
               formatter={(value: unknown) =>
-                `${formatChartMoney(Number(value), snapshot.currency)} →`
+                formatChartMoney(Number(value), snapshot.currency)
               }
               position="right"
             />
@@ -321,12 +321,6 @@ function LiquidityChart({
                   {formatProbability(ratioPpm(segment.valueMinor, total))}
                 </small>
               </span>
-              <span
-                aria-hidden="true"
-                className="portfolio-liquidity-legend__arrow"
-              >
-                →
-              </span>
             </button>
           </li>
         ))}
@@ -412,7 +406,7 @@ function MoverBarChart({
               className="portfolio-chart__value-label"
               dataKey="magnitudeMinor"
               formatter={(value: unknown) =>
-                `${formatSignedMoney(Number(value) * sign, currency)} →`
+                formatSignedMoney(Number(value) * sign, currency)
               }
               position="right"
             />

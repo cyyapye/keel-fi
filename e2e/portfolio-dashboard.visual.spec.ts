@@ -295,7 +295,7 @@ test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
   });
 });
 
-test("drills each portfolio chart into its corresponding Holdings detail", async ({
+test("drills each portfolio chart into its corresponding Holdings detail without arrows", async ({
   page,
 }) => {
   const exposureIdFor = (name: string) => {
@@ -305,14 +305,6 @@ test("drills each portfolio chart into its corresponding Holdings detail", async
     expect(exposure, `${name} exposure fixture`).toBeDefined();
     return exposure!.exposure.id;
   };
-  const openSnapshot = async () => {
-    await page.goto("/");
-    const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-    await expect(
-      snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
-    ).toBeVisible();
-    return snapshot;
-  };
   const expectExposureOpen = async (exposureId: string) => {
     await expect(page).toHaveURL(/\/holdings\?exposure=/u);
     expect(new URL(page.url()).searchParams.get("exposure")).toBe(exposureId);
@@ -321,6 +313,15 @@ test("drills each portfolio chart into its corresponding Holdings detail", async
     await expect(exposure.locator("summary")).toBeFocused();
     await expectNoHorizontalOverflow(page);
     return exposure;
+  };
+  const openSnapshot = async () => {
+    await page.goto("/");
+    const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+    await expect(
+      snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
+    ).toBeVisible();
+    await expect(snapshot).not.toContainText("→");
+    return snapshot;
   };
 
   let snapshot = await openSnapshot();
