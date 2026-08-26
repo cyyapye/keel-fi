@@ -101,8 +101,6 @@ function secureUid(options: AgentAuthorizationStorageOptions): number {
 }
 
 function assertSecureDirectory(directory: string, uid: number): void {
-  mkdirSync(directory, { mode: 0o700, recursive: true });
-  chmodSync(directory, 0o700);
   const metadata = lstatSync(directory);
   if (
     !metadata.isDirectory() ||
@@ -112,6 +110,12 @@ function assertSecureDirectory(directory: string, uid: number): void {
   ) {
     throw new MacAgentAccessError();
   }
+}
+
+function prepareSecureDirectory(directory: string, uid: number): void {
+  mkdirSync(directory, { mode: 0o700, recursive: true });
+  chmodSync(directory, 0o700);
+  assertSecureDirectory(directory, uid);
 }
 
 function assertSecureAuthorizationFile(file: string, uid: number): void {
@@ -135,7 +139,7 @@ function storeLinuxAuthorization(
 ): void {
   const uid = secureUid(options);
   const directory = linuxAuthorizationDirectory(keelOrigin, options);
-  assertSecureDirectory(directory, uid);
+  prepareSecureDirectory(directory, uid);
   const destination = linuxAgentAuthorizationPath(
     keelOrigin,
     authorization.target,
