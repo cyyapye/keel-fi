@@ -89,6 +89,9 @@ integer cents, or two positions produce the same identity.
 - Uses the detail `Entity` and `Committed On` fields for ownership and date.
 - Treats the active holding's committed amount as funded and committed capital.
 - Keeps a missing current value as `not_reported`; it never substitutes zero.
+- Keeps management fee and carry unavailable because the active cards and
+  position drawer do not expose exact deal-specific rates. General product
+  disclosures are not position evidence.
 - Creates a provider-scoped identity from company, entity, and committed date.
 
 [Tokenfolio describes its model](https://www.tokenfolio.co/faqs) as grouping
@@ -108,6 +111,13 @@ claiming the exact legal vehicle name.
   funded amount remains evidence and the investment date stays `not_reported`.
 - Maps `Closed` and `Participating In` to a live Keel position. A closed Sydecar
   vehicle is funded; it is not evidence that the investor realized the asset.
+- Captures the visible management-fee and carry percentages as source evidence
+  and reconciles them across the stable table passes. Missing or malformed terms
+  fail closed.
+- Keeps those reported percentages pending after the holding import is accepted.
+  Position detail prefills them for a separate fee-and-carry review; the fee
+  term still has to be confirmed against the deal documents before the terms
+  affect cost basis or return.
 - Leaves current value `not_reported` because the investor page does not provide
   one.
 - Uses the provider position identifier for collision detection without writing

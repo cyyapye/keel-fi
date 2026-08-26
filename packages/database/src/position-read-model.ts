@@ -7,7 +7,10 @@ import {
   type InvestmentPositionRecord,
   type InvestmentPositionView,
 } from "@keel/domain/position-read-model";
-import { PositionEconomicsTermsSchema } from "@keel/domain/position-economics";
+import {
+  PositionEconomicsTermsSchema,
+  ReportedPositionEconomicsTermsSchema,
+} from "@keel/domain/position-economics";
 import { PositionValueAdjustmentSchema } from "@keel/domain/position-value";
 
 type HouseholdIdentity = {
@@ -96,6 +99,8 @@ type InvestmentPositionRow = {
   economics_carry_ppm: number | null;
   economics_note: string | null;
   economics_accepted_at: string | null;
+  reported_management_fee_ppm: number | null;
+  reported_carry_ppm: number | null;
 };
 
 type ConnectionBuilder = {
@@ -167,6 +172,15 @@ function positionFromRow(
           note: row.economics_note,
           acceptedAt: row.economics_accepted_at,
         });
+  const reportedEconomicsTerms =
+    row.reported_management_fee_ppm === null && row.reported_carry_ppm === null
+      ? null
+      : ReportedPositionEconomicsTermsSchema.parse({
+          managementFeePpm: row.reported_management_fee_ppm,
+          carryPpm: row.reported_carry_ppm,
+          sourceLabel: row.source_label,
+          observedAt: row.retrieved_at,
+        });
   return {
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
@@ -207,6 +221,7 @@ function positionFromRow(
     },
     acceptedValueAdjustment,
     acceptedEconomicsTerms,
+    reportedEconomicsTerms,
     priorValue,
   };
 }
@@ -420,7 +435,10 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              economics.admin_fee_years AS economics_admin_fee_years,
              economics.carry_ppm AS economics_carry_ppm,
              economics.note AS economics_note,
-             economics_review.decided_at AS economics_accepted_at
+             economics_review.decided_at AS economics_accepted_at,
+             economics_evidence.management_fee_ppm
+               AS reported_management_fee_ppm,
+             economics_evidence.carry_ppm AS reported_carry_ppm
            FROM holding_positions position
            JOIN holding_position_ownerships ownership
              ON ownership.position_id = position.id
@@ -462,6 +480,9 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ON prior_snapshot.id = prior_application.snapshot_id
            JOIN holding_import_rows accepted_row
              ON accepted_row.id = application.import_row_id
+           LEFT JOIN holding_import_row_reported_economics_evidence
+             economics_evidence
+             ON economics_evidence.import_row_id = accepted_row.id
            JOIN holding_imports accepted_import
              ON accepted_import.id = accepted_row.import_id
            JOIN source_documents document

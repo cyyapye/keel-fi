@@ -28,14 +28,17 @@ import { D1ExposureRepository } from "./exposures";
 const MAX_IMPORT_BYTES = 1_048_576;
 const MAX_IMPORT_ROWS = 500;
 const ANGELLIST_PROVIDER = "angellist";
-const ANGELLIST_PARSER_SCHEMA = "angellist_investments_v1";
+const ANGELLIST_PARSER_SCHEMA = "angellist_investments_v2";
 const ANGELLIST_SOURCE_LABEL = "AngelList export";
+const ANGELLIST_ECONOMICS_DERIVATION = "angellist_export_carry_v1";
 const TOKENFOLIO_PROVIDER = "tokenfolio";
 const TOKENFOLIO_PARSER_SCHEMA = "tokenfolio_keel_template_v1";
 const TOKENFOLIO_SOURCE_LABEL = "Tokenfolio template";
 const SYDECAR_PROVIDER = "sydecar";
-const SYDECAR_PARSER_SCHEMA = "sydecar_keel_template_v1";
+const SYDECAR_PARSER_SCHEMA_V1 = "sydecar_keel_template_v1";
+const SYDECAR_PARSER_SCHEMA_V2 = "sydecar_keel_template_v2";
 const SYDECAR_SOURCE_LABEL = "Sydecar template";
+const SYDECAR_ECONOMICS_DERIVATION = "sydecar_template_economics_v1";
 const PLAID_INVESTMENTS_PROVIDER = "plaid_investments";
 const PLAID_INVESTMENTS_PARSER_SCHEMA = "plaid_investments_holdings_v1";
 const PLAID_INVESTMENTS_SOURCE_LABEL = "Plaid Investments";
@@ -51,6 +54,9 @@ const PrivateHoldingImportProviderSchema = z.enum([
   TOKENFOLIO_PROVIDER,
   SYDECAR_PROVIDER,
 ]);
+type PrivateHoldingImportProvider = z.output<
+  typeof PrivateHoldingImportProviderSchema
+>;
 
 const PRIVATE_HOLDING_IMPORT_METADATA = {
   [ANGELLIST_PROVIDER]: {
@@ -65,7 +71,7 @@ const PRIVATE_HOLDING_IMPORT_METADATA = {
   },
   [SYDECAR_PROVIDER]: {
     fileName: "sydecar-holdings.csv",
-    parserSchema: SYDECAR_PARSER_SCHEMA,
+    parserSchema: SYDECAR_PARSER_SCHEMA_V1,
     sourceLabel: SYDECAR_SOURCE_LABEL,
   },
 } as const;
@@ -73,6 +79,7 @@ const PRIVATE_HOLDING_IMPORT_METADATA = {
 const HoldingImportStageInputSchema = z
   .object({
     provider: PrivateHoldingImportProviderSchema.default(ANGELLIST_PROVIDER),
+    formatVersion: z.union([z.literal(1), z.literal(2)]).default(1),
     objectKey: z.string().min(1).max(1_024),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     byteSize: z.number().int().positive().max(MAX_IMPORT_BYTES),
@@ -120,6 +127,67 @@ const HoldingImportStageInputSchema = z
         code: "custom",
         path: ["rows"],
         message: "Provider templates cannot claim provider-locked values.",
+      });
+    }
+    if (value.provider !== SYDECAR_PROVIDER && value.formatVersion !== 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["formatVersion"],
+        message: "Only Sydecar supports the version 2 holding template.",
+      });
+    }
+    if (
+      value.provider === SYDECAR_PROVIDER &&
+      value.formatVersion === 2 &&
+      value.rows.some(
+        (row) =>
+          row.dealMetadata.managementFeePpm === null ||
+          row.dealMetadata.carryPpm === null,
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["rows"],
+        message: "Sydecar version 2 rows require management fee and carry.",
+      });
+    }
+    if (
+      value.provider === SYDECAR_PROVIDER &&
+      value.formatVersion === 1 &&
+      value.rows.some(
+        (row) =>
+          row.dealMetadata.managementFeePpm !== null ||
+          row.dealMetadata.carryPpm !== null,
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["rows"],
+        message: "Sydecar version 1 rows cannot report fee or carry.",
+      });
+    }
+    if (
+      value.provider === ANGELLIST_PROVIDER &&
+      value.rows.some((row) => row.dealMetadata.managementFeePpm !== null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["rows"],
+        message: "The AngelList export does not report management fees.",
+      });
+    }
+    if (
+      value.provider === TOKENFOLIO_PROVIDER &&
+      value.rows.some(
+        (row) =>
+          row.dealMetadata.managementFeePpm !== null ||
+          row.dealMetadata.carryPpm !== null,
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["rows"],
+        message: "The Tokenfolio capture does not report fee or carry.",
       });
     }
   });
@@ -244,6 +312,8 @@ type ImportPreviewRow = {
   unrealized_value_minor: number | null;
   unrealized_value_state: "reported" | "locked" | "not_reported";
   realized_value_minor: number;
+  management_fee_ppm: number | null;
+  carry_ppm: number | null;
   ticker: string | null;
   quantity_micros: number | null;
   cost_basis_minor: number | null;
@@ -387,6 +457,13 @@ type PreparedCanonicalScope = {
   readonly statements: readonly D1PreparedStatement[];
 };
 
+type ReportedEconomicsEvidence = {
+  readonly managementFeePpm: number | null;
+  readonly carryPpm: number | null;
+  readonly derivationMethod:
+    typeof ANGELLIST_ECONOMICS_DERIVATION | typeof SYDECAR_ECONOMICS_DERIVATION;
+};
+
 type ApplySummaryRow = {
   created_count: number;
   updated_count: number;
@@ -432,6 +509,54 @@ async function snapshotFingerprint(
       row.dealMetadata.instrument,
     ]),
   );
+}
+
+function reportedEconomicsEvidence(
+  provider: PrivateHoldingImportProvider,
+  row: PrivateInvestmentImportRow,
+): ReportedEconomicsEvidence | null {
+  const managementFeePpm = row.dealMetadata.managementFeePpm;
+  const carryPpm = row.dealMetadata.carryPpm;
+  if (managementFeePpm === null && carryPpm === null) {
+    return null;
+  }
+  if (provider === TOKENFOLIO_PROVIDER) {
+    throw new Error("Tokenfolio does not report exact fee or carry terms.");
+  }
+  return {
+    managementFeePpm,
+    carryPpm,
+    derivationMethod:
+      provider === ANGELLIST_PROVIDER
+        ? ANGELLIST_ECONOMICS_DERIVATION
+        : SYDECAR_ECONOMICS_DERIVATION,
+  };
+}
+
+function assertReportedEconomicsEvidence(
+  provider: PrivateHoldingImportProvider,
+  rows: readonly PrivateInvestmentImportRow[],
+  preview: HoldingImportPreview,
+): void {
+  const previewBySourceRow = new Map(
+    preview.rows.map((row) => [row.sourceRowNumber, row]),
+  );
+  for (const row of rows) {
+    const evidence = reportedEconomicsEvidence(provider, row);
+    if (evidence === null) {
+      continue;
+    }
+    const retained = previewBySourceRow.get(row.rowNumber);
+    if (
+      retained === undefined ||
+      retained.reportedManagementFeePpm !== evidence.managementFeePpm ||
+      retained.reportedCarryPpm !== evidence.carryPpm
+    ) {
+      throw new Error(
+        "Reported position economics were not retained as source evidence.",
+      );
+    }
+  }
 }
 
 async function plaidInvestmentsSnapshotFingerprint(
@@ -583,6 +708,10 @@ export class D1HoldingImportRepository {
   ): Promise<HoldingImportStageResult> {
     const input = HoldingImportStageInputSchema.parse(rawInput);
     const importMetadata = PRIVATE_HOLDING_IMPORT_METADATA[input.provider];
+    const parserSchema =
+      input.provider === SYDECAR_PROVIDER && input.formatVersion === 2
+        ? SYDECAR_PARSER_SCHEMA_V2
+        : importMetadata.parserSchema;
     const identity = await this.findIdentity(accessSubject);
     const createdAt = new Date().toISOString();
     const canonical = await this.prepareCanonicalScope(
@@ -596,7 +725,20 @@ export class D1HoldingImportRepository {
       input.sha256,
     );
     if (existing !== null) {
-      return { created: false, preview: existing };
+      await this.addMissingReportedEconomicsEvidence(
+        identity,
+        input.provider,
+        input.rows,
+        input.sha256,
+        existing,
+        createdAt,
+      );
+      const refreshed = await this.getHoldingImport(accessSubject, existing.id);
+      assertReportedEconomicsEvidence(input.provider, input.rows, refreshed);
+      return {
+        created: false,
+        preview: refreshed,
+      };
     }
     const rowScopes = new Map(
       input.canonicalScope.rows.map((scope) => [scope.sourceRowNumber, scope]),
@@ -663,7 +805,7 @@ export class D1HoldingImportRepository {
           identity.household_id,
           sourceDocumentId,
           input.provider,
-          importMetadata.parserSchema,
+          parserSchema,
           preparedRows.length,
           identity.user_id,
           createdAt,
@@ -715,6 +857,10 @@ export class D1HoldingImportRepository {
       ({ row, scope, snapshotFingerprint: fingerprint, duplicate }) => {
         const issueCodes = duplicate ? ["duplicate_natural_key"] : [];
         const rowId = crypto.randomUUID();
+        const economicsEvidence = reportedEconomicsEvidence(
+          input.provider,
+          row,
+        );
         const container = canonical.containersByKey.get(
           scope.protectedAccountKey,
         );
@@ -776,6 +922,17 @@ export class D1HoldingImportRepository {
               createdAt,
             ),
         );
+        if (economicsEvidence !== null) {
+          statements.push(
+            this.reportedEconomicsEvidenceInsert(
+              identity,
+              rowId,
+              input.sha256,
+              economicsEvidence,
+              createdAt,
+            ),
+          );
+        }
       },
     );
 
@@ -788,14 +945,29 @@ export class D1HoldingImportRepository {
         input.sha256,
       );
       if (raced !== null) {
-        return { created: false, preview: raced };
+        await this.addMissingReportedEconomicsEvidence(
+          identity,
+          input.provider,
+          input.rows,
+          input.sha256,
+          raced,
+          createdAt,
+        );
+        const refreshed = await this.getHoldingImport(accessSubject, raced.id);
+        assertReportedEconomicsEvidence(input.provider, input.rows, refreshed);
+        return {
+          created: false,
+          preview: refreshed,
+        };
       }
       throw error;
     }
 
+    const preview = await this.getHoldingImport(accessSubject, importId);
+    assertReportedEconomicsEvidence(input.provider, input.rows, preview);
     return {
       created: true,
-      preview: await this.getHoldingImport(accessSubject, importId),
+      preview,
     };
   }
 
@@ -1404,6 +1576,8 @@ export class D1HoldingImportRepository {
              row.unrealized_value_minor,
              row.unrealized_value_state,
              row.realized_value_minor,
+             economics_evidence.management_fee_ppm,
+             economics_evidence.carry_ppm,
              row.ticker,
              row.quantity_micros,
              row.cost_basis_minor,
@@ -1417,6 +1591,9 @@ export class D1HoldingImportRepository {
              quarantine.reason_code AS quarantine_reason_code
            FROM holding_import_rows row
            JOIN holding_imports import ON import.id = row.import_id
+           LEFT JOIN holding_import_row_reported_economics_evidence
+             economics_evidence
+             ON economics_evidence.import_row_id = row.id
            JOIN holding_import_row_containers row_scope
              ON row_scope.import_row_id = row.id
            LEFT JOIN holding_position_ownerships ownership
@@ -1485,6 +1662,8 @@ export class D1HoldingImportRepository {
       administratorNavMinor: row.unrealized_value_minor,
       administratorNavState: row.unrealized_value_state,
       realizedValueMinor: row.realized_value_minor,
+      reportedManagementFeePpm: row.management_fee_ppm,
+      reportedCarryPpm: row.carry_ppm,
       ticker: row.ticker,
       quantityMicros: row.quantity_micros,
       costBasisMinor: row.cost_basis_minor,
@@ -2038,6 +2217,89 @@ export class D1HoldingImportRepository {
       importId,
     );
     return this.getApplyResult(identity.household_id, importId);
+  }
+
+  private reportedEconomicsEvidenceInsert(
+    identity: HouseholdIdentity,
+    importRowId: string,
+    evidenceSha256: string,
+    evidence: ReportedEconomicsEvidence,
+    createdAt: string,
+    ignoreExisting = false,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `${ignoreExisting ? "INSERT OR IGNORE" : "INSERT"}
+         INTO holding_import_row_reported_economics_evidence (
+           id, household_id, import_row_id, management_fee_ppm, carry_ppm,
+           evidence_sha256, derivation_method, created_by_user_id, created_at,
+           immutable
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        identity.household_id,
+        importRowId,
+        evidence.managementFeePpm,
+        evidence.carryPpm,
+        evidenceSha256,
+        evidence.derivationMethod,
+        identity.user_id,
+        createdAt,
+      );
+  }
+
+  private async addMissingReportedEconomicsEvidence(
+    identity: HouseholdIdentity,
+    provider: PrivateHoldingImportProvider,
+    rows: readonly PrivateInvestmentImportRow[],
+    evidenceSha256: string,
+    preview: HoldingImportPreview,
+    createdAt: string,
+  ): Promise<void> {
+    const previewBySourceRow = new Map(
+      preview.rows.map((row) => [row.sourceRowNumber, row]),
+    );
+    const statements: D1PreparedStatement[] = [];
+    for (const row of rows) {
+      const evidence = reportedEconomicsEvidence(provider, row);
+      if (evidence === null) {
+        continue;
+      }
+      const existing = previewBySourceRow.get(row.rowNumber);
+      if (existing === undefined) {
+        throw new Error(
+          "Existing holding import does not match the source document rows.",
+        );
+      }
+      const hasExistingEvidence =
+        existing.reportedManagementFeePpm !== null ||
+        existing.reportedCarryPpm !== null;
+      if (hasExistingEvidence) {
+        if (
+          existing.reportedManagementFeePpm !== evidence.managementFeePpm ||
+          existing.reportedCarryPpm !== evidence.carryPpm
+        ) {
+          throw new Error(
+            "Reported position economics conflict with retained source evidence.",
+          );
+        }
+        continue;
+      }
+      statements.push(
+        this.reportedEconomicsEvidenceInsert(
+          identity,
+          existing.id,
+          evidenceSha256,
+          evidence,
+          createdAt,
+          true,
+        ),
+      );
+    }
+    if (statements.length > 0) {
+      await this.db.batch(statements);
+    }
   }
 
   private async prepareCanonicalScope(

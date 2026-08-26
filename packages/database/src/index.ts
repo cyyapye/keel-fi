@@ -173,6 +173,8 @@ type HoldingRow = {
   economics_carry_ppm: number | null;
   economics_note: string | null;
   economics_accepted_at: string | null;
+  reported_management_fee_ppm: number | null;
+  reported_carry_ppm: number | null;
 };
 
 type EvidenceRow = {
@@ -683,7 +685,9 @@ export class D1AlphaRepository implements AlphaRepository {
                  NULL AS economics_admin_fee_years,
                  NULL AS economics_carry_ppm,
                  NULL AS economics_note,
-                 NULL AS economics_accepted_at
+                 NULL AS economics_accepted_at,
+                 NULL AS reported_management_fee_ppm,
+                 NULL AS reported_carry_ppm
                FROM asset_lots lot
                JOIN companies company ON company.id = lot.company_id
                JOIN asset_accounts account ON account.id = lot.asset_account_id
@@ -821,7 +825,10 @@ export class D1AlphaRepository implements AlphaRepository {
                  economics.admin_fee_years AS economics_admin_fee_years,
                  economics.carry_ppm AS economics_carry_ppm,
                  economics.note AS economics_note,
-                 economics_review.decided_at AS economics_accepted_at
+                 economics_review.decided_at AS economics_accepted_at,
+                 economics_evidence.management_fee_ppm
+                   AS reported_management_fee_ppm,
+                 economics_evidence.carry_ppm AS reported_carry_ppm
                FROM holding_positions position
                JOIN holding_position_snapshots snapshot
                  ON snapshot.id = (
@@ -842,6 +849,9 @@ export class D1AlphaRepository implements AlphaRepository {
                  )
                JOIN holding_import_rows latest_row
                  ON latest_row.id = latest_application.import_row_id
+               LEFT JOIN holding_import_row_reported_economics_evidence
+                 economics_evidence
+                 ON economics_evidence.import_row_id = latest_row.id
                JOIN holding_imports latest_import
                  ON latest_import.id = latest_row.import_id
                JOIN source_documents document
@@ -1160,6 +1170,16 @@ export class D1AlphaRepository implements AlphaRepository {
                 currency: row.position_currency,
                 committedMinor: row.committed_minor,
                 fundedMinor: row.invested_minor,
+                reportedTerms:
+                  row.reported_management_fee_ppm === null &&
+                  row.reported_carry_ppm === null
+                    ? null
+                    : {
+                        managementFeePpm: row.reported_management_fee_ppm,
+                        carryPpm: row.reported_carry_ppm,
+                        sourceLabel: row.source_label,
+                        observedAt: row.retrieved_at,
+                      },
                 acceptedTerms:
                   row.economics_id === null
                     ? null

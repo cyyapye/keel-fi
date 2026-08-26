@@ -19,12 +19,31 @@ export const PositionEconomicsTermsSchema = z.object({
   acceptedAt: IsoTimestampSchema,
 });
 
+export const ReportedPositionEconomicsTermsSchema = z
+  .object({
+    managementFeePpm: ProbabilityPpmSchema.nullable(),
+    carryPpm: ProbabilityPpmSchema.nullable(),
+    sourceLabel: z.string().trim().min(1).max(1_000),
+    observedAt: IsoTimestampSchema,
+  })
+  .strict()
+  .superRefine((terms, context) => {
+    if (terms.managementFeePpm === null && terms.carryPpm === null) {
+      context.addIssue({
+        code: "custom",
+        message: "At least one reported position economics term is required.",
+        path: ["managementFeePpm"],
+      });
+    }
+  });
+
 export const PositionEconomicsContextSchema = z.object({
   snapshotId: z.string().min(1),
   currency: z.string().regex(/^[A-Z]{3}$/u),
   committedMinor: PositiveMoneyMinorSchema,
   fundedMinor: NonNegativeMoneyMinorSchema,
   acceptedTerms: PositionEconomicsTermsSchema.nullable(),
+  reportedTerms: ReportedPositionEconomicsTermsSchema.nullable().default(null),
 });
 
 export const AcceptPositionEconomicsInputSchema = z
@@ -64,6 +83,9 @@ export type PositionEconomicsTerms = z.infer<
 >;
 export type PositionEconomicsContext = z.infer<
   typeof PositionEconomicsContextSchema
+>;
+export type ReportedPositionEconomicsTerms = z.infer<
+  typeof ReportedPositionEconomicsTermsSchema
 >;
 export type AcceptPositionEconomicsInput = z.infer<
   typeof AcceptPositionEconomicsInputSchema

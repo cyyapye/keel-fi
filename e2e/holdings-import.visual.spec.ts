@@ -254,6 +254,8 @@ const previewRows = Array.from({ length: 72 }, (_, index) => {
     administratorNavState: locked ? "locked" : "reported",
     realizedValueMinor:
       index % 5 === 0 ? exactMinorUnits(index + 1, 1_000_000) : 0,
+    reportedManagementFeePpm: null,
+    reportedCarryPpm: index === 0 ? 200_000 : null,
     action,
     issues:
       action === "needs_attention"
@@ -361,6 +363,8 @@ const sydecarImportPreview = {
       administratorNavMinor: null,
       administratorNavState: "not_reported",
       realizedValueMinor: 0,
+      reportedManagementFeePpm: 20_000,
+      reportedCarryPpm: 200_000,
       action: "create_position",
       issues: [],
     },
@@ -585,7 +589,7 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
     name: "sydecar-holdings.csv",
     mimeType: "text/csv",
     buffer: Buffer.from(
-      "Keel Sydecar holdings template v1\nInvestment,Legal Position,Position Type,Held Through,Status,Investment Date,As Of Date,Invested USD,Committed USD,Current Value USD,Realized Value USD,Instrument\nSynthetic Climate Systems,Synthetic Climate SPV I,SPV,Synthetic Investment Profile,Live,,2026-08-20,$5000.00,$7500.00,,,Membership interest\n",
+      "Keel Sydecar holdings template v2\nInvestment,Legal Position,Position Type,Held Through,Status,Investment Date,As Of Date,Invested USD,Committed USD,Current Value USD,Realized Value USD,Instrument,Management Fee %,Carry %\nSynthetic Climate Systems,Synthetic Climate SPV I,SPV,Synthetic Investment Profile,Live,,2026-08-20,$5000.00,$7500.00,,,Membership interest,2%,20%\n",
     ),
   });
   await page.getByRole("button", { name: "Review file" }).click();
@@ -594,6 +598,7 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
     page.getByRole("heading", { name: "Review Sydecar import" }),
   ).toBeFocused();
   await expect(page.getByText("Investment date not reported")).toBeVisible();
+  await expect(page.getByText("Fee 2.0% · Carry 20.0%")).toBeVisible();
   const sydecarViewportWidths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
     scroll: document.documentElement.scrollWidth,
@@ -819,6 +824,12 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
   await expect(
     page.getByText("Keel will not treat them as zero."),
   ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Reported carry stays pending until reviewed in the position.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByText("Carry 20.0%").first()).toBeVisible();
 
   const applyButton = page.getByRole("button", { name: "Apply 71 positions" });
   await expect(applyButton).toBeDisabled();

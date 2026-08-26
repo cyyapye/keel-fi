@@ -982,6 +982,8 @@ export const HoldingImportRowPreviewSchema = z.object({
   administratorNavMinor: NonNegativeMoneyMinorSchema.nullable(),
   administratorNavState: z.enum(["reported", "locked", "not_reported"]),
   realizedValueMinor: NonNegativeMoneyMinorSchema,
+  reportedManagementFeePpm: ProbabilityPpmSchema.nullable().default(null),
+  reportedCarryPpm: ProbabilityPpmSchema.nullable().default(null),
   ticker: z.string().min(1).max(32).nullable().default(null),
   quantityMicros: z
     .number()

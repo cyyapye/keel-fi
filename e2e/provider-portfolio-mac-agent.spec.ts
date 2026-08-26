@@ -338,7 +338,11 @@ test("captures the visible funded Sydecar position and leaves value unreported",
     {
       companyOrFund: "Synthetic Climate Labs",
       investedMinor: 1_250_000,
-      dealMetadata: { allocationMinor: 1_500_000 },
+      dealMetadata: {
+        allocationMinor: 1_500_000,
+        managementFeePpm: 20_000,
+        carryPpm: 200_000,
+      },
       unrealizedValueMinor: null,
       unrealizedValueState: "not_reported",
       investmentEntity: "Synthetic Investor LLC",

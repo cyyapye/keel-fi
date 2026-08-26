@@ -113,6 +113,8 @@ export const InvestmentExposurePositionSchema = z
       InvestmentPositionRecordSchema.shape.snapshot.shape.costBasisMinor,
     acceptedEconomicsTerms:
       InvestmentPositionRecordSchema.shape.acceptedEconomicsTerms,
+    reportedEconomicsTerms:
+      InvestmentPositionRecordSchema.shape.reportedEconomicsTerms,
     valueSource: z
       .enum(["provider", "invested_amount", "reviewed_adjustment"])
       .optional(),
@@ -358,6 +360,7 @@ export function createInvestmentExposureView(
           realizedValueMinor: position.snapshot.realizedValueMinor,
           providerCostBasisMinor: position.snapshot.costBasisMinor,
           acceptedEconomicsTerms: position.acceptedEconomicsTerms ?? null,
+          reportedEconomicsTerms: position.reportedEconomicsTerms ?? null,
           valueSource:
             adjustment !== null
               ? "reviewed_adjustment"

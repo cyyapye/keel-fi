@@ -101,6 +101,7 @@ function alphaHoldingsFrom(view: InvestmentHoldingsView) {
               committedMinor: position.committedMinor,
               fundedMinor: position.investedMinor,
               acceptedTerms: position.acceptedEconomicsTerms ?? null,
+              reportedTerms: position.reportedEconomicsTerms ?? null,
             },
     };
   });

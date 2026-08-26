@@ -19,6 +19,26 @@ const beaconEconomicsContext = {
   currency: "USD",
   committedMinor: 10_000_000,
   fundedMinor: 10_000_000,
+  reportedTerms: {
+    managementFeePpm: 20_000,
+    carryPpm: 200_000,
+    sourceLabel: "Sydecar template",
+    observedAt: "2026-06-14T12:00:00.000Z",
+  },
+  acceptedTerms: null,
+} as const;
+
+const summitEconomicsContext = {
+  snapshotId: "snapshot_holding_demo_spv_second",
+  currency: "USD",
+  committedMinor: 8_500_000,
+  fundedMinor: 8_500_000,
+  reportedTerms: {
+    managementFeePpm: null,
+    carryPpm: 200_000,
+    sourceLabel: "AngelList export",
+    observedAt: "2026-06-14T12:00:00.000Z",
+  },
   acceptedTerms: null,
 } as const;
 
@@ -93,7 +113,7 @@ const alphaFixture = {
       scenarioValueMinor: null,
       usableLiquidityMinor: null,
       sourceStatus: "verified",
-      sourceLabel: "AngelList export",
+      sourceLabel: "Sydecar template",
       effectiveDate: "2026-06-14",
       retrievedAt: "2026-06-14T12:00:00.000Z",
       confidencePpm: null,
@@ -128,6 +148,11 @@ const alphaFixture = {
       ticker: null,
       quantityMicros: null,
       costBasisMinor: null,
+      investedMinor: 8_500_000,
+      committedMinor: 8_500_000,
+      realizedValueMinor: 0,
+      instrumentType: "spv interest",
+      positionEconomicsContext: summitEconomicsContext,
     },
     {
       id: "holding_demo_direct",
@@ -240,6 +265,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 test("leads with the investment and opens a truthful holding detail", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(60_000);
   let exposureResolved = false;
   let acceptedValueAdjustment: PositionValueAdjustment | null = null;
   let acceptedEconomicsTerms: PositionEconomicsTerms | null = null;
@@ -257,6 +283,12 @@ test("leads with the investment and opens a truthful holding detail", async ({
             ...beaconEconomicsContext,
             acceptedTerms: acceptedEconomicsTerms,
           },
+        };
+      }
+      if (holding.id === "holding_demo_spv_second") {
+        return {
+          ...holding,
+          positionEconomicsContext: summitEconomicsContext,
         };
       }
       if (holding.id === "holding_demo_locked") {
@@ -368,8 +400,8 @@ test("leads with the investment and opens a truthful holding detail", async ({
       expect(route.request().postDataJSON()).toEqual({
         expectedSnapshotId: "snapshot_holding_demo_spv",
         expectedTermsId: null,
-        annualAdminFeePpm: 10_000,
-        adminFeeYears: 10,
+        annualAdminFeePpm: 20_000,
+        adminFeeYears: 1,
         carryPpm: 200_000,
         note: "Reviewed synthetic SPV subscription terms.",
       });
@@ -379,8 +411,8 @@ test("leads with the investment and opens a truthful holding detail", async ({
         acceptedAgainstSnapshotId: "snapshot_holding_demo_spv",
         commitmentMinorAtAcceptance: 10_000_000,
         fundedMinorAtAcceptance: 10_000_000,
-        annualAdminFeePpm: 10_000,
-        adminFeeYears: 10,
+        annualAdminFeePpm: 20_000,
+        adminFeeYears: 1,
         carryPpm: 200_000,
         note: "Reviewed synthetic SPV subscription terms.",
         acceptedAt: "2026-08-24T12:00:00.000Z",
@@ -732,6 +764,52 @@ test("leads with the investment and opens a truthful holding detail", async ({
     page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
   ).toHaveCount(0);
 
+  const summitAction = page.getByRole("button", {
+    name: "View Summit Demo SPV holding details",
+  });
+  await summitAction.click();
+  await expect(
+    page.getByText("Summit Demo SPV", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Management fee is not included in this source.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".position-economics__values").getByText("20.0%", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Review fee & carry" }).click();
+  await expect(page.getByLabel("Admin fee rate")).toHaveValue("");
+  await expect(page.getByLabel("Fee term")).toHaveValue("");
+  await expect(page.getByLabel("Carry")).toHaveValue("20");
+  await expect(
+    page.getByText(
+      "Management fee is not included in this source. Confirm it against the deal documents before accepting.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Review terms" }),
+  ).toBeDisabled();
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-spv-economics-carry-only-form.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(harborExposure).toBeVisible();
+  if (!(await harborAction.isVisible())) {
+    await harborExposure.locator("summary").click();
+  }
+  await expect(harborAction).toBeVisible();
+
   await harborAction.click();
   const detailHeading = page.getByRole("heading", {
     level: 2,
@@ -746,7 +824,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(page.getByText("Demo Family LLC")).toBeVisible();
   await expect(page.getByText("Imported source")).toBeVisible();
   await expect(
-    page.getByText("Administrator-reported value as of the source date."),
+    page.getByText(
+      "Reviewed value copied into the provider template as of the source date.",
+    ),
   ).toBeVisible();
   await expect(page.getByText("Commitment", { exact: true })).toBeVisible();
   await expect(
@@ -764,10 +844,11 @@ test("leads with the investment and opens a truthful holding detail", async ({
     },
   );
 
-  await page.getByRole("button", { name: "Add fee & carry" }).click();
-  await page.getByLabel("Annual admin fee").fill("1");
-  await page.getByLabel("Fee term").fill("10");
-  await page.getByLabel("Carry").fill("20");
+  await page.getByRole("button", { name: "Review fee & carry" }).click();
+  await expect(page.getByLabel("Admin fee rate")).toHaveValue("2");
+  await expect(page.getByLabel("Fee term")).toHaveValue("");
+  await expect(page.getByLabel("Carry")).toHaveValue("20");
+  await page.getByLabel("Fee term").fill("1");
   await page
     .getByLabel("What changed")
     .fill("Reviewed synthetic SPV subscription terms.");
@@ -783,8 +864,8 @@ test("leads with the investment and opens a truthful holding detail", async ({
   );
   await page.getByRole("button", { name: "Review terms" }).click();
   const economicsReview = page.locator(".position-economics__review");
-  await expect(economicsReview).toContainText("10.0% · $10k");
-  await expect(economicsReview).toContainText("$100k → $90k");
+  await expect(economicsReview).toContainText("2.0% · $2k");
+  await expect(economicsReview).toContainText("$100k → $98k");
   await expect(economicsReview).toContainText("20.0%");
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
@@ -801,7 +882,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     page.getByText("SPV fee and carry terms accepted."),
   ).toBeVisible();
   await expect(
-    page.locator(".position-economics__values").getByText("$90k"),
+    page.locator(".position-economics__values").getByText("$98k"),
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
@@ -901,7 +982,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(harborAction).toBeFocused();
   await expect(harborExposure).toContainText("$235k");
   await expect(harborExposure.locator("summary")).toContainText(
-    "Cost basis estimate $175k",
+    "Cost basis estimate $183k",
   );
   const adjustedBeaconPosition = harborExposure
     .locator(".exposure-group__positions article")

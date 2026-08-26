@@ -2079,6 +2079,49 @@ export const holdingImportRows = sqliteTable(
   ],
 );
 
+export const holdingImportRowReportedEconomicsEvidence = sqliteTable(
+  "holding_import_row_reported_economics_evidence",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    importRowId: text("import_row_id")
+      .notNull()
+      .references(() => holdingImportRows.id, { onDelete: "restrict" })
+      .unique(),
+    managementFeePpm: integer("management_fee_ppm"),
+    carryPpm: integer("carry_ppm"),
+    evidenceSha256: text("evidence_sha256").notNull(),
+    derivationMethod: text("derivation_method").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("holding_import_row_reported_economics_household_row_idx").on(
+      table.householdId,
+      table.importRowId,
+    ),
+    check(
+      "holding_import_row_reported_economics_values_check",
+      sql`(${table.managementFeePpm} IS NULL OR ${table.managementFeePpm} BETWEEN 0 AND 1000000) AND (${table.carryPpm} IS NULL OR ${table.carryPpm} BETWEEN 0 AND 1000000) AND (${table.managementFeePpm} IS NOT NULL OR ${table.carryPpm} IS NOT NULL)`,
+    ),
+    check(
+      "holding_import_row_reported_economics_hash_check",
+      sql`length(${table.evidenceSha256}) = 64 AND ${table.evidenceSha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "holding_import_row_reported_economics_derivation_check",
+      sql`${table.derivationMethod} IN ('angellist_export_carry_v1', 'sydecar_template_economics_v1')`,
+    ),
+    check(
+      "holding_import_row_reported_economics_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
 export const holdingImportRowPublicExposureEvidence = sqliteTable(
   "holding_import_row_public_exposure_evidence",
   {
