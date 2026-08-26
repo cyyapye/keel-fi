@@ -127,7 +127,10 @@ import { Obligations } from "./Obligations";
 import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanActualMonitoring } from "./PlanActualMonitoring";
 import { PlanInputsEditor } from "./PlanInputsEditor";
-import { PortfolioSnapshot } from "./PortfolioSnapshot";
+import {
+  PortfolioSnapshot,
+  type PortfolioSnapshotDrilldown,
+} from "./PortfolioSnapshot";
 
 type Screen =
   | "dashboard"
@@ -180,14 +183,48 @@ function pageHeading(screen: Screen) {
 type AppRoute = {
   screen: Screen;
   holdingImportId: string | null;
+  holdingsDrilldown: PortfolioSnapshotDrilldown | null;
   holdingsView: "overview" | "sources";
 };
+
+type PortfolioAccessKey = Extract<
+  PortfolioSnapshotDrilldown,
+  { type: "access" }
+>["accessKey"];
+
+const portfolioAccessKeys: ReadonlySet<string> = new Set([
+  "cash",
+  "public_market",
+  "private_paper",
+  "other_liquid",
+] as const);
+
+function holdingsDrilldownFromLocation(): PortfolioSnapshotDrilldown | null {
+  const search = new URLSearchParams(window.location.search);
+  const exposureId = search.get("exposure");
+  if (
+    exposureId !== null &&
+    exposureId.trim().length > 0 &&
+    exposureId.length <= 200
+  ) {
+    return { type: "exposure", exposureId };
+  }
+  const accessKey = search.get("access");
+  if (accessKey !== null && portfolioAccessKeys.has(accessKey)) {
+    return {
+      type: "access",
+      accessKey: accessKey as PortfolioAccessKey,
+    };
+  }
+  return null;
+}
 
 function routeFromLocation(): AppRoute {
   if (/^\/holdings\/sources\/?$/u.test(window.location.pathname)) {
     return {
       screen: "holdings",
       holdingImportId: null,
+      holdingsDrilldown: null,
       holdingsView: "sources",
     };
   }
@@ -199,12 +236,14 @@ function routeFromLocation(): AppRoute {
       return {
         screen: "holdings",
         holdingImportId: decodeURIComponent(importMatch[1]),
+        holdingsDrilldown: null,
         holdingsView: "overview",
       };
     } catch {
       return {
         screen: "holdings",
         holdingImportId: null,
+        holdingsDrilldown: null,
         holdingsView: "overview",
       };
     }
@@ -215,6 +254,8 @@ function routeFromLocation(): AppRoute {
   return {
     screen: screen ?? "dashboard",
     holdingImportId: null,
+    holdingsDrilldown:
+      screen === "holdings" ? holdingsDrilldownFromLocation() : null,
     holdingsView: "overview",
   };
 }
@@ -528,9 +569,11 @@ function LiquidityChart({
 function Dashboard({
   data,
   onNavigate,
+  onPortfolioDrilldown,
 }: {
   data: AlphaData;
   onNavigate: (screen: Screen) => void;
+  onPortfolioDrilldown: (drilldown: PortfolioSnapshotDrilldown) => void;
 }) {
   const scenario =
     data.scenarios.find((item) => item.name === "FI Underwriting") ??
@@ -705,7 +748,10 @@ function Dashboard({
         </section>
       )}
 
-      <PortfolioSnapshot onViewHoldings={() => onNavigate("holdings")} />
+      <PortfolioSnapshot
+        onDrilldown={onPortfolioDrilldown}
+        onViewHoldings={() => onNavigate("holdings")}
+      />
 
       <div className="dashboard-grid">
         <Panel
@@ -5199,12 +5245,237 @@ function baselineValueLabel(
   return formatCompactMoney(position.valueMinor);
 }
 
+const PORTFOLIO_ACCESS_DETAIL_PAGE_SIZE = 12;
+
+type PortfolioAccessDetailRow = {
+  context: string;
+  id: string;
+  name: string;
+  observedAt: string | null;
+  valueMinor: number | null;
+  valueState: "reported" | "locked" | "not_reported";
+};
+
+const portfolioAccessDetailCopy: Record<
+  PortfolioAccessKey,
+  { description: string; title: string }
+> = {
+  cash: {
+    title: "Cash",
+    description: "Linked bank balances and brokerage cash in this segment.",
+  },
+  public_market: {
+    title: "Public market",
+    description: "Reviewed public positions behind this segment.",
+  },
+  private_paper: {
+    title: "Private paper",
+    description: "Reviewed private positions behind this segment.",
+  },
+  other_liquid: {
+    title: "Other liquid",
+    description:
+      "Liquid assets recorded outside linked cash accounts and public holdings.",
+  },
+};
+
+function comparePortfolioAccessRows(
+  left: PortfolioAccessDetailRow,
+  right: PortfolioAccessDetailRow,
+): number {
+  if (left.valueMinor === null && right.valueMinor !== null) {
+    return 1;
+  }
+  if (left.valueMinor !== null && right.valueMinor === null) {
+    return -1;
+  }
+  if (left.valueMinor !== right.valueMinor) {
+    return (right.valueMinor ?? 0) > (left.valueMinor ?? 0) ? 1 : -1;
+  }
+  return left.name.localeCompare(right.name);
+}
+
+function portfolioAccessRows(
+  state: PortfolioBaselineState,
+  accessKey: PortfolioAccessKey,
+): PortfolioAccessDetailRow[] {
+  if (accessKey === "cash") {
+    return [
+      ...state.cashAccounts.map((account) => ({
+        context: `${account.institutionLabel} · ${account.subtype}`,
+        id: `cash-account:${account.id}`,
+        name: account.accountLabel,
+        observedAt: account.observedAt,
+        valueMinor: account.valueMinor,
+        valueState: account.valueState,
+      })),
+      ...state.positions
+        .filter((position) => position.isCashPosition)
+        .map((position) => ({
+          context: `${position.sourceLabel} · ${position.ownerLabel}`,
+          id: `cash-position:${position.id}`,
+          name: position.positionName,
+          observedAt: position.observedAt,
+          valueMinor: position.valueMinor,
+          valueState: position.valueState,
+        })),
+    ].sort(comparePortfolioAccessRows);
+  }
+  if (accessKey === "other_liquid") {
+    return [
+      {
+        context:
+          state.latestBaseline === null
+            ? "Planning baseline"
+            : "Accepted planning baseline",
+        id: "other-liquid",
+        name: "Assets held elsewhere",
+        observedAt: state.latestBaseline?.observedAt ?? state.observedAt,
+        valueMinor:
+          state.latestBaseline?.otherFiEligibleLiquidMinor ??
+          state.suggestedOtherFiEligibleLiquidMinor,
+        valueState: "reported",
+      },
+    ];
+  }
+  return state.positions
+    .filter(
+      (position) =>
+        !position.isCashPosition && position.classification === accessKey,
+    )
+    .map((position) => ({
+      context: `${position.sourceLabel} · ${position.ownerLabel}`,
+      id: position.id,
+      name: position.positionName,
+      observedAt: position.observedAt,
+      valueMinor: position.valueMinor,
+      valueState: position.valueState,
+    }))
+    .sort(comparePortfolioAccessRows);
+}
+
+function portfolioAccessRowValue(row: PortfolioAccessDetailRow): string {
+  if (row.valueState === "locked") {
+    return "Locked";
+  }
+  if (row.valueState !== "reported" || row.valueMinor === null) {
+    return "Not reported";
+  }
+  return formatCompactMoney(row.valueMinor);
+}
+
+function PortfolioAccessDetail({
+  accessKey,
+  state,
+}: {
+  accessKey: PortfolioAccessKey;
+  state: PortfolioBaselineState;
+}) {
+  const [visibleRowCount, setVisibleRowCount] = useState(
+    PORTFOLIO_ACCESS_DETAIL_PAGE_SIZE,
+  );
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const copy = portfolioAccessDetailCopy[accessKey];
+  const rows = portfolioAccessRows(state, accessKey);
+  const knownTotalMinor = rows.reduce(
+    (total, row) =>
+      row.valueState === "reported" && row.valueMinor !== null
+        ? addMinorUnits(total, row.valueMinor)
+        : total,
+    0,
+  );
+  const unavailableCount = rows.filter(
+    (row) => row.valueState !== "reported" || row.valueMinor === null,
+  ).length;
+  const visibleRows = rows.slice(0, visibleRowCount);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      headingRef.current?.focus({ preventScroll: true });
+      headingRef.current?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [accessKey]);
+
+  return (
+    <section
+      aria-labelledby="portfolio-access-detail-title"
+      className="portfolio-access-detail"
+    >
+      <header className="portfolio-access-detail__heading">
+        <div>
+          <p className="eyebrow">Portfolio by access</p>
+          <h2 id="portfolio-access-detail-title" ref={headingRef} tabIndex={-1}>
+            {copy.title}
+          </h2>
+          <p>{copy.description}</p>
+        </div>
+        <span className="portfolio-access-detail__total">
+          <small>Known reviewed value</small>
+          <strong>{formatCompactMoney(knownTotalMinor)}</strong>
+          <span>
+            {rows.length} {rows.length === 1 ? "source" : "sources"}
+            {unavailableCount === 0
+              ? ""
+              : ` · ${unavailableCount} ${unavailableCount === 1 ? "value" : "values"} unavailable`}
+          </span>
+        </span>
+      </header>
+      {rows.length === 0 ? (
+        <EmptyState title={`No ${copy.title.toLowerCase()} detail`}>
+          No reviewed sources are available for this segment.
+        </EmptyState>
+      ) : (
+        <>
+          <div className="portfolio-access-detail__rows">
+            {visibleRows.map((row) => (
+              <article key={row.id}>
+                <span>
+                  <strong>{row.name}</strong>
+                  <small>{row.context}</small>
+                </span>
+                <span>
+                  <strong>{portfolioAccessRowValue(row)}</strong>
+                  <small>
+                    {row.observedAt === null
+                      ? "Date unavailable"
+                      : `As of ${formatDate(row.observedAt)}`}
+                  </small>
+                </span>
+              </article>
+            ))}
+          </div>
+          {visibleRows.length < rows.length && (
+            <div className="portfolio-access-detail__more">
+              <span>
+                Showing {visibleRows.length} of {rows.length} sources
+              </span>
+              <Button
+                onClick={() =>
+                  setVisibleRowCount(
+                    (current) => current + PORTFOLIO_ACCESS_DETAIL_PAGE_SIZE,
+                  )
+                }
+                tone="secondary"
+              >
+                Load more
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function PortfolioBaselineSection({
   onConfirmed,
   refreshKey,
+  selectedAccessKey,
 }: {
   onConfirmed: () => Promise<void>;
   refreshKey: string;
+  selectedAccessKey: PortfolioAccessKey | null;
 }) {
   const [state, setState] = useState<PortfolioBaselineState | null>(null);
   const [reviewing, setReviewing] = useState(false);
@@ -5423,6 +5694,18 @@ function PortfolioBaselineSection({
           Try again
         </Button>
       </section>
+    );
+  }
+  if (
+    selectedAccessKey !== null &&
+    portfolioAccessKeys.has(selectedAccessKey)
+  ) {
+    return (
+      <PortfolioAccessDetail
+        accessKey={selectedAccessKey}
+        key={selectedAccessKey}
+        state={state}
+      />
     );
   }
   if (
@@ -5807,6 +6090,7 @@ function Holdings({
   onLoadImport,
   onPreviewImport,
   onViewChange,
+  requestedDrilldown,
   requestedImportId,
   requestedView,
 }: {
@@ -5825,6 +6109,7 @@ function Holdings({
     file: File,
   ) => Promise<HoldingImportPreview>;
   onViewChange: (view: "overview" | "sources") => void;
+  requestedDrilldown: PortfolioSnapshotDrilldown | null;
   requestedImportId: string | null;
   requestedView: "overview" | "sources";
 }) {
@@ -6110,6 +6395,11 @@ function Holdings({
               <PortfolioBaselineSection
                 onConfirmed={onBaselineConfirmed}
                 refreshKey={baselineRefreshKey}
+                selectedAccessKey={
+                  requestedDrilldown?.type === "access"
+                    ? requestedDrilldown.accessKey
+                    : null
+                }
               />
             </>
           )}
@@ -6120,6 +6410,11 @@ function Holdings({
             onLoadMoreExposures={loadMoreExposures}
             onOpenHolding={setSelectedHoldingId}
             onReviewImport={reviewPendingImport}
+            requestedExposureId={
+              requestedDrilldown?.type === "exposure"
+                ? requestedDrilldown.exposureId
+                : null
+            }
             visibleExposureCount={visibleExposureCount}
           />
         </>
@@ -7586,6 +7881,10 @@ export function App() {
   const [holdingImportId, setHoldingImportId] = useState<string | null>(
     () => routeFromLocation().holdingImportId,
   );
+  const [holdingsDrilldown, setHoldingsDrilldown] =
+    useState<PortfolioSnapshotDrilldown | null>(
+      () => routeFromLocation().holdingsDrilldown,
+    );
   const [holdingsView, setHoldingsView] = useState<"overview" | "sources">(
     () => routeFromLocation().holdingsView,
   );
@@ -7598,11 +7897,12 @@ export function App() {
 
   const navigateToScreen = useCallback((screen: Screen) => {
     const path = pathForScreen(screen);
-    if (window.location.pathname !== path) {
+    if (`${window.location.pathname}${window.location.search}` !== path) {
       window.history.pushState(null, "", path);
     }
     setActiveScreen(screen);
     setHoldingImportId(null);
+    setHoldingsDrilldown(null);
     setHoldingsView("overview");
   }, []);
 
@@ -7611,29 +7911,52 @@ export function App() {
       importId === null
         ? "/holdings"
         : `/holdings/imports/${encodeURIComponent(importId)}`;
-    if (window.location.pathname !== path) {
+    if (`${window.location.pathname}${window.location.search}` !== path) {
       window.history.pushState(null, "", path);
     }
     setActiveScreen("holdings");
     setHoldingImportId(importId);
+    setHoldingsDrilldown(null);
     setHoldingsView("overview");
   }, []);
 
   const navigateToHoldingsView = useCallback((view: "overview" | "sources") => {
     const path = view === "sources" ? "/holdings/sources" : "/holdings";
-    if (window.location.pathname !== path) {
+    if (`${window.location.pathname}${window.location.search}` !== path) {
       window.history.pushState(null, "", path);
     }
     setActiveScreen("holdings");
     setHoldingImportId(null);
+    setHoldingsDrilldown(null);
     setHoldingsView(view);
   }, []);
+
+  const navigateToPortfolioDrilldown = useCallback(
+    (drilldown: PortfolioSnapshotDrilldown) => {
+      const search = new URLSearchParams();
+      if (drilldown.type === "exposure") {
+        search.set("exposure", drilldown.exposureId);
+      } else {
+        search.set("access", drilldown.accessKey);
+      }
+      const path = `/holdings?${search.toString()}`;
+      if (`${window.location.pathname}${window.location.search}` !== path) {
+        window.history.pushState(null, "", path);
+      }
+      setActiveScreen("holdings");
+      setHoldingImportId(null);
+      setHoldingsDrilldown(drilldown);
+      setHoldingsView("overview");
+    },
+    [],
+  );
 
   useEffect(() => {
     const updateRoute = () => {
       const route = routeFromLocation();
       setActiveScreen(route.screen);
       setHoldingImportId(route.holdingImportId);
+      setHoldingsDrilldown(route.holdingsDrilldown);
       setHoldingsView(route.holdingsView);
     };
     window.addEventListener("popstate", updateRoute);
@@ -7658,7 +7981,7 @@ export function App() {
 
   useEffect(() => {
     window.scrollTo({ behavior: "auto", top: 0 });
-  }, [activeScreen, holdingImportId, holdingsView]);
+  }, [activeScreen, holdingImportId, holdingsDrilldown, holdingsView]);
 
   const content = useMemo(() => {
     if (data === null) {
@@ -7666,7 +7989,13 @@ export function App() {
     }
     switch (activeScreen) {
       case "dashboard":
-        return <Dashboard data={data} onNavigate={navigateToScreen} />;
+        return (
+          <Dashboard
+            data={data}
+            onNavigate={navigateToScreen}
+            onPortfolioDrilldown={navigateToPortfolioDrilldown}
+          />
+        );
       case "goals":
         return (
           <Goals
@@ -7694,6 +8023,7 @@ export function App() {
             onLoadImport={loadHoldingImport}
             onPreviewImport={previewHoldingImport}
             requestedImportId={holdingImportId}
+            requestedDrilldown={holdingsDrilldown}
             requestedView={holdingsView}
           />
         );
@@ -7798,9 +8128,11 @@ export function App() {
     busyEvent,
     data,
     holdingImportId,
+    holdingsDrilldown,
     holdingsView,
     navigateToHoldingImport,
     navigateToHoldingsView,
+    navigateToPortfolioDrilldown,
     navigateToScreen,
     reviewError,
     scenarioContext,

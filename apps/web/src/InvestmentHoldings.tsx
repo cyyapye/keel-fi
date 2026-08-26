@@ -932,6 +932,7 @@ function ExposureView({
   onOpenHolding,
   onLoadMoreExposures,
   onSubmitExposureReview,
+  requestedExposureId,
   sortDirection,
   visibleExposureCount,
 }: {
@@ -952,6 +953,7 @@ function ExposureView({
     position: PrivateExposureReviewPosition,
     input: PrivateExposureResolutionInput,
   ) => void;
+  requestedExposureId: string | null;
   sortDirection: ExposureSortDirection;
   visibleExposureCount: number;
 }) {
@@ -1005,12 +1007,51 @@ function ExposureView({
     [data, sortDirection],
   );
   const totalExposureCount = sortedExposureGroups.length;
-  const visibleCanonicalExposureGroups = sortedExposureGroups.slice(
+  const paginatedExposureGroups = sortedExposureGroups.slice(
     0,
     visibleExposureCount,
   );
+  const requestedExposureGroup =
+    requestedExposureId === null
+      ? undefined
+      : sortedExposureGroups.find(
+          (group) => group.exposure.id === requestedExposureId,
+        );
+  const visibleCanonicalExposureGroups =
+    requestedExposureGroup === undefined ||
+    paginatedExposureGroups.some(
+      (group) => group.exposure.id === requestedExposureGroup.exposure.id,
+    )
+      ? paginatedExposureGroups
+      : [
+          requestedExposureGroup,
+          ...paginatedExposureGroups.slice(
+            0,
+            Math.max(visibleExposureCount - 1, 0),
+          ),
+        ];
   const hasMoreExposures = visibleExposureCount < totalExposureCount;
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const exposureGroupsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (requestedExposureId === null) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const target =
+        exposureGroupsRef.current?.querySelector<HTMLDetailsElement>(
+          `[data-exposure-id="${CSS.escape(requestedExposureId)}"]`,
+        );
+      if (target === undefined || target === null) {
+        return;
+      }
+      target.open = true;
+      const summary = target.querySelector<HTMLElement>("summary");
+      summary?.focus({ preventScroll: true });
+      summary?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [data, requestedExposureId, sortDirection, visibleExposureCount]);
   useEffect(() => {
     const target = loadMoreRef.current;
     if (
@@ -1043,7 +1084,7 @@ function ExposureView({
     );
   }
   return (
-    <div className="exposure-groups">
+    <div className="exposure-groups" ref={exposureGroupsRef}>
       {canonicalUnallocated.length > 0 && (
         <section className="unallocated-positions">
           <div className="unallocated-positions__heading">
@@ -1197,8 +1238,16 @@ function ExposureView({
         ).length;
         const performanceLabel = exposurePerformanceLabel(group, positions);
         return (
-          <details className="exposure-group" key={group.exposure.id}>
-            <summary>
+          <details
+            className="exposure-group"
+            data-exposure-id={group.exposure.id}
+            key={group.exposure.id}
+          >
+            <summary
+              aria-current={
+                group.exposure.id === requestedExposureId ? "true" : undefined
+              }
+            >
               <span>
                 <strong
                   title={
@@ -1444,6 +1493,7 @@ export function InvestmentHoldings({
   onLoadMoreExposures,
   onOpenHolding,
   onReviewImport,
+  requestedExposureId,
   visibleExposureCount,
 }: {
   holdings: readonly Holding[];
@@ -1452,6 +1502,7 @@ export function InvestmentHoldings({
   onLoadMoreExposures: () => void;
   onOpenHolding: (holdingId: string) => void;
   onReviewImport: (importId: string) => void;
+  requestedExposureId: string | null;
   visibleExposureCount: number;
 }) {
   const [connectionState, setConnectionState] =
@@ -2240,6 +2291,7 @@ export function InvestmentHoldings({
                 onSubmitExposureReview={(position, input) =>
                   void submitExposureReview(position, input)
                 }
+                requestedExposureId={requestedExposureId}
                 sortDirection={exposureSortDirection}
                 visibleExposureCount={visibleExposureCount}
               />
