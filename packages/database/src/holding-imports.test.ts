@@ -12,6 +12,7 @@ import { D1AlphaRepository } from "./index";
 import { D1CashAccountsRepository } from "./cash-accounts";
 import { D1ExposureRepository } from "./exposures";
 import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
+import { D1InvestmentPositionViewRepository } from "./position-read-model";
 
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
@@ -53,6 +54,7 @@ const migrationFiles = [
   "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
   "packages/database/migrations/0039_reviewed_position_economics.sql",
   "packages/database/migrations/0040_holdings_read_performance.sql",
+  "packages/database/migrations/0041_reported_position_economics.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -75,6 +77,7 @@ describe("nullable private investment date migration", () => {
               "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
               "packages/database/migrations/0039_reviewed_position_economics.sql",
               "packages/database/migrations/0040_holdings_read_performance.sql",
+              "packages/database/migrations/0041_reported_position_economics.sql",
             ].includes(file),
         )
         .forEach((file) => {
@@ -324,6 +327,8 @@ function stageInput(
           valuationOrCapMinor: 100_000_000,
           discount: null,
           carry: "20%",
+          managementFeePpm: null,
+          carryPpm: 200_000,
           shareClass: null,
         },
         ...changes,
@@ -426,6 +431,7 @@ function providerTemplateStageInput(
   return {
     ...source,
     provider,
+    formatVersion: tokenfolio ? 1 : 2,
     objectKey: `holding-imports/${provider}/synthetic.csv`,
     effectiveDate: "2026-08-20",
     retrievedAt: "2026-08-20T12:00:00.000Z",
@@ -455,6 +461,8 @@ function providerTemplateStageInput(
           ...sourceRow.dealMetadata,
           allocationMinor: tokenfolio ? 125_000 : 750_000,
           instrument: tokenfolio ? "Common stock" : "Membership interest",
+          managementFeePpm: tokenfolio ? null : 20_000,
+          carryPpm: tokenfolio ? null : 200_000,
         },
       },
     ],
@@ -531,6 +539,8 @@ describe("AngelList holding import persistence", () => {
           exposureName: "Synthetic Navigation Systems",
           administratorNavMinor: null,
           administratorNavState: "locked",
+          reportedManagementFeePpm: null,
+          reportedCarryPpm: 200_000,
           action: "create_position",
         },
       ],
@@ -631,8 +641,121 @@ describe("AngelList holding import persistence", () => {
         usableLiquidityMinor: null,
         sourceLabel: "AngelList export",
         confidencePpm: null,
+        positionEconomicsContext: expect.objectContaining({
+          reportedTerms: {
+            managementFeePpm: null,
+            carryPpm: 200_000,
+            sourceLabel: "AngelList export",
+            observedAt: "2026-06-14T12:00:00.000Z",
+          },
+          acceptedTerms: null,
+        }),
       }),
     );
+
+    const positionView = await new D1InvestmentPositionViewRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    ).list("synthetic-access-subject", "2026-06-15T00:00:00.000Z");
+    expect(
+      positionView.connections
+        .flatMap((connection) => connection.containers)
+        .flatMap((container) => container.positions)[0]?.reportedEconomicsTerms,
+    ).toEqual({
+      managementFeePpm: null,
+      carryPpm: 200_000,
+      sourceLabel: "AngelList export",
+      observedAt: "2026-06-14T12:00:00.000Z",
+    });
+  });
+
+  it("enriches an accepted byte-identical AngelList export with newly parsed carry evidence", async () => {
+    const withCarry = stageInput("0".repeat(64));
+    const withoutCarry = {
+      ...withCarry,
+      rows: withCarry.rows.map((row) => ({
+        ...row,
+        dealMetadata: {
+          ...row.dealMetadata,
+          carryPpm: null,
+        },
+      })),
+    };
+    const staged = await repository.stageHoldingImport(
+      "synthetic-access-subject",
+      withoutCarry,
+    );
+    expect(staged.preview.rows[0]).toMatchObject({
+      reportedManagementFeePpm: null,
+      reportedCarryPpm: null,
+    });
+    await repository.applyHoldingImport(
+      "synthetic-access-subject",
+      staged.preview.id,
+      {
+        currency: "USD",
+        decisions: [
+          {
+            rowId: staged.preview.rows[0]!.id,
+            decision: "accepted",
+            rationale: "Reviewed synthetic legacy AngelList position.",
+          },
+        ],
+      },
+    );
+
+    const duplicate = await repository.stageHoldingImport(
+      "synthetic-access-subject",
+      withCarry,
+    );
+    expect(duplicate).toMatchObject({
+      created: false,
+      preview: {
+        id: staged.preview.id,
+        status: "applied",
+        rows: [
+          {
+            id: staged.preview.rows[0]!.id,
+            reportedManagementFeePpm: null,
+            reportedCarryPpm: 200_000,
+          },
+        ],
+      },
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM holding_import_row_reported_economics_evidence`,
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(() =>
+      sqlite
+        .prepare(
+          `UPDATE holding_import_row_reported_economics_evidence
+           SET carry_ppm = 150000`,
+        )
+        .run(),
+    ).toThrow("immutable");
+    expect(() =>
+      sqlite
+        .prepare("DELETE FROM holding_import_row_reported_economics_evidence")
+        .run(),
+    ).toThrow("immutable");
+
+    const positionView = await new D1InvestmentPositionViewRepository(
+      new TestD1Database(sqlite) as unknown as D1Database,
+    ).list("synthetic-access-subject", "2026-06-15T00:00:00.000Z");
+    expect(
+      positionView.connections
+        .flatMap((connection) => connection.containers)
+        .flatMap((container) => container.positions)[0]?.reportedEconomicsTerms,
+    ).toEqual({
+      managementFeePpm: null,
+      carryPpm: 200_000,
+      sourceLabel: "AngelList export",
+      observedAt: "2026-06-14T12:00:00.000Z",
+    });
   });
 
   it("automatically groups an accepted exact label under one existing reviewed company", async () => {
@@ -696,6 +819,53 @@ describe("AngelList holding import persistence", () => {
     ).resolves.toMatchObject({ positions: [] });
   });
 
+  it("rejects reported economics that the provider does not expose", async () => {
+    const angelList = stageInput("1".repeat(64));
+    await expect(
+      repository.stageHoldingImport("synthetic-access-subject", {
+        ...angelList,
+        rows: angelList.rows.map((row) => ({
+          ...row,
+          dealMetadata: {
+            ...row.dealMetadata,
+            managementFeePpm: 10_000,
+          },
+        })),
+      }),
+    ).rejects.toThrow("AngelList export does not report management fees");
+
+    const tokenfolio = providerTemplateStageInput("tokenfolio");
+    await expect(
+      repository.stageHoldingImport("synthetic-access-subject", {
+        ...tokenfolio,
+        rows: tokenfolio.rows.map((row) => ({
+          ...row,
+          positionKind: "spv_interest" as const,
+          dealMetadata: {
+            ...row.dealMetadata,
+            carryPpm: 200_000,
+          },
+        })),
+      }),
+    ).rejects.toThrow("Tokenfolio capture does not report fee or carry");
+
+    const sydecar = providerTemplateStageInput("sydecar");
+    await expect(
+      repository.stageHoldingImport("synthetic-access-subject", {
+        ...sydecar,
+        rows: sydecar.rows.map((row) => ({
+          ...row,
+          dealMetadata: {
+            ...row.dealMetadata,
+            managementFeePpm: null,
+          },
+        })),
+      }),
+    ).rejects.toThrow(
+      "Sydecar version 2 rows require management fee and carry",
+    );
+  });
+
   it.each(["tokenfolio", "sydecar"] as const)(
     "stages %s template evidence for review before accepting a provider-scoped position",
     async (provider) => {
@@ -712,6 +882,8 @@ describe("AngelList holding import persistence", () => {
             investedOn: provider === "tokenfolio" ? "2025-02-01" : null,
             investedOnState:
               provider === "tokenfolio" ? "reported" : "not_reported",
+            reportedManagementFeePpm: provider === "tokenfolio" ? null : 20_000,
+            reportedCarryPpm: provider === "tokenfolio" ? null : 200_000,
           },
         ],
       });
@@ -747,6 +919,9 @@ describe("AngelList holding import persistence", () => {
               opened_on: "2025-02-01",
               position_kind: "direct",
               source_label: "Tokenfolio template",
+              parser_schema: "tokenfolio_keel_template_v1",
+              management_fee_ppm: null,
+              carry_ppm: null,
             }
           : {
               adapter_type: "manual",
@@ -755,13 +930,18 @@ describe("AngelList holding import persistence", () => {
               opened_on: null,
               position_kind: "spv_interest",
               source_label: "Sydecar template",
+              parser_schema: "sydecar_keel_template_v2",
+              management_fee_ppm: 20_000,
+              carry_ppm: 200_000,
             };
       expect(
         sqlite
           .prepare(
             `SELECT connection.adapter_type, version.institution_key,
                     position.position_kind, position.opened_on,
-                    document.file_name, document.source_label
+                    document.file_name, document.source_label,
+                    import.parser_schema, economics.management_fee_ppm,
+                    economics.carry_ppm
              FROM holding_positions position
              JOIN holding_position_ownerships ownership
                ON ownership.position_id = position.id
@@ -775,6 +955,11 @@ describe("AngelList holding import persistence", () => {
                ON snapshot.position_id = position.id
              JOIN source_documents document
                ON document.id = snapshot.source_document_id
+             JOIN holding_import_rows row
+               ON row.id = snapshot.source_import_row_id
+             LEFT JOIN holding_import_row_reported_economics_evidence economics
+               ON economics.import_row_id = row.id
+             JOIN holding_imports import ON import.id = row.import_id
              WHERE position.provider = ?`,
           )
           .get(provider),
@@ -801,6 +986,30 @@ describe("AngelList holding import persistence", () => {
               ? "Synthetic Robotics"
               : "Example Climate Fund",
         }),
+      );
+
+      const positionView = await new D1InvestmentPositionViewRepository(
+        new TestD1Database(sqlite) as unknown as D1Database,
+      ).list("synthetic-access-subject", "2026-08-21T00:00:00.000Z");
+      const importedPosition = positionView.connections
+        .flatMap((connection) => connection.containers)
+        .flatMap((container) => container.positions)
+        .find(
+          (position) =>
+            position.legalVehicleName ===
+            (provider === "tokenfolio"
+              ? "Synthetic Robotics direct shares"
+              : "Example Climate Fund SPV I"),
+        );
+      expect(importedPosition?.reportedEconomicsTerms).toEqual(
+        provider === "sydecar"
+          ? {
+              managementFeePpm: 20_000,
+              carryPpm: 200_000,
+              sourceLabel: "Sydecar template",
+              observedAt: "2026-08-20T12:00:00.000Z",
+            }
+          : null,
       );
     },
   );

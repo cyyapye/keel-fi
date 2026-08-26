@@ -28,8 +28,15 @@ browser session, or AngelList-specific deployment secret.
 - The agent uploads only a bounded AngelList CSV to the dedicated agent API. It
   does not need a Keel browser session after setup. The API validates the file
   again before private R2 storage and D1 staging.
-- A completed agent run creates or reuses a pending holding import. It never
-  applies holdings or forecasts. The user must review the import in Keel.
+- The supported export's `Carry` percentage is normalized as position evidence.
+  The export does not report a management fee, so that field stays unavailable;
+  neither term affects position economics until the user reviews the complete
+  deal terms in Keel.
+- Repeating a byte-identical export can add newly supported carry parsing to its
+  retained source row. Keel appends that evidence without rewriting the import,
+  its accepted position, or its financial snapshot.
+- A completed agent run creates or reuses a holding import. It never applies
+  holdings or forecasts. The user must review a new import in Keel.
 - D1 is canonical for registration, interval, heartbeat, run leases, failures,
   and completion state. Lease tokens are short-lived and only their SHA-256
   digests are stored.

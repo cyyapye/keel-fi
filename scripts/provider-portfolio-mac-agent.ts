@@ -8,8 +8,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_BYTES,
   MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_ROWS,
-  PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS,
   PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES,
+  providerHoldingsTemplateCsvHeaders,
 } from "../packages/connectors/src/index";
 import {
   MacAgentAuthorizationSchema,
@@ -159,6 +159,8 @@ type CaptureRow = {
   currentValueMinor: bigint | null;
   realizedValueMinor: bigint;
   instrument: string;
+  managementFeePpm: number | null;
+  carryPpm: number | null;
   identityKey: string;
 };
 
@@ -740,6 +742,32 @@ function formatUsdMinor(value: bigint): string {
   return `$${whole.toString()}.${fraction}`;
 }
 
+function parsePercentagePpm(value: string): number {
+  const normalized = normalizedText(value);
+  const match = /^(\d{1,3})(?:\.(\d{1,4}))?%$/u.exec(normalized);
+  if (match === null) {
+    throw new AgentFailure("page_not_supported");
+  }
+  const ppm =
+    Number(match[1]) * 10_000 + Number((match[2] ?? "").padEnd(4, "0"));
+  if (!Number.isSafeInteger(ppm) || ppm > 1_000_000) {
+    throw new AgentFailure("page_not_supported");
+  }
+  return ppm;
+}
+
+function formatPercentagePpm(value: number): string {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 1_000_000) {
+    throw new AgentFailure("page_not_supported");
+  }
+  const whole = Math.floor(value / 10_000);
+  const fractional = (value % 10_000)
+    .toString()
+    .padStart(4, "0")
+    .replace(/0+$/u, "");
+  return `${whole.toString()}${fractional === "" ? "" : `.${fractional}`}%`;
+}
+
 function parseProviderDate(value: string): string {
   const normalized = normalizedText(value).replace(
     /\b(\d{1,2})(?:st|nd|rd|th)\b/giu,
@@ -779,8 +807,19 @@ function rowsToCsv(
   if (new Set(identityKeys).size !== identityKeys.length) {
     throw new AgentFailure("identity_ambiguous");
   }
-  const lines = rows.map((row) =>
-    [
+  const lines = rows.map((row) => {
+    let providerTerms: string[] = [];
+    if (provider === "sydecar") {
+      const { carryPpm, managementFeePpm } = row;
+      if (managementFeePpm === null || carryPpm === null) {
+        throw new AgentFailure("incomplete_snapshot");
+      }
+      providerTerms = [
+        formatPercentagePpm(managementFeePpm),
+        formatPercentagePpm(carryPpm),
+      ];
+    }
+    return [
       row.investment,
       row.legalPosition,
       row.positionType,
@@ -795,11 +834,12 @@ function rowsToCsv(
         : formatUsdMinor(row.currentValueMinor),
       formatUsdMinor(row.realizedValueMinor),
       row.instrument,
+      ...providerTerms,
     ]
       .map(csvCell)
-      .join(","),
-  );
-  const document = `${PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES[provider]}\n${PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS.join(",")}\n${lines.join("\n")}\n`;
+      .join(",");
+  });
+  const document = `${PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES[provider]}\n${providerHoldingsTemplateCsvHeaders(provider).join(",")}\n${lines.join("\n")}\n`;
   const bytes = new TextEncoder().encode(document);
   if (bytes.byteLength > MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_BYTES) {
     throw new AgentFailure("incomplete_snapshot");
@@ -1051,6 +1091,8 @@ async function captureTokenfolio(
       currentValueMinor: currentValue,
       realizedValueMinor: 0n,
       instrument: "Tokenfolio private position",
+      managementFeePpm: null,
+      carryPpm: null,
       identityKey: [company, heldThrough, investmentDate]
         .map((part) => normalizedText(part).toLowerCase())
         .join("\u0000"),
@@ -1077,6 +1119,8 @@ type SydecarListRow = {
   status: string;
   commitment: string;
   funded: string;
+  managementFee: string;
+  carry: string;
 };
 
 type SydecarCaptureStage =
@@ -1123,6 +1167,8 @@ async function readSydecarListRow(row: Locator): Promise<SydecarListRow> {
     ).toLowerCase(),
     commitment: await cells.nth(3).innerText(),
     funded: await cells.nth(4).innerText(),
+    managementFee: await row.getByTestId("investment-mgmt-fee").innerText(),
+    carry: await row.getByTestId("investment-carry").innerText(),
   };
 }
 
@@ -1138,7 +1184,10 @@ function sydecarListRowsMatch(
     normalizedText(expected.status).toLowerCase() ===
       normalizedText(actual.status).toLowerCase() &&
     parseUsdMinor(expected.commitment) === parseUsdMinor(actual.commitment) &&
-    parseUsdMinor(expected.funded) === parseUsdMinor(actual.funded)
+    parseUsdMinor(expected.funded) === parseUsdMinor(actual.funded) &&
+    parsePercentagePpm(expected.managementFee) ===
+      parsePercentagePpm(actual.managementFee) &&
+    parsePercentagePpm(expected.carry) === parsePercentagePpm(actual.carry)
   );
 }
 
@@ -1272,6 +1321,8 @@ async function captureSydecar(
     onStage("amounts");
     const commitment = parseUsdMinor(listRow.commitment);
     const funded = parseUsdMinor(listRow.funded);
+    const managementFeePpm = parsePercentagePpm(listRow.managementFee);
+    const carryPpm = parsePercentagePpm(listRow.carry);
     if (funded === 0n) {
       continue;
     }
@@ -1345,6 +1396,8 @@ async function captureSydecar(
       currentValueMinor: null,
       realizedValueMinor: 0n,
       instrument: "Sydecar SPV interest",
+      managementFeePpm,
+      carryPpm,
       identityKey: providerId,
     });
     onStage("return_list");
@@ -1801,10 +1854,12 @@ export const __providerPortfolioMacAgentTest = {
   captureTokenfolio,
   chromeProcessIdsForProfile,
   formatUsdMinor,
+  formatPercentagePpm,
   manualSetupChromeArguments,
   openSydecarRow,
   parseOptions,
   parseProviderDate,
+  parsePercentagePpm,
   parseUsdMinor,
   providerPaths,
   rowsToCsv,

@@ -1,4 +1,8 @@
-import { IsoDateSchema, NonNegativeMoneyMinorSchema } from "@keel/domain";
+import {
+  IsoDateSchema,
+  NonNegativeMoneyMinorSchema,
+  ProbabilityPpmSchema,
+} from "@keel/domain";
 import { z } from "zod";
 
 import { parseUsdMinorUnits } from "./angellist-investments-csv";
@@ -27,10 +31,19 @@ export const PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS = [
   "Instrument",
 ] as const;
 
+export const SYDECAR_HOLDINGS_TEMPLATE_CSV_V2_HEADERS = [
+  ...PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS,
+  "Management Fee %",
+  "Carry %",
+] as const;
+
 export const PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES = {
-  sydecar: "Keel Sydecar holdings template v1",
+  sydecar: "Keel Sydecar holdings template v2",
   tokenfolio: "Keel Tokenfolio holdings template v1",
 } as const;
+
+const LEGACY_SYDECAR_HOLDINGS_TEMPLATE_CSV_PREAMBLE =
+  "Keel Sydecar holdings template v1";
 
 const RequiredTemplateTextSchema = z.string().trim().min(1).max(1_000);
 
@@ -57,6 +70,8 @@ export const PrivateInvestmentImportRowSchema = z
       .object({
         allocationMinor: NonNegativeMoneyMinorSchema,
         instrument: RequiredTemplateTextSchema,
+        managementFeePpm: ProbabilityPpmSchema.nullable().default(null),
+        carryPpm: ProbabilityPpmSchema.nullable().default(null),
       })
       .passthrough(),
   })
@@ -94,12 +109,23 @@ export const PrivateInvestmentImportRowSchema = z
         path: ["netValueState"],
       });
     }
+    if (
+      (row.dealMetadata.managementFeePpm !== null ||
+        row.dealMetadata.carryPpm !== null) &&
+      row.positionKind !== "spv_interest"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Reported position economics require an SPV position.",
+        path: ["positionKind"],
+      });
+    }
   });
 
 export const ProviderHoldingsTemplateCsvImportSchema = z
   .object({
     provider: ProviderHoldingsTemplateProviderSchema,
-    formatVersion: z.literal(1),
+    formatVersion: z.union([z.literal(1), z.literal(2)]),
     effectiveDate: IsoDateSchema,
     rows: z
       .array(PrivateInvestmentImportRowSchema)
@@ -366,6 +392,31 @@ function parseOptionalTemplateUsd(
     : parseTemplateUsd(value, rowNumber, fieldName, provider);
 }
 
+function parseTemplatePercentagePpm(
+  value: string,
+  rowNumber: number,
+  fieldName: string,
+  provider: ProviderHoldingsTemplateProvider,
+): number {
+  const match = /^(\d{1,3})(?:\.(\d{1,4}))?%$/u.exec(value.trim());
+  if (match === null) {
+    throw new ProviderHoldingsTemplateCsvParseError(
+      "invalid_row",
+      `${providerLabel(provider)} template row ${rowNumber.toString()} has an invalid ${fieldName} value. Use a percentage such as 2% or 12.5%.`,
+    );
+  }
+  const whole = Number(match[1]);
+  const fractional = Number((match[2] ?? "").padEnd(4, "0"));
+  const ppm = whole * 10_000 + fractional;
+  if (!Number.isSafeInteger(ppm) || ppm > 1_000_000) {
+    throw new ProviderHoldingsTemplateCsvParseError(
+      "invalid_row",
+      `${providerLabel(provider)} template row ${rowNumber.toString()} has an invalid ${fieldName} value. Use a percentage from 0% through 100%.`,
+    );
+  }
+  return ppm;
+}
+
 function safeMinorSum(left: number, right: number): number {
   return NonNegativeMoneyMinorSchema.parse(
     Number(BigInt(left) + BigInt(right)),
@@ -413,10 +464,12 @@ const RawTemplateRowSchema = z
     currentValueUsd: z.string().trim().max(1_000),
     realizedValueUsd: z.string().trim().max(1_000),
     instrument: RequiredTemplateTextSchema,
+    managementFeePercent: RequiredTemplateTextSchema.nullable(),
+    carryPercent: RequiredTemplateTextSchema.nullable(),
   })
   .strict();
 
-function toRawTemplateRow(fields: readonly string[]) {
+function toRawTemplateRow(fields: readonly string[], formatVersion: 1 | 2) {
   return {
     investment: fields[0],
     legalPosition: fields[1],
@@ -430,18 +483,25 @@ function toRawTemplateRow(fields: readonly string[]) {
     currentValueUsd: fields[9],
     realizedValueUsd: fields[10],
     instrument: fields[11],
+    managementFeePercent: formatVersion === 2 ? fields[12] : null,
+    carryPercent: formatVersion === 2 ? fields[13] : null,
   };
 }
 
 async function parseTemplateRow(
   record: CsvRecord,
   provider: ProviderHoldingsTemplateProvider,
+  formatVersion: 1 | 2,
 ): Promise<{ effectiveDate: string; row: PrivateInvestmentImportRow }> {
   const label = providerLabel(provider);
-  if (record.fields.length !== PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS.length) {
+  const headers =
+    provider === "sydecar" && formatVersion === 2
+      ? SYDECAR_HOLDINGS_TEMPLATE_CSV_V2_HEADERS
+      : PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS;
+  if (record.fields.length !== headers.length) {
     throw new ProviderHoldingsTemplateCsvParseError(
       "invalid_row_width",
-      `${label} template row ${record.rowNumber.toString()} must contain exactly ${PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS.length.toString()} columns.`,
+      `${label} template row ${record.rowNumber.toString()} must contain exactly ${headers.length.toString()} columns.`,
     );
   }
   if (record.fields.some(isFormulaLike)) {
@@ -451,7 +511,7 @@ async function parseTemplateRow(
     );
   }
   const parsedRaw = RawTemplateRowSchema.safeParse(
-    toRawTemplateRow(record.fields),
+    toRawTemplateRow(record.fields, formatVersion),
   );
   if (!parsedRaw.success) {
     throw new ProviderHoldingsTemplateCsvParseError(
@@ -531,6 +591,24 @@ async function parseTemplateRow(
     Fund: "fund_interest",
     SPV: "spv_interest",
   }[raw.positionType] as "direct" | "fund_interest" | "spv_interest";
+  const managementFeePpm =
+    raw.managementFeePercent === null
+      ? null
+      : parseTemplatePercentagePpm(
+          raw.managementFeePercent,
+          record.rowNumber,
+          "Management Fee %",
+          provider,
+        );
+  const carryPpm =
+    raw.carryPercent === null
+      ? null
+      : parseTemplatePercentagePpm(
+          raw.carryPercent,
+          record.rowNumber,
+          "Carry %",
+          provider,
+        );
 
   return {
     effectiveDate: raw.asOfDate,
@@ -559,25 +637,36 @@ async function parseTemplateRow(
       dealMetadata: {
         allocationMinor: committedMinor,
         instrument: raw.instrument,
+        managementFeePpm,
+        carryPpm,
       },
     }),
   };
 }
 
-function hasExactHeader(fields: readonly string[]): boolean {
+function hasExactHeader(
+  fields: readonly string[],
+  expected: readonly string[],
+): boolean {
   return (
-    fields.length === PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS.length &&
-    fields.every(
-      (field, index) => field === PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS[index],
-    )
+    fields.length === expected.length &&
+    fields.every((field, index) => field === expected[index])
   );
+}
+
+export function providerHoldingsTemplateCsvHeaders(
+  provider: ProviderHoldingsTemplateProvider,
+): readonly string[] {
+  return provider === "sydecar"
+    ? SYDECAR_HOLDINGS_TEMPLATE_CSV_V2_HEADERS
+    : PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS;
 }
 
 export function providerHoldingsTemplateCsv(
   rawProvider: ProviderHoldingsTemplateProvider,
 ): string {
   const provider = ProviderHoldingsTemplateProviderSchema.parse(rawProvider);
-  return `${PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES[provider]}\n${PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS.join(",")}\n`;
+  return `${PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES[provider]}\n${providerHoldingsTemplateCsvHeaders(provider).join(",")}\n`;
 }
 
 export async function parseProviderHoldingsTemplateCsv(
@@ -589,17 +678,30 @@ export async function parseProviderHoldingsTemplateCsv(
   const records = parseCsvRecords(decodeUtf8(contents, provider), provider);
   const preamble = records[0];
   const header = records[1];
-  if (
-    preamble === undefined ||
-    preamble.fields.length !== 1 ||
-    preamble.fields[0] !== PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES[provider]
-  ) {
+  const preambleValue =
+    preamble !== undefined && preamble.fields.length === 1
+      ? preamble.fields[0]
+      : null;
+  const formatVersion =
+    preambleValue === PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES[provider]
+      ? provider === "sydecar"
+        ? (2 as const)
+        : (1 as const)
+      : provider === "sydecar" &&
+          preambleValue === LEGACY_SYDECAR_HOLDINGS_TEMPLATE_CSV_PREAMBLE
+        ? (1 as const)
+        : null;
+  if (formatVersion === null) {
     throw new ProviderHoldingsTemplateCsvParseError(
       "invalid_preamble",
       `Choose the Keel ${label} holdings template without changing its first line.`,
     );
   }
-  if (header === undefined || !hasExactHeader(header.fields)) {
+  const expectedHeaders =
+    provider === "sydecar" && formatVersion === 2
+      ? SYDECAR_HOLDINGS_TEMPLATE_CSV_V2_HEADERS
+      : PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS;
+  if (header === undefined || !hasExactHeader(header.fields, expectedHeaders)) {
     throw new ProviderHoldingsTemplateCsvParseError(
       "invalid_header",
       `${label} template header does not match the supported format. Download a fresh template.`,
@@ -613,7 +715,9 @@ export async function parseProviderHoldingsTemplateCsv(
   }
 
   const parsedRows = await Promise.all(
-    records.slice(2).map((record) => parseTemplateRow(record, provider)),
+    records
+      .slice(2)
+      .map((record) => parseTemplateRow(record, provider, formatVersion)),
   );
   const effectiveDates = new Set(
     parsedRows.map((record) => record.effectiveDate),
@@ -633,7 +737,7 @@ export async function parseProviderHoldingsTemplateCsv(
   }
   return ProviderHoldingsTemplateCsvImportSchema.parse({
     provider,
-    formatVersion: 1,
+    formatVersion,
     effectiveDate,
     rows: parsedRows.map((record) => record.row),
   });

@@ -59,6 +59,8 @@ function recordFromHolding(
       holding.positionValueContext?.acceptedAdjustment ?? null,
     acceptedEconomicsTerms:
       holding.positionEconomicsContext?.acceptedTerms ?? null,
+    reportedEconomicsTerms:
+      holding.positionEconomicsContext?.reportedTerms ?? null,
     snapshot: {
       id: `snapshot_${holding.id}`,
       fingerprint: fingerprintForIndex(index),

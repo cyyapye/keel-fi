@@ -1,4 +1,8 @@
-import { IsoDateSchema, NonNegativeMoneyMinorSchema } from "@keel/domain";
+import {
+  IsoDateSchema,
+  NonNegativeMoneyMinorSchema,
+  ProbabilityPpmSchema,
+} from "@keel/domain";
 import { z } from "zod";
 
 export const MAX_ANGELLIST_CSV_BYTES = 1024 * 1024;
@@ -53,6 +57,8 @@ export const AngelListDealMetadataSchema = z
     valuationOrCapMinor: NonNegativeMoneyMinorSchema.nullable(),
     discount: z.string().min(1).max(1_000).nullable(),
     carry: z.string().min(1).max(1_000).nullable(),
+    managementFeePpm: ProbabilityPpmSchema.nullable().default(null),
+    carryPpm: ProbabilityPpmSchema.nullable().default(null),
     shareClass: z.string().min(1).max(1_000).nullable(),
   })
   .strict();
@@ -437,6 +443,33 @@ function parseOptionalRowUsd(
   return value.trim() === "" ? null : parseRowUsd(value, rowNumber, fieldName);
 }
 
+function parseOptionalPercentagePpm(
+  value: string | null,
+  rowNumber: number,
+  fieldName: string,
+): number | null {
+  if (value === null) {
+    return null;
+  }
+  const match = /^(0|[1-9]\d?|100)(?:\.(\d{1,4}))?%$/u.exec(value);
+  if (match === null) {
+    throw new AngelListCsvParseError(
+      "invalid_row",
+      `AngelList CSV row ${rowNumber.toString()} has an invalid ${fieldName} value.`,
+    );
+  }
+  const wholePpm = BigInt(match[1] ?? "0") * 10_000n;
+  const fractionalPpm = BigInt((match[2] ?? "").padEnd(4, "0") || "0");
+  const ppm = wholePpm + fractionalPpm;
+  if (ppm > 1_000_000n) {
+    throw new AngelListCsvParseError(
+      "invalid_row",
+      `AngelList CSV row ${rowNumber.toString()} has an invalid ${fieldName} value.`,
+    );
+  }
+  return Number(ppm);
+}
+
 function canonicalNaturalKeyPart(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -666,6 +699,11 @@ async function parseInvestmentRecord(
     record.rowNumber,
     "Valuation or Cap",
   );
+  const carryPpm = parseOptionalPercentagePpm(
+    raw.carry,
+    record.rowNumber,
+    "Carry",
+  );
   const naturalKeySha256 = await createNaturalKeySha256({
     fundName: raw.fundName,
     investmentEntity: raw.investmentEntity,
@@ -701,6 +739,8 @@ async function parseInvestmentRecord(
       valuationOrCapMinor,
       discount: raw.discount,
       carry: raw.carry,
+      managementFeePpm: null,
+      carryPpm,
       shareClass: raw.shareClass,
     },
   });

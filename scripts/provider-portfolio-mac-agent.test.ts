@@ -6,10 +6,12 @@ import { __providerPortfolioMacAgentTest } from "./provider-portfolio-mac-agent"
 const {
   buildLaunchAgentPlist,
   chromeProcessIdsForProfile,
+  formatPercentagePpm,
   formatUsdMinor,
   manualSetupChromeArguments,
   openSydecarRow,
   parseOptions,
+  parsePercentagePpm,
   parseProviderDate,
   parseUsdMinor,
   providerPaths,
@@ -83,6 +85,13 @@ describe("provider portfolio Mac agent", () => {
     expect(() => parseUsdMinor("-$42.00")).toThrow("page_not_supported");
   });
 
+  it("uses integer parts per million for Sydecar percentages", () => {
+    expect(parsePercentagePpm("2%")).toBe(20_000);
+    expect(parsePercentagePpm("12.5%")).toBe(125_000);
+    expect(formatPercentagePpm(125_000)).toBe("12.5%");
+    expect(() => parsePercentagePpm("101%")).toThrow("page_not_supported");
+  });
+
   it("normalizes supported provider dates and holding counts", () => {
     expect(parseProviderDate("Aug 7, 2026")).toBe("2026-08-07");
     expect(parseProviderDate("August 21st, 2026")).toBe("2026-08-21");
@@ -117,6 +126,8 @@ describe("provider portfolio Mac agent", () => {
         currentValueMinor: 1_640_099n,
         realizedValueMinor: 0n,
         instrument: "Tokenfolio private position",
+        managementFeePpm: null,
+        carryPpm: null,
         identityKey:
           "synthetic robotics\u0000synthetic family llc\u00002025-06-10",
       },
@@ -151,6 +162,8 @@ describe("provider portfolio Mac agent", () => {
         currentValueMinor: null,
         realizedValueMinor: 0n,
         instrument: "Sydecar SPV interest",
+        managementFeePpm: 20_000,
+        carryPpm: 200_000,
         identityKey: "11111111-1111-4111-8111-111111111111",
       },
     ]);
@@ -160,6 +173,10 @@ describe("provider portfolio Mac agent", () => {
       unrealizedValueState: "not_reported",
       netValueMinor: null,
       netValueState: "not_reported",
+      dealMetadata: {
+        managementFeePpm: 20_000,
+        carryPpm: 200_000,
+      },
     });
   });
 

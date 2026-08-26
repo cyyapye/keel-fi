@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AcceptPositionEconomicsInputSchema,
+  ReportedPositionEconomicsTermsSchema,
   calculatePositionEconomics,
   calculatePositionPerformance,
   type PositionEconomicsContext,
@@ -12,6 +13,7 @@ const context = {
   currency: "USD",
   committedMinor: 10_000_000,
   fundedMinor: 10_000_000,
+  reportedTerms: null,
   acceptedTerms: {
     id: "economics-synthetic",
     positionId: "position-synthetic",
@@ -27,6 +29,25 @@ const context = {
 } satisfies PositionEconomicsContext;
 
 describe("position economics", () => {
+  it("keeps independently reported fee or carry evidence explicit", () => {
+    expect(
+      ReportedPositionEconomicsTermsSchema.parse({
+        managementFeePpm: null,
+        carryPpm: 200_000,
+        sourceLabel: "AngelList export",
+        observedAt: "2026-08-25T12:00:00.000Z",
+      }),
+    ).toMatchObject({ managementFeePpm: null, carryPpm: 200_000 });
+    expect(
+      ReportedPositionEconomicsTermsSchema.safeParse({
+        managementFeePpm: null,
+        carryPpm: null,
+        sourceLabel: "Unsupported empty report",
+        observedAt: "2026-08-25T12:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
   it("deducts a ten-year upfront admin fee from funded capital", () => {
     expect(calculatePositionEconomics(context)).toEqual({
       committedMinor: 10_000_000,

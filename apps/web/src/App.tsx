@@ -2100,6 +2100,9 @@ function HoldingImportWorkspace({
   const readyCount =
     preview.summary.rowCount - preview.summary.needsAttentionCount;
   const primaryActionLabel = `Apply ${readyCount} ${readyCount === 1 ? "position" : "positions"}`;
+  const hasReportedCarry = preview.rows.some(
+    (row) => row.reportedCarryPpm !== null,
+  );
 
   return (
     <section
@@ -2125,6 +2128,14 @@ function HoldingImportWorkspace({
           <p>
             Export dated {formatDate(preview.observedAt)}. Locked values stay
             unavailable; Keel will not treat them as zero.
+            {hasReportedCarry &&
+              " Reported carry stays pending until reviewed in the position."}
+          </p>
+        ) : provider === "sydecar" ? (
+          <p>
+            Snapshot dated {formatDate(preview.observedAt)}. Missing current
+            values stay unavailable. Reported fee and carry stay pending until
+            reviewed in the position.
           </p>
         ) : (
           <p>
@@ -2251,6 +2262,23 @@ function HoldingImportWorkspace({
                     </td>
                     <td data-label="Invested">
                       {formatCompactMoney(row.investedMinor)}
+                      {(row.reportedManagementFeePpm !== null ||
+                        row.reportedCarryPpm !== null) && (
+                        <span className="source-meta">
+                          {row.reportedManagementFeePpm !== null && (
+                            <>
+                              Fee{" "}
+                              {formatProbability(row.reportedManagementFeePpm)}
+                            </>
+                          )}
+                          {row.reportedManagementFeePpm !== null &&
+                            row.reportedCarryPpm !== null &&
+                            " · "}
+                          {row.reportedCarryPpm !== null && (
+                            <>Carry {formatProbability(row.reportedCarryPpm)}</>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td data-label="Realized">
                       {formatCompactMoney(row.realizedValueMinor)}
@@ -2737,6 +2765,10 @@ function isCashLikeHolding(holding: Holding): boolean {
   return holding.instrumentType?.trim().toLowerCase() === "cash";
 }
 
+function percentageInputValueOrBlank(value: number | null): string {
+  return value === null ? "" : percentageInputValue(value);
+}
+
 function PositionEconomicsEditor({
   holding,
   onAccepted,
@@ -2746,16 +2778,62 @@ function PositionEconomicsEditor({
 }) {
   const context = holding.positionEconomicsContext ?? null;
   const terms = context?.acceptedTerms ?? null;
+  const reportedTerms = context?.reportedTerms ?? null;
+  const acceptedEconomics =
+    context === null ? null : calculatePositionEconomics(context);
+  const termsNeedReview = terms !== null && acceptedEconomics === null;
+  const reportedManagementFeePpm = reportedTerms?.managementFeePpm ?? null;
+  const reportedCarryPpm = reportedTerms?.carryPpm ?? null;
+  const hasReportedFee = reportedManagementFeePpm !== null;
+  const hasReportedCarryTerm = reportedCarryPpm !== null;
+  const reportedFeeDiffers =
+    terms !== null &&
+    reportedManagementFeePpm !== null &&
+    reportedManagementFeePpm !== terms.annualAdminFeePpm;
+  const reportedCarryDiffers =
+    terms !== null &&
+    reportedCarryPpm !== null &&
+    reportedCarryPpm !== terms.carryPpm;
+  const reportedTermsDiffer = reportedFeeDiffers || reportedCarryDiffers;
+  const prefillFromReportedTerms =
+    reportedTerms !== null &&
+    (terms === null || termsNeedReview || reportedTermsDiffer);
+  const initialAnnualFeePpm = prefillFromReportedTerms
+    ? (reportedManagementFeePpm ?? terms?.annualAdminFeePpm ?? null)
+    : (terms?.annualAdminFeePpm ?? 10_000);
+  const initialFeeYears = prefillFromReportedTerms
+    ? (terms?.adminFeeYears ?? null)
+    : (terms?.adminFeeYears ?? 10);
+  const initialCarryPpm = prefillFromReportedTerms
+    ? (reportedCarryPpm ?? terms?.carryPpm ?? null)
+    : (terms?.carryPpm ?? 200_000);
+  const reportedFeeLabel =
+    reportedManagementFeePpm === null
+      ? null
+      : formatProbability(reportedManagementFeePpm);
+  const reportedCarryLabel =
+    reportedCarryPpm === null ? null : formatProbability(reportedCarryPpm);
+  const reportedTermsSummary =
+    reportedTerms === null
+      ? null
+      : reportedFeeLabel !== null && reportedCarryLabel !== null
+        ? `a ${reportedFeeLabel} management fee and ${reportedCarryLabel} carry`
+        : reportedFeeLabel !== null
+          ? `a ${reportedFeeLabel} management fee`
+          : `${reportedCarryLabel} carry`;
+  const reportedTermsInstruction = !hasReportedFee
+    ? "Management fee is not included in this source. Confirm it against the deal documents before accepting."
+    : !hasReportedCarryTerm
+      ? "Carry is not included in this source. Confirm it against the deal documents before accepting."
+      : "Confirm the fee term against the deal documents before accepting.";
   const [open, setOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [annualFee, setAnnualFee] = useState(
-    percentageInputValue(terms?.annualAdminFeePpm ?? 10_000),
+    percentageInputValueOrBlank(initialAnnualFeePpm),
   );
-  const [feeYears, setFeeYears] = useState(
-    (terms?.adminFeeYears ?? 10).toString(),
-  );
+  const [feeYears, setFeeYears] = useState(initialFeeYears?.toString() ?? "");
   const [carry, setCarry] = useState(
-    percentageInputValue(terms?.carryPpm ?? 200_000),
+    percentageInputValueOrBlank(initialCarryPpm),
   );
   const [note, setNote] = useState(terms?.note ?? "");
   const [busy, setBusy] = useState(false);
@@ -2801,15 +2879,12 @@ function PositionEconomicsEditor({
     : null;
   const draftEconomics =
     draftContext === null ? null : calculatePositionEconomics(draftContext);
-  const acceptedEconomics = calculatePositionEconomics(context);
-  const termsNeedReview = terms !== null && acceptedEconomics === null;
-
   const reset = () => {
     setOpen(false);
     setReviewing(false);
-    setAnnualFee(percentageInputValue(terms?.annualAdminFeePpm ?? 10_000));
-    setFeeYears((terms?.adminFeeYears ?? 10).toString());
-    setCarry(percentageInputValue(terms?.carryPpm ?? 200_000));
+    setAnnualFee(percentageInputValueOrBlank(initialAnnualFeePpm));
+    setFeeYears(initialFeeYears?.toString() ?? "");
+    setCarry(percentageInputValueOrBlank(initialCarryPpm));
     setNote(terms?.note ?? "");
     setError(null);
   };
@@ -2869,8 +2944,10 @@ function PositionEconomicsEditor({
             tone="secondary"
           >
             {terms === null
-              ? "Add fee & carry"
-              : termsNeedReview
+              ? reportedTerms === null
+                ? "Add fee & carry"
+                : "Review fee & carry"
+              : termsNeedReview || reportedTermsDiffer
                 ? "Review fee & carry"
                 : "Update fee & carry"}
           </Button>
@@ -2894,15 +2971,25 @@ function PositionEconomicsEditor({
             {displayedEconomics === null
               ? termsNeedReview
                 ? "Needs review"
-                : "Not set"
+                : reportedManagementFeePpm === null
+                  ? "Not set"
+                  : "Not accepted"
               : formatCompactMoney(displayedEconomics.upfrontAdminFeeMinor)}
           </strong>
           <small>
-            {terms === null
-              ? "Add the annual rate and fee term."
-              : termsNeedReview
-                ? "Commitment or funded capital changed after acceptance."
-                : `${formatProbability(terms.annualAdminFeePpm)} for ${terms.adminFeeYears} years, paid upfront.`}
+            {reportedFeeDiffers && reportedTerms !== null
+              ? `${reportedTerms.sourceLabel} now reports ${reportedFeeLabel}; accepted terms remain in use until review.`
+              : hasReportedFee &&
+                  reportedTerms !== null &&
+                  (terms === null || termsNeedReview)
+                ? `${reportedTerms.sourceLabel} reports ${reportedFeeLabel}; confirm the fee term.`
+                : terms === null
+                  ? reportedTerms !== null
+                    ? "Management fee is not included in this source."
+                    : "Add the fee rate and term."
+                  : termsNeedReview
+                    ? "Commitment or funded capital changed after acceptance."
+                    : `${formatProbability(terms.annualAdminFeePpm)} for ${terms.adminFeeYears} years, paid upfront.`}
           </small>
         </article>
         <article>
@@ -2922,15 +3009,27 @@ function PositionEconomicsEditor({
             className={terms === null || termsNeedReview ? "is-not-set" : ""}
           >
             {terms === null
-              ? "Not set"
+              ? reportedCarryPpm === null
+                ? "Not set"
+                : formatProbability(reportedCarryPpm)
               : termsNeedReview
-                ? "Needs review"
+                ? reportedCarryPpm === null
+                  ? "Needs review"
+                  : formatProbability(reportedCarryPpm)
                 : formatProbability(terms.carryPpm)}
           </strong>
           <small>
-            {termsNeedReview
-              ? "Review against the current source before applying carry."
-              : "Applied to gains when an exit is recorded."}
+            {reportedCarryDiffers && reportedTerms !== null
+              ? `${reportedTerms.sourceLabel} now reports ${reportedCarryLabel}; accepted carry remains in use.`
+              : hasReportedCarryTerm &&
+                  reportedTerms !== null &&
+                  (terms === null || termsNeedReview)
+                ? `Reported by ${reportedTerms.sourceLabel}; accept before use.`
+                : terms === null && reportedTerms !== null
+                  ? "Carry is not included in this source."
+                  : termsNeedReview
+                    ? "Review against the current source before applying carry."
+                    : "Applied to gains when an exit is recorded."}
           </small>
         </article>
       </div>
@@ -2947,8 +3046,13 @@ function PositionEconomicsEditor({
             }
           }}
         >
+          {prefillFromReportedTerms && reportedTerms !== null && (
+            <p className="position-economics__reported">
+              {`${reportedTerms.sourceLabel} reports ${reportedTermsSummary}. ${reportedTermsInstruction}`}
+            </p>
+          )}
           <div className="position-economics__fields">
-            <Field label="Annual admin fee">
+            <Field label="Admin fee rate">
               <InputGroup suffix="%">
                 <Input
                   inputMode="decimal"

@@ -274,6 +274,7 @@ function exposurePositionPerformance(position: InvestmentExposurePosition) {
             committedMinor: position.committedMinor,
             fundedMinor: position.investedMinor,
             acceptedTerms: position.acceptedEconomicsTerms ?? null,
+            reportedTerms: position.reportedEconomicsTerms ?? null,
           }
         : null,
     allowFundedAmountEstimate:

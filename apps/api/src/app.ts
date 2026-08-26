@@ -608,6 +608,7 @@ async function stageProviderTemplateUpload(
     phase = "review_staging";
     const staged = await repository.stageHoldingImport(accessSubject, {
       provider,
+      formatVersion: parsed.formatVersion,
       objectKey,
       sha256: await sha256Bytes(upload.bytes),
       byteSize: upload.bytes.byteLength,

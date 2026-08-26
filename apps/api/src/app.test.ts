@@ -126,6 +126,8 @@ const holdingImportPreview: HoldingImportPreview = {
       ticker: null,
       quantityMicros: null,
       costBasisMinor: null,
+      reportedManagementFeePpm: null,
+      reportedCarryPpm: null,
       action: "create_position",
       issues: [],
       adjudicationStatus: "pending_review",
@@ -189,6 +191,7 @@ function syntheticProviderTemplateCsv(
     provider === "tokenfolio" ? "$1800.25" : "",
     "",
     provider === "tokenfolio" ? "Common stock" : "Membership interest",
+    ...(provider === "sydecar" ? ["2%", "20%"] : []),
   ];
   return `${providerHoldingsTemplateCsv(provider)}${row.join(",")}\n`;
 }
@@ -856,6 +859,10 @@ describe("Keel API", () => {
           expect.objectContaining({
             companyOrFund: "Synthetic Finch Labs",
             fundName: "Synthetic Finch SPV",
+            dealMetadata: expect.objectContaining({
+              managementFeePpm: null,
+              carryPpm: 200_000,
+            }),
           }),
         ],
       }),
@@ -912,6 +919,7 @@ describe("Keel API", () => {
         "synthetic-access-subject",
         expect.objectContaining({
           provider,
+          formatVersion: provider === "tokenfolio" ? 1 : 2,
           effectiveDate: "2026-08-20",
           byteSize: new TextEncoder().encode(template).byteLength,
           canonicalScope: expect.objectContaining({
@@ -930,6 +938,10 @@ describe("Keel API", () => {
                   : "Example Climate Fund",
               positionKind:
                 provider === "tokenfolio" ? "direct" : "spv_interest",
+              dealMetadata: expect.objectContaining({
+                managementFeePpm: provider === "tokenfolio" ? null : 20_000,
+                carryPpm: provider === "tokenfolio" ? null : 200_000,
+              }),
             }),
           ],
         }),

@@ -100,11 +100,32 @@ describe("AngelList investments CSV parsing", () => {
             valuationOrCapMinor: 1_200_000_000,
             discount: "20%",
             carry: "15%",
+            managementFeePpm: null,
+            carryPpm: 150_000,
             shareClass: "Preferred",
           },
         }),
       ],
     });
+  });
+
+  it("normalizes only exact reported carry percentages", async () => {
+    const blank = await parseAngelListInvestmentsCsv(
+      documentBytes([rowValues({ Carry: "" })]),
+    );
+    expect(blank.rows[0]?.dealMetadata).toMatchObject({
+      carry: null,
+      managementFeePpm: null,
+      carryPpm: null,
+    });
+
+    for (const carry of ["15", "100.0001%", "101%", "1.00001%"] as const) {
+      await expect(
+        parseAngelListInvestmentsCsv(
+          documentBytes([rowValues({ Carry: carry })]),
+        ),
+      ).rejects.toThrow("invalid Carry value");
+    }
   });
 
   it("maps locked values to explicit states and requires a blank multiple", async () => {

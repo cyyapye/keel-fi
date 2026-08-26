@@ -47,6 +47,8 @@ const sydecarRow = [
   "",
   "",
   "Membership interest",
+  "2%",
+  "20%",
 ].join(",");
 
 describe("provider holdings template CSV", () => {
@@ -55,7 +57,10 @@ describe("provider holdings template CSV", () => {
       `Keel Tokenfolio holdings template v1\n${PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS.join(",")}\n`,
     );
     expect(providerHoldingsTemplateCsv("sydecar")).toContain(
-      "Keel Sydecar holdings template v1",
+      "Keel Sydecar holdings template v2",
+    );
+    expect(providerHoldingsTemplateCsv("sydecar")).toContain(
+      "Management Fee %,Carry %",
     );
   });
 
@@ -100,7 +105,26 @@ describe("provider holdings template CSV", () => {
       netValueMinor: null,
       netValueState: "not_reported",
       positionKind: "spv_interest",
-      dealMetadata: { allocationMinor: 750_000 },
+      dealMetadata: {
+        allocationMinor: 750_000,
+        managementFeePpm: 20_000,
+        carryPpm: 200_000,
+      },
+    });
+  });
+
+  it("keeps legacy Sydecar v1 templates reviewable without inventing terms", async () => {
+    const legacyRow = sydecarRow.split(",").slice(0, 12).join(",");
+    const legacy = encoder.encode(
+      `Keel Sydecar holdings template v1\n${PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS.join(",")}\n${legacyRow}\n`,
+    );
+
+    const result = await parseProviderHoldingsTemplateCsv("sydecar", legacy);
+
+    expect(result.formatVersion).toBe(1);
+    expect(result.rows[0]?.dealMetadata).toMatchObject({
+      managementFeePpm: null,
+      carryPpm: null,
     });
   });
 
@@ -129,6 +153,21 @@ describe("provider holdings template CSV", () => {
         documentBytes("sydecar", [sydecarRow.replace("$7500.00", "$1000.00")]),
       ),
     ).rejects.toThrow("committed amount below its funded amount");
+  });
+
+  it("rejects unsupported Sydecar fee or carry rates", async () => {
+    await expect(
+      parseProviderHoldingsTemplateCsv(
+        "sydecar",
+        documentBytes("sydecar", [sydecarRow.replace("2%", "2x")]),
+      ),
+    ).rejects.toThrow("invalid Management Fee % value");
+    await expect(
+      parseProviderHoldingsTemplateCsv(
+        "sydecar",
+        documentBytes("sydecar", [sydecarRow.replace("20%", "101%")]),
+      ),
+    ).rejects.toThrow("percentage from 0% through 100%");
   });
 
   it("rejects the wrong provider template and changed headers", async () => {
