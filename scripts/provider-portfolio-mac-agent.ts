@@ -40,6 +40,7 @@ import {
   installSystemdAgentService,
   validateInteractiveSetupEnvironment,
   validateLinuxSystemdUser,
+  waitForProfileChromeExit,
 } from "./browser-agent-runtime";
 import {
   chromium,
@@ -374,18 +375,15 @@ async function stopProfileChrome(
     }
   }
 
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    if (
-      profileChromeProcessIds(paths.profileDirectory, chromePath).length === 0
-    ) {
-      return;
-    }
-    await sleep(250);
-  }
-  throw new Error(
-    `Quit the dedicated ${PROVIDERS[provider].label} Chrome window, then rerun setup.`,
+  const stopped = await waitForProfileChromeExit(
+    () => profileChromeProcessIds(paths.profileDirectory, chromePath),
+    sleep,
   );
+  if (!stopped) {
+    throw new Error(
+      `Quit the dedicated ${PROVIDERS[provider].label} Chrome window, then rerun setup.`,
+    );
+  }
 }
 
 async function closeControlledChrome(
