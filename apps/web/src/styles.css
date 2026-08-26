@@ -393,7 +393,7 @@ h1,
 }
 
 .portfolio-snapshot__metrics dt,
-.portfolio-liquidity-legend dt,
+.portfolio-liquidity-legend__label,
 .portfolio-liquidity-legend small {
   color: var(--faint);
   font-size: 8px;
@@ -443,6 +443,28 @@ h1,
   font-weight: 720;
 }
 
+.portfolio-chart__drilldown,
+.portfolio-chart__access-segment {
+  cursor: pointer;
+}
+
+.portfolio-chart__drilldown {
+  outline: none;
+}
+
+.portfolio-chart__bar {
+  transition: opacity 140ms ease;
+}
+
+.portfolio-chart__drilldown:is(:hover, :focus-visible) .portfolio-chart__bar {
+  opacity: 0.68;
+}
+
+.portfolio-chart__drilldown:focus-visible .portfolio-chart__hit-area {
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
 .portfolio-liquidity-chart {
   margin: 4px 0 10px;
 }
@@ -451,33 +473,42 @@ h1,
   display: grid;
   gap: 0;
   margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.portfolio-liquidity-legend > div {
+.portfolio-liquidity-legend button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 18px;
-  padding: 11px 0;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
 }
 
-.portfolio-liquidity-legend dt,
-.portfolio-liquidity-legend dd {
-  margin: 0;
+.portfolio-liquidity-legend button:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
 }
 
-.portfolio-liquidity-legend dt {
+.portfolio-liquidity-legend__label {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.portfolio-liquidity-legend dt span {
+.portfolio-liquidity-legend__label i {
   width: 17px;
   height: 7px;
 }
 
-.portfolio-liquidity-legend dd {
+.portfolio-liquidity-legend__value {
   text-align: right;
 }
 
@@ -518,8 +549,14 @@ h1,
   font-size: 9px;
 }
 
-.portfolio-mover-chart--down .recharts-bar-rectangle path {
+.portfolio-mover-chart--down .portfolio-chart__bar {
   opacity: 0.34;
+}
+
+.portfolio-mover-chart--down
+  .portfolio-chart__drilldown:is(:hover, :focus-visible)
+  .portfolio-chart__bar {
+  opacity: 0.54;
 }
 
 .chart-kpis {
