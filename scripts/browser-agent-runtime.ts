@@ -25,6 +25,9 @@ export type RunAgentCommand = (
   arguments_: readonly string[],
 ) => CommandResult;
 
+const PROFILE_CHROME_STOP_ATTEMPTS = 120;
+const PROFILE_CHROME_STOP_INTERVAL_MS = 250;
+
 const runAgentCommand: RunAgentCommand = (command, arguments_) => {
   const result = spawnSync(command, [...arguments_], { encoding: "utf8" });
   return {
@@ -168,6 +171,19 @@ export function controlledChromeArguments(
       ? ["--headless=new", "--disable-dev-shm-usage"]
       : []),
   ];
+}
+
+export async function waitForProfileChromeExit(
+  remainingProcessIds: () => readonly number[],
+  wait: (milliseconds: number) => Promise<void>,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < PROFILE_CHROME_STOP_ATTEMPTS; attempt += 1) {
+    if (remainingProcessIds().length === 0) {
+      return true;
+    }
+    await wait(PROFILE_CHROME_STOP_INTERVAL_MS);
+  }
+  return remainingProcessIds().length === 0;
 }
 
 export function validateInteractiveSetupEnvironment(

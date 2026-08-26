@@ -15,6 +15,7 @@ import {
   systemdAgentUnitName,
   validateInteractiveSetupEnvironment,
   validateLinuxSystemdUser,
+  waitForProfileChromeExit,
   type RunAgentCommand,
   type SystemdAgentServiceOptions,
 } from "./browser-agent-runtime";
@@ -90,6 +91,32 @@ describe("portfolio agent platform runtime", () => {
         uid: 1_001,
       }),
     ).not.toThrow();
+  });
+
+  it("allows a slow dedicated Chrome profile to finish shutting down", async () => {
+    let observations = 0;
+    const remainingProcessIds = vi.fn(() => {
+      observations += 1;
+      return observations <= 41 ? [42] : [];
+    });
+    const wait = vi.fn(() => Promise.resolve());
+
+    await expect(
+      waitForProfileChromeExit(remainingProcessIds, wait),
+    ).resolves.toBe(true);
+    expect(wait).toHaveBeenCalledTimes(41);
+    expect(wait).toHaveBeenCalledWith(250);
+  });
+
+  it("keeps dedicated Chrome shutdown waiting bounded", async () => {
+    const remainingProcessIds = vi.fn(() => [42]);
+    const wait = vi.fn(() => Promise.resolve());
+
+    await expect(
+      waitForProfileChromeExit(remainingProcessIds, wait),
+    ).resolves.toBe(false);
+    expect(wait).toHaveBeenCalledTimes(120);
+    expect(remainingProcessIds).toHaveBeenCalledTimes(121);
   });
 
   it("requires user lingering before installing an always-on service", () => {
