@@ -146,6 +146,33 @@ describe("Mac agent authorization", () => {
     }
   });
 
+  it("reads a Linux credential without mutating its secure directory", async () => {
+    const homeDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "keel-agent-auth-"),
+    );
+    const keelOrigin = new URL("https://keel-preview.example.com");
+    const options = {
+      environment: {} satisfies NodeJS.ProcessEnv,
+      homeDirectory,
+      platform: "linux" as const,
+      uid: process.getuid?.() ?? 1_001,
+    };
+    const file = linuxAgentAuthorizationPath(keelOrigin, "tokenfolio", options);
+    const directory = path.dirname(file);
+    try {
+      storeMacAgentAuthorization(keelOrigin, authorization, options);
+      await chmod(directory, 0o500);
+
+      expect(
+        readMacAgentAuthorization(keelOrigin, "tokenfolio", options),
+      ).toEqual(authorization);
+      expect((await stat(directory)).mode & 0o777).toBe(0o500);
+    } finally {
+      await chmod(directory, 0o700).catch(() => undefined);
+      await rm(homeDirectory, { force: true, recursive: true });
+    }
+  });
+
   it("sends the bearer only to the authorized API origin", async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ version: 1 }), {
