@@ -21,7 +21,6 @@ import {
   type HoldingImportApplyResult,
   type HoldingImportPreview,
   type HoldingImportRowPreview,
-  type HoldingImportSummary,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineState,
   type ProviderBrowserSession,
@@ -34,6 +33,7 @@ import {
   type SignalUpdateProposal,
 } from "@keel/domain";
 import type { PositionValueSourceKind } from "@keel/domain/position-value";
+import type { HoldingsPage } from "@keel/domain/holdings-page";
 import {
   calculatePositionEconomics,
   calculatePositionPerformance,
@@ -71,6 +71,8 @@ import {
 import {
   type CSSProperties,
   type FormEvent,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -94,9 +96,9 @@ import {
   getAngelListSignInRefresh,
   getProviderBrowserReconnect,
   exchangeCashAccountPublicToken,
-  listPendingHoldingImports,
   loadAngelListAutomationOverview,
   loadAlphaData,
+  loadHoldingsPage,
   loadHoldingImport,
   loadLegacyAngelListAutomationOverview,
   loadCashAccounts,
@@ -132,10 +134,12 @@ import { Obligations } from "./Obligations";
 import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanActualMonitoring } from "./PlanActualMonitoring";
 import { PlanInputsEditor } from "./PlanInputsEditor";
-import {
-  PortfolioSnapshot,
-  type PortfolioSnapshotDrilldown,
-} from "./PortfolioSnapshot";
+import type { PortfolioSnapshotDrilldown } from "./PortfolioSnapshot";
+
+const PortfolioSnapshot = lazy(async () => {
+  const module = await import("./PortfolioSnapshot");
+  return { default: module.PortfolioSnapshot };
+});
 
 type Screen =
   | "dashboard"
@@ -753,10 +757,12 @@ function Dashboard({
         </section>
       )}
 
-      <PortfolioSnapshot
-        onDrilldown={onPortfolioDrilldown}
-        onViewHoldings={() => onNavigate("holdings")}
-      />
+      <Suspense fallback={null}>
+        <PortfolioSnapshot
+          onDrilldown={onPortfolioDrilldown}
+          onViewHoldings={() => onNavigate("holdings")}
+        />
+      </Suspense>
 
       <div className="dashboard-grid">
         <Panel
@@ -5952,7 +5958,6 @@ function PortfolioBaselineSection({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
-  const autoRefreshRevisionRef = useRef<string | null>(null);
 
   const reload = useCallback(async (signal?: AbortSignal) => {
     const next = await loadPortfolioBaseline(signal);
@@ -5984,80 +5989,6 @@ function PortfolioBaselineSection({
       reviewHeadingRef.current?.focus();
     }
   }, [reviewing]);
-
-  useEffect(() => {
-    if (
-      state === null ||
-      state.status !== "ready" ||
-      state.latestBaseline === null ||
-      state.hasCashAccountChanges ||
-      state.requiresDuplicateReview ||
-      state.requiresCashOverlapReview ||
-      !state.canConfirm ||
-      state.sourceRevision === null ||
-      state.baseForecastSnapshotId === null ||
-      state.baseForecastSnapshotVersion === null ||
-      autoRefreshRevisionRef.current === state.sourceRevision
-    ) {
-      return;
-    }
-
-    const sourceRevision = state.sourceRevision;
-    const input: PortfolioBaselineConfirmInput = {
-      sourceRevision,
-      baseForecastSnapshotId: state.baseForecastSnapshotId,
-      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
-      otherFiEligibleLiquidMinor:
-        state.latestBaseline.otherFiEligibleLiquidMinor,
-      duplicateReviewConfirmed: false,
-      cashOverlapReviewConfirmed: false,
-      changeNote: "Accepted holdings refreshed automatically.",
-    };
-    let cancelled = false;
-    let retryTimer: number | undefined;
-    autoRefreshRevisionRef.current = sourceRevision;
-    setWorking(true);
-    setError(null);
-
-    void confirmPortfolioBaseline(input)
-      .then(async () => {
-        if (cancelled) {
-          return;
-        }
-        setWorking(false);
-        const reloads = await Promise.allSettled([onConfirmed(), reload()]);
-        if (cancelled || reloads.every((item) => item.status === "fulfilled")) {
-          return;
-        }
-        setError(
-          "The planning baseline updated, but the latest view could not be loaded. Retrying shortly.",
-        );
-        autoRefreshRevisionRef.current = null;
-        retryTimer = window.setTimeout(() => {
-          void reload().catch(() => undefined);
-        }, 5_000);
-      })
-      .catch(() => {
-        if (cancelled) {
-          return;
-        }
-        setWorking(false);
-        setError(
-          "Keel could not update the planning baseline yet. Retrying shortly.",
-        );
-        autoRefreshRevisionRef.current = null;
-        retryTimer = window.setTimeout(() => {
-          void reload().catch(() => undefined);
-        }, 10_000);
-      });
-
-    return () => {
-      cancelled = true;
-      if (retryTimer !== undefined) {
-        window.clearTimeout(retryTimer);
-      }
-    };
-  }, [onConfirmed, reload, state]);
 
   const proposedOtherLiquidMinor = useMemo(
     () => dollarInputToMinorUnits(otherLiquidInput),
@@ -6475,12 +6406,6 @@ function PortfolioBaselineSection({
   }
 
   const isCurrent = state.status === "current";
-  const isUpdatingAutomatically =
-    !isCurrent &&
-    state.latestBaseline !== null &&
-    !state.hasCashAccountChanges &&
-    !state.requiresDuplicateReview &&
-    !state.requiresCashOverlapReview;
   const requiresOverlapReview =
     !isCurrent &&
     state.latestBaseline !== null &&
@@ -6498,26 +6423,26 @@ function PortfolioBaselineSection({
       <div className="portfolio-baseline__heading">
         <p className="eyebrow">Planning baseline</p>
         <h2 id="portfolio-baseline-title">
-          {isUpdatingAutomatically
-            ? "Updating the planning baseline"
-            : requiresOverlapReview
-              ? state.requiresCashOverlapReview
-                ? "Check cash held elsewhere"
-                : "Review a source overlap"
-              : requiresSourceReview
-                ? "Bank cash changes are ready"
-                : "Set the FI planning baseline"}
+          {requiresOverlapReview
+            ? state.requiresCashOverlapReview
+              ? "Check cash held elsewhere"
+              : "Review a source overlap"
+            : requiresSourceReview
+              ? "Bank cash changes are ready"
+              : state.latestBaseline === null
+                ? "Set the FI planning baseline"
+                : "Holdings changes are ready"}
         </h2>
         <p>
-          {isUpdatingAutomatically
-            ? "Accepted holdings changed. Keel is updating the FI plan automatically."
-            : requiresOverlapReview
-              ? state.requiresCashOverlapReview
-                ? "Linked bank and brokerage cash are already counted. Confirm that the manual residual does not repeat them."
-                : "Keel needs one source decision before updating the FI plan."
-              : requiresSourceReview
-                ? "Review the changed bank balances before Keel updates the FI plan."
-                : "Set reviewed holdings and cash accounts as the FI baseline, then add any eligible liquid assets held elsewhere."}
+          {requiresOverlapReview
+            ? state.requiresCashOverlapReview
+              ? "Linked bank and brokerage cash are already counted. Confirm that the manual residual does not repeat them."
+              : "Keel needs one source decision before updating the FI plan."
+            : requiresSourceReview
+              ? "Review the changed bank balances before updating the FI plan."
+              : state.latestBaseline === null
+                ? "Set reviewed holdings and cash accounts as the FI baseline, then add any eligible liquid assets held elsewhere."
+                : "Review the accepted holdings before replacing the current FI planning baseline."}
         </p>
         {error !== null && (
           <p className="portfolio-baseline__error" role="status">
@@ -6525,17 +6450,17 @@ function PortfolioBaselineSection({
           </p>
         )}
       </div>
-      {!isUpdatingAutomatically && (
-        <Button onClick={openReview} tone="primary">
-          {requiresOverlapReview
-            ? state.requiresCashOverlapReview
-              ? "Review cash held elsewhere"
-              : "Review source"
-            : requiresSourceReview
-              ? "Review bank cash"
-              : "Set baseline"}
-        </Button>
-      )}
+      <Button onClick={openReview} tone="primary">
+        {requiresOverlapReview
+          ? state.requiresCashOverlapReview
+            ? "Review cash held elsewhere"
+            : "Review source"
+          : requiresSourceReview
+            ? "Review bank cash"
+            : state.latestBaseline === null
+              ? "Set baseline"
+              : "Review baseline"}
+      </Button>
     </section>
   );
 }
@@ -6545,10 +6470,10 @@ const HOLDINGS_EXPOSURE_PAGE_SIZE = 12;
 function Holdings({
   data,
   onBaselineConfirmed,
+  onCashAccepted,
   onExposureResolved,
   onApplyImport,
   onImportRouteChange,
-  onListPendingImports,
   onLoadImport,
   onPreviewImport,
   onViewChange,
@@ -6556,15 +6481,15 @@ function Holdings({
   requestedImportId,
   requestedView,
 }: {
-  data: AlphaData;
+  data: HoldingsPage;
   onBaselineConfirmed: () => Promise<void>;
+  onCashAccepted: () => Promise<void>;
   onExposureResolved: () => Promise<void>;
   onApplyImport: (
     importId: string,
     input: HoldingImportApplyInput,
   ) => Promise<HoldingImportApplyResult>;
   onImportRouteChange: (importId: string | null) => void;
-  onListPendingImports: () => Promise<HoldingImportSummary[]>;
   onLoadImport: (importId: string) => Promise<HoldingImportPreview>;
   onPreviewImport: (
     provider: UploadHoldingImportProvider,
@@ -6576,12 +6501,9 @@ function Holdings({
   requestedView: "overview" | "sources";
 }) {
   const [showImporter, setShowImporter] = useState(false);
-  const [pendingImports, setPendingImports] = useState<HoldingImportSummary[]>(
-    [],
-  );
-  const [pendingImportError, setPendingImportError] = useState<string | null>(
-    null,
-  );
+  const [reviewedImportIds, setReviewedImportIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const [routedPreview, setRoutedPreview] =
     useState<HoldingImportPreview | null>(null);
   const [routedPreviewError, setRoutedPreviewError] = useState<{
@@ -6606,6 +6528,15 @@ function Holdings({
     routedPreviewError?.importId === requestedImportId
       ? routedPreviewError.message
       : null;
+  const pendingImports = useMemo(
+    () =>
+      data.pendingImports.filter(
+        (item) =>
+          item.provider !== "plaid_investments" &&
+          !reviewedImportIds.has(item.id),
+      ),
+    [data.pendingImports, reviewedImportIds],
+  );
   const baselineRefreshKey = `${data.holdings
     .map(
       (holding) =>
@@ -6613,37 +6544,6 @@ function Holdings({
     )
     .sort((left, right) => left.localeCompare(right))
     .join("|")}:cash:${cashRefreshVersion}`;
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: number | undefined;
-    const loadPending = async () => {
-      try {
-        const imports = await onListPendingImports();
-        if (!cancelled) {
-          setPendingImports(
-            imports.filter((item) => item.provider !== "plaid_investments"),
-          );
-          setPendingImportError(null);
-        }
-      } catch {
-        if (!cancelled) {
-          setPendingImportError("Keel could not check for holding updates.");
-        }
-      } finally {
-        if (!cancelled) {
-          timer = window.setTimeout(() => void loadPending(), 60_000);
-        }
-      }
-    };
-    void loadPending();
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-      }
-    };
-  }, [onListPendingImports]);
 
   useEffect(() => {
     let cancelled = false;
@@ -6789,9 +6689,11 @@ function Holdings({
             key={activeRoutedPreview?.id ?? "manual-import"}
             onApply={async (importId, input) => {
               const result = await onApplyImport(importId, input);
-              setPendingImports((imports) =>
-                imports.filter((item) => item.id !== importId),
-              );
+              setReviewedImportIds((current) => {
+                const next = new Set(current);
+                next.add(importId);
+                return next;
+              });
               return result;
             }}
             onClose={closeImporter}
@@ -6805,9 +6707,9 @@ function Holdings({
               <AngelListSignInControl />
               <ProviderPortfolioAgentsControl />
               <CashAccountsControl
-                onAccepted={() => {
+                onAccepted={async () => {
                   setCashRefreshVersion((current) => current + 1);
-                  return Promise.resolve();
+                  await onCashAccepted();
                 }}
               />
             </>
@@ -6849,11 +6751,6 @@ function Holdings({
                   </div>
                 </section>
               )}
-              {pendingImportError !== null && requestedImportId === null && (
-                <Notice role="status" tone="error">
-                  {pendingImportError}
-                </Notice>
-              )}
               <PortfolioBaselineSection
                 onConfirmed={onBaselineConfirmed}
                 refreshKey={baselineRefreshKey}
@@ -6866,6 +6763,8 @@ function Holdings({
             </>
           )}
           <InvestmentHoldings
+            acceptedCashAccounts={data.acceptedCashAccounts}
+            data={data.investmentHoldings}
             holdings={data.holdings}
             mode={sourcesVisible ? "sources" : "exposures"}
             onExposureResolved={onExposureResolved}
@@ -8336,6 +8235,51 @@ function LoadingShell() {
   );
 }
 
+function HoldingsRouteStatus({
+  error,
+  onRetry,
+}: {
+  error: string | null;
+  onRetry: () => void;
+}) {
+  return (
+    <ScreenLayout className="holdings-screen">
+      <PageHeader
+        description="See shared economic exposure, then open each legal position for ownership and source details."
+        eyebrow="Portfolio evidence"
+        title="Holdings"
+      />
+      <section
+        aria-labelledby="investment-views-title"
+        className="investment-views"
+      >
+        <div className="investment-views__heading">
+          <div>
+            <p className="eyebrow">Reviewed ownership</p>
+            <h2 id="investment-views-title">Exposures</h2>
+            <p>
+              Legal positions stay separate inside each exposure. Open one for
+              ownership and source details.
+            </p>
+          </div>
+        </div>
+        {error === null ? (
+          <p className="investment-views__loading" role="status">
+            Loading reviewed exposures…
+          </p>
+        ) : (
+          <div className="investment-views__error" role="alert">
+            <p>{error}</p>
+            <Button onClick={onRetry} tone="secondary">
+              Try again
+            </Button>
+          </div>
+        )}
+      </section>
+    </ScreenLayout>
+  );
+}
+
 export function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>(
     () => routeFromLocation().screen,
@@ -8351,11 +8295,83 @@ export function App() {
     () => routeFromLocation().holdingsView,
   );
   const [data, setData] = useState<AlphaData | null>(null);
+  const [holdingsPageData, setHoldingsPageData] = useState<HoldingsPage | null>(
+    null,
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [holdingsLoadError, setHoldingsLoadError] = useState<string | null>(
+    null,
+  );
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [busyEvent, setBusyEvent] = useState<string | null>(null);
   const [scenarioContext, setScenarioContext] =
     useState<EvidenceInboxItem | null>(null);
+  const alphaRequestRef = useRef<Promise<AlphaData> | null>(null);
+  const holdingsRequestRef = useRef<Promise<HoldingsPage> | null>(null);
+
+  const refreshAlphaData = useCallback(
+    async (force = false): Promise<AlphaData> => {
+      let request = alphaRequestRef.current;
+      if (request === null || force) {
+        request = loadAlphaData();
+        alphaRequestRef.current = request;
+      }
+      try {
+        const next = await request;
+        if (alphaRequestRef.current === request) {
+          setData(next);
+          setLoadError(null);
+        }
+        return next;
+      } catch (error) {
+        if (alphaRequestRef.current === request) {
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : "The Keel data contract could not be loaded.",
+          );
+        }
+        throw error;
+      } finally {
+        if (alphaRequestRef.current === request) {
+          alphaRequestRef.current = null;
+        }
+      }
+    },
+    [],
+  );
+
+  const refreshHoldingsPage = useCallback(
+    async (force = false): Promise<HoldingsPage> => {
+      let request = holdingsRequestRef.current;
+      if (request === null || force) {
+        request = loadHoldingsPage();
+        holdingsRequestRef.current = request;
+      }
+      try {
+        const next = await request;
+        if (holdingsRequestRef.current === request) {
+          setHoldingsPageData(next);
+          setHoldingsLoadError(null);
+        }
+        return next;
+      } catch (error) {
+        if (holdingsRequestRef.current === request) {
+          setHoldingsLoadError(
+            error instanceof Error
+              ? error.message
+              : "Keel could not load reviewed holdings.",
+          );
+        }
+        throw error;
+      } finally {
+        if (holdingsRequestRef.current === request) {
+          holdingsRequestRef.current = null;
+        }
+      }
+    },
+    [],
+  );
 
   const navigateToScreen = useCallback((screen: Screen) => {
     const path = pathForScreen(screen);
@@ -8426,26 +8442,90 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void loadAlphaData(controller.signal)
-      .then(setData)
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setLoadError(
-            error instanceof Error
-              ? error.message
-              : "The Keel data contract could not be loaded.",
-          );
-        }
-      });
-    return () => controller.abort();
-  }, []);
+    if (activeScreen === "holdings") {
+      void refreshHoldingsPage().catch(() => undefined);
+    }
+  }, [activeScreen, refreshHoldingsPage]);
+
+  useEffect(() => {
+    if (activeScreen !== "holdings" && data === null) {
+      void refreshAlphaData().catch(() => undefined);
+    }
+  }, [activeScreen, data, refreshAlphaData]);
+
+  useEffect(() => {
+    const shouldPrefetchAlpha =
+      activeScreen === "holdings" && holdingsPageData !== null && data === null;
+    const shouldPrefetchHoldings =
+      activeScreen !== "holdings" && data !== null && holdingsPageData === null;
+    if (!shouldPrefetchAlpha && !shouldPrefetchHoldings) {
+      return;
+    }
+    const prefetch = () => {
+      if (shouldPrefetchAlpha) {
+        void refreshAlphaData().catch(() => undefined);
+      } else {
+        void refreshHoldingsPage().catch(() => undefined);
+      }
+    };
+    if ("requestIdleCallback" in window) {
+      const idle = window.requestIdleCallback(prefetch, { timeout: 3_000 });
+      return () => window.cancelIdleCallback(idle);
+    }
+    const timer = globalThis.setTimeout(prefetch, 1_000);
+    return () => globalThis.clearTimeout(timer);
+  }, [
+    activeScreen,
+    data,
+    holdingsPageData,
+    refreshAlphaData,
+    refreshHoldingsPage,
+  ]);
 
   useEffect(() => {
     window.scrollTo({ behavior: "auto", top: 0 });
   }, [activeScreen, holdingImportId, holdingsDrilldown, holdingsView]);
 
   const content = useMemo(() => {
+    if (activeScreen === "holdings") {
+      if (holdingsPageData === null) {
+        return (
+          <HoldingsRouteStatus
+            error={holdingsLoadError}
+            onRetry={() => {
+              void refreshHoldingsPage(true).catch(() => undefined);
+            }}
+          />
+        );
+      }
+      const refreshReviewedHoldings = async () => {
+        await Promise.all([refreshHoldingsPage(true), refreshAlphaData(true)]);
+      };
+      return (
+        <Holdings
+          data={holdingsPageData}
+          onBaselineConfirmed={async () => {
+            await refreshAlphaData(true);
+          }}
+          onCashAccepted={async () => {
+            await refreshHoldingsPage(true);
+          }}
+          onExposureResolved={refreshReviewedHoldings}
+          onApplyImport={async (importId, input) => {
+            const result = await applyHoldingImport(importId, input);
+            await refreshReviewedHoldings();
+            return result;
+          }}
+          onImportRouteChange={navigateToHoldingImport}
+          onViewChange={navigateToHoldingsView}
+          onLoadImport={loadHoldingImport}
+          onPreviewImport={previewHoldingImport}
+          requestedImportId={holdingImportId}
+          requestedDrilldown={holdingsDrilldown}
+          requestedView={holdingsView}
+        />
+      );
+    }
     if (data === null) {
       return null;
     }
@@ -8466,27 +8546,6 @@ export function App() {
               await saveGoalVersion(input);
               setData(await loadAlphaData());
             }}
-          />
-        );
-      case "holdings":
-        return (
-          <Holdings
-            data={data}
-            onBaselineConfirmed={async () => setData(await loadAlphaData())}
-            onExposureResolved={async () => setData(await loadAlphaData())}
-            onApplyImport={async (importId, input) => {
-              const result = await applyHoldingImport(importId, input);
-              setData(await loadAlphaData());
-              return result;
-            }}
-            onImportRouteChange={navigateToHoldingImport}
-            onViewChange={navigateToHoldingsView}
-            onListPendingImports={listPendingHoldingImports}
-            onLoadImport={loadHoldingImport}
-            onPreviewImport={previewHoldingImport}
-            requestedImportId={holdingImportId}
-            requestedDrilldown={holdingsDrilldown}
-            requestedView={holdingsView}
           />
         );
       case "obligations":
@@ -8591,20 +8650,24 @@ export function App() {
     data,
     holdingImportId,
     holdingsDrilldown,
+    holdingsLoadError,
+    holdingsPageData,
     holdingsView,
     navigateToHoldingImport,
     navigateToHoldingsView,
     navigateToPortfolioDrilldown,
     navigateToScreen,
+    refreshAlphaData,
+    refreshHoldingsPage,
     reviewError,
     scenarioContext,
   ]);
 
-  if (data === null && loadError === null) {
+  if (activeScreen !== "holdings" && data === null && loadError === null) {
     return <LoadingShell />;
   }
 
-  if (data === null) {
+  if (activeScreen !== "holdings" && data === null) {
     return (
       <div className="fatal-error">
         <div className="brand">
@@ -8619,9 +8682,11 @@ export function App() {
     );
   }
 
-  const pendingEvidenceCount = data.evidenceInbox.filter(
-    (item) => item.status === "pending_review",
-  ).length;
+  const pendingEvidenceCount =
+    data?.evidenceInbox.filter((item) => item.status === "pending_review")
+      .length ??
+    holdingsPageData?.shell.pendingEvidenceCount ??
+    0;
   const navigationItems = navigation.map((item) => ({
     ...item,
     badge:
@@ -8636,7 +8701,11 @@ export function App() {
       brandMark={<BrandMark />}
       brandName="Keel"
       brandSubtitle="Private alpha"
-      contextName={data.dashboard.householdName}
+      contextName={
+        data?.dashboard.householdName ??
+        holdingsPageData?.shell.householdName ??
+        "Portfolio"
+      }
       items={navigationItems}
       onNavigate={navigateToScreen}
       operatorInitials="DO"

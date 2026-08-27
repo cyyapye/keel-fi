@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 
 test.beforeEach(async ({ page }) => {
@@ -197,6 +198,13 @@ test("reviews dated cash balances before they enter the FI baseline", async ({
 
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
+  });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
   });
   await page.route("**/api/cash-accounts", async (route) => {
     await route.fulfill({ json: cashState });

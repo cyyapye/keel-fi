@@ -631,6 +631,12 @@ export class D1HoldingImportRepository {
     accessSubject: string,
   ): Promise<HoldingImportSummary[]> {
     const identity = await this.findIdentity(accessSubject);
+    return this.listPendingHoldingImportsForHousehold(identity.household_id);
+  }
+
+  public async listPendingHoldingImportsForHousehold(
+    householdId: string,
+  ): Promise<HoldingImportSummary[]> {
     const rows = await all<PendingImportRow>(
       this.db
         .prepare(
@@ -659,7 +665,7 @@ export class D1HoldingImportRepository {
            ORDER BY import.created_at DESC
            LIMIT 20`,
         )
-        .bind(identity.household_id),
+        .bind(householdId),
     );
     return HoldingImportSummariesSchema.parse(
       rows.map((row) => ({

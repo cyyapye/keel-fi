@@ -5,6 +5,7 @@ import type {
 } from "../packages/domain/src/index";
 
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
+import { routeHoldingsPage } from "./holdings-page-fixtures";
 
 const asOf = "2026-08-16T12:00:00.000Z";
 
@@ -242,6 +243,13 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/investment-holdings", async (route) => {
     holdingsRequestCount += 1;
     await route.fulfill({ json: holdingsView });
+  });
+  await routeHoldingsPage(page, {
+    householdName: "Demo Household",
+    holdings,
+    investmentHoldings: holdingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
   });
   await page.route("**/api/portfolio-baseline", async (route) => {
     baselineRequestCount += 1;

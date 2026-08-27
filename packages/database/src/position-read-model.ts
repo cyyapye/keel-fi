@@ -46,6 +46,7 @@ type InvestmentPositionRow = {
   container_id: string;
   position_id: string;
   legal_vehicle_name: string;
+  owner_label: string;
   reported_exposure_name: string | null;
   position_kind: "direct" | "spv_interest" | "fund_interest";
   opened_on: string | null;
@@ -184,6 +185,7 @@ function positionFromRow(
   return {
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
+    ownerLabel: row.owner_label,
     reportedExposureName: row.reported_exposure_name,
     kind: row.position_kind,
     openedOn: row.opened_on,
@@ -307,6 +309,14 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
   ): Promise<InvestmentPositionView> {
     InvestmentPositionViewSchema.shape.asOf.parse(asOf);
     const identity = await this.findIdentity(accessSubject);
+    return this.listForHousehold(identity.household_id, asOf);
+  }
+
+  public async listForHousehold(
+    householdId: string,
+    asOf = new Date().toISOString(),
+  ): Promise<InvestmentPositionView> {
+    InvestmentPositionViewSchema.shape.asOf.parse(asOf);
     const [connectionRows, containerRows, positionRows] = await Promise.all([
       all<InvestmentConnectionRow>(
         this.db
@@ -329,7 +339,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            WHERE connection.household_id = ?
            ORDER BY lower(connection_version.institution_label), connection.id`,
           )
-          .bind(identity.household_id),
+          .bind(householdId),
       ),
       all<InvestmentContainerRow>(
         this.db
@@ -367,7 +377,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                     lower(container_version.display_label),
                     container.id`,
           )
-          .bind(identity.household_id),
+          .bind(householdId),
       ),
       all<InvestmentPositionRow>(
         this.db
@@ -376,6 +386,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ownership.container_id,
              position.id AS position_id,
              position.legal_vehicle_name,
+             position.owner_label,
              accepted_row.exposure_label AS reported_exposure_name,
              position.position_kind,
              position.opened_on,
@@ -545,7 +556,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                     lower(position.legal_vehicle_name),
                     position.id`,
           )
-          .bind(identity.household_id),
+          .bind(householdId),
       ),
     ]);
     return groupRows(connectionRows, containerRows, positionRows, asOf);

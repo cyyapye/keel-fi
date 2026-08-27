@@ -120,6 +120,10 @@ import {
   type InvestmentHoldingsView,
 } from "@keel/domain/investment-holdings-view";
 import {
+  HoldingsPageSchema,
+  type HoldingsPage,
+} from "@keel/domain/holdings-page";
+import {
   PLAN_ACTUAL_COOLDOWN_DAYS,
   PlanActualMonitoringStateSchema,
   PlanActualSnoozeInputSchema,
@@ -149,6 +153,23 @@ export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
   }
 
   return AlphaDataSchema.parse(await response.json());
+}
+
+export async function loadHoldingsPage(
+  signal?: AbortSignal,
+): Promise<HoldingsPage> {
+  const response = await fetch("/api/holdings-page", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: signal ?? null,
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Holdings returned ${response.status}.`,
+    );
+  }
+  return HoldingsPageSchema.parse(await response.json());
 }
 
 export async function loadPortfolioBaseline(

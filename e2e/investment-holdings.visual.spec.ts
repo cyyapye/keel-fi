@@ -7,6 +7,7 @@ import {
   multiInstitutionInvestmentHoldingsView,
   reconciledReviewedHistoryInvestmentHoldingsView,
 } from "./investment-holdings-fixtures";
+import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
 
 async function openHoldingSources(page: Page) {
@@ -267,6 +268,37 @@ const statuses = [
   },
 ];
 
+const acceptedCashAccounts = [
+  {
+    id: "cash_fact_synthetic_checking",
+    naturalKeySha256: "7".repeat(64),
+    connectionId: "cash_connection_synthetic_bank",
+    institutionLabel: "Northstar Demo Bank",
+    accountLabel: "Everyday checking",
+    subtype: "checking" as const,
+    valueMinor: 2_500_000,
+    valueState: "reported" as const,
+    balanceSource: "available" as const,
+    refreshKind: "live" as const,
+    observedAt: "2026-08-18T16:00:00.000Z",
+    acceptedAt: "2026-08-18T16:05:00.000Z",
+  },
+  {
+    id: "cash_fact_synthetic_wallet",
+    naturalKeySha256: "6".repeat(64),
+    connectionId: "cash_connection_synthetic_bank",
+    institutionLabel: "Northstar Demo Bank",
+    accountLabel: "Travel cash",
+    subtype: "checking" as const,
+    valueMinor: 5_000,
+    valueState: "reported" as const,
+    balanceSource: "available" as const,
+    refreshKind: "live" as const,
+    observedAt: "2026-08-18T16:00:00.000Z",
+    acceptedAt: "2026-08-18T16:05:00.000Z",
+  },
+];
+
 async function expectNoHorizontalOverflow(page: Page) {
   const widths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -280,6 +312,13 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: holdingsView,
+    acceptedCashAccounts,
+    pendingImports: [],
+  });
   await page.route("**/api/holding-imports", async (route) => {
     await route.fulfill({ json: [] });
   });
@@ -290,36 +329,7 @@ test.beforeEach(async ({ page }) => {
         configured: true,
         status: "disconnected",
         connections: [],
-        acceptedAccounts: [
-          {
-            id: "cash_fact_synthetic_checking",
-            naturalKeySha256: "7".repeat(64),
-            connectionId: "cash_connection_synthetic_bank",
-            institutionLabel: "Northstar Demo Bank",
-            accountLabel: "Everyday checking",
-            subtype: "checking",
-            valueMinor: 2_500_000,
-            valueState: "reported",
-            balanceSource: "available",
-            refreshKind: "live",
-            observedAt: "2026-08-18T16:00:00.000Z",
-            acceptedAt: "2026-08-18T16:05:00.000Z",
-          },
-          {
-            id: "cash_fact_synthetic_wallet",
-            naturalKeySha256: "6".repeat(64),
-            connectionId: "cash_connection_synthetic_bank",
-            institutionLabel: "Northstar Demo Bank",
-            accountLabel: "Travel cash",
-            subtype: "checking",
-            valueMinor: 5_000,
-            valueState: "reported",
-            balanceSource: "available",
-            refreshKind: "live",
-            observedAt: "2026-08-18T16:00:00.000Z",
-            acceptedAt: "2026-08-18T16:05:00.000Z",
-          },
-        ],
+        acceptedAccounts: acceptedCashAccounts,
         pendingProposals: [],
         errorCode: null,
       },
@@ -445,6 +455,69 @@ test.beforeEach(async ({ page }) => {
       },
     });
   });
+});
+
+test("shows the Holdings shell while one read-only projection loads", async ({
+  page,
+}) => {
+  let releaseHoldingsPage: () => void = () => undefined;
+  const holdingsPageGate = new Promise<void>((resolve) => {
+    releaseHoldingsPage = resolve;
+  });
+  const apiRequests: Array<{ method: string; pathname: string }> = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/")) {
+      apiRequests.push({ method: request.method(), pathname: url.pathname });
+    }
+  });
+
+  await page.unroute("**/api/holdings-page");
+  await page.route("**/api/holdings-page", async (route) => {
+    await holdingsPageGate;
+    await route.fulfill({
+      json: {
+        version: 1,
+        shell: {
+          householdName: alphaFixture.dashboard.householdName,
+          pendingEvidenceCount: 0,
+        },
+        holdings: alphaFixture.holdings,
+        investmentHoldings: holdingsView,
+        acceptedCashAccounts,
+        pendingImports: [],
+      },
+    });
+  });
+
+  await page.goto("/holdings");
+  await expect(page.getByRole("heading", { name: "Holdings" })).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "" }).filter({
+      hasText: "Loading reviewed exposures…",
+    }),
+  ).toBeVisible();
+  await expect.poll(() => apiRequests.length).toBe(1);
+  expect(apiRequests).toEqual([
+    { method: "GET", pathname: "/api/holdings-page" },
+  ]);
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".holdings-screen")).toHaveScreenshot(
+    "holdings-fast-path-loading.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  releaseHoldingsPage();
+  await expect(
+    page.locator(".exposure-group").filter({ hasText: "NVDA" }).first(),
+  ).toBeVisible();
+  await page.waitForTimeout(1_100);
+  expect(apiRequests.filter((request) => request.method !== "GET")).toEqual([]);
 });
 
 test("operates multiple institutions from one exposure-first holdings view", async ({
@@ -893,7 +966,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ).toHaveCount(0);
 });
 
-test("checks a stale brokerage after rendering current holdings", async ({
+test("does not run a stale brokerage check during navigation", async ({
   page,
 }, testInfo) => {
   const robinhoodConnectionId = "11111111-1111-4111-8111-111111111111";
@@ -903,10 +976,6 @@ test("checks a stale brokerage after rendering current holdings", async ({
       : status,
   );
   let automaticRequestCount = 0;
-  let releaseAutomaticSync: () => void = () => undefined;
-  const automaticSyncGate = new Promise<void>((resolve) => {
-    releaseAutomaticSync = resolve;
-  });
 
   await page.unroute("**/api/investment-connections");
   await page.route("**/api/investment-connections", async (route) => {
@@ -922,15 +991,7 @@ test("checks a stale brokerage after rendering current holdings", async ({
   await page.unroute("**/api/investment-connections/auto-sync");
   await page.route("**/api/investment-connections/auto-sync", async (route) => {
     automaticRequestCount += 1;
-    await automaticSyncGate;
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        connections: statuses,
-        errorCode: null,
-      },
-    });
+    await route.fulfill({ status: 500 });
   });
 
   await page.goto("/");
@@ -945,15 +1006,8 @@ test("checks a stale brokerage after rendering current holdings", async ({
   await expect(robinhoodCard).toContainText(
     "Data as of Aug 15, 2026 · Checked Aug 17, 2026",
   );
-  try {
-    await expect.poll(() => automaticRequestCount).toBe(1);
-  } finally {
-    releaseAutomaticSync();
-  }
-  await expect(robinhoodCard).toContainText(
-    "Data as of Aug 15, 2026 · Checked Aug 19, 2026",
-  );
-  expect(automaticRequestCount).toBe(1);
+  await page.waitForTimeout(100);
+  expect(automaticRequestCount).toBe(0);
 });
 
 test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
@@ -1005,7 +1059,7 @@ test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
   ).toBeVisible();
 });
 
-test("automatically retries an old generic brokerage failure", async ({
+test("does not automatically retry an old generic brokerage failure", async ({
   page,
 }, testInfo) => {
   const robinhood = statuses[0]!;
@@ -1017,10 +1071,6 @@ test("automatically retries an old generic brokerage failure", async ({
     errorCode: "unexpected_failure" as const,
   };
   let automaticRequestCount = 0;
-  let releaseAutomaticSync: () => void = () => undefined;
-  const automaticSyncGate = new Promise<void>((resolve) => {
-    releaseAutomaticSync = resolve;
-  });
   await page.unroute("**/api/investment-connections");
   await page.route("**/api/investment-connections", async (route) => {
     await route.fulfill({
@@ -1035,7 +1085,6 @@ test("automatically retries an old generic brokerage failure", async ({
   await page.unroute("**/api/investment-connections/auto-sync");
   await page.route("**/api/investment-connections/auto-sync", async (route) => {
     automaticRequestCount += 1;
-    await automaticSyncGate;
     await route.fulfill({
       json: {
         version: 1,
@@ -1053,18 +1102,11 @@ test("automatically retries an old generic brokerage failure", async ({
   const robinhoodCard = page
     .locator(".investment-institution")
     .filter({ hasText: "Robinhood" });
-  try {
-    await expect(
-      robinhoodCard.getByText("Check failed", { exact: true }),
-    ).toBeVisible();
-    await expect.poll(() => automaticRequestCount).toBe(1);
-  } finally {
-    releaseAutomaticSync();
-  }
   await expect(
-    robinhoodCard.getByText("Up to date", { exact: true }),
+    robinhoodCard.getByText("Check failed", { exact: true }),
   ).toBeVisible();
-  expect(automaticRequestCount).toBe(1);
+  await page.waitForTimeout(250);
+  expect(automaticRequestCount).toBe(0);
 });
 
 test("opens a new Item flow for a disconnected brokerage", async ({
@@ -1187,6 +1229,13 @@ test("keeps reviewed history in exposures without showing fake brokerage account
   await page.route("**/api/investment-holdings", async (route) => {
     await route.fulfill({ json: reviewedHistoryView });
   });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: reviewedAlphaHoldings,
+    investmentHoldings: reviewedHistoryView,
+    acceptedCashAccounts,
+    pendingImports: [],
+  });
 
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
@@ -1273,6 +1322,13 @@ test("keeps one reviewed-history legal position without a fake account", async (
   await page.route("**/api/investment-holdings", async (route) => {
     await route.fulfill({ json: reviewedHistoryView });
   });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaHoldingsFrom(reviewedHistoryView),
+    investmentHoldings: reviewedHistoryView,
+    acceptedCashAccounts,
+    pendingImports: [],
+  });
 
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
@@ -1296,30 +1352,40 @@ test("keeps one reviewed-history legal position without a fake account", async (
   ).toBeVisible();
 });
 
-test("keeps failed canonical holdings out of unresolved exposures and retries", async ({
+test("keeps failed canonical holdings out of view and retries", async ({
   page,
-}, testInfo) => {
+}) => {
   let holdingsRequestCount = 0;
-  await page.unroute("**/api/investment-holdings");
-  await page.route("**/api/investment-holdings", async (route) => {
+  await page.unroute("**/api/holdings-page");
+  await page.route("**/api/holdings-page", async (route) => {
     holdingsRequestCount += 1;
-    if (holdingsRequestCount === 2) {
+    if (holdingsRequestCount === 1) {
       await route.fulfill({
         status: 503,
         json: { error: "Reviewed holdings are temporarily unavailable." },
       });
       return;
     }
-    await route.fulfill({ json: holdingsView });
+    await route.fulfill({
+      json: {
+        version: 1,
+        shell: {
+          householdName: alphaFixture.dashboard.householdName,
+          pendingEvidenceCount: 0,
+        },
+        holdings: alphaFixture.holdings,
+        investmentHoldings: holdingsView,
+        acceptedCashAccounts,
+        pendingImports: [],
+      },
+    });
   });
-  await page.goto("/");
+  await page.goto("/holdings");
   await expect.poll(() => holdingsRequestCount).toBe(1);
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
 
   const errorState = page.locator(".investment-views");
   await expect(errorState.getByRole("alert")).toContainText(
-    "Keel could not load the reviewed position view.",
+    "Reviewed holdings are temporarily unavailable.",
   );
   await expect(
     errorState.locator(".investment-views__heading > span"),
@@ -1341,7 +1407,7 @@ test("keeps failed canonical holdings out of unresolved exposures and retries", 
   );
 
   await errorState.getByRole("button", { name: "Try again" }).click();
-  await expect.poll(() => holdingsRequestCount).toBe(3);
+  await expect.poll(() => holdingsRequestCount).toBe(2);
   await expect(errorState.getByRole("alert")).toHaveCount(0);
   const nvda = errorState.locator(".exposure-group").filter({
     has: page.locator('summary strong[title="NVIDIA common stock"]'),
@@ -1373,6 +1439,13 @@ test("progressively renders long exposure lists", async ({
   await page.unroute("**/api/investment-holdings");
   await page.route("**/api/investment-holdings", async (route) => {
     await route.fulfill({ json: paginatedHoldingsView });
+  });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: paginatedHoldings,
+    investmentHoldings: paginatedHoldingsView,
+    acceptedCashAccounts,
+    pendingImports: [],
   });
 
   await page.goto("/");

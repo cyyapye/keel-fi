@@ -50,6 +50,7 @@ import {
 } from "./holding-imports";
 
 export * from "./holding-imports";
+export * from "./holdings-page";
 export * from "./angellist-mac-agent";
 export * from "./provider-portfolio-agent";
 export * from "./portfolio-baseline";

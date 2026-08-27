@@ -4,6 +4,7 @@ import type { PositionEconomicsTerms } from "../packages/domain/src/position-eco
 import type { PositionValueAdjustment } from "../packages/domain/src/position-value";
 
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
+import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
 
 const beaconValueContext = {
@@ -362,6 +363,13 @@ test("leads with the investment and opens a truthful holding detail", async ({
       json: investmentHoldingsViewFor(currentHoldings()),
     });
   });
+  await routeHoldingsPage(page, () => ({
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: currentHoldings(),
+    investmentHoldings: investmentHoldingsViewFor(currentHoldings()),
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  }));
   await page.route(
     "**/api/investment-positions/holding_demo_spv/value-adjustments",
     async (route) => {
@@ -804,13 +812,21 @@ test("leads with the investment and opens a truthful holding detail", async ({
     },
   );
   await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(page.locator(".holding-detail-workspace")).toHaveCount(0);
   await expect(harborExposure).toBeVisible();
-  if (!(await harborAction.isVisible())) {
+  if (
+    !(await harborExposure.evaluate(
+      (element) => (element as HTMLDetailsElement).open,
+    ))
+  ) {
     await harborExposure.locator("summary").click();
   }
-  await expect(harborAction).toBeVisible();
+  const reopenedHarborAction = harborExposure.getByRole("button", {
+    name: "View Beacon Demo SPV holding details",
+  });
+  await expect(reopenedHarborAction).toBeVisible();
 
-  await harborAction.click();
+  await reopenedHarborAction.click();
   const detailHeading = page.getByRole("heading", {
     level: 2,
     name: "Harbor Health Systems",

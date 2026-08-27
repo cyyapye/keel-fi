@@ -441,6 +441,12 @@ export interface CashAccountsRepository {
 export class D1CashAccountsRepository implements CashAccountsRepository {
   public constructor(private readonly db: D1Database) {}
 
+  public async listAcceptedAccountsForHousehold(
+    householdId: string,
+  ): Promise<AcceptedCashAccount[]> {
+    return (await this.acceptedIdentityState(householdId)).acceptedAccounts;
+  }
+
   public async getState(
     accessSubject: string,
     configured: boolean,

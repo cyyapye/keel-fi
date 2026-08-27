@@ -15,6 +15,7 @@ import {
   D1CashFlowRepository,
   D1ExposureRepository,
   D1HoldingImportRepository,
+  D1HoldingsPageRepository,
   D1InvestmentExposureViewRepository,
   D1LiabilitiesRepository,
   D1MacAgentCredentialRepository,
@@ -41,6 +42,7 @@ import {
   type ProviderPortfolioAgentRepository,
   type PrivateExposureReviewRepository,
   type InvestmentConnectionsRepository,
+  type HoldingsPageRepository,
   type InvestmentExposureViewRepository,
   type InvestmentPositionViewRepository,
   type PositionEconomicsRepository,
@@ -92,6 +94,7 @@ import {
   type MacAgentTarget,
 } from "@keel/domain";
 import { InvestmentHoldingsViewSchema } from "@keel/domain/investment-holdings-view";
+import { HoldingsPageSchema } from "@keel/domain/holdings-page";
 import {
   AcceptPositionEconomicsInputSchema,
   PositionEconomicsTermsSchema,
@@ -192,6 +195,7 @@ type AppOptions = {
   planInputsRepository?: PlanInputsRepository;
   portfolioBaselineRepository?: PortfolioBaselineRepository;
   investmentConnectionsRepository?: InvestmentConnectionsRepository;
+  holdingsPageRepository?: HoldingsPageRepository;
   investmentExposureViewRepository?: InvestmentExposureViewRepository;
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
   positionEconomicsRepository?: PositionEconomicsRepository;
@@ -738,6 +742,8 @@ export function createApp(options: AppOptions = {}) {
   const investmentConnectionsRepositoryFor = (env: Env) =>
     options.investmentConnectionsRepository ??
     new D1InvestmentConnectionsRepository(env.DB);
+  const holdingsPageRepositoryFor = (env: Env) =>
+    options.holdingsPageRepository ?? new D1HoldingsPageRepository(env.DB);
   const investmentPositionViewRepositoryFor = (env: Env) =>
     options.investmentPositionViewRepository ??
     new D1InvestmentPositionViewRepository(env.DB);
@@ -1824,6 +1830,26 @@ export function createApp(options: AppOptions = {}) {
         503,
         { "Cache-Control": "private, no-store" },
       );
+    }
+  });
+
+  app.get("/api/holdings-page", async (context) => {
+    try {
+      const page = await holdingsPageRepositoryFor(context.env).getPage(
+        context.get("identity").subject,
+        !investmentsConfiguredFor(context.env)
+          ? "configuration_required"
+          : newInvestmentConnectionsAvailableFor(context.env)
+            ? "available"
+            : "provider_approval_required",
+      );
+      return context.json(HoldingsPageSchema.parse(page), 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json({ error: "Holdings are unavailable." }, 503, {
+        "Cache-Control": "private, no-store",
+      });
     }
   });
 

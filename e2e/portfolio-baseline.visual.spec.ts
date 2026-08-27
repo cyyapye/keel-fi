@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 
 test.beforeEach(async ({ page }) => {
@@ -267,6 +268,13 @@ test("sets the initial FI baseline while checking only manual cash", async ({
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
   await page.route("**/api/portfolio-baseline", async (route) => {
     await route.fulfill({ json: baselineState });
   });
@@ -387,7 +395,7 @@ test("sets the initial FI baseline while checking only manual cash", async ({
   });
 });
 
-test("refreshes an existing FI baseline without a second review", async ({
+test("keeps an existing FI baseline behind an explicit review", async ({
   page,
 }) => {
   const alphaResponse = await page.request.get("/api/alpha");
@@ -398,6 +406,13 @@ test("refreshes an existing FI baseline without a second review", async ({
 
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
+  });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
   });
   await page.route("**/api/portfolio-baseline", async (route) => {
     await route.fulfill({ json: baselineState });
@@ -460,11 +475,20 @@ test("refreshes an existing FI baseline without a second review", async ({
   });
 
   await page.goto("/holdings");
-  await expect.poll(() => confirmationBody).not.toBeNull();
-  await expect(page.locator(".portfolio-baseline")).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Review replacement" }),
-  ).toHaveCount(0);
+    page.getByRole("heading", { name: "Holdings changes are ready" }),
+  ).toBeVisible();
+  await page.waitForTimeout(250);
+  expect(confirmationBody).toBeNull();
+  await expect(
+    page.getByRole("button", { name: "Review baseline" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Review baseline" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review the new FI liquid baseline" }),
+  ).toBeFocused();
+  await page.getByRole("button", { name: "Confirm baseline" }).click();
+  await expect.poll(() => confirmationBody).not.toBeNull();
   expect(confirmationBody).toMatchObject({
     sourceRevision: automaticReadyState.sourceRevision,
     baseForecastSnapshotId: "snap_fi_v3",
@@ -472,7 +496,7 @@ test("refreshes an existing FI baseline without a second review", async ({
     otherFiEligibleLiquidMinor: 2_500_000,
     duplicateReviewConfirmed: false,
     cashOverlapReviewConfirmed: false,
-    changeNote: "Accepted holdings refreshed automatically.",
+    changeNote: "Replaced the FI liquid baseline with reviewed sources.",
   });
   await expectNoHorizontalOverflow(page);
 });
@@ -487,6 +511,13 @@ test("keeps accepted cash changes behind a separate baseline review", async ({
 
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
+  });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
   });
   await page.route("**/api/portfolio-baseline", async (route) => {
     await route.fulfill({ json: cashChangeReadyState });
@@ -549,6 +580,13 @@ test("retries an unavailable planning baseline", async ({ page }) => {
 
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
+  });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
   });
   await page.route("**/api/portfolio-baseline", async (route) => {
     baselineRequestCount += 1;
