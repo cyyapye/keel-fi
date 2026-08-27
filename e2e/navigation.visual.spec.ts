@@ -53,6 +53,44 @@ test("keeps portfolio loading concise", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("paints the Holdings route before the full application loads", async ({
+  page,
+}) => {
+  let releaseApplication!: () => void;
+  const applicationGate = new Promise<void>((resolve) => {
+    releaseApplication = resolve;
+  });
+  await page.route("**/src/App.tsx*", async (route) => {
+    const response = await route.fetch();
+    await applicationGate;
+    await route.fulfill({ response });
+  });
+
+  await page.goto("/holdings", { waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Holdings" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("status").getByText("Loading reviewed exposures…"),
+  ).toBeVisible();
+  await expect(page).toHaveScreenshot("holdings-route-shell.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth ===
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+
+  releaseApplication();
+  await expect(page.getByText(/\d+ holdings/u).first()).toBeVisible();
+});
+
 test("keeps primary navigation legible and keyboard accessible", async ({
   page,
 }, testInfo) => {

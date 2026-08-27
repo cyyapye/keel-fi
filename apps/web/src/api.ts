@@ -131,6 +131,8 @@ import {
   type PlanActualSnoozeInput,
 } from "@keel/domain/plan-actual-monitoring";
 
+import { takeAlphaPreload, takeHoldingsPagePreload } from "./initial-data";
+
 async function responseError(
   response: Response,
   fallback: string,
@@ -142,11 +144,14 @@ async function responseError(
 }
 
 export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
-  const response = await fetch("/api/alpha", {
-    credentials: "same-origin",
-    headers: { Accept: "application/json" },
-    signal: signal ?? null,
-  });
+  const preloaded = takeAlphaPreload();
+  const response =
+    (preloaded === null ? null : await preloaded) ??
+    (await fetch("/api/alpha", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal: signal ?? null,
+    }));
 
   if (!response.ok) {
     throw new Error(`Keel API returned ${response.status}.`);
@@ -158,11 +163,14 @@ export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
 export async function loadHoldingsPage(
   signal?: AbortSignal,
 ): Promise<HoldingsPage> {
-  const response = await fetch("/api/holdings-page", {
-    credentials: "same-origin",
-    headers: { Accept: "application/json" },
-    signal: signal ?? null,
-  });
+  const preloaded = takeHoldingsPagePreload();
+  const response =
+    (preloaded === null ? null : await preloaded) ??
+    (await fetch("/api/holdings-page", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal: signal ?? null,
+    }));
   if (!response.ok) {
     throw await responseError(
       response,
