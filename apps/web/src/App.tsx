@@ -399,7 +399,10 @@ function LiquidityChart({
   compact?: boolean;
   scenario: Scenario;
 }) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const activeIndex = focusedIndex ?? hoveredIndex ?? selectedIndex;
   const width = 680;
   const height = compact ? 230 : 300;
   const padding = { top: 34, right: 18, bottom: 44, left: 62 };
@@ -503,15 +506,15 @@ function LiquidityChart({
               )}; Higher, 75th percentile, ${formatCompactMoney(
                 point.p75Minor,
               )}`}
-              aria-pressed={activeIndex === index}
+              aria-pressed={selectedIndex === index}
               className="chart-hit chart-point"
               cx={xAt(index)}
               cy={yAt(point.p50Minor)}
-              onBlur={() => setActiveIndex(null)}
-              onClick={() => setActiveIndex(index)}
-              onFocus={() => setActiveIndex(index)}
-              onMouseEnter={() => setActiveIndex(index)}
-              onMouseLeave={() => setActiveIndex(null)}
+              onBlur={() => setFocusedIndex(null)}
+              onClick={() => setSelectedIndex(index)}
+              onFocus={() => setFocusedIndex(index)}
+              onMouseEnter={() => setHoveredIndex(index)}
+              onMouseLeave={() => setHoveredIndex(null)}
               r="13"
               role="button"
               tabIndex={0}
