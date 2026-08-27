@@ -60,6 +60,7 @@ export * from "./cash-accounts";
 export * from "./cash-flow";
 export * from "./liabilities";
 export * from "./mac-agent-credentials";
+export * from "./provider-browser-sessions";
 export * from "./exposures";
 export * from "./exposure-read-model";
 export * from "./position-read-model";

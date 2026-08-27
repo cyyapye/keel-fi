@@ -28,6 +28,7 @@ import {
   D1InvestmentPositionViewRepository,
   D1PositionEconomicsRepository,
   D1PositionValueAdjustmentRepository,
+  D1ProviderBrowserSessionRepository,
   type AlphaRepository,
   type AngelListMacAgentRepository,
   type CashAccountsRepository,
@@ -44,6 +45,8 @@ import {
   type InvestmentPositionViewRepository,
   type PositionEconomicsRepository,
   type PositionValueAdjustmentRepository,
+  type ProviderBrowserSessionRepository,
+  ProviderBrowserSessionRepositoryError,
   PositionEconomicsError,
   PositionValueAdjustmentError,
 } from "@keel/database";
@@ -65,10 +68,14 @@ import {
   LiabilityExchangeInputSchema,
   MacAgentApiOriginSchema,
   MacAgentAuthorizationSchema,
+  MacAgentTargetSchema,
   MacAgentTokenSchema,
   ManualLiabilityInputSchema,
   PlanInputSaveSchema,
   ProviderPortfolioAgentConfigInputSchema,
+  ProviderBrowserSessionCompletionInputSchema,
+  ProviderBrowserSessionFailureInputSchema,
+  ProviderBrowserSessionReadyInputSchema,
   ProviderPortfolioAgentFailureInputSchema,
   ProviderPortfolioAgentProviderSchema,
   PrivateExposureExactBatchInputSchema,
@@ -156,6 +163,7 @@ import type { AccessIdentity, Env } from "./types";
 
 type Variables = {
   identity: AccessIdentity;
+  macAgentTarget: MacAgentTarget | null;
   requestId: string;
 };
 
@@ -188,6 +196,7 @@ type AppOptions = {
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
   positionEconomicsRepository?: PositionEconomicsRepository;
   positionValueAdjustmentRepository?: PositionValueAdjustmentRepository;
+  providerBrowserSessionRepository?: ProviderBrowserSessionRepository;
   privateExposureReviewRepository?: PrivateExposureReviewRepository;
   retainedPublicExposureReconciler?: RetainedPublicExposureReconciler;
   newInvestmentConnectionsAvailable?: boolean;
@@ -642,6 +651,18 @@ function providerPortfolioLabel(provider: ProviderPortfolioAgentProvider) {
   return provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
 }
 
+function providerBrowserTarget(rawProvider: string): MacAgentTarget | null {
+  const parsed = MacAgentTargetSchema.safeParse(rawProvider);
+  return parsed.success ? parsed.data : null;
+}
+
+function providerBrowserLabel(provider: MacAgentTarget): string {
+  if (provider === "angellist") {
+    return "AngelList";
+  }
+  return providerPortfolioLabel(provider);
+}
+
 function machineRouteTarget(
   method: string,
   pathname: string,
@@ -661,6 +682,13 @@ function machineRouteTarget(
     )
   ) {
     return "angellist";
+  }
+  const browserSession =
+    /^\/api\/automation\/provider-browser\/(angellist|tokenfolio|sydecar)\/mac-agent\/(?:lease|rotate|sessions\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:status|ready|complete|fail))$/iu.exec(
+      pathname,
+    );
+  if (browserSession !== null) {
+    return browserSession[1]?.toLowerCase() as MacAgentTarget;
   }
   const providerLease =
     /^\/api\/automation\/provider-holdings\/(tokenfolio|sydecar)\/mac-agent\/(?:lease|run)$/u.exec(
@@ -704,6 +732,9 @@ export function createApp(options: AppOptions = {}) {
   const macAgentCredentialRepositoryFor = (env: Env) =>
     options.macAgentCredentialRepository ??
     new D1MacAgentCredentialRepository(env.DB);
+  const providerBrowserSessionRepositoryFor = (env: Env) =>
+    options.providerBrowserSessionRepository ??
+    new D1ProviderBrowserSessionRepository(env.DB);
   const investmentConnectionsRepositoryFor = (env: Env) =>
     options.investmentConnectionsRepository ??
     new D1InvestmentConnectionsRepository(env.DB);
@@ -906,6 +937,7 @@ export function createApp(options: AppOptions = {}) {
         subject: accessSubject,
         email: null,
       });
+      context.set("macAgentTarget", target);
       await next();
       return;
     }
@@ -918,6 +950,7 @@ export function createApp(options: AppOptions = {}) {
         subject: "synthetic-access-subject",
         email: "demo@example.invalid",
       });
+      context.set("macAgentTarget", null);
       await next();
       return;
     }
@@ -942,6 +975,7 @@ export function createApp(options: AppOptions = {}) {
         );
       }
       context.set("identity", identity);
+      context.set("macAgentTarget", null);
       await next();
       return;
     } catch {
@@ -2365,6 +2399,374 @@ export function createApp(options: AppOptions = {}) {
       return investmentsErrorResponse(context, error);
     }
   });
+
+  app.post(
+    "/api/automation/provider-browser/:provider/reconnect",
+    async (context) => {
+      const provider = providerBrowserTarget(context.req.param("provider"));
+      if (provider === null) {
+        return context.json({ error: "Provider is not supported." }, 404, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+      try {
+        const session = await providerBrowserSessionRepositoryFor(
+          context.env,
+        ).create(context.get("identity").subject, provider);
+        return context.json(session, 202, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        const setupRequired =
+          error instanceof ProviderBrowserSessionRepositoryError &&
+          error.code === "agent_not_registered";
+        return context.json(
+          {
+            error: setupRequired
+              ? `Set up ${providerBrowserLabel(provider)} updates first.`
+              : `Keel could not start the ${providerBrowserLabel(provider)} reconnect.`,
+          },
+          setupRequired ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.get(
+    "/api/automation/provider-browser/sessions/:sessionId",
+    async (context) => {
+      const sessionId = z.uuid().safeParse(context.req.param("sessionId"));
+      if (!sessionId.success) {
+        return context.json({ error: "Reconnect session is invalid." }, 400, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+      try {
+        return context.json(
+          await providerBrowserSessionRepositoryFor(context.env).get(
+            context.get("identity").subject,
+            sessionId.data,
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const notFound =
+          error instanceof ProviderBrowserSessionRepositoryError &&
+          error.code === "session_not_found";
+        return context.json(
+          { error: "Reconnect session is not available." },
+          notFound ? 404 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.delete(
+    "/api/automation/provider-browser/sessions/:sessionId",
+    async (context) => {
+      const sessionId = z.uuid().safeParse(context.req.param("sessionId"));
+      if (!sessionId.success) {
+        return context.json({ error: "Reconnect session is invalid." }, 400, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+      try {
+        return context.json(
+          await providerBrowserSessionRepositoryFor(context.env).cancel(
+            context.get("identity").subject,
+            sessionId.data,
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const notFound =
+          error instanceof ProviderBrowserSessionRepositoryError &&
+          error.code === "session_not_found";
+        return context.json(
+          { error: "Reconnect session could not be cancelled." },
+          notFound ? 404 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.get(
+    "/api/automation/provider-browser/sessions/:sessionId/open",
+    async (context) => {
+      const sessionId = z.uuid().safeParse(context.req.param("sessionId"));
+      if (!sessionId.success) {
+        return context.json({ error: "Reconnect session is invalid." }, 400, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+      try {
+        const destination = await providerBrowserSessionRepositoryFor(
+          context.env,
+        ).consume(context.get("identity").subject, sessionId.data);
+        return new Response(null, {
+          status: 302,
+          headers: {
+            "Cache-Control": "private, no-store",
+            Location: destination,
+            "Referrer-Policy": "no-referrer",
+          },
+        });
+      } catch (error) {
+        const notFound =
+          error instanceof ProviderBrowserSessionRepositoryError &&
+          error.code === "session_not_found";
+        return context.json(
+          {
+            error: notFound
+              ? "Reconnect session is not available."
+              : "The secure browser is not ready or was already opened.",
+          },
+          notFound ? 404 : 409,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-browser/:provider/mac-agent/lease",
+    async (context) => {
+      const provider = providerBrowserTarget(context.req.param("provider"));
+      if (provider === null || context.get("macAgentTarget") !== provider) {
+        return context.json({ error: "Not found." }, 404, {
+          "Cache-Control": "no-store",
+        });
+      }
+      try {
+        return context.json(
+          await providerBrowserSessionRepositoryFor(context.env).lease(
+            context.get("identity").subject,
+            provider,
+          ),
+          200,
+          { "Cache-Control": "no-store" },
+        );
+      } catch {
+        return context.json(
+          { error: "Reconnect work could not be checked." },
+          503,
+          { "Cache-Control": "no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-browser/:provider/mac-agent/rotate",
+    async (context) => {
+      const provider = providerBrowserTarget(context.req.param("provider"));
+      if (provider === null || context.get("macAgentTarget") !== provider) {
+        return context.json({ error: "Not found." }, 404, {
+          "Cache-Control": "no-store",
+        });
+      }
+      const apiOrigin = macAgentApiOrigin(context.env, context.req.url);
+      const bearer =
+        /^Bearer (.+)$/u.exec(context.req.header("Authorization") ?? "")?.[1] ??
+        "";
+      const token = MacAgentTokenSchema.safeParse(bearer);
+      if (apiOrigin === null || !token.success) {
+        return context.json(
+          { error: "Portfolio agent access is unavailable." },
+          503,
+          { "Cache-Control": "no-store" },
+        );
+      }
+      try {
+        const replacement = await macAgentCredentialRepositoryFor(
+          context.env,
+        ).rotateToken(context.get("identity").subject, provider, token.data);
+        return context.json(
+          MacAgentAuthorizationSchema.parse({
+            version: 1,
+            target: provider,
+            apiOrigin,
+            token: replacement,
+          }),
+          200,
+          { "Cache-Control": "no-store" },
+        );
+      } catch {
+        return context.json(
+          { error: "Portfolio agent access could not be rotated." },
+          409,
+          { "Cache-Control": "no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-browser/:provider/mac-agent/sessions/:sessionId/status",
+    async (context) => {
+      const provider = providerBrowserTarget(context.req.param("provider"));
+      const sessionId = z.uuid().safeParse(context.req.param("sessionId"));
+      if (
+        provider === null ||
+        !sessionId.success ||
+        context.get("macAgentTarget") !== provider
+      ) {
+        return context.json({ error: "Not found." }, 404, {
+          "Cache-Control": "no-store",
+        });
+      }
+      try {
+        const session = await providerBrowserSessionRepositoryFor(
+          context.env,
+        ).get(context.get("identity").subject, sessionId.data);
+        if (session.provider !== provider) {
+          return context.json({ error: "Not found." }, 404, {
+            "Cache-Control": "no-store",
+          });
+        }
+        return context.json(session, 200, { "Cache-Control": "no-store" });
+      } catch {
+        return context.json(
+          { error: "Reconnect session is not available." },
+          404,
+          { "Cache-Control": "no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-browser/:provider/mac-agent/sessions/:sessionId/ready",
+    async (context) => {
+      const provider = providerBrowserTarget(context.req.param("provider"));
+      const sessionId = z.uuid().safeParse(context.req.param("sessionId"));
+      if (
+        provider === null ||
+        !sessionId.success ||
+        context.get("macAgentTarget") !== provider
+      ) {
+        return context.json({ error: "Not found." }, 404, {
+          "Cache-Control": "no-store",
+        });
+      }
+      const rawInput: unknown = await context.req.json().catch(() => null);
+      const input = ProviderBrowserSessionReadyInputSchema.safeParse(rawInput);
+      if (!input.success) {
+        return context.json({ error: "Reconnect session is invalid." }, 400, {
+          "Cache-Control": "no-store",
+        });
+      }
+      try {
+        return context.json(
+          await providerBrowserSessionRepositoryFor(context.env).ready(
+            context.get("identity").subject,
+            provider,
+            sessionId.data,
+            input.data,
+          ),
+          200,
+          { "Cache-Control": "no-store" },
+        );
+      } catch {
+        return context.json(
+          { error: "Reconnect session is no longer available." },
+          409,
+          { "Cache-Control": "no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-browser/:provider/mac-agent/sessions/:sessionId/complete",
+    async (context) => {
+      const provider = providerBrowserTarget(context.req.param("provider"));
+      const sessionId = z.uuid().safeParse(context.req.param("sessionId"));
+      if (
+        provider === null ||
+        !sessionId.success ||
+        context.get("macAgentTarget") !== provider
+      ) {
+        return context.json({ error: "Not found." }, 404, {
+          "Cache-Control": "no-store",
+        });
+      }
+      const rawInput: unknown = await context.req.json().catch(() => null);
+      const input =
+        ProviderBrowserSessionCompletionInputSchema.safeParse(rawInput);
+      if (!input.success) {
+        return context.json({ error: "Reconnect session is invalid." }, 400, {
+          "Cache-Control": "no-store",
+        });
+      }
+      try {
+        return context.json(
+          await providerBrowserSessionRepositoryFor(context.env).complete(
+            context.get("identity").subject,
+            provider,
+            sessionId.data,
+            input.data,
+          ),
+          200,
+          { "Cache-Control": "no-store" },
+        );
+      } catch {
+        return context.json(
+          { error: "Reconnect session is no longer available." },
+          409,
+          { "Cache-Control": "no-store" },
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-browser/:provider/mac-agent/sessions/:sessionId/fail",
+    async (context) => {
+      const provider = providerBrowserTarget(context.req.param("provider"));
+      const sessionId = z.uuid().safeParse(context.req.param("sessionId"));
+      if (
+        provider === null ||
+        !sessionId.success ||
+        context.get("macAgentTarget") !== provider
+      ) {
+        return context.json({ error: "Not found." }, 404, {
+          "Cache-Control": "no-store",
+        });
+      }
+      const rawInput: unknown = await context.req.json().catch(() => null);
+      const input =
+        ProviderBrowserSessionFailureInputSchema.safeParse(rawInput);
+      if (!input.success) {
+        return context.json({ error: "Reconnect session is invalid." }, 400, {
+          "Cache-Control": "no-store",
+        });
+      }
+      try {
+        return context.json(
+          await providerBrowserSessionRepositoryFor(context.env).fail(
+            context.get("identity").subject,
+            provider,
+            sessionId.data,
+            input.data,
+          ),
+          200,
+          { "Cache-Control": "no-store" },
+        );
+      } catch {
+        return context.json(
+          { error: "Reconnect session is no longer available." },
+          409,
+          { "Cache-Control": "no-store" },
+        );
+      }
+    },
+  );
 
   app.get("/api/automation/angellist/status", async (context) => {
     try {

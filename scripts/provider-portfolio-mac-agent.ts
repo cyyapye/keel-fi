@@ -43,6 +43,13 @@ import {
   waitForProfileChromeExit,
 } from "./browser-agent-runtime";
 import {
+  leaseProviderBrowserSession,
+  ProviderBrowserRuntimeError,
+  rotateProviderAgentAuthorization,
+  runProviderBrowserSession,
+  validateProviderBrowserRuntime,
+} from "./provider-browser-reconnect";
+import {
   chromium,
   type Browser,
   type BrowserContext,
@@ -55,6 +62,7 @@ import { z } from "zod";
 const SETUP_SESSION_CHECK_TIMEOUT_MS = 30_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
 const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
+const RECONNECT_POLL_INTERVAL_MS = 5_000;
 const FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000;
 const PAGE_TIMEOUT_MS = 45_000;
 
@@ -1741,6 +1749,7 @@ async function setup(
 ): Promise<void> {
   if (process.platform === "linux") {
     validateLinuxSystemdUser();
+    await validateProviderBrowserRuntime();
   }
   await completeProviderSignIn(provider, keelOrigin);
   const context = await connectContext(provider, keelOrigin);
@@ -1763,7 +1772,7 @@ async function setup(
     );
   } else {
     console.info(
-      `${PROVIDERS[provider].label} updates are ready for ${keelOrigin.origin}. The credential is stored for this Linux user, and ${linuxUnit} will check once daily. Run make provider-agent-run PROVIDER=${provider} KEEL_URL=${keelOrigin.origin} for an immediate update.`,
+      `${PROVIDERS[provider].label} updates are ready for ${keelOrigin.origin}. The credential is stored for this Linux user, and ${linuxUnit} will stay available for reconnects and check for updates once daily. Run make provider-agent-run PROVIDER=${provider} KEEL_URL=${keelOrigin.origin} for an immediate update.`,
     );
   }
 }
@@ -1792,6 +1801,66 @@ async function runLocally(
   );
 }
 
+async function handleManagedReconnect(
+  keelOrigin: URL,
+  provider: ProviderPortfolioAgentProvider,
+  authorization: MacAgentAuthorization,
+  session: NonNullable<
+    Awaited<ReturnType<typeof leaseProviderBrowserSession>>["session"]
+  >,
+): Promise<boolean> {
+  await closeControlledChrome(provider, keelOrigin);
+  const paths = providerPaths(provider, keelOrigin, "linux");
+  const config = PROVIDERS[provider];
+  let remoteContext: BrowserContext | null = null;
+  const result = await runProviderBrowserSession({
+    appDirectory: paths.appDirectory,
+    authorization,
+    chromePath: await chromeExecutable({ platform: "linux" }),
+    isProviderReady: async (endpointUrl) => {
+      if (remoteContext?.browser()?.isConnected() !== true) {
+        const browser = await chromium.connectOverCDP(endpointUrl, {
+          noDefaults: true,
+        });
+        remoteContext = browser.contexts()[0] ?? null;
+      }
+      const context = remoteContext;
+      if (context === null) {
+        return false;
+      }
+      const page =
+        pageAtOrigin(context, config.origin) ?? context.pages()[0] ?? null;
+      return page === null ? false : providerPageReady(page, provider);
+    },
+    label: config.label,
+    lease: session,
+    profileDirectory: paths.profileDirectory,
+    provider,
+    startUrl: config.portfolioUrl,
+  });
+  if (result === "connected") {
+    let updateAuthorization = authorization;
+    try {
+      const replacement = await rotateProviderAgentAuthorization(
+        authorization,
+        provider,
+      );
+      storeMacAgentAuthorization(keelOrigin, replacement);
+      updateAuthorization = replacement;
+    } catch {
+      console.error(
+        JSON.stringify({
+          event: "provider_portfolio_agent_rotation_deferred",
+          provider,
+        }),
+      );
+    }
+    await requestRun(updateAuthorization, provider).catch(() => undefined);
+    return true;
+  }
+  return false;
+}
+
 async function serve(
   command: "once" | "serve",
   keelOrigin: URL,
@@ -1803,20 +1872,46 @@ async function serve(
     return;
   }
   let context: BrowserContext | null = null;
+  let nextUpdateCheckAt = 0;
   while (true) {
-    let nextCheckMs = POLL_INTERVAL_MS;
     try {
-      if (context?.browser()?.isConnected() !== true) {
-        context = await connectContext(provider, keelOrigin);
+      const authorization = readMacAgentAuthorization(keelOrigin, provider);
+      const reconnect = await leaseProviderBrowserSession(
+        authorization,
+        provider,
+      );
+      if (reconnect.session !== null) {
+        await context
+          ?.browser()
+          ?.close()
+          .catch(() => undefined);
+        context = null;
+        if (
+          await handleManagedReconnect(
+            keelOrigin,
+            provider,
+            authorization,
+            reconnect.session,
+          )
+        ) {
+          nextUpdateCheckAt = 0;
+        }
+      } else if (Date.now() >= nextUpdateCheckAt) {
+        if (context?.browser()?.isConnected() !== true) {
+          context = await connectContext(provider, keelOrigin);
+        }
+        await pollOnce(context, keelOrigin, provider);
+        nextUpdateCheckAt = Date.now() + POLL_INTERVAL_MS;
       }
-      await pollOnce(context, keelOrigin, provider);
     } catch (error) {
       const code =
         error instanceof MacAgentAccessError
           ? "mac_access_required"
-          : error instanceof AgentFailure
+          : error instanceof ProviderBrowserRuntimeError
             ? error.code
-            : "unexpected_failure";
+            : error instanceof AgentFailure
+              ? error.code
+              : "unexpected_failure";
       console.error(
         JSON.stringify({
           event: "provider_portfolio_agent_poll_failed",
@@ -1824,12 +1919,18 @@ async function serve(
           code,
         }),
       );
-      nextCheckMs = FAILURE_RETRY_INTERVAL_MS;
       if (context?.browser()?.isConnected() !== true) {
         context = null;
       }
+      if (error instanceof MacAgentAccessError) {
+        await sleep(FAILURE_RETRY_INTERVAL_MS);
+        continue;
+      }
+      if (!(error instanceof ProviderBrowserRuntimeError)) {
+        nextUpdateCheckAt = Date.now() + FAILURE_RETRY_INTERVAL_MS;
+      }
     }
-    await sleep(nextCheckMs);
+    await sleep(RECONNECT_POLL_INTERVAL_MS);
   }
 }
 

@@ -165,6 +165,66 @@ describe("Mac agent credential repository", () => {
     ).toEqual({ count: 1 });
   });
 
+  it("keeps the current token until its automatically rotated replacement works", async () => {
+    database = createTestDatabase();
+    let now = new Date("2026-08-26T12:00:00.000Z");
+    const d1 = new TestD1Database(database) as unknown as D1Database;
+    await new D1AngelListMacAgentRepository(d1, () => now).register(
+      "synthetic-access-subject",
+    );
+    const repository = new D1MacAgentCredentialRepository(d1, () => now);
+    const current = await repository.issueToken(
+      "synthetic-access-subject",
+      "angellist",
+    );
+    now = new Date("2026-08-26T12:05:00.000Z");
+    const replacement = await repository.rotateToken(
+      "synthetic-access-subject",
+      "angellist",
+      current,
+    );
+
+    expect(replacement).not.toBe(current);
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM mac_agent_credentials
+           WHERE target = 'angellist' AND revoked_at IS NULL`,
+        )
+        .get(),
+    ).toEqual({ count: 2 });
+    await expect(repository.authenticate("angellist", current)).resolves.toBe(
+      "synthetic-access-subject",
+    );
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM mac_agent_credentials
+           WHERE target = 'angellist' AND revoked_at IS NULL`,
+        )
+        .get(),
+    ).toEqual({ count: 2 });
+
+    now = new Date("2026-08-26T12:06:00.000Z");
+    await expect(
+      repository.authenticate("angellist", replacement),
+    ).resolves.toBe("synthetic-access-subject");
+    await expect(
+      repository.authenticate("angellist", current),
+    ).resolves.toBeNull();
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM mac_agent_credentials
+           WHERE target = 'angellist' AND revoked_at IS NULL`,
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+  });
+
   it("refuses credentials for an unregistered target", async () => {
     database = createTestDatabase();
     const repository = new D1MacAgentCredentialRepository(

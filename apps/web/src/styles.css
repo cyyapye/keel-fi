@@ -3470,6 +3470,56 @@ h1,
   border-bottom: 1px solid var(--line-soft);
 }
 
+.provider-reconnect {
+  display: grid;
+  max-width: 520px;
+  gap: 8px;
+}
+
+.provider-reconnect__active {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-reconnect__status,
+.provider-reconnect__error,
+.provider-agent-troubleshooting p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.provider-reconnect__error {
+  color: var(--ink);
+}
+
+.provider-agent-troubleshooting {
+  display: grid;
+  width: min(100%, 520px);
+  gap: 8px;
+}
+
+.provider-agent-troubleshooting summary {
+  min-height: 32px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 32px;
+  cursor: pointer;
+}
+
+.provider-agent-troubleshooting[open] summary {
+  color: var(--ink);
+}
+
+.provider-agent-troubleshooting p,
+.provider-agent-troubleshooting .button,
+.provider-agent-troubleshooting code {
+  margin-top: 6px;
+}
+
 .provider-agent-row__meta {
   display: flex;
   width: min(100%, 420px);
@@ -6741,6 +6791,22 @@ h1,
   .provider-agent-row__controls > .button,
   .provider-agent-row__setup > .button {
     width: 100%;
+  }
+
+  .provider-reconnect,
+  .provider-reconnect .button,
+  .provider-agent-troubleshooting .button {
+    width: 100%;
+  }
+
+  .provider-reconnect__active {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .provider-agent-troubleshooting summary {
+    min-height: 44px;
+    line-height: 44px;
   }
 
   .provider-agent-row__meta {

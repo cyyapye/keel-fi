@@ -1,8 +1,9 @@
 # Linux portfolio agents on an OVH worker
 
 Keel can run the AngelList, Tokenfolio, and Sydecar portfolio agents on an
-always-on Linux worker. The worker keeps the provider sessions and checks Keel
-once daily, so scheduled updates do not depend on a Mac staying awake.
+always-on Linux worker. The worker keeps the provider sessions, stays available
+for managed reconnect requests, and checks for scheduled updates once daily, so
+updates do not depend on a Mac staying awake.
 
 The agent still has the same review boundary: each successful check creates a
 pending import. It cannot accept a position, remove a missing position, or
@@ -15,8 +16,8 @@ Each provider and Keel origin receives its own:
 - Chrome profile under `~/.local/state/keel/portfolio-agents`;
 - mode-`0600` machine credential under `~/.config/keel/agent-credentials`;
 - long-running `systemd --user` service; and
-- provider-scoped API access that can only queue, lease, fail, or complete an
-  import run.
+- provider-scoped API access that can only manage its reconnect lifecycle,
+  rotate its own credential, or queue, lease, fail, and complete an import run.
 
 The service runs Chrome headlessly after setup. The one-time sign-in uses a
 normal Chrome window in a private virtual desktop so Google and provider 2FA do
@@ -31,7 +32,10 @@ Install:
 
 - Node.js 22.13 or newer and pnpm 11.9;
 - Google Chrome Stable (preferred) or a supported Chromium package; and
-- `xvfb`, `x11vnc`, and `xauth` from the Linux distribution.
+- `xvfb`, `x11vnc`, `xauth`, `novnc`, and `websockify` from the Linux
+  distribution; and
+- `cloudflared` on the service `PATH` for the temporary outbound HTTPS
+  connection.
 
 Clone a stable Keel checkout as that user and run:
 
@@ -85,6 +89,35 @@ Repeat setup for each provider and Keel origin that the worker should maintain.
 Preview and production remain isolated. A worker cannot reach a developer's
 loopback Keel URL, so keep the Mac agent for local development.
 
+The SSH and localhost VNC steps above are operator-only bootstrap and fallback
+steps. They are not part of a normal provider reconnect.
+
+## Managed provider reconnects
+
+When a saved provider session expires, Holdings shows **Reconnect AngelList**,
+**Reconnect Tokenfolio**, or **Reconnect Sydecar**. The user opens a temporary
+HTTPS browser directly from Keel and completes only the provider sign-in and
+2FA. There is no Terminal handoff, SSH tunnel, VNC address or password, or
+second Keel sign-in.
+
+The service creates a fresh private X display containing only the selected
+provider's Chrome profile. X11, Chrome DevTools, the VNC server, and the web
+stream remain bound to loopback. `cloudflared` makes an outbound temporary HTTPS
+connection; no inbound VNC or web port is opened on the worker.
+
+Each reconnect session is household- and provider-scoped, has one random entry
+path, and expires after 15 minutes. Keel returns the destination once, erases it
+from D1 when opened, and the worker removes the entry page. Success,
+cancellation, failure, or timeout stops Chrome, the stream, and the temporary
+HTTPS process and removes its temporary files. Provider cookies and saved
+credentials remain only in the selected Chrome profile. Keel receives browser
+lifecycle state, not provider passwords, cookies, or 2FA values.
+
+After a successful reconnect, the worker safely rotates its Keel machine
+credential and requests an update immediately. The old credential stays valid
+until the replacement has been stored and successfully used. Any imported
+changes still enter the normal review queue.
+
 ## Verify and operate it
 
 Setup prints the exact unit name. Check it with:
@@ -106,16 +139,17 @@ Request an immediate reviewable update with the normal command:
 make provider-agent-run PROVIDER=tokenfolio KEEL_URL=https://keel-preview.example.com
 ```
 
-The service checks once daily even when Holdings is set to weekly or off. That
-heartbeat lets Keel show whether the worker is healthy and pick up an explicitly
-queued run.
+The service stays available for managed reconnect requests and reports the
+worker heartbeat continuously. It checks for queued or scheduled portfolio
+updates once daily even when Holdings is set to weekly or off.
 
 ## Recovery and updates
 
-- If a provider session expires, rerun its setup command and complete sign-in in
-  the temporary private desktop.
-- If agent access expires, rerun setup. Issuing the replacement credential
-  revokes the previous one.
+- If a provider session expires, use **Reconnect [provider]** in Holdings.
+- If the managed browser cannot start, open **Troubleshooting** in Holdings and
+  use the provider repair command there.
+- If agent access is rejected, rerun setup. A successful managed reconnect
+  otherwise rotates the machine credential automatically.
 - After moving the checkout or changing Node or installed dependency paths,
   rerun setup so the service points at the stable executables.
 - After pulling ordinary code changes into the same checkout, restart the unit

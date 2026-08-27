@@ -46,6 +46,13 @@ import {
   waitForProfileChromeExit,
 } from "./browser-agent-runtime";
 import {
+  leaseProviderBrowserSession,
+  ProviderBrowserRuntimeError,
+  rotateProviderAgentAuthorization,
+  runProviderBrowserSession,
+  validateProviderBrowserRuntime,
+} from "./provider-browser-reconnect";
+import {
   chromium,
   type Browser,
   type BrowserContext,
@@ -74,6 +81,7 @@ const LEGACY_LAUNCH_AGENT_PATH = path.join(
 const SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
 const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
+const RECONNECT_POLL_INTERVAL_MS = 5_000;
 const FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000;
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const ANGELLIST_PORTFOLIO_PATH =
@@ -1067,6 +1075,7 @@ async function installBackgroundAgent(keelOrigin: URL): Promise<string | null> {
 async function setup(keelOrigin: URL): Promise<void> {
   if (process.platform === "linux") {
     validateLinuxSystemdUser();
+    await validateProviderBrowserRuntime();
     await completeLinuxSignIn(keelOrigin);
   }
   const context = await connectContext(keelOrigin);
@@ -1096,7 +1105,7 @@ async function setup(keelOrigin: URL): Promise<void> {
     );
   } else {
     console.info(
-      `AngelList updates are ready for ${keelOrigin.origin}. The credential is stored for this Linux user, and ${linuxUnit} will check once daily. Run make provider-agent-run PROVIDER=angellist KEEL_URL=${keelOrigin.origin} for an immediate update.`,
+      `AngelList updates are ready for ${keelOrigin.origin}. The credential is stored for this Linux user, and ${linuxUnit} will stay available for reconnects and check for updates once daily. Run make provider-agent-run PROVIDER=angellist KEEL_URL=${keelOrigin.origin} for an immediate update.`,
     );
   }
 }
@@ -1118,6 +1127,72 @@ async function runLocally(keelOrigin: URL): Promise<void> {
   console.info("AngelList CSV uploaded to Keel and ready for review.");
 }
 
+async function handleManagedReconnect(
+  keelOrigin: URL,
+  authorization: MacAgentAuthorization,
+  session: NonNullable<
+    Awaited<ReturnType<typeof leaseProviderBrowserSession>>["session"]
+  >,
+): Promise<boolean> {
+  await closeControlledChrome(keelOrigin);
+  const paths = agentPaths(keelOrigin, "linux");
+  const portfolioUrl = await readAngelListPortfolioUrl(keelOrigin);
+  let remoteContext: BrowserContext | null = null;
+  const result = await runProviderBrowserSession({
+    appDirectory: paths.appDirectory,
+    authorization,
+    chromePath: await chromeExecutable({ platform: "linux" }),
+    isProviderReady: async (endpointUrl) => {
+      if (remoteContext?.browser()?.isConnected() !== true) {
+        const browser = await chromium.connectOverCDP(endpointUrl, {
+          noDefaults: true,
+        });
+        remoteContext = browser.contexts()[0] ?? null;
+      }
+      const context = remoteContext;
+      if (context === null) {
+        return false;
+      }
+      const page =
+        pageAtOrigin(context, ANGELLIST_ORIGIN) ?? context.pages()[0] ?? null;
+      if (page === null) {
+        return false;
+      }
+      const ready = await page
+        .getByRole("button", { exact: true, name: "Export CSV" })
+        .isVisible()
+        .catch(() => false);
+      if (ready) {
+        await writeAngelListPortfolioUrl(keelOrigin, page.url());
+      }
+      return ready;
+    },
+    label: "AngelList",
+    lease: session,
+    profileDirectory: paths.profileDirectory,
+    provider: "angellist",
+    startUrl: portfolioUrl?.href ?? ANGELLIST_ORIGIN,
+  });
+  if (result === "connected") {
+    let updateAuthorization = authorization;
+    try {
+      const replacement = await rotateProviderAgentAuthorization(
+        authorization,
+        "angellist",
+      );
+      storeMacAgentAuthorization(keelOrigin, replacement);
+      updateAuthorization = replacement;
+    } catch {
+      console.error(
+        JSON.stringify({ event: "angellist_agent_rotation_deferred" }),
+      );
+    }
+    await requestRun(updateAuthorization).catch(() => undefined);
+    return true;
+  }
+  return false;
+}
+
 async function serve(
   command: "once" | "serve",
   keelOrigin: URL,
@@ -1128,29 +1203,60 @@ async function serve(
     return;
   }
   let context: BrowserContext | null = null;
+  let nextUpdateCheckAt = 0;
   while (true) {
-    let nextCheckMs = POLL_INTERVAL_MS;
     try {
-      if (context?.browser()?.isConnected() !== true) {
-        context = await connectContext(keelOrigin);
+      const authorization = readMacAgentAuthorization(keelOrigin, "angellist");
+      const reconnect = await leaseProviderBrowserSession(
+        authorization,
+        "angellist",
+      );
+      if (reconnect.session !== null) {
+        await context
+          ?.browser()
+          ?.close()
+          .catch(() => undefined);
+        context = null;
+        if (
+          await handleManagedReconnect(
+            keelOrigin,
+            authorization,
+            reconnect.session,
+          )
+        ) {
+          nextUpdateCheckAt = 0;
+        }
+      } else if (Date.now() >= nextUpdateCheckAt) {
+        if (context?.browser()?.isConnected() !== true) {
+          context = await connectContext(keelOrigin);
+        }
+        await pollOnce(context, keelOrigin);
+        nextUpdateCheckAt = Date.now() + POLL_INTERVAL_MS;
       }
-      await pollOnce(context, keelOrigin);
     } catch (error) {
       const code =
         error instanceof MacAgentAccessError
           ? "mac_access_required"
-          : error instanceof AgentFailure
+          : error instanceof ProviderBrowserRuntimeError
             ? error.code
-            : "unexpected_failure";
+            : error instanceof AgentFailure
+              ? error.code
+              : "unexpected_failure";
       console.error(
         JSON.stringify({ event: "angellist_agent_poll_failed", code }),
       );
-      nextCheckMs = FAILURE_RETRY_INTERVAL_MS;
       if (context?.browser()?.isConnected() !== true) {
         context = null;
       }
+      if (error instanceof MacAgentAccessError) {
+        await sleep(FAILURE_RETRY_INTERVAL_MS);
+        continue;
+      }
+      if (!(error instanceof ProviderBrowserRuntimeError)) {
+        nextUpdateCheckAt = Date.now() + FAILURE_RETRY_INTERVAL_MS;
+      }
     }
-    await sleep(nextCheckMs);
+    await sleep(RECONNECT_POLL_INTERVAL_MS);
   }
 }
 

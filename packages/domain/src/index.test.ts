@@ -21,6 +21,7 @@ import {
   PrivateExposureReviewStateSchema,
   PortfolioBaselineConfirmInputSchema,
   PortfolioBaselineCashAccountSchema,
+  ProviderBrowserSessionReadyInputSchema,
   PlanInputSaveSchema,
   projectScenario,
   probabilityMeetingThresholdPpm,
@@ -55,6 +56,32 @@ describe("Mac agent authorization boundary", () => {
         token,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("provider browser session boundary", () => {
+  const leaseToken = "b".repeat(43);
+  const entryPath = `${"c".repeat(43)}.html`;
+
+  it("accepts only a clean ephemeral tunnel entry URL", () => {
+    expect(
+      ProviderBrowserSessionReadyInputSchema.safeParse({
+        leaseToken,
+        liveUrl: `https://synthetic-quiet-brook.trycloudflare.com/${entryPath}`,
+      }).success,
+    ).toBe(true);
+    expect(
+      ProviderBrowserSessionReadyInputSchema.safeParse({
+        leaseToken,
+        liveUrl: `https://example.com/${entryPath}`,
+      }).success,
+    ).toBe(false);
+    expect(
+      ProviderBrowserSessionReadyInputSchema.safeParse({
+        leaseToken,
+        liveUrl: `https://synthetic-quiet-brook.trycloudflare.com/${entryPath}?next=https://example.com`,
+      }).success,
+    ).toBe(false);
   });
 });
 

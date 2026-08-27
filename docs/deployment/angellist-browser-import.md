@@ -42,7 +42,8 @@ browser session, or AngelList-specific deployment secret.
   digests are stored.
 - The long-lived machine credential is scoped to AngelList agent routes, stored
   in macOS Keychain or a mode-`0600` Linux user file, and represented in D1 only
-  by a SHA-256 digest. Rerunning setup revokes the prior credential.
+  by a SHA-256 digest. A successful managed reconnect rotates it with a safe
+  overlap; rerunning setup revokes prior credentials immediately.
 
 The local profile has the same practical risk as another signed-in Chrome
 profile: malware or another process running as the same operating-system user
@@ -75,7 +76,8 @@ installs a destination-scoped
 On a headless OVH worker, the same command starts a localhost-only temporary
 desktop and prints the SSH tunnel needed to view it from a Mac. Follow
 [Linux portfolio agents on an OVH worker](./linux-browser-agents.md) for the
-worker prerequisites, sign-in steps, and `systemd` operations.
+operator-only bootstrap, fallback sign-in steps, and `systemd` operations.
+Normal reconnects are managed from Holdings without SSH or VNC instructions.
 
 The LaunchAgent records only bounded operational events in origin-scoped files:
 
@@ -101,17 +103,33 @@ make provider-agent-setup PROVIDER=angellist KEEL_URL=https://keel-preview.examp
 ## Regular operation
 
 launchd starts a short-lived macOS check once every 24 hours. On Linux, a
-long-running `systemd --user` service stays available after SSH disconnects.
-Both reuse the AngelList Chrome profile, read the target-scoped credential, and
-ask Keel directly for queued or due work. When an agent next checks, D1 creates
-a due scheduled run if needed.
+long-running `systemd --user` service stays available for managed reconnects
+after SSH disconnects and checks for portfolio update work once daily. Both
+reuse the AngelList Chrome profile and target-scoped credential. When an agent
+next checks for update work, D1 creates a due scheduled run if needed.
 
 From Holdings, the user can:
 
 - choose daily, weekly, or off;
 - queue an update from a phone or desktop for the next daily agent check; and
+- reconnect AngelList in a short-lived private browser when sign-in or 2FA is
+  required; and
 - see the last agent check, last completion, next scheduled date, and bounded
   attention states.
+
+**Reconnect AngelList** requests a provider-scoped browser on the registered
+worker and opens it through a single-use HTTPS link. The user enters only the
+AngelList sign-in and 2FA. Keel does not show a terminal, SSH tunnel, VNC URL or
+password, or a second Keel sign-in. The underlying display and VNC service stay
+on loopback, while the temporary outbound HTTPS stream expires after 15 minutes
+and is destroyed after success, cancellation, failure, or timeout.
+
+The AngelList profile, cookies, and passwords remain on the worker. Keel stores
+only the bounded reconnect lifecycle and erases the temporary destination when
+it is opened. On success, the agent rotates its own Keel credential, queues an
+immediate update, and closes the stream. The resulting import still waits for
+review. The setup command remains available only under troubleshooting for
+worker or agent failures.
 
 To run the complete flow for one destination immediately instead of waiting for
 its next daily check:
@@ -130,10 +148,10 @@ queued until the next daily check or local command. A lease lasts five minutes.
 Completion or failure advances the next scheduled date so a broken sign-in
 cannot create a tight retry loop.
 
-When AngelList authentication expires, Holdings directs the user to the
-dedicated Chrome window. When agent access is rejected or missing, rerun setup
-to rotate the machine credential. A failed attempt never replaces a previously
-staged import or changes accepted holdings.
+When AngelList authentication expires, Holdings shows **Reconnect AngelList**.
+When agent access is rejected or missing, use the setup command under
+troubleshooting. A failed attempt never replaces a previously staged import or
+changes accepted holdings.
 
 ## API routes
 
@@ -153,6 +171,12 @@ dedicated agent hostname and only for the machine routes below.
 | `POST` | `/api/automation/angellist/mac-agent/runs/:runId/complete` | Validate and stage one leased CSV                      |
 | `POST` | `/api/automation/angellist/mac-agent/runs/:runId/fail`     | Record one bounded failure code                        |
 
+Managed reconnects add user-authenticated create, status, cancel, and one-use
+open routes under `/api/automation/provider-browser`. The corresponding machine
+routes can lease only the exact provider's request, report readiness and
+completion, fail it with a bounded code, or rotate that provider's credential.
+The temporary stream URL is never returned by a status route.
+
 The complete and fail routes require the raw lease token in
 `X-Keel-Agent-Lease`. The CSV route accepts exactly one `file` multipart field
 and retains the existing 1 MB and 500-row bounds.
@@ -165,10 +189,13 @@ service arguments, and never stored in D1.
 
 Migration `0009_angellist_mac_agent.sql` creates one agent per household and an
 operational run history. Migration `0034_mac_agent_credentials.sql` adds
-revocable, digest-only device credentials. Preview deployment still follows the
-normal encrypted D1 backup, forward-only migration, API-before-web, and
-protected smoke order. The smoke now checks D1, R2, Queue, and exact Worker
-metadata; it no longer checks unused Browser Run or KV resources.
+revocable, digest-only device credentials. Migration
+`0042_provider_browser_sessions.sql` adds the provider-scoped, append-only
+reconnect lifecycle, and `0043_mac_agent_credential_rotation.sql` adds safe
+overlap for automatic rotation. Preview deployment still follows the normal
+encrypted D1 backup, forward-only migration, API-before-web, and protected smoke
+order. The smoke now checks D1, R2, Queue, and exact Worker metadata; it no
+longer checks unused Browser Run or KV resources.
 
 Before release:
 

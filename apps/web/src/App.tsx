@@ -24,6 +24,7 @@ import {
   type HoldingImportSummary,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineState,
+  type ProviderBrowserSession,
   type ProviderPortfolioAgentOverview,
   type ProviderPortfolioAgentProvider,
   type PublicSourceObservation,
@@ -84,12 +85,14 @@ import {
   applyCashAccountProposal,
   applyHoldingImport,
   cancelAngelListSignInRefresh,
+  cancelProviderBrowserReconnect,
   confirmPortfolioBaseline,
   configureAngelListMacAgent,
   configureProviderPortfolioAgent,
   createCashAccountLinkToken,
   createSignalUpdateProposal as submitSignalUpdateProposal,
   getAngelListSignInRefresh,
+  getProviderBrowserReconnect,
   exchangeCashAccountPublicToken,
   listPendingHoldingImports,
   loadAngelListAutomationOverview,
@@ -102,6 +105,7 @@ import {
   previewHoldingImport,
   requestAngelListUpdate,
   requestProviderPortfolioUpdate,
+  providerBrowserReconnectOpenPath,
   refreshCashAccount,
   refreshDueCashAccounts,
   reviewCashAccountIdentity,
@@ -109,6 +113,7 @@ import {
   saveScenarioVersion,
   scanPortfolioWatch,
   startAngelListSignInRefresh,
+  startProviderBrowserReconnect,
   submitAngelListHandoffInput,
   submitAngelListMagicLink,
   submitEvidenceReview,
@@ -3530,7 +3535,7 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
     return {
       title: "AngelList is paused — agent check overdue",
       description:
-        "Restart the update computer or rerun setup. No holdings changed.",
+        "The update computer is not responding. No holdings changed.",
     };
   }
   if (overview.status === "running") {
@@ -3549,26 +3554,28 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
   if (overview.status === "needs_attention") {
     if (overview.errorCode === "angellist_sign_in_required") {
       return {
-        title: "AngelList is paused — sign-in expired",
-        description: "Rerun setup and sign in to AngelList again.",
+        title: "AngelList needs reconnecting",
+        description:
+          "Finish sign-in and 2FA in a private browser. New changes will still wait for review.",
       };
     }
     if (overview.errorCode === "keel_sign_in_required") {
       return {
         title: "AngelList is paused — agent access needs renewal",
         description:
-          "Rerun setup on the update computer. Your AngelList sign-in can stay as-is.",
+          "The update computer needs troubleshooting. Your AngelList sign-in can stay as-is.",
       };
     }
     if (overview.errorCode === "export_unavailable") {
       return {
         title: "AngelList export needs attention",
-        description: "Rerun setup and confirm Export CSV is available.",
+        description:
+          "Reconnect and confirm Export CSV is available. Nothing changes until you review it.",
       };
     }
     return {
       title: "AngelList update needs attention",
-      description: "Rerun setup, then run the update again.",
+      description: "Reconnect AngelList, then try the update again.",
     };
   }
   return {
@@ -3594,6 +3601,289 @@ const PORTFOLIO_AGENT_INTERVAL_OPTIONS = [
 
 const COPY_AGENT_COMMAND_ERROR =
   "Copy was blocked. Select and copy the command below.";
+
+function providerReconnectStorageKey(
+  provider: "angellist" | ProviderPortfolioAgentProvider,
+): string {
+  return `keel.providerReconnect.${provider}`;
+}
+
+function rememberedProviderReconnect(
+  provider: "angellist" | ProviderPortfolioAgentProvider,
+): string | null {
+  try {
+    return window.sessionStorage.getItem(providerReconnectStorageKey(provider));
+  } catch {
+    return null;
+  }
+}
+
+function rememberProviderReconnect(
+  provider: "angellist" | ProviderPortfolioAgentProvider,
+  sessionId: string | null,
+): void {
+  try {
+    const key = providerReconnectStorageKey(provider);
+    if (sessionId === null) {
+      window.sessionStorage.removeItem(key);
+    } else {
+      window.sessionStorage.setItem(key, sessionId);
+    }
+  } catch {
+    // The reconnect still works if private browsing disables session storage.
+  }
+}
+
+function ProviderReconnectControl({
+  label,
+  onConnected,
+  provider,
+}: {
+  label: string;
+  onConnected: () => void;
+  provider: "angellist" | ProviderPortfolioAgentProvider;
+}) {
+  const [session, setSession] = useState<ProviderBrowserSession | null>(null);
+  const [busy, setBusy] = useState<"cancel" | "start" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const popupRef = useRef<Window | null>(null);
+  const openedSessionRef = useRef<string | null>(null);
+
+  const acceptSession = useCallback(
+    (next: ProviderBrowserSession) => {
+      setSession(next);
+      setError(null);
+      if (["requested", "starting", "ready", "opened"].includes(next.status)) {
+        rememberProviderReconnect(provider, next.id);
+      } else {
+        rememberProviderReconnect(provider, null);
+      }
+      if (next.status === "connected") {
+        popupRef.current?.close();
+        popupRef.current = null;
+        onConnected();
+      }
+      if (["expired", "cancelled", "failed"].includes(next.status)) {
+        popupRef.current?.close();
+        popupRef.current = null;
+      }
+    },
+    [onConnected, provider],
+  );
+
+  const openReadySession = useCallback((ready: ProviderBrowserSession) => {
+    if (
+      ready.status !== "ready" ||
+      openedSessionRef.current === ready.id ||
+      popupRef.current === null ||
+      popupRef.current.closed
+    ) {
+      return;
+    }
+    openedSessionRef.current = ready.id;
+    popupRef.current.location.replace(
+      providerBrowserReconnectOpenPath(ready.id),
+    );
+  }, []);
+
+  useEffect(() => {
+    const sessionId = rememberedProviderReconnect(provider);
+    if (sessionId === null) {
+      return;
+    }
+    let cancelled = false;
+    void getProviderBrowserReconnect(sessionId)
+      .then((next) => {
+        if (!cancelled && next.provider === provider) {
+          acceptSession(next);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          rememberProviderReconnect(provider, null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptSession, provider]);
+
+  useEffect(() => {
+    if (
+      session === null ||
+      !["requested", "starting", "ready", "opened"].includes(session.status)
+    ) {
+      return;
+    }
+    let cancelled = false;
+    let timer: number | undefined;
+    const check = async () => {
+      try {
+        const next = await getProviderBrowserReconnect(session.id);
+        if (cancelled) {
+          return;
+        }
+        acceptSession(next);
+        openReadySession(next);
+        if (
+          ["requested", "starting", "ready", "opened"].includes(next.status)
+        ) {
+          timer = window.setTimeout(() => void check(), 1_000);
+        }
+      } catch {
+        if (!cancelled) {
+          setError(`Keel could not check the ${label} reconnect. Try again.`);
+          timer = window.setTimeout(() => void check(), 3_000);
+        }
+      }
+    };
+    timer = window.setTimeout(() => void check(), 500);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [acceptSession, label, openReadySession, session]);
+
+  const startReconnect = async () => {
+    setBusy("start");
+    setError(null);
+    openedSessionRef.current = null;
+    const popup = window.open("", `keel-${provider}-reconnect`);
+    if (popup !== null) {
+      popup.opener = null;
+      popup.document.title = `Reconnect ${label}`;
+      popup.document.body.textContent = `Preparing a secure ${label} browser…`;
+      popupRef.current = popup;
+    }
+    try {
+      const next = await startProviderBrowserReconnect(provider);
+      acceptSession(next);
+      openReadySession(next);
+    } catch {
+      popup?.close();
+      popupRef.current = null;
+      setError(`Keel could not start the ${label} reconnect. Try again.`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cancelReconnect = async () => {
+    if (session === null) {
+      return;
+    }
+    setBusy("cancel");
+    setError(null);
+    try {
+      acceptSession(await cancelProviderBrowserReconnect(session.id));
+    } catch {
+      setError(`Keel could not cancel the ${label} reconnect.`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const active =
+    session !== null &&
+    ["requested", "starting", "ready", "opened"].includes(session.status);
+  const openPath =
+    session?.status === "ready"
+      ? providerBrowserReconnectOpenPath(session.id)
+      : null;
+  const status =
+    session?.status === "requested" || session?.status === "starting"
+      ? "Preparing a private browser…"
+      : session?.status === "ready"
+        ? `The ${label} browser is ready for 15 minutes.`
+        : session?.status === "opened"
+          ? `Finish signing in to ${label}. Keel will close the browser when it reconnects.`
+          : session?.status === "connected"
+            ? null
+            : session?.status === "expired"
+              ? "The private browser expired. Start again when you are ready."
+              : session?.status === "failed"
+                ? "The private browser could not start. Your saved provider session was not changed."
+                : null;
+
+  return (
+    <div className="provider-reconnect">
+      {active ? (
+        <div className="provider-reconnect__active">
+          {openPath === null ? (
+            <Button disabled tone="primary">
+              {session?.status === "opened"
+                ? `Reconnecting ${label}…`
+                : "Preparing browser…"}
+            </Button>
+          ) : (
+            <a
+              className="button button--primary"
+              href={openPath}
+              referrerPolicy="no-referrer"
+              rel="noreferrer noopener"
+              target="_blank"
+            >
+              Open {label}
+            </a>
+          )}
+          <Button
+            disabled={busy !== null}
+            onClick={() => void cancelReconnect()}
+            tone="quiet"
+          >
+            {busy === "cancel" ? "Cancelling…" : "Cancel"}
+          </Button>
+        </div>
+      ) : (
+        <Button
+          disabled={busy !== null}
+          onClick={() => void startReconnect()}
+          tone="primary"
+        >
+          {busy === "start" ? "Starting…" : `Reconnect ${label}`}
+        </Button>
+      )}
+      {status !== null && (
+        <p className="provider-reconnect__status" role="status">
+          {status}
+        </p>
+      )}
+      {error !== null && (
+        <p className="provider-reconnect__error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AgentTroubleshooting({
+  copyCommand,
+  error,
+  label,
+  setupCommand,
+}: {
+  copyCommand: () => void;
+  error: string | null;
+  label: string;
+  setupCommand: string;
+}) {
+  return (
+    <details className="provider-agent-troubleshooting">
+      <summary>Troubleshooting</summary>
+      <p>
+        If Keel cannot open the private browser, run the repair command on the
+        update computer.
+      </p>
+      <Button onClick={copyCommand} tone="quiet">
+        Copy {label} repair command
+      </Button>
+      {error === COPY_AGENT_COMMAND_ERROR && <code>{setupCommand}</code>}
+    </details>
+  );
+}
 
 function AngelListMacAgentControl() {
   const [overview, setOverview] = useState<AngelListMacAgentOverview | null>(
@@ -3634,6 +3924,9 @@ function AngelListMacAgentControl() {
   const setupRequired = overview?.status === "setup_required";
   const repairRequired =
     overview?.status === "offline" || overview?.status === "needs_attention";
+  const managedReconnectAvailable =
+    overview?.status === "needs_attention" &&
+    overview.errorCode !== "keel_sign_in_required";
   const running = overview?.status === "running";
 
   const copySetupCommand = async () => {
@@ -3691,6 +3984,13 @@ function AngelListMacAgentControl() {
     }
   };
 
+  const reconnectCompleted = useCallback(() => {
+    setNotice(
+      "AngelList reconnected. Updates resumed and new changes will wait for review.",
+    );
+    void reload();
+  }, [reload]);
+
   return (
     <section
       aria-labelledby="angellist-agent-title"
@@ -3707,20 +4007,32 @@ function AngelListMacAgentControl() {
           <span className="angellist-agent__checking" role="status">
             Checking…
           </span>
-        ) : setupRequired || repairRequired ? (
+        ) : setupRequired ? (
           <div className="angellist-agent__setup">
             <Button
               disabled={busyAction !== null}
               onClick={() => void copySetupCommand()}
               tone="primary"
             >
-              {busyAction === "copy"
-                ? "Copying…"
-                : setupRequired
-                  ? "Copy setup command"
-                  : "Copy repair command"}
+              {busyAction === "copy" ? "Copying…" : "Copy setup command"}
             </Button>
             {error === COPY_AGENT_COMMAND_ERROR && <code>{setupCommand}</code>}
+          </div>
+        ) : repairRequired ? (
+          <div className="angellist-agent__setup">
+            {managedReconnectAvailable && (
+              <ProviderReconnectControl
+                label="AngelList"
+                onConnected={reconnectCompleted}
+                provider="angellist"
+              />
+            )}
+            <AgentTroubleshooting
+              copyCommand={() => void copySetupCommand()}
+              error={error}
+              label="AngelList"
+              setupCommand={setupCommand}
+            />
           </div>
         ) : (
           <div className="angellist-agent__controls">
@@ -3846,7 +4158,7 @@ function providerPortfolioAgentMessage(
     return {
       title: "Paused — agent check overdue",
       description:
-        "Restart the update computer or rerun setup. No holdings changed.",
+        "The update computer is not responding. No holdings changed.",
     };
   }
   if (overview.status === "running") {
@@ -3864,40 +4176,38 @@ function providerPortfolioAgentMessage(
   if (overview.status === "needs_attention") {
     if (overview.errorCode === "provider_sign_in_required") {
       return {
-        title: `Paused — ${label} sign-in expired`,
-        description: `Rerun setup and sign in to ${label} again.`,
+        title: `${label} needs reconnecting`,
+        description: `Finish sign-in and 2FA in a private browser. New changes will still wait for review.`,
       };
     }
     if (overview.errorCode === "keel_sign_in_required") {
       return {
         title: "Paused — agent access needs renewal",
-        description: `Rerun setup on the update computer. Your ${label} sign-in can stay as-is.`,
+        description: `The update computer needs troubleshooting. Your ${label} sign-in can stay as-is.`,
       };
     }
     if (overview.errorCode === "incomplete_snapshot") {
       return {
         title: "Paused — totals did not reconcile",
-        description:
-          "The update stopped before upload. Your prior holdings are unchanged.",
+        description: `Reconnect ${label} and confirm the portfolio finished loading. Your prior holdings are unchanged.`,
       };
     }
     if (overview.errorCode === "identity_ambiguous") {
       return {
         title: "Paused — position match is unclear",
-        description:
-          "The update stopped instead of guessing which position to change.",
+        description: `Reconnect ${label} to inspect the portfolio. Keel stopped instead of guessing.`,
       };
     }
     if (overview.errorCode === "page_not_supported") {
       return {
         title: `Paused — ${label} page changed`,
         description:
-          "The update stopped before upload. Rerun setup after Keel is updated.",
+          "The update stopped before upload. Check troubleshooting after Keel is updated.",
       };
     }
     return {
       title: "Paused — update failed",
-      description: "Rerun setup, then request another update.",
+      description: `Reconnect ${label}, then request another update.`,
     };
   }
   return {
@@ -3948,6 +4258,10 @@ function ProviderPortfolioAgentRow({
   const setupRequired = overview?.status === "setup_required";
   const repairRequired =
     overview?.status === "offline" || overview?.status === "needs_attention";
+  const managedReconnectAvailable =
+    overview?.status === "needs_attention" &&
+    overview.errorCode !== "keel_sign_in_required" &&
+    overview.errorCode !== "page_not_supported";
   const running = overview?.status === "running";
 
   const copySetupCommand = async () => {
@@ -4007,6 +4321,13 @@ function ProviderPortfolioAgentRow({
     }
   };
 
+  const reconnectCompleted = useCallback(() => {
+    setNotice(
+      `${label} reconnected. Updates resumed and new changes will wait for review.`,
+    );
+    void reload();
+  }, [label, reload]);
+
   const labelId = `${provider}-agent-label`;
   const titleId = `${provider}-agent-title`;
   return (
@@ -4029,20 +4350,32 @@ function ProviderPortfolioAgentRow({
           <span className="provider-agent-row__checking" role="status">
             Checking…
           </span>
-        ) : setupRequired || repairRequired ? (
+        ) : setupRequired ? (
           <div className="provider-agent-row__setup">
             <Button
               disabled={busyAction !== null}
               onClick={() => void copySetupCommand()}
               tone="primary"
             >
-              {busyAction === "copy"
-                ? "Copying…"
-                : setupRequired
-                  ? "Copy setup command"
-                  : "Copy repair command"}
+              {busyAction === "copy" ? "Copying…" : "Copy setup command"}
             </Button>
             {error === COPY_AGENT_COMMAND_ERROR && <code>{setupCommand}</code>}
+          </div>
+        ) : repairRequired ? (
+          <div className="provider-agent-row__setup">
+            {managedReconnectAvailable && (
+              <ProviderReconnectControl
+                label={label}
+                onConnected={reconnectCompleted}
+                provider={provider}
+              />
+            )}
+            <AgentTroubleshooting
+              copyCommand={() => void copySetupCommand()}
+              error={error}
+              label={label}
+              setupCommand={setupCommand}
+            />
           </div>
         ) : (
           <div className="provider-agent-row__controls">

@@ -9,6 +9,7 @@ import type {
   MacAgentCredentialRepository,
   PlanInputsRepository,
   PortfolioBaselineRepository,
+  ProviderBrowserSessionRepository,
   ProviderPortfolioAgentRepository,
 } from "@keel/database";
 import type {
@@ -19,6 +20,7 @@ import type {
   PlanInputState,
   PortfolioBaselineConfirmResult,
   PortfolioBaselineState,
+  ProviderBrowserSession,
   ProviderPortfolioAgentOverview,
 } from "@keel/domain";
 import { describe, expect, it, vi } from "vitest";
@@ -235,6 +237,18 @@ const readyProviderAgentOverview: ProviderPortfolioAgentOverview = {
   errorCode: null,
 };
 
+const requestedBrowserSession: ProviderBrowserSession = {
+  version: 1,
+  id: "22222222-2222-4222-8222-222222222222",
+  provider: "angellist",
+  status: "requested",
+  requestedAt: "2026-08-26T12:00:00.000Z",
+  expiresAt: "2026-08-26T12:15:00.000Z",
+  openedAt: null,
+  connectedAt: null,
+  errorCode: null,
+};
+
 const portfolioBaselineState: PortfolioBaselineState = {
   status: "ready",
   sourceRevision: "a".repeat(64),
@@ -423,7 +437,52 @@ function macAgentCredentialRepository(
 ): MacAgentCredentialRepository {
   return {
     issueToken: vi.fn().mockResolvedValue(`keel_agent_v1_${"a".repeat(43)}`),
+    rotateToken: vi.fn().mockResolvedValue(`keel_agent_v1_${"b".repeat(43)}`),
     authenticate: vi.fn().mockResolvedValue("synthetic-access-subject"),
+    ...overrides,
+  };
+}
+
+function providerBrowserSessionRepository(
+  overrides: Partial<ProviderBrowserSessionRepository> = {},
+): ProviderBrowserSessionRepository {
+  return {
+    create: vi.fn().mockResolvedValue(requestedBrowserSession),
+    get: vi.fn().mockResolvedValue(requestedBrowserSession),
+    cancel: vi.fn().mockResolvedValue({
+      ...requestedBrowserSession,
+      status: "cancelled",
+    }),
+    consume: vi
+      .fn()
+      .mockResolvedValue(
+        "https://synthetic-session.trycloudflare.com/vnc.html",
+      ),
+    lease: vi.fn().mockResolvedValue({
+      version: 1,
+      provider: "angellist",
+      serverTime: "2026-08-26T12:00:00.000Z",
+      session: {
+        id: requestedBrowserSession.id,
+        leaseToken: "b".repeat(43),
+        expiresAt: requestedBrowserSession.expiresAt,
+      },
+    }),
+    ready: vi.fn().mockResolvedValue({
+      ...requestedBrowserSession,
+      status: "ready",
+    }),
+    complete: vi.fn().mockResolvedValue({
+      ...requestedBrowserSession,
+      status: "connected",
+      openedAt: "2026-08-26T12:01:00.000Z",
+      connectedAt: "2026-08-26T12:02:00.000Z",
+    }),
+    fail: vi.fn().mockResolvedValue({
+      ...requestedBrowserSession,
+      status: "failed",
+      errorCode: "browser_unavailable",
+    }),
     ...overrides,
   };
 }
@@ -1530,6 +1589,146 @@ describe("Keel API", () => {
     );
     expect(status.status).toBe(401);
     expect(authenticate).toHaveBeenCalledTimes(2);
+  });
+
+  it("creates and consumes a one-use provider browser redirect", async () => {
+    const create = vi
+      .fn<ProviderBrowserSessionRepository["create"]>()
+      .mockResolvedValue(requestedBrowserSession);
+    const consume = vi
+      .fn<ProviderBrowserSessionRepository["consume"]>()
+      .mockResolvedValue(
+        `https://synthetic-session.trycloudflare.com/${"c".repeat(43)}.html`,
+      );
+    const sessions = providerBrowserSessionRepository({ create, consume });
+    const app = createApp({ providerBrowserSessionRepository: sessions });
+
+    const requested = await app.request(
+      "/api/automation/provider-browser/angellist/reconnect",
+      { method: "POST" },
+      testEnv("local"),
+    );
+    expect(requested.status).toBe(202);
+    expect(requested.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(requested.json()).resolves.toEqual(requestedBrowserSession);
+    expect(create).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "angellist",
+    );
+
+    const opened = await app.request(
+      `/api/automation/provider-browser/sessions/${requestedBrowserSession.id}/open`,
+      {},
+      testEnv("local"),
+    );
+    expect(opened.status).toBe(302);
+    expect(opened.headers.get("Location")).toBe(
+      `https://synthetic-session.trycloudflare.com/${"c".repeat(43)}.html`,
+    );
+    expect(opened.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(consume).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      requestedBrowserSession.id,
+    );
+  });
+
+  it("accepts remote-browser readiness only from the matching machine agent", async () => {
+    const ready = vi
+      .fn<ProviderBrowserSessionRepository["ready"]>()
+      .mockResolvedValue({ ...requestedBrowserSession, status: "ready" });
+    const authenticate = vi
+      .fn<MacAgentCredentialRepository["authenticate"]>()
+      .mockImplementation((target) =>
+        Promise.resolve(
+          target === "angellist" ? "synthetic-access-subject" : null,
+        ),
+      );
+    const app = createApp({
+      macAgentCredentialRepository: macAgentCredentialRepository({
+        authenticate,
+      }),
+      providerBrowserSessionRepository: providerBrowserSessionRepository({
+        ready,
+      }),
+    });
+    const token = `keel_agent_v1_${"f".repeat(43)}`;
+    const liveUrl = `https://synthetic-session.trycloudflare.com/${"c".repeat(43)}.html`;
+    const response = await app.request(
+      `https://keel-preview-agents.example.com/api/automation/provider-browser/angellist/mac-agent/sessions/${requestedBrowserSession.id}/ready`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ leaseToken: "b".repeat(43), liveUrl }),
+      },
+      {
+        ...testEnv("preview"),
+        MAC_AGENT_API_ORIGIN: "https://keel-preview-agents.example.com",
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(authenticate).toHaveBeenCalledWith("angellist", token);
+    expect(ready).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "angellist",
+      requestedBrowserSession.id,
+      { leaseToken: "b".repeat(43), liveUrl },
+    );
+
+    const mismatched = await app.request(
+      `https://keel-preview-agents.example.com/api/automation/provider-browser/tokenfolio/mac-agent/sessions/${requestedBrowserSession.id}/ready`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ leaseToken: "b".repeat(43), liveUrl }),
+      },
+      {
+        ...testEnv("preview"),
+        MAC_AGENT_API_ORIGIN: "https://keel-preview-agents.example.com",
+      },
+    );
+    expect(mismatched.status).toBe(401);
+    expect(ready).toHaveBeenCalledTimes(1);
+  });
+
+  it("rotates machine access without another Keel browser sign-in", async () => {
+    const current = `keel_agent_v1_${"g".repeat(43)}`;
+    const replacement = `keel_agent_v1_${"h".repeat(43)}`;
+    const rotateToken = vi
+      .fn<MacAgentCredentialRepository["rotateToken"]>()
+      .mockResolvedValue(replacement);
+    const app = createApp({
+      macAgentCredentialRepository: macAgentCredentialRepository({
+        rotateToken,
+      }),
+    });
+    const response = await app.request(
+      "https://keel-preview-agents.example.com/api/automation/provider-browser/angellist/mac-agent/rotate",
+      { method: "POST", headers: { Authorization: `Bearer ${current}` } },
+      {
+        ...testEnv("preview"),
+        MAC_AGENT_API_ORIGIN: "https://keel-preview-agents.example.com",
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      version: 1,
+      target: "angellist",
+      apiOrigin: "https://keel-preview-agents.example.com",
+      token: replacement,
+    });
+    expect(rotateToken).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "angellist",
+      current,
+    );
   });
 
   it("rejects a machine token sent through the user origin", async () => {
