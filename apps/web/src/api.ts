@@ -28,6 +28,7 @@ import {
   LiabilityLinkTokenSchema,
   LiabilityProposalSchema,
   ManualLiabilityInputSchema,
+  MacAgentTargetSchema,
   PlanInputSaveResultSchema,
   PlanInputSaveSchema,
   PlanInputStateSchema,
@@ -35,6 +36,7 @@ import {
   ProviderPortfolioAgentOverviewSchema,
   ProviderPortfolioAgentProviderSchema,
   ProviderPortfolioAgentRunRequestSchema,
+  ProviderBrowserSessionSchema,
   PrivateExposureExactBatchInputSchema,
   PrivateExposureExactBatchResultSchema,
   PrivateExposureResolutionInputSchema,
@@ -76,6 +78,7 @@ import {
   type LiabilityLinkToken,
   type LiabilityProposal,
   type ManualLiabilityInput,
+  type MacAgentTarget,
   type PlanInputSave,
   type PlanInputSaveResult,
   type PlanInputState,
@@ -83,6 +86,7 @@ import {
   type ProviderPortfolioAgentOverview,
   type ProviderPortfolioAgentProvider,
   type ProviderPortfolioAgentRunRequest,
+  type ProviderBrowserSession,
   type PrivateExposureExactBatchInput,
   type PrivateExposureExactBatchResult,
   type PrivateExposureResolutionInput,
@@ -824,6 +828,70 @@ export async function configureProviderPortfolioAgent(
     );
   }
   return ProviderPortfolioAgentOverviewSchema.parse(await response.json());
+}
+
+export async function startProviderBrowserReconnect(
+  rawProvider: MacAgentTarget,
+): Promise<ProviderBrowserSession> {
+  const provider = MacAgentTargetSchema.parse(rawProvider);
+  const response = await fetch(
+    `/api/automation/provider-browser/${provider}/reconnect`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `${provider} reconnect returned ${response.status}.`,
+    );
+  }
+  return ProviderBrowserSessionSchema.parse(await response.json());
+}
+
+export async function getProviderBrowserReconnect(
+  sessionId: string,
+): Promise<ProviderBrowserSession> {
+  const response = await fetch(
+    `/api/automation/provider-browser/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Provider reconnect status returned ${response.status}.`,
+    );
+  }
+  return ProviderBrowserSessionSchema.parse(await response.json());
+}
+
+export async function cancelProviderBrowserReconnect(
+  sessionId: string,
+): Promise<ProviderBrowserSession> {
+  const response = await fetch(
+    `/api/automation/provider-browser/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Provider reconnect cancellation returned ${response.status}.`,
+    );
+  }
+  return ProviderBrowserSessionSchema.parse(await response.json());
+}
+
+export function providerBrowserReconnectOpenPath(sessionId: string): string {
+  return `/api/automation/provider-browser/sessions/${encodeURIComponent(sessionId)}/open`;
 }
 
 // Kept only as a one-release rollback path while the Mac agent is accepted in

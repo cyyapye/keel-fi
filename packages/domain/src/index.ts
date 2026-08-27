@@ -1230,6 +1230,123 @@ export const MacAgentAuthorizationSchema = z
   })
   .strict();
 
+export const ProviderBrowserSessionStatusSchema = z.enum([
+  "requested",
+  "starting",
+  "ready",
+  "opened",
+  "connected",
+  "expired",
+  "cancelled",
+  "failed",
+]);
+
+export const ProviderBrowserSessionErrorCodeSchema = z.enum([
+  "agent_unavailable",
+  "browser_unavailable",
+  "provider_sign_in_incomplete",
+  "unexpected_failure",
+]);
+
+export const ProviderBrowserSessionSchema = z
+  .object({
+    version: z.literal(1),
+    id: z.uuid(),
+    provider: MacAgentTargetSchema,
+    status: ProviderBrowserSessionStatusSchema,
+    requestedAt: IsoTimestampSchema,
+    expiresAt: IsoTimestampSchema,
+    openedAt: IsoTimestampSchema.nullable(),
+    connectedAt: IsoTimestampSchema.nullable(),
+    errorCode: ProviderBrowserSessionErrorCodeSchema.nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      ["opened", "connected"].includes(value.status) !==
+      (value.openedAt !== null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["openedAt"],
+        message: "Only opened or connected browser sessions have an open time.",
+      });
+    }
+    if ((value.status === "connected") !== (value.connectedAt !== null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["connectedAt"],
+        message: "Only connected browser sessions have a connected time.",
+      });
+    }
+    if ((value.status === "failed") !== (value.errorCode !== null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["errorCode"],
+        message: "Only failed browser sessions have an error code.",
+      });
+    }
+  });
+
+export const ProviderBrowserSessionLeaseSchema = z
+  .object({
+    version: z.literal(1),
+    provider: MacAgentTargetSchema,
+    serverTime: IsoTimestampSchema,
+    session: z
+      .object({
+        id: z.uuid(),
+        leaseToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+        expiresAt: IsoTimestampSchema,
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+const ProviderBrowserLiveUrlSchema = z
+  .url()
+  .max(2_048)
+  .transform((value, context) => {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.hash !== "" ||
+      url.search !== "" ||
+      url.port !== "" ||
+      !/^[a-z0-9-]+\.trycloudflare\.com$/u.test(url.hostname) ||
+      !/^\/[A-Za-z0-9_-]{43}\.html$/u.test(url.pathname)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Remote browser sessions must use a bounded ephemeral HTTPS URL.",
+      });
+      return z.NEVER;
+    }
+    return url.toString();
+  });
+
+export const ProviderBrowserSessionReadyInputSchema = z
+  .object({
+    leaseToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+    liveUrl: ProviderBrowserLiveUrlSchema,
+  })
+  .strict();
+
+export const ProviderBrowserSessionCompletionInputSchema = z
+  .object({
+    leaseToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+  })
+  .strict();
+
+export const ProviderBrowserSessionFailureInputSchema =
+  ProviderBrowserSessionCompletionInputSchema.extend({
+    errorCode: ProviderBrowserSessionErrorCodeSchema,
+  }).strict();
+
 export const ProviderPortfolioAgentProviderSchema = z.enum([
   "tokenfolio",
   "sydecar",
@@ -3724,6 +3841,27 @@ export type MacAgentApiOrigin = z.infer<typeof MacAgentApiOriginSchema>;
 export type MacAgentAuthorization = z.infer<typeof MacAgentAuthorizationSchema>;
 export type MacAgentTarget = z.infer<typeof MacAgentTargetSchema>;
 export type MacAgentToken = z.infer<typeof MacAgentTokenSchema>;
+export type ProviderBrowserSession = z.infer<
+  typeof ProviderBrowserSessionSchema
+>;
+export type ProviderBrowserSessionCompletionInput = z.infer<
+  typeof ProviderBrowserSessionCompletionInputSchema
+>;
+export type ProviderBrowserSessionErrorCode = z.infer<
+  typeof ProviderBrowserSessionErrorCodeSchema
+>;
+export type ProviderBrowserSessionFailureInput = z.infer<
+  typeof ProviderBrowserSessionFailureInputSchema
+>;
+export type ProviderBrowserSessionLease = z.infer<
+  typeof ProviderBrowserSessionLeaseSchema
+>;
+export type ProviderBrowserSessionReadyInput = z.infer<
+  typeof ProviderBrowserSessionReadyInputSchema
+>;
+export type ProviderBrowserSessionStatus = z.infer<
+  typeof ProviderBrowserSessionStatusSchema
+>;
 export type ProviderPortfolioAgentConfigInput = z.infer<
   typeof ProviderPortfolioAgentConfigInputSchema
 >;

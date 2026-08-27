@@ -1394,7 +1394,7 @@ test("shows clear health and repair actions for portfolio agents", async ({
         lastCompletedAt: "2026-08-20T12:00:00.000Z",
         nextRunAt: "2026-08-22T12:00:00.000Z",
         latestImportId: "import_synthetic_angellist",
-        errorCode: "keel_sign_in_required",
+        errorCode: "angellist_sign_in_required",
       },
     });
   });
@@ -1439,7 +1439,7 @@ test("shows clear health and repair actions for portfolio agents", async ({
   await page.goto("/holdings/sources");
   await expect(
     page.getByRole("heading", {
-      name: "AngelList is paused — agent access needs renewal",
+      name: "AngelList needs reconnecting",
     }),
   ).toBeVisible();
   await expect(
@@ -1449,8 +1449,11 @@ test("shows clear health and repair actions for portfolio agents", async ({
     page.locator(".provider-agent-row").filter({ hasText: "Sydecar" }),
   ).toContainText("Paused — totals did not reconcile");
   await expect(
-    page.getByRole("button", { name: "Copy repair command" }),
+    page.getByRole("button", { name: /Reconnect (AngelList|Sydecar)/u }),
   ).toHaveCount(2);
+  await expect(
+    page.getByText("Copy repair command", { exact: true }),
+  ).toHaveCount(0);
   const viewportWidths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
     scroll: document.documentElement.scrollWidth,
@@ -1474,6 +1477,123 @@ test("shows clear health and repair actions for portfolio agents", async ({
       threshold: 0.25,
     },
   );
+});
+
+test("starts a provider-scoped browser reconnect without terminal handoff", async ({
+  page,
+}) => {
+  const sessionId = "22222222-2222-4222-8222-222222222222";
+  let sessionStatus: "ready" | "connected" = "ready";
+  await page.addInitScript(() => {
+    window.open = () => null;
+  });
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "needs_attention",
+        interval: "daily",
+        runStatus: null,
+        lastSeenAt: "2026-08-26T12:00:00.000Z",
+        lastCompletedAt: "2026-08-25T12:00:00.000Z",
+        nextRunAt: "2026-08-27T12:00:00.000Z",
+        latestImportId: "import_synthetic_angellist",
+        errorCode: "angellist_sign_in_required",
+      },
+    });
+  });
+  await page.route(
+    "**/api/automation/provider-holdings/*/status",
+    async (route) => {
+      const provider = new URL(route.request().url()).pathname
+        .split("/")
+        .at(-2);
+      await route.fulfill({
+        json: {
+          version: 1,
+          provider,
+          status: "ready",
+          interval: "daily",
+          runStatus: null,
+          lastSeenAt: "2026-08-26T12:00:00.000Z",
+          lastCompletedAt: "2026-08-25T12:00:00.000Z",
+          nextRunAt: "2026-08-27T12:00:00.000Z",
+          latestImportId: null,
+          errorCode: null,
+        },
+      });
+    },
+  );
+  await page.route(
+    "**/api/automation/provider-browser/angellist/reconnect",
+    async (route) => {
+      expect(route.request().method()).toBe("POST");
+      await route.fulfill({
+        status: 202,
+        json: {
+          version: 1,
+          id: sessionId,
+          provider: "angellist",
+          status: "requested",
+          requestedAt: "2026-08-26T12:00:00.000Z",
+          expiresAt: "2026-08-26T12:15:00.000Z",
+          openedAt: null,
+          connectedAt: null,
+          errorCode: null,
+        },
+      });
+    },
+  );
+  await page.route(
+    `**/api/automation/provider-browser/sessions/${sessionId}`,
+    async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          id: sessionId,
+          provider: "angellist",
+          status: sessionStatus,
+          requestedAt: "2026-08-26T12:00:00.000Z",
+          expiresAt: "2026-08-26T12:15:00.000Z",
+          openedAt:
+            sessionStatus === "connected" ? "2026-08-26T12:01:00.000Z" : null,
+          connectedAt:
+            sessionStatus === "connected" ? "2026-08-26T12:02:00.000Z" : null,
+          errorCode: null,
+        },
+      });
+    },
+  );
+
+  await page.goto("/holdings/sources");
+  await page.getByRole("button", { name: "Reconnect AngelList" }).click();
+  const openLink = page.getByRole("link", { name: "Open AngelList" });
+  await expect(openLink).toHaveAttribute(
+    "href",
+    `/api/automation/provider-browser/sessions/${sessionId}/open`,
+  );
+  await expect(page.locator("body")).not.toContainText("SSH");
+  await expect(page.locator("body")).not.toContainText("VNC");
+  await expect(page.locator("body")).not.toContainText("Paste in Terminal");
+
+  sessionStatus = "connected";
+  await expect(
+    page.getByText(
+      "AngelList reconnected. Updates resumed and new changes will wait for review.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+
+  await page.getByText("Troubleshooting", { exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Copy AngelList repair command" }),
+  ).toBeVisible();
 });
 
 test("keeps invalid AngelList agent responses out of user-facing copy", async ({

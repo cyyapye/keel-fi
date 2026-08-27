@@ -36,8 +36,9 @@ Each command opens a dedicated Chrome window. Complete the provider sign-in,
 including 2FA, then sign in to Keel once to approve that agent. Setup rotates
 the provider-and-origin-scoped credential and installs the platform's background
 service. Rerun setup after moving the checkout, changing Node or pnpm, when
-provider sign-in expires, or when Holdings reports that agent access needs
-renewal.
+Holdings reports that agent access needs renewal, or when the managed reconnect
+service itself needs repair. An expired provider sign-in uses the reconnect flow
+below and does not require setup.
 
 Provider setup uses two phases because Google does not allow its sign-in flow
 inside a software-controlled browser. The first dedicated Chrome window has no
@@ -50,7 +51,8 @@ controlled window opens; rerun setup instead.
 On a headless OVH worker, the same command creates a localhost-only temporary
 desktop and prints the SSH tunnel needed to view it from a Mac. See
 [Linux portfolio agents on an OVH worker](./linux-browser-agents.md) for the
-one-time worker preparation and recovery commands.
+one-time operator bootstrap and troubleshooting commands. Normal reconnects do
+not expose these steps to the user.
 
 Run setup separately from local and preview Holdings when both should stay
 connected. Their jobs, Chrome profiles, credentials, and logs are independent,
@@ -68,8 +70,26 @@ make provider-agent-run PROVIDER=sydecar KEEL_URL=https://keel.example.com
 ```
 
 The Holdings screen can set the import interval to daily, weekly, or off. The
-background agent still checks once per day to report health and pick up queued
-work.
+Linux service stays available for managed reconnects and checks for queued or
+scheduled portfolio updates once per day. The macOS job remains a daily check.
+
+## Reconnect from Holdings
+
+When Tokenfolio or Sydecar needs sign-in or 2FA, Holdings shows **Reconnect
+[provider]**. Keel prepares a provider-scoped browser on the registered worker,
+then opens it through a single-use HTTPS link. The user signs in to the provider
+only; no terminal, SSH or VNC details, or second Keel login are shown.
+
+The browser and stream expire after 15 minutes and are destroyed on success,
+cancellation, failure, or timeout. The selected provider profile stays on the
+worker, and the stream never exposes the underlying desktop or a public VNC
+port. Keel stores no provider cookie, password, or 2FA value. A successful
+reconnect rotates the machine credential, resumes updates, and requests an
+immediate update. The result is still a pending holding import that requires
+review.
+
+The manual repair command remains under **Troubleshooting** for worker or agent
+failures. Provider sign-in expiry should not require it.
 
 ## Capture contracts
 
@@ -126,10 +146,12 @@ claiming the exact legal vehicle name.
 ## Operational state
 
 D1 stores only the household-scoped provider, interval, heartbeat, leases,
-completion timestamps, pending import identifier, bounded error code, and
-device-token digest. Issuing a replacement token revokes the prior token. Run
-and credential history cannot be deleted or reassigned to another household or
-provider.
+completion timestamps, pending import identifier, bounded error code, reconnect
+lifecycle, and device-token digest. It retains a temporary HTTPS destination
+only until the user opens it. Automatic rotation overlaps the old and
+replacement token until the replacement is stored and used; setup still revokes
+prior tokens immediately. Run, reconnect, and credential history cannot be
+deleted or reassigned to another household or provider.
 
 The agent logs only its provider and bounded failure code. It must not log page
 text, provider identifiers, holdings, entities, dates, or amounts.
@@ -146,7 +168,9 @@ The Holdings screen distinguishes:
 - ambiguous position identity; and
 - upload or unexpected failure.
 
-Any failure leaves accepted holdings unchanged and exposes a repair action.
+Provider authentication failures expose a managed reconnect. Worker and agent
+failures expose the manual command only under troubleshooting. Any failure
+leaves accepted holdings unchanged.
 
 The device token can only queue, lease, fail, or complete a run for its exact
 provider. It cannot read holdings, configure the schedule, authorize another
