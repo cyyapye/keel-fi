@@ -1,7 +1,7 @@
 import {
   addMinorUnits,
   multiplyMinorByScalePpm,
-  type CashAccountsState,
+  type AcceptedCashAccount,
   type Holding,
   type InvestmentConnectionStatus,
   type InvestmentConnectionsState,
@@ -51,10 +51,7 @@ import {
   disconnectInvestmentConnection,
   exchangeInvestmentPublicToken,
   loadInvestmentConnections,
-  loadInvestmentHoldings,
-  loadCashAccounts,
   loadPrivateExposureReviews,
-  syncDueInvestmentHoldings,
   syncInvestmentHoldings,
 } from "./api";
 import { formatCompactCurrency, formatDate, formatProbability } from "./format";
@@ -66,7 +63,6 @@ const INVESTMENT_ADD_MODE = "add";
 const INVESTMENT_RECONNECT_PREFIX = "reconnect:";
 const INVESTMENT_OAUTH_RECONNECT_MESSAGE =
   "Open this connection again to finish signing in.";
-const AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 const SMALL_CASH_BALANCE_MINOR = 10_000;
 
 type ConnectionAction =
@@ -156,21 +152,6 @@ function latestCompleteObservation(
       .map((coverage) => coverage.observedAt) ?? [];
   return (
     observations.sort((left, right) => right.localeCompare(left))[0] ?? null
-  );
-}
-
-function hasDueInvestmentConnection(
-  state: InvestmentConnectionsState,
-): boolean {
-  const syncedAfter = Date.now() - AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS;
-  return state.connections.some(
-    (connection) =>
-      (connection.status === "ready" ||
-        isRetryableInvestmentCheckFailure(connection)) &&
-      connection.automaticUpdatesEnabled &&
-      connection.latestImportId === null &&
-      (connection.lastSyncedAt === null ||
-        Date.parse(connection.lastSyncedAt) < syncedAfter),
   );
 }
 
@@ -1343,14 +1324,14 @@ function CashHoldingsView({
   onOpenHolding,
   openableHoldingIds,
 }: {
-  accounts: CashAccountsState | null;
+  accounts: readonly AcceptedCashAccount[];
   data: InvestmentHoldingsView;
   error: string | null;
   onOpenHolding: (holdingId: string) => void;
   openableHoldingIds: ReadonlySet<string>;
 }) {
   const [showSmallBalances, setShowSmallBalances] = useState(false);
-  const bankAccounts = accounts?.acceptedAccounts ?? [];
+  const bankAccounts = accounts;
   const brokeragePositions = data.exposureView.positions.filter(isCashPosition);
   if (
     bankAccounts.length === 0 &&
@@ -1487,6 +1468,8 @@ function CashHoldingsView({
 }
 
 export function InvestmentHoldings({
+  acceptedCashAccounts,
+  data,
   holdings,
   mode,
   onExposureResolved,
@@ -1496,6 +1479,8 @@ export function InvestmentHoldings({
   requestedExposureId,
   visibleExposureCount,
 }: {
+  acceptedCashAccounts: readonly AcceptedCashAccount[];
+  data: InvestmentHoldingsView;
   holdings: readonly Holding[];
   mode: "exposures" | "sources";
   onExposureResolved: () => Promise<void>;
@@ -1507,11 +1492,6 @@ export function InvestmentHoldings({
 }) {
   const [connectionState, setConnectionState] =
     useState<InvestmentConnectionsState | null>(null);
-  const [data, setData] = useState<InvestmentHoldingsView | null>(null);
-  const [cashAccounts, setCashAccounts] = useState<CashAccountsState | null>(
-    null,
-  );
-  const [cashViewError, setCashViewError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [confirmDisconnectId, setConfirmDisconnectId] = useState<string | null>(
     null,
@@ -1562,12 +1542,12 @@ export function InvestmentHoldings({
 
   const reloadHoldings = useCallback(async () => {
     try {
-      setData(await loadInvestmentHoldings());
+      await onExposureResolved();
       setViewError(null);
     } catch {
       setViewError("Keel could not load the reviewed position view.");
     }
-  }, []);
+  }, [onExposureResolved]);
 
   const reloadExposureReviews = useCallback(async () => {
     try {
@@ -1580,68 +1560,42 @@ export function InvestmentHoldings({
     }
   }, []);
 
-  const reloadCashAccounts = useCallback(async () => {
-    try {
-      const next = await loadCashAccounts();
-      setCashAccounts(next);
-      setCashViewError(null);
-      return next;
-    } catch {
-      setCashViewError("Keel could not load reviewed bank cash.");
-      return null;
-    }
-  }, []);
-
   const reload = useCallback(
     () =>
-      Promise.all([
-        reloadConnections(),
-        reloadHoldings(),
-        reloadExposureReviews(),
-        reloadCashAccounts(),
-      ]),
-    [
-      reloadCashAccounts,
-      reloadConnections,
-      reloadExposureReviews,
-      reloadHoldings,
-    ],
+      mode === "sources"
+        ? Promise.all([reloadConnections(), reloadHoldings()])
+        : Promise.all([reloadHoldings(), reloadExposureReviews()]),
+    [mode, reloadConnections, reloadExposureReviews, reloadHoldings],
   );
 
   useEffect(() => {
-    let cancelled = false;
+    if (mode !== "sources") {
+      return;
+    }
     const initial = window.setTimeout(() => {
-      void reload().then(async ([initialConnections]) => {
-        if (
-          cancelled ||
-          initialConnections === null ||
-          !initialConnections.configured ||
-          !hasDueInvestmentConnection(initialConnections)
-        ) {
-          return;
-        }
-        try {
-          const next = await syncDueInvestmentHoldings();
-          if (cancelled) {
-            return;
-          }
-          setConnectionState(next);
-          await reloadHoldings();
-        } catch {
-          if (!cancelled) {
-            setError("Keel could not run the due brokerage check.");
-          }
-        }
-      });
+      void reloadConnections();
     }, 0);
     return () => {
-      cancelled = true;
       window.clearTimeout(initial);
     };
-  }, [reload, reloadHoldings]);
+  }, [mode, reloadConnections]);
+
+  useEffect(() => {
+    if (mode !== "exposures") {
+      return;
+    }
+    const load = () => void reloadExposureReviews();
+    if ("requestIdleCallback" in window) {
+      const idle = window.requestIdleCallback(load, { timeout: 1_000 });
+      return () => window.cancelIdleCallback(idle);
+    }
+    const timer = globalThis.setTimeout(load, 50);
+    return () => globalThis.clearTimeout(timer);
+  }, [mode, reloadExposureReviews]);
 
   useEffect(() => {
     if (
+      mode !== "sources" ||
       !connectionState?.connections.some(
         (connection) => connection.status === "syncing",
       )
@@ -1650,7 +1604,7 @@ export function InvestmentHoldings({
     }
     const timer = window.setInterval(() => void reloadConnections(), 10_000);
     return () => window.clearInterval(timer);
-  }, [connectionState, reloadConnections]);
+  }, [connectionState, mode, reloadConnections]);
 
   const acceptStatus = useCallback(
     async (next: InvestmentConnectionStatus) => {
@@ -1679,16 +1633,14 @@ export function InvestmentHoldings({
         setNotice(`${next.institutionLabel} is up to date. No changes found.`);
       }
       try {
-        const nextView = await loadInvestmentHoldings();
-        setData(nextView);
-        setViewError(null);
+        await reloadHoldings();
       } catch {
         setViewError(
           "The institution update succeeded, but Keel could not refresh the reviewed position view.",
         );
       }
     },
-    [onReviewImport],
+    [onReviewImport, reloadHoldings],
   );
 
   const exchangeToken = useCallback(
@@ -1907,7 +1859,6 @@ export function InvestmentHoldings({
       const refreshes = await Promise.allSettled([
         reloadHoldings(),
         reloadExposureReviews(),
-        onExposureResolved(),
       ]);
       if (refreshes.some((refresh) => refresh.status === "rejected")) {
         setExposureReviewLoadError(
@@ -1957,7 +1908,6 @@ export function InvestmentHoldings({
       const refreshes = await Promise.allSettled([
         reloadHoldings(),
         reloadExposureReviews(),
-        onExposureResolved(),
       ]);
       if (refreshes.some((refresh) => refresh.status === "rejected")) {
         setExposureReviewLoadError(
@@ -1993,17 +1943,16 @@ export function InvestmentHoldings({
     ) ?? [],
   );
   const positionConnectionById = new Map(
-    data?.positionView.connections.map((connection) => [
+    data.positionView.connections.map((connection) => [
       connection.id,
       connection,
-    ]) ?? [],
+    ]),
   );
   const orderedIds = [
     ...new Set([
       ...(connectionState?.connections.map((status) => status.connectionId) ??
         []),
-      ...(data?.positionView.connections.map((connection) => connection.id) ??
-        []),
+      ...data.positionView.connections.map((connection) => connection.id),
     ]),
   ];
   const visibleConnectionIds = orderedIds.filter((connectionId) => {
@@ -2020,32 +1969,29 @@ export function InvestmentHoldings({
       )
     );
   });
-  const addAvailable = data?.authorizationStatus === "available";
+  const addAvailable = data.authorizationStatus === "available";
   const setupRequired =
     connectionState?.configured === false ||
-    data?.authorizationStatus === "configuration_required";
-  const positionCount =
-    data?.positionView.connections.reduce(
-      (total, connection) =>
-        total +
-        connection.containers.reduce(
-          (containerTotal, container) =>
-            containerTotal +
-            container.positions.filter(
-              (position) =>
-                position.snapshot.instrumentType.trim().toLowerCase() !==
-                "cash",
-            ).length,
-          0,
-        ),
-      0,
-    ) ?? 0;
-  const exposureCount = data === null ? 0 : companyExposureGroups(data).length;
-  const investedEstimateCount =
-    data?.exposureView.positions.filter(
-      (position) =>
-        !isCashPosition(position) && position.valueSource === "invested_amount",
-    ).length ?? 0;
+    data.authorizationStatus === "configuration_required";
+  const positionCount = data.positionView.connections.reduce(
+    (total, connection) =>
+      total +
+      connection.containers.reduce(
+        (containerTotal, container) =>
+          containerTotal +
+          container.positions.filter(
+            (position) =>
+              position.snapshot.instrumentType.trim().toLowerCase() !== "cash",
+          ).length,
+        0,
+      ),
+    0,
+  );
+  const exposureCount = companyExposureGroups(data).length;
+  const investedEstimateCount = data.exposureView.positions.filter(
+    (position) =>
+      !isCashPosition(position) && position.valueSource === "invested_amount",
+  ).length;
 
   if (mode === "sources") {
     return (
@@ -2175,15 +2121,13 @@ export function InvestmentHoldings({
 
   return (
     <>
-      {data !== null && (
-        <CashHoldingsView
-          accounts={cashAccounts}
-          data={data}
-          error={cashViewError}
-          onOpenHolding={onOpenHolding}
-          openableHoldingIds={knownHoldingIds}
-        />
-      )}
+      <CashHoldingsView
+        accounts={acceptedCashAccounts}
+        data={data}
+        error={null}
+        onOpenHolding={onOpenHolding}
+        openableHoldingIds={knownHoldingIds}
+      />
       <section
         aria-labelledby="investment-views-title"
         className="investment-views"
@@ -2197,49 +2141,46 @@ export function InvestmentHoldings({
               ownership and source details.
             </p>
           </div>
-          {data !== null && (
-            <div className="investment-views__controls">
-              {exposureCount > 1 && (
-                <div className="exposure-sort">
-                  <span>Sort by value</span>
-                  <Select
-                    items={EXPOSURE_SORT_OPTIONS}
-                    onValueChange={(value) => {
-                      if (value === "ascending" || value === "descending") {
-                        setExposureSortDirection(value);
-                      }
-                    }}
-                    value={exposureSortDirection}
-                  >
-                    <SelectTrigger aria-label="Sort exposures and positions by value">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EXPOSURE_SORT_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <span className="investment-views__total">
-                <small>Total exposure</small>
-                <strong>{exposureGrandTotalLabel(data)}</strong>
-                <span>
-                  {exposureCount}{" "}
-                  {exposureCount === 1 ? "exposure" : "exposures"}
-                  {" · "}
-                  {positionCount} legal{" "}
-                  {positionCount === 1 ? "position" : "positions"}
-                  {investedEstimateCount === 0
-                    ? ""
-                    : ` · ${investedEstimateCount} invested ${investedEstimateCount === 1 ? "estimate" : "estimates"}`}
-                </span>
+          <div className="investment-views__controls">
+            {exposureCount > 1 && (
+              <div className="exposure-sort">
+                <span>Sort by value</span>
+                <Select
+                  items={EXPOSURE_SORT_OPTIONS}
+                  onValueChange={(value) => {
+                    if (value === "ascending" || value === "descending") {
+                      setExposureSortDirection(value);
+                    }
+                  }}
+                  value={exposureSortDirection}
+                >
+                  <SelectTrigger aria-label="Sort exposures and positions by value">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXPOSURE_SORT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <span className="investment-views__total">
+              <small>Total exposure</small>
+              <strong>{exposureGrandTotalLabel(data)}</strong>
+              <span>
+                {exposureCount} {exposureCount === 1 ? "exposure" : "exposures"}
+                {" · "}
+                {positionCount} legal{" "}
+                {positionCount === 1 ? "position" : "positions"}
+                {investedEstimateCount === 0
+                  ? ""
+                  : ` · ${investedEstimateCount} invested ${investedEstimateCount === 1 ? "estimate" : "estimates"}`}
               </span>
-            </div>
-          )}
+            </span>
+          </div>
         </div>
         {exposureReviewNotice !== null && (
           <p className="private-exposure-review__notice" role="status">
@@ -2259,45 +2200,35 @@ export function InvestmentHoldings({
             </Button>
           </div>
         )}
-        {data === null && viewError === null ? (
-          <p className="investment-views__loading" role="status">
-            Loading reviewed exposures…
-          </p>
-        ) : (
-          <>
-            {viewError !== null && (
-              <div className="investment-views__error" role="alert">
-                <p>{viewError}</p>
-                <Button onClick={() => void reload()} tone="secondary">
-                  Try again
-                </Button>
-              </div>
-            )}
-            {data !== null && (
-              <ExposureView
-                data={data}
-                exposureReviewBatchBusy={exposureReviewBatchBusy}
-                exposureReviewBatchError={exposureReviewBatchError}
-                exposureReviewBusyPositionId={exposureReviewBusyPositionId}
-                exposureReviewError={exposureReviewError}
-                exposureReviewPositionId={exposureReviewPositionId}
-                exposureReviewState={exposureReviewState}
-                openableHoldingIds={knownHoldingIds}
-                onBeginExposureReview={beginExposureReview}
-                onApplyExactBatch={() => void applyExactExposureBatch()}
-                onCancelExposureReview={cancelExposureReview}
-                onOpenHolding={onOpenHolding}
-                onLoadMoreExposures={onLoadMoreExposures}
-                onSubmitExposureReview={(position, input) =>
-                  void submitExposureReview(position, input)
-                }
-                requestedExposureId={requestedExposureId}
-                sortDirection={exposureSortDirection}
-                visibleExposureCount={visibleExposureCount}
-              />
-            )}
-          </>
+        {viewError !== null && (
+          <div className="investment-views__error" role="alert">
+            <p>{viewError}</p>
+            <Button onClick={() => void reload()} tone="secondary">
+              Try again
+            </Button>
+          </div>
         )}
+        <ExposureView
+          data={data}
+          exposureReviewBatchBusy={exposureReviewBatchBusy}
+          exposureReviewBatchError={exposureReviewBatchError}
+          exposureReviewBusyPositionId={exposureReviewBusyPositionId}
+          exposureReviewError={exposureReviewError}
+          exposureReviewPositionId={exposureReviewPositionId}
+          exposureReviewState={exposureReviewState}
+          openableHoldingIds={knownHoldingIds}
+          onBeginExposureReview={beginExposureReview}
+          onApplyExactBatch={() => void applyExactExposureBatch()}
+          onCancelExposureReview={cancelExposureReview}
+          onOpenHolding={onOpenHolding}
+          onLoadMoreExposures={onLoadMoreExposures}
+          onSubmitExposureReview={(position, input) =>
+            void submitExposureReview(position, input)
+          }
+          requestedExposureId={requestedExposureId}
+          sortDirection={exposureSortDirection}
+          visibleExposureCount={visibleExposureCount}
+        />
       </section>
     </>
   );

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 
 const investmentConnectionId = "11111111-1111-4111-8111-111111111111";
@@ -33,6 +34,13 @@ function investmentState(
 }
 
 test.beforeEach(async ({ page }) => {
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
   await page.route("**/api/investment-holdings", async (route) => {
     await route.fulfill({ json: emptyInvestmentHoldingsView });
   });
@@ -730,6 +738,21 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
   page,
 }) => {
   const applyBodies: unknown[] = [];
+  const pendingImport = {
+    id: importPreview.id,
+    provider: "angellist" as const,
+    status: "pending_review" as const,
+    observedAt: importPreview.observedAt,
+    rowCount: importPreview.summary.rowCount,
+    createdAt: "2026-06-14T12:05:00.000Z",
+  };
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [pendingImport],
+  });
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
@@ -750,16 +773,7 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
   });
   await page.route(/\/api\/holding-imports$/, async (route) => {
     await route.fulfill({
-      json: [
-        {
-          id: importPreview.id,
-          provider: "angellist",
-          status: "pending_review",
-          observedAt: importPreview.observedAt,
-          rowCount: importPreview.summary.rowCount,
-          createdAt: "2026-06-14T12:05:00.000Z",
-        },
-      ],
+      json: [pendingImport],
     });
   });
   await page.route(
@@ -931,6 +945,16 @@ test("connects Robinhood through Investments and isolates exceptions", async ({
   const exchangeBodies: unknown[] = [];
   await page.unroute("**/api/investment-connections");
   await page.unroute("**/api/investment-holdings");
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: {
+      ...emptyInvestmentHoldingsView,
+      authorizationStatus: "available",
+    },
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
   await page.addInitScript(() => {
     (
       window as unknown as {

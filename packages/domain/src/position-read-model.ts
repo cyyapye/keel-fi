@@ -62,6 +62,7 @@ export const InvestmentPositionSnapshotSchema = z.object({
 export const InvestmentPositionRecordSchema = z.object({
   id: z.string().min(1),
   legalVehicleName: z.string().trim().min(1).max(1_000),
+  ownerLabel: z.string().trim().min(1).max(1_000).optional(),
   reportedExposureName: z.string().trim().min(1).max(1_000).nullable(),
   kind: z.enum(["direct", "spv_interest", "fund_interest"]),
   openedOn: IsoDateSchema.nullable(),

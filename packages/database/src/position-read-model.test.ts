@@ -4,6 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
+import { D1HoldingsPageRepository } from "./holdings-page";
 import { D1PositionEconomicsRepository } from "./position-economics";
 import { D1PositionValueAdjustmentRepository } from "./position-value-adjustments";
 
@@ -716,6 +717,27 @@ describe("canonical investment position view", () => {
         row.detail.includes("holding_import_applications_position_applied_idx"),
       ),
     ).toHaveLength(2);
+
+    const pageSqlStart = database.preparedSql.length;
+    const page = await new D1HoldingsPageRepository(
+      database as unknown as D1Database,
+    ).getPage("synthetic-access-subject", "configuration_required");
+    const pageSql = database.preparedSql.slice(pageSqlStart);
+    expect(
+      page.investmentHoldings.positionView.connections
+        .flatMap((connection) => connection.containers)
+        .flatMap((container) => container.positions)
+        .filter((position) => position.id.startsWith("position_scale_")),
+    ).toHaveLength(120);
+    expect(
+      page.holdings.filter((holding) =>
+        holding.id.startsWith("position_scale_"),
+      ),
+    ).toHaveLength(120);
+    expect(pageSql).toHaveLength(10);
+    expect(
+      pageSql.some((sql) => /\b(?:INSERT|UPDATE|DELETE)\b/iu.test(sql)),
+    ).toBe(false);
   });
 
   it("uses the latest append-only reviewed value without replacing the provider snapshot", async () => {

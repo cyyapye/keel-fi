@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./exposure-read-model": "./src/exposure-read-model.ts",
+    "./holdings-page": "./src/holdings-page.ts",
     "./investment-holdings-view": "./src/investment-holdings-view.ts",
     "./plan-actual-monitoring": "./src/plan-actual-monitoring.ts",
     "./portfolio-dashboard": "./src/portfolio-dashboard.ts",

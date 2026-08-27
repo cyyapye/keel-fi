@@ -118,7 +118,17 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
             InvestmentPositionViewSchema.parse(suppliedPositionView),
           ),
     ]);
-    const [exposureRows, mappingRows] = await Promise.all([
+    return this.listForHousehold(identity.household_id, asOf, positionView);
+  }
+
+  public async listForHousehold(
+    householdId: string,
+    asOf: string,
+    suppliedPositionView:
+      InvestmentPositionView | Promise<InvestmentPositionView>,
+  ): Promise<InvestmentExposureView> {
+    const [positionViewInput, exposureRows, mappingRows] = await Promise.all([
+      suppliedPositionView,
       all<CanonicalExposureRow>(
         this.db
           .prepare(
@@ -149,7 +159,7 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
                )
              ORDER BY lower(canonical_name), id`,
           )
-          .bind(identity.household_id),
+          .bind(householdId),
       ),
       all<PositionExposureMappingRow>(
         this.db
@@ -176,9 +186,10 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
                )
              ORDER BY mapping.position_id, mapping.exposure_id`,
           )
-          .bind(identity.household_id),
+          .bind(householdId),
       ),
     ]);
+    const positionView = InvestmentPositionViewSchema.parse(positionViewInput);
     return createInvestmentExposureView(
       positionView,
       exposureRows.map(canonicalExposureFrom),
