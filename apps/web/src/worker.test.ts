@@ -100,6 +100,12 @@ describe("web Worker routing", () => {
       "/api/automation/angellist/mac-agent/lease",
       "/api/automation/angellist/mac-agent/run",
       "/api/automation/angellist/mac-agent/runs/11111111-1111-4111-8111-111111111111/complete",
+      "/api/automation/provider-browser/angellist/mac-agent/lease",
+      "/api/automation/provider-browser/tokenfolio/mac-agent/rotate",
+      "/api/automation/provider-browser/sydecar/mac-agent/sessions/33333333-3333-4333-8333-333333333333/status",
+      "/api/automation/provider-browser/angellist/mac-agent/sessions/44444444-4444-4444-8444-444444444444/ready",
+      "/api/automation/provider-browser/tokenfolio/mac-agent/sessions/55555555-5555-4555-8555-555555555555/complete",
+      "/api/automation/provider-browser/sydecar/mac-agent/sessions/66666666-6666-4666-8666-666666666666/fail",
       "/api/automation/provider-holdings/tokenfolio/mac-agent/lease",
       "/api/automation/provider-holdings/sydecar/mac-agent/runs/22222222-2222-4222-8222-222222222222/fail",
     ];
@@ -134,6 +140,15 @@ describe("web Worker routing", () => {
       handleRequest(
         new Request(
           "https://keel-preview-agents.example.com/api/automation/provider-holdings/tokenfolio/mac-agent/authorize",
+          { method: "POST" },
+        ),
+        agentBindings,
+      ),
+    ).resolves.toMatchObject({ status: 404 });
+    await expect(
+      handleRequest(
+        new Request(
+          "https://keel-preview-agents.example.com/api/automation/provider-browser/angellist/mac-agent/sessions/not-a-session/ready",
           { method: "POST" },
         ),
         agentBindings,
