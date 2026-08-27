@@ -329,6 +329,11 @@ type ImportPreviewRow = {
     "row_validation_failed" | "possible_identity_change" | null;
 };
 
+type ImportPreviewExposureRow = {
+  import_row_id: string;
+  canonical_name: string;
+};
+
 type PendingImportRow = {
   id: string;
   provider: string;
@@ -1560,10 +1565,11 @@ export class D1HoldingImportRepository {
       throw new Error("Holding import provider is not supported.");
     }
 
-    const rows = await all<ImportPreviewRow>(
-      this.db
-        .prepare(
-          `SELECT
+    const [rows, coverage, currentExposures] = await Promise.all([
+      all<ImportPreviewRow>(
+        this.db
+          .prepare(
+            `SELECT
              row.id,
              row.source_row_number,
              row.legal_vehicle_name,
@@ -1619,13 +1625,13 @@ export class D1HoldingImportRepository {
              ON quarantine.import_row_id = row.id
            WHERE row.import_id = ? AND row.household_id = ?
            ORDER BY row.source_row_number`,
-        )
-        .bind(importId, identity.household_id),
-    );
-    const coverage = await all<ImportCoveragePreviewRow>(
-      this.db
-        .prepare(
-          `SELECT
+          )
+          .bind(importId, identity.household_id),
+      ),
+      all<ImportCoveragePreviewRow>(
+        this.db
+          .prepare(
+            `SELECT
              coverage.container_id,
              version.display_label,
              coverage.completeness,
@@ -1646,9 +1652,58 @@ export class D1HoldingImportRepository {
             )
            WHERE coverage.import_id = ? AND coverage.household_id = ?
            ORDER BY version.display_label, coverage.container_id`,
-        )
-        .bind(importId, identity.household_id),
-    );
+          )
+          .bind(importId, identity.household_id),
+      ),
+      all<ImportPreviewExposureRow>(
+        this.db
+          .prepare(
+            `SELECT
+               row.id AS import_row_id,
+               exposure.canonical_name
+             FROM holding_import_rows row
+             JOIN holding_imports import ON import.id = row.import_id
+             JOIN holding_import_row_containers row_scope
+               ON row_scope.import_row_id = row.id
+             JOIN holding_position_ownerships ownership
+               ON ownership.container_id = row_scope.container_id
+              AND ownership.protected_position_key = row.position_fingerprint
+              AND NOT EXISTS (
+                SELECT 1
+                FROM holding_position_ownerships later_ownership
+                WHERE later_ownership.supersedes_ownership_id = ownership.id
+              )
+             JOIN holding_positions position
+               ON position.id = ownership.position_id
+              AND position.household_id = row.household_id
+              AND position.provider = import.provider
+             JOIN holding_position_exposure_mappings mapping
+               ON mapping.position_id = position.id
+              AND mapping.household_id = row.household_id
+              AND mapping.status = 'active'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM holding_position_exposure_mappings later_mapping
+                WHERE later_mapping.supersedes_mapping_id = mapping.id
+              )
+             JOIN canonical_exposures exposure
+               ON exposure.id = mapping.exposure_id
+              AND exposure.household_id = row.household_id
+              AND exposure.exposure_kind <> 'unresolved'
+             WHERE row.import_id = ? AND row.household_id = ?
+             ORDER BY row.source_row_number, lower(exposure.canonical_name)`,
+          )
+          .bind(importId, identity.household_id),
+      ),
+    ]);
+    const exposureNamesByRowId = new Map<string, string[]>();
+    currentExposures.forEach((record) => {
+      const names = exposureNamesByRowId.get(record.import_row_id) ?? [];
+      if (!names.includes(record.canonical_name)) {
+        names.push(record.canonical_name);
+      }
+      exposureNamesByRowId.set(record.import_row_id, names);
+    });
     const previewRows: HoldingImportRowPreview[] = rows.map((row) => ({
       id: row.id,
       sourceRowNumber: row.source_row_number,
@@ -1667,6 +1722,7 @@ export class D1HoldingImportRepository {
       ticker: row.ticker,
       quantityMicros: row.quantity_micros,
       costBasisMinor: row.cost_basis_minor,
+      currentExposureNames: exposureNamesByRowId.get(row.id) ?? [],
       action: actionFor(row),
       issues: issues(row.issue_codes_json),
       adjudicationStatus:

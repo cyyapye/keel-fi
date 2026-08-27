@@ -3802,12 +3802,20 @@ h1,
   min-width: 0;
 }
 
+.import-table td {
+  min-width: 90px;
+}
+
+.import-table td:first-child {
+  min-width: 200px;
+}
+
 .import-table td:nth-child(2) {
-  min-width: 150px;
+  min-width: 135px;
 }
 
 .import-table td:last-child {
-  min-width: 125px;
+  min-width: 130px;
 }
 
 .import-table td:nth-child(3) > strong {

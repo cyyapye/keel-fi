@@ -993,6 +993,10 @@ export const HoldingImportRowPreviewSchema = z.object({
     .nullable()
     .default(null),
   costBasisMinor: NonNegativeMoneyMinorSchema.nullable().default(null),
+  currentExposureNames: z
+    .array(z.string().trim().min(1).max(500))
+    .max(100)
+    .default([]),
   action: HoldingImportRowActionSchema,
   issues: z.array(z.string().min(1)),
   adjudicationStatus:
