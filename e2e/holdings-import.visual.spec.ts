@@ -341,9 +341,9 @@ const sydecarImportPreview = {
     rowCount: 1,
     administratorValueCount: 0,
     lockedValueCount: 0,
-    createCount: 1,
+    createCount: 0,
     updateCount: 0,
-    unchangedCount: 0,
+    unchangedCount: 1,
     needsAttentionCount: 0,
     autoAppliedCount: 0,
     quarantinedCount: 0,
@@ -354,7 +354,7 @@ const sydecarImportPreview = {
       id: "sydecar_row_1",
       sourceRowNumber: 3,
       positionName: "Synthetic Climate SPV I",
-      exposureName: "Synthetic Climate Systems",
+      exposureName: "Synthetic Climate I",
       ownerLabel: "Synthetic Investment Profile",
       providerStatus: "Live",
       investedOn: null,
@@ -365,7 +365,8 @@ const sydecarImportPreview = {
       realizedValueMinor: 0,
       reportedManagementFeePpm: 20_000,
       reportedCarryPpm: 200_000,
-      action: "create_position",
+      currentExposureNames: ["Synthetic Climate Systems"],
+      action: "no_change",
       issues: [],
     },
   ],
@@ -589,7 +590,7 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
     name: "sydecar-holdings.csv",
     mimeType: "text/csv",
     buffer: Buffer.from(
-      "Keel Sydecar holdings template v2\nInvestment,Legal Position,Position Type,Held Through,Status,Investment Date,As Of Date,Invested USD,Committed USD,Current Value USD,Realized Value USD,Instrument,Management Fee %,Carry %\nSynthetic Climate Systems,Synthetic Climate SPV I,SPV,Synthetic Investment Profile,Live,,2026-08-20,$5000.00,$7500.00,,,Membership interest,2%,20%\n",
+      "Keel Sydecar holdings template v2\nInvestment,Legal Position,Position Type,Held Through,Status,Investment Date,As Of Date,Invested USD,Committed USD,Current Value USD,Realized Value USD,Instrument,Management Fee %,Carry %\nSynthetic Climate I,Synthetic Climate SPV I,SPV,Synthetic Investment Profile,Live,,2026-08-20,$5000.00,$7500.00,,,Membership interest,2%,20%\n",
     ),
   });
   await page.getByRole("button", { name: "Review file" }).click();
@@ -599,11 +600,25 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
   ).toBeFocused();
   await expect(page.getByText("Investment date not reported")).toBeVisible();
   await expect(page.getByText("Fee 2.0% · Carry 20.0%")).toBeVisible();
+  await expect(page.getByText("Position unchanged")).toBeVisible();
+  await expect(
+    page.getByText("Grouped under Synthetic Climate Systems"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Existing company groupings stay in place."),
+  ).toBeVisible();
   const sydecarViewportWidths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
     scroll: document.documentElement.scrollWidth,
   }));
   expect(sydecarViewportWidths.scroll).toBe(sydecarViewportWidths.client);
+  const sydecarTableWidths = await page
+    .locator(".holdings-table-wrap")
+    .evaluate((element) => ({
+      client: element.clientWidth,
+      scroll: element.scrollWidth,
+    }));
+  expect(sydecarTableWidths.scroll).toBe(sydecarTableWidths.client);
   await page.addStyleTag({
     content: `
       .topbar,

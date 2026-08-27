@@ -1525,9 +1525,26 @@ function importActionLabel(action: HoldingImportRowPreview["action"]): string {
   return {
     create_position: "New",
     append_snapshot: "Matched",
-    no_change: "No changes",
+    no_change: "Position unchanged",
     needs_attention: "Needs attention",
   }[action];
+}
+
+function importCurrentGroupingLabel(
+  row: HoldingImportRowPreview,
+  provider: HoldingImportPreview["provider"],
+): string | null {
+  if (provider === "plaid_investments") {
+    return null;
+  }
+  if (row.currentExposureNames.length === 0) {
+    return row.action === "append_snapshot" || row.action === "no_change"
+      ? "No reviewed grouping yet"
+      : null;
+  }
+  const visibleNames = row.currentExposureNames.slice(0, 2);
+  const remainingCount = row.currentExposureNames.length - visibleNames.length;
+  return `Grouped under ${visibleNames.join(", ")}${remainingCount > 0 ? ` + ${remainingCount} more` : ""}`;
 }
 
 function importDecisionForRow(
@@ -1582,13 +1599,20 @@ function holdingImportSourceLabel(
   }[provider];
 }
 
-function ImportResult({ row }: { row: HoldingImportRowPreview }) {
+function ImportResult({
+  provider,
+  row,
+}: {
+  provider: HoldingImportPreview["provider"];
+  row: HoldingImportRowPreview;
+}) {
   const label =
     row.adjudicationStatus === "auto_applied"
       ? "Applied automatically"
       : row.adjudicationStatus === "quarantined"
         ? "Isolated"
         : importActionLabel(row.action);
+  const groupingLabel = importCurrentGroupingLabel(row, provider);
   return (
     <div className={`import-result import-result--${row.action}`}>
       {row.adjudicationStatus === "quarantined" ||
@@ -1597,6 +1621,7 @@ function ImportResult({ row }: { row: HoldingImportRowPreview }) {
       ) : (
         <strong>{label}</strong>
       )}
+      {groupingLabel !== null && <small>{groupingLabel}</small>}
       {row.issues.length > 0 && <small>{row.issues.join(" · ")}</small>}
     </div>
   );
@@ -1997,7 +2022,7 @@ function HoldingImportWorkspace({
                         {importAdministratorValueLabel(row, preview.provider)}
                       </td>
                       <td data-label="Result">
-                        <ImportResult row={row} />
+                        <ImportResult provider={preview.provider} row={row} />
                       </td>
                     </tr>
                   ))}
@@ -2134,8 +2159,8 @@ function HoldingImportWorkspace({
         ) : provider === "sydecar" ? (
           <p>
             Snapshot dated {formatDate(preview.observedAt)}. Missing current
-            values stay unavailable. Reported fee and carry stay pending until
-            reviewed in the position.
+            values stay unavailable. Existing company groupings stay in place.
+            Reported fee and carry stay pending until reviewed in each position.
           </p>
         ) : (
           <p>
@@ -2241,7 +2266,7 @@ function HoldingImportWorkspace({
                       {importAdministratorValueLabel(row, preview.provider)}
                     </td>
                     <td data-label="Import result">
-                      <ImportResult row={row} />
+                      <ImportResult provider={preview.provider} row={row} />
                     </td>
                   </tr>
                 ) : (
@@ -2294,7 +2319,7 @@ function HoldingImportWorkspace({
                       {importAdministratorValueLabel(row, preview.provider)}
                     </td>
                     <td data-label="Import result">
-                      <ImportResult row={row} />
+                      <ImportResult provider={preview.provider} row={row} />
                     </td>
                   </tr>
                 ),

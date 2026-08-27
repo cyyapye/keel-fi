@@ -126,6 +126,7 @@ const holdingImportPreview: HoldingImportPreview = {
       ticker: null,
       quantityMicros: null,
       costBasisMinor: null,
+      currentExposureNames: [],
       reportedManagementFeePpm: null,
       reportedCarryPpm: null,
       action: "create_position",

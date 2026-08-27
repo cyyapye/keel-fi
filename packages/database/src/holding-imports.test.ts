@@ -214,25 +214,34 @@ class TestD1Statement {
     private readonly database: DatabaseSync,
     private readonly sql: string,
     private readonly values: readonly SQLInputValue[] = [],
+    private readonly recordRoundTrip: () => void = () => undefined,
   ) {}
 
   public bind(...values: SQLInputValue[]): TestD1Statement {
-    return new TestD1Statement(this.database, this.sql, values);
+    return new TestD1Statement(
+      this.database,
+      this.sql,
+      values,
+      this.recordRoundTrip,
+    );
   }
 
   public first<T>(): Promise<T | null> {
+    this.recordRoundTrip();
     return Promise.resolve(
       (this.database.prepare(this.sql).get(...this.values) as T) ?? null,
     );
   }
 
   public all<T>(): Promise<{ results: T[] }> {
+    this.recordRoundTrip();
     return Promise.resolve({
       results: this.database.prepare(this.sql).all(...this.values) as T[],
     });
   }
 
   public run(): Promise<{ meta: { changes: number } }> {
+    this.recordRoundTrip();
     const result = this.database.prepare(this.sql).run(...this.values);
     return Promise.resolve({ meta: { changes: Number(result.changes) } });
   }
@@ -243,13 +252,20 @@ class TestD1Statement {
 }
 
 class TestD1Database {
+  public roundTripCount = 0;
+  public readonly preparedSql: string[] = [];
+
   public constructor(private readonly database: DatabaseSync) {}
 
   public prepare(sql: string): TestD1Statement {
-    return new TestD1Statement(this.database, sql);
+    this.preparedSql.push(sql);
+    return new TestD1Statement(this.database, sql, [], () => {
+      this.roundTripCount += 1;
+    });
   }
 
   public batch(statements: readonly TestD1Statement[]): Promise<void> {
+    this.roundTripCount += 1;
     this.database.exec("BEGIN");
     try {
       statements.forEach((statement) => statement.execute());
@@ -259,6 +275,10 @@ class TestD1Database {
       throw error;
     }
     return Promise.resolve();
+  }
+
+  public resetRoundTripCount(): void {
+    this.roundTripCount = 0;
   }
 }
 
@@ -500,6 +520,7 @@ function providerTemplateStageInput(
 
 describe("AngelList holding import persistence", () => {
   let sqlite: DatabaseSync;
+  let database: TestD1Database;
   let repository: D1HoldingImportRepository;
 
   beforeEach(() => {
@@ -508,8 +529,9 @@ describe("AngelList holding import persistence", () => {
       sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
     });
     seedRobinhoodInvestmentConnection(sqlite);
+    database = new TestD1Database(sqlite);
     repository = new D1HoldingImportRepository(
-      new TestD1Database(sqlite) as unknown as D1Database,
+      database as unknown as D1Database,
     );
   });
 
@@ -1013,6 +1035,161 @@ describe("AngelList holding import persistence", () => {
       );
     },
   );
+
+  it("shows an existing reviewed company grouping on a repeated Sydecar position", async () => {
+    const initial = await repository.stageHoldingImport(
+      "synthetic-access-subject",
+      providerTemplateStageInput("sydecar"),
+    );
+    await repository.applyHoldingImport(
+      "synthetic-access-subject",
+      initial.preview.id,
+      {
+        currency: "USD",
+        decisions: [
+          {
+            rowId: initial.preview.rows[0]!.id,
+            decision: "accepted",
+            rationale: "Reviewed the initial synthetic Sydecar position.",
+          },
+        ],
+      },
+    );
+
+    const exposureRepository = new D1ExposureRepository(
+      database as unknown as D1Database,
+    );
+    const reviewState = await exposureRepository.getPrivateExposureReviewState(
+      "synthetic-access-subject",
+    );
+    const position = reviewState.positions.find(
+      (candidate) => candidate.reportedExposureName === "Example Climate Fund",
+    );
+    expect(position).toBeDefined();
+    await exposureRepository.assignPrivateCompanyExposure(
+      "synthetic-access-subject",
+      position!.positionId,
+      {
+        expectedSnapshotId: position!.snapshotId,
+        company: { mode: "existing", companyId: "co_harbor" },
+      },
+    );
+
+    const repeatedInput = providerTemplateStageInput("sydecar");
+    const repeated = await repository.stageHoldingImport(
+      "synthetic-access-subject",
+      {
+        ...repeatedInput,
+        objectKey: "holding-imports/sydecar/synthetic-repeat.csv",
+        sha256: "f0".repeat(32),
+        retrievedAt: "2026-08-21T12:00:00.000Z",
+      },
+    );
+    expect(repeated.preview.rows).toEqual([
+      expect.objectContaining({
+        action: "no_change",
+        exposureName: "Example Climate Fund",
+        currentExposureNames: ["Harbor Health Systems"],
+      }),
+    ]);
+    await repository.applyHoldingImport(
+      "synthetic-access-subject",
+      repeated.preview.id,
+      {
+        currency: "USD",
+        decisions: [
+          {
+            rowId: repeated.preview.rows[0]!.id,
+            decision: "accepted",
+            rationale: "Confirmed the repeated synthetic Sydecar position.",
+          },
+        ],
+      },
+    );
+    await expect(
+      repository.getHoldingImport(
+        "synthetic-access-subject",
+        repeated.preview.id,
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        {
+          action: "no_change",
+          currentExposureNames: ["Harbor Health Systems"],
+        },
+      ],
+    });
+    await expect(
+      exposureRepository.getPrivateExposureReviewState(
+        "synthetic-access-subject",
+      ),
+    ).resolves.toMatchObject({ positions: [] });
+  });
+
+  it("previews 120 imported positions within a fixed D1 read budget", async () => {
+    const base = providerTemplateStageInput("sydecar");
+    const baseRow = base.rows[0];
+    const baseScopeRow = base.canonicalScope.rows[0];
+    if (baseRow === undefined || baseScopeRow === undefined) {
+      throw new Error("Synthetic Sydecar scale fixture is incomplete.");
+    }
+    const rows = Array.from({ length: 120 }, (_, index) => {
+      const suffix = index.toString().padStart(3, "0");
+      return {
+        ...baseRow,
+        rowNumber: index + 3,
+        naturalKeySha256: (index + 1).toString(16).padStart(64, "0"),
+        companyOrFund: `Synthetic Scale Company ${suffix}`,
+        fundName: `Synthetic Scale SPV ${suffix}`,
+      };
+    });
+    const staged = await repository.stageHoldingImport(
+      "synthetic-access-subject",
+      {
+        ...base,
+        objectKey: "holding-imports/sydecar/synthetic-scale.csv",
+        sha256: "a1".repeat(32),
+        byteSize: 120_000,
+        rows,
+        canonicalScope: {
+          ...base.canonicalScope,
+          rows: rows.map((row) => ({
+            sourceRowNumber: row.rowNumber,
+            protectedAccountKey: baseScopeRow.protectedAccountKey,
+            protectedPositionKey: row.naturalKeySha256,
+          })),
+        },
+      },
+    );
+
+    database.resetRoundTripCount();
+    const preview = await repository.getHoldingImport(
+      "synthetic-access-subject",
+      staged.preview.id,
+    );
+    expect(preview.rows).toHaveLength(120);
+    expect(
+      preview.rows.every((row) => row.currentExposureNames.length === 0),
+    ).toBe(true);
+    expect(database.roundTripCount).toBeLessThanOrEqual(5);
+
+    const groupingSql = database.preparedSql
+      .filter(
+        (sql) =>
+          sql.includes("row.id AS import_row_id") &&
+          sql.includes("later_mapping.supersedes_mapping_id"),
+      )
+      .at(-1);
+    expect(groupingSql).toBeDefined();
+    const plan = sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${groupingSql ?? "SELECT 1"}`)
+      .all(staged.preview.id, "hh_demo") as Array<{ detail: string }>;
+    expect(
+      plan.some((row) =>
+        /SCAN (later_mapping|later_ownership)/u.test(row.detail),
+      ),
+    ).toBe(false);
+  });
 
   it("rejects a provider template staged under another source identity", async () => {
     const input = providerTemplateStageInput("tokenfolio");
