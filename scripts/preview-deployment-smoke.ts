@@ -165,13 +165,18 @@ export async function runPreviewDeploymentSmoke(
     if (agentRootResponse.status !== 404) {
       throw new Error("Mac agent host exposed an unexpected route.");
     }
-    const unauthenticatedAgentResponse = await request(
-      fetchImplementation,
-      new URL("/api/automation/angellist/mac-agent/lease", agentApiOrigin),
-      { method: "POST" },
-    );
-    if (unauthenticatedAgentResponse.status !== 401) {
-      throw new Error("Mac agent endpoint did not require its device token.");
+    for (const pathname of [
+      "/api/automation/angellist/mac-agent/lease",
+      "/api/automation/provider-browser/angellist/mac-agent/lease",
+    ]) {
+      const unauthenticatedAgentResponse = await request(
+        fetchImplementation,
+        new URL(pathname, agentApiOrigin),
+        { method: "POST" },
+      );
+      if (unauthenticatedAgentResponse.status !== 401) {
+        throw new Error("Mac agent endpoint did not require its device token.");
+      }
     }
   }, delay);
 

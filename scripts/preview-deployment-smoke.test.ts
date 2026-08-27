@@ -37,12 +37,13 @@ function successfulFetch(): ReturnType<typeof vi.fn> {
       );
     }
     if (url.hostname === "keel-preview-agents.example.com") {
+      const agentPathnames = new Set([
+        "/api/automation/angellist/mac-agent/lease",
+        "/api/automation/provider-browser/angellist/mac-agent/lease",
+      ]);
       return Promise.resolve(
         new Response(null, {
-          status:
-            url.pathname === "/api/automation/angellist/mac-agent/lease"
-              ? 401
-              : 404,
+          status: agentPathnames.has(url.pathname) ? 401 : 404,
         }),
       );
     }
@@ -116,7 +117,7 @@ describe("preview deployment runtime verification", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(fetchImplementation).toHaveBeenCalledTimes(10);
+    expect(fetchImplementation).toHaveBeenCalledTimes(11);
   });
 
   it("waits for a new Mac agent hostname to resolve", async () => {
