@@ -3899,6 +3899,34 @@ h1,
   color: var(--muted);
 }
 
+.import-row-decision {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  margin-top: 7px;
+  color: var(--ink);
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.import-row-decision input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+.import-row-decision--excluded {
+  color: var(--muted);
+}
+
+.import-row-decision:has(input:disabled) {
+  cursor: not-allowed;
+}
+
 .import-pagination {
   display: flex;
   align-items: center;
@@ -6903,6 +6931,11 @@ h1,
   .import-pagination > div {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .import-row-decision {
+    min-height: 44px;
+    font-size: 9px;
   }
 
   .import-confirmation,

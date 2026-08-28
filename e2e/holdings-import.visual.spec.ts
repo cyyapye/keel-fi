@@ -796,10 +796,10 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
       await route.fulfill({
         json: {
           importId: importPreview.id,
-          createdCount: 69,
+          createdCount: 68,
           updatedCount: 1,
           unchangedCount: 1,
-          rejectedCount: 1,
+          rejectedCount: 2,
           lockedValueCount: 22,
         },
       });
@@ -859,8 +859,21 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
     ),
   ).toBeVisible();
   await expect(page.getByText("Carry 20.0%").first()).toBeVisible();
+  await expect(page.locator(".import-table tbody tr")).toHaveCount(10);
 
-  const applyButton = page.getByRole("button", { name: "Apply 71 positions" });
+  const harborDecision = page.getByRole("checkbox", {
+    name: "Include Harbor Health Systems",
+  });
+  await expect(harborDecision).toBeChecked();
+  await harborDecision.uncheck();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Delta Systems is excluded because it needs attention",
+    }),
+  ).toBeDisabled();
+  await expect(page.getByText("70 included · 2 excluded")).toBeVisible();
+
+  const applyButton = page.getByRole("button", { name: "Apply 70 positions" });
   await expect(applyButton).toBeDisabled();
   await page
     .getByRole("checkbox", {
@@ -868,6 +881,23 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
     })
     .check();
   await expect(applyButton).toBeEnabled();
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-import-decisions.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
   await applyButton.click();
 
   await expect(
@@ -883,15 +913,6 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
     scroll: document.documentElement.scrollWidth,
   }));
   expect(viewportWidths.scroll).toBe(viewportWidths.client);
-
-  await page.addStyleTag({
-    content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
-  });
 
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "holdings-import-review.png",
@@ -914,7 +935,7 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
 
   await page.getByRole("button", { name: "Confirm & apply" }).click();
   await expect(
-    page.getByRole("heading", { name: "70 changes applied" }),
+    page.getByRole("heading", { name: "69 changes applied" }),
   ).toBeVisible();
   await expect(page.getByRole("status")).toContainText(
     "Reviewed 72 AngelList positions.",
@@ -924,6 +945,10 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
   expect(applyBodies[1]).toMatchObject({
     currency: "USD",
     decisions: expect.arrayContaining([
+      expect.objectContaining({
+        rowId: "import_row_1",
+        decision: "rejected",
+      }),
       expect.objectContaining({
         rowId: "import_row_3",
         decision: "accepted",
@@ -936,6 +961,93 @@ test("reviews a scheduled AngelList export from a persistent phone-safe route", 
   });
   expect((applyBodies[1] as { decisions: unknown[] }).decisions).toHaveLength(
     72,
+  );
+});
+
+test("rejects an entire AngelList import without changing accepted holdings", async ({
+  page,
+}) => {
+  const applyBodies: unknown[] = [];
+  const pendingImport = {
+    id: importPreview.id,
+    provider: "angellist" as const,
+    status: "pending_review" as const,
+    observedAt: importPreview.observedAt,
+    rowCount: importPreview.summary.rowCount,
+    createdAt: "2026-06-14T12:05:00.000Z",
+  };
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [pendingImport],
+  });
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route(
+    /\/api\/holding-imports\/holding_import_synthetic_angellist$/,
+    async (route) => {
+      await route.fulfill({ json: importPreview });
+    },
+  );
+  await page.route(
+    /\/api\/holding-imports\/holding_import_synthetic_angellist\/apply$/,
+    async (route) => {
+      applyBodies.push(route.request().postDataJSON());
+      await route.fulfill({
+        json: {
+          importId: importPreview.id,
+          createdCount: 0,
+          updatedCount: 0,
+          unchangedCount: 0,
+          rejectedCount: importPreview.summary.rowCount,
+          lockedValueCount: 0,
+        },
+      });
+    },
+  );
+
+  await page.goto("/holdings/imports/holding_import_synthetic_angellist");
+  await expect(
+    page.getByRole("heading", { name: "Review AngelList import" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "I confirm the export’s $ values are USD.",
+    }),
+  ).not.toBeChecked();
+
+  await page.getByRole("button", { name: "Reject entire import" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Reject this import?" }),
+  ).toBeFocused();
+  await expect(
+    page.getByText(
+      "Exclude all 72 positions. Accepted holdings will not change, and this import will leave the review queue.",
+    ),
+  ).toBeVisible();
+
+  const rejectButton = page.getByRole("button", {
+    exact: true,
+    name: "Reject import",
+  });
+  await expect(rejectButton).toBeEnabled();
+  await rejectButton.click();
+
+  await expect(
+    page.getByRole("heading", { name: "No holdings changed" }),
+  ).toBeVisible();
+  await expect(page.getByRole("status")).toContainText(
+    "Excluded all 72 AngelList positions.",
+  );
+  expect(applyBodies).toHaveLength(1);
+  const decisions = (applyBodies[0] as { decisions: { decision: string }[] })
+    .decisions;
+  expect(decisions).toHaveLength(72);
+  expect(decisions.every((decision) => decision.decision === "rejected")).toBe(
+    true,
   );
 });
 

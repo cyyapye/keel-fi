@@ -1564,12 +1564,16 @@ function importCurrentGroupingLabel(
 function importDecisionForRow(
   row: HoldingImportRowPreview,
   provider: HoldingImportPreview["provider"],
+  included: boolean,
 ): HoldingImportApplyInput["decisions"][number] {
-  if (row.action === "needs_attention") {
+  if (row.action === "needs_attention" || !included) {
     return {
       rowId: row.id,
       decision: "rejected",
-      rationale: "Excluded because the imported position needs attention.",
+      rationale:
+        row.action === "needs_attention"
+          ? "Excluded because the imported position needs attention."
+          : `Excluded during the ${holdingImportProviderName(provider)} holdings import review.`,
     };
   }
   return {
@@ -1677,6 +1681,9 @@ function HoldingImportWorkspace({
   );
   const [confirming, setConfirming] = useState(false);
   const [currencyConfirmed, setCurrencyConfirmed] = useState(false);
+  const [excludedRowIds, setExcludedRowIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [page, setPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1713,6 +1720,7 @@ function HoldingImportWorkspace({
     setApplyResult(null);
     setConfirming(false);
     setCurrencyConfirmed(false);
+    setExcludedRowIds(new Set());
     setError(null);
     setPage(0);
     if (fileInputRef.current !== null) {
@@ -1736,6 +1744,7 @@ function HoldingImportWorkspace({
     void onPreview(selectedProvider, selectedFile)
       .then((nextPreview) => {
         setPreview(nextPreview);
+        setExcludedRowIds(new Set());
         setPage(0);
         window.requestAnimationFrame(() =>
           workspaceHeadingRef.current?.focus(),
@@ -1752,7 +1761,16 @@ function HoldingImportWorkspace({
   };
 
   const applyPreview = () => {
-    if (preview === null || !currencyConfirmed) {
+    if (preview === null) {
+      return;
+    }
+    const pendingRows = preview.rows.filter(
+      (row) => row.adjudicationStatus === "pending_review",
+    );
+    const hasIncludedRows = pendingRows.some(
+      (row) => row.action !== "needs_attention" && !excludedRowIds.has(row.id),
+    );
+    if (hasIncludedRows && !currencyConfirmed) {
       return;
     }
     setWorking("applying");
@@ -1761,7 +1779,13 @@ function HoldingImportWorkspace({
       currency: "USD",
       decisions: preview.rows
         .filter((row) => row.adjudicationStatus === "pending_review")
-        .map((row) => importDecisionForRow(row, preview.provider)),
+        .map((row) =>
+          importDecisionForRow(
+            row,
+            preview.provider,
+            row.action !== "needs_attention" && !excludedRowIds.has(row.id),
+          ),
+        ),
     })
       .then((result) => {
         setApplyResult(result);
@@ -1779,6 +1803,8 @@ function HoldingImportWorkspace({
 
   if (applyResult !== null && preview !== null) {
     const changedCount = applyResult.createdCount + applyResult.updatedCount;
+    const allRowsRejected =
+      applyResult.rejectedCount === preview.summary.rowCount;
     return (
       <section
         aria-labelledby="holding-import-success-title"
@@ -1791,14 +1817,23 @@ function HoldingImportWorkspace({
           tabIndex={-1}
         >
           <p className="eyebrow">
-            {isPlaidInvestments ? "Automatic update" : "Import reviewed"}
+            {allRowsRejected
+              ? "Import rejected"
+              : isPlaidInvestments
+                ? "Automatic update"
+                : "Import reviewed"}
           </p>
           <h2 id="holding-import-success-title">
-            {changedCount === 0
+            {allRowsRejected || changedCount === 0
               ? "No holdings changed"
               : `${changedCount} ${changedCount === 1 ? "change" : "changes"} applied`}
           </h2>
-          {isPlaidInvestments ? (
+          {allRowsRejected ? (
+            <p>
+              Excluded all {preview.summary.rowCount} {providerName} positions.
+              The import is reviewed and accepted holdings are unchanged.
+            </p>
+          ) : isPlaidInvestments ? (
             <p>
               Reviewed {preview.summary.rowCount} investment positions.{" "}
               {preview.summary.administratorValueCount} market values were
@@ -1819,7 +1854,7 @@ function HoldingImportWorkspace({
               explicit.
             </p>
           )}
-          {applyResult.rejectedCount > 0 && (
+          {!allRowsRejected && applyResult.rejectedCount > 0 && (
             <small>
               {applyResult.rejectedCount}{" "}
               {applyResult.rejectedCount === 1
@@ -2135,10 +2170,34 @@ function HoldingImportWorkspace({
     pageStart + HOLDING_IMPORT_PAGE_SIZE,
     preview.rows.length,
   );
-  const changeCount = preview.summary.createCount + preview.summary.updateCount;
-  const readyCount =
-    preview.summary.rowCount - preview.summary.needsAttentionCount;
-  const primaryActionLabel = `Apply ${readyCount} ${readyCount === 1 ? "position" : "positions"}`;
+  const reviewRows = preview.rows.filter(
+    (row) => row.adjudicationStatus === "pending_review",
+  );
+  const rowIsIncluded = (row: HoldingImportRowPreview) =>
+    row.action !== "needs_attention" && !excludedRowIds.has(row.id);
+  const includedRows = reviewRows.filter(rowIsIncluded);
+  const includedCount = includedRows.length;
+  const excludedCount = reviewRows.length - includedCount;
+  const includedCreateCount = includedRows.filter(
+    (row) => row.action === "create_position",
+  ).length;
+  const includedUpdateCount = includedRows.filter(
+    (row) => row.action === "append_snapshot",
+  ).length;
+  const includedUnchangedCount = includedRows.filter(
+    (row) => row.action === "no_change",
+  ).length;
+  const includedChangeCount = includedCreateCount + includedUpdateCount;
+  const includedLockedValueCount = includedRows.filter(
+    (row) => row.administratorNavState === "locked",
+  ).length;
+  const includedUnavailableValueCount = includedRows.filter(
+    (row) => row.administratorNavState !== "reported",
+  ).length;
+  const allRowsExcluded = includedCount === 0;
+  const primaryActionLabel = allRowsExcluded
+    ? "Reject import"
+    : `Apply ${includedCount} ${includedCount === 1 ? "position" : "positions"}`;
   const hasReportedCarry = preview.rows.some(
     (row) => row.reportedCarryPpm !== null,
   );
@@ -2262,8 +2321,9 @@ function HoldingImportWorkspace({
               )}
             </thead>
             <tbody>
-              {visibleRows.map((row) =>
-                isPlaidInvestments ? (
+              {visibleRows.map((row) => {
+                const included = rowIsIncluded(row);
+                return isPlaidInvestments ? (
                   <tr key={row.id}>
                     <td data-label="Security">
                       <strong>{row.exposureName}</strong>
@@ -2334,10 +2394,48 @@ function HoldingImportWorkspace({
                     </td>
                     <td data-label="Import result">
                       <ImportResult provider={preview.provider} row={row} />
+                      {row.adjudicationStatus === "pending_review" && (
+                        <label
+                          className={`import-row-decision${included ? "" : " import-row-decision--excluded"}`}
+                        >
+                          <Input
+                            aria-label={
+                              row.action === "needs_attention"
+                                ? `${row.exposureName} is excluded because it needs attention`
+                                : `Include ${row.exposureName}`
+                            }
+                            checked={included}
+                            disabled={
+                              row.action === "needs_attention" ||
+                              working !== "idle"
+                            }
+                            onChange={(event) => {
+                              const nextIncluded = event.currentTarget.checked;
+                              setExcludedRowIds((current) => {
+                                const next = new Set(current);
+                                if (nextIncluded) {
+                                  next.delete(row.id);
+                                } else {
+                                  next.add(row.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            type="checkbox"
+                          />
+                          <span>
+                            {row.action === "needs_attention"
+                              ? "Excluded by Keel"
+                              : included
+                                ? "Included"
+                                : "Excluded"}
+                          </span>
+                        </label>
+                      )}
                     </td>
                   </tr>
-                ),
-              )}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -2401,9 +2499,16 @@ function HoldingImportWorkspace({
               ref={confirmationHeadingRef}
               tabIndex={-1}
             >
-              Apply the reviewed import?
+              {allRowsExcluded
+                ? "Reject this import?"
+                : "Apply the reviewed import?"}
             </h3>
-            {isPlaidInvestments ? (
+            {allRowsExcluded ? (
+              <p>
+                Exclude all {excludedCount} positions. Accepted holdings will
+                not change, and this import will leave the review queue.
+              </p>
+            ) : isPlaidInvestments ? (
               <p>
                 Create {preview.summary.createCount}, update{" "}
                 {preview.summary.updateCount}, and confirm{" "}
@@ -2413,59 +2518,70 @@ function HoldingImportWorkspace({
               </p>
             ) : isAngelList ? (
               <p>
-                Create {preview.summary.createCount}, update{" "}
-                {preview.summary.updateCount}, and confirm{" "}
-                {preview.summary.unchangedCount} unchanged.{" "}
-                {preview.summary.lockedValueCount} locked values will remain
+                Create {includedCreateCount}, update {includedUpdateCount}, and
+                confirm {includedUnchangedCount} unchanged.
+                {excludedCount > 0 && (
+                  <>
+                    {" "}
+                    {excludedCount}{" "}
+                    {excludedCount === 1 ? "position is" : "positions are"}{" "}
+                    excluded.
+                  </>
+                )}{" "}
+                {includedLockedValueCount} locked values will remain
                 unavailable. No forecast, underwriting value, or liquidity value
                 will be inferred.
               </p>
             ) : (
               <p>
-                Create {preview.summary.createCount}, update{" "}
-                {preview.summary.updateCount}, and confirm{" "}
-                {preview.summary.unchangedCount} unchanged.{" "}
-                {unavailableValueCount} unavailable values will remain explicit.
-                No forecast, underwriting value, or liquidity value will be
-                inferred.
+                Create {includedCreateCount}, update {includedUpdateCount}, and
+                confirm {includedUnchangedCount} unchanged.
+                {excludedCount > 0 && (
+                  <>
+                    {" "}
+                    {excludedCount}{" "}
+                    {excludedCount === 1 ? "position is" : "positions are"}{" "}
+                    excluded.
+                  </>
+                )}{" "}
+                {includedUnavailableValueCount} unavailable values will remain
+                explicit. No forecast, underwriting value, or liquidity value
+                will be inferred.
               </p>
-            )}
-            {preview.summary.needsAttentionCount > 0 && (
-              <small>
-                {preview.summary.needsAttentionCount}{" "}
-                {preview.summary.needsAttentionCount === 1
-                  ? "position is"
-                  : "positions are"}{" "}
-                excluded because they need attention.
-              </small>
             )}
           </div>
           <div>
             <Button
-              disabled={working !== "idle" || !currencyConfirmed}
+              disabled={working !== "idle"}
               onClick={() => setConfirming(false)}
               tone="quiet"
             >
               Back
             </Button>
             <Button
-              disabled={working !== "idle" || !currencyConfirmed}
+              disabled={
+                working !== "idle" || (!allRowsExcluded && !currencyConfirmed)
+              }
               onClick={applyPreview}
               tone="primary"
             >
               {working === "applying"
                 ? "Applying…"
-                : changeCount === 0
-                  ? "Confirm review"
-                  : "Confirm & apply"}
+                : allRowsExcluded
+                  ? "Reject import"
+                  : includedChangeCount === 0
+                    ? "Confirm review"
+                    : "Confirm & apply"}
             </Button>
           </div>
         </div>
       ) : (
         <div className="import-footer">
           <div>
-            <strong>{readyCount} positions reviewed</strong>
-            <span>Every row receives an explicit review decision.</span>
+            <strong>
+              {includedCount} included · {excludedCount} excluded
+            </strong>
+            <span>Excluded rows will not change accepted holdings.</span>
           </div>
           <div>
             <Button
@@ -2475,7 +2591,17 @@ function HoldingImportWorkspace({
               {initialPreview === null ? "Choose another file" : "Back"}
             </Button>
             <Button
-              disabled={!currencyConfirmed}
+              disabled={working !== "idle"}
+              onClick={() => {
+                setExcludedRowIds(new Set(reviewRows.map((row) => row.id)));
+                setConfirming(true);
+              }}
+              tone="quiet"
+            >
+              Reject entire import
+            </Button>
+            <Button
+              disabled={!allRowsExcluded && !currencyConfirmed}
               onClick={() => setConfirming(true)}
               tone="primary"
             >
