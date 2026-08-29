@@ -27,7 +27,11 @@ const linuxService: SystemdAgentServiceOptions = {
     "/home/synthetic/.local/state/keel/portfolio-agents/sydecar-agent/instances/local",
   chromePath: "/opt/chrome/google-chrome",
   credentialDirectory:
-    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-0123456789abcdef",
+    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-0123456789abcdef/sydecar",
+  inaccessibleCredentialDirectories: [
+    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-0123456789abcdef/angellist",
+    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-0123456789abcdef/tokenfolio",
+  ],
   instanceId: "https-keel-preview-example-com-0123456789abcdef",
   keelOrigin: new URL("https://keel-preview.example.com"),
   label: "Sydecar",
@@ -211,6 +215,12 @@ describe("portfolio agent platform runtime", () => {
     expect(unit).toContain(
       `ReadWritePaths=${linuxService.credentialDirectory}`,
     );
+    for (const directory of linuxService.inaccessibleCredentialDirectories) {
+      expect(unit).toContain(`InaccessiblePaths=${directory}`);
+    }
+    expect(unit).not.toContain(
+      `InaccessiblePaths=${linuxService.credentialDirectory}`,
+    );
     expect(unit).toContain(
       'Environment="KEEL_CHROME_PATH=/opt/chrome/google-chrome"',
     );
@@ -243,6 +253,15 @@ describe("portfolio agent platform runtime", () => {
         credentialDirectory: "/home/synthetic/credential dir",
       }),
     ).toThrow("contain no whitespace");
+    expect(() =>
+      buildSystemdAgentService({
+        ...linuxService,
+        inaccessibleCredentialDirectories: [
+          linuxService.credentialDirectory,
+          "/home/synthetic/other",
+        ],
+      }),
+    ).toThrow("hide both sibling credential directories");
   });
 
   it.runIf(process.platform === "linux")(
@@ -286,7 +305,12 @@ describe("portfolio agent platform runtime", () => {
       "keel",
       "agent-credentials",
       linuxService.instanceId,
+      "sydecar",
     );
+    const inaccessibleCredentialDirectories = [
+      path.join(path.dirname(credentialDirectory), "angellist"),
+      path.join(path.dirname(credentialDirectory), "tokenfolio"),
+    ];
     const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
       if (command === "systemctl" && arguments_[0] === "show") {
         return { status: 1, stderr: "not found", stdout: "not-found\n" };
@@ -305,6 +329,7 @@ describe("portfolio agent platform runtime", () => {
           ...linuxService,
           appDirectory,
           credentialDirectory,
+          inaccessibleCredentialDirectories,
           environment: {},
           homeDirectory,
           platform: "linux",
@@ -320,11 +345,15 @@ describe("portfolio agent platform runtime", () => {
       );
       expect((await stat(unitPath)).mode & 0o777).toBe(0o600);
       expect((await stat(credentialDirectory)).mode & 0o777).toBe(0o700);
+      for (const directory of inaccessibleCredentialDirectories) {
+        expect((await stat(directory)).mode & 0o777).toBe(0o700);
+      }
       expect(await readFile(unitPath, "utf8")).toBe(
         buildSystemdAgentService({
           ...linuxService,
           appDirectory,
           credentialDirectory,
+          inaccessibleCredentialDirectories,
         }),
       );
       expect(execute).toHaveBeenCalledWith("systemctl", [
@@ -374,6 +403,17 @@ describe("portfolio agent platform runtime", () => {
           stdout: `${linuxService.appDirectory} ${linuxService.credentialDirectory}\n`,
         };
       }
+      if (
+        command === "systemctl" &&
+        arguments_[0] === "show" &&
+        arguments_.includes("--property=InaccessiblePaths")
+      ) {
+        return {
+          status: 0,
+          stderr: "",
+          stdout: `${linuxService.inaccessibleCredentialDirectories.join(" ")}\n`,
+        };
+      }
       return { status: 1, stderr: "unexpected command", stdout: "" };
     });
     try {
@@ -393,7 +433,7 @@ describe("portfolio agent platform runtime", () => {
       await expect(
         stat(path.join(homeDirectory, ".config", "systemd", "user")),
       ).rejects.toThrow(/ENOENT/u);
-      expect(execute).toHaveBeenCalledTimes(3);
+      expect(execute).toHaveBeenCalledTimes(4);
     } finally {
       await rm(homeDirectory, { force: true, recursive: true });
     }
@@ -431,5 +471,50 @@ describe("portfolio agent platform runtime", () => {
         execute,
       ),
     ).rejects.toThrow("private app and credential directories");
+  });
+
+  it("rejects a system service that can read a sibling credential directory", async () => {
+    const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
+      if (
+        command === "systemctl" &&
+        arguments_[0] === "show" &&
+        arguments_.includes("--property=LoadState")
+      ) {
+        return { status: 0, stderr: "", stdout: "loaded\n" };
+      }
+      if (command === "systemctl" && arguments_[0] === "is-active") {
+        return { status: 0, stderr: "", stdout: "active\n" };
+      }
+      if (
+        command === "systemctl" &&
+        arguments_[0] === "show" &&
+        arguments_.includes("--property=ReadWritePaths")
+      ) {
+        return {
+          status: 0,
+          stderr: "",
+          stdout: `${linuxService.appDirectory} ${linuxService.credentialDirectory}\n`,
+        };
+      }
+      if (
+        command === "systemctl" &&
+        arguments_[0] === "show" &&
+        arguments_.includes("--property=InaccessiblePaths")
+      ) {
+        return {
+          status: 0,
+          stderr: "",
+          stdout: `${linuxService.inaccessibleCredentialDirectories[0]}\n`,
+        };
+      }
+      return { status: 1, stderr: "unexpected command", stdout: "" };
+    });
+
+    await expect(
+      installSystemdAgentService(
+        { ...linuxService, platform: "linux" },
+        execute,
+      ),
+    ).rejects.toThrow("hide sibling credential directories");
   });
 });

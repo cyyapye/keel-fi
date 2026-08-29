@@ -25,6 +25,7 @@ import {
 import {
   MacAgentAccessError,
   linuxAgentAuthorizationPath,
+  linuxAgentSiblingAuthorizationDirectories,
   macAgentApi,
   readMacAgentAuthorization,
   storeMacAgentAuthorization,
@@ -1688,6 +1689,8 @@ async function installLinuxService(
     credentialDirectory: path.dirname(
       linuxAgentAuthorizationPath(keelOrigin, provider),
     ),
+    inaccessibleCredentialDirectories:
+      linuxAgentSiblingAuthorizationDirectories(keelOrigin, provider),
     instanceId: paths.instanceId,
     keelOrigin,
     label: PROVIDERS[provider].label,

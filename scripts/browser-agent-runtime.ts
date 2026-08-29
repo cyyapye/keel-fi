@@ -347,6 +347,7 @@ export type SystemdAgentServiceOptions = {
   appDirectory: string;
   chromePath?: string;
   credentialDirectory: string;
+  inaccessibleCredentialDirectories: readonly string[];
   instanceId: string;
   keelOrigin: URL;
   label: string;
@@ -360,9 +361,43 @@ export type SystemdAgentServiceOptions = {
   xdgStateHome?: string;
 };
 
+function isolatedCredentialDirectories(
+  options: SystemdAgentServiceOptions,
+): string[] {
+  const credentialDirectory = systemdAbsolutePath(options.credentialDirectory);
+  const directories =
+    options.inaccessibleCredentialDirectories.map(systemdAbsolutePath);
+  if (
+    directories.length !== 2 ||
+    new Set(directories).size !== directories.length ||
+    directories.includes(credentialDirectory) ||
+    directories.some(
+      (directory) =>
+        path.dirname(directory) !== path.dirname(credentialDirectory),
+    )
+  ) {
+    throw new Error(
+      "Each Linux provider agent must hide both sibling credential directories.",
+    );
+  }
+  return directories;
+}
+
+function configuredSystemdPaths(rawPaths: string): Set<string> {
+  return new Set(
+    rawPaths
+      .trim()
+      .split(/\s+/u)
+      .filter((entry) => entry.length > 0)
+      .map((entry) => entry.replace(/^[-+!]+/u, "")),
+  );
+}
+
 export function buildSystemdAgentService(
   options: SystemdAgentServiceOptions,
 ): string {
+  const inaccessibleCredentialDirectories =
+    isolatedCredentialDirectories(options);
   const arguments_ = [
     options.nodeExecutable,
     options.tsxCli,
@@ -401,6 +436,9 @@ export function buildSystemdAgentService(
   const environmentLines = environment
     .map((setting) => `Environment=${systemdQuote(setting)}`)
     .join("\n");
+  const inaccessibleCredentialLines = inaccessibleCredentialDirectories
+    .map((directory) => `InaccessiblePaths=${directory}`)
+    .join("\n");
   return `[Unit]
 Description=${systemdQuote(`Keel ${options.label} portfolio agent for ${options.keelOrigin.origin}`)}
 Wants=network-online.target
@@ -422,6 +460,7 @@ ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=${systemdAbsolutePath(options.appDirectory)}
 ReadWritePaths=${systemdAbsolutePath(options.credentialDirectory)}
+${inaccessibleCredentialLines}
 
 [Install]
 WantedBy=default.target
@@ -464,17 +503,39 @@ export async function installSystemdAgentService(
       options.appDirectory,
       options.credentialDirectory,
     ];
-    const configuredWritablePaths = new Set(
-      writablePaths.stdout.trim().split(/\s+/u),
+    const configuredWritablePaths = configuredSystemdPaths(
+      writablePaths.stdout,
     );
     if (
       writablePaths.status !== 0 ||
+      configuredWritablePaths.size !== requiredWritablePaths.length ||
       requiredWritablePaths.some(
         (directory) => !configuredWritablePaths.has(directory),
       )
     ) {
       throw new Error(
         "The administrator-provisioned portfolio agent service must allow writes only to its private app and credential directories.",
+      );
+    }
+    const inaccessiblePaths = execute("systemctl", [
+      "show",
+      unitName,
+      "--property=InaccessiblePaths",
+      "--value",
+    ]);
+    const configuredInaccessiblePaths = configuredSystemdPaths(
+      inaccessiblePaths.stdout,
+    );
+    const requiredInaccessiblePaths = isolatedCredentialDirectories(options);
+    if (
+      inaccessiblePaths.status !== 0 ||
+      configuredInaccessiblePaths.has(options.credentialDirectory) ||
+      requiredInaccessiblePaths.some(
+        (directory) => !configuredInaccessiblePaths.has(directory),
+      )
+    ) {
+      throw new Error(
+        "The administrator-provisioned portfolio agent service must hide sibling credential directories.",
       );
     }
     return unitName;
@@ -490,6 +551,10 @@ export async function installSystemdAgentService(
   await chmod(options.appDirectory, 0o700);
   await mkdir(options.credentialDirectory, { mode: 0o700, recursive: true });
   await chmod(options.credentialDirectory, 0o700);
+  for (const directory of isolatedCredentialDirectories(options)) {
+    await mkdir(directory, { mode: 0o700, recursive: true });
+    await chmod(directory, 0o700);
+  }
   try {
     await writeFile(temporaryUnitPath, buildSystemdAgentService(options), {
       flag: "wx",
