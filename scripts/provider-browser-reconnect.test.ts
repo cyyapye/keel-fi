@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { createConnection, createServer } from "node:net";
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
+import type { Server, Socket } from "node:net";
+import { PassThrough } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   __providerBrowserReconnectTest,
@@ -94,37 +97,85 @@ describe("managed provider browser reconnect", () => {
     expect(ready).toBe(true);
   });
 
-  it("records a real viewer connection while keeping VNC behind loopback", async () => {
-    const vnc = createServer((socket) => {
-      socket.pipe(socket);
+  it("records a viewer only after its loopback VNC connection succeeds", async () => {
+    const viewerListeners: Array<(socket: Socket) => void> = [];
+    const server = Object.assign(new EventEmitter(), {
+      listening: false,
+      unref() {
+        return server;
+      },
+      listen(_port: number, _host: string, callback: () => void) {
+        server.listening = true;
+        callback();
+        return server;
+      },
+      address() {
+        return { address: "127.0.0.1", family: "IPv4", port: 41_337 };
+      },
+      close(callback?: () => void) {
+        server.listening = false;
+        callback?.();
+        return server;
+      },
     });
-    await new Promise<void>((resolve) =>
-      vnc.listen(0, "127.0.0.1", () => resolve()),
-    );
-    const address = vnc.address();
-    if (address === null || typeof address === "string") {
-      throw new Error("Synthetic VNC server did not start.");
-    }
+    const vnc = new PassThrough() as unknown as Socket;
+    const viewer = new PassThrough() as unknown as Socket;
+    const createConnection = vi.fn(() => vnc);
     const proxy = await __providerBrowserReconnectTest.startViewerProxy(
-      address.port,
+      59_123,
+      {
+        createConnection,
+        createServer: (listener: (socket: Socket) => void) => {
+          viewerListeners.push(listener);
+          return server as unknown as Server;
+        },
+      },
     );
-    const viewer = createConnection({ host: "127.0.0.1", port: proxy.port });
     try {
-      await new Promise<void>((resolve, reject) => {
-        viewer.once("connect", resolve);
-        viewer.once("error", reject);
+      expect(proxy.port).toBe(41_337);
+      expect(proxy.connected()).toBe(false);
+      const acceptViewer = viewerListeners[0];
+      if (acceptViewer === undefined) {
+        throw new Error("The viewer proxy did not register its listener.");
+      }
+      acceptViewer(viewer);
+      expect(createConnection).toHaveBeenCalledWith({
+        host: "127.0.0.1",
+        port: 59_123,
       });
-      await expect.poll(() => proxy.connected()).toBe(true);
-      viewer.write("synthetic-viewer-handshake");
-      const echoed = await new Promise<string>((resolve, reject) => {
-        viewer.once("data", (chunk) => resolve(chunk.toString()));
-        viewer.once("error", reject);
-      });
-      expect(echoed).toBe("synthetic-viewer-handshake");
+      expect(proxy.connected()).toBe(false);
+      vnc.emit("connect");
+      expect(proxy.connected()).toBe(true);
     } finally {
-      viewer.destroy();
       await proxy.close();
-      await new Promise<void>((resolve) => vnc.close(() => resolve()));
+    }
+  });
+
+  it("cannot hang teardown when a child exits during forced shutdown", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = new EventEmitter() as EventEmitter & {
+        exitCode: number | null;
+        kill: (signal: NodeJS.Signals) => boolean;
+      };
+      child.exitCode = null;
+      child.kill = vi.fn((signal: NodeJS.Signals) => {
+        if (signal === "SIGKILL") {
+          child.emit("exit", null, signal);
+        }
+        return true;
+      });
+
+      const stopped = __providerBrowserReconnectTest.stopChild(
+        child as unknown as ChildProcess,
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(stopped).resolves.toBeUndefined();
+      expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+      expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

@@ -52,6 +52,10 @@ sudo loginctl enable-linger keel-agent
 Reconnect over SSH as `keel-agent` after enabling linger. The setup command
 fails closed if the user service manager is unavailable.
 
+If an administrator has already provisioned a hardened system service with the
+same origin- and provider-scoped Keel unit name, setup reuses it and does not
+install a competing user service.
+
 ## Set up one provider
 
 From the worker checkout, run the same command shown in Holdings. For example:

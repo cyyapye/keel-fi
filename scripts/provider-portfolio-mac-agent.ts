@@ -36,8 +36,10 @@ import {
   agentApplicationDirectory,
   agentLogDirectory,
   chromeExecutable,
+  chromeProcessIdsForProfile,
   controlledChromeArguments,
   installSystemdAgentService,
+  removeStaleChromeProfileLocks,
   validateInteractiveSetupEnvironment,
   validateLinuxSystemdUser,
   waitForProfileChromeExit,
@@ -275,8 +277,9 @@ async function ensureChrome(
   if (active !== null) {
     return active;
   }
-  await rm(paths.devToolsActivePort, { force: true });
   const chromePath = await chromeExecutable();
+  await stopProfileChrome(provider, keelOrigin, chromePath);
+  await rm(paths.devToolsActivePort, { force: true });
 
   const chrome = spawn(
     chromePath,
@@ -310,37 +313,6 @@ function manualSetupChromeArguments(
     PROVIDERS[provider].portfolioUrl,
     new URL("/holdings", keelOrigin).toString(),
   ];
-}
-
-function chromeProcessIdsForProfile(
-  processList: string,
-  profileDirectory: string,
-  chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-): number[] {
-  const userDataArgument = `--user-data-dir=${profileDirectory}`;
-  return processList.split(/\r?\n/u).flatMap((line) => {
-    const match = /^\s*(\d+)\s+(.+)$/u.exec(line);
-    if (match === null) {
-      return [];
-    }
-    const rawPid = match[1];
-    const command = match[2];
-    if (rawPid === undefined || command === undefined) {
-      return [];
-    }
-    if (command !== chromePath && !command.startsWith(`${chromePath} `)) {
-      return [];
-    }
-    if (
-      command !== `${chromePath} ${userDataArgument}` &&
-      !command.includes(`${userDataArgument} `) &&
-      !command.endsWith(` ${userDataArgument}`)
-    ) {
-      return [];
-    }
-    const pid = Number(rawPid);
-    return Number.isSafeInteger(pid) && pid > 0 ? [pid] : [];
-  });
 }
 
 function profileChromeProcessIds(
@@ -392,6 +364,7 @@ async function stopProfileChrome(
       `Quit the dedicated ${PROVIDERS[provider].label} Chrome window, then rerun setup.`,
     );
   }
+  await removeStaleChromeProfileLocks(paths.profileDirectory);
 }
 
 async function closeControlledChrome(
@@ -1708,12 +1681,12 @@ async function installLinuxService(
   const scriptPath = fileURLToPath(import.meta.url);
   const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
   const paths = providerPaths(provider, keelOrigin, "linux");
-  const chromePath = process.env.KEEL_CHROME_PATH?.trim();
+  const chromePath = await chromeExecutable();
   const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
   const xdgStateHome = process.env.XDG_STATE_HOME?.trim();
   return installSystemdAgentService({
     appDirectory: paths.appDirectory,
-    ...(chromePath ? { chromePath } : {}),
+    chromePath,
     instanceId: paths.instanceId,
     keelOrigin,
     label: PROVIDERS[provider].label,

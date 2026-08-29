@@ -39,8 +39,10 @@ import {
   agentApplicationDirectory,
   agentLogDirectory,
   chromeExecutable,
+  chromeProcessIdsForProfile,
   controlledChromeArguments,
   installSystemdAgentService,
+  removeStaleChromeProfileLocks,
   validateInteractiveSetupEnvironment,
   validateLinuxSystemdUser,
   waitForProfileChromeExit,
@@ -223,8 +225,9 @@ async function ensureChrome(keelOrigin: URL): Promise<number> {
   if (active !== null) {
     return active;
   }
-  await rm(paths.devToolsActivePort, { force: true });
   const chromePath = await chromeExecutable();
+  await stopProfileChrome(keelOrigin, chromePath);
+  await rm(paths.devToolsActivePort, { force: true });
 
   const chrome = spawn(
     chromePath,
@@ -255,34 +258,6 @@ function manualSetupChromeArguments(keelOrigin: URL): string[] {
     ANGELLIST_ORIGIN,
     new URL("/holdings", keelOrigin).toString(),
   ];
-}
-
-function chromeProcessIdsForProfile(
-  processList: string,
-  profileDirectory: string,
-  chromePath: string,
-): number[] {
-  const userDataArgument = `--user-data-dir=${profileDirectory}`;
-  return processList.split(/\r?\n/u).flatMap((line) => {
-    const match = /^\s*(\d+)\s+(.+)$/u.exec(line);
-    const rawPid = match?.[1];
-    const command = match?.[2];
-    if (rawPid === undefined || command === undefined) {
-      return [];
-    }
-    if (command !== chromePath && !command.startsWith(`${chromePath} `)) {
-      return [];
-    }
-    if (
-      command !== `${chromePath} ${userDataArgument}` &&
-      !command.includes(`${userDataArgument} `) &&
-      !command.endsWith(` ${userDataArgument}`)
-    ) {
-      return [];
-    }
-    const pid = Number(rawPid);
-    return Number.isSafeInteger(pid) && pid > 0 ? [pid] : [];
-  });
 }
 
 function profileChromeProcessIds(
@@ -332,6 +307,7 @@ async function stopProfileChrome(
       "Quit the dedicated AngelList Chrome window, then rerun setup.",
     );
   }
+  await removeStaleChromeProfileLocks(paths.profileDirectory);
 }
 
 async function closeControlledChrome(keelOrigin: URL): Promise<void> {
@@ -1041,12 +1017,12 @@ async function installLinuxService(keelOrigin: URL): Promise<string> {
   const scriptPath = fileURLToPath(import.meta.url);
   const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
   const paths = agentPaths(keelOrigin, "linux");
-  const chromePath = process.env.KEEL_CHROME_PATH?.trim();
+  const chromePath = await chromeExecutable();
   const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
   const xdgStateHome = process.env.XDG_STATE_HOME?.trim();
   return installSystemdAgentService({
     appDirectory: paths.appDirectory,
-    ...(chromePath ? { chromePath } : {}),
+    chromePath,
     instanceId: paths.instanceId,
     keelOrigin,
     label: "AngelList",

@@ -27,6 +27,19 @@ export type RunAgentCommand = (
 
 const PROFILE_CHROME_STOP_ATTEMPTS = 120;
 const PROFILE_CHROME_STOP_INTERVAL_MS = 250;
+const LINUX_CHROME_PROCESS_NAMES = new Set([
+  "chrome",
+  "chromium",
+  "chromium-browser",
+  "google-chrome",
+  "google-chrome-stable",
+  "keel-google-chrome",
+]);
+const CHROME_SINGLETON_FILES = [
+  "SingletonCookie",
+  "SingletonLock",
+  "SingletonSocket",
+] as const;
 
 const runAgentCommand: RunAgentCommand = (command, arguments_) => {
   const result = spawnSync(command, [...arguments_], { encoding: "utf8" });
@@ -138,6 +151,7 @@ export async function chromeExecutable(
     ...(platform === "darwin"
       ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
       : [
+          "/usr/local/libexec/keel-google-chrome",
           "/usr/bin/google-chrome-stable",
           "/usr/bin/google-chrome",
           "/usr/bin/chromium",
@@ -152,7 +166,7 @@ export async function chromeExecutable(
   throw new Error(
     platform === "darwin"
       ? "Google Chrome is required in /Applications."
-      : "Google Chrome or Chromium is required. Set KEEL_CHROME_PATH if it is installed outside /usr/bin.",
+      : "Google Chrome or Chromium is required. Set KEEL_CHROME_PATH if Keel's wrapper or Chrome is installed outside its supported paths.",
   );
 }
 
@@ -171,6 +185,54 @@ export function controlledChromeArguments(
       ? ["--headless=new", "--disable-dev-shm-usage"]
       : []),
   ];
+}
+
+export function chromeProcessIdsForProfile(
+  processList: string,
+  profileDirectory: string,
+  chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  platform: NodeJS.Platform = process.platform,
+): number[] {
+  const userDataArgument = `--user-data-dir=${profileDirectory}`;
+  return processList.split(/\r?\n/u).flatMap((line) => {
+    const match = /^\s*(\d+)\s+(.+)$/u.exec(line);
+    const rawPid = match?.[1];
+    const command = match?.[2];
+    if (rawPid === undefined || command === undefined) {
+      return [];
+    }
+    const exactExecutable =
+      command === chromePath || command.startsWith(`${chromePath} `);
+    const linuxExecutable = (() => {
+      if (platform !== "linux" || /(?:^|\s)--type=/u.test(command)) {
+        return false;
+      }
+      const [executable = ""] = command.split(/\s+/u);
+      return LINUX_CHROME_PROCESS_NAMES.has(path.basename(executable));
+    })();
+    if (!exactExecutable && !linuxExecutable) {
+      return [];
+    }
+    if (
+      command !== `${chromePath} ${userDataArgument}` &&
+      !command.includes(`${userDataArgument} `) &&
+      !command.endsWith(` ${userDataArgument}`)
+    ) {
+      return [];
+    }
+    const pid = Number(rawPid);
+    return Number.isSafeInteger(pid) && pid > 0 ? [pid] : [];
+  });
+}
+
+export async function removeStaleChromeProfileLocks(
+  profileDirectory: string,
+): Promise<void> {
+  await Promise.all(
+    CHROME_SINGLETON_FILES.map((file) =>
+      rm(path.join(profileDirectory, file), { force: true }),
+    ),
+  );
 }
 
 export async function waitForProfileChromeExit(
@@ -371,9 +433,29 @@ export async function installSystemdAgentService(
   if (supportedPlatform(options.platform) !== "linux") {
     throw new Error("The systemd installer supports Linux only.");
   }
+  const unitName = systemdAgentUnitName(options.target, options.instanceId);
+  const systemService = execute("systemctl", [
+    "show",
+    unitName,
+    "--property=LoadState",
+    "--value",
+  ]);
+  if (systemService.status === 0 && systemService.stdout.trim() === "loaded") {
+    const activeSystemService = execute("systemctl", [
+      "is-active",
+      "--quiet",
+      unitName,
+    ]);
+    if (activeSystemService.status !== 0) {
+      throw new Error(
+        activeSystemService.stderr.trim() ||
+          "The administrator-provisioned portfolio agent service is not active.",
+      );
+    }
+    return unitName;
+  }
   validateLinuxSystemdUser(execute);
 
-  const unitName = systemdAgentUnitName(options.target, options.instanceId);
   const unitDirectory = agentSystemdUserDirectory(options);
   const unitPath = path.join(unitDirectory, unitName);
   const temporaryUnitPath = `${unitPath}.${process.pid.toString()}.${randomUUID()}.tmp`;

@@ -10,8 +10,10 @@ import {
   agentStateRoot,
   buildSystemdAgentService,
   chromeExecutable,
+  chromeProcessIdsForProfile,
   controlledChromeArguments,
   installSystemdAgentService,
+  removeStaleChromeProfileLocks,
   systemdAgentUnitName,
   validateInteractiveSetupEnvironment,
   validateLinuxSystemdUser,
@@ -67,6 +69,66 @@ describe("portfolio agent platform runtime", () => {
     expect(arguments_).toContain("--headless=new");
     expect(arguments_).toContain("--disable-dev-shm-usage");
     expect(arguments_).toContain("--remote-debugging-address=127.0.0.1");
+  });
+
+  it("prefers the Keel Linux Chrome wrapper when the host provides it", async () => {
+    await expect(
+      chromeExecutable({ environment: {}, platform: "linux" }, (file) =>
+        Promise.resolve(
+          file === "/usr/local/libexec/keel-google-chrome" ||
+            file === "/usr/bin/google-chrome-stable",
+        ),
+      ),
+    ).resolves.toBe("/usr/local/libexec/keel-google-chrome");
+  });
+
+  it("finds a Linux profile browser after its launcher resolves or rewrites argv zero", () => {
+    const profile = "/home/synthetic/.local/state/keel/provider/Chrome";
+    const processList = [
+      `101 /usr/local/libexec/keel-google-chrome --disable-setuid-sandbox --user-data-dir=${profile}`,
+      `102 /opt/google/chrome/chrome --user-data-dir=${profile} --headless=new`,
+      `103 /opt/google/chrome/chrome --type=renderer --user-data-dir=${profile}`,
+      `104 /usr/bin/python3 --user-data-dir=${profile}`,
+      `105 /opt/google/chrome/chrome --user-data-dir=${profile}-copy`,
+    ].join("\n");
+
+    expect(
+      chromeProcessIdsForProfile(
+        processList,
+        profile,
+        "/usr/bin/google-chrome-stable",
+        "linux",
+      ),
+    ).toEqual([101, 102]);
+  });
+
+  it("removes only stale Chrome singleton lock artifacts", async () => {
+    const profile = await mkdtemp(path.join(os.tmpdir(), "keel-profile-"));
+    try {
+      await Promise.all([
+        writeFile(path.join(profile, "SingletonCookie"), "stale"),
+        writeFile(path.join(profile, "SingletonLock"), "stale"),
+        writeFile(path.join(profile, "SingletonSocket"), "stale"),
+        writeFile(path.join(profile, "Cookies"), "preserved"),
+      ]);
+
+      await removeStaleChromeProfileLocks(profile);
+
+      await expect(stat(path.join(profile, "SingletonCookie"))).rejects.toThrow(
+        /ENOENT/u,
+      );
+      await expect(stat(path.join(profile, "SingletonLock"))).rejects.toThrow(
+        /ENOENT/u,
+      );
+      await expect(stat(path.join(profile, "SingletonSocket"))).rejects.toThrow(
+        /ENOENT/u,
+      );
+      await expect(
+        readFile(path.join(profile, "Cookies"), "utf8"),
+      ).resolves.toBe("preserved");
+    } finally {
+      await rm(profile, { force: true, recursive: true });
+    }
   });
 
   it("requires a non-root private display for interactive Linux setup", () => {
@@ -208,6 +270,9 @@ describe("portfolio agent platform runtime", () => {
     );
     const appDirectory = path.join(homeDirectory, "state", "sydecar");
     const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
+      if (command === "systemctl" && arguments_[0] === "show") {
+        return { status: 1, stderr: "not found", stdout: "not-found\n" };
+      }
       if (command === "loginctl") {
         return { status: 0, stderr: "", stdout: "yes\n" };
       }
@@ -254,6 +319,42 @@ describe("portfolio agent platform runtime", () => {
         "--quiet",
         unitName,
       ]);
+    } finally {
+      await rm(homeDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it("reuses an administrator-provisioned system service instead of creating a duplicate", async () => {
+    const homeDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "keel-agent-runtime-"),
+    );
+    const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
+      if (command === "systemctl" && arguments_[0] === "show") {
+        return { status: 0, stderr: "", stdout: "loaded\n" };
+      }
+      if (command === "systemctl" && arguments_[0] === "is-active") {
+        return { status: 0, stderr: "", stdout: "active\n" };
+      }
+      return { status: 1, stderr: "unexpected command", stdout: "" };
+    });
+    try {
+      await expect(
+        installSystemdAgentService(
+          {
+            ...linuxService,
+            environment: {},
+            homeDirectory,
+            platform: "linux",
+          },
+          execute,
+        ),
+      ).resolves.toBe(
+        "keel-sydecar-agent-https-keel-preview-example-com-0123456789abcdef.service",
+      );
+      await expect(
+        stat(path.join(homeDirectory, ".config", "systemd", "user")),
+      ).rejects.toThrow(/ENOENT/u);
+      expect(execute).toHaveBeenCalledTimes(2);
     } finally {
       await rm(homeDirectory, { force: true, recursive: true });
     }
