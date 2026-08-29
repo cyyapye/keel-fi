@@ -8,7 +8,7 @@ x-runtime: &runtime
   restart: unless-stopped
   working_dir: /workspace
   volumes:
-    - keel_wrangler_state:/workspace/apps/api/.wrangler
+    - keel_wrangler_state:/workspace/.keel-local/scenarios
     - ./apps/api/src:/workspace/apps/api/src:ro
     - ./apps/api/wrangler.jsonc:/workspace/apps/api/wrangler.jsonc:ro
     - ./apps/web/index.html:/workspace/apps/web/index.html:ro
@@ -28,14 +28,14 @@ services:
     <<: *runtime
     environment:
       CHOKIDAR_USEPOLLING: "true"
-      WRANGLER_LOG_PATH: /workspace/apps/api/.wrangler/logs/wrangler.log
+      KEEL_LOCAL_SCENARIO: default
+      WRANGLER_LOG_PATH: /workspace/.keel-local/scenarios/default/logs/wrangler.log
     command:
       - /bin/sh
       - -ec
       - |
-        pnpm exec wrangler d1 migrations apply keel-local --env local --local --config apps/api/wrangler.jsonc --persist-to /workspace/apps/api/.wrangler/state
-        pnpm exec wrangler d1 execute keel-local --env local --local --config apps/api/wrangler.jsonc --persist-to /workspace/apps/api/.wrangler/state --file packages/database/seed/synthetic.sql
-        exec pnpm --filter @keel/api exec wrangler dev --env local --ip 0.0.0.0 --port 13246 --persist-to /workspace/apps/api/.wrangler/state
+        pnpm db:seed:local
+        exec pnpm --filter @keel/api exec wrangler dev --env local --ip 0.0.0.0 --port 13246 --persist-to /workspace/.keel-local/scenarios/default
     ports:
       - "127.0.0.1:13246:13246"
     healthcheck:

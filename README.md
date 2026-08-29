@@ -159,6 +159,15 @@ Start the frontend and backend together with one command:
 make dev
 ```
 
+`make dev` migrates and prepares the populated `default` synthetic D1 scenario
+before it starts either service. The scenario persists between runs. Use a
+different isolated verification state without disturbing it by naming the
+scenario:
+
+```sh
+make dev SCENARIO=empty-holdings
+```
+
 The command prints both URLs. The primary checkout uses web port 4177 and API
 port 8789. Linked worktrees derive stable alternate ports from their paths so
 several Codex worktrees can run concurrently. Override either port when needed:
@@ -206,20 +215,28 @@ Run `make dev-clean` when you want to remove the containers, network, and
 Docker-managed local D1 volume. The next `make dev-up` recreates and seeds a
 fresh synthetic database. `make dev-down` never removes volumes.
 
-The native `make db-*` commands operate on the host-side local D1, not the
-Docker-managed database. The Compose API applies migrations and the idempotent
-synthetic seed automatically when it starts.
+The native `make db-*` commands operate on host-side scenario profiles, not the
+Docker-managed database. The Compose API prepares the populated `default`
+scenario automatically when it starts.
 
 The native `make dev` workflow remains available for isolated worktrees and
 custom `KEEL_WEB_PORT` or `KEEL_API_PORT` overrides.
 
-Local database commands:
+Local database commands use `SCENARIO=default` unless another registered
+scenario is selected:
 
 ```sh
-make db-migrate
 make db-seed
+make db-reset SCENARIO=empty-holdings
 make db-check
+make db-scenarios
 ```
+
+`db-seed` is non-destructive: it migrates an existing current-version profile
+and seeds a missing or outdated one. `db-reset` recreates only the named
+disposable scenario, which is the deterministic choice for verification. Run
+`make db-scenarios` to see each scenario and its purpose. Scenario state lives
+under the ignored `.keel-local/scenarios/` directory.
 
 Run the complete local PR-equivalent verification with:
 
@@ -235,7 +252,7 @@ Focused targets are available while iterating:
 | `make lint`      | ESLint only                                                |
 | `make typecheck` | TypeScript only                                            |
 | `make test`      | Unit and API tests only                                    |
-| `make db-verify` | Migrations, synthetic seed, and D1 invariants              |
+| `make db-verify` | Fresh selected seed scenario and D1 invariants             |
 | `make e2e`       | Desktop and mobile Chromium flows                          |
 
 Use `TEST_ARGS` or `E2E_ARGS` for narrower runs, for example

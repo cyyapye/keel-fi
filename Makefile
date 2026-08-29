@@ -8,18 +8,20 @@ PNPM ?= npx --yes pnpm@11.9.0
 COMPOSE ?= docker compose
 TEST_ARGS ?=
 E2E_ARGS ?=
+SCENARIO ?= default
 override E2E_PERSIST_TO := $(CURDIR)/.keel-local/e2e
 WRANGLER_LOG_PATH ?= $(CURDIR)/.wrangler/logs/wrangler.log
 AGENT_PLATFORM ?= $(shell uname -s)
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify
+.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify
 
 help:
 	@echo "Keel developer commands"
 	@echo "  make bootstrap     Install dependencies, seed local D1, install Chromium"
-	@echo "  make dev           Start the API and web app together"
+	@echo "  make dev           Seed default local data and start API + web"
+	@echo "  make dev SCENARIO=empty-holdings  Start a named data scenario"
 	@echo "  make dev-up        Build and start the Docker development stack"
 	@echo "  make dev-down      Stop the Docker development stack (preserves data)"
 	@echo "  make dev-clean     Remove the Docker development stack and synthetic data"
@@ -31,7 +33,10 @@ help:
 	@echo "  make lint          Run ESLint"
 	@echo "  make typecheck     Run TypeScript checks"
 	@echo "  make test          Run unit/API tests (optional TEST_ARGS=...)"
-	@echo "  make db-verify     Apply migrations, seed, and check D1 invariants"
+	@echo "  make db-seed       Prepare a named D1 scenario (SCENARIO=default)"
+	@echo "  make db-reset      Rebuild a named D1 scenario from scratch"
+	@echo "  make db-scenarios  List available local D1 scenarios"
+	@echo "  make db-verify     Reset, seed, and check scenario invariants"
 	@echo "  make local-acceptance-apply   Apply a runtime-only real-company source profile to local D1"
 	@echo "  make local-acceptance-dev     Start the disposable real-company local profile"
 	@echo "  make local-acceptance-restore Remove the disposable real-company local state"
@@ -42,11 +47,11 @@ help:
 bootstrap:
 	node scripts/check-toolchain.mjs
 	$(PNPM) install --frozen-lockfile
-	$(PNPM) db:reset:local
+	KEEL_LOCAL_SCENARIO="$(SCENARIO)" $(PNPM) db:reset:local
 	$(PNPM) exec playwright install chromium
 
 dev:
-	$(PNPM) dev
+	KEEL_LOCAL_SCENARIO="$(SCENARIO)" $(PNPM) dev
 
 dev-up:
 	$(COMPOSE) up --detach --build --wait --wait-timeout 120
@@ -91,20 +96,23 @@ check:
 	$(PNPM) check
 
 db-migrate:
-	$(PNPM) db:migrate:local
+	KEEL_LOCAL_SCENARIO="$(SCENARIO)" $(PNPM) db:migrate:local
 
 db-seed:
-	$(PNPM) db:seed:local
+	KEEL_LOCAL_SCENARIO="$(SCENARIO)" $(PNPM) db:seed:local
 
 db-reset:
-	$(PNPM) db:reset:local
+	KEEL_LOCAL_SCENARIO="$(SCENARIO)" $(PNPM) db:reset:local
 
 db-check:
-	$(PNPM) db:check:local
+	KEEL_LOCAL_SCENARIO="$(SCENARIO)" $(PNPM) db:check:local
 
 db-verify:
 	$(MAKE) db-reset
 	$(MAKE) db-check
+
+db-scenarios:
+	$(PNPM) db:scenarios:local
 
 db-reset-e2e:
 	node scripts/reset-e2e-state.mjs
