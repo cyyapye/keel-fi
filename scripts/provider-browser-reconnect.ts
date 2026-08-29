@@ -52,6 +52,11 @@ type ViewerProxy = {
   port: number;
 };
 
+type ViewerProxyNetwork = {
+  createConnection: (options: { host: string; port: number }) => Socket;
+  createServer: (listener: (socket: Socket) => void) => Server;
+};
+
 export type ProviderBrowserRuntimeOptions = {
   appDirectory: string;
   authorization: MacAgentAuthorization;
@@ -63,6 +68,17 @@ export type ProviderBrowserRuntimeOptions = {
   provider: MacAgentTarget;
   startUrl: string;
 };
+
+type ProviderBrowserRuntimeStage =
+  | "private_storage"
+  | "private_display"
+  | "private_vnc"
+  | "browser_stream"
+  | "secure_tunnel"
+  | "public_tunnel"
+  | "provider_browser"
+  | "session_ready"
+  | "provider_sign_in";
 
 export class ProviderBrowserRuntimeError extends Error {
   public constructor(
@@ -211,7 +227,13 @@ async function waitForPort(port: number, process: ChildProcess): Promise<void> {
   throw new Error("Remote browser service did not start.");
 }
 
-async function startViewerProxy(vncPort: number): Promise<ViewerProxy> {
+async function startViewerProxy(
+  vncPort: number,
+  network: ViewerProxyNetwork = {
+    createConnection: (options) => createConnection(options),
+    createServer: (listener) => createServer(listener),
+  },
+): Promise<ViewerProxy> {
   let connected = false;
   let failed = false;
   const sockets = new Set<Socket>();
@@ -219,8 +241,11 @@ async function startViewerProxy(vncPort: number): Promise<ViewerProxy> {
     sockets.add(socket);
     socket.once("close", () => sockets.delete(socket));
   };
-  const server: Server = createServer((viewer) => {
-    const vnc = createConnection({ host: "127.0.0.1", port: vncPort });
+  const server: Server = network.createServer((viewer) => {
+    const vnc = network.createConnection({
+      host: "127.0.0.1",
+      port: vncPort,
+    });
     track(viewer);
     track(vnc);
     vnc.once("connect", () => {
@@ -290,14 +315,34 @@ async function stopChild(child: ChildProcess | null): Promise<void> {
   if (child === null || child.exitCode !== null) {
     return;
   }
+  const waitForExit = () =>
+    new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (exited: boolean) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        child.off("exit", onExit);
+        resolve(exited);
+      };
+      const onExit = () => finish(true);
+      const timer = setTimeout(
+        () => finish(child.exitCode !== null),
+        PROCESS_STOP_TIMEOUT_MS,
+      );
+      child.once("exit", onExit);
+      if (child.exitCode !== null) {
+        finish(true);
+      }
+    });
+  const terminated = waitForExit();
   child.kill("SIGTERM");
-  const exited = await Promise.race([
-    new Promise<boolean>((resolve) => child.once("exit", () => resolve(true))),
-    sleep(PROCESS_STOP_TIMEOUT_MS).then(() => false),
-  ]);
-  if (!exited && child.exitCode === null) {
+  if (!(await terminated) && child.exitCode === null) {
+    const killed = waitForExit();
     child.kill("SIGKILL");
-    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    await killed;
   }
 }
 
@@ -612,6 +657,7 @@ export async function runProviderBrowserSession(
   let websockify: ChildProcess | null = null;
   let cloudflared: ChildProcess | null = null;
   let chrome: ChildProcess | null = null;
+  let stage: ProviderBrowserRuntimeStage = "private_storage";
   try {
     await mkdir(options.appDirectory, { mode: 0o700, recursive: true });
     await chmod(options.appDirectory, 0o700);
@@ -657,6 +703,7 @@ export async function runProviderBrowserSession(
     }
     await chmod(xauthority, 0o600);
 
+    stage = "private_display";
     xvfb = spawn(
       xvfbPath,
       [
@@ -673,6 +720,7 @@ export async function runProviderBrowserSession(
     );
     await waitForFile(`/tmp/.X11-unix/X${display.toString()}`, xvfb);
 
+    stage = "private_vnc";
     x11vnc = spawn(
       x11vncPath,
       x11VncArguments(display, xauthority, passwordFile, vncPort),
@@ -681,6 +729,7 @@ export async function runProviderBrowserSession(
     await waitForPort(vncPort, x11vnc);
     viewerProxy = await startViewerProxy(vncPort);
 
+    stage = "browser_stream";
     const web = await prepareWebRoot(
       temporaryDirectory,
       noVncDirectory,
@@ -699,6 +748,7 @@ export async function runProviderBrowserSession(
     );
     await waitForPort(webPort, websockify);
 
+    stage = "secure_tunnel";
     cloudflared = spawn(
       cloudflaredPath,
       [
@@ -713,8 +763,10 @@ export async function runProviderBrowserSession(
     cloudflared.stdout?.resume();
     cloudflared.stderr?.resume();
     const liveUrl = new URL(`${web.accessToken}.html`, tunnelOrigin);
+    stage = "public_tunnel";
     await waitForPublicTunnel(liveUrl, cloudflared);
 
+    stage = "provider_browser";
     chrome = spawn(
       options.chromePath,
       remoteChromeArguments(
@@ -733,6 +785,7 @@ export async function runProviderBrowserSession(
     );
     await waitForDevTools(debuggingPort, chrome);
 
+    stage = "session_ready";
     await sessionApi(
       options.authorization,
       options.provider,
@@ -765,6 +818,7 @@ export async function runProviderBrowserSession(
         return "terminated";
       }
       if (session.status === "opened" && viewerProxy.connected()) {
+        stage = "provider_sign_in";
         if (!entryPageRemoved) {
           await unlink(path.join(web.webRoot, `${web.accessToken}.html`)).catch(
             () => undefined,
@@ -794,6 +848,14 @@ export async function runProviderBrowserSession(
       error instanceof ProviderBrowserRuntimeError
         ? error.code
         : "browser_unavailable";
+    console.error(
+      JSON.stringify({
+        event: "provider_browser_reconnect_failed",
+        provider: options.provider,
+        stage,
+        code: errorCode,
+      }),
+    );
     await reportFailure(options, errorCode);
     throw error instanceof ProviderBrowserRuntimeError
       ? error
@@ -819,5 +881,6 @@ export const __providerBrowserReconnectTest = {
   remoteBrowserHtml,
   remoteChromeArguments,
   startViewerProxy,
+  stopChild,
   x11VncArguments,
 };
