@@ -44,6 +44,7 @@ import {
   chromeProcessIdsForProfile,
   controlledChromeArguments,
   installSystemdAgentService,
+  linuxSystemAgentLayout,
   removeStaleChromeProfileLocks,
   validateInteractiveSetupEnvironment,
   validateLinuxSystemdUser,
@@ -1057,7 +1058,9 @@ async function installBackgroundAgent(keelOrigin: URL): Promise<string | null> {
 
 async function setup(keelOrigin: URL): Promise<void> {
   if (process.platform === "linux") {
-    validateLinuxSystemdUser();
+    validateLinuxSystemdUser(undefined, {
+      systemUserName: linuxSystemAgentLayout(keelOrigin, "angellist").user,
+    });
     await validateProviderBrowserRuntime();
     await completeLinuxSignIn(keelOrigin);
   }
