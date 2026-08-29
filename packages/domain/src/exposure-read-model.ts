@@ -103,6 +103,8 @@ export const InvestmentExposurePositionSchema = z
       InvestmentPositionRecordSchema.shape.snapshot.shape.instrumentType,
     currency: InvestmentPositionRecordSchema.shape.snapshot.shape.currency,
     ticker: InvestmentPositionRecordSchema.shape.snapshot.shape.ticker,
+    quantityMicros:
+      InvestmentPositionRecordSchema.shape.snapshot.shape.quantityMicros,
     investedMinor:
       InvestmentPositionRecordSchema.shape.snapshot.shape.investedMinor,
     committedMinor:
@@ -355,6 +357,7 @@ export function createInvestmentExposureView(
           instrumentType: position.snapshot.instrumentType,
           currency: position.snapshot.currency,
           ticker: position.snapshot.ticker,
+          quantityMicros: position.snapshot.quantityMicros,
           investedMinor: position.snapshot.investedMinor,
           committedMinor: position.snapshot.allocationMinor,
           realizedValueMinor: position.snapshot.realizedValueMinor,

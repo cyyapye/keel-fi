@@ -218,7 +218,7 @@ const alphaFixture = {
       retrievedAt: "2026-08-10T16:00:00.000Z",
       confidencePpm: null,
       ticker: "SYN",
-      quantityMicros: 12_345_678,
+      quantityMicros: 1_250_000_000,
       costBasisMinor: 18_250_000,
     },
   ],
@@ -588,8 +588,15 @@ test("leads with the investment and opens a truthful holding detail", async ({
     "Cost basis estimate $185k",
   );
   await expect(publicExposure.locator("summary")).toContainText(
-    "Cost basis $182.5k",
+    "$183k · $190.4/sh · +30.4%",
   );
+  await expect(
+    publicExposure.locator("summary .exposure-group__market-meta"),
+  ).toHaveAttribute("title", "Share price as of Aug 10, 2026");
+  await expect(publicExposure.locator("summary")).not.toContainText(
+    "Cost basis",
+  );
+  await expect(publicExposure.locator("summary")).not.toContainText("Return");
   const harborAction = page.getByRole("button", {
     name: "View Beacon Demo SPV holding details",
   });
@@ -631,7 +638,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     },
   );
 
-  await page.reload();
+  await page.reload({ waitUntil: "networkidle" });
   await navigateToScreen(page, mobile, /Holdings/);
   await page.addStyleTag({
     content: `
@@ -1028,7 +1035,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     page.getByRole("heading", { name: "Brokerage source" }),
   ).toBeVisible();
-  await expect(page.getByText("12.345678")).toBeVisible();
+  await expect(page.getByText("1,250")).toBeVisible();
   await expect(
     page.getByText("Brokerage-reported market value as of the source date."),
   ).toBeVisible();

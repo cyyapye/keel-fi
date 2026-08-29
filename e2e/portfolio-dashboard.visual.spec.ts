@@ -37,7 +37,7 @@ function dashboardHolding(input: {
     retrievedAt: asOf,
     confidencePpm: null,
     ticker: input.ticker ?? null,
-    quantityMicros: publicPosition ? 1_000_000 : null,
+    quantityMicros: publicPosition ? 2_000_000_000 : null,
     costBasisMinor: null,
   };
 }

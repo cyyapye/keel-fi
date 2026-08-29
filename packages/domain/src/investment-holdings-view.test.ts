@@ -119,6 +119,7 @@ describe("investment holdings view contract", () => {
             instrumentType: "common_stock",
             currency: "USD",
             ticker: null,
+            quantityMicros: null,
             investedMinor: 10_000,
             committedMinor: 10_000,
             realizedValueMinor: 0,

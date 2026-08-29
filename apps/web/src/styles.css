@@ -2843,7 +2843,7 @@ h1,
 
 .investment-views__total small {
   color: var(--faint);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2852,7 +2852,7 @@ h1,
 .investment-views__total strong {
   margin-top: 4px;
   color: var(--ink);
-  font-size: 18px;
+  font-size: 20px;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.025em;
   text-align: right;
@@ -2861,7 +2861,7 @@ h1,
 .investment-views__total > span {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   text-align: right;
 }
 
@@ -2873,14 +2873,14 @@ h1,
 
 .exposure-sort > span {
   color: var(--faint);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .exposure-sort .select-trigger {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -2926,7 +2926,7 @@ h1,
 
 .exposure-pagination span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .exposure-group,
@@ -2938,7 +2938,7 @@ h1,
   min-height: 44px;
   padding: 0 4px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -2947,8 +2947,8 @@ h1,
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 24px;
-  min-height: 76px;
-  padding: 16px 0;
+  min-height: 88px;
+  padding: 20px 0;
   cursor: pointer;
   list-style: none;
 }
@@ -2968,19 +2968,19 @@ h1,
 }
 
 .exposure-group summary > span:first-child strong {
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .exposure-group summary > span:first-child small,
 .exposure-group__totals {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
 .exposure-group__totals {
   color: var(--ink);
-  font-size: 15px;
+  font-size: 19px;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
   letter-spacing: -0.02em;
@@ -2989,26 +2989,41 @@ h1,
 
 .exposure-group__totals small {
   display: block;
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--faint);
-  font-size: 7px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 650;
   letter-spacing: 0;
+  line-height: 1.4;
+}
+
+.exposure-group__totals .exposure-group__market-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-weight: 750;
 }
 
 .exposure-group__positions {
   padding-bottom: 16px;
 }
 
-.exposure-group__positions article,
+.exposure-group__positions article {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) minmax(220px, 0.55fr) auto;
+  align-items: center;
+  gap: 28px;
+  padding: 16px 0 16px 22px;
+  border-top: 1px solid var(--line-soft);
+}
+
 .unallocated-positions article {
   display: grid;
   grid-template-columns:
-    minmax(210px, 1fr) minmax(110px, 0.35fr) minmax(120px, 0.4fr)
+    minmax(210px, 1fr) minmax(150px, 0.4fr) minmax(150px, 0.4fr)
     auto;
   align-items: center;
-  gap: 24px;
-  padding: 12px 0 12px 22px;
+  gap: 28px;
+  padding: 16px 0 16px 22px;
   border-top: 1px solid var(--line-soft);
 }
 
@@ -3021,7 +3036,7 @@ h1,
 
 .exposure-group__positions strong,
 .unallocated-positions strong {
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .exposure-group__positions small,
@@ -3029,14 +3044,14 @@ h1,
 .unallocated-positions small,
 .unallocated-positions article > span {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .exposure-group__positions article > .position-row__value,
 .unallocated-positions article > .position-row__value {
   color: var(--ink);
-  font-size: 11px;
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   letter-spacing: -0.015em;
@@ -3044,10 +3059,27 @@ h1,
 
 .exposure-group__positions article > .position-row__value small,
 .unallocated-positions article > .position-row__value small {
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--faint);
-  font-size: 7px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.exposure-group__positions
+  article
+  > .position-row__value
+  .position-row__market-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.exposure-group__positions
+  article
+  > .position-row__value
+  .position-row__allocation {
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .unallocated-positions {
@@ -6643,14 +6675,14 @@ h1,
   }
 
   .exposure-group__totals {
-    max-width: 150px;
-    font-size: 13px;
+    max-width: 170px;
+    font-size: 17px;
     text-align: right;
   }
 
   .exposure-group__positions article > .position-row__value,
   .unallocated-positions article > .position-row__value {
-    font-size: 12px;
+    font-size: 16px;
   }
 
   .exposure-group__positions article,
