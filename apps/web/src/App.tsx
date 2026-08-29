@@ -1237,9 +1237,6 @@ function Goals({
                     key={templateKey}
                     onClick={() => chooseTemplate(templateKey)}
                     size="compact"
-                    tone={
-                      form.templateKey === templateKey ? "primary" : "secondary"
-                    }
                   >
                     {templateLabels[templateKey]}
                   </Button>

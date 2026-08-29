@@ -296,6 +296,31 @@ test("keeps saved goals compact and templates creation-only", async ({
   await expect(
     page.getByRole("button", { exact: true, name: "Custom" }),
   ).toHaveAttribute("aria-pressed", "true");
+  const customTemplate = page.getByRole("button", {
+    exact: true,
+    name: "Custom",
+  });
+  const cashRunwayTemplate = page.getByRole("button", {
+    exact: true,
+    name: "Cash runway",
+  });
+  await cashRunwayTemplate.click();
+  await expect(cashRunwayTemplate).toHaveAttribute("aria-pressed", "true");
+  await expect(customTemplate).toHaveAttribute("aria-pressed", "false");
+  await expect(cashRunwayTemplate).toHaveCSS(
+    "background-color",
+    "rgb(38, 34, 56)",
+  );
+  await expect(cashRunwayTemplate).toHaveCSS("color", "rgb(247, 244, 238)");
+  await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
+    "Protect cash runway",
+  );
   await expect(selectorHeader.locator("strong")).toHaveText("Choose a goal");
   await expectNoHorizontalOverflow(page);
+  await expect(page).toHaveScreenshot("goals-template-selected.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
 });
