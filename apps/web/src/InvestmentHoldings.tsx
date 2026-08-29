@@ -22,9 +22,12 @@ import type {
   InvestmentPositionRecord,
 } from "@keel/domain/position-read-model";
 import {
+  ActionGroup,
   Badge,
   Button,
+  FormMessage,
   Input,
+  Notice,
   Select,
   SelectContent,
   SelectItem,
@@ -856,7 +859,11 @@ function InstitutionActions({
   const waitingCount = status.latestAdjudication?.quarantinedCount ?? 0;
   if (status.status === "disconnected") {
     return (
-      <div className="investment-institution__reconnect">
+      <ActionGroup
+        className="investment-institution__reconnect"
+        layout="split"
+        mobileLayout="stack"
+      >
         <p>
           This Plaid connection ended. Reviewed positions and planning history
           remain available.
@@ -870,28 +877,40 @@ function InstitutionActions({
             {isAdding ? "Opening…" : "Connect again"}
           </Button>
         )}
-      </div>
+      </ActionGroup>
     );
   }
   if (confirmDisconnect) {
     return (
-      <div className="investment-institution__confirm" role="group">
+      <ActionGroup
+        className="investment-institution__confirm"
+        layout="split"
+        mobileLayout="stack"
+        role="group"
+      >
         <p>Provider access will be removed. Reviewed history stays in Keel.</p>
-        <Button disabled={isBusy} onClick={onCancelDisconnect} tone="quiet">
-          Keep connected
-        </Button>
-        <Button
-          disabled={isBusy}
-          onClick={() => onAction("disconnect")}
-          tone="danger"
-        >
-          {isBusy ? "Disconnecting…" : "Disconnect"}
-        </Button>
-      </div>
+        <ActionGroup align="end" mobileLayout="grid">
+          <Button disabled={isBusy} onClick={onCancelDisconnect} tone="quiet">
+            Keep connected
+          </Button>
+          <Button
+            disabled={isBusy}
+            onClick={() => onAction("disconnect")}
+            tone="danger"
+          >
+            {isBusy ? "Disconnecting…" : "Disconnect"}
+          </Button>
+        </ActionGroup>
+      </ActionGroup>
     );
   }
   return (
-    <div className="investment-institution__actions">
+    <ActionGroup
+      align="end"
+      className="investment-institution__actions"
+      mobileLayout="grid"
+      wrap
+    >
       {isRetryableFailure && (
         <p className="investment-institution__retry-note">
           We’ll try again later.
@@ -955,7 +974,7 @@ function InstitutionActions({
       >
         Disconnect
       </Button>
-    </div>
+    </ActionGroup>
   );
 }
 
@@ -1112,15 +1131,19 @@ function PrivateExposureAssignmentForm({
           </div>
         )}
       </fieldset>
-      {error !== null && <p role="alert">{error}</p>}
-      <div className="private-exposure-review__actions">
+      {error !== null && <FormMessage tone="error">{error}</FormMessage>}
+      <ActionGroup
+        align="end"
+        className="private-exposure-review__actions"
+        mobileLayout="grid"
+      >
         <Button disabled={busy} onClick={onCancel} tone="quiet">
           Cancel
         </Button>
         <Button disabled={!canSubmit} tone="primary" type="submit">
           {busy ? "Assigning…" : "Assign company"}
         </Button>
-      </div>
+      </ActionGroup>
     </form>
   );
 }
@@ -1332,12 +1355,12 @@ function ExposureView({
                   </p>
                 )}
                 {exposureReviewBatchError !== null && (
-                  <p
+                  <FormMessage
                     className="private-exposure-exact-batch__error"
-                    role="alert"
+                    tone="error"
                   >
                     {exposureReviewBatchError}
-                  </p>
+                  </FormMessage>
                 )}
               </div>
               <Button
@@ -2325,9 +2348,9 @@ export function InvestmentHoldings({
           )}
         </div>
         {connectionState === null && error === null ? (
-          <p className="investment-institutions__checking" role="status">
+          <FormMessage className="investment-institutions__checking">
             Checking investment institutions…
-          </p>
+          </FormMessage>
         ) : visibleConnectionIds.length === 0 ? null : (
           <div className="investment-institution-list">
             {visibleConnectionIds.map((connectionId) => {
@@ -2407,14 +2430,17 @@ export function InvestmentHoldings({
           </div>
         )}
         {notice !== null && (
-          <p className="investment-institutions__notice" role="status">
+          <FormMessage
+            className="investment-institutions__notice"
+            tone="success"
+          >
             {notice}
-          </p>
+          </FormMessage>
         )}
         {error !== null && (
-          <p className="investment-institutions__error" role="alert">
+          <FormMessage className="investment-institutions__error" tone="error">
             {error} Reviewed holdings were not changed.
-          </p>
+          </FormMessage>
         )}
       </section>
     );
@@ -2484,12 +2510,15 @@ export function InvestmentHoldings({
           </div>
         </div>
         {exposureReviewNotice !== null && (
-          <p className="private-exposure-review__notice" role="status">
+          <FormMessage
+            className="private-exposure-review__notice"
+            tone="success"
+          >
             {exposureReviewNotice}
-          </p>
+          </FormMessage>
         )}
         {exposureReviewLoadError !== null && (
-          <div className="investment-views__error" role="alert">
+          <Notice className="investment-views__error" tone="error">
             <p>
               {exposureReviewLoadError} Reviewed positions were not changed.
             </p>
@@ -2499,15 +2528,15 @@ export function InvestmentHoldings({
             >
               Try again
             </Button>
-          </div>
+          </Notice>
         )}
         {viewError !== null && (
-          <div className="investment-views__error" role="alert">
+          <Notice className="investment-views__error" tone="error">
             <p>{viewError}</p>
             <Button onClick={() => void reload()} tone="secondary">
               Try again
             </Button>
-          </div>
+          </Notice>
         )}
         <ExposureView
           data={data}

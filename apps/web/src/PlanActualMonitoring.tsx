@@ -2,7 +2,7 @@ import {
   type PlanActualActionItem,
   type PlanActualMonitoringState,
 } from "@keel/domain/plan-actual-monitoring";
-import { Badge, Button } from "@keel/ui";
+import { ActionGroup, Badge, Button, FormMessage } from "@keel/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadPlanActualMonitoring, snoozePlanActualMonitoring } from "./api";
@@ -177,9 +177,9 @@ export function PlanActualMonitoring({
       <section className="plan-monitoring plan-monitoring--error">
         <p className="eyebrow">Plan vs actual</p>
         <h2>Monitoring could not load</h2>
-        <p className="plan-monitoring__copy" role="status">
+        <FormMessage className="plan-monitoring__copy" tone="error">
           {error}
-        </p>
+        </FormMessage>
         <Button onClick={() => void load()}>Try again</Button>
       </section>
     );
@@ -250,7 +250,10 @@ export function PlanActualMonitoring({
                   )}
                 </div>
                 <ActionValues item={item} />
-                <div className="plan-monitoring__actions">
+                <ActionGroup
+                  className="plan-monitoring__actions"
+                  layout="stack"
+                >
                   <Button onClick={() => onNavigate(item.route)} tone="primary">
                     {item.nextAction}
                   </Button>
@@ -261,7 +264,7 @@ export function PlanActualMonitoring({
                   >
                     {busyKey === item.key ? "Saving…" : "Review in 7 days"}
                   </Button>
-                </div>
+                </ActionGroup>
               </article>
             </li>
           ))}
@@ -287,9 +290,9 @@ export function PlanActualMonitoring({
       )}
 
       {notice !== null && (
-        <p className="plan-monitoring__notice" role="status">
+        <FormMessage className="plan-monitoring__notice" tone="success">
           {notice}
-        </p>
+        </FormMessage>
       )}
     </section>
   );

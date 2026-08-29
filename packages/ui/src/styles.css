@@ -703,6 +703,27 @@ h3 {
   gap: 12px;
 }
 
+.action-group--end {
+  justify-content: flex-end;
+}
+
+.action-group--split {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+}
+
+.action-group--stack {
+  display: grid;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.action-group--wrap {
+  flex-wrap: wrap;
+}
+
 .field {
   display: grid;
   gap: 8px;
@@ -1367,6 +1388,28 @@ h3 {
     width: 100%;
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .action-group--mobile-grid {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .action-group--mobile-grid > .button {
+    width: 100%;
+  }
+
+  .action-group--mobile-stack {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .action-group--mobile-stack > .action-group,
+  .action-group--mobile-stack > .button {
+    width: 100%;
   }
 
   .metric-card {
