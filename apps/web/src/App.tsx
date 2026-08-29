@@ -2725,6 +2725,7 @@ function PositionValueAdjustmentEditor({
   onAccepted: () => Promise<void>;
 }) {
   const context = holding.positionValueContext ?? null;
+  const projectedEstimate = context?.projectedEstimate ?? null;
   const [open, setOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [value, setValue] = useState("");
@@ -2783,6 +2784,26 @@ function PositionValueAdjustmentEditor({
     setError(null);
   };
 
+  const openEditor = () => {
+    if (projectedEstimate !== null) {
+      setValue(moneyInputValue(projectedEstimate.valueMinor));
+      setEffectiveDate(projectedEstimate.effectiveDate);
+      setSourceKind("other");
+      setSourceLabel(
+        `Portfolio Watch + ${projectedEstimate.referenceSourceLabel}`.slice(
+          0,
+          240,
+        ),
+      );
+      setSourceUrl("");
+      setCommentary(
+        `Estimated from the ${projectedEstimate.referenceSourceLabel} position mark using the reviewed financing valuations nearest the reference and this tranche dates.`,
+      );
+    }
+    setOpen(true);
+    setNotice(null);
+  };
+
   const accept = async () => {
     if (!canReview || valueMinor === null) {
       return;
@@ -2825,20 +2846,17 @@ function PositionValueAdjustmentEditor({
           <p className="eyebrow">Your evidence</p>
           <h3 id="position-value-adjustment-title">Position value</h3>
           <p>
-            Add a sourced mark when you know more than the latest provider
-            update.
+            {projectedEstimate === null
+              ? "Add a sourced mark when you know more than the latest provider update."
+              : "Review the Portfolio Watch estimate or replace it with stronger position evidence."}
           </p>
         </div>
         {!open && (
-          <Button
-            onClick={() => {
-              setOpen(true);
-              setNotice(null);
-            }}
-            tone="secondary"
-          >
+          <Button onClick={openEditor} tone="secondary">
             {context.acceptedAdjustment === null
-              ? "Add value evidence"
+              ? projectedEstimate === null
+                ? "Add value evidence"
+                : "Review estimate"
               : "Update value evidence"}
           </Button>
         )}
@@ -3419,10 +3437,17 @@ function PositionPerformanceSummary({ holding }: { holding: Holding }) {
   }
   const acceptedAdjustment =
     holding.positionValueContext?.acceptedAdjustment ?? null;
+  const projectedEstimate =
+    holding.positionValueContext?.projectedEstimate ?? null;
   const currentValueMinor =
-    acceptedAdjustment?.valueMinor ?? holding.administratorNavMinor;
+    acceptedAdjustment?.valueMinor ??
+    holding.administratorNavMinor ??
+    projectedEstimate?.valueMinor ??
+    null;
   const currentValueReported =
-    acceptedAdjustment !== null || holding.administratorNavState === "reported";
+    acceptedAdjustment !== null ||
+    holding.administratorNavState === "reported" ||
+    projectedEstimate !== null;
   const performance = calculatePositionPerformance({
     currentValueMinor,
     currentValueReported,
@@ -3431,6 +3456,7 @@ function PositionPerformanceSummary({ holding }: { holding: Holding }) {
     fundedMinor: holding.investedMinor ?? null,
     economicsContext: holding.positionEconomicsContext ?? null,
     allowFundedAmountEstimate:
+      holding.companyId !== null ||
       holding.positionKind === "spv_interest" ||
       holding.positionKind === "fund_interest",
   });
@@ -3487,6 +3513,12 @@ function PositionPerformanceSummary({ holding }: { holding: Holding }) {
               : formatSignedProbability(performance.totalReturnPpm)}
           </strong>
           <small>Not annualized. Carry is applied only after an exit.</small>
+          {projectedEstimate !== null && acceptedAdjustment === null && (
+            <small>
+              Uses the Portfolio Watch estimate until stronger evidence is
+              reviewed.
+            </small>
+          )}
         </article>
         {isPlaidInvestmentsHolding(holding) && (
           <article>
@@ -3512,6 +3544,8 @@ function HoldingDetailWorkspace({
   const legalPositionLabel = holdingLegalPositionLabel(holding);
   const acceptedAdjustment =
     holding.positionValueContext?.acceptedAdjustment ?? null;
+  const projectedEstimate =
+    holding.positionValueContext?.projectedEstimate ?? null;
   const isImportedPosition =
     holding.positionValueContext !== null &&
     holding.positionValueContext !== undefined;
@@ -3544,12 +3578,23 @@ function HoldingDetailWorkspace({
       wide: holding.administratorNavState === "locked",
     },
     {
-      label: acceptedAdjustment === null ? "External mark" : "Reviewed mark",
-      value: holdingValueLabel(holding.externalMarkMinor),
+      label:
+        acceptedAdjustment !== null
+          ? "Reviewed mark"
+          : projectedEstimate !== null
+            ? "Portfolio Watch estimate"
+            : "External mark",
+      value: holdingValueLabel(
+        acceptedAdjustment?.valueMinor ??
+          projectedEstimate?.valueMinor ??
+          holding.externalMarkMinor,
+      ),
       helper:
-        acceptedAdjustment === null
-          ? "Latest observed third-party economic mark."
-          : `Accepted from ${acceptedAdjustment.sourceLabel} as of ${formatDate(acceptedAdjustment.effectiveDate)}.`,
+        acceptedAdjustment !== null
+          ? `Accepted from ${acceptedAdjustment.sourceLabel} as of ${formatDate(acceptedAdjustment.effectiveDate)}.`
+          : projectedEstimate !== null
+            ? `Based on ${projectedEstimate.referenceSourceLabel} and reviewed financing rounds; not an accepted mark.`
+            : "Latest observed third-party economic mark.",
       wide: false,
     },
     {
@@ -3733,6 +3778,62 @@ function HoldingDetailWorkspace({
               <dd>{acceptedAdjustment.commentary}</dd>
             </div>
           </dl>
+        </section>
+      )}
+      {acceptedAdjustment === null && projectedEstimate !== null && (
+        <section
+          aria-labelledby="holding-portfolio-watch-estimate-title"
+          className="holding-reviewed-mark"
+        >
+          <p className="eyebrow">Estimated position value</p>
+          <h3 id="holding-portfolio-watch-estimate-title">
+            Portfolio Watch estimate
+          </h3>
+          <dl>
+            <div>
+              <dt>Value</dt>
+              <dd>{holdingValueLabel(projectedEstimate.valueMinor)}</dd>
+            </div>
+            <div>
+              <dt>As of</dt>
+              <dd>{formatDate(projectedEstimate.effectiveDate)}</dd>
+            </div>
+            <div>
+              <dt>GP mark</dt>
+              <dd>{projectedEstimate.referenceSourceLabel}</dd>
+            </div>
+            <div>
+              <dt>This tranche</dt>
+              <dd>
+                <TextLink
+                  href={projectedEstimate.positionRound.sourceUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {projectedEstimate.positionRound.sourceTitle}
+                </TextLink>{" "}
+                · {formatDate(projectedEstimate.positionRound.effectiveDate)}
+              </dd>
+            </div>
+            <div>
+              <dt>Reference tranche</dt>
+              <dd>
+                <TextLink
+                  href={projectedEstimate.referenceRound.sourceUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {projectedEstimate.referenceRound.sourceTitle}
+                </TextLink>{" "}
+                · {formatDate(projectedEstimate.referenceRound.effectiveDate)}
+              </dd>
+            </div>
+          </dl>
+          <small>
+            Scales funded cost basis by the GP mark and the nearest accepted
+            financing valuation for each tranche. Review it before treating it
+            as a position mark; it does not enter FI planning.
+          </small>
         </section>
       )}
     </section>

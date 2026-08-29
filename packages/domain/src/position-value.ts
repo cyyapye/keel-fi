@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { PrivatePositionValueEstimateSchema } from "./private-position-value-estimate";
+
 const IsoDateSchema = z.iso.date();
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
 const NonNegativeMoneyMinorSchema = z.number().int().safe().nonnegative();
@@ -44,6 +46,7 @@ export const PositionValueContextSchema = z.object({
   providerValueState: z.enum(["reported", "locked", "not_reported"]),
   providerValueMinor: NonNegativeMoneyMinorSchema.nullable(),
   acceptedAdjustment: PositionValueAdjustmentSchema.nullable(),
+  projectedEstimate: PrivatePositionValueEstimateSchema.nullable().optional(),
 });
 
 export const AcceptPositionValueAdjustmentInputSchema = z

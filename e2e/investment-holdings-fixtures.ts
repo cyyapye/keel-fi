@@ -383,7 +383,16 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
     legalVehicleName: "Synthetic Beacon SPV",
     reportedExposureName: "Beacon Robotics",
     kind: "spv_interest",
+    openedOn: "2024-06-15",
     ownershipBasis: "reviewed_import",
+    source: {
+      ...syntheticPublicPosition({
+        id: "position_invested_amount_8",
+        observedAt: "2026-08-15T11:45:00.000Z",
+        valueMinor: 4_000_000,
+      }).source,
+      label: "Synthetic GP portal",
+    },
     snapshot: {
       ...syntheticPublicPosition({
         id: "position_invested_amount_8",
@@ -395,6 +404,39 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
       ticker: null,
       quantityMicros: null,
       instrumentType: "spv interest",
+    },
+  };
+  const gpMarkedPosition: InvestmentPositionRecord = {
+    ...syntheticPublicPosition({
+      id: "position_gp_marked_9",
+      observedAt: "2026-08-15T11:45:00.000Z",
+      valueMinor: 6_000_000,
+    }),
+    legalVehicleName: "Synthetic Beacon Direct",
+    reportedExposureName: "Beacon Robotics",
+    kind: "direct",
+    openedOn: "2023-03-10",
+    ownershipBasis: "reviewed_import",
+    source: {
+      ...syntheticPublicPosition({
+        id: "position_gp_marked_9",
+        observedAt: "2026-08-15T11:45:00.000Z",
+        valueMinor: 6_000_000,
+      }).source,
+      label: "Synthetic GP portal",
+    },
+    snapshot: {
+      ...syntheticPublicPosition({
+        id: "position_gp_marked_9",
+        observedAt: "2026-08-15T11:45:00.000Z",
+        valueMinor: 6_000_000,
+      }).snapshot,
+      investedMinor: 2_000_000,
+      allocationMinor: 2_000_000,
+      costBasisMinor: null,
+      ticker: null,
+      quantityMicros: null,
+      instrumentType: "private preferred shares",
     },
   };
   const positionView: InvestmentPositionView = {
@@ -496,7 +538,11 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
               observedAt: "2026-08-15T11:45:00.000Z",
               freshness: "current",
             },
-            positions: [lockedPosition, investedAmountPosition],
+            positions: [
+              lockedPosition,
+              investedAmountPosition,
+              gpMarkedPosition,
+            ],
           },
         ],
       },
@@ -635,6 +681,21 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
     version: 1,
     supersedesMappingId: null,
   });
+  mappings.push({
+    id: "mapping_gp_marked_1",
+    householdId,
+    positionId: gpMarkedPosition.id,
+    exposureId: investedAmountExposure.id,
+    relationshipKind: "direct",
+    allocationPpm: 1_000_000,
+    status: "active",
+    decisionSource: "review",
+    decisionReference: "synthetic GP-marked private mapping",
+    evidenceSha256: fingerprint("6"),
+    effectiveAt: "2026-08-15T12:00:00.000Z",
+    version: 1,
+    supersedesMappingId: null,
+  });
   const exposureView: InvestmentExposureView = createInvestmentExposureView(
     positionView,
     [
@@ -646,6 +707,28 @@ export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView
       investedAmountExposure,
     ],
     mappings,
+    [
+      {
+        companyId: "company_beacon_synthetic",
+        evidenceEventId: "event_beacon_series_a",
+        effectiveDate: "2023-03-01",
+        postMoneyValueMinor: 50_000_000_000,
+        currency: "USD",
+        sourceTitle: "Beacon Robotics Series A",
+        sourceUrl: "https://example.com/beacon-series-a",
+        approximate: false,
+      },
+      {
+        companyId: "company_beacon_synthetic",
+        evidenceEventId: "event_beacon_series_b",
+        effectiveDate: "2024-06-01",
+        postMoneyValueMinor: 100_000_000_000,
+        currency: "USD",
+        sourceTitle: "Beacon Robotics Series B",
+        sourceUrl: "https://example.com/beacon-series-b",
+        approximate: false,
+      },
+    ],
   );
   return InvestmentHoldingsViewSchema.parse({
     version: 1,

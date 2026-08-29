@@ -176,6 +176,9 @@ const alphaFixture = {
       ticker: null,
       quantityMicros: null,
       costBasisMinor: null,
+      investedMinor: 40_000_000,
+      realizedValueMinor: 0,
+      instrumentType: "preferred equity",
     },
     {
       id: "holding_demo_locked",
@@ -607,7 +610,10 @@ test("leads with the investment and opens a truthful holding detail", async ({
         return range.getClientRects().length;
       }),
     ),
-  ).toEqual([1, 1]);
+  ).toEqual([1, 1, 1]);
+  await expect(northstarExposure.locator("summary")).toContainText(
+    "$400k · +200%",
+  );
   const harborAction = page.getByRole("button", {
     name: "View Beacon Demo SPV holding details",
   });
@@ -1036,7 +1042,10 @@ test("leads with the investment and opens a truthful holding detail", async ({
   const adjustedBeaconPosition = harborExposure
     .locator(".exposure-group__positions article")
     .filter({ hasText: "Beacon Demo SPV" });
-  await expect(adjustedBeaconPosition).toContainText("Reviewed mark");
+  await expect(
+    adjustedBeaconPosition.locator(".position-row__value"),
+  ).toHaveAttribute("title", "Reviewed mark as of Aug 18, 2026");
+  await expect(adjustedBeaconPosition).not.toContainText("Reviewed mark");
 
   await latticeExposure.locator("summary").click();
   await page
