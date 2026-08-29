@@ -11,6 +11,74 @@ import { z } from "zod";
 const CONNECTOR_TYPE = "plaid-investments";
 const INVESTMENT_SYNC_STALE_AFTER_MS = 5 * 60 * 1_000;
 
+const DUE_AUTOMATIC_INVESTMENT_CONNECTIONS_SQL = `
+  WITH latest_runs AS (
+    SELECT scope.connection_id, run.status, run.started_at, run.error_code,
+           run.quarantined_count,
+           ROW_NUMBER() OVER (
+             PARTITION BY scope.connection_id
+             ORDER BY run.started_at DESC, run.id DESC
+           ) AS recency
+    FROM connector_sync_investment_connections scope
+    JOIN connector_sync_runs run ON run.id = scope.sync_run_id
+  ), pending_reviews AS (
+    SELECT DISTINCT import_scope.household_id, import_scope.connection_id
+    FROM holding_import_connections import_scope
+    JOIN holding_imports import ON import.id = import_scope.import_id
+    JOIN source_documents document ON document.id = import.source_document_id
+    WHERE document.review_status = 'pending_review'
+  )
+  SELECT connection.id AS connection_id,
+         MIN(COALESCE(latest.started_at, account.created_at)) AS due_order
+  FROM connector_accounts account
+  JOIN connector_investment_connection_versions link
+    ON link.connector_account_id = account.id
+   AND link.household_id = account.household_id
+   AND NOT EXISTS (
+     SELECT 1
+     FROM connector_investment_connection_versions later_link
+     WHERE later_link.supersedes_link_id = link.id
+   )
+  JOIN investment_connections connection
+    ON connection.id = link.connection_id
+   AND connection.household_id = account.household_id
+   AND connection.adapter_type = 'plaid-investments'
+  JOIN investment_connection_versions state
+    ON state.connection_id = connection.id
+   AND state.household_id = connection.household_id
+   AND NOT EXISTS (
+     SELECT 1
+     FROM investment_connection_versions later_state
+     WHERE later_state.supersedes_version_id = state.id
+   )
+  LEFT JOIN latest_runs latest
+    ON latest.connection_id = connection.id AND latest.recency = 1
+  LEFT JOIN pending_reviews pending
+    ON pending.household_id = connection.household_id
+   AND pending.connection_id = connection.id
+  WHERE account.connector_type = 'plaid-investments'
+    AND account.status = 'active'
+    AND account.provider_account_key IS NOT NULL
+    AND state.lifecycle_state = 'active'
+    AND pending.connection_id IS NULL
+    AND (
+      latest.connection_id IS NULL
+      OR (
+        latest.started_at < ?
+        AND latest.quarantined_count = 0
+        AND (
+          latest.status IN ('queued', 'running', 'succeeded')
+          OR (
+            latest.status = 'failed'
+            AND latest.error_code = 'unexpected_failure'
+          )
+        )
+      )
+    )
+  GROUP BY connection.id
+  ORDER BY due_order, connection.id
+  LIMIT ?`;
+
 function connectorAccountDisplayLabel(
   institutionLabel: string,
   providerAccountKey: string,
@@ -101,6 +169,14 @@ export type PlaidWebhookDelivery = {
   readonly status:
     "received" | "queued" | "processing" | "processed" | "failed";
 };
+
+export interface ScheduledInvestmentConnectionsRepository {
+  listDueAutomaticSyncConnectionIds(
+    syncedAfter: string,
+    limit: number,
+  ): Promise<readonly string[]>;
+  findAutomaticSyncAccessSubject(connectionId: string): Promise<string | null>;
+}
 
 const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/u);
 
@@ -200,7 +276,11 @@ async function findIdentity(
   return identity;
 }
 
-export class D1InvestmentConnectionsRepository implements InvestmentConnectionsRepository {
+export class D1InvestmentConnectionsRepository
+  implements
+    InvestmentConnectionsRepository,
+    ScheduledInvestmentConnectionsRepository
+{
   public constructor(private readonly db: D1Database) {}
 
   public async getState(
@@ -220,6 +300,61 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
       connections: statuses,
       errorCode: configured ? null : "configuration_required",
     });
+  }
+
+  public async listDueAutomaticSyncConnectionIds(
+    rawSyncedAfter: string,
+    rawLimit: number,
+  ): Promise<readonly string[]> {
+    const syncedAfter = z.iso.datetime({ offset: true }).parse(rawSyncedAfter);
+    const limit = z.number().int().min(1).max(100).parse(rawLimit);
+    const rows = await this.db
+      .prepare(DUE_AUTOMATIC_INVESTMENT_CONNECTIONS_SQL)
+      .bind(syncedAfter, limit)
+      .all<{ connection_id: string }>();
+    return rows.results.map((row) => z.uuid().parse(row.connection_id));
+  }
+
+  public async findAutomaticSyncAccessSubject(
+    rawConnectionId: string,
+  ): Promise<string | null> {
+    const connectionId = z.uuid().parse(rawConnectionId);
+    const row = await this.db
+      .prepare(
+        `SELECT user.access_subject
+         FROM investment_connections connection
+         JOIN households household ON household.id = connection.household_id
+         JOIN users user ON user.id = household.owner_user_id
+         JOIN investment_connection_versions state
+           ON state.connection_id = connection.id
+          AND state.household_id = connection.household_id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM investment_connection_versions later_state
+            WHERE later_state.supersedes_version_id = state.id
+          )
+         JOIN connector_investment_connection_versions link
+           ON link.connection_id = connection.id
+          AND link.household_id = connection.household_id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM connector_investment_connection_versions later_link
+            WHERE later_link.supersedes_link_id = link.id
+          )
+         JOIN connector_accounts account
+           ON account.id = link.connector_account_id
+          AND account.household_id = connection.household_id
+         WHERE connection.id = ?
+           AND connection.adapter_type = 'plaid-investments'
+           AND state.lifecycle_state = 'active'
+           AND account.connector_type = 'plaid-investments'
+           AND account.status = 'active'
+           AND account.provider_account_key IS NOT NULL
+         LIMIT 1`,
+      )
+      .bind(connectionId)
+      .first<{ access_subject: string }>();
+    return row?.access_subject ?? null;
   }
 
   public async getConnectionStatus(
@@ -1671,3 +1806,8 @@ export class D1InvestmentConnectionsRepository implements InvestmentConnectionsR
       .first<InvestmentConnectionRow>();
   }
 }
+
+export const __investmentConnectionsTest = {
+  dueAutomaticInvestmentConnectionsSql:
+    DUE_AUTOMATIC_INVESTMENT_CONNECTIONS_SQL,
+};

@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { PLAID_INVESTMENTS_DAILY_SYNC_CRON } from "../packages/connectors/src/plaid-investments-schedule";
+
 import {
   PreviewDeploymentEnvironmentSchema,
   macAgentApiOrigin,
@@ -127,6 +129,7 @@ describe("preview deployment configuration", () => {
           },
         ],
       },
+      triggers: { crons: [PLAID_INVESTMENTS_DAILY_SYNC_CRON] },
     });
     expect(webConfig).toMatchObject({
       name: "keel-preview-web",

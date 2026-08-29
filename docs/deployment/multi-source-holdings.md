@@ -335,8 +335,8 @@ exact post-exchange metadata denies Investments access.
 1. Plaid Investments coverage for every intended brokerage and retirement
    account type, including known unsupported or partial cases.
 2. The per-Item and per-product price, any Link update/reconnect charge, the
-   expected bounded manual-check and webhook volume, and the approved monthly
-   ceiling and owner.
+   expected bounded manual-check, webhook, deferred on-load, and daily-backstop
+   volume, and the approved monthly ceiling and owner.
 3. The expected number of connections, containers, imports, coverage rows,
    position associations, exposure mappings, and accepted snapshots, plus the
    resulting D1 and encrypted-backup growth.
@@ -348,9 +348,11 @@ exact post-exchange metadata denies Investments access.
 6. Rollback ownership and the exact configuration change that disables new
    authorization and generic writes while preserving accepted history.
 
-Do not enable Investments Refresh, a Worker schedule, a notification channel, or
-another paid product as part of this checklist. Those require a separate cost
-and product decision.
+The approved Worker schedule is limited to the standard cached holdings read,
+one daily `0 13 * * *` trigger, a batch of at most 100 due connections, and the
+same atomic 24-hour cooldown as the deferred Holdings on-load check. Do not
+enable Investments Refresh, a notification channel, or another paid product as
+part of this checklist. Those require a separate cost and product decision.
 
 ## Synthetic operator check
 

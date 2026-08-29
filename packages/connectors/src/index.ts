@@ -6,6 +6,7 @@ export * from "./financing-announcement";
 export * from "./angellist-investments-csv";
 export * from "./provider-holdings-template-csv";
 export * from "./plaid-investments-holdings";
+export * from "./plaid-investments-schedule";
 export * from "./plaid-cash-accounts";
 export * from "./plaid-cash-flow";
 export * from "./plaid-liabilities";
@@ -71,6 +72,15 @@ export const PlaidHoldingsWebhookJobMessageSchema = z
   })
   .strict();
 
+export const PlaidInvestmentsScheduledSyncJobMessageSchema = z
+  .object({
+    type: z.literal("plaid_investments_scheduled_sync"),
+    messageId: z.uuid(),
+    connectionId: z.uuid(),
+    requestedAt: IsoTimestampSchema,
+  })
+  .strict();
+
 export const SourceDocumentMetadataSchema = z.object({
   householdId: z.string().min(1),
   sourceLabel: z.string().min(1),
@@ -116,6 +126,9 @@ export type PortfolioWatchSourceJobMessage = z.infer<
 >;
 export type PlaidHoldingsWebhookJobMessage = z.infer<
   typeof PlaidHoldingsWebhookJobMessageSchema
+>;
+export type PlaidInvestmentsScheduledSyncJobMessage = z.infer<
+  typeof PlaidInvestmentsScheduledSyncJobMessageSchema
 >;
 export type EvidenceProposal = z.infer<typeof EvidenceProposalSchema>;
 export type SourceDocumentMetadata = z.infer<

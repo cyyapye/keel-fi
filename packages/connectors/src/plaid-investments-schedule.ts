@@ -1,0 +1,1 @@
+export const PLAID_INVESTMENTS_DAILY_SYNC_CRON = "0 13 * * *";

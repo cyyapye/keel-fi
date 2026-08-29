@@ -11,7 +11,8 @@ Create in a private Cloudflare account:
 - D1 database for canonical records;
 - R2 bucket with public access disabled;
 - Queue for ingestion proposals;
-- private API Worker and static-assets Worker with a service binding; and
+- private API Worker with its daily 13:00 UTC Cron Trigger and a static-assets
+  Worker with a service binding; and
 - Access application protecting the public app origin. When Robinhood is
   enabled, the same web Worker also owns a dedicated webhook custom domain that
   exposes only `POST /webhooks/plaid` and relies on Plaid signature validation

@@ -516,7 +516,16 @@ test("shows the Holdings shell while one read-only projection loads", async ({
   await expect(
     page.locator(".exposure-group").filter({ hasText: "NVDA" }).first(),
   ).toBeVisible();
-  await page.waitForTimeout(1_100);
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) =>
+            request.method === "GET" &&
+            request.pathname === "/api/investment-connections",
+        ).length,
+    )
+    .toBe(1);
   expect(apiRequests.filter((request) => request.method !== "GET")).toEqual([]);
 });
 
@@ -966,7 +975,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ).toHaveCount(0);
 });
 
-test("does not run a stale brokerage check during navigation", async ({
+test("runs one due brokerage check after Holdings renders", async ({
   page,
 }, testInfo) => {
   const robinhoodConnectionId = "11111111-1111-4111-8111-111111111111";
@@ -991,7 +1000,15 @@ test("does not run a stale brokerage check during navigation", async ({
   await page.unroute("**/api/investment-connections/auto-sync");
   await page.route("**/api/investment-connections/auto-sync", async (route) => {
     automaticRequestCount += 1;
-    await route.fulfill({ status: 500 });
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        connections: staleStatuses,
+        errorCode: null,
+      },
+    });
   });
 
   await page.goto("/");
@@ -1006,8 +1023,7 @@ test("does not run a stale brokerage check during navigation", async ({
   await expect(robinhoodCard).toContainText(
     "Data as of Aug 15, 2026 · Checked Aug 17, 2026",
   );
-  await page.waitForTimeout(100);
-  expect(automaticRequestCount).toBe(0);
+  await expect.poll(() => automaticRequestCount).toBe(1);
 });
 
 test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
@@ -1015,6 +1031,7 @@ test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
   const interrupted = {
     ...robinhood,
     status: "needs_attention" as const,
+    lastSyncedAt: new Date().toISOString(),
     latestRunStatus: "failed" as const,
     errorCode: "unexpected_failure" as const,
   };
@@ -1059,14 +1076,14 @@ test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
   ).toBeVisible();
 });
 
-test("does not automatically retry an old generic brokerage failure", async ({
+test("automatically retries an old interrupted brokerage check once", async ({
   page,
 }, testInfo) => {
   const robinhood = statuses[0]!;
   const failed = {
     ...robinhood,
     status: "needs_attention" as const,
-    lastSyncedAt: "2026-08-17T11:45:00.000Z",
+    lastSyncedAt: null,
     latestRunStatus: "failed" as const,
     errorCode: "unexpected_failure" as const,
   };
@@ -1103,10 +1120,9 @@ test("does not automatically retry an old generic brokerage failure", async ({
     .locator(".investment-institution")
     .filter({ hasText: "Robinhood" });
   await expect(
-    robinhoodCard.getByText("Check failed", { exact: true }),
+    robinhoodCard.getByText("Up to date", { exact: true }),
   ).toBeVisible();
-  await page.waitForTimeout(250);
-  expect(automaticRequestCount).toBe(0);
+  await expect.poll(() => automaticRequestCount).toBe(1);
 });
 
 test("opens a new Item flow for a disconnected brokerage", async ({
