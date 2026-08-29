@@ -163,6 +163,42 @@ test("keeps saved goals compact and templates creation-only", async ({
   );
   await expect(selectorHeader.locator("small")).toHaveText("v1 · $1.8M");
   await expect(page.locator(".goal-templates")).toHaveCount(0);
+  await expect(page.locator(".goal-selector .eyebrow")).toHaveText("Goals");
+  await expect(
+    page.getByText("Goal version and forecast snapshot save together."),
+  ).toHaveCount(0);
+
+  const modeledBadge = page.getByText("Modeled", { exact: true });
+  await expect(modeledBadge).toHaveCSS("color", "rgb(247, 244, 238)");
+  await expect(modeledBadge).toHaveCSS("background-color", "rgb(38, 34, 56)");
+
+  const selectorBox = await page.locator(".goal-selector").boundingBox();
+  const formBox = await page.locator(".goal-form").boundingBox();
+  expect(selectorBox).not.toBeNull();
+  expect(formBox).not.toBeNull();
+  expect(selectorBox!.y + selectorBox!.height).toBeLessThan(formBox!.y);
+
+  const livePreview = page.locator(".goal-preview");
+  if ((page.viewportSize()?.width ?? 0) <= 980) {
+    await expect(livePreview).toBeHidden();
+  } else {
+    await expect(livePreview).toBeVisible();
+  }
+  await expect(page.locator("[data-slot='panel']")).toHaveCount(4);
+  await expect(page.locator("[data-slot='metric-card']")).toHaveCount(1);
+  await expect(page.locator("[data-slot='action-group']")).toHaveCount(1);
+  const newGoalAction = page.getByRole("button", { name: "New goal +" });
+  await expect(newGoalAction).toHaveAttribute("data-slot", "text-link");
+  await expect(page.locator(".goal-form .field--filled")).toHaveCount(7);
+  await expect(page.locator(".goal-form input[type='date']")).toHaveCount(0);
+  const targetDate = page.getByRole("button", { name: "Target date" });
+  await expect(targetDate).toHaveAttribute("data-slot", "date-picker");
+  await expect(page).toHaveScreenshot("goals-editor.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
 
   await selector.click();
   const options = page.getByRole("option");
@@ -200,11 +236,63 @@ test("keeps saved goals compact and templates creation-only", async ({
   );
   await expect(page.locator(".goal-templates")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "New goal +" }).click();
+  const unit = page.getByRole("combobox", { name: "Unit" });
+  await expect(unit).toBeEnabled();
+
+  const targetValue = page.getByRole("textbox", {
+    name: "Target value · optional",
+  });
+  const targetValueInset = await targetValue.evaluate((input) => {
+    const group = input.parentElement;
+    if (group === null) return null;
+    return {
+      adornments: group.querySelectorAll(
+        "[data-slot='input-prefix'], [data-slot='input-suffix']",
+      ).length,
+      inset:
+        input.getBoundingClientRect().left - group.getBoundingClientRect().left,
+    };
+  });
+  expect(targetValueInset).toEqual({ adornments: 0, inset: 12 });
+
+  await unit.click();
+  await page.getByRole("option", { exact: true, name: "Count" }).click();
+  await expect(unit).toHaveText("Count");
+  await unit.click();
+  await page.getByRole("option", { exact: true, name: "Months" }).click();
+  await expect(unit).toHaveText("Months");
+
+  await targetValue.scrollIntoViewIfNeeded();
+  await expect(page).toHaveScreenshot("goals-runway-fields.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+
+  await selector.click();
+  await page
+    .getByRole("option", {
+      name: "Major purchase Future home purchase v1 · $250k",
+    })
+    .click();
+  await expect(targetDate).toHaveText("Jun 30, 2030");
+  await targetDate.click();
+  await expect(page.locator(".date-picker__popup")).toBeVisible();
+  const clearDate = page.getByRole("button", { name: "Clear date" });
+  await expect(clearDate).toBeVisible();
+  await clearDate.click();
+  await expect(targetDate).toHaveText("Choose date");
+
+  await newGoalAction.click();
   await expect(page.getByText("Start from a template")).toBeVisible();
+  await expect(newGoalAction).toHaveCount(0);
   await expect(page.locator(".goal-templates").getByRole("button")).toHaveCount(
     4,
   );
+  await expect(
+    page.locator(".goal-templates [data-slot='button']"),
+  ).toHaveCount(4);
   await expect(
     page.getByRole("button", { exact: true, name: "Custom" }),
   ).toHaveAttribute("aria-pressed", "true");

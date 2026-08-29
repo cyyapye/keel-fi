@@ -140,7 +140,11 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(
     page.getByRole("heading", { name: "Create a new version" }),
   ).toBeVisible();
-  await expect(page.getByText("Live preview")).toBeVisible();
+  if (mobile) {
+    await expect(page.locator(".goal-preview")).toBeHidden();
+  } else {
+    await expect(page.locator(".goal-preview")).toBeVisible();
+  }
   await expect(page.getByText("Prior decisions stay visible")).toBeVisible();
   await expect(page.getByText("immutable snapshot")).toHaveCount(0);
 

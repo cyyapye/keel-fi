@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { cn } from "../lib/utils";
+import { TextLink } from "./text-link";
 
 type DatePickerProps = {
   "aria-label": string;
@@ -225,6 +226,7 @@ export function DatePicker({
         aria-label={ariaLabel}
         aria-required={required || undefined}
         className={cn("date-picker__trigger", className)}
+        data-slot="date-picker"
         disabled={disabled}
         type="button"
       >
@@ -325,6 +327,19 @@ export function DatePicker({
                 </div>
               ))}
             </div>
+            {!required && selectedDate !== null && (
+              <div className="date-picker__footer">
+                <TextLink
+                  className="date-picker__clear"
+                  onClick={() => {
+                    onValueChange("");
+                    setOpen(false);
+                  }}
+                >
+                  Clear date
+                </TextLink>
+              </div>
+            )}
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>
       </PopoverPrimitive.Portal>
