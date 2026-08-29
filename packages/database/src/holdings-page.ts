@@ -157,6 +157,7 @@ function importedHoldingFrom(
       providerValueState: position.snapshot.unrealizedValue.state,
       providerValueMinor: position.snapshot.unrealizedValue.minor,
       acceptedAdjustment,
+      projectedEstimate: exposurePosition.privateValueEstimate,
     },
   });
 }

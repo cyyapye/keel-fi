@@ -8,6 +8,7 @@ import { D1ExposureRepository } from "./exposures";
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import { D1AlphaRepository } from "./index";
 import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
+import { D1PortfolioWatchRepository } from "./portfolio-watch";
 
 const reconciliationMigrationFile =
   "packages/database/migrations/0026_reconciled_holding_ownership.sql";
@@ -296,6 +297,10 @@ function seedAcceptedPosition(
     ticker?: string;
     quantityMicros?: number;
     costBasisMinor?: number;
+    investedMinor?: number;
+    allocationMinor?: number;
+    openedOn?: string | null;
+    sourceLabel?: string;
     positionKind: "direct" | "spv_interest" | "fund_interest";
     valueMinor: number | null;
     valueState: "reported" | "locked" | "not_reported";
@@ -347,13 +352,14 @@ function seedAcceptedPosition(
          sha256, effective_date, retrieved_at, source_label, review_status,
          created_at
        ) VALUES (?, 'hh_demo', ?, 'synthetic.json', 'application/json', 256,
-         ?, '2026-08-15', ?, 'Synthetic exposure test', 'accepted', ?)`,
+         ?, '2026-08-15', ?, ?, 'accepted', ?)`,
     )
     .run(
       `document_${input.id}`,
       `holding-imports/${input.id}.json`,
       sourceSha256,
       recordedAt,
+      input.sourceLabel ?? "Synthetic exposure test",
       recordedAt,
     );
   database
@@ -410,7 +416,7 @@ function seedAcceptedPosition(
          cost_basis_minor, public_exposure_identity_kind,
          protected_exposure_key, created_at
        ) VALUES (?, 'hh_demo', ?, 1, ?, ?, ?, 'Synthetic owner', ?, 'live',
-         '2026-08-15', 0, 0, ?, ?, 0, ?, ?, ?, 'USD', 'ready', '[]', ?,
+         ?, ?, ?, ?, ?, 0, ?, ?, ?, 'USD', 'ready', '[]', ?,
          ?, ?, ?, ?, ?, ?)`,
     )
     .run(
@@ -420,6 +426,9 @@ function seedAcceptedPosition(
       snapshotFingerprint,
       input.label,
       input.reportedExposureName ?? input.label,
+      input.openedOn ?? "2026-08-15",
+      input.investedMinor ?? 0,
+      input.allocationMinor ?? input.investedMinor ?? 0,
       input.valueMinor,
       input.valueState,
       input.valueMinor,
@@ -446,7 +455,7 @@ function seedAcceptedPosition(
          id, household_id, provider, position_fingerprint, legal_vehicle_name,
          owner_label, position_kind, instrument_type, opened_on, currency,
          created_by, created_at
-       ) VALUES (?, 'hh_demo', ?, ?, ?, 'Synthetic owner', ?, ?, NULL,
+       ) VALUES (?, 'hh_demo', ?, ?, ?, 'Synthetic owner', ?, ?, ?,
          'USD', 'usr_demo', ?)`,
     )
     .run(
@@ -456,6 +465,7 @@ function seedAcceptedPosition(
       input.label,
       input.positionKind,
       input.positionKind === "direct" ? "equity" : "private interest",
+      input.openedOn ?? null,
       recordedAt,
     );
   database
@@ -514,7 +524,7 @@ function seedAcceptedPosition(
          unrealized_value_state, realized_value_minor, net_value_minor,
          net_value_state, instrument_type, currency, observed_at,
          quantity_micros, ticker, cost_basis_minor, created_at
-       ) VALUES (?, 'hh_demo', ?, ?, ?, ?, 'live', 0, 0, ?, ?, 0, ?, ?, ?,
+       ) VALUES (?, 'hh_demo', ?, ?, ?, ?, 'live', ?, ?, ?, ?, 0, ?, ?, ?,
          'USD', ?, ?, ?, ?, ?)`,
     )
     .run(
@@ -523,6 +533,8 @@ function seedAcceptedPosition(
       `document_${input.id}`,
       rowId,
       snapshotFingerprint,
+      input.investedMinor ?? 0,
+      input.allocationMinor ?? input.investedMinor ?? 0,
       input.valueMinor,
       input.valueState,
       input.valueMinor,
@@ -627,6 +639,161 @@ describe("canonical exposure resolution and aggregation", () => {
         )
         .run(),
     ).toThrow(/asset lot retirements are immutable/u);
+  });
+
+  it("projects a tranche-aware private estimate from accepted Portfolio Watch facts", async () => {
+    seedAcceptedPosition(sqlite, {
+      id: "position_private_reference",
+      label: "Synthetic GP-marked position",
+      reportedExposureName: "Northstar Robotics",
+      reportedCompanyId: "co_northstar",
+      positionKind: "direct",
+      investedMinor: 20_000_000,
+      allocationMinor: 20_000_000,
+      openedOn: "2023-03-10",
+      sourceLabel: "Synthetic GP portal",
+      valueMinor: 60_000_000,
+      valueState: "reported",
+    });
+    seedAcceptedPosition(sqlite, {
+      id: "position_private_target",
+      label: "Synthetic earlier-round position",
+      reportedExposureName: "Northstar Robotics",
+      reportedCompanyId: "co_northstar",
+      positionKind: "direct",
+      investedMinor: 10_000_000,
+      allocationMinor: 10_000_000,
+      openedOn: "2024-06-15",
+      valueMinor: null,
+      valueState: "not_reported",
+    });
+    sqlite
+      .prepare(
+        `INSERT INTO canonical_exposures (
+           id, household_id, exposure_kind, canonical_name,
+           protected_identity_key, company_id, resolution_method,
+           evidence_sha256, created_by_user_id, created_at, immutable
+         ) VALUES (
+           'exposure_private_mark_test', 'hh_demo', 'private_company',
+           'Northstar Robotics', NULL, 'co_northstar', 'reviewed_company', ?,
+           'usr_demo', ?, 1
+         )`,
+      )
+      .run(hash("private mark exposure"), recordedAt);
+    for (const [index, positionId] of [
+      "position_private_reference",
+      "position_private_target",
+    ].entries()) {
+      sqlite
+        .prepare(
+          `INSERT INTO holding_position_exposure_mappings (
+             id, household_id, position_id, exposure_id, relationship_kind,
+             allocation_ppm, status, decision_source, decision_reference,
+             evidence_sha256, effective_at, version, supersedes_mapping_id,
+             accepted_by_user_id, accepted_at, immutable
+           ) VALUES (?, 'hh_demo', ?, 'exposure_private_mark_test', 'direct',
+             1000000, 'active', 'review', 'Synthetic private company match',
+             ?, ?, 1, NULL, 'usr_demo', ?, 1
+           )`,
+        )
+        .run(
+          `mapping_private_mark_${index + 1}`,
+          positionId,
+          hash(`private mark mapping ${index + 1}`),
+          recordedAt,
+          recordedAt,
+        );
+    }
+    sqlite.exec(`
+      INSERT INTO portfolio_watch_sources (
+        id, household_id, watch_target_id, company_id, source_kind,
+        source_class, canonical_url, allowed_origin, allowed_path_prefix,
+        status, authority_ppm, identity_confidence_ppm,
+        operational_health_ppm, coverage_json, auto_activated_at, created_at,
+        updated_at
+      ) VALUES (
+        'source_private_mark_test', 'hh_demo', 'watch_northstar',
+        'co_northstar', 'official_company_web', 'official_company',
+        'https://northstar-robotics.example/news',
+        'https://northstar-robotics.example', '/', 'active', 1000000,
+        1000000, 1000000, '{}', '2026-08-20T00:00:00.000Z',
+        '2026-08-20T00:00:00.000Z', '2026-08-20T00:00:00.000Z'
+      );
+    `);
+    const watch = new D1PortfolioWatchRepository(
+      database as unknown as D1Database,
+    );
+    const alpha = new D1AlphaRepository(database as unknown as D1Database);
+    for (const [sequence, effectiveDate, valuationMinor] of [
+      ["a", "2023-03-01", 50_000_000_000],
+      ["b", "2024-06-01", 100_000_000_000],
+    ] as const) {
+      const title = `Synthetic Series ${sequence.toUpperCase()}`;
+      const amountEvidence = "The company raised a synthetic round.";
+      const valuationEvidence =
+        "The company reported a synthetic post-money valuation.";
+      await watch.recordObservation({
+        sourceId: "source_private_mark_test",
+        objectKey: `public-watch/source_private_mark_test/${sequence}`,
+        contentType: "text/html",
+        byteSize: 2_048,
+        sha256: hash(`private mark source ${sequence}`),
+        retrievedAt: "2026-08-20T12:00:00.000Z",
+        sourceUrl: `https://northstar-robotics.example/news/series-${sequence}`,
+        sourceTitle: title,
+        publishedAt: `${effectiveDate}T12:00:00.000Z`,
+        eventType: "financing_announced",
+        observedFact: `${title} reported synthetic financing terms. ${amountEvidence} ${valuationEvidence}`,
+        modelConfidencePpm: 1_000_000,
+        financingFacts: {
+          roundType: "series",
+          roundLabel: `Series ${sequence.toUpperCase()}`,
+          instrument: "equity",
+          announcedAmount: {
+            amountMinor: 10_000_000_000,
+            currency: "USD",
+            qualifier: "exact",
+            evidenceText: amountEvidence,
+          },
+          companyValuation: {
+            amountMinor: valuationMinor,
+            currency: "USD",
+            qualifier: "exact",
+            evidenceText: valuationEvidence,
+            basis: "post_money",
+          },
+          ambiguities: [],
+        },
+        fingerprint: hash(`private mark observation ${sequence}`),
+      });
+      const event = sqlite
+        .prepare("SELECT id FROM evidence_events WHERE headline = ?")
+        .get(title) as { id: string };
+      await alpha.reviewEvidence(accessSubject, event.id, {
+        decision: "accepted",
+        rationale: "Accepted synthetic financing evidence for the estimate.",
+      });
+    }
+
+    database.resetRoundTripCount();
+    const projection = await readModel.list(
+      accessSubject,
+      "2026-08-21T12:00:00.000Z",
+    );
+    expect(database.roundTripCount).toBeLessThanOrEqual(8);
+    expect(
+      projection.positions.find(
+        (position) => position.id === "position_private_target",
+      ),
+    ).toMatchObject({
+      valueMinor: 15_000_000,
+      valueSource: "portfolio_watch_estimate",
+      privateValueEstimate: {
+        referencePositionId: "position_private_reference",
+        referenceRound: { effectiveDate: "2023-03-01" },
+        positionRound: { effectiveDate: "2024-06-01" },
+      },
+    });
   });
 
   it("groups one public security across three accounts without merging positions", async () => {
@@ -2301,7 +2468,9 @@ describe("canonical exposure resolution and aggregation", () => {
     await repository.reconcileAcceptedPublicExposureHistory(accessSubject);
     expect(database.roundTripCount).toBeLessThanOrEqual(4);
 
+    database.resetRoundTripCount();
     await readModel.list(accessSubject);
+    expect(database.roundTripCount).toBeLessThanOrEqual(8);
     const exposureSql = database.preparedSql.find(
       (sql) =>
         sql.includes("FROM canonical_exposures") &&
@@ -2318,6 +2487,26 @@ describe("canonical exposure resolution and aggregation", () => {
         ),
       ),
     ).toBe(true);
+    const acceptedValuationSql = database.preparedSql.find((sql) =>
+      sql.includes("FROM public_source_observations observation"),
+    );
+    expect(acceptedValuationSql).toBeDefined();
+    const acceptedValuationPlan = sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${acceptedValuationSql ?? "SELECT 1"}`)
+      .all("hh_demo") as Array<{ detail: string }>;
+    const acceptedValuationPlanDetails = acceptedValuationPlan
+      .map((row) => row.detail)
+      .join("\n");
+    expect(acceptedValuationPlanDetails).toContain(
+      "evidence_events_household_status_idx",
+    );
+    expect(acceptedValuationPlanDetails).toContain(
+      "sqlite_autoindex_public_source_observations_2",
+    );
+    expect(acceptedValuationPlanDetails).toContain(
+      "sqlite_autoindex_evidence_claims_2",
+    );
+    expect(acceptedValuationPlanDetails).not.toContain("SCAN");
   });
 });
 

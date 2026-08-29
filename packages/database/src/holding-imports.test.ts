@@ -2773,7 +2773,7 @@ describe("reviewed portfolio baseline persistence", () => {
       }),
     ]);
     expect(changedState.changes.cashAccounts).toEqual([]);
-    expect(database.roundTripCount).toBeLessThanOrEqual(13);
+    expect(database.roundTripCount).toBeLessThanOrEqual(14);
 
     const baselineItemsSql = database.preparedSql
       .filter(

@@ -441,6 +441,9 @@ function exposureValueSourceLabel(
   if (position.valueSource === "invested_amount") {
     return "Invested amount estimate";
   }
+  if (position.valueSource === "portfolio_watch_estimate") {
+    return "Portfolio Watch estimate";
+  }
   return null;
 }
 
@@ -465,6 +468,7 @@ function exposurePositionPerformance(position: InvestmentExposurePosition) {
           }
         : null,
     allowFundedAmountEstimate:
+      position.isPrivateCompanyPosition ||
       position.positionKind === "spv_interest" ||
       position.positionKind === "fund_interest",
   });
@@ -484,11 +488,6 @@ function positionEconomicsLabel(
 ): string | null {
   const performance = exposurePositionPerformance(position);
   const labels: string[] = [];
-  if (position.positionKind === "spv_interest" && position.committedMinor > 0) {
-    labels.push(
-      `Commitment ${formatHoldingCurrency(position.committedMinor, position.currency)}`,
-    );
-  }
   if (performance.costBasisMinor !== null) {
     const basisLabel = formatRoundedHoldingCurrency(
       performance.costBasisMinor,
@@ -1442,7 +1441,9 @@ function ExposureView({
         const positionCount = positions.length;
         const displayName = exposureDisplayName(group, positions);
         const investedEstimateCount = positions.filter(
-          (position) => position.valueSource === "invested_amount",
+          (position) =>
+            position.valueSource === "invested_amount" ||
+            position.valueSource === "portfolio_watch_estimate",
         ).length;
         const currentSharePrice = exposureSharePricePresentation(
           group,
@@ -1543,9 +1544,16 @@ function ExposureView({
                       </strong>
                       <small>{positionContext(position)}</small>
                     </span>
-                    <span className="position-row__value">
+                    <span
+                      className="position-row__value"
+                      title={
+                        valueSourceLabel !== null
+                          ? `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`
+                          : undefined
+                      }
+                    >
                       {exposurePositionValue(position)}
-                      {valueSourceLabel !== null && (
+                      {valueSourceLabel !== null && economicsLabel === null && (
                         <small>{valueSourceLabel}</small>
                       )}
                       {economicsLabel !== null && (
