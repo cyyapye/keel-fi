@@ -452,6 +452,51 @@ h3 {
   padding: 0;
 }
 
+.keel-switch {
+  display: inline-flex;
+  width: 38px;
+  height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 3px;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.keel-switch__thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--ink);
+  border-radius: 999px;
+  transform: translateX(0);
+}
+
+.keel-switch[data-checked] {
+  background: var(--ink);
+}
+
+.keel-switch[data-checked] .keel-switch__thumb {
+  background: var(--canvas);
+  transform: translateX(16px);
+}
+
+.keel-switch[data-readonly] {
+  cursor: default;
+}
+
+.keel-switch[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.keel-switch:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

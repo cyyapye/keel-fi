@@ -25,5 +25,6 @@ export {
   SelectTrigger,
   SelectValue,
 } from "./components/select";
+export { Switch } from "./components/switch";
 export { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/tabs";
 export { TextLink, type TextLinkProps } from "./components/text-link";

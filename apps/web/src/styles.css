@@ -971,38 +971,28 @@ h1,
   gap: 21px 24px;
 }
 
-.primary-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 26px 0;
+.goal-primary-control {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
   color: var(--ink);
-}
-
-.primary-toggle input {
-  margin-top: 2px;
-  accent-color: var(--ink);
-}
-
-.primary-toggle strong,
-.primary-toggle small {
-  display: block;
-}
-
-.primary-toggle strong {
-  font-size: 10px;
-}
-
-.primary-toggle small {
-  margin-top: 4px;
-  color: var(--faint);
+  cursor: pointer;
   font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.goal-primary-control[data-readonly] {
+  cursor: default;
 }
 
 .goal-form__actions {
   display: flex;
   align-items: center;
   gap: 14px;
+  margin-top: 26px;
 }
 
 .goal-preview {
