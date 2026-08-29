@@ -26,6 +26,8 @@ const linuxService: SystemdAgentServiceOptions = {
   appDirectory:
     "/home/synthetic/.local/state/keel/portfolio-agents/sydecar-agent/instances/local",
   chromePath: "/opt/chrome/google-chrome",
+  credentialDirectory:
+    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-0123456789abcdef",
   instanceId: "https-keel-preview-example-com-0123456789abcdef",
   keelOrigin: new URL("https://keel-preview.example.com"),
   label: "Sydecar",
@@ -207,6 +209,9 @@ describe("portfolio agent platform runtime", () => {
     expect(unit).toContain(`WorkingDirectory=${linuxService.repositoryRoot}`);
     expect(unit).toContain(`ReadWritePaths=${linuxService.appDirectory}`);
     expect(unit).toContain(
+      `ReadWritePaths=${linuxService.credentialDirectory}`,
+    );
+    expect(unit).toContain(
       'Environment="KEEL_CHROME_PATH=/opt/chrome/google-chrome"',
     );
     expect(unit).toContain(
@@ -232,6 +237,12 @@ describe("portfolio agent platform runtime", () => {
         appDirectory: "/home/synthetic/%i",
       }),
     ).toThrow("systemd specifiers");
+    expect(() =>
+      buildSystemdAgentService({
+        ...linuxService,
+        credentialDirectory: "/home/synthetic/credential dir",
+      }),
+    ).toThrow("contain no whitespace");
   });
 
   it.runIf(process.platform === "linux")(
@@ -269,6 +280,13 @@ describe("portfolio agent platform runtime", () => {
       path.join(os.tmpdir(), "keel-agent-runtime-"),
     );
     const appDirectory = path.join(homeDirectory, "state", "sydecar");
+    const credentialDirectory = path.join(
+      homeDirectory,
+      ".config",
+      "keel",
+      "agent-credentials",
+      linuxService.instanceId,
+    );
     const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
       if (command === "systemctl" && arguments_[0] === "show") {
         return { status: 1, stderr: "not found", stdout: "not-found\n" };
@@ -286,6 +304,7 @@ describe("portfolio agent platform runtime", () => {
         {
           ...linuxService,
           appDirectory,
+          credentialDirectory,
           environment: {},
           homeDirectory,
           platform: "linux",
@@ -300,8 +319,13 @@ describe("portfolio agent platform runtime", () => {
         unitName,
       );
       expect((await stat(unitPath)).mode & 0o777).toBe(0o600);
+      expect((await stat(credentialDirectory)).mode & 0o777).toBe(0o700);
       expect(await readFile(unitPath, "utf8")).toBe(
-        buildSystemdAgentService({ ...linuxService, appDirectory }),
+        buildSystemdAgentService({
+          ...linuxService,
+          appDirectory,
+          credentialDirectory,
+        }),
       );
       expect(execute).toHaveBeenCalledWith("systemctl", [
         "--user",
@@ -329,11 +353,26 @@ describe("portfolio agent platform runtime", () => {
       path.join(os.tmpdir(), "keel-agent-runtime-"),
     );
     const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
-      if (command === "systemctl" && arguments_[0] === "show") {
+      if (
+        command === "systemctl" &&
+        arguments_[0] === "show" &&
+        arguments_.includes("--property=LoadState")
+      ) {
         return { status: 0, stderr: "", stdout: "loaded\n" };
       }
       if (command === "systemctl" && arguments_[0] === "is-active") {
         return { status: 0, stderr: "", stdout: "active\n" };
+      }
+      if (
+        command === "systemctl" &&
+        arguments_[0] === "show" &&
+        arguments_.includes("--property=ReadWritePaths")
+      ) {
+        return {
+          status: 0,
+          stderr: "",
+          stdout: `${linuxService.appDirectory} ${linuxService.credentialDirectory}\n`,
+        };
       }
       return { status: 1, stderr: "unexpected command", stdout: "" };
     });
@@ -354,9 +393,43 @@ describe("portfolio agent platform runtime", () => {
       await expect(
         stat(path.join(homeDirectory, ".config", "systemd", "user")),
       ).rejects.toThrow(/ENOENT/u);
-      expect(execute).toHaveBeenCalledTimes(2);
+      expect(execute).toHaveBeenCalledTimes(3);
     } finally {
       await rm(homeDirectory, { force: true, recursive: true });
     }
+  });
+
+  it("rejects a hardened system service that cannot persist credential rotation", async () => {
+    const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
+      if (
+        command === "systemctl" &&
+        arguments_[0] === "show" &&
+        arguments_.includes("--property=LoadState")
+      ) {
+        return { status: 0, stderr: "", stdout: "loaded\n" };
+      }
+      if (command === "systemctl" && arguments_[0] === "is-active") {
+        return { status: 0, stderr: "", stdout: "active\n" };
+      }
+      if (
+        command === "systemctl" &&
+        arguments_[0] === "show" &&
+        arguments_.includes("--property=ReadWritePaths")
+      ) {
+        return {
+          status: 0,
+          stderr: "",
+          stdout: `${linuxService.appDirectory}\n`,
+        };
+      }
+      return { status: 1, stderr: "unexpected command", stdout: "" };
+    });
+
+    await expect(
+      installSystemdAgentService(
+        { ...linuxService, platform: "linux" },
+        execute,
+      ),
+    ).rejects.toThrow("private app and credential directories");
   });
 });

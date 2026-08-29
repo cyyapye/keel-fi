@@ -27,6 +27,7 @@ import {
 } from "../packages/domain/src/index";
 import {
   MacAgentAccessError,
+  linuxAgentAuthorizationPath,
   macAgentApi,
   readMacAgentAuthorization,
   storeMacAgentAuthorization,
@@ -1023,6 +1024,9 @@ async function installLinuxService(keelOrigin: URL): Promise<string> {
   return installSystemdAgentService({
     appDirectory: paths.appDirectory,
     chromePath,
+    credentialDirectory: path.dirname(
+      linuxAgentAuthorizationPath(keelOrigin, "angellist"),
+    ),
     instanceId: paths.instanceId,
     keelOrigin,
     label: "AngelList",
