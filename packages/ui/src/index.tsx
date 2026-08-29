@@ -1,7 +1,7 @@
 export { AppShell, type NavigationItem } from "./components/app-shell";
 export { Badge } from "./components/badge";
 export { BrandMark } from "./components/brand-mark";
-export { Button } from "./components/button";
+export { Button, ButtonLink } from "./components/button";
 export {
   ChartContainer,
   ChartTooltipContent,

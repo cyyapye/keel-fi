@@ -299,10 +299,11 @@ function LiquidityChart({
       >
         {snapshot.liquidity.map((segment, index) => (
           <li key={segment.key}>
-            <button
+            <Button
               aria-label={`View ${segment.label} holdings detail, ${formatChartMoney(segment.valueMinor, snapshot.currency)}, ${formatProbability(ratioPpm(segment.valueMinor, total))}`}
+              className="portfolio-liquidity-legend__action"
               onClick={() => onViewAccess(segment.key)}
-              type="button"
+              tone="plain"
             >
               <span className="portfolio-liquidity-legend__label">
                 <i
@@ -321,7 +322,7 @@ function LiquidityChart({
                   {formatProbability(ratioPpm(segment.valueMinor, total))}
                 </small>
               </span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

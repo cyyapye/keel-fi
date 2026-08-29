@@ -375,6 +375,7 @@ test("drills each portfolio chart into its corresponding Holdings detail without
       name: new RegExp(`View ${access.label} holdings detail`, "u"),
     });
     await expect(accessButton).toBeVisible();
+    await expect(accessButton).toHaveAttribute("data-slot", "button");
     if (index === 0) {
       await accessButton.press("Enter");
     } else {
