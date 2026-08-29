@@ -525,6 +525,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
         summary: null,
         positions: [],
         cashAccounts: [],
+        changes: { positions: [], cashAccounts: [] },
         planning: {
           currentFiEligibleLiquidMinor: 182_500_000,
           protectedCashFloorMinor: 10_300_000,

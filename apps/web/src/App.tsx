@@ -5830,19 +5830,140 @@ function dollarInputToMinorUnits(value: string): number | null {
   return minor <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(minor) : null;
 }
 
-function baselineValueLabel(
-  position: PortfolioBaselineState["positions"][number],
-): string {
-  if (position.valueState === "locked") {
+type BaselineChangeValue = {
+  valueMinor: number | null;
+  valueState: "reported" | "locked" | "not_reported";
+};
+
+function baselineChangeValueLabel(value: BaselineChangeValue): string {
+  if (value.valueState === "locked") {
     return "Locked";
   }
-  if (position.valueMinor === null) {
+  if (value.valueState !== "reported" || value.valueMinor === null) {
     return "Not reported";
   }
-  return formatCompactMoney(position.valueMinor);
+  return formatMoney(value.valueMinor);
+}
+
+function baselineChangeTransition(change: {
+  changeType: "added" | "updated";
+  current: BaselineChangeValue;
+  previous: BaselineChangeValue | null;
+}): string {
+  const current = baselineChangeValueLabel(change.current);
+  if (change.changeType === "added" || change.previous === null) {
+    return `Added at ${current}`;
+  }
+  const previous = baselineChangeValueLabel(change.previous);
+  return previous === current ? current : `${previous} → ${current}`;
+}
+
+function pluralizedCount(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function automaticPortfolioBaselineChangeNote(
+  state: PortfolioBaselineState,
+  otherFiEligibleLiquidMinor: number,
+): string {
+  const descriptions = [
+    ...state.changes.positions.map((change) => {
+      const current = baselineChangeValueLabel(change.current);
+      const outsideFi =
+        change.current.classification === "private_paper"
+          ? " (outside FI liquid)"
+          : "";
+      if (change.changeType === "added" || change.previous === null) {
+        return `${change.current.positionName}: added at ${current}${outsideFi}`;
+      }
+      const previous = baselineChangeValueLabel(change.previous);
+      return previous === current
+        ? `${change.current.positionName}: source refreshed; value unchanged at ${current}${outsideFi}`
+        : `${change.current.positionName}: ${previous} → ${current}${outsideFi}`;
+    }),
+    ...state.changes.cashAccounts.map((change) => {
+      const current = baselineChangeValueLabel(change.current);
+      if (change.changeType === "added" || change.previous === null) {
+        return `${change.current.accountLabel}: added at ${current}`;
+      }
+      const previous = baselineChangeValueLabel(change.previous);
+      return previous === current
+        ? `${change.current.accountLabel}: balance refreshed; value unchanged at ${current}`
+        : `${change.current.accountLabel}: ${previous} → ${current}`;
+    }),
+  ];
+  const parts =
+    descriptions.length <= 3
+      ? descriptions
+      : [
+          [
+            state.changes.positions.length > 0
+              ? pluralizedCount(
+                  state.changes.positions.length,
+                  "holding changed",
+                  "holdings changed",
+                )
+              : null,
+            state.changes.cashAccounts.length > 0
+              ? pluralizedCount(
+                  state.changes.cashAccounts.length,
+                  "cash account changed",
+                  "cash accounts changed",
+                )
+              : null,
+          ]
+            .filter((value): value is string => value !== null)
+            .join("; "),
+        ];
+  const priorOtherFiEligibleLiquidMinor =
+    state.latestBaseline?.otherFiEligibleLiquidMinor ?? 0;
+  if (priorOtherFiEligibleLiquidMinor !== otherFiEligibleLiquidMinor) {
+    parts.push(
+      `Cash held elsewhere: ${formatMoney(priorOtherFiEligibleLiquidMinor)} → ${formatMoney(otherFiEligibleLiquidMinor)}`,
+    );
+  }
+  const proposedFiEligibleLiquidMinor = addMinorUnits(
+    state.summary?.publicMarketValueMinor ?? 0,
+    state.summary?.cashAccountValueMinor ?? 0,
+    otherFiEligibleLiquidMinor,
+  );
+  if (
+    proposedFiEligibleLiquidMinor !==
+    state.planning.currentFiEligibleLiquidMinor
+  ) {
+    parts.push(
+      `FI-eligible liquid: ${formatMoney(state.planning.currentFiEligibleLiquidMinor)} → ${formatMoney(proposedFiEligibleLiquidMinor)}`,
+    );
+  } else if (parts.length > 0) {
+    parts.push(
+      `FI-eligible liquid remains ${formatMoney(proposedFiEligibleLiquidMinor)}`,
+    );
+  }
+  return (parts.filter(Boolean).join("; ") || "Reviewed source update").slice(
+    0,
+    500,
+  );
+}
+
+function portfolioBaselineRequiresCashOverlapReview(
+  state: PortfolioBaselineState,
+  otherFiEligibleLiquidMinor: number,
+): boolean {
+  if (otherFiEligibleLiquidMinor <= 0 || state.summary === null) {
+    return false;
+  }
+  const brokerageCashMinor = addMinorUnits(
+    ...state.positions
+      .filter(
+        (position) => position.isCashPosition && position.valueMinor !== null,
+      )
+      .map((position) => position.valueMinor ?? 0),
+  );
+  return state.summary.cashAccountValueMinor > 0 || brokerageCashMinor > 0;
 }
 
 const PORTFOLIO_ACCESS_DETAIL_PAGE_SIZE = 12;
+const PORTFOLIO_BASELINE_CHANGE_PAGE_SIZE = 12;
 
 type PortfolioAccessDetailRow = {
   context: string;
@@ -6077,13 +6198,10 @@ function PortfolioBaselineSection({
   const [state, setState] = useState<PortfolioBaselineState | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [otherLiquidInput, setOtherLiquidInput] = useState("");
-  const [changeNote, setChangeNote] = useState(
-    "Replaced the FI liquid baseline with reviewed sources.",
+  const [changeNote, setChangeNote] = useState<string | null>(null);
+  const [visibleChangeCount, setVisibleChangeCount] = useState(
+    PORTFOLIO_BASELINE_CHANGE_PAGE_SIZE,
   );
-  const [duplicateReviewConfirmed, setDuplicateReviewConfirmed] =
-    useState(false);
-  const [cashOverlapReviewConfirmed, setCashOverlapReviewConfirmed] =
-    useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -6146,6 +6264,16 @@ function PortfolioBaselineSection({
       proposedFiEligibleMinor,
     );
   }, [proposedFiEligibleMinor, state]);
+  const automaticChangeNote = useMemo(() => {
+    if (state === null || proposedOtherLiquidMinor === null) {
+      return "";
+    }
+    return automaticPortfolioBaselineChangeNote(
+      state,
+      proposedOtherLiquidMinor,
+    );
+  }, [proposedOtherLiquidMinor, state]);
+  const effectiveChangeNote = (changeNote ?? automaticChangeNote).trim();
 
   const openReview = () => {
     if (state === null) {
@@ -6154,9 +6282,8 @@ function PortfolioBaselineSection({
     setOtherLiquidInput(
       minorUnitsToDollarInput(state.suggestedOtherFiEligibleLiquidMinor),
     );
-    setChangeNote("Replaced the FI liquid baseline with reviewed sources.");
-    setDuplicateReviewConfirmed(false);
-    setCashOverlapReviewConfirmed(false);
+    setChangeNote(null);
+    setVisibleChangeCount(PORTFOLIO_BASELINE_CHANGE_PAGE_SIZE);
     setError(null);
     setReviewing(true);
   };
@@ -6168,7 +6295,7 @@ function PortfolioBaselineSection({
       state.baseForecastSnapshotId === null ||
       state.baseForecastSnapshotVersion === null ||
       proposedOtherLiquidMinor === null ||
-      changeNote.trim().length === 0
+      effectiveChangeNote.length === 0
     ) {
       return;
     }
@@ -6177,9 +6304,12 @@ function PortfolioBaselineSection({
       baseForecastSnapshotId: state.baseForecastSnapshotId,
       baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
       otherFiEligibleLiquidMinor: proposedOtherLiquidMinor,
-      duplicateReviewConfirmed,
-      cashOverlapReviewConfirmed,
-      changeNote: changeNote.trim(),
+      duplicateReviewConfirmed: state.requiresDuplicateReview,
+      cashOverlapReviewConfirmed: portfolioBaselineRequiresCashOverlapReview(
+        state,
+        proposedOtherLiquidMinor,
+      ),
+      changeNote: effectiveChangeNote,
     };
     setWorking(true);
     setError(null);
@@ -6239,20 +6369,97 @@ function PortfolioBaselineSection({
 
   if (reviewing) {
     const otherLiquidInputInvalid = proposedOtherLiquidMinor === null;
-    const duplicateCount = state.summary.potentialDuplicateCount;
-    const brokerageCashMinor = addMinorUnits(
-      ...state.positions
-        .filter(
-          (position) => position.isCashPosition && position.valueMinor !== null,
-        )
-        .map((position) => position.valueMinor ?? 0),
-    );
+    const sourceChanges = [
+      ...state.changes.positions.map((change) => {
+        const valueUnchanged =
+          change.previous !== null &&
+          baselineChangeValueLabel(change.previous) ===
+            baselineChangeValueLabel(change.current);
+        return {
+          context: `${change.current.sourceLabel} · ${change.current.ownerLabel}`,
+          id: `position:${change.current.id}`,
+          meta: valueUnchanged
+            ? `Source refreshed ${formatDate(change.current.observedAt)}`
+            : change.current.isCashPosition
+              ? "Brokerage cash"
+              : change.current.classification === "public_market"
+                ? "Public market"
+                : "Private paper · outside FI liquid",
+          name: change.current.positionName,
+          possibleOverlap: change.current.potentialDuplicate,
+          transition: baselineChangeTransition(change),
+        };
+      }),
+      ...state.changes.cashAccounts.map((change) => {
+        const valueUnchanged =
+          change.previous !== null &&
+          baselineChangeValueLabel(change.previous) ===
+            baselineChangeValueLabel(change.current);
+        return {
+          context: `${change.current.institutionLabel} · ${change.current.subtype}`,
+          id: `cash:${change.current.id}`,
+          meta: valueUnchanged
+            ? `Source refreshed ${formatDate(change.current.observedAt)}`
+            : `Bank cash · ${formatDate(change.current.observedAt)}`,
+          name: change.current.accountLabel,
+          possibleOverlap: false,
+          transition: baselineChangeTransition(change),
+        };
+      }),
+    ];
+    const visibleSourceChanges = sourceChanges.slice(0, visibleChangeCount);
+    const priorOtherLiquidMinor =
+      state.latestBaseline?.otherFiEligibleLiquidMinor ?? 0;
+    const otherLiquidChanged =
+      proposedOtherLiquidMinor !== null &&
+      proposedOtherLiquidMinor !== priorOtherLiquidMinor;
+    const reviewChangeCount =
+      sourceChanges.length + (otherLiquidChanged ? 1 : 0);
     const requiresCashOverlapReview =
-      [
-        state.summary.cashAccountValueMinor,
-        brokerageCashMinor,
-        proposedOtherLiquidMinor ?? 0,
-      ].filter((value) => value > 0).length > 1;
+      proposedOtherLiquidMinor !== null &&
+      portfolioBaselineRequiresCashOverlapReview(
+        state,
+        proposedOtherLiquidMinor,
+      );
+    const impactChanges =
+      proposedImpact === null
+        ? []
+        : [
+            {
+              changed:
+                state.currentImpact.fiEligibleLiquidMinor !==
+                proposedImpact.fiEligibleLiquidMinor,
+              label: "FI-eligible liquid",
+              value: `${formatCompactMoney(state.currentImpact.fiEligibleLiquidMinor)} → ${formatCompactMoney(proposedImpact.fiEligibleLiquidMinor)}`,
+            },
+            {
+              changed:
+                state.currentImpact.protectedRunwayMonths !==
+                proposedImpact.protectedRunwayMonths,
+              label: "Protected runway",
+              value: `${state.currentImpact.protectedRunwayMonths} → ${proposedImpact.protectedRunwayMonths} months`,
+            },
+            {
+              changed:
+                state.currentImpact.fiGapMinor !== proposedImpact.fiGapMinor,
+              label: "FI gap",
+              value: `${formatCompactMoney(state.currentImpact.fiGapMinor)} → ${formatCompactMoney(proposedImpact.fiGapMinor)}`,
+            },
+            {
+              changed:
+                state.currentImpact.middleTotalAvailableMinor !==
+                proposedImpact.middleTotalAvailableMinor,
+              label: "5-year middle total",
+              value: `${formatCompactMoney(state.currentImpact.middleTotalAvailableMinor)} → ${formatCompactMoney(proposedImpact.middleTotalAvailableMinor)}`,
+            },
+            {
+              changed:
+                state.currentImpact.probabilityCrossingFiPpm !==
+                proposedImpact.probabilityCrossingFiPpm,
+              label: "Chance of reaching FI",
+              value: `${formatProbability(state.currentImpact.probabilityCrossingFiPpm)} → ${formatProbability(proposedImpact.probabilityCrossingFiPpm)}`,
+            },
+          ].filter((impact) => impact.changed);
     return (
       <section
         aria-labelledby="portfolio-baseline-review-title"
@@ -6265,115 +6472,77 @@ function PortfolioBaselineSection({
             ref={reviewHeadingRef}
             tabIndex={-1}
           >
-            Review the new FI liquid baseline
+            {state.latestBaseline === null
+              ? "Set the FI liquid baseline"
+              : reviewChangeCount === 1
+                ? "Review 1 baseline change"
+                : reviewChangeCount === 0
+                  ? "Review the baseline change"
+                  : `Review ${reviewChangeCount} baseline changes`}
           </h2>
           <p>
-            Reviewed public-market holdings and cash accounts are included in
-            full. Add only liquid assets not already listed below.
+            {state.latestBaseline === null
+              ? "Review the sources entering the FI plan. Nothing changes until you confirm."
+              : `Only changes since ${formatDate(state.latestBaseline.observedAt)} are shown. Nothing changes until you confirm.`}
           </p>
         </header>
 
-        <div aria-label="Reviewed source totals" className="baseline-totals">
-          <div>
-            <span>Public holdings</span>
-            <strong>
-              {formatCompactMoney(state.summary.publicMarketValueMinor)}
-            </strong>
-          </div>
-          <div>
-            <span>Cash accounts</span>
-            <strong>
-              {formatCompactMoney(state.summary.cashAccountValueMinor)}
-            </strong>
-          </div>
-          <div>
-            <span>Private paper</span>
-            <strong>
-              {formatCompactMoney(state.summary.privatePaperValueMinor)}
-            </strong>
-          </div>
-          <div>
-            <span>Value unavailable</span>
-            <strong>
-              {state.summary.unknownValueCount +
-                state.summary.unknownCashAccountCount}
-            </strong>
-          </div>
-        </div>
-
-        {state.cashAccounts.length > 0 && (
-          <div className="baseline-position-list baseline-cash-list">
-            <div className="baseline-position-list__header">
-              <span>Reviewed cash account</span>
-              <span>Reviewed balance</span>
-            </div>
-            {state.cashAccounts.map((account) => (
-              <article key={account.id}>
-                <div>
-                  <strong>{account.accountLabel}</strong>
-                  <span>
-                    {account.institutionLabel} · {account.subtype}
-                  </span>
-                </div>
-                <div>
-                  <strong>{acceptedCashValueLabel(account.valueMinor)}</strong>
-                  <span>
-                    {account.refreshKind === "live"
-                      ? "Live balance checked"
-                      : "Cached data retrieved"}{" "}
-                    {formatDate(account.observedAt)}
-                  </span>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-
-        <div className="baseline-position-list">
-          <div className="baseline-position-list__header">
-            <span>Reviewed position</span>
-            <span>Source value</span>
-          </div>
-          {state.positions.map((position) => (
-            <article key={position.id}>
-              <div>
-                <strong>{position.positionName}</strong>
-                <span>
-                  {position.sourceLabel} · {position.ownerLabel}
-                </span>
-                {position.potentialDuplicate && (
-                  <small>Possible overlap across sources</small>
+        {sourceChanges.length > 0 && (
+          <section
+            aria-label="Baseline source changes"
+            className="baseline-changes"
+          >
+            <header>
+              <p className="eyebrow">Source changes</p>
+              <h3>
+                {pluralizedCount(
+                  sourceChanges.length,
+                  "changed source",
+                  "changed sources",
                 )}
+              </h3>
+            </header>
+            <div className="baseline-position-list">
+              <div className="baseline-position-list__header">
+                <span>Changed source</span>
+                <span>Before → after</span>
               </div>
-              <div>
-                <strong>{baselineValueLabel(position)}</strong>
+              {visibleSourceChanges.map((sourceChange) => (
+                <article key={sourceChange.id}>
+                  <div>
+                    <strong>{sourceChange.name}</strong>
+                    <span>{sourceChange.context}</span>
+                    {sourceChange.possibleOverlap && (
+                      <small>Possible overlap in this changed source</small>
+                    )}
+                  </div>
+                  <div>
+                    <strong>{sourceChange.transition}</strong>
+                    <span>{sourceChange.meta}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+            {visibleSourceChanges.length < sourceChanges.length && (
+              <div className="baseline-changes__more">
                 <span>
-                  {position.isCashPosition
-                    ? "Brokerage cash"
-                    : position.classification === "public_market"
-                      ? "Public market"
-                      : "Private paper"}
+                  Showing {visibleSourceChanges.length} of{" "}
+                  {sourceChanges.length}
                 </span>
+                <Button
+                  onClick={() =>
+                    setVisibleChangeCount(
+                      (current) =>
+                        current + PORTFOLIO_BASELINE_CHANGE_PAGE_SIZE,
+                    )
+                  }
+                  tone="secondary"
+                >
+                  Show more
+                </Button>
               </div>
-            </article>
-          ))}
-        </div>
-
-        {state.requiresDuplicateReview && (
-          <label className="baseline-overlap-confirmation">
-            <Input
-              checked={duplicateReviewConfirmed}
-              onChange={(event) =>
-                setDuplicateReviewConfirmed(event.currentTarget.checked)
-              }
-              type="checkbox"
-            />
-            <span>
-              I reviewed the {duplicateCount} possible overlapping{" "}
-              {duplicateCount === 1 ? "position" : "positions"} and set the FI
-              amount without double counting.
-            </span>
-          </label>
+            )}
+          </section>
         )}
 
         <div className="baseline-policy-grid">
@@ -6383,13 +6552,13 @@ function PortfolioBaselineSection({
               className="baseline-liquid-composition"
             >
               <div className="baseline-liquid-composition__row">
-                <span>Reviewed public-market holdings</span>
+                <span>Public holdings</span>
                 <strong>
                   {formatMoney(state.summary.publicMarketValueMinor)}
                 </strong>
               </div>
               <div className="baseline-liquid-composition__row">
-                <span>Reviewed cash accounts</span>
+                <span>Bank cash</span>
                 <strong>
                   {formatMoney(state.summary.cashAccountValueMinor)}
                 </strong>
@@ -6397,7 +6566,7 @@ function PortfolioBaselineSection({
               <Field
                 className="baseline-liquid-composition__field"
                 htmlFor="other-fi-eligible-liquid-input"
-                label="Manual liquid residual"
+                label="Cash held elsewhere"
               >
                 <InputGroup prefix="$">
                   <Input
@@ -6422,34 +6591,24 @@ function PortfolioBaselineSection({
               </div>
             </div>
             <p id="fi-eligible-liquid-help">
-              Enter only eligible liquid assets not represented by a linked cash
-              account or public holding. Private paper stays outside current
-              liquidity and unavailable values remain unknown.
+              Add liquid cash that is not in a linked bank or brokerage account.
+              Private paper stays outside FI liquid.
             </p>
             {requiresCashOverlapReview && (
-              <label className="baseline-overlap-confirmation">
-                <Input
-                  checked={cashOverlapReviewConfirmed}
-                  onChange={(event) =>
-                    setCashOverlapReviewConfirmed(event.currentTarget.checked)
-                  }
-                  type="checkbox"
-                />
-                <span>
-                  I checked linked cash accounts, brokerage cash positions, and
-                  the manual residual and removed any overlap.
-                </span>
-              </label>
+              <p className="baseline-cash-context">
+                This amount is added on top of sourced bank and brokerage cash.
+                Reduce it if any of that cash is already listed.
+              </p>
             )}
             <Field
               htmlFor="portfolio-baseline-change-note"
               label="What changed"
             >
-              <Input
+              <Textarea
                 id="portfolio-baseline-change-note"
                 maxLength={500}
                 onChange={(event) => setChangeNote(event.currentTarget.value)}
-                value={changeNote}
+                value={changeNote ?? automaticChangeNote}
               />
             </Field>
           </div>
@@ -6458,42 +6617,15 @@ function PortfolioBaselineSection({
             <p className="eyebrow">Forecast impact</p>
             {proposedImpact === null ? (
               <p>Enter a valid dollar amount with no more than two decimals.</p>
+            ) : impactChanges.length === 0 ? (
+              <p>No forecast values change.</p>
             ) : (
-              <>
-                <div>
-                  <span>FI-eligible liquid</span>
-                  <strong>
-                    {formatCompactMoney(
-                      state.planning.currentFiEligibleLiquidMinor,
-                    )}{" "}
-                    → {formatCompactMoney(proposedImpact.fiEligibleLiquidMinor)}
-                  </strong>
+              impactChanges.map((impact) => (
+                <div key={impact.label}>
+                  <span>{impact.label}</span>
+                  <strong>{impact.value}</strong>
                 </div>
-                <div>
-                  <span>Protected runway</span>
-                  <strong>{proposedImpact.protectedRunwayMonths} months</strong>
-                </div>
-                <div>
-                  <span>FI gap</span>
-                  <strong>
-                    {formatCompactMoney(proposedImpact.fiGapMinor)}
-                  </strong>
-                </div>
-                <div>
-                  <span>5-year middle total</span>
-                  <strong>
-                    {formatCompactMoney(
-                      proposedImpact.middleTotalAvailableMinor,
-                    )}
-                  </strong>
-                </div>
-                <div>
-                  <span>Chance of reaching FI</span>
-                  <strong>
-                    {formatProbability(proposedImpact.probabilityCrossingFiPpm)}
-                  </strong>
-                </div>
-              </>
+              ))
             )}
           </div>
         </div>
@@ -6501,8 +6633,8 @@ function PortfolioBaselineSection({
         {error !== null && <Notice tone="error">{error}</Notice>}
         <footer className="baseline-review-actions">
           <p>
-            Confirming replaces the current FI liquid baseline and saves a new
-            forecast version. Earlier versions remain available.
+            Applying these changes updates the FI plan and saves a new forecast
+            version.
           </p>
           <div>
             <Button
@@ -6519,14 +6651,16 @@ function PortfolioBaselineSection({
               disabled={
                 working ||
                 proposedImpact === null ||
-                changeNote.trim().length === 0 ||
-                (state.requiresDuplicateReview && !duplicateReviewConfirmed) ||
-                (requiresCashOverlapReview && !cashOverlapReviewConfirmed)
+                effectiveChangeNote.length === 0
               }
               onClick={() => void confirm()}
               tone="primary"
             >
-              {working ? "Confirming…" : "Confirm baseline"}
+              {working
+                ? "Applying…"
+                : state.latestBaseline === null
+                  ? "Set baseline"
+                  : "Apply changes"}
             </Button>
           </div>
         </footer>
@@ -6535,15 +6669,11 @@ function PortfolioBaselineSection({
   }
 
   const isCurrent = state.status === "current";
-  const requiresOverlapReview =
-    !isCurrent &&
-    state.latestBaseline !== null &&
-    (state.requiresDuplicateReview || state.requiresCashOverlapReview);
-  const requiresSourceReview =
-    !isCurrent && state.latestBaseline !== null && state.hasCashAccountChanges;
   if (isCurrent) {
     return null;
   }
+  const sourceChangeCount =
+    state.changes.positions.length + state.changes.cashAccounts.length;
   return (
     <section
       aria-labelledby="portfolio-baseline-title"
@@ -6552,26 +6682,18 @@ function PortfolioBaselineSection({
       <div className="portfolio-baseline__heading">
         <p className="eyebrow">Planning baseline</p>
         <h2 id="portfolio-baseline-title">
-          {requiresOverlapReview
-            ? state.requiresCashOverlapReview
-              ? "Check cash held elsewhere"
-              : "Review a source overlap"
-            : requiresSourceReview
-              ? "Bank cash changes are ready"
-              : state.latestBaseline === null
-                ? "Set the FI planning baseline"
-                : "Holdings changes are ready"}
+          {state.latestBaseline === null
+            ? "Set the FI planning baseline"
+            : sourceChangeCount === 1
+              ? "1 baseline change is ready"
+              : sourceChangeCount === 0
+                ? "A baseline change is ready"
+                : `${sourceChangeCount} baseline changes are ready`}
         </h2>
         <p>
-          {requiresOverlapReview
-            ? state.requiresCashOverlapReview
-              ? "Linked bank and brokerage cash are already counted. Confirm that the manual residual does not repeat them."
-              : "Keel needs one source decision before updating the FI plan."
-            : requiresSourceReview
-              ? "Review the changed bank balances before updating the FI plan."
-              : state.latestBaseline === null
-                ? "Set reviewed holdings and cash accounts as the FI baseline, then add any eligible liquid assets held elsewhere."
-                : "Review the accepted holdings before replacing the current FI planning baseline."}
+          {state.latestBaseline === null
+            ? "Set reviewed public holdings and cash as the FI baseline, then add any cash held elsewhere."
+            : "Review only the changed sources and their forecast impact."}
         </p>
         {error !== null && (
           <p className="portfolio-baseline__error" role="status">
@@ -6580,15 +6702,7 @@ function PortfolioBaselineSection({
         )}
       </div>
       <Button onClick={openReview} tone="primary">
-        {requiresOverlapReview
-          ? state.requiresCashOverlapReview
-            ? "Review cash held elsewhere"
-            : "Review source"
-          : requiresSourceReview
-            ? "Review bank cash"
-            : state.latestBaseline === null
-              ? "Set baseline"
-              : "Review baseline"}
+        {state.latestBaseline === null ? "Set baseline" : "Review changes"}
       </Button>
     </section>
   );

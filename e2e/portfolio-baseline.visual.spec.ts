@@ -33,7 +33,7 @@ const investmentConnectionsState = {
   errorCode: null,
 };
 
-const readyState = {
+const readyStateWithoutChanges = {
   status: "ready",
   sourceRevision: "a".repeat(64),
   observedAt: "2026-08-10T16:00:00.000Z",
@@ -148,6 +148,22 @@ const readyState = {
   canConfirm: true,
 } as const;
 
+const readyState = {
+  ...readyStateWithoutChanges,
+  changes: {
+    positions: readyStateWithoutChanges.positions.map((current) => ({
+      changeType: "added" as const,
+      current,
+      previous: null,
+    })),
+    cashAccounts: readyStateWithoutChanges.cashAccounts.map((current) => ({
+      changeType: "added" as const,
+      current,
+      previous: null,
+    })),
+  },
+} as const;
+
 const confirmationResult = {
   baseline: {
     id: "baseline_synthetic",
@@ -210,6 +226,20 @@ const automaticReadyState = {
   hasCashAccountChanges: false,
   requiresDuplicateReview: false,
   requiresCashOverlapReview: false,
+  changes: {
+    positions: [
+      {
+        changeType: "updated",
+        current: readyState.positions[0],
+        previous: {
+          valueMinor: 22_800_000,
+          valueState: "reported",
+          observedAt: "2026-08-08T16:00:00.000Z",
+        },
+      },
+    ],
+    cashAccounts: [],
+  },
 } as const;
 
 const automaticConfirmationResult = {
@@ -246,6 +276,71 @@ const cashChangeReadyState = {
   },
   hasCashAccountChanges: true,
   requiresCashOverlapReview: false,
+  changes: {
+    positions: [],
+    cashAccounts: [
+      {
+        changeType: "updated",
+        current: readyState.cashAccounts[0],
+        previous: {
+          valueMinor: 2_300_000,
+          valueState: "reported",
+          observedAt: "2026-08-10T16:00:00.000Z",
+        },
+      },
+    ],
+  },
+} as const;
+
+const scalePositions = Array.from({ length: 120 }, (_, index) => ({
+  id: `holding_scale_${index.toString().padStart(3, "0")}`,
+  positionName: `Synthetic Scale Holding ${index.toString().padStart(3, "0")}`,
+  ownerLabel: "Synthetic brokerage",
+  sourceLabel: "Plaid Investments",
+  provider: "plaid_investments" as const,
+  classification: "public_market" as const,
+  valueMinor: 100_000 + index,
+  valueState: "reported" as const,
+  observedAt: "2026-08-18T16:00:00.000Z",
+  ticker: `S${index.toString().padStart(3, "0")}`,
+  isCashPosition: false,
+  potentialDuplicate: false,
+  duplicateWith: [],
+}));
+
+const scaleReadyState = {
+  ...automaticReadyState,
+  sourceRevision: "c".repeat(64),
+  observedAt: "2026-08-18T16:00:00.000Z",
+  summary: {
+    ...automaticReadyState.summary,
+    positionCount: 120,
+    publicMarketValueMinor: 12_007_140,
+  },
+  positions: scalePositions,
+  suggestedOtherFiEligibleLiquidMinor: 0,
+  latestBaseline: {
+    ...automaticReadyState.latestBaseline,
+    summary: {
+      ...automaticReadyState.latestBaseline.summary,
+      positionCount: 120,
+      publicMarketValueMinor: 10_807_140,
+    },
+    fiEligibleLiquidMinor: 10_807_140,
+    otherFiEligibleLiquidMinor: 0,
+  },
+  changes: {
+    positions: scalePositions.map((current, index) => ({
+      changeType: "updated" as const,
+      current,
+      previous: {
+        valueMinor: 90_000 + index,
+        valueState: "reported" as const,
+        observedAt: "2026-08-17T16:00:00.000Z",
+      },
+    })),
+    cashAccounts: [],
+  },
 } as const;
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -297,6 +392,7 @@ test("sets the initial FI baseline while checking only manual cash", async ({
       latestBaseline: confirmationResult.baseline,
       hasSourceChanges: false,
       hasCashAccountChanges: false,
+      changes: { positions: [], cashAccounts: [] },
       canConfirm: false,
     };
     await route.fulfill({ json: confirmationResult, status: 201 });
@@ -352,35 +448,22 @@ test("sets the initial FI baseline while checking only manual cash", async ({
   });
 
   await page.getByRole("button", { name: "Set baseline" }).click();
-  await expect(page.getByLabel("Manual liquid residual")).toHaveValue(
-    "50,000.00",
-  );
+  await expect(
+    page.getByRole("textbox", { name: /^Cash held elsewhere/u }),
+  ).toHaveValue("50,000.00");
   await expect(
     page.getByLabel("Proposed FI-eligible liquid calculation"),
   ).toContainText("$387,680.55");
-  await expect(page.getByLabel(/possible overlapping positions/u)).toHaveCount(
-    0,
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.getByLabel("What changed")).toHaveValue(
+    /5 (?:reviewed )?sources|3 holdings changed/u,
   );
-  await page
-    .getByLabel(/I checked linked cash accounts, brokerage cash positions/u)
-    .check();
-  const review = page.locator(".portfolio-baseline-review");
-  await page.addStyleTag({
-    content:
-      ".topbar { position: absolute !important; visibility: hidden !important; } @media (max-width: 620px) { .portfolio-baseline-review { min-height: 1717px; } }",
-  });
-  await review.evaluate((element) =>
-    element.scrollIntoView({ block: "start", behavior: "auto" }),
-  );
-  await expect(review).toHaveScreenshot("portfolio-baseline-review.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
+  await expect(
+    page.getByLabel("Baseline source changes").locator("article"),
+  ).toHaveCount(5);
   await expectNoHorizontalOverflow(page);
 
-  await page.getByRole("button", { name: "Confirm baseline" }).click();
+  await page.getByRole("button", { name: "Set baseline" }).click();
   await expect(
     page.getByRole("heading", { name: "Planning baseline is current" }),
   ).toHaveCount(0);
@@ -435,6 +518,7 @@ test("keeps an existing FI baseline behind an explicit review", async ({
       latestBaseline: automaticConfirmationResult.baseline,
       hasSourceChanges: false,
       hasCashAccountChanges: false,
+      changes: { positions: [], cashAccounts: [] },
       canConfirm: false,
     };
     await route.fulfill({ json: automaticConfirmationResult, status: 201 });
@@ -476,18 +560,36 @@ test("keeps an existing FI baseline behind an explicit review", async ({
 
   await page.goto("/holdings");
   await expect(
-    page.getByRole("heading", { name: "Holdings changes are ready" }),
+    page.getByRole("heading", { name: "1 baseline change is ready" }),
   ).toBeVisible();
   await page.waitForTimeout(250);
   expect(confirmationBody).toBeNull();
   await expect(
-    page.getByRole("button", { name: "Review baseline" }),
+    page.getByRole("button", { name: "Review changes" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Review baseline" }).click();
+  await page.getByRole("button", { name: "Review changes" }).click();
   await expect(
-    page.getByRole("heading", { name: "Review the new FI liquid baseline" }),
+    page.getByRole("heading", { name: "Review 1 baseline change" }),
   ).toBeFocused();
-  await page.getByRole("button", { name: "Confirm baseline" }).click();
+  await expect(page.getByLabel("What changed")).toHaveValue(
+    "Synthetic Public Company: $228,000.00 → $238,000.00; FI-eligible liquid: $1,825,000.00 → $263,000.00",
+  );
+  const review = page.locator(".portfolio-baseline-review");
+  await page.addStyleTag({
+    content:
+      ".topbar { position: absolute !important; visibility: hidden !important; }",
+  });
+  await review.evaluate((element) =>
+    element.scrollIntoView({ block: "start", behavior: "auto" }),
+  );
+  await expect(review).toHaveScreenshot("portfolio-baseline-review.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+  await expectNoHorizontalOverflow(page);
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await expect.poll(() => confirmationBody).not.toBeNull();
   expect(confirmationBody).toMatchObject({
     sourceRevision: automaticReadyState.sourceRevision,
@@ -496,8 +598,74 @@ test("keeps an existing FI baseline behind an explicit review", async ({
     otherFiEligibleLiquidMinor: 2_500_000,
     duplicateReviewConfirmed: false,
     cashOverlapReviewConfirmed: false,
-    changeNote: "Replaced the FI liquid baseline with reviewed sources.",
+    changeNote:
+      "Synthetic Public Company: $228,000.00 → $238,000.00; FI-eligible liquid: $1,825,000.00 → $263,000.00",
   });
+});
+
+test("keeps a 120-source baseline review DOM bounded", async ({ page }) => {
+  const alphaResponse = await page.request.get("/api/alpha");
+  expect(alphaResponse.ok()).toBe(true);
+  const alphaFixture = await alphaResponse.json();
+
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.route("**/api/portfolio-baseline", async (route) => {
+    await route.fulfill({ json: scaleReadyState });
+  });
+  await page.route("**/api/holding-imports", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/automation/angellist/status", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        status: "ready",
+        interval: "weekly",
+        runStatus: null,
+        lastSeenAt: "2026-08-18T16:00:00.000Z",
+        lastCompletedAt: "2026-08-18T15:58:00.000Z",
+        nextRunAt: "2026-08-25T16:00:00.000Z",
+        latestImportId: null,
+        errorCode: null,
+      },
+    });
+  });
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({ json: investmentConnectionsState });
+  });
+  await page.route("**/api/cash-accounts", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        status: "disconnected",
+        connections: [],
+        acceptedAccounts: [],
+        pendingProposals: [],
+        errorCode: null,
+      },
+    });
+  });
+
+  await page.goto("/holdings");
+  await expect(
+    page.getByRole("heading", { name: "120 baseline changes are ready" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Review changes" }).click();
+  const rows = page.getByLabel("Baseline source changes").locator("article");
+  await expect(rows).toHaveCount(12);
+  await expect(page.getByText("Showing 12 of 120")).toBeVisible();
+  await page.getByRole("button", { name: "Show more" }).click();
+  await expect(rows).toHaveCount(24);
   await expectNoHorizontalOverflow(page);
 });
 
@@ -563,12 +731,15 @@ test("keeps accepted cash changes behind a separate baseline review", async ({
 
   await page.goto("/holdings");
   await expect(
-    page.getByRole("heading", { name: "Bank cash changes are ready" }),
+    page.getByRole("heading", { name: "1 baseline change is ready" }),
   ).toBeVisible();
   await page.waitForTimeout(250);
   expect(confirmationCount).toBe(0);
-  await page.getByRole("button", { name: "Review bank cash" }).click();
-  await expect(page.getByLabel("Manual liquid residual")).toHaveValue("0.00");
+  await page.getByRole("button", { name: "Review changes" }).click();
+  await expect(
+    page.getByRole("textbox", { name: /^Cash held elsewhere/u }),
+  ).toHaveValue("0.00");
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 });
 

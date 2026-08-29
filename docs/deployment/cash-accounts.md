@@ -123,7 +123,11 @@ artifacts:
    cash review and subsequent Portfolio Baseline confirmation.
 4. Apply a synthetic review containing a supported USD balance and an
    unsupported or missing balance. Confirm only the supported decision enters
-   the baseline preview and that the manual-cash overlap checkbox is required.
+   the baseline delta, unchanged accounts are omitted, and **What changed** is
+   generated from the exact before-and-after values. With **Cash held
+   elsewhere** at `$0`, confirm there is no overlap prompt. With a positive
+   amount, confirm the review explains that it is added on top of sourced cash
+   and the single baseline apply action records the acknowledgment.
 5. Verify the first due Holdings visit starts one live check, another visit
    inside seven days makes no provider call, and a fifth monthly attempt fails
    closed with no provider call.

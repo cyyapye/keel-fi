@@ -1073,6 +1073,15 @@ visit may use at most one due Plaid Balance request per bank each seven days,
 still capped at four attempted requests per UTC month and therefore at `4 ×` the
 private contract rate per connected bank.
 
+**2026-08-28 baseline review follow-up:** Portfolio Baseline review compares the
+current accepted sources with the exact prior baseline items and shows only
+added or updated holdings and cash accounts. Exact before-and-after values feed
+the editable **What changed** note automatically; forecast impact hides
+unchanged outcomes. Large source updates disclose 12 changes at a time. A
+positive **Cash held elsewhere** amount is explained in place and acknowledged
+by the single apply action, while sourced bank and brokerage cash no longer
+manufacture a checkbox prompt.
+
 **2026-08-18 brokerage connection recovery follow-up:** A disconnected brokerage
 source returns to Holdings only when it offers a real recovery action. **Connect
 again** opens a new Plaid Investments Item because the prior Item and credential

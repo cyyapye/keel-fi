@@ -198,6 +198,7 @@ const baseline: PortfolioBaselineState = {
       observedAt: asOf,
     },
   ],
+  changes: { positions: [], cashAccounts: [] },
   planning: {
     currentFiEligibleLiquidMinor: 364_000_000,
     protectedCashFloorMinor: 10_000_000,
