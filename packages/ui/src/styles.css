@@ -364,6 +364,12 @@ h3 {
   background: var(--canvas);
 }
 
+.button[aria-pressed="true"],
+.button[aria-pressed="true"]:hover:not(:disabled) {
+  color: var(--canvas);
+  background: var(--ink);
+}
+
 .button--quiet {
   padding-right: 4px;
   padding-left: 4px;
