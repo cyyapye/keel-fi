@@ -75,18 +75,36 @@ fails closed if the user service manager is unavailable.
 
 If an administrator has already provisioned a hardened system service with the
 same origin- and provider-scoped Keel unit name, setup reuses it and does not
-install a competing user service. Keep `ProtectHome=read-only`, but allow the
-service to atomically save credential rotation in only the matching
-origin-scoped directory:
+install a competing user service. Keep `ProtectHome=read-only`. Store each
+provider credential at `<origin-instance-id>/<provider>/authorization.json`,
+with the provider directory at mode `0700` and the file at mode `0600`.
+
+Allow the service to rotate only its matching provider credential and hide the
+two sibling provider directories. For example, the Sydecar service requires:
 
 ```ini
 [Service]
-ReadWritePaths=/home/keel-agent/.config/keel/agent-credentials/<origin-instance-id>
+ReadWritePaths=/home/keel-agent/.config/keel/agent-credentials/<origin-instance-id>/sydecar
+InaccessiblePaths=/home/keel-agent/.config/keel/agent-credentials/<origin-instance-id>/angellist
+InaccessiblePaths=/home/keel-agent/.config/keel/agent-credentials/<origin-instance-id>/tokenfolio
 ```
 
-Add that setting to each provider service or a provider-service drop-in before
-running setup. Keel rejects an administrator service that cannot write both its
-private app directory and this credential directory.
+Use the analogous provider-specific paths for AngelList and Tokenfolio. Do not
+grant `ReadWritePaths` on the shared `<origin-instance-id>` parent. Keel rejects
+an administrator service unless its writable paths are exactly its private app
+and provider credential directories and both sibling credential directories are
+inaccessible.
+
+When replacing an older shared writable credential path, stop all three agents
+before migrating. Create all three provider directories, move each legacy
+`<provider>.json` file to its matching `<provider>/authorization.json`, then
+remove the shared `ReadWritePaths` grant before restarting any agent. An empty
+`ReadWritePaths=` assignment in a drop-in resets inherited entries; add back
+only the private app directory and matching provider credential directory.
+Verify ownership and modes without printing credential contents. Keel can read a
+secure legacy file during a rolling software upgrade, but legacy files must not
+remain once the service isolation is active because they sit outside the
+provider-specific inaccessible paths.
 
 ## Set up one provider
 

@@ -1,4 +1,12 @@
-import { chmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -7,7 +15,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { MacAgentAuthorization } from "../packages/domain/src/index";
 import {
   MacAgentAccessError,
+  linuxAgentAuthorizationDirectory,
   linuxAgentAuthorizationPath,
+  linuxAgentLegacyAuthorizationPath,
+  linuxAgentSiblingAuthorizationDirectories,
   macAgentApi,
   readMacAgentAuthorization,
   storeMacAgentAuthorization,
@@ -84,7 +95,7 @@ describe("Mac agent authorization", () => {
     ).toThrow(MacAgentAccessError);
   });
 
-  it("stores a Linux credential in a private origin-scoped file", async () => {
+  it("stores a Linux credential in a private provider-scoped directory", async () => {
     const homeDirectory = await mkdtemp(
       path.join(os.tmpdir(), "keel-agent-auth-"),
     );
@@ -105,6 +116,10 @@ describe("Mac agent authorization", () => {
         "tokenfolio",
         options,
       );
+      expect(file).toMatch(
+        /agent-credentials\/https-keel-preview-example-com-[a-f0-9]{16}\/tokenfolio\/authorization\.json$/u,
+      );
+      expect((await stat(path.dirname(file))).mode & 0o777).toBe(0o700);
       expect((await stat(file)).mode & 0o777).toBe(0o600);
       expect(await readFile(file, "utf8")).not.toContain("synthetic holdings");
       expect(
@@ -114,6 +129,174 @@ describe("Mac agent authorization", () => {
           options,
         ),
       ).toEqual(authorization);
+    } finally {
+      await rm(homeDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it("derives only the two sibling credential directories for isolation", () => {
+    const keelOrigin = new URL("https://keel-preview.example.com");
+    const options = {
+      environment: {} satisfies NodeJS.ProcessEnv,
+      homeDirectory: "/home/keel-agent",
+    };
+
+    expect(
+      linuxAgentSiblingAuthorizationDirectories(keelOrigin, "sydecar", options),
+    ).toEqual([
+      linuxAgentAuthorizationDirectory(keelOrigin, "angellist", options),
+      linuxAgentAuthorizationDirectory(keelOrigin, "tokenfolio", options),
+    ]);
+  });
+
+  it("reads the secure legacy Linux file without mutating storage", async () => {
+    const homeDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "keel-agent-auth-"),
+    );
+    const keelOrigin = new URL("https://keel-preview.example.com");
+    const options = {
+      environment: {} satisfies NodeJS.ProcessEnv,
+      homeDirectory,
+      platform: "linux" as const,
+      uid: process.getuid?.() ?? 1_001,
+    };
+    const legacyFile = linuxAgentLegacyAuthorizationPath(
+      keelOrigin,
+      "tokenfolio",
+      options,
+    );
+    const rootDirectory = path.dirname(legacyFile);
+    try {
+      await mkdir(rootDirectory, { mode: 0o700, recursive: true });
+      await writeFile(legacyFile, `${JSON.stringify(authorization)}\n`, {
+        mode: 0o600,
+      });
+      await chmod(rootDirectory, 0o500);
+
+      expect(
+        readMacAgentAuthorization(keelOrigin, "tokenfolio", options),
+      ).toEqual(authorization);
+      expect((await stat(rootDirectory)).mode & 0o777).toBe(0o500);
+      await expect(
+        stat(linuxAgentAuthorizationPath(keelOrigin, "tokenfolio", options)),
+      ).rejects.toThrow(/ENOENT/u);
+    } finally {
+      await chmod(rootDirectory, 0o700).catch(() => undefined);
+      await rm(homeDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it("migrates a legacy Linux credential when storing a replacement", async () => {
+    const homeDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "keel-agent-auth-"),
+    );
+    const keelOrigin = new URL("https://keel-preview.example.com");
+    const options = {
+      environment: {} satisfies NodeJS.ProcessEnv,
+      homeDirectory,
+      platform: "linux" as const,
+      uid: process.getuid?.() ?? 1_001,
+    };
+    const legacyFile = linuxAgentLegacyAuthorizationPath(
+      keelOrigin,
+      "tokenfolio",
+      options,
+    );
+    try {
+      await mkdir(path.dirname(legacyFile), { mode: 0o700, recursive: true });
+      await writeFile(legacyFile, `${JSON.stringify(authorization)}\n`, {
+        mode: 0o600,
+      });
+
+      storeMacAgentAuthorization(keelOrigin, authorization, options);
+
+      await expect(stat(legacyFile)).rejects.toThrow(/ENOENT/u);
+      expect(
+        readMacAgentAuthorization(keelOrigin, "tokenfolio", options),
+      ).toEqual(authorization);
+    } finally {
+      await rm(homeDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it("rotates inside the provider directory without changing its read-only parent", async () => {
+    const homeDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "keel-agent-auth-"),
+    );
+    const keelOrigin = new URL("https://keel-preview.example.com");
+    const options = {
+      environment: {} satisfies NodeJS.ProcessEnv,
+      homeDirectory,
+      platform: "linux" as const,
+      uid: process.getuid?.() ?? 1_001,
+    };
+    const legacyFile = linuxAgentLegacyAuthorizationPath(
+      keelOrigin,
+      "tokenfolio",
+      options,
+    );
+    const rootDirectory = path.dirname(legacyFile);
+    const replacement = {
+      ...authorization,
+      token: `keel_agent_v1_${"b".repeat(43)}`,
+    };
+    try {
+      storeMacAgentAuthorization(keelOrigin, authorization, options);
+      await writeFile(legacyFile, `${JSON.stringify(authorization)}\n`, {
+        mode: 0o600,
+      });
+      await chmod(rootDirectory, 0o500);
+
+      storeMacAgentAuthorization(keelOrigin, replacement, options);
+
+      expect((await stat(rootDirectory)).mode & 0o777).toBe(0o500);
+      expect(
+        readMacAgentAuthorization(keelOrigin, "tokenfolio", options),
+      ).toEqual(replacement);
+      await expect(stat(legacyFile)).resolves.toBeDefined();
+    } finally {
+      await chmod(rootDirectory, 0o700).catch(() => undefined);
+      await rm(homeDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it("does not fall back to legacy storage when the provider file is insecure", async () => {
+    const homeDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "keel-agent-auth-"),
+    );
+    const keelOrigin = new URL("https://keel-preview.example.com");
+    const options = {
+      environment: {} satisfies NodeJS.ProcessEnv,
+      homeDirectory,
+      platform: "linux" as const,
+      uid: process.getuid?.() ?? 1_001,
+    };
+    const legacyFile = linuxAgentLegacyAuthorizationPath(
+      keelOrigin,
+      "tokenfolio",
+      options,
+    );
+    const providerFile = linuxAgentAuthorizationPath(
+      keelOrigin,
+      "tokenfolio",
+      options,
+    );
+    try {
+      await mkdir(path.dirname(legacyFile), { mode: 0o700, recursive: true });
+      await writeFile(legacyFile, `${JSON.stringify(authorization)}\n`, {
+        mode: 0o600,
+      });
+      await mkdir(path.dirname(providerFile), {
+        mode: 0o700,
+        recursive: true,
+      });
+      await writeFile(providerFile, `${JSON.stringify(authorization)}\n`, {
+        mode: 0o644,
+      });
+
+      expect(() =>
+        readMacAgentAuthorization(keelOrigin, "tokenfolio", options),
+      ).toThrow(MacAgentAccessError);
     } finally {
       await rm(homeDirectory, { force: true, recursive: true });
     }

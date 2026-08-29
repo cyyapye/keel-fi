@@ -24,6 +24,7 @@ import { macAgentInstanceId } from "./mac-agent-instance";
 
 const KEYCHAIN_SERVICE = "com.keel.mac-agent";
 const SECURITY_PATH = "/usr/bin/security";
+const MAC_AGENT_TARGETS = ["angellist", "tokenfolio", "sydecar"] as const;
 
 type SecurityResult = {
   status: number | null;
@@ -59,7 +60,7 @@ export class MacAgentAccessError extends Error {
   }
 }
 
-function linuxAuthorizationDirectory(
+function linuxAuthorizationRootDirectory(
   keelOrigin: URL,
   options: AgentAuthorizationStorageOptions,
 ): string {
@@ -81,13 +82,46 @@ function linuxAuthorizationDirectory(
   );
 }
 
+export function linuxAgentAuthorizationDirectory(
+  keelOrigin: URL,
+  target: MacAgentTarget,
+  options: AgentAuthorizationStorageOptions = {},
+): string {
+  return path.join(
+    linuxAuthorizationRootDirectory(keelOrigin, options),
+    target,
+  );
+}
+
+export function linuxAgentSiblingAuthorizationDirectories(
+  keelOrigin: URL,
+  target: MacAgentTarget,
+  options: AgentAuthorizationStorageOptions = {},
+): string[] {
+  return MAC_AGENT_TARGETS.filter((candidate) => candidate !== target).map(
+    (candidate) =>
+      linuxAgentAuthorizationDirectory(keelOrigin, candidate, options),
+  );
+}
+
 export function linuxAgentAuthorizationPath(
   keelOrigin: URL,
   target: MacAgentTarget,
   options: AgentAuthorizationStorageOptions = {},
 ): string {
   return path.join(
-    linuxAuthorizationDirectory(keelOrigin, options),
+    linuxAgentAuthorizationDirectory(keelOrigin, target, options),
+    "authorization.json",
+  );
+}
+
+export function linuxAgentLegacyAuthorizationPath(
+  keelOrigin: URL,
+  target: MacAgentTarget,
+  options: AgentAuthorizationStorageOptions = {},
+): string {
+  return path.join(
+    linuxAuthorizationRootDirectory(keelOrigin, options),
     `${target}.json`,
   );
 }
@@ -112,10 +146,30 @@ function assertSecureDirectory(directory: string, uid: number): void {
   }
 }
 
+function isMissingPath(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
+}
+
 function prepareSecureDirectory(directory: string, uid: number): void {
-  mkdirSync(directory, { mode: 0o700, recursive: true });
-  chmodSync(directory, 0o700);
-  assertSecureDirectory(directory, uid);
+  try {
+    assertSecureDirectory(directory, uid);
+    return;
+  } catch (error) {
+    if (!isMissingPath(error)) {
+      throw new MacAgentAccessError();
+    }
+  }
+  try {
+    mkdirSync(directory, { mode: 0o700, recursive: true });
+    chmodSync(directory, 0o700);
+    assertSecureDirectory(directory, uid);
+  } catch {
+    throw new MacAgentAccessError();
+  }
 }
 
 function assertSecureAuthorizationFile(file: string, uid: number): void {
@@ -138,7 +192,13 @@ function storeLinuxAuthorization(
   options: AgentAuthorizationStorageOptions,
 ): void {
   const uid = secureUid(options);
-  const directory = linuxAuthorizationDirectory(keelOrigin, options);
+  const rootDirectory = linuxAuthorizationRootDirectory(keelOrigin, options);
+  prepareSecureDirectory(rootDirectory, uid);
+  const directory = linuxAgentAuthorizationDirectory(
+    keelOrigin,
+    authorization.target,
+    options,
+  );
   prepareSecureDirectory(directory, uid);
   const destination = linuxAgentAuthorizationPath(
     keelOrigin,
@@ -147,7 +207,7 @@ function storeLinuxAuthorization(
   );
   const temporary = path.join(
     directory,
-    `.${authorization.target}.${process.pid.toString()}.${randomUUID()}.tmp`,
+    `.authorization.${process.pid.toString()}.${randomUUID()}.tmp`,
   );
   let descriptor: number | null = null;
   try {
@@ -179,6 +239,33 @@ function storeLinuxAuthorization(
   if (JSON.stringify(stored) !== JSON.stringify(authorization)) {
     throw new MacAgentAccessError();
   }
+  try {
+    unlinkSync(
+      linuxAgentLegacyAuthorizationPath(
+        keelOrigin,
+        authorization.target,
+        options,
+      ),
+    );
+  } catch {
+    // A hardened service can rotate its private file while the legacy parent is
+    // read-only. Operator migration removes any legacy file before isolation.
+  }
+}
+
+function readSecureAuthorizationFile(
+  file: string,
+  target: MacAgentTarget,
+  uid: number,
+): MacAgentAuthorization {
+  assertSecureAuthorizationFile(file, uid);
+  const authorization = MacAgentAuthorizationSchema.parse(
+    JSON.parse(readFileSync(file, "utf8")) as unknown,
+  );
+  if (authorization.target !== target) {
+    throw new MacAgentAccessError();
+  }
+  return authorization;
 }
 
 function readLinuxAuthorization(
@@ -188,17 +275,30 @@ function readLinuxAuthorization(
 ): MacAgentAuthorization {
   try {
     const uid = secureUid(options);
-    const directory = linuxAuthorizationDirectory(keelOrigin, options);
-    assertSecureDirectory(directory, uid);
-    const file = linuxAgentAuthorizationPath(keelOrigin, target, options);
-    assertSecureAuthorizationFile(file, uid);
-    const authorization = MacAgentAuthorizationSchema.parse(
-      JSON.parse(readFileSync(file, "utf8")) as unknown,
+    const rootDirectory = linuxAuthorizationRootDirectory(keelOrigin, options);
+    assertSecureDirectory(rootDirectory, uid);
+    const directory = linuxAgentAuthorizationDirectory(
+      keelOrigin,
+      target,
+      options,
     );
-    if (authorization.target !== target) {
-      throw new MacAgentAccessError();
+    try {
+      assertSecureDirectory(directory, uid);
+      return readSecureAuthorizationFile(
+        linuxAgentAuthorizationPath(keelOrigin, target, options),
+        target,
+        uid,
+      );
+    } catch (error) {
+      if (!isMissingPath(error)) {
+        throw error;
+      }
     }
-    return authorization;
+    return readSecureAuthorizationFile(
+      linuxAgentLegacyAuthorizationPath(keelOrigin, target, options),
+      target,
+      uid,
+    );
   } catch (error) {
     throw error instanceof MacAgentAccessError
       ? error
