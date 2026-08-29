@@ -37,6 +37,27 @@ Install:
 - `cloudflared` on the service `PATH` for the temporary outbound HTTPS
   connection.
 
+If the worker uses default-deny egress, allow outbound TCP and UDP port `7844`
+only to Cloudflare's documented Tunnel endpoints. HTTPS port `443` alone can
+allocate a temporary hostname, but it cannot establish the tunnel connection.
+Keep all inbound ports closed. On the hardened `keel-agents` namespace, install
+the checked-in rule helper and systemd drop-in:
+
+```sh
+sudo install -m 0755 scripts/linux-agent-cloudflare-egress.sh \
+  /usr/local/libexec/keel-agent-cloudflare-egress
+sudo install -d -m 0755 \
+  /etc/systemd/system/keel-agent-network.service.d
+sudo install -m 0644 scripts/keel-agent-network-cloudflare-egress.conf \
+  /etc/systemd/system/keel-agent-network.service.d/30-cloudflare-tunnel-egress.conf
+sudo systemctl daemon-reload
+sudo /usr/local/libexec/keel-agent-cloudflare-egress start
+```
+
+The helper permits only Cloudflare's published IPv4 Tunnel destinations on
+`7844`; the namespace continues to deny other egress and exposes no inbound
+listener. Recheck Cloudflare's endpoint list when upgrading `cloudflared`.
+
 Clone a stable Keel checkout as that user and run:
 
 ```sh
