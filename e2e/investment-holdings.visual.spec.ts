@@ -688,6 +688,15 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   );
   const nvdaSummaryMeta = nvda.locator("summary .exposure-group__market-meta");
   await expect(nvdaSummaryMeta).toHaveText("$681k · $185/sh · +8.6%");
+  expect(
+    await nvda
+      .locator(
+        "summary > span:first-child small, summary .exposure-group__totals small",
+      )
+      .evaluateAll((elements) =>
+        elements.map((element) => window.getComputedStyle(element).fontSize),
+      ),
+  ).toEqual(["12px", "12px"]);
   await expect(nvdaSummaryMeta).toHaveAttribute(
     "title",
     "Share price as of Aug 15, 2026",
