@@ -346,6 +346,7 @@ export function systemdAgentUnitName(
 export type SystemdAgentServiceOptions = {
   appDirectory: string;
   chromePath?: string;
+  credentialDirectory: string;
   instanceId: string;
   keelOrigin: URL;
   label: string;
@@ -420,6 +421,7 @@ PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=${systemdAbsolutePath(options.appDirectory)}
+ReadWritePaths=${systemdAbsolutePath(options.credentialDirectory)}
 
 [Install]
 WantedBy=default.target
@@ -452,6 +454,29 @@ export async function installSystemdAgentService(
           "The administrator-provisioned portfolio agent service is not active.",
       );
     }
+    const writablePaths = execute("systemctl", [
+      "show",
+      unitName,
+      "--property=ReadWritePaths",
+      "--value",
+    ]);
+    const requiredWritablePaths = [
+      options.appDirectory,
+      options.credentialDirectory,
+    ];
+    const configuredWritablePaths = new Set(
+      writablePaths.stdout.trim().split(/\s+/u),
+    );
+    if (
+      writablePaths.status !== 0 ||
+      requiredWritablePaths.some(
+        (directory) => !configuredWritablePaths.has(directory),
+      )
+    ) {
+      throw new Error(
+        "The administrator-provisioned portfolio agent service must allow writes only to its private app and credential directories.",
+      );
+    }
     return unitName;
   }
   validateLinuxSystemdUser(execute);
@@ -463,6 +488,8 @@ export async function installSystemdAgentService(
   await chmod(unitDirectory, 0o700);
   await mkdir(options.appDirectory, { mode: 0o700, recursive: true });
   await chmod(options.appDirectory, 0o700);
+  await mkdir(options.credentialDirectory, { mode: 0o700, recursive: true });
+  await chmod(options.credentialDirectory, 0o700);
   try {
     await writeFile(temporaryUnitPath, buildSystemdAgentService(options), {
       flag: "wx",

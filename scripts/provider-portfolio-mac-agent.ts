@@ -24,6 +24,7 @@ import {
 } from "../packages/domain/src/index";
 import {
   MacAgentAccessError,
+  linuxAgentAuthorizationPath,
   macAgentApi,
   readMacAgentAuthorization,
   storeMacAgentAuthorization,
@@ -546,11 +547,8 @@ async function providerPageReady(
       .catch(() => false);
   }
   return page
-    .locator(
-      '[data-testid="investments-table"] tbody tr[data-testid="investment-row"]',
-    )
-    .first()
-    .waitFor({ state: "visible", timeout: 1_000 })
+    .locator('[data-testid="investments-table"]')
+    .waitFor({ state: "attached", timeout: 1_000 })
     .then(() => true)
     .catch(() => false);
 }
@@ -1687,6 +1685,9 @@ async function installLinuxService(
   return installSystemdAgentService({
     appDirectory: paths.appDirectory,
     chromePath,
+    credentialDirectory: path.dirname(
+      linuxAgentAuthorizationPath(keelOrigin, provider),
+    ),
     instanceId: paths.instanceId,
     keelOrigin,
     label: PROVIDERS[provider].label,
@@ -1933,6 +1934,7 @@ export const __providerPortfolioMacAgentTest = {
   parseProviderDate,
   parsePercentagePpm,
   parseUsdMinor,
+  providerPageReady,
   providerPaths,
   rowsToCsv,
   tokenfolioActiveHoldingStatus,

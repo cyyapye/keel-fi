@@ -3889,8 +3889,22 @@ function ProviderReconnectControl({
       return;
     }
     let cancelled = false;
+    let checking = false;
     let timer: number | undefined;
+    const scheduleCheck = (delay: number) => {
+      if (cancelled) {
+        return;
+      }
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => void check(), delay);
+    };
     const check = async () => {
+      if (cancelled || checking) {
+        return;
+      }
+      checking = true;
       try {
         const next = await getProviderBrowserReconnect(session.id);
         if (cancelled) {
@@ -3901,18 +3915,31 @@ function ProviderReconnectControl({
         if (
           ["requested", "starting", "ready", "opened"].includes(next.status)
         ) {
-          timer = window.setTimeout(() => void check(), 1_000);
+          scheduleCheck(1_000);
         }
       } catch {
         if (!cancelled) {
           setError(`Keel could not check the ${label} reconnect. Try again.`);
-          timer = window.setTimeout(() => void check(), 3_000);
+          scheduleCheck(3_000);
         }
+      } finally {
+        checking = false;
       }
     };
-    timer = window.setTimeout(() => void check(), 500);
+    const checkWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        scheduleCheck(0);
+      }
+    };
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    window.addEventListener("focus", checkWhenVisible);
+    window.addEventListener("pageshow", checkWhenVisible);
+    scheduleCheck(500);
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+      window.removeEventListener("focus", checkWhenVisible);
+      window.removeEventListener("pageshow", checkWhenVisible);
       if (timer !== undefined) {
         window.clearTimeout(timer);
       }
@@ -3971,7 +3998,7 @@ function ProviderReconnectControl({
       : session?.status === "ready"
         ? `The ${label} browser is ready for 15 minutes.`
         : session?.status === "opened"
-          ? `Finish signing in to ${label}. Keel will close the browser when it reconnects.`
+          ? `Finish signing in to ${label}. When the private screen closes, return to Keel.`
           : session?.status === "connected"
             ? null
             : session?.status === "expired"

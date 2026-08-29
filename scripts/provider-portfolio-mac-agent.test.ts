@@ -14,6 +14,7 @@ const {
   parsePercentagePpm,
   parseProviderDate,
   parseUsdMinor,
+  providerPageReady,
   providerPaths,
   rowsToCsv,
   tokenfolioActiveHoldingStatus,
@@ -186,6 +187,21 @@ describe("provider portfolio Mac agent", () => {
     await openSydecarRow({ click } as never);
 
     expect(click).toHaveBeenCalledWith({ force: true, noWaitAfter: true });
+  });
+
+  it("accepts the authenticated Sydecar table in compact layouts", async () => {
+    const waitFor = vi.fn().mockResolvedValue(undefined);
+    const locator = vi.fn().mockReturnValue({ waitFor });
+
+    await expect(
+      providerPageReady({ locator } as never, "sydecar"),
+    ).resolves.toBe(true);
+
+    expect(locator).toHaveBeenCalledWith('[data-testid="investments-table"]');
+    expect(waitFor).toHaveBeenCalledWith({
+      state: "attached",
+      timeout: 1_000,
+    });
   });
 
   it("installs an isolated daily LaunchAgent for each provider and origin", () => {

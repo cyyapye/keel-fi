@@ -1646,7 +1646,7 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
   page,
 }) => {
   const sessionId = "22222222-2222-4222-8222-222222222222";
-  let sessionStatus: "ready" | "connected" = "ready";
+  let sessionStatus: "ready" | "opened" | "connected" = "ready";
   await page.addInitScript(() => {
     window.open = () => null;
   });
@@ -1725,7 +1725,7 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
           requestedAt: "2026-08-26T12:00:00.000Z",
           expiresAt: "2026-08-26T12:15:00.000Z",
           openedAt:
-            sessionStatus === "connected" ? "2026-08-26T12:01:00.000Z" : null,
+            sessionStatus === "ready" ? null : "2026-08-26T12:01:00.000Z",
           connectedAt:
             sessionStatus === "connected" ? "2026-08-26T12:02:00.000Z" : null,
           errorCode: null,
@@ -1745,7 +1745,17 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
   await expect(page.locator("body")).not.toContainText("VNC");
   await expect(page.locator("body")).not.toContainText("Paste in Terminal");
 
+  sessionStatus = "opened";
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(
+    page.getByText(
+      "Finish signing in to AngelList. When the private screen closes, return to Keel.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+
   sessionStatus = "connected";
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(
     page.getByText(
       "AngelList reconnected. Updates resumed and new changes will wait for review.",

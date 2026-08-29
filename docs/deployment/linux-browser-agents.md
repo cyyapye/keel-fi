@@ -75,7 +75,18 @@ fails closed if the user service manager is unavailable.
 
 If an administrator has already provisioned a hardened system service with the
 same origin- and provider-scoped Keel unit name, setup reuses it and does not
-install a competing user service.
+install a competing user service. Keep `ProtectHome=read-only`, but allow the
+service to atomically save credential rotation in only the matching
+origin-scoped directory:
+
+```ini
+[Service]
+ReadWritePaths=/home/keel-agent/.config/keel/agent-credentials/<origin-instance-id>
+```
+
+Add that setting to each provider service or a provider-service drop-in before
+running setup. Keel rejects an administrator service that cannot write both its
+private app directory and this credential directory.
 
 ## Set up one provider
 
