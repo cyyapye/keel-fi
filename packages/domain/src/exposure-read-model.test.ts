@@ -142,6 +142,7 @@ describe("investment exposure read model", () => {
       institutionLabel: "Synthetic Brokerage",
       containerKind: "ira",
       snapshotId: "snapshot_position_3",
+      quantityMicros: 1_000_000,
       allocatedValueMinor: 3_000_000,
       unallocatedValueMinor: 0,
       mappings: [

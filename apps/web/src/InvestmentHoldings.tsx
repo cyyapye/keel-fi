@@ -55,7 +55,13 @@ import {
   syncDueInvestmentHoldings,
   syncInvestmentHoldings,
 } from "./api";
-import { formatCompactCurrency, formatDate, formatProbability } from "./format";
+import {
+  formatCompactCurrency,
+  formatDate,
+  formatMagnitudeRoundedCurrency,
+  formatProbability,
+  formatRoundedCompactCurrency,
+} from "./format";
 import { openPlaidLink } from "./plaid-link";
 
 const INVESTMENT_LINK_TOKEN_STORAGE_KEY = "keel.investmentLinkToken";
@@ -66,6 +72,15 @@ const INVESTMENT_OAUTH_RECONNECT_MESSAGE =
   "Open this connection again to finish signing in.";
 const AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 const SMALL_CASH_BALANCE_MINOR = 10_000;
+const PUBLIC_EQUITY_INSTRUMENT_TYPES = new Set([
+  "common stock",
+  "common_stock",
+  "equity",
+  "etf",
+  "mutual fund",
+  "mutual_fund",
+  "stock",
+]);
 
 type ConnectionAction =
   | "add"
@@ -179,6 +194,31 @@ function formatHoldingCurrency(minorUnits: number, currency: string): string {
     : formatted;
 }
 
+function formatRoundedHoldingCurrency(
+  minorUnits: number,
+  currency: string,
+  roundingMajorUnits: number,
+): string {
+  const formatted = formatRoundedCompactCurrency(
+    minorUnits,
+    currency,
+    roundingMajorUnits,
+  );
+  return currency.toUpperCase() === "USD"
+    ? formatted.replace(/^USD /u, "$")
+    : formatted;
+}
+
+function formatMagnitudeRoundedHoldingCurrency(
+  minorUnits: number,
+  currency: string,
+): string {
+  const formatted = formatMagnitudeRoundedCurrency(minorUnits, currency);
+  return currency.toUpperCase() === "USD"
+    ? formatted.replace(/^USD /u, "$")
+    : formatted;
+}
+
 function formatCurrencyTotals(
   reportedByCurrency: ReadonlyMap<string, number>,
   unavailableCount: number,
@@ -238,9 +278,159 @@ function investmentConnectionTotalsLabel(
 
 function exposurePositionValue(position: InvestmentExposurePosition): string {
   if (position.valueState === "reported" && position.valueMinor !== null) {
-    return formatHoldingCurrency(position.valueMinor, position.currency);
+    return isDirectPublicPosition(position)
+      ? formatRoundedHoldingCurrency(
+          position.valueMinor,
+          position.currency,
+          1_000,
+        )
+      : formatHoldingCurrency(position.valueMinor, position.currency);
   }
   return position.valueState === "locked" ? "Locked" : "Not reported";
+}
+
+function isDirectPublicPosition(position: InvestmentExposurePosition): boolean {
+  return (
+    position.positionKind === "direct" &&
+    position.ticker !== null &&
+    PUBLIC_EQUITY_INSTRUMENT_TYPES.has(
+      position.instrumentType.trim().toLowerCase(),
+    )
+  );
+}
+
+type SharePriceObservation = {
+  currency: string;
+  observedAt: string;
+  quantityMicros: number;
+  ticker: string;
+  valueMinor: number;
+};
+
+type SharePricePresentation = {
+  label: string;
+  observedAt: string;
+};
+
+function sharePriceMinor(
+  valueMinor: bigint,
+  quantityMicros: bigint,
+): number | null {
+  if (quantityMicros <= 0n) {
+    return null;
+  }
+  const rounded =
+    (valueMinor * 1_000_000n + quantityMicros / 2n) / quantityMicros;
+  return rounded <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(rounded) : null;
+}
+
+function positionSharePriceObservation(
+  position: InvestmentExposurePosition,
+): SharePriceObservation | null {
+  if (
+    !isDirectPublicPosition(position) ||
+    position.valueSource !== "provider" ||
+    position.valueState !== "reported" ||
+    position.valueMinor === null ||
+    position.quantityMicros === null ||
+    position.quantityMicros <= 0 ||
+    position.hasUnknownAllocation ||
+    position.knownAllocationPpm !== 1_000_000 ||
+    position.mappings.length !== 1 ||
+    position.mappings[0]?.relationshipKind !== "direct"
+  ) {
+    return null;
+  }
+  return {
+    currency: position.currency,
+    observedAt: position.observedAt,
+    quantityMicros: position.quantityMicros,
+    ticker: position.ticker!,
+    valueMinor: position.valueMinor,
+  };
+}
+
+function sharePricePresentation(
+  observation: SharePriceObservation,
+): SharePricePresentation | null {
+  const priceMinor = sharePriceMinor(
+    BigInt(observation.valueMinor),
+    BigInt(observation.quantityMicros),
+  );
+  return priceMinor === null
+    ? null
+    : {
+        label: `${formatHoldingCurrency(priceMinor, observation.currency)}/sh`,
+        observedAt: observation.observedAt,
+      };
+}
+
+function positionSharePricePresentation(
+  position: InvestmentExposurePosition,
+): SharePricePresentation | null {
+  const observation = positionSharePriceObservation(position);
+  return observation === null ? null : sharePricePresentation(observation);
+}
+
+function isDirectPublicExposure(
+  group: InvestmentExposureGroup,
+  positions: readonly InvestmentExposurePosition[],
+): boolean {
+  return (
+    group.exposure.exposureKind === "public_instrument" &&
+    positions.length > 0 &&
+    positions.every(isDirectPublicPosition) &&
+    group.contributions.every(
+      (contribution) =>
+        contribution.relationshipKind === "direct" &&
+        contribution.allocationPpm === 1_000_000,
+    )
+  );
+}
+
+function exposureSharePricePresentation(
+  group: InvestmentExposureGroup,
+  positions: readonly InvestmentExposurePosition[],
+): SharePricePresentation | null {
+  if (!isDirectPublicExposure(group, positions)) {
+    return null;
+  }
+  const observations = positions.map(positionSharePriceObservation);
+  if (observations.some((observation) => observation === null)) {
+    return null;
+  }
+  const accepted = observations.filter(
+    (observation): observation is SharePriceObservation => observation !== null,
+  );
+  if (
+    new Set(accepted.map((observation) => observation.currency)).size !== 1 ||
+    new Set(accepted.map((observation) => observation.ticker)).size !== 1
+  ) {
+    return null;
+  }
+  const latestObservedAt = accepted.reduce(
+    (latest, observation) =>
+      observation.observedAt > latest ? observation.observedAt : latest,
+    accepted[0]!.observedAt,
+  );
+  const latest = accepted.filter(
+    (observation) => observation.observedAt === latestObservedAt,
+  );
+  const totalValueMinor = latest.reduce(
+    (sum, observation) => sum + BigInt(observation.valueMinor),
+    0n,
+  );
+  const totalQuantityMicros = latest.reduce(
+    (sum, observation) => sum + BigInt(observation.quantityMicros),
+    0n,
+  );
+  const priceMinor = sharePriceMinor(totalValueMinor, totalQuantityMicros);
+  return priceMinor === null
+    ? null
+    : {
+        label: `${formatHoldingCurrency(priceMinor, latest[0]!.currency)}/sh`,
+        observedAt: latestObservedAt,
+      };
 }
 
 function exposureValueSourceLabel(
@@ -290,8 +480,10 @@ function signedReturnLabel(valuePpm: number): string {
 
 function positionEconomicsLabel(
   position: InvestmentExposurePosition,
+  sharePriceLabel: string | null,
 ): string | null {
   const performance = exposurePositionPerformance(position);
+  const simplifiedPublicEquity = isDirectPublicPosition(position);
   const labels: string[] = [];
   if (position.positionKind === "spv_interest" && position.committedMinor > 0) {
     labels.push(
@@ -300,11 +492,25 @@ function positionEconomicsLabel(
   }
   if (performance.costBasisMinor !== null) {
     labels.push(
-      `${performance.costBasisSource === "funded_amount_estimate" ? "Cost basis estimate" : "Cost basis"} ${formatHoldingCurrency(performance.costBasisMinor, position.currency)}`,
+      simplifiedPublicEquity &&
+        performance.costBasisSource !== "funded_amount_estimate"
+        ? formatRoundedHoldingCurrency(
+            performance.costBasisMinor,
+            position.currency,
+            1_000,
+          )
+        : `${performance.costBasisSource === "funded_amount_estimate" ? "Cost basis estimate" : "Cost basis"} ${formatHoldingCurrency(performance.costBasisMinor, position.currency)}`,
     );
   }
+  if (sharePriceLabel !== null) {
+    labels.push(sharePriceLabel);
+  }
   if (performance.totalReturnPpm !== null) {
-    labels.push(`Return ${signedReturnLabel(performance.totalReturnPpm)}`);
+    labels.push(
+      simplifiedPublicEquity
+        ? signedReturnLabel(performance.totalReturnPpm)
+        : `Return ${signedReturnLabel(performance.totalReturnPpm)}`,
+    );
   }
   return labels.length === 0 ? null : labels.join(" · ");
 }
@@ -312,9 +518,10 @@ function positionEconomicsLabel(
 function exposurePerformanceLabel(
   group: InvestmentExposureGroup,
   positions: readonly InvestmentExposurePosition[],
+  sharePriceLabel: string | null,
 ): string | null {
   if (group.contributions.length === 0) {
-    return null;
+    return sharePriceLabel;
   }
   const positionById = new Map(
     positions.map((position) => [position.id, position]),
@@ -328,11 +535,11 @@ function exposurePerformanceLabel(
   for (const contribution of group.contributions) {
     const position = positionById.get(contribution.positionId);
     if (position === undefined || contribution.allocationPpm === null) {
-      return null;
+      return sharePriceLabel;
     }
     const performance = exposurePositionPerformance(position);
     if (performance.costBasisMinor === null) {
-      return null;
+      return sharePriceLabel;
     }
     if (performance.costBasisSource === "funded_amount_estimate") {
       basisIsEstimated = true;
@@ -356,30 +563,37 @@ function exposurePerformanceLabel(
     }
   }
   if (currencies.size !== 1) {
-    return null;
+    return sharePriceLabel;
   }
   const currency = [...currencies][0]!;
   const basisMinor = allocatedBases.reduce(
     (total, value) => addMinorUnits(total, value),
     0,
   );
-  const basisLabel = `${basisIsEstimated ? "Cost basis estimate" : "Cost basis"} ${formatHoldingCurrency(basisMinor, currency)}`;
+  const simplifiedPublicEquity =
+    !basisIsEstimated && isDirectPublicExposure(group, positions);
+  const basisLabel = simplifiedPublicEquity
+    ? formatRoundedHoldingCurrency(basisMinor, currency, 1_000)
+    : `${basisIsEstimated ? "Cost basis estimate" : "Cost basis"} ${formatHoldingCurrency(basisMinor, currency)}`;
+  const basisAndPriceLabel = [basisLabel, sharePriceLabel]
+    .filter((label): label is string => label !== null)
+    .join(" · ");
   if (!returnAvailable || allocatedValues.length !== allocatedBases.length) {
-    return basisLabel;
+    return basisAndPriceLabel;
   }
   const totalValueMinor = allocatedValues.reduce(
     (total, value) => addMinorUnits(total, value),
     0,
   );
   if (basisMinor === 0) {
-    return basisLabel;
+    return basisAndPriceLabel;
   }
   const gainMinor = BigInt(totalValueMinor) - BigInt(basisMinor);
   const returnPpm = Number((gainMinor * 1_000_000n) / BigInt(basisMinor));
   if (!Number.isSafeInteger(returnPpm)) {
-    return basisLabel;
+    return basisAndPriceLabel;
   }
-  return `${basisLabel} · Return ${signedReturnLabel(returnPpm)}`;
+  return `${basisAndPriceLabel} · ${simplifiedPublicEquity ? "" : "Return "}${signedReturnLabel(returnPpm)}`;
 }
 
 function isCashPosition(position: InvestmentExposurePosition): boolean {
@@ -398,6 +612,7 @@ function companyExposureGroups(data: InvestmentHoldingsView) {
 
 function exposureTotalsLabel(
   totals: InvestmentHoldingsView["exposureView"]["exposures"][number]["totals"],
+  roundedPublicEquity: boolean,
 ): string {
   const reportedByCurrency = new Map(
     totals
@@ -411,7 +626,22 @@ function exposureTotalsLabel(
   if (reportedByCurrency.size === 0) {
     return "Value unavailable";
   }
-  return formatCurrencyTotals(reportedByCurrency, unavailableCount);
+  if (!roundedPublicEquity) {
+    return formatCurrencyTotals(reportedByCurrency, unavailableCount);
+  }
+  const reported = [...reportedByCurrency.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, valueMinor]) =>
+      formatMagnitudeRoundedHoldingCurrency(valueMinor, currency),
+    );
+  return [
+    ...reported,
+    ...(unavailableCount === 0
+      ? []
+      : [
+          `${unavailableCount} value${unavailableCount === 1 ? "" : "s"} unavailable`,
+        ]),
+  ].join(" · ");
 }
 
 function exposureGrandTotalLabel(data: InvestmentHoldingsView): string {
@@ -1150,7 +1380,7 @@ function ExposureView({
             const reviewOpen = exposureReviewPositionId === position.id;
             const positionName = positionDisplayName(position);
             const valueSourceLabel = exposureValueSourceLabel(position);
-            const economicsLabel = positionEconomicsLabel(position);
+            const economicsLabel = positionEconomicsLabel(position, null);
             return (
               <Fragment key={position.id}>
                 <article>
@@ -1235,7 +1465,16 @@ function ExposureView({
         const investedEstimateCount = positions.filter(
           (position) => position.valueSource === "invested_amount",
         ).length;
-        const performanceLabel = exposurePerformanceLabel(group, positions);
+        const directPublicEquity = isDirectPublicExposure(group, positions);
+        const currentSharePrice = exposureSharePricePresentation(
+          group,
+          positions,
+        );
+        const performanceLabel = exposurePerformanceLabel(
+          group,
+          positions,
+          currentSharePrice?.label ?? null,
+        );
         return (
           <details
             className="exposure-group"
@@ -1266,21 +1505,46 @@ function ExposureView({
                 </small>
               </span>
               <span className="exposure-group__totals">
-                {exposureTotalsLabel(group.totals)}
+                {exposureTotalsLabel(group.totals, directPublicEquity)}
                 {investedEstimateCount > 0 && (
                   <small>
                     {investedEstimateCount} invested{" "}
                     {investedEstimateCount === 1 ? "estimate" : "estimates"}
                   </small>
                 )}
-                {performanceLabel !== null && <small>{performanceLabel}</small>}
+                {performanceLabel !== null && (
+                  <small
+                    className={
+                      currentSharePrice === null
+                        ? undefined
+                        : "exposure-group__market-meta"
+                    }
+                    title={
+                      currentSharePrice === null
+                        ? undefined
+                        : `Share price as of ${formatDate(currentSharePrice.observedAt)}`
+                    }
+                  >
+                    {performanceLabel}
+                  </small>
+                )}
               </span>
             </summary>
             <div className="exposure-group__positions">
               {positions.map((position) => {
                 const positionName = positionDisplayName(position);
                 const valueSourceLabel = exposureValueSourceLabel(position);
-                const economicsLabel = positionEconomicsLabel(position);
+                const currentSharePrice =
+                  positionSharePricePresentation(position);
+                const economicsLabel = positionEconomicsLabel(
+                  position,
+                  currentSharePrice?.label ?? null,
+                );
+                const allocationLabel = position.hasUnknownAllocation
+                  ? "Allocation unknown"
+                  : position.knownAllocationPpm === 1_000_000
+                    ? null
+                    : `${Math.floor(position.knownAllocationPpm / 10_000)}% allocated`;
                 return (
                   <article key={position.id}>
                     <span>
@@ -1301,15 +1565,26 @@ function ExposureView({
                         <small>{valueSourceLabel}</small>
                       )}
                       {economicsLabel !== null && (
-                        <small>{economicsLabel}</small>
+                        <small
+                          className={
+                            currentSharePrice === null
+                              ? undefined
+                              : "position-row__market-meta"
+                          }
+                          title={
+                            currentSharePrice === null
+                              ? undefined
+                              : `Share price as of ${formatDate(currentSharePrice.observedAt)}`
+                          }
+                        >
+                          {economicsLabel}
+                        </small>
                       )}
-                    </span>
-                    <span>
-                      {position.hasUnknownAllocation
-                        ? "Allocation unknown"
-                        : position.knownAllocationPpm === 1_000_000
-                          ? "Full exposure"
-                          : `${Math.floor(position.knownAllocationPpm / 10_000)}% allocated`}
+                      {allocationLabel !== null && (
+                        <small className="position-row__allocation">
+                          {allocationLabel}
+                        </small>
+                      )}
                     </span>
                     {holdingDetailAction(position.id, positionName)}
                   </article>

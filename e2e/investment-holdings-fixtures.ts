@@ -238,8 +238,10 @@ export function investmentHoldingsViewFor(
 }
 
 function syntheticPublicPosition(input: {
+  costBasisMinor?: number | null;
   id: string;
   observedAt: string;
+  quantityMicros?: number;
   valueMinor: number;
 }): InvestmentPositionRecord {
   return {
@@ -271,9 +273,9 @@ function syntheticPublicPosition(input: {
       netValue: { state: "reported", minor: input.valueMinor },
       instrumentType: "equity",
       currency: "USD",
-      quantityMicros: 1_000_000,
+      quantityMicros: input.quantityMicros ?? 1_000_000,
       ticker: "NVDA",
-      costBasisMinor: null,
+      costBasisMinor: input.costBasisMinor ?? null,
     },
   };
 }
@@ -300,18 +302,24 @@ function syntheticCashPosition(input: {
 
 export function multiInstitutionInvestmentHoldingsView(): InvestmentHoldingsView {
   const robinhood = syntheticPublicPosition({
+    costBasisMinor: 17_035_000,
     id: "position_nvda_robinhood_1",
     observedAt: "2026-08-15T11:45:00.000Z",
+    quantityMicros: 1_000_000_000,
     valueMinor: 18_500_000,
   });
   const fidelityBrokerage = syntheticPublicPosition({
+    costBasisMinor: 22_099_000,
     id: "position_nvda_fidelity_brokerage_2",
     observedAt: "2026-08-15T11:45:00.000Z",
+    quantityMicros: 1_297_297_297,
     valueMinor: 24_000_000,
   });
   const fidelityIra = syntheticPublicPosition({
+    costBasisMinor: 29_006_000,
     id: "position_nvda_fidelity_ira_3",
     observedAt: "2026-08-15T11:45:00.000Z",
+    quantityMicros: 1_702_702_703,
     valueMinor: 31_500_000,
   });
   const robinhoodCash = syntheticCashPosition({

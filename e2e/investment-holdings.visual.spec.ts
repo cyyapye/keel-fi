@@ -683,11 +683,43 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     nvda.getByText("Fidelity · Fidelity rollover IRA"),
   ).toBeVisible();
-  await expect(nvda.locator(".position-row__value")).toHaveText([
+  await expect(nvda.locator("summary .exposure-group__totals")).toContainText(
+    "$740k",
+  );
+  const nvdaSummaryMeta = nvda.locator("summary .exposure-group__market-meta");
+  await expect(nvdaSummaryMeta).toHaveText("$681k · $185/sh · +8.6%");
+  await expect(nvdaSummaryMeta).toHaveAttribute(
+    "title",
+    "Share price as of Aug 15, 2026",
+  );
+  await expect(nvda.locator(".position-row__value")).toContainText([
     "$315k",
     "$240k",
     "$185k",
   ]);
+  const nvdaPositionMeta = nvda.locator(".position-row__market-meta");
+  await expect(nvdaPositionMeta).toHaveText([
+    "$290k · $185/sh · +8.6%",
+    "$221k · $185/sh · +8.6%",
+    "$170k · $185/sh · +8.6%",
+  ]);
+  await expect(nvdaPositionMeta.first()).toHaveAttribute(
+    "title",
+    "Share price as of Aug 15, 2026",
+  );
+  expect(
+    await nvdaPositionMeta.evaluateAll((elements) =>
+      elements.map((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return range.getClientRects().length;
+      }),
+    ),
+  ).toEqual([1, 1, 1]);
+  await expect(nvda).not.toContainText("Cost basis");
+  await expect(nvda).not.toContainText("Return");
+  await expect(nvda).not.toContainText("Full exposure");
+  await expect(nvda).not.toContainText("/share");
   const cash = page.locator(".cash-holdings");
   await expect(cash.getByRole("heading", { name: "Cash" })).toBeVisible();
   await expect(cash).toContainText("Total cash$28.55k");
@@ -741,7 +773,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     exposureView.locator(".exposure-group summary strong").first(),
   ).toHaveText("Beacon Robotics");
-  await expect(nvda.locator(".position-row__value")).toHaveText([
+  await expect(nvda.locator(".position-row__value")).toContainText([
     "$185k",
     "$240k",
     "$315k",
@@ -828,6 +860,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(beacon.locator(".position-row__value")).toContainText(
     "Invested amount estimate",
   );
+  await expect(beacon).not.toContainText("/sh");
   await expect(page.locator(".unallocated-positions")).not.toContainText(
     "Synthetic Beacon SPV",
   );
@@ -870,6 +903,16 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       elements.map((element) => element.getBoundingClientRect().height),
     );
   expect(targetHeights.every((height) => height >= 44)).toBe(true);
+  const supportingFontSizes = await nvda
+    .locator(
+      ".exposure-group__totals small, .exposure-group__positions small, .position-row__action",
+    )
+    .evaluateAll((elements) =>
+      elements.map((element) =>
+        Number.parseFloat(window.getComputedStyle(element).fontSize),
+      ),
+    );
+  expect(supportingFontSizes.every((size) => size >= 11)).toBe(true);
   const hasVisibleDecorativeBorder = await page
     .locator(
       [
