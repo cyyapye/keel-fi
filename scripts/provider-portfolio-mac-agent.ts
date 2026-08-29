@@ -41,6 +41,7 @@ import {
   chromeProcessIdsForProfile,
   controlledChromeArguments,
   installSystemdAgentService,
+  linuxSystemAgentLayout,
   removeStaleChromeProfileLocks,
   validateInteractiveSetupEnvironment,
   validateLinuxSystemdUser,
@@ -1725,7 +1726,9 @@ async function setup(
   provider: ProviderPortfolioAgentProvider,
 ): Promise<void> {
   if (process.platform === "linux") {
-    validateLinuxSystemdUser();
+    validateLinuxSystemdUser(undefined, {
+      systemUserName: linuxSystemAgentLayout(keelOrigin, provider).user,
+    });
     await validateProviderBrowserRuntime();
   }
   await completeProviderSignIn(provider, keelOrigin);

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { MacAgentTarget } from "../packages/domain/src/index";
+import { macAgentInstanceId } from "./mac-agent-instance";
 
 export type SupportedAgentPlatform = "darwin" | "linux";
 
@@ -40,6 +41,13 @@ const CHROME_SINGLETON_FILES = [
   "SingletonLock",
   "SingletonSocket",
 ] as const;
+const LINUX_SYSTEM_AGENT_ROOT = "/var/lib/keel-agents";
+const LINUX_SYSTEM_AGENT_REPOSITORY_ROOT = "/opt/keel-fi";
+const LINUX_SYSTEM_AGENT_TARGETS = [
+  "angellist",
+  "tokenfolio",
+  "sydecar",
+] as const satisfies readonly MacAgentTarget[];
 
 const runAgentCommand: RunAgentCommand = (command, arguments_) => {
   const result = spawnSync(command, [...arguments_], { encoding: "utf8" });
@@ -129,6 +137,56 @@ export function agentApplicationDirectory(
     "portfolio-agents",
     agentName.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "-"),
   );
+}
+
+export type LinuxSystemAgentLayout = {
+  appDirectory: string;
+  credentialDirectory: string;
+  group: string;
+  homeDirectory: string;
+  inaccessibleHomeDirectories: readonly string[];
+  repositoryRoot: string;
+  user: string;
+  xdgConfigHome: string;
+  xdgStateHome: string;
+};
+
+export function linuxSystemAgentLayout(
+  keelOrigin: URL,
+  target: MacAgentTarget,
+): LinuxSystemAgentLayout {
+  const instanceId = macAgentInstanceId(keelOrigin);
+  const homeDirectory = path.join(LINUX_SYSTEM_AGENT_ROOT, target);
+  const xdgConfigHome = path.join(homeDirectory, ".config");
+  const xdgStateHome = path.join(homeDirectory, ".local", "state");
+  const user = `keel-${target}`;
+  return {
+    appDirectory: path.join(
+      agentApplicationDirectory(`${target} Agent`, {
+        environment: {},
+        homeDirectory,
+        platform: "linux",
+      }),
+      "Instances",
+      instanceId,
+    ),
+    credentialDirectory: path.join(
+      xdgConfigHome,
+      "keel",
+      "agent-credentials",
+      instanceId,
+      target,
+    ),
+    group: user,
+    homeDirectory,
+    inaccessibleHomeDirectories: LINUX_SYSTEM_AGENT_TARGETS.filter(
+      (candidate) => candidate !== target,
+    ).map((candidate) => path.join(LINUX_SYSTEM_AGENT_ROOT, candidate)),
+    repositoryRoot: LINUX_SYSTEM_AGENT_REPOSITORY_ROOT,
+    user,
+    xdgConfigHome,
+    xdgStateHome,
+  };
 }
 
 async function fileExists(file: string): Promise<boolean> {
@@ -273,7 +331,11 @@ export function validateInteractiveSetupEnvironment(
 
 export function validateLinuxSystemdUser(
   execute: RunAgentCommand = runAgentCommand,
-  options: { uid?: number; userName?: string } = {},
+  options: {
+    systemUserName?: string;
+    uid?: number;
+    userName?: string;
+  } = {},
 ): void {
   const uid = options.uid ?? process.getuid?.();
   if (uid === undefined || uid === 0) {
@@ -282,6 +344,12 @@ export function validateLinuxSystemdUser(
     );
   }
   const userName = options.userName ?? os.userInfo().username;
+  if (
+    options.systemUserName !== undefined &&
+    userName === options.systemUserName
+  ) {
+    return;
+  }
   const lingering = execute("loginctl", [
     "show-user",
     uid.toString(),
@@ -393,6 +461,16 @@ function configuredSystemdPaths(rawPaths: string): Set<string> {
   );
 }
 
+function systemdPathCovers(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return (
+    relative.length === 0 ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== ".." &&
+      !path.isAbsolute(relative))
+  );
+}
+
 export function buildSystemdAgentService(
   options: SystemdAgentServiceOptions,
 ): string {
@@ -482,6 +560,10 @@ export async function installSystemdAgentService(
     "--value",
   ]);
   if (systemService.status === 0 && systemService.stdout.trim() === "loaded") {
+    const administratorService = linuxSystemAgentLayout(
+      options.keelOrigin,
+      options.target,
+    );
     const activeSystemService = execute("systemctl", [
       "is-active",
       "--quiet",
@@ -493,6 +575,42 @@ export async function installSystemdAgentService(
           "The administrator-provisioned portfolio agent service is not active.",
       );
     }
+    const serviceUser = execute("systemctl", [
+      "show",
+      unitName,
+      "--property=User",
+      "--value",
+    ]);
+    const serviceGroup = execute("systemctl", [
+      "show",
+      unitName,
+      "--property=Group",
+      "--value",
+    ]);
+    if (
+      serviceUser.status !== 0 ||
+      serviceGroup.status !== 0 ||
+      serviceUser.stdout.trim() !== administratorService.user ||
+      serviceGroup.stdout.trim() !== administratorService.group
+    ) {
+      throw new Error(
+        "The administrator-provisioned portfolio agent service must run as its dedicated provider user and group.",
+      );
+    }
+    const workingDirectory = execute("systemctl", [
+      "show",
+      unitName,
+      "--property=WorkingDirectory",
+      "--value",
+    ]);
+    if (
+      workingDirectory.status !== 0 ||
+      workingDirectory.stdout.trim() !== administratorService.repositoryRoot
+    ) {
+      throw new Error(
+        "The administrator-provisioned portfolio agent service must use the shared read-only deployment checkout.",
+      );
+    }
     const writablePaths = execute("systemctl", [
       "show",
       unitName,
@@ -500,8 +618,8 @@ export async function installSystemdAgentService(
       "--value",
     ]);
     const requiredWritablePaths = [
-      options.appDirectory,
-      options.credentialDirectory,
+      administratorService.appDirectory,
+      administratorService.credentialDirectory,
     ];
     const configuredWritablePaths = configuredSystemdPaths(
       writablePaths.stdout,
@@ -526,16 +644,27 @@ export async function installSystemdAgentService(
     const configuredInaccessiblePaths = configuredSystemdPaths(
       inaccessiblePaths.stdout,
     );
-    const requiredInaccessiblePaths = isolatedCredentialDirectories(options);
+    const ownPrivateDirectories = [
+      administratorService.homeDirectory,
+      administratorService.appDirectory,
+      administratorService.credentialDirectory,
+    ];
     if (
       inaccessiblePaths.status !== 0 ||
-      configuredInaccessiblePaths.has(options.credentialDirectory) ||
-      requiredInaccessiblePaths.some(
-        (directory) => !configuredInaccessiblePaths.has(directory),
+      [...configuredInaccessiblePaths].some((configuredPath) =>
+        ownPrivateDirectories.some((directory) =>
+          systemdPathCovers(configuredPath, directory),
+        ),
+      ) ||
+      administratorService.inaccessibleHomeDirectories.some(
+        (directory) =>
+          ![...configuredInaccessiblePaths].some((configuredPath) =>
+            systemdPathCovers(configuredPath, directory),
+          ),
       )
     ) {
       throw new Error(
-        "The administrator-provisioned portfolio agent service must hide sibling credential directories.",
+        "The administrator-provisioned portfolio agent service must hide both sibling agent homes without hiding its own private home.",
       );
     }
     return unitName;

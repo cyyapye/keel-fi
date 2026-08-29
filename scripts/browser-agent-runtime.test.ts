@@ -13,6 +13,7 @@ import {
   chromeProcessIdsForProfile,
   controlledChromeArguments,
   installSystemdAgentService,
+  linuxSystemAgentLayout,
   removeStaleChromeProfileLocks,
   systemdAgentUnitName,
   validateInteractiveSetupEnvironment,
@@ -27,12 +28,12 @@ const linuxService: SystemdAgentServiceOptions = {
     "/home/synthetic/.local/state/keel/portfolio-agents/sydecar-agent/instances/local",
   chromePath: "/opt/chrome/google-chrome",
   credentialDirectory:
-    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-0123456789abcdef/sydecar",
+    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-a55d81854a922b4e/sydecar",
   inaccessibleCredentialDirectories: [
-    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-0123456789abcdef/angellist",
-    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-0123456789abcdef/tokenfolio",
+    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-a55d81854a922b4e/angellist",
+    "/home/synthetic/.config/keel/agent-credentials/https-keel-preview-example-com-a55d81854a922b4e/tokenfolio",
   ],
-  instanceId: "https-keel-preview-example-com-0123456789abcdef",
+  instanceId: "https-keel-preview-example-com-a55d81854a922b4e",
   keelOrigin: new URL("https://keel-preview.example.com"),
   label: "Sydecar",
   nodeExecutable: "/opt/node/bin/node",
@@ -44,6 +45,57 @@ const linuxService: SystemdAgentServiceOptions = {
   xdgConfigHome: "/home/synthetic/.config",
   xdgStateHome: "/home/synthetic/.local/state",
 };
+const linuxAdministratorService = linuxSystemAgentLayout(
+  linuxService.keelOrigin,
+  linuxService.target,
+);
+
+type AdministratorServiceOverrides = Partial<{
+  group: string;
+  inaccessiblePaths: string;
+  readWritePaths: string;
+  user: string;
+  workingDirectory: string;
+}>;
+
+function administratorServiceResult(
+  command: string,
+  arguments_: readonly string[],
+  overrides: AdministratorServiceOverrides = {},
+): ReturnType<RunAgentCommand> {
+  if (
+    command === "systemctl" &&
+    arguments_[0] === "show" &&
+    arguments_.includes("--property=LoadState")
+  ) {
+    return { status: 0, stderr: "", stdout: "loaded\n" };
+  }
+  if (command === "systemctl" && arguments_[0] === "is-active") {
+    return { status: 0, stderr: "", stdout: "active\n" };
+  }
+  const properties = {
+    "--property=Group": overrides.group ?? linuxAdministratorService.group,
+    "--property=InaccessiblePaths":
+      overrides.inaccessiblePaths ??
+      linuxAdministratorService.inaccessibleHomeDirectories.join(" "),
+    "--property=ReadWritePaths":
+      overrides.readWritePaths ??
+      `${linuxAdministratorService.appDirectory} ${linuxAdministratorService.credentialDirectory}`,
+    "--property=User": overrides.user ?? linuxAdministratorService.user,
+    "--property=WorkingDirectory":
+      overrides.workingDirectory ?? linuxAdministratorService.repositoryRoot,
+  } as const;
+  for (const [property, value] of Object.entries(properties)) {
+    if (
+      command === "systemctl" &&
+      arguments_[0] === "show" &&
+      arguments_.includes(property)
+    ) {
+      return { status: 0, stderr: "", stdout: `${value}\n` };
+    }
+  }
+  return { status: 1, stderr: "unexpected command", stdout: "" };
+}
 
 describe("portfolio agent platform runtime", () => {
   it("uses standard private state roots on macOS and Linux", () => {
@@ -60,6 +112,25 @@ describe("portfolio agent platform runtime", () => {
         platform: "linux",
       }),
     ).toBe("/home/synthetic/.local/state/keel/portfolio-agents/sydecar-agent");
+  });
+
+  it("assigns each administrator agent its own non-login account layout", () => {
+    expect(linuxAdministratorService).toEqual({
+      appDirectory:
+        "/var/lib/keel-agents/sydecar/.local/state/keel/portfolio-agents/sydecar-agent/Instances/https-keel-preview-example-com-a55d81854a922b4e",
+      credentialDirectory:
+        "/var/lib/keel-agents/sydecar/.config/keel/agent-credentials/https-keel-preview-example-com-a55d81854a922b4e/sydecar",
+      group: "keel-sydecar",
+      homeDirectory: "/var/lib/keel-agents/sydecar",
+      inaccessibleHomeDirectories: [
+        "/var/lib/keel-agents/angellist",
+        "/var/lib/keel-agents/tokenfolio",
+      ],
+      repositoryRoot: "/opt/keel-fi",
+      user: "keel-sydecar",
+      xdgConfigHome: "/var/lib/keel-agents/sydecar/.config",
+      xdgStateHome: "/var/lib/keel-agents/sydecar/.local/state",
+    });
   });
 
   it("finds supported Linux Chrome installs and runs automation headlessly", async () => {
@@ -199,6 +270,18 @@ describe("portfolio agent platform runtime", () => {
         userName: "keel-agent",
       }),
     ).toThrow("sudo loginctl enable-linger keel-agent");
+  });
+
+  it("does not require a login manager for a dedicated system identity", () => {
+    const execute = vi.fn<RunAgentCommand>();
+    expect(() =>
+      validateLinuxSystemdUser(execute, {
+        systemUserName: "keel-sydecar",
+        uid: 1_008,
+        userName: "keel-sydecar",
+      }),
+    ).not.toThrow();
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("builds an origin-scoped persistent service without a credential", () => {
@@ -381,41 +464,7 @@ describe("portfolio agent platform runtime", () => {
     const homeDirectory = await mkdtemp(
       path.join(os.tmpdir(), "keel-agent-runtime-"),
     );
-    const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
-      if (
-        command === "systemctl" &&
-        arguments_[0] === "show" &&
-        arguments_.includes("--property=LoadState")
-      ) {
-        return { status: 0, stderr: "", stdout: "loaded\n" };
-      }
-      if (command === "systemctl" && arguments_[0] === "is-active") {
-        return { status: 0, stderr: "", stdout: "active\n" };
-      }
-      if (
-        command === "systemctl" &&
-        arguments_[0] === "show" &&
-        arguments_.includes("--property=ReadWritePaths")
-      ) {
-        return {
-          status: 0,
-          stderr: "",
-          stdout: `${linuxService.appDirectory} ${linuxService.credentialDirectory}\n`,
-        };
-      }
-      if (
-        command === "systemctl" &&
-        arguments_[0] === "show" &&
-        arguments_.includes("--property=InaccessiblePaths")
-      ) {
-        return {
-          status: 0,
-          stderr: "",
-          stdout: `${linuxService.inaccessibleCredentialDirectories.join(" ")}\n`,
-        };
-      }
-      return { status: 1, stderr: "unexpected command", stdout: "" };
-    });
+    const execute = vi.fn<RunAgentCommand>(administratorServiceResult);
     try {
       await expect(
         installSystemdAgentService(
@@ -428,42 +477,36 @@ describe("portfolio agent platform runtime", () => {
           execute,
         ),
       ).resolves.toBe(
-        "keel-sydecar-agent-https-keel-preview-example-com-0123456789abcdef.service",
+        "keel-sydecar-agent-https-keel-preview-example-com-a55d81854a922b4e.service",
       );
       await expect(
         stat(path.join(homeDirectory, ".config", "systemd", "user")),
       ).rejects.toThrow(/ENOENT/u);
-      expect(execute).toHaveBeenCalledTimes(4);
+      expect(execute).toHaveBeenCalledTimes(7);
     } finally {
       await rm(homeDirectory, { force: true, recursive: true });
     }
   });
 
+  it("rejects an administrator service that shares another Linux identity", async () => {
+    const execute = vi.fn<RunAgentCommand>((command, arguments_) =>
+      administratorServiceResult(command, arguments_, { user: "keel-agent" }),
+    );
+
+    await expect(
+      installSystemdAgentService(
+        { ...linuxService, platform: "linux" },
+        execute,
+      ),
+    ).rejects.toThrow("dedicated provider user and group");
+  });
+
   it("rejects a hardened system service that cannot persist credential rotation", async () => {
-    const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
-      if (
-        command === "systemctl" &&
-        arguments_[0] === "show" &&
-        arguments_.includes("--property=LoadState")
-      ) {
-        return { status: 0, stderr: "", stdout: "loaded\n" };
-      }
-      if (command === "systemctl" && arguments_[0] === "is-active") {
-        return { status: 0, stderr: "", stdout: "active\n" };
-      }
-      if (
-        command === "systemctl" &&
-        arguments_[0] === "show" &&
-        arguments_.includes("--property=ReadWritePaths")
-      ) {
-        return {
-          status: 0,
-          stderr: "",
-          stdout: `${linuxService.appDirectory}\n`,
-        };
-      }
-      return { status: 1, stderr: "unexpected command", stdout: "" };
-    });
+    const execute = vi.fn<RunAgentCommand>((command, arguments_) =>
+      administratorServiceResult(command, arguments_, {
+        readWritePaths: linuxAdministratorService.appDirectory,
+      }),
+    );
 
     await expect(
       installSystemdAgentService(
@@ -473,48 +516,37 @@ describe("portfolio agent platform runtime", () => {
     ).rejects.toThrow("private app and credential directories");
   });
 
-  it("rejects a system service that can read a sibling credential directory", async () => {
-    const execute = vi.fn<RunAgentCommand>((command, arguments_) => {
-      if (
-        command === "systemctl" &&
-        arguments_[0] === "show" &&
-        arguments_.includes("--property=LoadState")
-      ) {
-        return { status: 0, stderr: "", stdout: "loaded\n" };
-      }
-      if (command === "systemctl" && arguments_[0] === "is-active") {
-        return { status: 0, stderr: "", stdout: "active\n" };
-      }
-      if (
-        command === "systemctl" &&
-        arguments_[0] === "show" &&
-        arguments_.includes("--property=ReadWritePaths")
-      ) {
-        return {
-          status: 0,
-          stderr: "",
-          stdout: `${linuxService.appDirectory} ${linuxService.credentialDirectory}\n`,
-        };
-      }
-      if (
-        command === "systemctl" &&
-        arguments_[0] === "show" &&
-        arguments_.includes("--property=InaccessiblePaths")
-      ) {
-        return {
-          status: 0,
-          stderr: "",
-          stdout: `${linuxService.inaccessibleCredentialDirectories[0]}\n`,
-        };
-      }
-      return { status: 1, stderr: "unexpected command", stdout: "" };
-    });
+  it("rejects a system service that can read a sibling agent home", async () => {
+    const execute = vi.fn<RunAgentCommand>((command, arguments_) =>
+      administratorServiceResult(command, arguments_, {
+        inaccessiblePaths:
+          linuxAdministratorService.inaccessibleHomeDirectories[0] ?? "",
+      }),
+    );
 
     await expect(
       installSystemdAgentService(
         { ...linuxService, platform: "linux" },
         execute,
       ),
-    ).rejects.toThrow("hide sibling credential directories");
+    ).rejects.toThrow("hide both sibling agent homes");
+  });
+
+  it("rejects a system service that masks its own private home", async () => {
+    const execute = vi.fn<RunAgentCommand>((command, arguments_) =>
+      administratorServiceResult(command, arguments_, {
+        inaccessiblePaths: [
+          ...linuxAdministratorService.inaccessibleHomeDirectories,
+          linuxAdministratorService.homeDirectory,
+        ].join(" "),
+      }),
+    );
+
+    await expect(
+      installSystemdAgentService(
+        { ...linuxService, platform: "linux" },
+        execute,
+      ),
+    ).rejects.toThrow("without hiding its own private home");
   });
 });

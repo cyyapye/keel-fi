@@ -11,13 +11,25 @@ change a forecast.
 
 ## What runs on the worker
 
-Each provider and Keel origin receives its own:
+Each provider receives its own non-login Linux identity and mode-`0700` home:
 
-- Chrome profile under `~/.local/state/keel/portfolio-agents`;
-- mode-`0600` machine credential under `~/.config/keel/agent-credentials`;
-- long-running `systemd --user` service; and
+- `keel-angellist` at `/var/lib/keel-agents/angellist`;
+- `keel-tokenfolio` at `/var/lib/keel-agents/tokenfolio`; and
+- `keel-sydecar` at `/var/lib/keel-agents/sydecar`.
+
+Each provider and Keel origin then receives its own:
+
+- Chrome profile under its provider home;
+- mode-`0600` machine credential under its provider home;
+- long-running system `systemd` service running as only that provider identity;
+  and
 - provider-scoped API access that can only manage its reconnect lifecycle,
   rotate its own credential, or queue, lease, fail, and complete an import run.
+
+The three UIDs cannot read each other's profile, cookies, or machine credential.
+Each service also masks both sibling homes, so a service sandbox cannot reach
+them even if filesystem permissions drift. The shared checkout is read-only to
+all three identities and contains no provider state.
 
 The service runs Chrome headlessly after setup. The one-time sign-in uses a
 normal Chrome window in a private virtual desktop so Google and provider 2FA do
@@ -25,8 +37,9 @@ not run inside a software-controlled browser.
 
 ## Prepare the worker once
 
-Use a dedicated, non-root Linux user such as `keel-agent`. Do not run Chrome or
-the agent as root.
+Use a dedicated deployment user such as `keel-agent` for Git and dependency
+updates. Do not run Chrome or a provider agent as root or as the deployment
+user.
 
 Install:
 
@@ -58,53 +71,88 @@ The helper permits only Cloudflare's published IPv4 Tunnel destinations on
 `7844`; the namespace continues to deny other egress and exposes no inbound
 listener. Recheck Cloudflare's endpoint list when upgrading `cloudflared`.
 
-Clone a stable Keel checkout as that user and run:
+Create the provider service identities once:
 
 ```sh
+sudo install -d -o root -g root -m 0755 /var/lib/keel-agents
+for provider in angellist tokenfolio sydecar; do
+  sudo useradd --system --user-group \
+    --home-dir "/var/lib/keel-agents/$provider" --create-home \
+    --shell /usr/sbin/nologin "keel-$provider"
+  sudo install -d -o "keel-$provider" -g "keel-$provider" -m 0700 \
+    "/var/lib/keel-agents/$provider"
+done
+```
+
+Existing identities must have those exact homes, primary groups, and non-login
+shells. Stop instead of modifying an unexpected account.
+
+Clone a stable Keel checkout at `/opt/keel-fi` as the deployment user and run:
+
+```sh
+cd /opt/keel-fi
 make bootstrap
 ```
 
-Allow the user's service manager to remain active after SSH disconnects:
+The checkout and every parent directory must be readable and traversable by the
+three provider identities but writable only by the deployment user or root. Keep
+provider homes, Chrome profiles, and credentials out of the checkout.
+
+A same-user `systemd --user` service remains available for a local or temporary
+bootstrap worker. It requires lingering:
 
 ```sh
 sudo loginctl enable-linger keel-agent
 ```
 
-Reconnect over SSH as `keel-agent` after enabling linger. The setup command
-fails closed if the user service manager is unavailable.
+Reconnect over SSH as `keel-agent` after enabling linger. A production OVH
+worker uses the system services below instead and does not grant login access or
+lingering to provider identities.
 
 If an administrator has already provisioned a hardened system service with the
 same origin- and provider-scoped Keel unit name, setup reuses it and does not
-install a competing user service. Keep `ProtectHome=read-only`. Store each
-provider credential at `<origin-instance-id>/<provider>/authorization.json`,
+install a competing user service. Keep `ProtectHome=read-only` and
+`ProtectSystem=strict`. Store each provider credential beneath its own home at
+`.config/keel/agent-credentials/<origin-instance-id>/<provider>/authorization.json`,
 with the provider directory at mode `0700` and the file at mode `0600`.
 
-Allow the service to rotate only its matching provider credential and hide the
-two sibling provider directories. For example, the Sydecar service requires:
+Allow the service to write only its matching profile and credential directory,
+and hide both sibling homes. For example, the Sydecar service requires:
 
 ```ini
 [Service]
-ReadWritePaths=/home/keel-agent/.config/keel/agent-credentials/<origin-instance-id>/sydecar
-InaccessiblePaths=/home/keel-agent/.config/keel/agent-credentials/<origin-instance-id>/angellist
-InaccessiblePaths=/home/keel-agent/.config/keel/agent-credentials/<origin-instance-id>/tokenfolio
+User=keel-sydecar
+Group=keel-sydecar
+WorkingDirectory=/opt/keel-fi
+Environment=HOME=/var/lib/keel-agents/sydecar
+Environment=XDG_CONFIG_HOME=/var/lib/keel-agents/sydecar/.config
+Environment=XDG_STATE_HOME=/var/lib/keel-agents/sydecar/.local/state
+ReadWritePaths=/var/lib/keel-agents/sydecar/.local/state/keel/portfolio-agents/sydecar-agent/Instances/<origin-instance-id>
+ReadWritePaths=/var/lib/keel-agents/sydecar/.config/keel/agent-credentials/<origin-instance-id>/sydecar
+InaccessiblePaths=/var/lib/keel-agents/angellist
+InaccessiblePaths=/var/lib/keel-agents/tokenfolio
 ```
 
-Use the analogous provider-specific paths for AngelList and Tokenfolio. Do not
-grant `ReadWritePaths` on the shared `<origin-instance-id>` parent. Keel rejects
-an administrator service unless its writable paths are exactly its private app
-and provider credential directories and both sibling credential directories are
-inaccessible.
+Use the analogous identity and paths for AngelList and Tokenfolio. Do not grant
+`ReadWritePaths` on a provider-home parent. Keel rejects an administrator
+service unless it uses the exact provider user and group, the `/opt/keel-fi`
+checkout, exactly its private app and credential directories as writable paths,
+and both sibling homes as inaccessible paths.
 
-When replacing an older shared writable credential path, stop all three agents
-before migrating. Create all three provider directories, move each legacy
-`<provider>.json` file to its matching `<provider>/authorization.json`, then
-remove the shared `ReadWritePaths` grant before restarting any agent. An empty
-`ReadWritePaths=` assignment in a drop-in resets inherited entries; add back
-only the private app directory and matching provider credential directory.
-Verify ownership and modes without printing credential contents. Keel can read a
-secure legacy file during a rolling software upgrade, but legacy files must not
-remain once the service isolation is active because they sit outside the
-provider-specific inaccessible paths.
+When replacing a shared `keel-agent` identity, create all three provider homes
+first, then migrate one stopped provider at a time. Move that provider's exact
+origin-scoped app directory and credential directory into its new home, change
+only the moved tree to its provider UID and group, update the service identity
+and sandbox paths, and restart it. Confirm its saved provider session and Keel
+lease before touching the next provider. Roll the move and unit back if either
+check fails. Moving preserves the Chrome profile; do not copy cookies or print
+credential contents.
+
+An empty `ReadWritePaths=` or `InaccessiblePaths=` assignment in a drop-in
+resets inherited entries. Add back only the canonical paths above. After all
+three providers pass, verify that each provider UID can read its own
+`authorization.json` and cannot traverse either sibling home. Remove empty
+legacy state parents; never leave duplicate credentials or profiles behind.
 
 ## Set up one provider
 
@@ -179,21 +227,22 @@ changes still enter the normal review queue.
 Setup prints the exact unit name. Check it with:
 
 ```sh
-systemctl --user status <unit-name>
-journalctl --user --unit <unit-name> --since today
+sudo systemctl status <unit-name>
+sudo journalctl --unit <unit-name> --since today
 ```
 
 List all Keel portfolio-agent services with:
 
 ```sh
-systemctl --user list-units 'keel-*-agent-*.service'
+sudo systemctl list-units 'keel-*-agent-*.service'
 ```
 
-Request an immediate reviewable update with the normal command:
+Use the `systemctl --user` forms only on a temporary same-user bootstrap worker.
 
-```sh
-make provider-agent-run PROVIDER=tokenfolio KEEL_URL=https://keel-preview.example.com
-```
+Request an immediate reviewable update with **Queue update** in Holdings. For an
+operator-only CLI run, execute the provider command as its matching provider
+identity with the same `HOME`, XDG directories, and executable `PATH` declared
+by its system service; never run it as the deployment user.
 
 The service stays available for managed reconnect requests and reports the
 worker heartbeat continuously. It checks for queued or scheduled portfolio
@@ -209,7 +258,7 @@ updates once daily even when Holdings is set to weekly or off.
 - After moving the checkout or changing Node or installed dependency paths,
   rerun setup so the service points at the stable executables.
 - After pulling ordinary code changes into the same checkout, restart the unit
-  with `systemctl --user restart <unit-name>`.
+  with `sudo systemctl restart <unit-name>`.
 
 Never copy a Mac Chrome profile to Linux. Browser secrets are platform-bound,
 and a copied profile is neither a reliable nor auditable authentication path.
