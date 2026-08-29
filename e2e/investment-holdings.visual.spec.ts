@@ -688,7 +688,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "$740k",
   );
   const nvdaSummaryMeta = nvda.locator("summary .exposure-group__market-meta");
-  await expect(nvdaSummaryMeta).toHaveText("$681k · $185/sh · +8.6%");
+  await expect(nvdaSummaryMeta).toHaveText("$681k · $185 · +9%");
   expect(
     await nvda
       .locator(
@@ -733,9 +733,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ]);
   const nvdaPositionMeta = nvda.locator(".position-row__market-meta");
   await expect(nvdaPositionMeta).toHaveText([
-    "$290k · $185/sh · +8.6%",
-    "$221k · $185/sh · +8.6%",
-    "$170k · $185/sh · +8.6%",
+    "$290k · $185 · +9%",
+    "$221k · $185 · +9%",
+    "$170k · $185 · +9%",
   ]);
   await expect(nvdaPositionMeta.first()).toHaveAttribute(
     "title",
@@ -753,7 +753,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(nvda).not.toContainText("Cost basis");
   await expect(nvda).not.toContainText("Return");
   await expect(nvda).not.toContainText("Full exposure");
-  await expect(nvda).not.toContainText("/share");
+  await expect(nvda).not.toContainText("/sh");
   const cash = page.locator(".cash-holdings");
   await expect(cash.getByRole("heading", { name: "Cash" })).toBeVisible();
   await expect(cash).toContainText("Total cash$28.55k");
@@ -887,7 +887,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     has: page.getByText("Beacon Robotics", { exact: true }),
   });
   await expect(beacon.locator("summary")).toContainText("$40k");
-  await expect(beacon.locator("summary")).toContainText("1 invested estimate");
+  await expect(beacon.locator("summary")).toContainText("1 estimate · $40k");
   await beacon.locator("summary").click();
   await expect(beacon.getByText("Synthetic Beacon SPV")).toBeVisible();
   await expect(beacon.locator(".position-row__value")).toContainText("$40k");

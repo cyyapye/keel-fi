@@ -2991,7 +2991,6 @@ h1,
   text-align: right;
 }
 
-.exposure-group__estimate,
 .exposure-group__performance {
   grid-column: 2;
   grid-row: 2;
@@ -3002,10 +3001,7 @@ h1,
   letter-spacing: 0;
   line-height: 1.4;
   text-align: right;
-}
-
-.exposure-group__estimate + .exposure-group__performance {
-  grid-row: 3;
+  white-space: nowrap;
 }
 
 .exposure-group__market-meta {
@@ -6672,7 +6668,6 @@ h1,
   }
 
   .exposure-group__value,
-  .exposure-group__estimate,
   .exposure-group__performance {
     max-width: 170px;
   }
