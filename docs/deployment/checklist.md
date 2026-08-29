@@ -69,8 +69,11 @@
       in Git or CI.
 - [ ] New authorization can be disabled without deleting or rewriting accepted
       positions, decisions, baselines, plans, goals, or forecasts.
-- [ ] Investments Refresh, a polling schedule, external notifications, and new
-      paid products remain disabled unless separately approved.
+- [ ] The approved `0 13 * * *` daily holdings backstop selects at most 100 due
+      canonical connections, queues only opaque IDs, and reclaims the same
+      24-hour cooldown used by the deferred Holdings on-load check.
+- [ ] Investments Refresh, external notifications, and new paid products remain
+      disabled unless separately approved.
 
 ## Plan versus actual monitoring
 

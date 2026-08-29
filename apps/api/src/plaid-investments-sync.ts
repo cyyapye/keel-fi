@@ -1170,31 +1170,65 @@ function isAutomaticInvestmentSyncEligible(
   );
 }
 
+export function automaticInvestmentSyncCutoff(now: Date): string {
+  return new Date(
+    now.getTime() - AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS,
+  ).toISOString();
+}
+
+async function syncDueInvestmentConnectionStatus(
+  input: InvestmentSyncDependencies,
+  connection: InvestmentConnectionStatus,
+  syncedAfter: string,
+): Promise<InvestmentConnectionStatus> {
+  if (
+    !isAutomaticInvestmentSyncEligible(connection) ||
+    !connection.automaticUpdatesEnabled ||
+    connection.latestImportId !== null
+  ) {
+    return connection;
+  }
+  const run = await input.repository.beginAutomaticSync(
+    input.accessSubject,
+    connection.connectionId,
+    syncedAfter,
+  );
+  if (run === null) {
+    return input.repository.getConnectionStatus(
+      input.accessSubject,
+      connection.connectionId,
+    );
+  }
+  return executeInvestmentConnectionSync(input, run);
+}
+
+export async function syncDueInvestmentConnection(
+  input: InvestmentConnectionSyncInput & { now?: Date },
+): Promise<InvestmentConnectionStatus> {
+  const now = input.now ?? new Date();
+  const connection = await input.repository.getConnectionStatus(
+    input.accessSubject,
+    input.connectionId,
+  );
+  return syncDueInvestmentConnectionStatus(
+    input,
+    connection,
+    automaticInvestmentSyncCutoff(now),
+  );
+}
+
 export async function syncDueInvestmentConnections(
   input: InvestmentSyncDependencies & { now?: Date },
 ): Promise<InvestmentConnectionsState> {
   const state = await input.repository.getState(input.accessSubject, true);
   const now = input.now ?? new Date();
-  const syncedAfter = new Date(
-    now.getTime() - AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS,
-  ).toISOString();
+  const syncedAfter = automaticInvestmentSyncCutoff(now);
   for (const connection of state.connections) {
-    if (
-      !isAutomaticInvestmentSyncEligible(connection) ||
-      !connection.automaticUpdatesEnabled ||
-      connection.latestImportId !== null
-    ) {
-      continue;
-    }
-    const run = await input.repository.beginAutomaticSync(
-      input.accessSubject,
-      connection.connectionId,
+    await syncDueInvestmentConnectionStatus(
+      input,
+      connection,
       syncedAfter,
-    );
-    if (run === null) {
-      continue;
-    }
-    await executeInvestmentConnectionSync(input, run).catch(() => undefined);
+    ).catch(() => undefined);
   }
   return input.repository.getState(input.accessSubject, true);
 }

@@ -50,7 +50,9 @@ snapshot.
 - Automatic Plaid Investments holdings checks, currently operated with
   Robinhood, that apply deterministic USD long positions and isolate only
   unsupported or identity-ambiguous records. Every Item, account, sync, and
-  webhook stays on its exact connection lineage. Missing positions keep their
+  webhook stays on its exact connection lineage. Holdings runs a deferred due
+  check after first paint, while a daily Cloudflare Worker Cron provides a
+  bounded backstop on the same 24-hour cooldown. Missing positions keep their
   last accepted values and never imply sales. A clean update versions an
   existing Portfolio Baseline, forecast, and matching FI goal with the already
   accepted other-liquid amount; initial baselines, unavailable values, and

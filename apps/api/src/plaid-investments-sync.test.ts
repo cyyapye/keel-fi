@@ -13,6 +13,7 @@ import {
   createInvestmentReconnectLinkToken,
   disconnectInvestmentConnection,
   FetchPlaidInvestmentsClient,
+  syncDueInvestmentConnection,
   syncDueInvestmentConnections,
   syncInvestmentConnection,
   type PlaidInvestmentsClient,
@@ -329,6 +330,41 @@ describe("Plaid Investments sync", () => {
         "2026-08-18T12:00:00.000Z",
       ],
     ]);
+    expect(getHoldings).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the automatic cooldown for one scheduled connection", async () => {
+    const repository = publicRepository();
+    repository.getConnectionStatus.mockResolvedValue(
+      status({ connectionId: "synthetic-scheduled-connection" }),
+    );
+    const getHoldings = vi.fn();
+
+    await syncDueInvestmentConnection({
+      env: testEnv(memoryBucket().bucket),
+      repository,
+      holdingImports: {
+        stagePlaidInvestmentsHoldingImport: vi.fn(),
+        autoAdjudicatePlaidInvestmentsHoldingImport: vi.fn(),
+      },
+      client: {
+        createLinkToken: vi.fn(),
+        exchangeInvestmentToken: vi.fn(),
+        removeItem: vi.fn(),
+        updateItemWebhook: vi.fn(),
+        getWebhookVerificationKey: vi.fn(),
+        getHoldings,
+      },
+      accessSubject: "synthetic-access-subject",
+      connectionId: "synthetic-scheduled-connection",
+      now: new Date("2026-08-28T13:00:00.000Z"),
+    });
+
+    expect(repository.beginAutomaticSync).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-scheduled-connection",
+      "2026-08-27T13:00:00.000Z",
+    );
     expect(getHoldings).not.toHaveBeenCalled();
   });
 

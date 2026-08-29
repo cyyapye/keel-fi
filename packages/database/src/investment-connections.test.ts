@@ -8,7 +8,10 @@ import {
   D1HoldingImportRepository,
   type PlaidInvestmentsHoldingImportStageInput,
 } from "./holding-imports";
-import { D1InvestmentConnectionsRepository } from "./investment-connections";
+import {
+  __investmentConnectionsTest,
+  D1InvestmentConnectionsRepository,
+} from "./investment-connections";
 import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 
@@ -56,6 +59,7 @@ const migrationFiles = [
   "packages/database/migrations/0039_reviewed_position_economics.sql",
   "packages/database/migrations/0040_holdings_read_performance.sql",
   "packages/database/migrations/0041_reported_position_economics.sql",
+  "packages/database/migrations/0044_public_equity_sync_schedule.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -432,6 +436,79 @@ describe("Plaid Investments connection state", () => {
         .prepare(`SELECT cursor FROM connector_sync_runs WHERE id = ?`)
         .get(afterCooldown!.id),
     ).toEqual({ cursor: "investment-holdings-auto-v1" });
+  });
+
+  it("lists a bounded daily batch from more than 120 due investment connections", async () => {
+    const connections = await Promise.all(
+      Array.from({ length: 130 }, (_, index) => {
+        const sequence = index + 1;
+        return repository.upsertConnection(
+          accessSubject,
+          `connector-secrets/synthetic-scale-${sequence}.enc`,
+          sequence.toString(16).padStart(64, "0"),
+          `ins_synthetic_${sequence}`,
+          `Synthetic brokerage ${sequence}`,
+        );
+      }),
+    );
+    const syncedAfter = "2026-08-27T13:00:00.000Z";
+
+    const firstBatch = await repository.listDueAutomaticSyncConnectionIds(
+      syncedAfter,
+      100,
+    );
+    expect(firstBatch).toHaveLength(100);
+    expect(new Set(firstBatch).size).toBe(100);
+    expect(connections.map((connection) => connection.id)).toEqual(
+      expect.arrayContaining([...firstBatch]),
+    );
+
+    await Promise.all(
+      firstBatch.map((connectionId) =>
+        repository.beginAutomaticSync(accessSubject, connectionId, syncedAfter),
+      ),
+    );
+    const secondBatch = await repository.listDueAutomaticSyncConnectionIds(
+      syncedAfter,
+      100,
+    );
+    expect(secondBatch).toHaveLength(30);
+    expect(secondBatch).toEqual(
+      expect.arrayContaining(
+        connections
+          .map((connection) => connection.id)
+          .filter((connectionId) => !firstBatch.includes(connectionId)),
+      ),
+    );
+
+    const queryPlan = sqlite
+      .prepare(
+        `EXPLAIN QUERY PLAN ${__investmentConnectionsTest.dueAutomaticInvestmentConnectionsSql}`,
+      )
+      .all(syncedAfter, 100) as { detail: string }[];
+    const details = queryPlan.map((row) => row.detail).join("\n");
+    expect(details).toContain(
+      "connector_sync_investment_connections_connection_created_idx",
+    );
+    expect(details).not.toMatch(/SCAN (later_link|later_state)/u);
+  });
+
+  it("resolves only an active scheduled investment connection owner", async () => {
+    const fidelity = await repository.upsertConnection(
+      accessSubject,
+      "connector-secrets/synthetic-fidelity.enc",
+      fidelityItemKey,
+      "ins_fidelity",
+      "Fidelity",
+    );
+
+    await expect(
+      repository.findAutomaticSyncAccessSubject(fidelity.id),
+    ).resolves.toBe(accessSubject);
+    await repository.setConnectionPaused(accessSubject, fidelity.id, true);
+    await expect(
+      repository.findAutomaticSyncAccessSubject(fidelity.id),
+    ).resolves.toBeNull();
   });
 
   it("does not claim an automatic sync when a connection pauses before the atomic write", async () => {

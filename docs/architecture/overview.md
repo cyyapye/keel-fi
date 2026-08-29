@@ -29,6 +29,7 @@ flowchart LR
   Sources["Connectors and uploads"] --> Queue["Queues-compatible ingestion"]
   Plaid["Plaid holdings webhook"] -->|"ES256 + exact-body verification"| API
   API -->|"opaque delivery ID"| Queue
+  Cron["Daily 13:00 UTC Worker Cron"] -->|"up to 100 due connection IDs"| Queue
   Queue --> HoldingProposal["Holding import proposal"]
   HoldingProposal --> HoldingReview["Holding review"]
   HoldingReview --> AcceptedHolding["Accepted source facts"]
@@ -153,6 +154,10 @@ flowchart LR
   the signed raw body and queues only an opaque internal delivery ID. Processing
   stages a holding proposal for the exact investment connection and stops at the
   same review boundary as a manual investment check.
+- Holdings starts a deferred due check after its projection renders. A daily
+  13:00 UTC API Worker Cron Trigger queues at most 100 due connections as a
+  backstop. Both routes atomically claim the same 24-hour connection cooldown,
+  use the standard cached holdings read, and stop at the same review boundary.
 - A separate portfolio-agent hostname exposes only exact queue, lease,
   completion, and failure routes. One-time user authorization stores a
   target-scoped token in macOS Keychain or a mode-`0600` Linux user file and

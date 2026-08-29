@@ -130,9 +130,17 @@ bounded setup-required state.
 - Opening Holdings also starts a non-blocking standard holdings read when an
   active connection has no sync attempt in the preceding 24 hours and no review
   is waiting. The server claims that cooldown atomically, so reloads, tabs, and
-  failed attempts cannot create an unbounded provider loop. This backstops a
-  missed webhook; it does not call the paid `/investments/refresh` add-on or
-  claim real-time market prices.
+  failed attempts cannot create an unbounded provider loop.
+- The API Worker's `0 13 * * *` Cron Trigger provides a daily 13:00 UTC
+  backstop. It selects at most 100 due canonical connections in one D1 read and
+  sends one opaque Queue job per connection. Queue processing resolves the
+  current active owner and claims the same 24-hour cooldown again, so an on-load
+  check, webhook, manual check, or delayed Queue delivery cannot double-run the
+  connection.
+- Both backstops use Plaid's standard cached Investments holdings read. They do
+  not call the paid `/investments/refresh` add-on or claim real-time market
+  prices. `DEFAULT_UPDATE` remains the primary automatic signal and “Check now”
+  remains available on demand.
 - Disconnect removes the Plaid Item and encrypted R2 credential, appends a
   disconnected canonical state, and preserves accepted holdings, baselines, and
   prior run/import provenance.

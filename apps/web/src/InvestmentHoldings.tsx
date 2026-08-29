@@ -52,6 +52,7 @@ import {
   exchangeInvestmentPublicToken,
   loadInvestmentConnections,
   loadPrivateExposureReviews,
+  syncDueInvestmentHoldings,
   syncInvestmentHoldings,
 } from "./api";
 import { formatCompactCurrency, formatDate, formatProbability } from "./format";
@@ -63,6 +64,7 @@ const INVESTMENT_ADD_MODE = "add";
 const INVESTMENT_RECONNECT_PREFIX = "reconnect:";
 const INVESTMENT_OAUTH_RECONNECT_MESSAGE =
   "Open this connection again to finish signing in.";
+const AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 const SMALL_CASH_BALANCE_MINOR = 10_000;
 
 type ConnectionAction =
@@ -104,6 +106,21 @@ function isRetryableInvestmentCheckFailure(
   return (
     status?.status === "needs_attention" &&
     status.errorCode === "unexpected_failure"
+  );
+}
+
+function hasDueInvestmentConnection(
+  state: InvestmentConnectionsState,
+): boolean {
+  const syncedAfter = Date.now() - AUTOMATIC_INVESTMENT_SYNC_INTERVAL_MS;
+  return state.connections.some(
+    (connection) =>
+      (connection.status === "ready" ||
+        isRetryableInvestmentCheckFailure(connection)) &&
+      connection.automaticUpdatesEnabled &&
+      connection.latestImportId === null &&
+      (connection.lastSyncedAt === null ||
+        Date.parse(connection.lastSyncedAt) < syncedAfter),
   );
 }
 
@@ -1548,6 +1565,11 @@ export function InvestmentHoldings({
       setViewError("Keel could not load the reviewed position view.");
     }
   }, [onExposureResolved]);
+  const reloadHoldingsRef = useRef(reloadHoldings);
+
+  useEffect(() => {
+    reloadHoldingsRef.current = reloadHoldings;
+  }, [reloadHoldings]);
 
   const reloadExposureReviews = useCallback(async () => {
     try {
@@ -1569,16 +1591,36 @@ export function InvestmentHoldings({
   );
 
   useEffect(() => {
-    if (mode !== "sources") {
-      return;
-    }
+    let cancelled = false;
     const initial = window.setTimeout(() => {
-      void reloadConnections();
+      void reloadConnections().then(async (initialConnections) => {
+        if (
+          cancelled ||
+          initialConnections === null ||
+          !initialConnections.configured ||
+          !hasDueInvestmentConnection(initialConnections)
+        ) {
+          return;
+        }
+        try {
+          const next = await syncDueInvestmentHoldings();
+          if (cancelled) {
+            return;
+          }
+          setConnectionState(next);
+          await reloadHoldingsRef.current();
+        } catch {
+          if (!cancelled) {
+            setError("Keel could not run the due brokerage check.");
+          }
+        }
+      });
     }, 0);
     return () => {
+      cancelled = true;
       window.clearTimeout(initial);
     };
-  }, [mode, reloadConnections]);
+  }, [reloadConnections]);
 
   useEffect(() => {
     if (mode !== "exposures") {

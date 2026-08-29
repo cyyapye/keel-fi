@@ -4,6 +4,8 @@ import { pathToFileURL } from "node:url";
 
 import { z } from "zod";
 
+import { PLAID_INVESTMENTS_DAILY_SYNC_CRON } from "../packages/connectors/src/plaid-investments-schedule";
+
 const GitShaSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const CloudflareAccountIdSchema = z.string().regex(/^[0-9a-f]{32}$/);
 const CloudflareResourceNameSchema = z
@@ -229,6 +231,9 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
           max_retries: 3,
         },
       ],
+    },
+    triggers: {
+      crons: [PLAID_INVESTMENTS_DAILY_SYNC_CRON],
     },
     observability: {
       enabled: true,

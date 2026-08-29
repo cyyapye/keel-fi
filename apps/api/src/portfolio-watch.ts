@@ -16,6 +16,7 @@ import {
   normalizeContentType,
   PortfolioWatchSourceJobMessageSchema,
   PlaidHoldingsWebhookJobMessageSchema,
+  PlaidInvestmentsScheduledSyncJobMessageSchema,
   type CompanyWebDiscoveryCandidate,
   type PortfolioWatchSourceJobMessage,
   type PublicCompanyEventObservation,
@@ -28,6 +29,7 @@ import { z } from "zod";
 
 import type { Env } from "./types";
 import { DeploymentSmokeMessageSchema } from "./deployment-smoke";
+import { processScheduledInvestmentSyncJob } from "./plaid-investments-schedule";
 import { processPlaidHoldingsWebhookJob } from "./plaid-webhook";
 
 type FetchLike = (
@@ -810,6 +812,18 @@ export async function handlePortfolioWatchQueue(
   for (const queued of batch.messages) {
     if (DeploymentSmokeMessageSchema.safeParse(queued.body).success) {
       queued.ack();
+      continue;
+    }
+    if (
+      PlaidInvestmentsScheduledSyncJobMessageSchema.safeParse(queued.body)
+        .success
+    ) {
+      try {
+        await processScheduledInvestmentSyncJob(queued.body, env);
+        queued.ack();
+      } catch {
+        queued.retry({ delaySeconds: 60 });
+      }
       continue;
     }
     if (PlaidHoldingsWebhookJobMessageSchema.safeParse(queued.body).success) {

@@ -655,9 +655,11 @@ remains $0.
 - Before M9.7 private authorization, record the selected institution variant's
   Investments coverage, Item/product price, expected webhook volume, and any
   reconnect or refresh charge from the private provider contract.
-- Do not add Investments Refresh, a new polling schedule, a notification
-  channel, or another paid product in M9 without a separate recorded decision.
-  Continue bounded manual checks and the existing verified holdings webhook.
+- Do not add Investments Refresh, a notification channel, or another paid
+  product in M9 without a separate recorded decision. The approved daily Worker
+  schedule and deferred Holdings on-load check use only the standard cached
+  holdings read, share one atomic 24-hour cooldown, and preserve the existing
+  verified webhook and bounded manual check.
 - Record expected D1 growth as connections, containers, import-coverage rows,
   position mappings, exposure mappings, and snapshots per active institution.
   Confirm retention and backup impact remain under the deployment's monthly
