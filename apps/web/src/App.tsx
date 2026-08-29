@@ -994,6 +994,23 @@ function goalFormFromGoal(goal: Goal): GoalFormState {
   };
 }
 
+function GoalSelectorHeader({ goal }: { goal: Goal }) {
+  const version = latestGoalVersion(goal);
+
+  return (
+    <span className="goal-selector__goal-header">
+      <span>
+        {goal.isPrimary ? "Primary" : templateLabels[goal.templateKey]}
+      </span>
+      <strong>{version.name}</strong>
+      <small>
+        v{version.version} ·{" "}
+        {formatGoalValue(version.currentValueInteger, version.targetUnit)}
+      </small>
+    </span>
+  );
+}
+
 function Goals({
   data,
   onSave,
@@ -1017,6 +1034,10 @@ function Goals({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const selectedGoal =
     data.goals.find((goal) => goal.id === selectedGoalId) ?? null;
+  const goalOptions = data.goals.map((goal) => ({
+    label: latestGoalVersion(goal).name,
+    value: goal.id,
+  }));
   const parsedCurrent = parseGoalInteger(form.currentValue, form.targetUnit);
   const parsedTarget =
     form.targetValue.trim() === ""
@@ -1143,65 +1164,82 @@ function Goals({
       />
 
       <div className="goal-workspace">
-        <aside className="goal-list" aria-label="Saved goals">
-          <div className="goal-list__header">
+        <aside className="goal-selector" aria-label="Saved goals">
+          <div className="goal-selector__toolbar">
             <p className="eyebrow">Saved goals</p>
             <Button onClick={() => chooseTemplate("custom")} tone="quiet">
               New goal +
             </Button>
           </div>
-          {data.goals.map((goal) => {
-            const version = latestGoalVersion(goal);
-            return (
-              <button
-                aria-current={selectedGoalId === goal.id ? "true" : undefined}
-                className={selectedGoalId === goal.id ? "active" : ""}
-                key={goal.id}
-                onClick={() => chooseGoal(goal)}
-                type="button"
-              >
-                <span>
-                  {goal.isPrimary
-                    ? "Primary"
-                    : templateLabels[goal.templateKey]}
-                </span>
-                <strong>{version.name}</strong>
-                <small>
-                  v{version.version} ·{" "}
-                  {formatGoalValue(
-                    version.currentValueInteger,
-                    version.targetUnit,
-                  )}
-                </small>
-              </button>
-            );
-          })}
+          <Select
+            items={goalOptions}
+            onValueChange={(value) => {
+              if (typeof value !== "string") return;
+              const goal = data.goals.find(
+                (candidate) => candidate.id === value,
+              );
+              if (goal !== undefined) chooseGoal(goal);
+            }}
+            value={selectedGoalId}
+          >
+            <SelectTrigger
+              aria-label="Saved goal"
+              className="goal-selector__trigger"
+            >
+              <SelectValue>
+                {(value) => {
+                  const goal =
+                    typeof value === "string"
+                      ? data.goals.find((candidate) => candidate.id === value)
+                      : undefined;
+                  return goal === undefined ? (
+                    <span className="goal-selector__goal-header goal-selector__goal-header--empty">
+                      <span>Saved goals</span>
+                      <strong>Choose a goal</strong>
+                      <small>Edit its latest version</small>
+                    </span>
+                  ) : (
+                    <GoalSelectorHeader goal={goal} />
+                  );
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent className="goal-selector__content">
+              {data.goals.map((goal) => (
+                <SelectItem
+                  className="goal-selector__item"
+                  key={goal.id}
+                  label={latestGoalVersion(goal).name}
+                  value={goal.id}
+                >
+                  <GoalSelectorHeader goal={goal} />
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </aside>
 
         <div className="goal-main">
-          <section className="goal-templates">
-            <p className="eyebrow">
-              {selectedGoal === null
-                ? "Start from a template"
-                : "Goal template"}
-            </p>
-            <div>
-              {(
-                Object.keys(templateLabels) as GoalDraftInput["templateKey"][]
-              ).map((templateKey) => (
-                <button
-                  aria-pressed={form.templateKey === templateKey}
-                  className={form.templateKey === templateKey ? "active" : ""}
-                  disabled={selectedGoal !== null}
-                  key={templateKey}
-                  onClick={() => chooseTemplate(templateKey)}
-                  type="button"
-                >
-                  {templateLabels[templateKey]}
-                </button>
-              ))}
-            </div>
-          </section>
+          {selectedGoal === null && (
+            <section className="goal-templates">
+              <p className="eyebrow">Start from a template</p>
+              <div>
+                {(
+                  Object.keys(templateLabels) as GoalDraftInput["templateKey"][]
+                ).map((templateKey) => (
+                  <button
+                    aria-pressed={form.templateKey === templateKey}
+                    className={form.templateKey === templateKey ? "active" : ""}
+                    key={templateKey}
+                    onClick={() => chooseTemplate(templateKey)}
+                    type="button"
+                  >
+                    {templateLabels[templateKey]}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           <div className="goal-edit-grid">
             <form className="goal-form" onSubmit={submit}>
