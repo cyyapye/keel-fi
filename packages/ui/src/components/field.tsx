@@ -50,15 +50,23 @@ export function InputGroup({
   suffix,
   ...props
 }: InputGroupProps) {
+  const hasPrefix = prefix !== undefined;
+  const hasSuffix = suffix !== undefined;
+
   return (
     <span
-      className={cn("field__value", className)}
+      className={cn(
+        "field__value",
+        !hasPrefix && "field__value--no-prefix",
+        !hasSuffix && "field__value--no-suffix",
+        className,
+      )}
       data-slot="input-group"
       {...props}
     >
-      <i data-slot="input-prefix">{prefix}</i>
+      {hasPrefix && <i data-slot="input-prefix">{prefix}</i>}
       {children}
-      <i data-slot="input-suffix">{suffix}</i>
+      {hasSuffix && <i data-slot="input-suffix">{suffix}</i>}
     </span>
   );
 }

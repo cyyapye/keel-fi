@@ -697,6 +697,18 @@ h3 {
   border-bottom: 1px solid var(--line);
 }
 
+.field__value--no-prefix {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.field__value--no-suffix {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.field__value--no-prefix.field__value--no-suffix {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .field__value i {
   color: var(--muted);
   font-size: var(--text-sm);
@@ -876,6 +888,16 @@ h3 {
 .date-picker__cell[aria-selected="true"] .date-picker__day:hover {
   color: var(--canvas);
   background: var(--ink);
+}
+
+.date-picker__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.date-picker__clear {
+  min-height: 44px;
 }
 
 .date-picker__day[aria-current="date"]:not(:disabled)::after {

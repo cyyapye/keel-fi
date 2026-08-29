@@ -40,6 +40,7 @@ import {
   type PositionEconomicsContext,
 } from "@keel/domain/position-economics";
 import {
+  ActionGroup,
   AppShell,
   Badge,
   BrandMark,
@@ -1164,13 +1165,18 @@ function Goals({
       />
 
       <div className="goal-workspace">
-        <aside className="goal-selector" aria-label="Saved goals">
-          <div className="goal-selector__toolbar">
-            <p className="eyebrow">Saved goals</p>
-            <Button onClick={() => chooseTemplate("custom")} tone="quiet">
-              New goal +
-            </Button>
-          </div>
+        <Panel
+          action={
+            selectedGoal === null ? undefined : (
+              <TextLink onClick={() => chooseTemplate("custom")}>
+                New goal +
+              </TextLink>
+            )
+          }
+          aria-label="Goal selector"
+          className="goal-selector"
+          eyebrow="Goals"
+        >
           <Select
             items={goalOptions}
             onValueChange={(value) => {
@@ -1217,209 +1223,223 @@ function Goals({
               ))}
             </SelectContent>
           </Select>
-        </aside>
+        </Panel>
 
         <div className="goal-main">
           {selectedGoal === null && (
-            <section className="goal-templates">
-              <p className="eyebrow">Start from a template</p>
+            <Panel className="goal-templates" title="Start from a template">
               <div>
                 {(
                   Object.keys(templateLabels) as GoalDraftInput["templateKey"][]
                 ).map((templateKey) => (
-                  <button
+                  <Button
                     aria-pressed={form.templateKey === templateKey}
-                    className={form.templateKey === templateKey ? "active" : ""}
                     key={templateKey}
                     onClick={() => chooseTemplate(templateKey)}
-                    type="button"
+                    size="compact"
+                    tone={
+                      form.templateKey === templateKey ? "primary" : "secondary"
+                    }
                   >
                     {templateLabels[templateKey]}
-                  </button>
+                  </Button>
                 ))}
               </div>
-            </section>
+            </Panel>
           )}
 
           <div className="goal-edit-grid">
             <form className="goal-form" onSubmit={submit}>
-              <div className="goal-form__heading">
-                <div>
-                  <p className="eyebrow">
-                    {selectedGoal === null
-                      ? "New draft"
-                      : `Editing v${latestGoalVersion(selectedGoal).version}`}
-                  </p>
-                  <h2>
-                    {selectedGoal === null
-                      ? "Define the goal"
-                      : "Create a new version"}
-                  </h2>
-                </div>
-                {selectedGoal?.isPrimary === true && (
-                  <Badge tone="positive">Primary</Badge>
-                )}
-              </div>
-
-              <div className="goal-form__fields">
-                <Field label="Goal name" wide>
-                  <Input
-                    maxLength={120}
-                    onChange={(event) => updateForm("name", event.target.value)}
-                    required
-                    value={form.name}
-                  />
-                </Field>
-                <Field label="How success is measured" wide>
-                  <Input
-                    maxLength={120}
-                    onChange={(event) =>
-                      updateForm("metricLabel", event.target.value)
-                    }
-                    required
-                    value={form.metricLabel}
-                  />
-                </Field>
-                <Field label="Unit">
-                  <Select
-                    disabled={form.templateKey !== "custom"}
-                    items={GOAL_UNIT_OPTIONS}
-                    onValueChange={(value) => {
-                      if (
-                        value === "minor_units" ||
-                        value === "months" ||
-                        value === "count" ||
-                        value === "ppm"
-                      ) {
-                        updateForm("targetUnit", value);
-                      }
-                    }}
-                    value={form.targetUnit}
-                  >
-                    <SelectTrigger aria-label="Unit">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {GOAL_UNIT_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Current value">
-                  <InputGroup
-                    prefix={form.targetUnit === "minor_units" ? "$" : undefined}
-                  >
+              <Panel
+                action={
+                  selectedGoal?.isPrimary === true ? (
+                    <Badge tone="positive">Primary</Badge>
+                  ) : undefined
+                }
+                className="goal-form__panel"
+                eyebrow={
+                  selectedGoal === null
+                    ? "New draft"
+                    : `Editing v${latestGoalVersion(selectedGoal).version}`
+                }
+                title={
+                  selectedGoal === null
+                    ? "Define the goal"
+                    : "Create a new version"
+                }
+              >
+                <div className="goal-form__fields">
+                  <Field label="Goal name" variant="filled" wide>
                     <Input
-                      inputMode="decimal"
+                      maxLength={120}
                       onChange={(event) =>
-                        updateForm("currentValue", event.target.value)
+                        updateForm("name", event.target.value)
                       }
                       required
-                      value={form.currentValue}
+                      value={form.name}
                     />
-                  </InputGroup>
-                </Field>
-                <Field label="Target value · optional">
-                  <InputGroup
-                    prefix={form.targetUnit === "minor_units" ? "$" : undefined}
-                  >
+                  </Field>
+                  <Field label="How success is measured" variant="filled" wide>
                     <Input
-                      inputMode="decimal"
+                      maxLength={120}
                       onChange={(event) =>
-                        updateForm("targetValue", event.target.value)
+                        updateForm("metricLabel", event.target.value)
                       }
-                      value={form.targetValue}
+                      required
+                      value={form.metricLabel}
                     />
-                  </InputGroup>
-                </Field>
-                <Field label="Target date · optional">
-                  <Input
-                    onChange={(event) =>
-                      updateForm("targetDate", event.target.value)
-                    }
-                    type="date"
-                    value={form.targetDate}
-                  />
-                </Field>
-                <Field label="What changed" wide>
-                  <Input
-                    maxLength={500}
-                    onChange={(event) =>
-                      updateForm("changeNote", event.target.value)
-                    }
-                    required
-                    value={form.changeNote}
-                  />
-                </Field>
-              </div>
+                  </Field>
+                  <Field label="Unit" variant="filled">
+                    <Select
+                      items={GOAL_UNIT_OPTIONS}
+                      onValueChange={(value) => {
+                        if (
+                          value === "minor_units" ||
+                          value === "months" ||
+                          value === "count" ||
+                          value === "ppm"
+                        ) {
+                          updateForm("targetUnit", value);
+                        }
+                      }}
+                      value={form.targetUnit}
+                    >
+                      <SelectTrigger aria-label="Unit">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {GOAL_UNIT_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Current value" variant="filled">
+                    <InputGroup
+                      prefix={
+                        form.targetUnit === "minor_units" ? "$" : undefined
+                      }
+                    >
+                      <Input
+                        inputMode="decimal"
+                        onChange={(event) =>
+                          updateForm("currentValue", event.target.value)
+                        }
+                        required
+                        value={form.currentValue}
+                      />
+                    </InputGroup>
+                  </Field>
+                  <Field label="Target value · optional" variant="filled">
+                    <InputGroup
+                      prefix={
+                        form.targetUnit === "minor_units" ? "$" : undefined
+                      }
+                    >
+                      <Input
+                        inputMode="decimal"
+                        onChange={(event) =>
+                          updateForm("targetValue", event.target.value)
+                        }
+                        value={form.targetValue}
+                      />
+                    </InputGroup>
+                  </Field>
+                  <Field label="Target date · optional" variant="filled">
+                    <DatePicker
+                      aria-label="Target date"
+                      onValueChange={(value) => updateForm("targetDate", value)}
+                      value={form.targetDate}
+                    />
+                  </Field>
+                  <Field label="What changed" variant="filled" wide>
+                    <Input
+                      maxLength={500}
+                      onChange={(event) =>
+                        updateForm("changeNote", event.target.value)
+                      }
+                      required
+                      value={form.changeNote}
+                    />
+                  </Field>
+                </div>
 
-              <label className="primary-toggle">
-                <Input
-                  checked={form.makePrimary}
-                  disabled={selectedGoal?.isPrimary === true}
-                  onChange={(event) =>
-                    updateForm("makePrimary", event.target.checked)
-                  }
-                  type="checkbox"
-                />
-                <span>
-                  <strong>Make this the primary goal</strong>
-                  <small>The Overview will lead with this goal.</small>
-                </span>
-              </label>
+                <label className="primary-toggle">
+                  <Input
+                    checked={form.makePrimary}
+                    disabled={selectedGoal?.isPrimary === true}
+                    onChange={(event) =>
+                      updateForm("makePrimary", event.target.checked)
+                    }
+                    type="checkbox"
+                  />
+                  <span>
+                    <strong>Make this the primary goal</strong>
+                    <small>The Overview will lead with this goal.</small>
+                  </span>
+                </label>
 
-              {saveMessage !== null && (
-                <FormMessage tone={saveState === "error" ? "error" : "neutral"}>
-                  {saveMessage}
-                </FormMessage>
-              )}
-              <div className="goal-form__actions">
-                <Button
-                  disabled={saveState === "saving"}
-                  tone="primary"
-                  type="submit"
-                >
-                  {saveState === "saving"
-                    ? "Saving…"
-                    : selectedGoal === null
-                      ? "Save new goal"
-                      : "Save new version"}
-                </Button>
-                <span>Goal version and forecast snapshot save together.</span>
-              </div>
+                {saveMessage !== null && (
+                  <FormMessage
+                    tone={
+                      saveState === "error"
+                        ? "error"
+                        : saveState === "saved"
+                          ? "success"
+                          : "neutral"
+                    }
+                  >
+                    {saveMessage}
+                  </FormMessage>
+                )}
+                <ActionGroup className="goal-form__actions">
+                  <Button
+                    disabled={saveState === "saving"}
+                    tone="primary"
+                    type="submit"
+                  >
+                    {saveState === "saving"
+                      ? "Saving…"
+                      : selectedGoal === null
+                        ? "Save new goal"
+                        : "Save new version"}
+                  </Button>
+                </ActionGroup>
+              </Panel>
             </form>
 
-            <aside className="goal-preview" aria-live="polite">
-              <p className="eyebrow">Live preview</p>
+            <Panel
+              aria-live="polite"
+              className="goal-preview"
+              eyebrow="Live preview"
+              title={form.name || "Untitled goal"}
+            >
               {preview === null ? (
                 <EmptyState title="Preview unavailable">
                   Enter a valid current value and complete the required fields.
                 </EmptyState>
               ) : (
                 <>
-                  <h2>{form.name || "Untitled goal"}</h2>
-                  <div className="goal-preview__measure">
-                    <span>{form.metricLabel || "Progress measure"}</span>
-                    <strong>
-                      {formatGoalValue(
-                        preview.currentValueInteger,
-                        form.targetUnit,
-                      )}
-                    </strong>
-                    <small>
-                      {preview.targetValueInteger === null
+                  <MetricCard
+                    className="goal-preview__measure"
+                    detail={
+                      preview.targetValueInteger === null
                         ? "No target set"
                         : `${formatProbability(
                             preview.progressPpm ?? 0,
                           )} of ${formatGoalValue(
                             preview.targetValueInteger,
                             form.targetUnit,
-                          )}`}
-                    </small>
-                  </div>
+                          )}`
+                    }
+                    label={form.metricLabel || "Progress measure"}
+                    value={formatGoalValue(
+                      preview.currentValueInteger,
+                      form.targetUnit,
+                    )}
+                  />
                   {preview.modelStatus === "modeled" ? (
                     <>
                       <div className="goal-preview__outcomes">
@@ -1459,17 +1479,21 @@ function Goals({
                   <p className="panel-note">{preview.methodology}</p>
                 </>
               )}
-            </aside>
+            </Panel>
           </div>
 
           {selectedGoal !== null && (
-            <section className="goal-version-history">
-              <p className="eyebrow">Version history</p>
-              <h2>Prior decisions stay visible</h2>
+            <Panel
+              className="goal-version-history"
+              eyebrow="Version history"
+              title="Prior decisions stay visible"
+            >
               <div>
                 {selectedGoal.versions.map((version) => (
                   <article key={version.id}>
-                    <span>v{version.version}</span>
+                    <span className="goal-version-history__version">
+                      v{version.version}
+                    </span>
                     <div>
                       <strong>{version.changeNote}</strong>
                       <small>
@@ -1490,7 +1514,7 @@ function Goals({
                   </article>
                 ))}
               </div>
-            </section>
+            </Panel>
           )}
         </div>
       </div>
