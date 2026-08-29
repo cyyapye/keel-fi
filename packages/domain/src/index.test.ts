@@ -20,7 +20,9 @@ import {
   PrivateExposureResolutionInputSchema,
   PrivateExposureReviewStateSchema,
   PortfolioBaselineConfirmInputSchema,
+  PortfolioBaselineCashAccountChangeSchema,
   PortfolioBaselineCashAccountSchema,
+  PortfolioBaselinePositionChangeSchema,
   ProviderBrowserSessionReadyInputSchema,
   PlanInputSaveSchema,
   projectScenario,
@@ -345,6 +347,75 @@ describe("accepted cash account boundaries", () => {
         valueState: "unsupported",
         refreshKind: accepted.refreshKind,
         observedAt: accepted.observedAt,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("portfolio baseline source changes", () => {
+  const observedAt = "2026-08-14T18:00:00.000Z";
+
+  it("pairs updated sources with a prior value and added sources with none", () => {
+    const position = {
+      id: "position_synthetic",
+      positionName: "Synthetic Public Company",
+      ownerLabel: "Synthetic brokerage",
+      sourceLabel: "Plaid Investments",
+      provider: "plaid_investments" as const,
+      classification: "public_market" as const,
+      valueMinor: 200_000,
+      valueState: "reported" as const,
+      observedAt,
+      ticker: "SYN",
+      isCashPosition: false,
+      potentialDuplicate: false,
+      duplicateWith: [],
+    };
+    const cashAccount = {
+      id: "cash_synthetic",
+      institutionLabel: "Synthetic Bank",
+      accountLabel: "Synthetic checking",
+      subtype: "checking" as const,
+      valueMinor: 300_000,
+      valueState: "reported" as const,
+      refreshKind: "live" as const,
+      observedAt,
+    };
+
+    expect(
+      PortfolioBaselinePositionChangeSchema.safeParse({
+        changeType: "updated",
+        current: position,
+        previous: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      PortfolioBaselinePositionChangeSchema.safeParse({
+        changeType: "updated",
+        current: position,
+        previous: {
+          valueMinor: 150_000,
+          valueState: "reported",
+          observedAt: "2026-08-13T18:00:00.000Z",
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      PortfolioBaselineCashAccountChangeSchema.safeParse({
+        changeType: "added",
+        current: cashAccount,
+        previous: null,
+      }).success,
+    ).toBe(true);
+    expect(
+      PortfolioBaselineCashAccountChangeSchema.safeParse({
+        changeType: "added",
+        current: cashAccount,
+        previous: {
+          valueMinor: 250_000,
+          valueState: "reported",
+          observedAt: "2026-08-13T18:00:00.000Z",
+        },
       }).success,
     ).toBe(false);
   });

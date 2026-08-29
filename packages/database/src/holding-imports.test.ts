@@ -2218,7 +2218,16 @@ describe("reviewed portfolio baseline persistence", () => {
       requiresCashOverlapReview: false,
       canConfirm: true,
       suggestedOtherFiEligibleLiquidMinor: 0,
+      changes: {
+        positions: expect.arrayContaining([
+          expect.objectContaining({ changeType: "added", previous: null }),
+        ]),
+        cashAccounts: [
+          expect.objectContaining({ changeType: "added", previous: null }),
+        ],
+      },
     });
+    expect(state.changes.positions).toHaveLength(4);
     expect(state.cashAccounts).toEqual([
       expect.objectContaining({
         accountLabel: "Household checking",
@@ -2459,6 +2468,7 @@ describe("reviewed portfolio baseline persistence", () => {
       canConfirm: false,
       suggestedOtherFiEligibleLiquidMinor: 199_476_543,
       latestBaseline: { id: confirmed.baseline.id },
+      changes: { positions: [], cashAccounts: [] },
     });
 
     const angelListPosition = state.positions.find(
@@ -2535,6 +2545,7 @@ describe("reviewed portfolio baseline persistence", () => {
       hasSourceChanges: false,
       canConfirm: false,
       latestBaseline: { id: confirmed.baseline.id },
+      changes: { positions: [], cashAccounts: [] },
     });
     expect(
       sqlite
@@ -2607,6 +2618,16 @@ describe("reviewed portfolio baseline persistence", () => {
       hasCashAccountChanges: true,
       summary: { cashAccountValueMinor: 350_000 },
       latestBaseline: { id: confirmed.baseline.id },
+      changes: {
+        positions: [],
+        cashAccounts: [
+          {
+            changeType: "updated",
+            current: expect.objectContaining({ valueMinor: 350_000 }),
+            previous: expect.objectContaining({ valueMinor: 300_000 }),
+          },
+        ],
+      },
     });
 
     expect(() =>
@@ -2625,6 +2646,161 @@ describe("reviewed portfolio baseline persistence", () => {
         )
         .run(),
     ).toThrow("immutable");
+  });
+
+  it("projects one delta from 120 reviewed positions within a fixed read budget", async () => {
+    const base = providerTemplateStageInput("tokenfolio");
+    const baseRow = base.rows[0];
+    const baseScopeRow = base.canonicalScope.rows[0];
+    if (baseRow === undefined || baseScopeRow === undefined) {
+      throw new Error("Synthetic baseline scale fixture is incomplete.");
+    }
+    const rows = Array.from({ length: 120 }, (_, index) => {
+      const suffix = index.toString().padStart(3, "0");
+      const valueMinor = 100_000 + index;
+      return {
+        ...baseRow,
+        rowNumber: index + 3,
+        naturalKeySha256: (index + 1).toString(16).padStart(64, "0"),
+        companyOrFund: `Synthetic Baseline Company ${suffix}`,
+        fundName: `Synthetic Baseline Shares ${suffix}`,
+        unrealizedValueMinor: valueMinor,
+        unrealizedValueState: "reported" as const,
+        netValueMinor: valueMinor,
+        netValueState: "reported" as const,
+      };
+    });
+    const scopeRows = rows.map((row) => ({
+      sourceRowNumber: row.rowNumber,
+      protectedAccountKey: baseScopeRow.protectedAccountKey,
+      protectedPositionKey: row.naturalKeySha256,
+    }));
+    const initial = await holdingImports.stageHoldingImport(
+      "synthetic-access-subject",
+      {
+        ...base,
+        objectKey: "holding-imports/tokenfolio/synthetic-baseline-scale.csv",
+        sha256: "a1".repeat(32),
+        byteSize: 120_000,
+        rows,
+        canonicalScope: {
+          ...base.canonicalScope,
+          rows: scopeRows,
+        },
+      },
+    );
+    await holdingImports.applyHoldingImport(
+      "synthetic-access-subject",
+      initial.preview.id,
+      {
+        currency: "USD",
+        decisions: initial.preview.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted" as const,
+          rationale: "Reviewed synthetic scale position.",
+        })),
+      },
+    );
+
+    const initialState = await baselines.getState("synthetic-access-subject");
+    expect(initialState.changes.positions).toHaveLength(120);
+    if (
+      initialState.sourceRevision === null ||
+      initialState.baseForecastSnapshotId === null ||
+      initialState.baseForecastSnapshotVersion === null
+    ) {
+      throw new Error("Expected a confirmable scale baseline.");
+    }
+    const confirmed = await baselines.confirm("synthetic-access-subject", {
+      sourceRevision: initialState.sourceRevision,
+      baseForecastSnapshotId: initialState.baseForecastSnapshotId,
+      baseForecastSnapshotVersion: initialState.baseForecastSnapshotVersion,
+      otherFiEligibleLiquidMinor: 0,
+      duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
+      changeNote: "Set the synthetic scale baseline.",
+    });
+
+    const updatedRows = rows.map((row, index) =>
+      index === 61
+        ? {
+            ...row,
+            unrealizedValueMinor: (row.unrealizedValueMinor ?? 0) + 10_000,
+            netValueMinor: (row.netValueMinor ?? 0) + 10_000,
+          }
+        : row,
+    );
+    const updated = await holdingImports.stageHoldingImport(
+      "synthetic-access-subject",
+      {
+        ...base,
+        objectKey:
+          "holding-imports/tokenfolio/synthetic-baseline-scale-updated.csv",
+        sha256: "b2".repeat(32),
+        byteSize: 120_000,
+        rows: updatedRows,
+        canonicalScope: {
+          ...base.canonicalScope,
+          rows: scopeRows,
+        },
+      },
+    );
+    const applied = await holdingImports.applyHoldingImport(
+      "synthetic-access-subject",
+      updated.preview.id,
+      {
+        currency: "USD",
+        decisions: updated.preview.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted" as const,
+          rationale: "Reviewed synthetic scale refresh.",
+        })),
+      },
+    );
+    expect(applied).toMatchObject({ updatedCount: 1, unchangedCount: 119 });
+
+    database.resetRoundTripCount();
+    const changedState = await baselines.getState("synthetic-access-subject");
+    expect(changedState.positions).toHaveLength(120);
+    expect(changedState.changes.positions).toEqual([
+      expect.objectContaining({
+        changeType: "updated",
+        current: expect.objectContaining({
+          positionName: "Synthetic Baseline Company 061",
+          valueMinor: 110_061,
+        }),
+        previous: expect.objectContaining({ valueMinor: 100_061 }),
+      }),
+    ]);
+    expect(changedState.changes.cashAccounts).toEqual([]);
+    expect(database.roundTripCount).toBeLessThanOrEqual(13);
+
+    const baselineItemsSql = database.preparedSql
+      .filter(
+        (sql) =>
+          sql.includes("FROM portfolio_baseline_items") &&
+          sql.includes("FROM portfolio_baseline_cash_items"),
+      )
+      .at(-1);
+    expect(baselineItemsSql).toBeDefined();
+    const baselineItemsPlan = sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${baselineItemsSql ?? "SELECT 1"}`)
+      .all(
+        "hh_demo",
+        confirmed.baseline.id,
+        "hh_demo",
+        confirmed.baseline.id,
+      ) as Array<{ detail: string }>;
+    expect(
+      baselineItemsPlan.some((row) =>
+        row.detail.includes("portfolio_baseline_items_baseline_idx"),
+      ),
+    ).toBe(true);
+    expect(
+      baselineItemsPlan.some((row) =>
+        row.detail.includes("portfolio_baseline_cash_items_baseline_idx"),
+      ),
+    ).toBe(true);
   });
 
   it("materializes a reviewed opaque identity rotation as one cash account", async () => {

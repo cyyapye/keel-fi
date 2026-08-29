@@ -2115,6 +2115,61 @@ export const PortfolioBaselineCashAccountSchema = z
     }
   });
 
+const PortfolioBaselinePositionValueSchema = z.object({
+  valueMinor: NonNegativeMoneyMinorSchema.nullable(),
+  valueState: z.enum(["reported", "locked", "not_reported"]),
+  observedAt: IsoTimestampSchema,
+});
+
+export const PortfolioBaselinePositionChangeSchema = z
+  .object({
+    changeType: z.enum(["added", "updated"]),
+    current: PortfolioBaselinePositionSchema,
+    previous: PortfolioBaselinePositionValueSchema.nullable(),
+  })
+  .superRefine((change, context) => {
+    const previousMatchesChange =
+      (change.changeType === "added" && change.previous === null) ||
+      (change.changeType === "updated" && change.previous !== null);
+    if (!previousMatchesChange) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Baseline position change must include its prior value.",
+        path: ["previous"],
+      });
+    }
+  });
+
+const PortfolioBaselineCashAccountValueSchema = z.object({
+  valueMinor: NonNegativeMoneyMinorSchema.nullable(),
+  valueState: AcceptedCashAccountValueStateSchema,
+  observedAt: IsoTimestampSchema,
+});
+
+export const PortfolioBaselineCashAccountChangeSchema = z
+  .object({
+    changeType: z.enum(["added", "updated"]),
+    current: PortfolioBaselineCashAccountSchema,
+    previous: PortfolioBaselineCashAccountValueSchema.nullable(),
+  })
+  .superRefine((change, context) => {
+    const previousMatchesChange =
+      (change.changeType === "added" && change.previous === null) ||
+      (change.changeType === "updated" && change.previous !== null);
+    if (!previousMatchesChange) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Baseline cash change must include its prior value.",
+        path: ["previous"],
+      });
+    }
+  });
+
+export const PortfolioBaselineSourceChangesSchema = z.object({
+  positions: z.array(PortfolioBaselinePositionChangeSchema),
+  cashAccounts: z.array(PortfolioBaselineCashAccountChangeSchema),
+});
+
 export const PortfolioBaselineSummarySchema = z.object({
   positionCount: z.number().int().positive(),
   publicMarketValueMinor: NonNegativeMoneyMinorSchema,
@@ -2227,6 +2282,7 @@ export const PortfolioBaselineStateSchema = z.object({
   summary: PortfolioBaselineSummarySchema.nullable(),
   positions: z.array(PortfolioBaselinePositionSchema),
   cashAccounts: z.array(PortfolioBaselineCashAccountSchema),
+  changes: PortfolioBaselineSourceChangesSchema,
   planning: PortfolioBaselinePlanningContextSchema,
   suggestedOtherFiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
   currentImpact: PortfolioBaselineImpactSchema,
@@ -3768,17 +3824,26 @@ export type PortfolioBaselineConfirmResult = z.infer<
 export type PortfolioBaselineCashAccount = z.infer<
   typeof PortfolioBaselineCashAccountSchema
 >;
+export type PortfolioBaselineCashAccountChange = z.infer<
+  typeof PortfolioBaselineCashAccountChangeSchema
+>;
 export type PortfolioBaselineImpact = z.infer<
   typeof PortfolioBaselineImpactSchema
 >;
 export type PortfolioBaselinePosition = z.infer<
   typeof PortfolioBaselinePositionSchema
 >;
+export type PortfolioBaselinePositionChange = z.infer<
+  typeof PortfolioBaselinePositionChangeSchema
+>;
 export type PortfolioBaselineRecord = z.infer<
   typeof PortfolioBaselineRecordSchema
 >;
 export type PortfolioBaselineState = z.infer<
   typeof PortfolioBaselineStateSchema
+>;
+export type PortfolioBaselineSourceChanges = z.infer<
+  typeof PortfolioBaselineSourceChangesSchema
 >;
 export type PortfolioBaselineSummary = z.infer<
   typeof PortfolioBaselineSummarySchema

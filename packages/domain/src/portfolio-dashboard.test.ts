@@ -266,6 +266,7 @@ function baselineFixture(): PortfolioBaselineState {
         observedAt: asOf,
       },
     ],
+    changes: { positions: [], cashAccounts: [] },
     planning: {
       currentFiEligibleLiquidMinor: 200_000,
       protectedCashFloorMinor: 10_000,

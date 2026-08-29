@@ -70,7 +70,9 @@ separately. Linked bank accounts and brokerage cash positions have exact
 accepted source identities and are counted together automatically. Only a
 positive manual residual alongside either sourced cash category requires an
 explicit overlap acknowledgment because the manual amount has no source
-identity. The review previews the FI and runway effects, then appends the
+identity. The review explains that the residual is added on top of sourced cash;
+the user's baseline apply action is the acknowledgment, without a second
+checkbox. The review previews the FI and runway effects, then appends the
 resulting plan, forecast, and goal versions.
 
 Plaid may omit `persistent_account_id` and may rotate `account_id`. When that
