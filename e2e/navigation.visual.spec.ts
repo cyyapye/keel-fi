@@ -88,7 +88,9 @@ test("paints the Holdings route before the full application loads", async ({
   ).toBe(true);
 
   releaseApplication();
-  await expect(page.getByText(/\d+ holdings/u).first()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Manage sources" }),
+  ).toBeVisible();
 });
 
 test("keeps primary navigation legible and keyboard accessible", async ({

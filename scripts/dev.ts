@@ -3,6 +3,10 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
 import { DEV_HOST, resolveDevPorts } from "./dev-ports";
+import {
+  parseLocalSeedScenario,
+  prepareLocalSeedScenario,
+} from "./local-seed-scenarios";
 
 const { apiPort, rootDir, webPort } = resolveDevPorts();
 
@@ -35,9 +39,54 @@ await Promise.all([
   assertPortAvailable("API", apiPort),
 ]);
 
+const requestedPersistTo = process.env.KEEL_LOCAL_PERSIST_TO;
+const acceptancePersistRoot = path.resolve(rootDir, ".keel-local/acceptance");
+const e2ePersistRoot = path.resolve(rootDir, ".keel-local/e2e");
+const isAcceptanceProfile =
+  requestedPersistTo !== undefined &&
+  path.resolve(rootDir, requestedPersistTo) === acceptancePersistRoot;
+const isE2eProfile =
+  process.env.KEEL_E2E_ISOLATED === "1" &&
+  requestedPersistTo !== undefined &&
+  path.resolve(rootDir, requestedPersistTo) === e2ePersistRoot;
+if (requestedPersistTo !== undefined && !isAcceptanceProfile && !isE2eProfile) {
+  throw new Error(
+    "KEEL_LOCAL_PERSIST_TO may only select a disposable Keel runtime profile.",
+  );
+}
+if (
+  (isAcceptanceProfile || isE2eProfile) &&
+  !existsSync(isAcceptanceProfile ? acceptancePersistRoot : e2ePersistRoot)
+) {
+  throw new Error(
+    isAcceptanceProfile
+      ? "The local acceptance profile is missing. Run make local-acceptance-apply first."
+      : "The isolated browser-test profile is missing. Run make db-reset-e2e first.",
+  );
+}
+
+const localScenario =
+  isAcceptanceProfile || isE2eProfile
+    ? null
+    : parseLocalSeedScenario(process.env.KEEL_LOCAL_SCENARIO);
+const selectedPersistRoot = isAcceptanceProfile
+  ? acceptancePersistRoot
+  : isE2eProfile
+    ? e2ePersistRoot
+    : prepareLocalSeedScenario({
+        rootDir,
+        scenario: localScenario ?? "default",
+      });
+const dataProfileLabel = isAcceptanceProfile
+  ? "acceptance"
+  : isE2eProfile
+    ? "browser-test"
+    : localScenario;
+
 console.log("Starting Keel local services:");
 console.log(`  Web: http://${DEV_HOST}:${webPort}`);
 console.log(`  API: http://${DEV_HOST}:${apiPort}/api/alpha`);
+console.log(`  Data: ${dataProfileLabel}`);
 console.log("Use Ctrl+C to stop both services.");
 
 const safeProcessEnvironment = { ...process.env };
@@ -50,35 +99,8 @@ const environment = {
   KEEL_WEB_PORT: String(webPort),
   WRANGLER_LOG_PATH:
     process.env.WRANGLER_LOG_PATH ??
-    path.join(rootDir, ".wrangler", "logs", "wrangler.log"),
+    path.join(selectedPersistRoot, "logs", "wrangler.log"),
 };
-const localPersistTo = process.env.KEEL_LOCAL_PERSIST_TO;
-const acceptancePersistRoot = path.resolve(rootDir, ".keel-local/acceptance");
-const e2ePersistRoot = path.resolve(rootDir, ".keel-local/e2e");
-const isAcceptanceProfile =
-  localPersistTo !== undefined &&
-  path.resolve(rootDir, localPersistTo) === acceptancePersistRoot;
-const isE2eProfile =
-  process.env.KEEL_E2E_ISOLATED === "1" &&
-  localPersistTo !== undefined &&
-  path.resolve(rootDir, localPersistTo) === e2ePersistRoot;
-if (localPersistTo !== undefined && !isAcceptanceProfile && !isE2eProfile) {
-  throw new Error(
-    "KEEL_LOCAL_PERSIST_TO may only select a disposable Keel runtime profile.",
-  );
-}
-const selectedPersistRoot = isAcceptanceProfile
-  ? acceptancePersistRoot
-  : isE2eProfile
-    ? e2ePersistRoot
-    : null;
-if (selectedPersistRoot !== null && !existsSync(selectedPersistRoot)) {
-  throw new Error(
-    isAcceptanceProfile
-      ? "The local acceptance profile is missing. Run make local-acceptance-apply first."
-      : "The isolated browser-test profile is missing. Run make db-reset-e2e first.",
-  );
-}
 const childEnvironment = {
   ...environment,
   ...(isAcceptanceProfile
@@ -146,9 +168,8 @@ start("API", [
   "local",
   "--port",
   String(apiPort),
-  ...(localPersistTo === undefined
-    ? []
-    : ["--persist-to", path.resolve(rootDir, localPersistTo)]),
+  "--persist-to",
+  selectedPersistRoot,
 ]);
 start("Web", [
   "--filter",

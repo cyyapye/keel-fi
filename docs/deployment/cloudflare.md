@@ -33,7 +33,11 @@ pnpm db:check:local
 pnpm dev
 ```
 
-Wrangler persists local D1 under the ignored `apps/api/.wrangler` directory.
+These commands use the populated `default` local scenario. Set
+`KEEL_LOCAL_SCENARIO=empty-holdings` to prepare the empty Holdings state, or use
+the discoverable Make targets documented in the repository README. Wrangler
+persists named local D1 profiles under the ignored `.keel-local/scenarios`
+directory.
 
 ## Automatic preview deployment
 

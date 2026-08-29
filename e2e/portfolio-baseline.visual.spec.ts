@@ -440,6 +440,27 @@ test("sets the initial FI baseline while checking only manual cash", async ({
     }),
   ).toBeVisible();
   await expect(summary).not.toContainText("reviewed positions");
+  const baselineLayout = await summary.evaluate((element) => {
+    const button = element.querySelector<HTMLButtonElement>(".button");
+    if (button === null) throw new Error("Missing baseline action");
+    const sectionBounds = element.getBoundingClientRect();
+    const buttonBounds = button.getBoundingClientRect();
+    return {
+      buttonWidth: buttonBounds.width,
+      isNarrow: window.matchMedia("(max-width: 620px)").matches,
+      rightGap: sectionBounds.right - buttonBounds.right,
+      sectionWidth: sectionBounds.width,
+    };
+  });
+  if (baselineLayout.isNarrow) {
+    expect(baselineLayout.buttonWidth).toBeCloseTo(
+      baselineLayout.sectionWidth,
+      0,
+    );
+  } else {
+    expect(baselineLayout.buttonWidth).toBeLessThan(180);
+    expect(baselineLayout.rightGap).toBeCloseTo(0, 0);
+  }
   await expect(summary).toHaveScreenshot("portfolio-baseline-ready.png", {
     animations: "disabled",
     caret: "hide",
