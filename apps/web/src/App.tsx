@@ -6983,14 +6983,9 @@ function Holdings({
                 </Button>
               </>
             ) : (
-              <>
-                <span className="page-count">
-                  {data.holdings.length} holdings
-                </span>
-                <Button onClick={() => onViewChange("sources")} tone="primary">
-                  Manage sources
-                </Button>
-              </>
+              <Button onClick={() => onViewChange("sources")} tone="primary">
+                Manage sources
+              </Button>
             )}
           </>
         }

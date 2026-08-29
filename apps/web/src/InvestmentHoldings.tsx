@@ -1486,7 +1486,7 @@ function ExposureView({
                 group.exposure.id === requestedExposureId ? "true" : undefined
               }
             >
-              <span>
+              <span className="exposure-group__identity">
                 <strong
                   title={
                     displayName === group.exposure.canonicalName
@@ -1505,20 +1505,22 @@ function ExposureView({
                 </small>
               </span>
               <span className="exposure-group__totals">
-                {exposureTotalsLabel(group.totals, directPublicEquity)}
+                <span className="exposure-group__value">
+                  {exposureTotalsLabel(group.totals, directPublicEquity)}
+                </span>
                 {investedEstimateCount > 0 && (
-                  <small>
+                  <small className="exposure-group__estimate">
                     {investedEstimateCount} invested{" "}
                     {investedEstimateCount === 1 ? "estimate" : "estimates"}
                   </small>
                 )}
                 {performanceLabel !== null && (
                   <small
-                    className={
+                    className={`exposure-group__performance${
                       currentSharePrice === null
-                        ? undefined
-                        : "exposure-group__market-meta"
-                    }
+                        ? ""
+                        : " exposure-group__market-meta"
+                    }`}
                     title={
                       currentSharePrice === null
                         ? undefined

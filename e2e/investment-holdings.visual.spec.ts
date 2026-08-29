@@ -539,6 +539,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page.getByRole("button", { name: "Manage sources" }),
   ).toBeVisible();
+  await expect(page.locator(".page-count")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Import holdings" }),
   ).toHaveCount(0);
@@ -691,12 +692,36 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   expect(
     await nvda
       .locator(
-        "summary > span:first-child small, summary .exposure-group__totals small",
+        "summary .exposure-group__identity small, summary .exposure-group__totals small",
       )
       .evaluateAll((elements) =>
         elements.map((element) => window.getComputedStyle(element).fontSize),
       ),
   ).toEqual(["12px", "12px"]);
+  const summaryAlignment = await nvda.locator("summary").evaluate((summary) => {
+    const gridRow = (selector: string) => {
+      const element = summary.querySelector(selector);
+      if (!(element instanceof HTMLElement)) {
+        throw new Error(`Missing summary element: ${selector}`);
+      }
+      return window.getComputedStyle(element).gridRowStart;
+    };
+
+    return {
+      alignItems: window.getComputedStyle(summary).alignItems,
+      identityRow: gridRow(".exposure-group__identity strong"),
+      valueRow: gridRow(".exposure-group__value"),
+      positionCountRow: gridRow(".exposure-group__identity small"),
+      marketMetaRow: gridRow(".exposure-group__market-meta"),
+    };
+  });
+  expect(summaryAlignment).toEqual({
+    alignItems: "baseline",
+    identityRow: "1",
+    valueRow: "1",
+    positionCountRow: "2",
+    marketMetaRow: "2",
+  });
   await expect(nvdaSummaryMeta).toHaveAttribute(
     "title",
     "Share price as of Aug 15, 2026",
