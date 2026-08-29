@@ -4340,9 +4340,15 @@ function providerPortfolioAgentMessage(
           "The update stopped before upload. Check troubleshooting after Keel is updated.",
       };
     }
+    if (overview.errorCode === "upload_failed") {
+      return {
+        title: "Paused — upload failed",
+        description: "Your prior holdings are unchanged. Try the update again.",
+      };
+    }
     return {
       title: "Paused — update failed",
-      description: `Reconnect ${label}, then request another update.`,
+      description: "Your prior holdings are unchanged. Try the update again.",
     };
   }
   return {
@@ -4395,8 +4401,13 @@ function ProviderPortfolioAgentRow({
     overview?.status === "offline" || overview?.status === "needs_attention";
   const managedReconnectAvailable =
     overview?.status === "needs_attention" &&
-    overview.errorCode !== "keel_sign_in_required" &&
-    overview.errorCode !== "page_not_supported";
+    (overview.errorCode === "provider_sign_in_required" ||
+      overview.errorCode === "incomplete_snapshot" ||
+      overview.errorCode === "identity_ambiguous");
+  const retryAvailable =
+    overview?.status === "needs_attention" &&
+    (overview.errorCode === "upload_failed" ||
+      overview.errorCode === "unexpected_failure");
   const running = overview?.status === "running";
 
   const copySetupCommand = async () => {
@@ -4458,10 +4469,19 @@ function ProviderPortfolioAgentRow({
 
   const reconnectCompleted = useCallback(() => {
     setNotice(
-      `${label} reconnected. Updates resumed and new changes will wait for review.`,
+      `${label} reconnected. Checking for updates now; new changes will wait for review.`,
     );
-    void reload();
-  }, [label, reload]);
+    setOverview((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            errorCode: null,
+            runStatus: "queued",
+            status: "running",
+          },
+    );
+  }, [label]);
 
   const labelId = `${provider}-agent-label`;
   const titleId = `${provider}-agent-title`;
@@ -4504,6 +4524,15 @@ function ProviderPortfolioAgentRow({
                 onConnected={reconnectCompleted}
                 provider={provider}
               />
+            )}
+            {retryAvailable && (
+              <Button
+                disabled={busyAction !== null}
+                onClick={() => void runNow()}
+                tone="primary"
+              >
+                {busyAction === "run" ? "Requesting…" : "Try update"}
+              </Button>
             )}
             <AgentTroubleshooting
               copyCommand={() => void copySetupCommand()}

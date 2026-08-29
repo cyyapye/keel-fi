@@ -1514,6 +1514,7 @@ test("requests an AngelList update from the phone-safe Holdings flow", async ({
 test("shows clear health and repair actions for portfolio agents", async ({
   page,
 }) => {
+  let tokenfolioUpdateRequested = false;
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
@@ -1548,14 +1549,14 @@ test("shows clear health and repair actions for portfolio agents", async ({
             ? {
                 version: 1,
                 provider,
-                status: "ready",
+                status: "needs_attention",
                 interval: "daily",
                 runStatus: null,
                 lastSeenAt: "2026-08-21T12:00:00.000Z",
-                lastCompletedAt: "2026-08-21T12:00:00.000Z",
+                lastCompletedAt: "2026-08-20T12:00:00.000Z",
                 nextRunAt: "2026-08-22T12:00:00.000Z",
                 latestImportId: "import_synthetic_tokenfolio",
-                errorCode: null,
+                errorCode: "unexpected_failure",
               }
             : {
                 version: 1,
@@ -1572,6 +1573,21 @@ test("shows clear health and repair actions for portfolio agents", async ({
       });
     },
   );
+  await page.route(
+    "**/api/automation/provider-holdings/tokenfolio/run",
+    async (route) => {
+      tokenfolioUpdateRequested = true;
+      await route.fulfill({
+        status: 202,
+        json: {
+          version: 1,
+          provider: "tokenfolio",
+          runId: "33333333-3333-4333-8333-333333333333",
+          status: "queued",
+        },
+      });
+    },
+  );
 
   await page.goto("/holdings/sources");
   await expect(
@@ -1581,13 +1597,14 @@ test("shows clear health and repair actions for portfolio agents", async ({
   ).toBeVisible();
   await expect(
     page.locator(".provider-agent-row").filter({ hasText: "Tokenfolio" }),
-  ).toContainText("Working");
+  ).toContainText("Paused — update failed");
   await expect(
     page.locator(".provider-agent-row").filter({ hasText: "Sydecar" }),
   ).toContainText("Paused — totals did not reconcile");
   await expect(
     page.getByRole("button", { name: /Reconnect (AngelList|Sydecar)/u }),
   ).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Try update" })).toBeVisible();
   await expect(
     page.getByText("Copy repair command", { exact: true }),
   ).toHaveCount(0);
@@ -1614,6 +1631,15 @@ test("shows clear health and repair actions for portfolio agents", async ({
       threshold: 0.25,
     },
   );
+
+  await page.getByRole("button", { name: "Try update" }).click();
+  await expect(
+    page
+      .locator(".provider-agent-row")
+      .filter({ hasText: "Tokenfolio" })
+      .getByRole("heading", { name: "Update queued" }),
+  ).toBeVisible();
+  expect(tokenfolioUpdateRequested).toBe(true);
 });
 
 test("starts a provider-scoped browser reconnect without terminal handoff", async ({

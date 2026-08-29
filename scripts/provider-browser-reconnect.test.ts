@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createConnection, createServer } from "node:net";
 
 import {
   __providerBrowserReconnectTest,
@@ -56,5 +57,74 @@ describe("managed provider browser reconnect", () => {
     );
     expect(html).not.toContain("SSH");
     expect(html).not.toContain("Terminal");
+  });
+
+  it("waits for the exact public browser page instead of a tunnel URL alone", async () => {
+    const liveUrl = new URL(
+      "https://synthetic-quiet-brook.trycloudflare.com/random.html",
+    );
+    const unavailable =
+      await __providerBrowserReconnectTest.publicTunnelResponds(liveUrl, () =>
+        Promise.resolve(
+          new Response("Cloudflare Tunnel error", { status: 530 }),
+        ),
+      );
+    const wrongPage = await __providerBrowserReconnectTest.publicTunnelResponds(
+      liveUrl,
+      () =>
+        Promise.resolve(
+          new Response("<!doctype html><title>Not found</title>"),
+        ),
+    );
+    const ready = await __providerBrowserReconnectTest.publicTunnelResponds(
+      liveUrl,
+      () =>
+        Promise.resolve(
+          new Response(
+            __providerBrowserReconnectTest.remoteBrowserHtml(
+              "Tokenfolio",
+              "synthetic-random-password",
+            ),
+          ),
+        ),
+    );
+
+    expect(unavailable).toBe(false);
+    expect(wrongPage).toBe(false);
+    expect(ready).toBe(true);
+  });
+
+  it("records a real viewer connection while keeping VNC behind loopback", async () => {
+    const vnc = createServer((socket) => {
+      socket.pipe(socket);
+    });
+    await new Promise<void>((resolve) =>
+      vnc.listen(0, "127.0.0.1", () => resolve()),
+    );
+    const address = vnc.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Synthetic VNC server did not start.");
+    }
+    const proxy = await __providerBrowserReconnectTest.startViewerProxy(
+      address.port,
+    );
+    const viewer = createConnection({ host: "127.0.0.1", port: proxy.port });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        viewer.once("connect", resolve);
+        viewer.once("error", reject);
+      });
+      await expect.poll(() => proxy.connected()).toBe(true);
+      viewer.write("synthetic-viewer-handshake");
+      const echoed = await new Promise<string>((resolve, reject) => {
+        viewer.once("data", (chunk) => resolve(chunk.toString()));
+        viewer.once("error", reject);
+      });
+      expect(echoed).toBe("synthetic-viewer-handshake");
+    } finally {
+      viewer.destroy();
+      await proxy.close();
+      await new Promise<void>((resolve) => vnc.close(() => resolve()));
+    }
   });
 });

@@ -11,7 +11,12 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { createConnection, createServer } from "node:net";
+import {
+  createConnection,
+  createServer,
+  type Server,
+  type Socket,
+} from "node:net";
 import path from "node:path";
 
 import {
@@ -33,8 +38,19 @@ const DISPLAY_CANDIDATES = Array.from(
 const SESSION_POLL_INTERVAL_MS = 1_000;
 const PROCESS_STOP_TIMEOUT_MS = 5_000;
 const START_TIMEOUT_MS = 30_000;
+const PUBLIC_TUNNEL_REQUEST_TIMEOUT_MS = 3_000;
+const PUBLIC_TUNNEL_RETRY_INTERVAL_MS = 250;
+const REMOTE_BROWSER_READY_MARKER =
+  '<meta name="keel-provider-browser" content="ready">';
 
 type ReconnectLease = NonNullable<ProviderBrowserSessionLease["session"]>;
+
+type ViewerProxy = {
+  close: () => Promise<void>;
+  connected: () => boolean;
+  failed: () => boolean;
+  port: number;
+};
 
 export type ProviderBrowserRuntimeOptions = {
   appDirectory: string;
@@ -195,6 +211,59 @@ async function waitForPort(port: number, process: ChildProcess): Promise<void> {
   throw new Error("Remote browser service did not start.");
 }
 
+async function startViewerProxy(vncPort: number): Promise<ViewerProxy> {
+  let connected = false;
+  let failed = false;
+  const sockets = new Set<Socket>();
+  const track = (socket: Socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  };
+  const server: Server = createServer((viewer) => {
+    const vnc = createConnection({ host: "127.0.0.1", port: vncPort });
+    track(viewer);
+    track(vnc);
+    vnc.once("connect", () => {
+      connected = true;
+    });
+    viewer.once("error", () => vnc.destroy());
+    vnc.once("error", () => viewer.destroy());
+    viewer.pipe(vnc);
+    vnc.pipe(viewer);
+  });
+  server.unref();
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    server.once("error", onError);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", onError);
+      resolve();
+    });
+  });
+  server.on("error", () => {
+    failed = true;
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    server.close();
+    throw new Error("Private browser viewer proxy did not start.");
+  }
+  return {
+    close: async () => {
+      for (const socket of sockets) {
+        socket.destroy();
+      }
+      if (!server.listening) {
+        return;
+      }
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+    connected: () => connected,
+    failed: () => failed,
+    port: address.port,
+  };
+}
+
 async function waitForDevTools(
   port: number,
   process: ChildProcess,
@@ -281,6 +350,7 @@ function remoteBrowserHtml(label: string, password: string): string {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
+    ${REMOTE_BROWSER_READY_MARKER}
     <title>Reconnect ${label}</title>
     <style>
       html, body, #screen { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #f7f4ee; }
@@ -384,6 +454,43 @@ async function waitForQuickTunnel(child: ChildProcess): Promise<URL> {
     child.once("exit", onExit);
     child.once("error", onError);
   });
+}
+
+async function publicTunnelResponds(
+  liveUrl: URL,
+  request: typeof fetch = fetch,
+): Promise<boolean> {
+  try {
+    const response = await request(liveUrl, {
+      headers: { Accept: "text/html" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(PUBLIC_TUNNEL_REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      return false;
+    }
+    return (await response.text()).includes(REMOTE_BROWSER_READY_MARKER);
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPublicTunnel(
+  liveUrl: URL,
+  child: ChildProcess,
+): Promise<void> {
+  const deadline = Date.now() + START_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error("Secure browser tunnel stopped during startup.");
+    }
+    if (await publicTunnelResponds(liveUrl)) {
+      return;
+    }
+    await sleep(PUBLIC_TUNNEL_RETRY_INTERVAL_MS);
+  }
+  throw new Error("Secure browser tunnel was not reachable.");
 }
 
 function browserSessionPath(provider: MacAgentTarget, suffix: string): string {
@@ -501,6 +608,7 @@ export async function runProviderBrowserSession(
   let temporaryDirectory: string | null = null;
   let xvfb: ChildProcess | null = null;
   let x11vnc: ChildProcess | null = null;
+  let viewerProxy: ViewerProxy | null = null;
   let websockify: ChildProcess | null = null;
   let cloudflared: ChildProcess | null = null;
   let chrome: ChildProcess | null = null;
@@ -571,6 +679,7 @@ export async function runProviderBrowserSession(
       { stdio: "ignore" },
     );
     await waitForPort(vncPort, x11vnc);
+    viewerProxy = await startViewerProxy(vncPort);
 
     const web = await prepareWebRoot(
       temporaryDirectory,
@@ -584,7 +693,7 @@ export async function runProviderBrowserSession(
         "--web",
         web.webRoot,
         `127.0.0.1:${webPort.toString()}`,
-        `127.0.0.1:${vncPort.toString()}`,
+        `127.0.0.1:${viewerProxy.port.toString()}`,
       ],
       { stdio: "ignore" },
     );
@@ -603,6 +712,8 @@ export async function runProviderBrowserSession(
     const tunnelOrigin = await waitForQuickTunnel(cloudflared);
     cloudflared.stdout?.resume();
     cloudflared.stderr?.resume();
+    const liveUrl = new URL(`${web.accessToken}.html`, tunnelOrigin);
+    await waitForPublicTunnel(liveUrl, cloudflared);
 
     chrome = spawn(
       options.chromePath,
@@ -622,7 +733,6 @@ export async function runProviderBrowserSession(
     );
     await waitForDevTools(debuggingPort, chrome);
 
-    const liveUrl = new URL(`${web.accessToken}.html`, tunnelOrigin);
     await sessionApi(
       options.authorization,
       options.provider,
@@ -637,7 +747,8 @@ export async function runProviderBrowserSession(
       if (
         [xvfb, x11vnc, websockify, cloudflared, chrome].some(
           (child) => child.exitCode !== null,
-        )
+        ) ||
+        viewerProxy.failed()
       ) {
         throw new ProviderBrowserRuntimeError(
           "browser_unavailable",
@@ -653,7 +764,7 @@ export async function runProviderBrowserSession(
       if (["cancelled", "expired", "failed"].includes(session.status)) {
         return "terminated";
       }
-      if (session.status === "opened") {
+      if (session.status === "opened" && viewerProxy.connected()) {
         if (!entryPageRemoved) {
           await unlink(path.join(web.webRoot, `${web.accessToken}.html`)).catch(
             () => undefined,
@@ -694,6 +805,7 @@ export async function runProviderBrowserSession(
     await stopChild(chrome);
     await stopChild(cloudflared);
     await stopChild(websockify);
+    await viewerProxy?.close();
     await stopChild(x11vnc);
     await stopChild(xvfb);
     if (temporaryDirectory !== null) {
@@ -703,7 +815,9 @@ export async function runProviderBrowserSession(
 }
 
 export const __providerBrowserReconnectTest = {
+  publicTunnelResponds,
   remoteBrowserHtml,
   remoteChromeArguments,
+  startViewerProxy,
   x11VncArguments,
 };
