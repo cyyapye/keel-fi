@@ -18,6 +18,13 @@ import {
   type InvestmentPositionRecord,
   type InvestmentPositionView,
 } from "./position-read-model";
+import { calculatePositionPerformance } from "./position-economics";
+import {
+  estimatePrivatePositionValues,
+  PrivateCompanyRoundValuationSchema,
+  PrivatePositionValueEstimateSchema,
+  type PrivateCompanyRoundValuation,
+} from "./private-position-value-estimate";
 
 const NullablePositionValueSchema = z
   .object({
@@ -88,6 +95,7 @@ export const InvestmentExposurePositionSchema = z
     taxTreatment: InvestmentPositionContainerSchema.shape.taxTreatment,
     coverage: InvestmentPositionContainerSchema.shape.coverage,
     legalVehicleName: InvestmentPositionRecordSchema.shape.legalVehicleName,
+    openedOn: InvestmentPositionRecordSchema.shape.openedOn,
     reportedExposureName:
       InvestmentPositionRecordSchema.shape.reportedExposureName,
     positionKind: InvestmentPositionRecordSchema.shape.kind,
@@ -118,7 +126,12 @@ export const InvestmentExposurePositionSchema = z
     reportedEconomicsTerms:
       InvestmentPositionRecordSchema.shape.reportedEconomicsTerms,
     valueSource: z
-      .enum(["provider", "invested_amount", "reviewed_adjustment"])
+      .enum([
+        "provider",
+        "invested_amount",
+        "portfolio_watch_estimate",
+        "reviewed_adjustment",
+      ])
       .optional(),
     valueEffectiveDate: z.iso.date().optional(),
     valueSourceLabel: z.string().trim().min(1).max(240).optional(),
@@ -128,6 +141,8 @@ export const InvestmentExposurePositionSchema = z
       .optional(),
     priorValueMinor: NonNegativeMoneyMinorSchema.nullable().optional(),
     priorValueObservedAt: IsoTimestampSchema.nullable().optional(),
+    isPrivateCompanyPosition: z.boolean(),
+    privateValueEstimate: PrivatePositionValueEstimateSchema.nullable(),
     mappings: z.array(InvestmentExposureMappingViewSchema),
     mappedExposureIds: z.array(z.string().min(1)),
     knownAllocationPpm: z.number().int().safe().min(0).max(PARTS_PER_MILLION),
@@ -206,16 +221,45 @@ function usesInvestedAmountFallback(
   );
 }
 
+function privatePositionCostBasis(
+  position: InvestmentPositionRecord,
+): number | null {
+  return calculatePositionPerformance({
+    currentValueMinor: null,
+    currentValueReported: false,
+    realizedValueMinor: position.snapshot.realizedValueMinor,
+    providerCostBasisMinor: position.snapshot.costBasisMinor,
+    fundedMinor: position.snapshot.investedMinor,
+    economicsContext:
+      position.kind === "spv_interest" && position.snapshot.allocationMinor > 0
+        ? {
+            snapshotId: position.snapshot.id,
+            currency: position.snapshot.currency,
+            committedMinor: position.snapshot.allocationMinor,
+            fundedMinor: position.snapshot.investedMinor,
+            acceptedTerms: position.acceptedEconomicsTerms ?? null,
+            reportedTerms: position.reportedEconomicsTerms ?? null,
+          }
+        : null,
+    allowFundedAmountEstimate: true,
+  }).costBasisMinor;
+}
+
 export function createInvestmentExposureView(
   rawPositionView: InvestmentPositionView,
   rawExposures: readonly CanonicalExposure[],
   rawMappings: readonly PositionExposureMapping[],
+  rawPrivateCompanyValuations: readonly PrivateCompanyRoundValuation[] = [],
 ): InvestmentExposureView {
   const positionView = InvestmentPositionViewSchema.parse(rawPositionView);
   const exposures = CanonicalExposureSchema.array().parse(rawExposures);
   const mappings = PositionExposureMappingSchema.array()
     .parse(rawMappings)
     .filter((mapping) => mapping.status === "active");
+  const privateCompanyValuations =
+    PrivateCompanyRoundValuationSchema.array().parse(
+      rawPrivateCompanyValuations,
+    );
   const exposureById = new Map<string, CanonicalExposure>();
   for (const exposure of exposures) {
     if (exposureById.has(exposure.id)) {
@@ -254,6 +298,76 @@ export function createInvestmentExposureView(
     mappingsByPosition.set(mapping.positionId, current);
   }
 
+  const positionRecords = positionView.connections.flatMap((connection) =>
+    connection.containers.flatMap((container) => container.positions),
+  );
+  const privateCompanyByPositionId = new Map<string, string>();
+  for (const position of positionRecords) {
+    const positionMappings = mappingsByPosition.get(position.id) ?? [];
+    if (positionMappings.length !== 1) {
+      continue;
+    }
+    const mapping = positionMappings[0]!;
+    const exposure = exposureById.get(mapping.exposureId);
+    if (
+      mapping.allocationPpm === PARTS_PER_MILLION &&
+      exposure?.exposureKind === "private_company" &&
+      exposure.companyId !== null
+    ) {
+      privateCompanyByPositionId.set(position.id, exposure.companyId);
+    }
+  }
+  const privateValueEstimates = new Map(
+    estimatePrivatePositionValues(
+      positionRecords.flatMap((position) => {
+        const companyId = privateCompanyByPositionId.get(position.id);
+        const costBasisMinor = privatePositionCostBasis(position);
+        if (
+          companyId === undefined ||
+          position.openedOn === null ||
+          costBasisMinor === null ||
+          costBasisMinor <= 0
+        ) {
+          return [];
+        }
+        const adjustment = position.acceptedValueAdjustment ?? null;
+        const acceptedGpMark =
+          adjustment?.sourceKind === "gp_update" ? adjustment : null;
+        const providerMark =
+          adjustment === null &&
+          position.snapshot.unrealizedValue.state === "reported"
+            ? position.snapshot.unrealizedValue.minor
+            : null;
+        const currentValueMinor =
+          acceptedGpMark?.valueMinor ?? providerMark ?? null;
+        return [
+          {
+            positionId: position.id,
+            companyId,
+            openedOn: position.openedOn,
+            currency: position.snapshot.currency,
+            costBasisMinor,
+            currentValueMinor,
+            markEffectiveDate:
+              acceptedGpMark?.effectiveDate ??
+              (providerMark === null
+                ? null
+                : position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length)),
+            markSourceLabel:
+              acceptedGpMark?.sourceLabel ??
+              (providerMark === null ? null : position.source.label),
+            estimateEligible:
+              adjustment === null &&
+              position.snapshot.providerStatus === "live" &&
+              position.snapshot.unrealizedValue.state === "not_reported" &&
+              position.snapshot.instrumentType.trim().toLowerCase() !== "cash",
+          },
+        ];
+      }),
+      privateCompanyValuations,
+    ).map((estimate) => [estimate.positionId, estimate] as const),
+  );
+
   const contributionsByExposure = new Map<
     string,
     InvestmentExposureContribution[]
@@ -272,18 +386,26 @@ export function createInvestmentExposureView(
           );
         }
         const adjustment = position.acceptedValueAdjustment ?? null;
+        const privateValueEstimate =
+          privateValueEstimates.get(position.id) ?? null;
         const investedAmountFallback =
-          adjustment === null && usesInvestedAmountFallback(position);
+          adjustment === null &&
+          privateValueEstimate === null &&
+          usesInvestedAmountFallback(position);
         const valueState =
-          adjustment !== null || investedAmountFallback
+          adjustment !== null ||
+          privateValueEstimate !== null ||
+          investedAmountFallback
             ? "reported"
             : position.snapshot.unrealizedValue.state;
         const valueMinor =
           adjustment !== null
             ? adjustment.valueMinor
-            : investedAmountFallback
-              ? position.snapshot.investedMinor
-              : position.snapshot.unrealizedValue.minor;
+            : privateValueEstimate !== null
+              ? privateValueEstimate.valueMinor
+              : investedAmountFallback
+                ? position.snapshot.investedMinor
+                : position.snapshot.unrealizedValue.minor;
         const allocatedValues: number[] = [];
         const mappingViews = positionMappings.map((mapping) => {
           const allocatedValueMinor =
@@ -346,6 +468,7 @@ export function createInvestmentExposureView(
           taxTreatment: container.taxTreatment,
           coverage: container.coverage,
           legalVehicleName: position.legalVehicleName,
+          openedOn: position.openedOn,
           reportedExposureName: position.reportedExposureName,
           positionKind: position.kind,
           ownershipBasis: position.ownershipBasis,
@@ -367,16 +490,25 @@ export function createInvestmentExposureView(
           valueSource:
             adjustment !== null
               ? "reviewed_adjustment"
-              : investedAmountFallback
-                ? "invested_amount"
-                : "provider",
+              : privateValueEstimate !== null
+                ? "portfolio_watch_estimate"
+                : investedAmountFallback
+                  ? "invested_amount"
+                  : "provider",
           valueEffectiveDate:
             adjustment?.effectiveDate ??
+            privateValueEstimate?.effectiveDate ??
             position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length),
-          valueSourceLabel: adjustment?.sourceLabel ?? position.source.label,
+          valueSourceLabel:
+            adjustment?.sourceLabel ??
+            (privateValueEstimate === null
+              ? position.source.label
+              : `Portfolio Watch + ${privateValueEstimate.referenceSourceLabel}`),
           priorValueState: position.priorValue?.state ?? null,
           priorValueMinor: position.priorValue?.minor ?? null,
           priorValueObservedAt: position.priorValue?.observedAt ?? null,
+          isPrivateCompanyPosition: privateCompanyByPositionId.has(position.id),
+          privateValueEstimate,
           valueState,
           valueMinor,
           mappings: mappingViews,

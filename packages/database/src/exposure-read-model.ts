@@ -1,5 +1,6 @@
 import {
   CanonicalExposureSchema,
+  FinancingAnnouncementFactsSchema,
   PositionExposureMappingSchema,
   type CanonicalExposure,
   type PositionExposureMapping,
@@ -8,6 +9,10 @@ import {
   createInvestmentExposureView,
   type InvestmentExposureView,
 } from "@keel/domain/exposure-read-model";
+import {
+  PrivateCompanyRoundValuationSchema,
+  type PrivateCompanyRoundValuation,
+} from "@keel/domain/private-position-value-estimate";
 import {
   InvestmentPositionViewSchema,
   type InvestmentPositionView,
@@ -52,6 +57,15 @@ type PositionExposureMappingRow = {
   supersedes_mapping_id: string | null;
 };
 
+type AcceptedFinancingValuationRow = {
+  company_id: string;
+  evidence_event_id: string;
+  effective_date: string;
+  source_title: string;
+  source_url: string;
+  claim_value_json: string;
+};
+
 async function all<T>(statement: D1PreparedStatement): Promise<readonly T[]> {
   const result = await statement.all<T>();
   return result.results;
@@ -86,6 +100,106 @@ function mappingFrom(row: PositionExposureMappingRow): PositionExposureMapping {
     effectiveAt: row.effective_at,
     version: row.version,
     supersedesMappingId: row.supersedes_mapping_id,
+  });
+}
+
+function acceptedFinancingValuationFrom(
+  row: AcceptedFinancingValuationRow,
+): PrivateCompanyRoundValuation | null {
+  let parsedClaim: unknown;
+  try {
+    parsedClaim = JSON.parse(row.claim_value_json);
+  } catch {
+    return null;
+  }
+  if (
+    parsedClaim === null ||
+    typeof parsedClaim !== "object" ||
+    Array.isArray(parsedClaim)
+  ) {
+    return null;
+  }
+  const parsedFacts = FinancingAnnouncementFactsSchema.safeParse(
+    (parsedClaim as Record<string, unknown>).financingFacts,
+  );
+  if (!parsedFacts.success) {
+    return null;
+  }
+  const facts = parsedFacts.data;
+  const valuation = facts.companyValuation;
+  if (
+    valuation === null ||
+    valuation.basis === "undisclosed" ||
+    (valuation.qualifier !== "exact" &&
+      valuation.qualifier !== "approximately") ||
+    facts.instrument !== "equity" ||
+    facts.ambiguities.length > 0
+  ) {
+    return null;
+  }
+
+  let postMoneyValue = BigInt(valuation.amountMinor);
+  let approximate = valuation.qualifier === "approximately";
+  if (valuation.basis === "pre_money") {
+    const announced = facts.announcedAmount;
+    if (
+      announced === null ||
+      announced.currency !== valuation.currency ||
+      (announced.qualifier !== "exact" &&
+        announced.qualifier !== "approximately")
+    ) {
+      return null;
+    }
+    postMoneyValue += BigInt(announced.amountMinor);
+    approximate ||= announced.qualifier === "approximately";
+  }
+  const postMoneyValueMinor = Number(postMoneyValue);
+  if (!Number.isSafeInteger(postMoneyValueMinor) || postMoneyValueMinor <= 0) {
+    return null;
+  }
+  const result = PrivateCompanyRoundValuationSchema.safeParse({
+    companyId: row.company_id,
+    evidenceEventId: row.evidence_event_id,
+    effectiveDate: row.effective_date,
+    postMoneyValueMinor,
+    currency: valuation.currency,
+    sourceTitle: row.source_title,
+    sourceUrl: row.source_url,
+    approximate,
+  });
+  return result.success ? result.data : null;
+}
+
+function unambiguousAcceptedValuations(
+  rows: readonly AcceptedFinancingValuationRow[],
+): readonly PrivateCompanyRoundValuation[] {
+  const grouped = new Map<string, PrivateCompanyRoundValuation[]>();
+  for (const row of rows) {
+    const valuation = acceptedFinancingValuationFrom(row);
+    if (valuation === null) {
+      continue;
+    }
+    const key = [
+      valuation.companyId,
+      valuation.effectiveDate,
+      valuation.currency,
+    ].join(":");
+    const current = grouped.get(key) ?? [];
+    current.push(valuation);
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].flatMap((valuations) => {
+    if (
+      new Set(valuations.map((valuation) => valuation.postMoneyValueMinor))
+        .size !== 1
+    ) {
+      return [];
+    }
+    return [
+      valuations.sort((left, right) =>
+        left.evidenceEventId.localeCompare(right.evidenceEventId),
+      )[0]!,
+    ];
   });
 }
 
@@ -127,7 +241,12 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
     suppliedPositionView:
       InvestmentPositionView | Promise<InvestmentPositionView>,
   ): Promise<InvestmentExposureView> {
-    const [positionViewInput, exposureRows, mappingRows] = await Promise.all([
+    const [
+      positionViewInput,
+      exposureRows,
+      mappingRows,
+      acceptedValuationRows,
+    ] = await Promise.all([
       suppliedPositionView,
       all<CanonicalExposureRow>(
         this.db
@@ -188,12 +307,38 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
           )
           .bind(householdId),
       ),
+      all<AcceptedFinancingValuationRow>(
+        this.db
+          .prepare(
+            `SELECT
+               observation.company_id,
+               event.id AS evidence_event_id,
+               event.effective_date,
+               observation.source_title,
+               observation.source_url,
+               claim.claim_value_json
+             FROM public_source_observations observation
+             JOIN evidence_events event
+               ON event.id = observation.evidence_event_id
+              AND event.household_id = observation.household_id
+             JOIN evidence_claims claim
+               ON claim.evidence_event_id = event.id
+              AND claim.household_id = event.household_id
+              AND claim.field_path = 'company_event.financing_terms'
+             WHERE observation.household_id = ?
+               AND event.status = 'accepted'
+             ORDER BY observation.company_id, event.effective_date,
+                      event.id`,
+          )
+          .bind(householdId),
+      ),
     ]);
     const positionView = InvestmentPositionViewSchema.parse(positionViewInput);
     return createInvestmentExposureView(
       positionView,
       exposureRows.map(canonicalExposureFrom),
       mappingRows.map(mappingFrom),
+      unambiguousAcceptedValuations(acceptedValuationRows),
     );
   }
 

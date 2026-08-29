@@ -104,6 +104,14 @@ function alphaHoldingsFrom(view: InvestmentHoldingsView) {
               acceptedTerms: position.acceptedEconomicsTerms ?? null,
               reportedTerms: position.reportedEconomicsTerms ?? null,
             },
+      positionValueContext: {
+        snapshotId: position.snapshotId,
+        currency: position.currency,
+        providerValueState: sourcePosition.snapshot.unrealizedValue.state,
+        providerValueMinor: sourcePosition.snapshot.unrealizedValue.minor,
+        acceptedAdjustment: sourcePosition.acceptedValueAdjustment ?? null,
+        projectedEstimate: position.privateValueEstimate,
+      },
     };
   });
 }
@@ -533,6 +541,7 @@ test("shows the Holdings shell while one read-only projection loads", async ({
 test("operates multiple institutions from one exposure-first holdings view", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(60_000);
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
@@ -634,9 +643,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ).toContainText("5 exposures");
   await expect(
     exposureView.locator(".investment-views__heading"),
-  ).toContainText("6 legal positions · 1 invested estimate");
+  ).toContainText("7 legal positions");
   await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "Total exposure$780k · 2 values unavailable",
+    "Total exposure$860k · 2 values unavailable",
   );
   await expect(exposureView.locator(".exposure-group")).toHaveCount(5);
   const exposureSort = exposureView.getByLabel(
@@ -886,14 +895,29 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   const beacon = page.locator(".exposure-group").filter({
     has: page.getByText("Beacon Robotics", { exact: true }),
   });
-  await expect(beacon.locator("summary")).toContainText("$40k");
-  await expect(beacon.locator("summary")).toContainText("1 estimate · $40k");
+  await expect(beacon.locator("summary")).toContainText("$120k");
+  await expect(beacon.locator("summary")).toContainText(
+    "1 estimate · $60k · +100%",
+  );
   await beacon.locator("summary").click();
   await expect(beacon.getByText("Synthetic Beacon SPV")).toBeVisible();
-  await expect(beacon.locator(".position-row__value")).toContainText("$40k");
-  await expect(beacon.locator(".position-row__value")).toContainText(
-    "Invested amount estimate",
-  );
+  await expect(beacon.locator(".position-row__value")).toContainText([
+    "$60k",
+    "$60k",
+  ]);
+  const beaconEstimateRow = beacon.locator("article").filter({
+    hasText: "Synthetic Beacon SPV",
+  });
+  await expect(
+    beaconEstimateRow.locator(".position-row__value"),
+  ).toHaveAttribute("title", "Portfolio Watch estimate as of Aug 15, 2026");
+  await expect(beaconEstimateRow).toContainText("$40k · +50%");
+  await expect(beaconEstimateRow).not.toContainText("Portfolio Watch estimate");
+  expect(
+    await beaconEstimateRow
+      .locator(".position-row__value small")
+      .evaluate((element) => element.getClientRects().length),
+  ).toBe(1);
   await expect(beacon).not.toContainText("/sh");
   await expect(page.locator(".unallocated-positions")).not.toContainText(
     "Synthetic Beacon SPV",
@@ -1037,6 +1061,46 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(cashDetailAction).toBeFocused();
+
+  await beacon.evaluate((element) => {
+    (element as HTMLDetailsElement).open = true;
+  });
+  const privateEstimateDetailAction = beaconEstimateRow.getByRole("button", {
+    name: "View Synthetic Beacon SPV holding details",
+  });
+  await privateEstimateDetailAction.click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Beacon Robotics" }),
+  ).toBeFocused();
+  await expect(
+    page.getByRole("heading", { name: "Position return" }),
+  ).toBeVisible();
+  await expect(page.getByText("Total return").locator("..")).toContainText(
+    "+50.0%",
+  );
+  await expect(page.getByText("Day gain / loss")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Portfolio Watch estimate" }),
+  ).toBeVisible();
+  await expect(page.getByText("Synthetic GP portal").first()).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-detail-portfolio-watch-estimate.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  await page.getByRole("button", { name: "Review estimate" }).click();
+  await expect(page.getByLabel("Value · USD")).toHaveValue("60000");
+  await expect(page.getByLabel("Position value source type")).toContainText(
+    "Other",
+  );
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(privateEstimateDetailAction).toBeFocused();
 
   await openHoldingSources(page);
   await robinhoodCard.getByRole("button", { name: "Disconnect" }).click();

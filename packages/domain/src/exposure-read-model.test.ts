@@ -316,6 +316,97 @@ describe("investment exposure read model", () => {
     ]);
   });
 
+  it("uses a GP mark and accepted financing rounds for a tranche-aware private estimate", () => {
+    const reference = {
+      ...position("position_reference", 6_000_000),
+      openedOn: "2023-03-10",
+      source: {
+        ...position("position_reference", 6_000_000).source,
+        label: "Synthetic GP portal",
+      },
+      snapshot: {
+        ...position("position_reference", 6_000_000).snapshot,
+        investedMinor: 2_000_000,
+        costBasisMinor: null,
+        ticker: null,
+        instrumentType: "private preferred shares",
+      },
+    };
+    const target = {
+      ...position("position_target_a", null, "not_reported"),
+      openedOn: "2024-06-15",
+      snapshot: {
+        ...position("position_target_a", null, "not_reported").snapshot,
+        investedMinor: 1_000_000,
+        costBasisMinor: null,
+        ticker: null,
+        instrumentType: "private preferred shares",
+      },
+    };
+    const privateExposure = {
+      ...exposure("exposure_private", "Synthetic private company"),
+      exposureKind: "private_company" as const,
+      protectedIdentityKey: null,
+      companyId: "company_synthetic",
+      resolutionMethod: "reviewed_company" as const,
+    };
+
+    const view = createInvestmentExposureView(
+      positionView([reference, target]),
+      [privateExposure],
+      [
+        mapping("mapping_reference", reference.id, privateExposure.id),
+        mapping("mapping_target", target.id, privateExposure.id),
+      ],
+      [
+        {
+          companyId: "company_synthetic",
+          evidenceEventId: "event_series_a",
+          effectiveDate: "2023-03-01",
+          postMoneyValueMinor: 50_000_000_000,
+          currency: "USD",
+          sourceTitle: "Synthetic Series A",
+          sourceUrl: "https://example.com/synthetic-series-a",
+          approximate: false,
+        },
+        {
+          companyId: "company_synthetic",
+          evidenceEventId: "event_series_b",
+          effectiveDate: "2024-06-01",
+          postMoneyValueMinor: 100_000_000_000,
+          currency: "USD",
+          sourceTitle: "Synthetic Series B",
+          sourceUrl: "https://example.com/synthetic-series-b",
+          approximate: false,
+        },
+      ],
+    );
+
+    expect(
+      view.positions.find((record) => record.id === target.id),
+    ).toMatchObject({
+      isPrivateCompanyPosition: true,
+      valueState: "reported",
+      valueMinor: 1_500_000,
+      valueSource: "portfolio_watch_estimate",
+      valueSourceLabel: "Portfolio Watch + Synthetic GP portal",
+      privateValueEstimate: {
+        costBasisMinor: 1_000_000,
+        referencePositionId: reference.id,
+        positionRound: { evidenceEventId: "event_series_b" },
+        referenceRound: { evidenceEventId: "event_series_a" },
+      },
+    });
+    expect(view.exposures[0]?.totals).toEqual([
+      {
+        currency: "USD",
+        allocatedValueMinor: 7_500_000,
+        knownValuePositionCount: 2,
+        unknownValuePositionCount: 0,
+      },
+    ]);
+  });
+
   it("does not estimate missing cash, realized positions, or a zero basis", () => {
     const missingCash = {
       ...position("position_9", null, "not_reported"),

@@ -10,6 +10,7 @@
     "./investment-holdings-view": "./src/investment-holdings-view.ts",
     "./plan-actual-monitoring": "./src/plan-actual-monitoring.ts",
     "./portfolio-dashboard": "./src/portfolio-dashboard.ts",
+    "./private-position-value-estimate": "./src/private-position-value-estimate.ts",
     "./position-economics": "./src/position-economics.ts",
     "./position-read-model": "./src/position-read-model.ts",
     "./position-value": "./src/position-value.ts"
