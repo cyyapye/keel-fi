@@ -106,12 +106,14 @@ stream remain bound to loopback. `cloudflared` makes an outbound temporary HTTPS
 connection; no inbound VNC or web port is opened on the worker.
 
 Each reconnect session is household- and provider-scoped, has one random entry
-path, and expires after 15 minutes. Keel returns the destination once, erases it
-from D1 when opened, and the worker removes the entry page. Success,
-cancellation, failure, or timeout stops Chrome, the stream, and the temporary
-HTTPS process and removes its temporary files. Provider cookies and saved
-credentials remain only in the selected Chrome profile. Keel receives browser
-lifecycle state, not provider passwords, cookies, or 2FA values.
+path, and expires after 15 minutes. Before Keel offers the link, the worker
+confirms that the exact browser page is reachable through HTTPS. Keel returns
+the destination once and erases it from D1 when opened; the worker removes the
+entry page only after the browser viewer reaches the loopback VNC service.
+Success, cancellation, failure, or timeout stops Chrome, the stream, and the
+temporary HTTPS process and removes its temporary files. Provider cookies and
+saved credentials remain only in the selected Chrome profile. Keel receives
+browser lifecycle state, not provider passwords, cookies, or 2FA values.
 
 After a successful reconnect, the worker safely rotates its Keel machine
 credential and requests an update immediately. The old credential stays valid
