@@ -45,6 +45,7 @@ import {
   Badge,
   BrandMark,
   Button,
+  ButtonLink,
   DatePicker,
   EmptyState,
   Field,
@@ -734,10 +735,11 @@ function Dashboard({
             {secondaryGoals.map((goal) => {
               const version = latestGoalVersion(goal);
               return (
-                <button
+                <Button
+                  className="secondary-goal-card"
                   key={goal.id}
                   onClick={() => onNavigate("goals")}
-                  type="button"
+                  tone="plain"
                 >
                   <span>{version.name}</span>
                   <strong>
@@ -754,7 +756,7 @@ function Dashboard({
                           version.targetUnit,
                         )}`}
                   </small>
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -1985,13 +1987,14 @@ function HoldingImportWorkspace({
           </Field>
           {selectedProvider !== "angellist" && (
             <div className="import-template-help">
-              <a
-                className="button button--secondary button--compact"
+              <ButtonLink
                 download
                 href={`/api/holding-import-templates/${selectedProvider}`}
+                size="compact"
+                tone="secondary"
               >
                 Download {holdingImportProviderName(selectedProvider)} template
-              </a>
+              </ButtonLink>
               <small>
                 Keep the first two lines. Use Direct, SPV, or Fund; Live or
                 Realized; YYYY-MM-DD dates; and USD values such as $1250.00.
@@ -4039,15 +4042,15 @@ function ProviderReconnectControl({
                 : "Preparing browser…"}
             </Button>
           ) : (
-            <a
-              className="button button--primary"
+            <ButtonLink
               href={openPath}
               referrerPolicy="no-referrer"
               rel="noreferrer noopener"
               target="_blank"
+              tone="primary"
             >
               Open {label}
-            </a>
+            </ButtonLink>
           )}
           <Button
             disabled={busy !== null}
@@ -5051,15 +5054,16 @@ function AngelListBrowserRunControl() {
         {waiting ? (
           <div className="angellist-sign-in__workflow">
             {refresh.liveViewUrl !== null ? (
-              <a
-                className="button button--primary angellist-live-view-link"
+              <ButtonLink
+                className="angellist-live-view-link"
                 href={refresh.liveViewUrl}
                 referrerPolicy="no-referrer"
                 rel="noreferrer noopener"
                 target="_blank"
+                tone="primary"
               >
                 Open AngelList sign-in
-              </a>
+              </ButtonLink>
             ) : (
               <Button
                 disabled={busyAction !== null}

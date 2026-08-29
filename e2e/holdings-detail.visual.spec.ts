@@ -887,13 +887,22 @@ test("leads with the investment and opens a truthful holding detail", async ({
   );
 
   await page.getByRole("button", { name: "Review fee & carry" }).click();
-  await expect(page.getByLabel("Admin fee rate")).toHaveValue("2");
+  const adminFeeRate = page.getByLabel("Admin fee rate");
+  await expect(adminFeeRate).toHaveAttribute("data-slot", "input");
+  await expect(adminFeeRate).toHaveValue("2");
   await expect(page.getByLabel("Fee term")).toHaveValue("");
   await expect(page.getByLabel("Carry")).toHaveValue("20");
+  await adminFeeRate.focus();
+  await expect(adminFeeRate).toHaveCSS("box-shadow", "none");
+  await expect(page.getByLabel("Admin fee rate").locator("xpath=..")).toHaveCSS(
+    "border-bottom-color",
+    "rgb(38, 34, 56)",
+  );
   await page.getByLabel("Fee term").fill("1");
   await page
     .getByLabel("What changed")
     .fill("Reviewed synthetic SPV subscription terms.");
+  await adminFeeRate.focus();
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "holding-spv-economics-form.png",

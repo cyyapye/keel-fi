@@ -289,7 +289,7 @@ h1,
   margin-top: 18px;
 }
 
-.secondary-goals > div > button {
+.secondary-goal-card {
   min-width: 0;
   padding: 14px 0;
   color: var(--ink);
@@ -298,7 +298,7 @@ h1,
   border: 0;
 }
 
-.secondary-goals > div > button:hover strong {
+.secondary-goal-card:hover strong {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -477,7 +477,7 @@ h1,
   list-style: none;
 }
 
-.portfolio-liquidity-legend button {
+.portfolio-liquidity-legend__action {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -492,7 +492,7 @@ h1,
   cursor: pointer;
 }
 
-.portfolio-liquidity-legend button:focus-visible {
+.portfolio-liquidity-legend__action:focus-visible {
   outline: 1px solid var(--ink);
   outline-offset: 3px;
 }
@@ -1151,8 +1151,8 @@ h1,
   --line-soft: transparent;
 }
 
-.holdings-screen .field .input:is(:hover, :focus, :focus-visible),
-.holdings-screen .field .select-trigger:is(:hover, :focus, :focus-visible) {
+.holdings-screen .field .input:hover,
+.holdings-screen .field .select-trigger:hover {
   border-color: transparent;
 }
 
@@ -7062,23 +7062,23 @@ h1,
     gap: 4px;
   }
 
-  .secondary-goals > div > button {
+  .secondary-goal-card {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     column-gap: 20px;
     align-items: end;
   }
 
-  .secondary-goals > div > button span {
+  .secondary-goal-card span {
     min-height: 0;
   }
 
-  .secondary-goals > div > button strong,
-  .secondary-goals > div > button small {
+  .secondary-goal-card strong,
+  .secondary-goal-card small {
     grid-column: 2;
   }
 
-  .secondary-goals > div > button strong {
+  .secondary-goal-card strong {
     grid-row: 1;
     margin: 0;
   }

@@ -514,14 +514,27 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
   const source = page.getByLabel("Source");
   await source.click();
   await page.getByRole("option", { name: "Sydecar" }).click();
-  await expect(
-    page.getByRole("link", { name: "Download Sydecar template" }),
-  ).toHaveAttribute("href", "/api/holding-import-templates/sydecar");
+  const sydecarTemplateLink = page.getByRole("link", {
+    name: "Download Sydecar template",
+  });
+  await expect(sydecarTemplateLink).toHaveAttribute(
+    "href",
+    "/api/holding-import-templates/sydecar",
+  );
+  await expect(sydecarTemplateLink).toHaveAttribute("data-slot", "button-link");
   await source.click();
   await page.getByRole("option", { name: "Tokenfolio" }).click();
-  await expect(
-    page.getByRole("link", { name: "Download Tokenfolio template" }),
-  ).toHaveAttribute("href", "/api/holding-import-templates/tokenfolio");
+  const tokenfolioTemplateLink = page.getByRole("link", {
+    name: "Download Tokenfolio template",
+  });
+  await expect(tokenfolioTemplateLink).toHaveAttribute(
+    "href",
+    "/api/holding-import-templates/tokenfolio",
+  );
+  await expect(tokenfolioTemplateLink).toHaveAttribute(
+    "data-slot",
+    "button-link",
+  );
   await expect(
     page.getByText(/Enter funded capital as Invested/),
   ).toBeVisible();
@@ -1741,6 +1754,7 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
     "href",
     `/api/automation/provider-browser/sessions/${sessionId}/open`,
   );
+  await expect(openLink).toHaveAttribute("data-slot", "button-link");
   await expect(page.locator("body")).not.toContainText("SSH");
   await expect(page.locator("body")).not.toContainText("VNC");
   await expect(page.locator("body")).not.toContainText("Paste in Terminal");

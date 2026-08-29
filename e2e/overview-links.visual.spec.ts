@@ -25,6 +25,15 @@ test("keeps Overview text actions restrained and reusable", async ({
 
   await page.goto("/");
 
+  const secondaryGoalActions = page.locator(".secondary-goal-card");
+  await expect(secondaryGoalActions.first()).toBeVisible();
+  expect(await secondaryGoalActions.count()).toBeGreaterThan(0);
+  expect(
+    await secondaryGoalActions.evaluateAll((actions) =>
+      actions.every((action) => action.getAttribute("data-slot") === "button"),
+    ),
+  ).toBe(true);
+
   const textLinks = page.locator('[data-slot="text-link"]');
   await expect(textLinks).toHaveCount(4);
   expect(

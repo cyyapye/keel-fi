@@ -379,6 +379,22 @@ h3 {
   text-underline-offset: 3px;
 }
 
+.button--plain,
+.button--plain:hover:not(:disabled) {
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  white-space: normal;
+  background: transparent;
+  border-color: transparent;
+}
+
+.button--plain:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 3px;
+  box-shadow: none;
+}
+
 .keel-link {
   display: inline-flex;
   width: fit-content;
@@ -683,6 +699,11 @@ h3 {
   border-bottom-color: var(--ink);
 }
 
+.field > :is(.input, .select-trigger, .date-picker__trigger):focus-visible {
+  border-bottom-color: var(--ink);
+  box-shadow: none;
+}
+
 .field .textarea {
   height: auto;
   min-height: 92px;
@@ -701,6 +722,10 @@ h3 {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   border-bottom: 1px solid var(--line);
+}
+
+.field__value:focus-within {
+  border-bottom-color: var(--ink);
 }
 
 .field__value--no-prefix {
@@ -723,8 +748,10 @@ h3 {
 
 .field__value .input,
 .field__value .input:hover,
-.field__value .input:focus {
+.field__value .input:focus,
+.field__value .input:focus-visible {
   border: 0;
+  box-shadow: none;
 }
 
 .field--filled > .input,
