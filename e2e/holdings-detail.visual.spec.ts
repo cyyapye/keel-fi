@@ -584,11 +584,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await harborExposure.locator("summary").click();
   await northstarExposure.locator("summary").click();
   await publicExposure.locator("summary").click();
-  await expect(harborExposure.locator("summary")).toContainText(
-    "Cost basis estimate $185k",
-  );
+  await expect(harborExposure.locator("summary")).toContainText("$185k · +14%");
   await expect(publicExposure.locator("summary")).toContainText(
-    "$183k · $190.4/sh · +30.4%",
+    "$183k · $190.4 · +30%",
   );
   await expect(
     publicExposure.locator("summary .exposure-group__market-meta"),
@@ -597,6 +595,19 @@ test("leads with the investment and opens a truthful holding detail", async ({
     "Cost basis",
   );
   await expect(publicExposure.locator("summary")).not.toContainText("Return");
+  await expect(harborExposure.locator("summary")).not.toContainText(
+    "Cost basis",
+  );
+  await expect(harborExposure.locator("summary")).not.toContainText("Return");
+  expect(
+    await page.locator(".exposure-group__performance").evaluateAll((elements) =>
+      elements.map((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return range.getClientRects().length;
+      }),
+    ),
+  ).toEqual([1, 1]);
   const harborAction = page.getByRole("button", {
     name: "View Beacon Demo SPV holding details",
   });
@@ -822,16 +833,23 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(page.locator(".holding-detail-workspace")).toHaveCount(0);
   await expect(harborExposure).toBeVisible();
-  if (
-    !(await harborExposure.evaluate(
-      (element) => (element as HTMLDetailsElement).open,
-    ))
-  ) {
-    await harborExposure.locator("summary").click();
-  }
   const reopenedHarborAction = harborExposure.getByRole("button", {
     name: "View Beacon Demo SPV holding details",
   });
+  await expect
+    .poll(async () => {
+      if (await reopenedHarborAction.isVisible()) {
+        return true;
+      }
+      const isOpen = await harborExposure.evaluate(
+        (element) => (element as HTMLDetailsElement).open,
+      );
+      if (!isOpen) {
+        await harborExposure.locator("summary").click();
+      }
+      return reopenedHarborAction.isVisible();
+    })
+    .toBe(true);
   await expect(reopenedHarborAction).toBeVisible();
 
   await reopenedHarborAction.click();
@@ -1004,10 +1022,8 @@ test("leads with the investment and opens a truthful holding detail", async ({
 
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(harborAction).toBeFocused();
-  await expect(harborExposure).toContainText("$235k");
-  await expect(harborExposure.locator("summary")).toContainText(
-    "Cost basis estimate $183k",
-  );
+  await expect(harborExposure).toContainText("$240k");
+  await expect(harborExposure.locator("summary")).toContainText("$183k · +28%");
   const adjustedBeaconPosition = harborExposure
     .locator(".exposure-group__positions article")
     .filter({ hasText: "Beacon Demo SPV" });

@@ -59,7 +59,6 @@ import {
   formatCompactCurrency,
   formatDate,
   formatMagnitudeRoundedCurrency,
-  formatProbability,
   formatRoundedCompactCurrency,
 } from "./format";
 import { openPlaidLink } from "./plaid-link";
@@ -278,13 +277,13 @@ function investmentConnectionTotalsLabel(
 
 function exposurePositionValue(position: InvestmentExposurePosition): string {
   if (position.valueState === "reported" && position.valueMinor !== null) {
-    return isDirectPublicPosition(position)
-      ? formatRoundedHoldingCurrency(
+    return isCashPosition(position)
+      ? formatHoldingCurrency(position.valueMinor, position.currency)
+      : formatRoundedHoldingCurrency(
           position.valueMinor,
           position.currency,
           1_000,
-        )
-      : formatHoldingCurrency(position.valueMinor, position.currency);
+        );
   }
   return position.valueState === "locked" ? "Locked" : "Not reported";
 }
@@ -360,7 +359,7 @@ function sharePricePresentation(
   return priceMinor === null
     ? null
     : {
-        label: `${formatHoldingCurrency(priceMinor, observation.currency)}/sh`,
+        label: formatHoldingCurrency(priceMinor, observation.currency),
         observedAt: observation.observedAt,
       };
 }
@@ -428,7 +427,7 @@ function exposureSharePricePresentation(
   return priceMinor === null
     ? null
     : {
-        label: `${formatHoldingCurrency(priceMinor, latest[0]!.currency)}/sh`,
+        label: formatHoldingCurrency(priceMinor, latest[0]!.currency),
         observedAt: latestObservedAt,
       };
 }
@@ -471,11 +470,12 @@ function exposurePositionPerformance(position: InvestmentExposurePosition) {
   });
 }
 
-function signedReturnLabel(valuePpm: number): string {
-  if (valuePpm === 0) {
-    return formatProbability(0);
+function signedRoundedReturnLabel(valuePpm: number): string {
+  const wholePercent = Math.floor((Math.abs(valuePpm) + 5_000) / 10_000);
+  if (wholePercent === 0) {
+    return "0%";
   }
-  return `${valuePpm > 0 ? "+" : "−"}${formatProbability(Math.abs(valuePpm))}`;
+  return `${valuePpm > 0 ? "+" : "−"}${wholePercent}%`;
 }
 
 function positionEconomicsLabel(
@@ -483,7 +483,6 @@ function positionEconomicsLabel(
   sharePriceLabel: string | null,
 ): string | null {
   const performance = exposurePositionPerformance(position);
-  const simplifiedPublicEquity = isDirectPublicPosition(position);
   const labels: string[] = [];
   if (position.positionKind === "spv_interest" && position.committedMinor > 0) {
     labels.push(
@@ -491,26 +490,18 @@ function positionEconomicsLabel(
     );
   }
   if (performance.costBasisMinor !== null) {
-    labels.push(
-      simplifiedPublicEquity &&
-        performance.costBasisSource !== "funded_amount_estimate"
-        ? formatRoundedHoldingCurrency(
-            performance.costBasisMinor,
-            position.currency,
-            1_000,
-          )
-        : `${performance.costBasisSource === "funded_amount_estimate" ? "Cost basis estimate" : "Cost basis"} ${formatHoldingCurrency(performance.costBasisMinor, position.currency)}`,
+    const basisLabel = formatRoundedHoldingCurrency(
+      performance.costBasisMinor,
+      position.currency,
+      1_000,
     );
+    labels.push(basisLabel);
   }
   if (sharePriceLabel !== null) {
     labels.push(sharePriceLabel);
   }
   if (performance.totalReturnPpm !== null) {
-    labels.push(
-      simplifiedPublicEquity
-        ? signedReturnLabel(performance.totalReturnPpm)
-        : `Return ${signedReturnLabel(performance.totalReturnPpm)}`,
-    );
+    labels.push(signedRoundedReturnLabel(performance.totalReturnPpm));
   }
   return labels.length === 0 ? null : labels.join(" · ");
 }
@@ -529,7 +520,6 @@ function exposurePerformanceLabel(
   const currencies = new Set<string>();
   const allocatedBases: number[] = [];
   const allocatedValues: number[] = [];
-  let basisIsEstimated = false;
   let returnAvailable = true;
 
   for (const contribution of group.contributions) {
@@ -540,9 +530,6 @@ function exposurePerformanceLabel(
     const performance = exposurePositionPerformance(position);
     if (performance.costBasisMinor === null) {
       return sharePriceLabel;
-    }
-    if (performance.costBasisSource === "funded_amount_estimate") {
-      basisIsEstimated = true;
     }
     currencies.add(position.currency);
     allocatedBases.push(
@@ -570,11 +557,7 @@ function exposurePerformanceLabel(
     (total, value) => addMinorUnits(total, value),
     0,
   );
-  const simplifiedPublicEquity =
-    !basisIsEstimated && isDirectPublicExposure(group, positions);
-  const basisLabel = simplifiedPublicEquity
-    ? formatRoundedHoldingCurrency(basisMinor, currency, 1_000)
-    : `${basisIsEstimated ? "Cost basis estimate" : "Cost basis"} ${formatHoldingCurrency(basisMinor, currency)}`;
+  const basisLabel = formatRoundedHoldingCurrency(basisMinor, currency, 1_000);
   const basisAndPriceLabel = [basisLabel, sharePriceLabel]
     .filter((label): label is string => label !== null)
     .join(" · ");
@@ -593,7 +576,7 @@ function exposurePerformanceLabel(
   if (!Number.isSafeInteger(returnPpm)) {
     return basisAndPriceLabel;
   }
-  return `${basisAndPriceLabel} · ${simplifiedPublicEquity ? "" : "Return "}${signedReturnLabel(returnPpm)}`;
+  return `${basisAndPriceLabel} · ${signedRoundedReturnLabel(returnPpm)}`;
 }
 
 function isCashPosition(position: InvestmentExposurePosition): boolean {
@@ -612,7 +595,6 @@ function companyExposureGroups(data: InvestmentHoldingsView) {
 
 function exposureTotalsLabel(
   totals: InvestmentHoldingsView["exposureView"]["exposures"][number]["totals"],
-  roundedPublicEquity: boolean,
 ): string {
   const reportedByCurrency = new Map(
     totals
@@ -625,9 +607,6 @@ function exposureTotalsLabel(
   );
   if (reportedByCurrency.size === 0) {
     return "Value unavailable";
-  }
-  if (!roundedPublicEquity) {
-    return formatCurrencyTotals(reportedByCurrency, unavailableCount);
   }
   const reported = [...reportedByCurrency.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
@@ -1465,7 +1444,6 @@ function ExposureView({
         const investedEstimateCount = positions.filter(
           (position) => position.valueSource === "invested_amount",
         ).length;
-        const directPublicEquity = isDirectPublicExposure(group, positions);
         const currentSharePrice = exposureSharePricePresentation(
           group,
           positions,
@@ -1475,6 +1453,16 @@ function ExposureView({
           positions,
           currentSharePrice?.label ?? null,
         );
+        const summaryMetaLabel = [
+          investedEstimateCount > 0
+            ? `${investedEstimateCount} ${
+                investedEstimateCount === 1 ? "estimate" : "estimates"
+              }`
+            : null,
+          performanceLabel,
+        ]
+          .filter((label): label is string => label !== null)
+          .join(" · ");
         return (
           <details
             className="exposure-group"
@@ -1506,15 +1494,9 @@ function ExposureView({
               </span>
               <span className="exposure-group__totals">
                 <span className="exposure-group__value">
-                  {exposureTotalsLabel(group.totals, directPublicEquity)}
+                  {exposureTotalsLabel(group.totals)}
                 </span>
-                {investedEstimateCount > 0 && (
-                  <small className="exposure-group__estimate">
-                    {investedEstimateCount} invested{" "}
-                    {investedEstimateCount === 1 ? "estimate" : "estimates"}
-                  </small>
-                )}
-                {performanceLabel !== null && (
+                {summaryMetaLabel.length > 0 && (
                   <small
                     className={`exposure-group__performance${
                       currentSharePrice === null
@@ -1527,7 +1509,7 @@ function ExposureView({
                         : `Share price as of ${formatDate(currentSharePrice.observedAt)}`
                     }
                   >
-                    {performanceLabel}
+                    {summaryMetaLabel}
                   </small>
                 )}
               </span>
