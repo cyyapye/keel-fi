@@ -9,6 +9,7 @@ import {
   DataItem,
   DataList,
   FormMessage,
+  SectionHeader,
 } from "@keel/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -170,8 +171,10 @@ export function PlanActualMonitoring({
         aria-label="Plan versus actual monitoring"
         className="plan-monitoring plan-monitoring--loading"
       >
-        <p className="eyebrow">Plan vs actual</p>
-        <h2>Checking reviewed actuals…</h2>
+        <SectionHeader
+          eyebrow="Plan vs actual"
+          title="Checking reviewed actuals…"
+        />
       </section>
     );
   }
@@ -179,8 +182,10 @@ export function PlanActualMonitoring({
   if (state === null) {
     return (
       <section className="plan-monitoring plan-monitoring--error">
-        <p className="eyebrow">Plan vs actual</p>
-        <h2>Monitoring could not load</h2>
+        <SectionHeader
+          eyebrow="Plan vs actual"
+          title="Monitoring could not load"
+        />
         <FormMessage className="plan-monitoring__copy" tone="error">
           {error}
         </FormMessage>
@@ -195,32 +200,38 @@ export function PlanActualMonitoring({
       className={`plan-monitoring plan-monitoring--${state.status}`}
       data-status={state.status}
     >
-      <header className="plan-monitoring__header">
-        <div>
-          <p className="eyebrow">Plan vs actual</p>
-          <h2 id="plan-monitoring-heading" ref={headingRef} tabIndex={-1}>
-            {headingFor(state)}
-          </h2>
-          <p className="plan-monitoring__copy">{copyFor(state)}</p>
-        </div>
-        <Badge
-          tone={
-            state.status === "needs_action"
-              ? "accent"
-              : state.status === "clear"
-                ? "positive"
-                : "neutral"
-          }
-        >
-          {state.status === "needs_action"
-            ? "Review"
-            : state.status === "deferred"
-              ? "Later"
-              : state.status === "clear"
-                ? "Current"
-                : "Limited"}
-        </Badge>
-      </header>
+      <SectionHeader
+        action={
+          <Badge
+            tone={
+              state.status === "needs_action"
+                ? "accent"
+                : state.status === "clear"
+                  ? "positive"
+                  : "neutral"
+            }
+          >
+            {state.status === "needs_action"
+              ? "Review"
+              : state.status === "deferred"
+                ? "Later"
+                : state.status === "clear"
+                  ? "Current"
+                  : "Limited"}
+          </Badge>
+        }
+        className="plan-monitoring__header"
+        description={copyFor(state)}
+        descriptionPlacement="title-group"
+        descriptionProps={{ className: "plan-monitoring__copy" }}
+        eyebrow="Plan vs actual"
+        headingProps={{
+          id: "plan-monitoring-heading",
+          ref: headingRef,
+          tabIndex: -1,
+        }}
+        title={headingFor(state)}
+      />
 
       <DataList
         aria-label="Monitoring coverage"

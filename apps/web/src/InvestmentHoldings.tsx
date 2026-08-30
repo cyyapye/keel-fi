@@ -33,6 +33,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SectionHeader,
   Stat,
   TextLink,
 } from "@keel/ui";
@@ -1695,29 +1696,29 @@ function CashHoldingsView({
 
   return (
     <section aria-labelledby="cash-holdings-title" className="cash-holdings">
-      <div className="cash-holdings__heading">
-        <div>
-          <p className="eyebrow">Reviewed liquidity</p>
-          <h2 id="cash-holdings-title">Cash</h2>
-          <p>
-            Bank balances and brokerage cash stay separate from company
-            exposures.
-          </p>
-        </div>
-        <Stat
-          as="span"
-          className="cash-holdings__total"
-          detail={`${bankAccounts.length} bank ${
-            bankAccounts.length === 1 ? "account" : "accounts"
-          } · ${brokeragePositions.length} brokerage ${
-            brokeragePositions.length === 1 ? "position" : "positions"
-          }`}
-          detailAs="span"
-          label="Total cash"
-          labelAs="small"
-          value={formatCurrencyTotals(totals, unavailableCount)}
-        />
-      </div>
+      <SectionHeader
+        action={
+          <Stat
+            as="span"
+            className="cash-holdings__total"
+            detail={`${bankAccounts.length} bank ${
+              bankAccounts.length === 1 ? "account" : "accounts"
+            } · ${brokeragePositions.length} brokerage ${
+              brokeragePositions.length === 1 ? "position" : "positions"
+            }`}
+            detailAs="span"
+            label="Total cash"
+            labelAs="small"
+            value={formatCurrencyTotals(totals, unavailableCount)}
+          />
+        }
+        className="cash-holdings__heading"
+        description="Bank balances and brokerage cash stay separate from company exposures."
+        descriptionPlacement="title-group"
+        eyebrow="Reviewed liquidity"
+        headingProps={{ id: "cash-holdings-title" }}
+        title="Cash"
+      />
       {error !== null && <p className="cash-holdings__error">{error}</p>}
       {(bankAccounts.length > 0 || brokeragePositions.length > 0) && (
         <div className="cash-holdings__rows">
@@ -2334,11 +2335,13 @@ export function InvestmentHoldings({
         aria-labelledby="investment-institutions-title"
         className="investment-institutions"
       >
-        <div className="investment-institutions__heading">
-          <p className="eyebrow">Connections</p>
-          <h2 id="investment-institutions-title">Brokerages</h2>
-          <p>Robinhood, Fidelity, Schwab investing. Banking above.</p>
-        </div>
+        <SectionHeader
+          className="investment-institutions__heading"
+          description="Robinhood, Fidelity, Schwab investing. Banking above."
+          eyebrow="Connections"
+          headingProps={{ id: "investment-institutions-title" }}
+          title="Brokerages"
+        />
         <div className="investment-institutions__add">
           {addAvailable ? (
             <Button
@@ -2470,62 +2473,62 @@ export function InvestmentHoldings({
         aria-labelledby="investment-views-title"
         className="investment-views"
       >
-        <div className="investment-views__heading">
-          <div>
-            <p className="eyebrow">Reviewed ownership</p>
-            <h2 id="investment-views-title">Exposures</h2>
-            <p>
-              Legal positions stay separate inside each exposure. Open one for
-              ownership and source details.
-            </p>
-          </div>
-          <div className="investment-views__controls">
-            {exposureCount > 1 && (
-              <div className="exposure-sort">
-                <span>Sort by value</span>
-                <Select
-                  items={EXPOSURE_SORT_OPTIONS}
-                  onValueChange={(value) => {
-                    if (value === "ascending" || value === "descending") {
-                      setExposureSortDirection(value);
-                    }
-                  }}
-                  value={exposureSortDirection}
-                >
-                  <SelectTrigger aria-label="Sort exposures and positions by value">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {EXPOSURE_SORT_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <Stat
-              as="span"
-              className="investment-views__total"
-              detail={`${exposureCount} ${
-                exposureCount === 1 ? "exposure" : "exposures"
-              } · ${positionCount} legal ${
-                positionCount === 1 ? "position" : "positions"
-              }${
-                investedEstimateCount === 0
-                  ? ""
-                  : ` · ${investedEstimateCount} invested ${
-                      investedEstimateCount === 1 ? "estimate" : "estimates"
-                    }`
-              }`}
-              detailAs="span"
-              label="Total exposure"
-              labelAs="small"
-              value={exposureGrandTotalLabel(data)}
-            />
-          </div>
-        </div>
+        <SectionHeader
+          action={
+            <div className="investment-views__controls">
+              {exposureCount > 1 && (
+                <div className="exposure-sort">
+                  <span>Sort by value</span>
+                  <Select
+                    items={EXPOSURE_SORT_OPTIONS}
+                    onValueChange={(value) => {
+                      if (value === "ascending" || value === "descending") {
+                        setExposureSortDirection(value);
+                      }
+                    }}
+                    value={exposureSortDirection}
+                  >
+                    <SelectTrigger aria-label="Sort exposures and positions by value">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPOSURE_SORT_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <Stat
+                as="span"
+                className="investment-views__total"
+                detail={`${exposureCount} ${
+                  exposureCount === 1 ? "exposure" : "exposures"
+                } · ${positionCount} legal ${
+                  positionCount === 1 ? "position" : "positions"
+                }${
+                  investedEstimateCount === 0
+                    ? ""
+                    : ` · ${investedEstimateCount} invested ${
+                        investedEstimateCount === 1 ? "estimate" : "estimates"
+                      }`
+                }`}
+                detailAs="span"
+                label="Total exposure"
+                labelAs="small"
+                value={exposureGrandTotalLabel(data)}
+              />
+            </div>
+          }
+          className="investment-views__heading"
+          description="Legal positions stay separate inside each exposure. Open one for ownership and source details."
+          descriptionPlacement="title-group"
+          eyebrow="Reviewed ownership"
+          headingProps={{ id: "investment-views-title" }}
+          title="Exposures"
+        />
         {exposureReviewNotice !== null && (
           <FormMessage
             className="private-exposure-review__notice"

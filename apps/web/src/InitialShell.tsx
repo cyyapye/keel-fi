@@ -1,4 +1,11 @@
-import { AppShell, BrandMark, FormMessage, PageHeader, Screen } from "@keel/ui";
+import {
+  AppShell,
+  BrandMark,
+  FormMessage,
+  PageHeader,
+  Screen,
+  SectionHeader,
+} from "@keel/ui";
 
 const navigation = [
   { id: "dashboard", index: "01", label: "Overview" },
@@ -35,16 +42,14 @@ function HoldingsShell() {
           aria-labelledby="investment-views-title"
           className="investment-views"
         >
-          <div className="investment-views__heading">
-            <div>
-              <p className="eyebrow">Reviewed ownership</p>
-              <h2 id="investment-views-title">Exposures</h2>
-              <p>
-                Legal positions stay separate inside each exposure. Open one for
-                ownership and source details.
-              </p>
-            </div>
-          </div>
+          <SectionHeader
+            className="investment-views__heading"
+            description="Legal positions stay separate inside each exposure. Open one for ownership and source details."
+            descriptionPlacement="title-group"
+            eyebrow="Reviewed ownership"
+            headingProps={{ id: "investment-views-title" }}
+            title="Exposures"
+          />
           <FormMessage className="investment-views__loading">
             Loading reviewed exposures…
           </FormMessage>
