@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { D1AlphaRepository } from "@keel/database";
+
 import type { Env } from "./types";
 
 export const DeployedGitShaSchema = z
@@ -62,6 +64,7 @@ export const DeploymentSmokeResultSchema = z
     workerVersionTag: DeployedGitShaSchema,
     checks: z
       .object({
+        alpha: z.literal(true),
         d1: z.literal(true),
         queue: z.literal(true),
         r2: z.literal(true),
@@ -72,8 +75,21 @@ export const DeploymentSmokeResultSchema = z
 
 export type DeploymentSmokeResult = z.infer<typeof DeploymentSmokeResultSchema>;
 
+export type AlphaProjectionLoader = (
+  env: Env,
+  accessSubject: string,
+) => Promise<void>;
+
+const loadAlphaProjection: AlphaProjectionLoader = async (
+  env,
+  accessSubject,
+) => {
+  await new D1AlphaRepository(env.DB).getAlphaData(accessSubject);
+};
+
 export async function runDeploymentSmoke(
   env: Env,
+  alphaProjectionLoader: AlphaProjectionLoader = loadAlphaProjection,
 ): Promise<DeploymentSmokeResult> {
   const deployedGitSha = DeployedGitShaSchema.parse(env.DEPLOYED_GIT_SHA);
   const versionMetadata = WorkerVersionMetadataSchema.parse(
@@ -89,6 +105,17 @@ export async function runDeploymentSmoke(
   if (d1Result?.ok !== 1) {
     throw new Error("D1 deployment smoke failed.");
   }
+
+  const previewUser = await env.DB.prepare(
+    `SELECT access_subject
+     FROM users
+     ORDER BY created_at, id
+     LIMIT 1`,
+  ).first<{ access_subject: string }>();
+  if (previewUser === null || previewUser.access_subject.length === 0) {
+    throw new Error("Alpha projection smoke could not find a preview user.");
+  }
+  await alphaProjectionLoader(env, previewUser.access_subject);
 
   const objectKey = `deployment-smoke/${deployedGitSha}/${crypto.randomUUID()}`;
   try {
@@ -126,6 +153,7 @@ export async function runDeploymentSmoke(
     workerVersionId: versionMetadata.id,
     workerVersionTag: versionMetadata.tag,
     checks: {
+      alpha: true,
       d1: true,
       queue: true,
       r2: true,

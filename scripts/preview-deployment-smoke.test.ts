@@ -84,6 +84,7 @@ function successfulFetch(): ReturnType<typeof vi.fn> {
           workerVersionId: "api-version-1",
           workerVersionTag: gitSha,
           checks: {
+            alpha: true,
             d1: true,
             queue: true,
             r2: true,
@@ -209,6 +210,7 @@ describe("preview deployment runtime verification", () => {
                 workerVersionId: "api-version-previous",
                 workerVersionTag: gitSha,
                 checks: {
+                  alpha: true,
                   d1: true,
                   queue: true,
                   r2: true,
@@ -250,6 +252,7 @@ describe("preview deployment runtime verification", () => {
               workerVersionId: "api-version-previous",
               workerVersionTag: gitSha,
               checks: {
+                alpha: true,
                 d1: true,
                 queue: true,
                 r2: true,

@@ -113,6 +113,7 @@ import { verifyAccessToken, type AccessVerifier } from "./auth";
 import {
   deploymentSmokeTokenMatches,
   runDeploymentSmoke,
+  type AlphaProjectionLoader,
 } from "./deployment-smoke";
 import {
   HoldingImportUploadError,
@@ -205,6 +206,7 @@ type AppOptions = {
   retainedPublicExposureReconciler?: RetainedPublicExposureReconciler;
   newInvestmentConnectionsAvailable?: boolean;
   repository?: AlphaRepository;
+  deploymentSmokeAlphaLoader?: AlphaProjectionLoader;
   verifyAccess?: AccessVerifier;
 };
 
@@ -1006,9 +1008,16 @@ export function createApp(options: AppOptions = {}) {
     }
 
     try {
-      return context.json(await runDeploymentSmoke(context.env), 200, {
-        "Cache-Control": "no-store",
-      });
+      return context.json(
+        await runDeploymentSmoke(
+          context.env,
+          options.deploymentSmokeAlphaLoader,
+        ),
+        200,
+        {
+          "Cache-Control": "no-store",
+        },
+      );
     } catch (error) {
       console.error(
         JSON.stringify({
