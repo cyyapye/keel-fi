@@ -60,4 +60,50 @@ describe("shared UI usage", () => {
 
     expect(violations).toEqual([]);
   });
+
+  it("routes description lists through DataList", () => {
+    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
+      const source = readFileSync(path, "utf8");
+      return source.includes("<dl") ? [relative(webSourceDirectory, path)] : [];
+    });
+
+    expect(violations).toEqual([]);
+  });
+
+  it("routes reusable metric groups through StatGroup", () => {
+    const reusableMetricGroups = [
+      "cash-flow__comparison",
+      "cash-flow__months",
+      "cash-review__totals",
+      "holding-detail-values",
+      "holding-performance__values",
+      "import-summary",
+      "obligation-review__facts",
+      "obligation-review__impact",
+      "obligations-impact",
+      "plan-inputs__context",
+      "plan-inputs__preview",
+      "position-economics__values",
+      "scenario-summary",
+    ];
+    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
+      const source = readFileSync(path, "utf8");
+      const elements = source.matchAll(
+        /<([A-Za-z][\w.]*)\b[^>]*\bclassName="([^"]+)"/gsu,
+      );
+      return Array.from(elements).flatMap((match) => {
+        const [, component = "", className = ""] = match;
+        const isReusableMetricGroup = className
+          .split(/\s+/u)
+          .some((token) => reusableMetricGroups.includes(token));
+        return isReusableMetricGroup && component !== "StatGroup"
+          ? [
+              `${relative(webSourceDirectory, path)}: <${component} className="${className}">`,
+            ]
+          : [];
+      });
+    });
+
+    expect(violations).toEqual([]);
+  });
 });

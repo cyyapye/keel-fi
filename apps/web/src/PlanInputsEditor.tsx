@@ -14,6 +14,8 @@ import {
   InputGroup,
   Notice,
   Panel,
+  Stat,
+  StatGroup,
 } from "@keel/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -333,23 +335,26 @@ export function PlanInputsEditor({
         Nothing changes until you save.
       </p>
 
-      <div className="plan-inputs__context" aria-label="Plan-owned values">
-        <article>
-          <span>FI-eligible liquid</span>
-          <strong>{formatCompactMoney(plan.fiEligibleLiquidMinor)}</strong>
-          <small>From Holdings</small>
-        </article>
-        <article>
-          <span>FI target</span>
-          <strong>{formatCompactMoney(plan.fiTargetMinor)}</strong>
-          <small>From Goals</small>
-        </article>
-        <article>
-          <span>Forecast base</span>
-          <strong>Version {plan.baseForecastSnapshotVersion}</strong>
-          <small>Through {formatDate(plan.forecastHorizonDate)}</small>
-        </article>
-      </div>
+      <StatGroup
+        aria-label="Plan-owned values"
+        className="plan-inputs__context"
+      >
+        <Stat
+          detail="From Holdings"
+          label="FI-eligible liquid"
+          value={formatCompactMoney(plan.fiEligibleLiquidMinor)}
+        />
+        <Stat
+          detail="From Goals"
+          label="FI target"
+          value={formatCompactMoney(plan.fiTargetMinor)}
+        />
+        <Stat
+          detail={`Through ${formatDate(plan.forecastHorizonDate)}`}
+          label="Forecast base"
+          value={`Version ${plan.baseForecastSnapshotVersion}`}
+        />
+      </StatGroup>
 
       <form
         className="plan-inputs__form"
@@ -418,42 +423,42 @@ export function PlanInputsEditor({
           </Field>
         </div>
 
-        <div className="plan-inputs__preview" aria-live="polite">
-          <article>
-            <span>Protected runway</span>
-            <strong>
-              {impact === null
+        <StatGroup className="plan-inputs__preview" aria-live="polite">
+          <Stat
+            detail={
+              impact === null || !hasDraftChanges
+                ? "Current saved result"
+                : `${runwayChange >= 0 ? "+" : ""}${runwayChange} months`
+            }
+            label="Protected runway"
+            value={
+              impact === null
                 ? "Check values"
                 : runwayLabel(
                     impact.protectedRunwayMonths,
                     impact.totalMonthlyBurnMinor,
-                  )}
-            </strong>
-            <small>
-              {impact === null || !hasDraftChanges
-                ? "Current saved result"
-                : `${runwayChange >= 0 ? "+" : ""}${runwayChange} months`}
-            </small>
-          </article>
-          <article>
-            <span>Total monthly burn</span>
-            <strong>
-              {impact === null
+                  )
+            }
+          />
+          <Stat
+            detail="Household plus business"
+            label="Total monthly burn"
+            value={
+              impact === null
                 ? "—"
-                : formatCompactMoney(impact.totalMonthlyBurnMinor)}
-            </strong>
-            <small>Household plus business</small>
-          </article>
-          <article>
-            <span>Above cash floor</span>
-            <strong>
-              {impact === null
+                : formatCompactMoney(impact.totalMonthlyBurnMinor)
+            }
+          />
+          <Stat
+            detail="Available for runway"
+            label="Above cash floor"
+            value={
+              impact === null
                 ? "—"
-                : formatCompactMoney(impact.liquidAfterCashFloorMinor)}
-            </strong>
-            <small>Available for runway</small>
-          </article>
-        </div>
+                : formatCompactMoney(impact.liquidAfterCashFloorMinor)
+            }
+          />
+        </StatGroup>
 
         <Field className="plan-inputs__change-note" label="What changed" wide>
           <Input

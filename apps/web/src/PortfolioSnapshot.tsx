@@ -8,6 +8,8 @@ import {
   Button,
   ChartContainer,
   ChartTooltipContent,
+  DataItem,
+  DataList,
   EmptyState,
   FormMessage,
   Notice,
@@ -500,30 +502,26 @@ export function PortfolioSnapshot({
       )}
       {!loading && error === null && snapshot !== null && (
         <>
-          <dl className="portfolio-snapshot__metrics">
-            <div>
-              <dt>Known portfolio</dt>
-              <dd>
-                {formatChartMoney(
-                  snapshot.knownPortfolioValueMinor,
-                  snapshot.currency,
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt>Mapped exposure</dt>
-              <dd>
-                {formatChartMoney(
-                  snapshot.knownExposureValueMinor,
-                  snapshot.currency,
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt>Top five concentration</dt>
-              <dd>{formatProbability(snapshot.topFiveConcentrationPpm)}</dd>
-            </div>
-          </dl>
+          <DataList className="portfolio-snapshot__metrics">
+            <DataItem
+              label="Known portfolio"
+              value={formatChartMoney(
+                snapshot.knownPortfolioValueMinor,
+                snapshot.currency,
+              )}
+            />
+            <DataItem
+              label="Mapped exposure"
+              value={formatChartMoney(
+                snapshot.knownExposureValueMinor,
+                snapshot.currency,
+              )}
+            />
+            <DataItem
+              label="Top five concentration"
+              value={formatProbability(snapshot.topFiveConcentrationPpm)}
+            />
+          </DataList>
 
           <p className="portfolio-snapshot__trust">
             Known reviewed values as of {formatDate(snapshot.asOf)}.

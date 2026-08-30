@@ -20,6 +20,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Stat,
+  StatGroup,
 } from "@keel/ui";
 import { useEffect, useMemo, useState } from "react";
 
@@ -320,36 +322,43 @@ export function ObservedCashFlow({
           </small>
         </div>
 
-        <div className="cash-flow__comparison" aria-label="Burn comparison">
-          <article>
-            <span>Accepted burn</span>
-            <strong>{formatCompactMoney(currentTotal)}</strong>
-            <small>Per month</small>
-          </article>
-          <article>
-            <span>Reviewed proposal</span>
-            <strong>{formatCompactMoney(proposedTotal)}</strong>
-            <small>
-              {comparison.totalChangeMinor >= 0 ? "+" : ""}
-              {formatCompactMoney(comparison.totalChangeMinor)} monthly
-            </small>
-          </article>
-          <article>
-            <span>Protected runway</span>
-            <strong>{comparison.proposedRunwayMonths} mo</strong>
-            <small>Currently {comparison.currentRunwayMonths} mo</small>
-          </article>
-        </div>
+        <StatGroup
+          aria-label="Burn comparison"
+          className="cash-flow__comparison"
+        >
+          <Stat
+            detail="Per month"
+            label="Accepted burn"
+            value={formatCompactMoney(currentTotal)}
+          />
+          <Stat
+            detail={`${comparison.totalChangeMinor >= 0 ? "+" : ""}${formatCompactMoney(comparison.totalChangeMinor)} monthly`}
+            label="Reviewed proposal"
+            value={formatCompactMoney(proposedTotal)}
+          />
+          <Stat
+            detail={`Currently ${comparison.currentRunwayMonths} mo`}
+            label="Protected runway"
+            value={`${comparison.proposedRunwayMonths} mo`}
+          />
+        </StatGroup>
 
-        <div className="cash-flow__months" aria-label="Complete month totals">
+        <StatGroup
+          aria-label="Complete month totals"
+          className="cash-flow__months"
+        >
           {proposal.months.map((month) => (
-            <span key={month.month}>
-              <small>{monthLabel(month.month)}</small>
-              <strong>{formatCompactMoney(month.outflowMinor)}</strong>
-              <i>{month.transactionCount} posted</i>
-            </span>
+            <Stat
+              as="span"
+              detail={`${month.transactionCount} posted`}
+              detailAs="i"
+              key={month.month}
+              label={monthLabel(month.month)}
+              labelAs="small"
+              value={formatCompactMoney(month.outflowMinor)}
+            />
           ))}
-        </div>
+        </StatGroup>
 
         <div className="cash-flow__categories">
           <header>
