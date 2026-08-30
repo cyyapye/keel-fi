@@ -9,6 +9,8 @@ import {
   ChartContainer,
   ChartTooltipContent,
   EmptyState,
+  FormMessage,
+  Notice,
   Panel,
   SectionHeader,
   TextLink,
@@ -484,17 +486,17 @@ export function PortfolioSnapshot({
       />
 
       {loading && (
-        <p className="portfolio-snapshot__status" role="status">
+        <FormMessage className="portfolio-snapshot__status">
           Loading portfolio snapshot…
-        </p>
+        </FormMessage>
       )}
       {!loading && error !== null && (
-        <div className="portfolio-snapshot__error" role="alert">
+        <Notice className="portfolio-snapshot__error" tone="error">
           <p>{error}</p>
           <Button onClick={reload} tone="secondary">
             Try again
           </Button>
-        </div>
+        </Notice>
       )}
       {!loading && error === null && snapshot !== null && (
         <>

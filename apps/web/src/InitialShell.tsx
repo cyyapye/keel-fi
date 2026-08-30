@@ -1,4 +1,4 @@
-import { AppShell, BrandMark, PageHeader, Screen } from "@keel/ui";
+import { AppShell, BrandMark, FormMessage, PageHeader, Screen } from "@keel/ui";
 
 const navigation = [
   { id: "dashboard", index: "01", label: "Overview" },
@@ -45,9 +45,9 @@ function HoldingsShell() {
               </p>
             </div>
           </div>
-          <p className="investment-views__loading" role="status">
+          <FormMessage className="investment-views__loading">
             Loading reviewed exposures…
-          </p>
+          </FormMessage>
         </section>
       </Screen>
     </AppShell>

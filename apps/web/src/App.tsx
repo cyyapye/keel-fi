@@ -1388,7 +1388,10 @@ function Goals({
                     {saveMessage}
                   </FormMessage>
                 )}
-                <ActionGroup className="goal-form__actions">
+                <ActionGroup
+                  className="goal-form__actions"
+                  mobileLayout="stack"
+                >
                   <Button
                     disabled={saveState === "saving"}
                     tone="primary"
@@ -1866,10 +1869,9 @@ function HoldingImportWorkspace({
         aria-labelledby="holding-import-success-title"
         className="holding-import-workspace"
       >
-        <div
+        <Notice
           className="import-message import-message--success"
           ref={messageRef}
-          role="status"
           tabIndex={-1}
         >
           <p className="eyebrow">
@@ -1922,7 +1924,7 @@ function HoldingImportWorkspace({
           <Button onClick={onClose} tone="primary">
             Back to holdings
           </Button>
-        </div>
+        </Notice>
       </section>
     );
   }
@@ -2029,7 +2031,11 @@ function HoldingImportWorkspace({
               {error}
             </Notice>
           )}
-          <div className="import-actions">
+          <ActionGroup
+            align="end"
+            className="import-actions"
+            mobileLayout="grid"
+          >
             <Button
               disabled={working !== "idle"}
               onClick={onClose}
@@ -2040,7 +2046,7 @@ function HoldingImportWorkspace({
             <Button disabled={working !== "idle"} tone="primary" type="submit">
               {working === "previewing" ? "Reading…" : "Review file"}
             </Button>
-          </div>
+          </ActionGroup>
         </form>
       </section>
     );
@@ -2087,14 +2093,14 @@ function HoldingImportWorkspace({
         </div>
 
         {preview.summary.preservedPositionCount > 0 && (
-          <p className="import-attention" role="status">
+          <Notice className="import-attention">
             This account did not report {preview.summary.preservedPositionCount}{" "}
             prior{" "}
             {preview.summary.preservedPositionCount === 1
               ? "position"
               : "positions"}
             . Keel kept the last accepted values and did not infer sales.
-          </p>
+          </Notice>
         )}
 
         {exceptionRows.length > 0 && (
@@ -2138,11 +2144,11 @@ function HoldingImportWorkspace({
           </Panel>
         )}
 
-        <div className="import-actions">
+        <ActionGroup align="end" className="import-actions" mobileLayout="grid">
           <Button onClick={onClose} tone="primary">
             Back to holdings
           </Button>
-        </div>
+        </ActionGroup>
       </section>
     );
   }
@@ -2166,11 +2172,11 @@ function HoldingImportWorkspace({
             Your accepted holdings have not been changed by this update yet.
           </p>
         </div>
-        <div className="import-actions">
+        <ActionGroup align="end" className="import-actions" mobileLayout="grid">
           <Button onClick={onClose} tone="primary">
             Back to holdings
           </Button>
-        </div>
+        </ActionGroup>
       </section>
     );
   }
@@ -2205,11 +2211,11 @@ function HoldingImportWorkspace({
             )}
           </p>
         </div>
-        <div className="import-actions">
+        <ActionGroup align="end" className="import-actions" mobileLayout="grid">
           <Button onClick={onClose} tone="primary">
             Back to holdings
           </Button>
-        </div>
+        </ActionGroup>
       </section>
     );
   }
@@ -2334,13 +2340,13 @@ function HoldingImportWorkspace({
       </div>
 
       {preview.summary.needsAttentionCount > 0 && (
-        <p className="import-attention" role="status">
+        <Notice className="import-attention">
           {preview.summary.needsAttentionCount}{" "}
           {preview.summary.needsAttentionCount === 1
             ? "position needs"
             : "positions need"}{" "}
           attention and will not be applied.
-        </p>
+        </Notice>
       )}
 
       {error !== null && (
@@ -2545,9 +2551,11 @@ function HoldingImportWorkspace({
       </label>
 
       {confirming ? (
-        <div
+        <ActionGroup
           aria-labelledby="holding-import-confirmation-title"
           className="import-confirmation"
+          layout="split"
+          mobileLayout="stack"
         >
           <div>
             <p className="eyebrow">Final review</p>
@@ -2607,7 +2615,7 @@ function HoldingImportWorkspace({
               </p>
             )}
           </div>
-          <div>
+          <ActionGroup align="end" mobileLayout="grid">
             <Button
               disabled={working !== "idle"}
               onClick={() => setConfirming(false)}
@@ -2630,17 +2638,21 @@ function HoldingImportWorkspace({
                     ? "Confirm review"
                     : "Confirm & apply"}
             </Button>
-          </div>
-        </div>
+          </ActionGroup>
+        </ActionGroup>
       ) : (
-        <div className="import-footer">
+        <ActionGroup
+          className="import-footer"
+          layout="split"
+          mobileLayout="stack"
+        >
           <div>
             <strong>
               {includedCount} included · {excludedCount} excluded
             </strong>
             <span>Excluded rows will not change accepted holdings.</span>
           </div>
-          <div>
+          <ActionGroup align="end" mobileLayout="grid">
             <Button
               onClick={initialPreview === null ? resetFile : onClose}
               tone="quiet"
@@ -2664,8 +2676,8 @@ function HoldingImportWorkspace({
             >
               {primaryActionLabel}
             </Button>
-          </div>
-        </div>
+          </ActionGroup>
+        </ActionGroup>
       )}
     </section>
   );
@@ -2945,14 +2957,18 @@ function PositionValueAdjustmentEditor({
             </Field>
           </div>
           {error !== null && <Notice tone="error">{error}</Notice>}
-          <div className="position-value-adjustment__actions">
+          <ActionGroup
+            align="end"
+            className="position-value-adjustment__actions"
+            mobileLayout="grid"
+          >
             <Button disabled={busy} onClick={reset} tone="quiet" type="button">
               Cancel
             </Button>
             <Button disabled={!canReview || busy} tone="primary" type="submit">
               Review value
             </Button>
-          </div>
+          </ActionGroup>
         </form>
       )}
 
@@ -2979,7 +2995,11 @@ function PositionValueAdjustmentEditor({
             until you accept a newer one.
           </small>
           {error !== null && <Notice tone="error">{error}</Notice>}
-          <div className="position-value-adjustment__actions">
+          <ActionGroup
+            align="end"
+            className="position-value-adjustment__actions"
+            mobileLayout="grid"
+          >
             <Button
               disabled={busy}
               onClick={() => setReviewing(false)}
@@ -2994,7 +3014,7 @@ function PositionValueAdjustmentEditor({
             >
               {busy ? "Accepting…" : "Accept value"}
             </Button>
-          </div>
+          </ActionGroup>
         </div>
       )}
     </section>
@@ -3340,14 +3360,18 @@ function PositionEconomicsEditor({
             </Notice>
           )}
           {error !== null && <Notice tone="error">{error}</Notice>}
-          <div className="position-economics__actions">
+          <ActionGroup
+            align="end"
+            className="position-economics__actions"
+            mobileLayout="grid"
+          >
             <Button disabled={busy} onClick={reset} tone="quiet" type="button">
               Cancel
             </Button>
             <Button disabled={!canReview || busy} tone="primary" type="submit">
               Review terms
             </Button>
-          </div>
+          </ActionGroup>
         </form>
       )}
 
@@ -3377,7 +3401,11 @@ function PositionEconomicsEditor({
             full exit is accepted.
           </small>
           {error !== null && <Notice tone="error">{error}</Notice>}
-          <div className="position-economics__actions">
+          <ActionGroup
+            align="end"
+            className="position-economics__actions"
+            mobileLayout="grid"
+          >
             <Button
               disabled={busy}
               onClick={() => setReviewing(false)}
@@ -3392,7 +3420,7 @@ function PositionEconomicsEditor({
             >
               {busy ? "Accepting…" : "Accept terms"}
             </Button>
-          </div>
+          </ActionGroup>
         </div>
       )}
     </section>
@@ -4130,7 +4158,10 @@ function ProviderReconnectControl({
   return (
     <div className="provider-reconnect">
       {active ? (
-        <div className="provider-reconnect__active">
+        <ActionGroup
+          className="provider-reconnect__active"
+          mobileLayout="stack"
+        >
           {openPath === null ? (
             <Button disabled tone="primary">
               {session?.status === "opened"
@@ -4155,7 +4186,7 @@ function ProviderReconnectControl({
           >
             {busy === "cancel" ? "Cancelling…" : "Cancel"}
           </Button>
-        </div>
+        </ActionGroup>
       ) : (
         <Button
           disabled={busy !== null}
@@ -4166,14 +4197,14 @@ function ProviderReconnectControl({
         </Button>
       )}
       {status !== null && (
-        <p className="provider-reconnect__status" role="status">
+        <FormMessage className="provider-reconnect__status">
           {status}
-        </p>
+        </FormMessage>
       )}
       {error !== null && (
-        <p className="provider-reconnect__error" role="alert">
+        <FormMessage className="provider-reconnect__error" tone="error">
           {error}
-        </p>
+        </FormMessage>
       )}
     </div>
   );
@@ -4355,7 +4386,11 @@ function AngelListMacAgentControl() {
             />
           </div>
         ) : (
-          <div className="angellist-agent__controls">
+          <ActionGroup
+            align="end"
+            className="angellist-agent__controls"
+            mobileLayout="stack"
+          >
             <div className="angellist-agent__interval">
               <span id="angellist-update-interval-label">
                 Automatic updates
@@ -4402,7 +4437,7 @@ function AngelListMacAgentControl() {
                     : "Update in progress"
                   : "Queue update"}
             </Button>
-          </div>
+          </ActionGroup>
         )}
 
         {overview !== null && !setupRequired && (
@@ -4435,14 +4470,14 @@ function AngelListMacAgentControl() {
         )}
 
         {notice !== null && (
-          <p className="angellist-agent__notice" role="status">
+          <FormMessage className="angellist-agent__notice" tone="success">
             {notice}
-          </p>
+          </FormMessage>
         )}
         {error !== null && (
-          <p className="angellist-agent__error" role="alert">
+          <FormMessage className="angellist-agent__error" tone="error">
             {error}
-          </p>
+          </FormMessage>
         )}
       </div>
     </section>
@@ -4727,7 +4762,11 @@ function ProviderPortfolioAgentRow({
             />
           </div>
         ) : (
-          <div className="provider-agent-row__controls">
+          <ActionGroup
+            align="end"
+            className="provider-agent-row__controls"
+            mobileLayout="stack"
+          >
             <div className="provider-agent-row__interval">
               <span id={`${provider}-update-interval-label`}>
                 Automatic updates
@@ -4774,7 +4813,7 @@ function ProviderPortfolioAgentRow({
                     : "Update in progress"
                   : "Queue update"}
             </Button>
-          </div>
+          </ActionGroup>
         )}
 
         {overview !== null && !setupRequired && (
@@ -4806,14 +4845,14 @@ function ProviderPortfolioAgentRow({
           </dl>
         )}
         {notice !== null && (
-          <p className="provider-agent-row__notice" role="status">
+          <FormMessage className="provider-agent-row__notice" tone="success">
             {notice}
-          </p>
+          </FormMessage>
         )}
         {error !== null && (
-          <p className="provider-agent-row__error" role="alert">
+          <FormMessage className="provider-agent-row__error" tone="error">
             {error}
-          </p>
+          </FormMessage>
         )}
       </div>
     </article>
@@ -5206,12 +5245,9 @@ function AngelListBrowserRunControl() {
                     : "Type in AngelList"}
                 </Button>
                 {handoffNotice !== null && (
-                  <span
-                    className="angellist-handoff-input__status"
-                    role="status"
-                  >
+                  <FormMessage className="angellist-handoff-input__status">
                     {handoffNotice}
-                  </span>
+                  </FormMessage>
                 )}
               </div>
             </form>
@@ -5284,14 +5320,14 @@ function AngelListBrowserRunControl() {
         )}
 
         {overviewError !== null && overview === null && (
-          <p className="angellist-sign-in__error" role="status">
+          <FormMessage className="angellist-sign-in__error" tone="error">
             {overviewError}
-          </p>
+          </FormMessage>
         )}
         {refreshError !== null && (
-          <p className="angellist-sign-in__error" role="alert">
+          <FormMessage className="angellist-sign-in__error" tone="error">
             {refreshError} Your saved sign-in was not changed.
-          </p>
+          </FormMessage>
         )}
       </div>
     </section>
@@ -5498,20 +5534,23 @@ function CashBalanceProposalReview({
         />
       </Field>
       {error !== null && <Notice tone="error">{error}</Notice>}
-      <footer className="cash-review__actions">
-        <div>
-          <Button disabled={working} onClick={onCancel} tone="quiet">
-            Decide later
-          </Button>
-          <Button
-            disabled={working || changeNote.trim().length === 0}
-            onClick={() => void apply()}
-            tone="primary"
-          >
-            {working ? "Saving…" : "Save decisions"}
-          </Button>
-        </div>
-      </footer>
+      <ActionGroup
+        align="end"
+        as="footer"
+        className="cash-review__actions"
+        mobileLayout="grid"
+      >
+        <Button disabled={working} onClick={onCancel} tone="quiet">
+          Decide later
+        </Button>
+        <Button
+          disabled={working || changeNote.trim().length === 0}
+          onClick={() => void apply()}
+          tone="primary"
+        >
+          {working ? "Saving…" : "Save decisions"}
+        </Button>
+      </ActionGroup>
     </div>
   );
 }
@@ -6003,14 +6042,14 @@ function CashAccountsControl({
         )}
 
       {notice !== null && (
-        <p className="cash-accounts__notice" role="status">
+        <FormMessage className="cash-accounts__notice" tone="success">
           {notice}
-        </p>
+        </FormMessage>
       )}
       {error !== null && (
-        <p className="cash-accounts__error" role="alert">
+        <FormMessage className="cash-accounts__error" tone="error">
           {error}
-        </p>
+        </FormMessage>
       )}
       {!setupRequired && (state?.connections.length ?? 0) > 0 && (
         <p className="cash-accounts__cost-note">
@@ -6846,12 +6885,17 @@ function PortfolioBaselineSection({
         </div>
 
         {error !== null && <Notice tone="error">{error}</Notice>}
-        <footer className="baseline-review-actions">
+        <ActionGroup
+          as="footer"
+          className="baseline-review-actions"
+          layout="split"
+          mobileLayout="stack"
+        >
           <p>
             Applying these changes updates the FI plan and saves a new forecast
             version.
           </p>
-          <div>
+          <ActionGroup align="end" mobileLayout="grid">
             <Button
               disabled={working}
               onClick={() => {
@@ -6877,8 +6921,8 @@ function PortfolioBaselineSection({
                   ? "Set baseline"
                   : "Apply changes"}
             </Button>
-          </div>
-        </footer>
+          </ActionGroup>
+        </ActionGroup>
       </section>
     );
   }
@@ -6911,9 +6955,9 @@ function PortfolioBaselineSection({
             : "Review only the changed sources and their forecast impact."}
         </p>
         {error !== null && (
-          <p className="portfolio-baseline__error" role="status">
+          <FormMessage className="portfolio-baseline__error" tone="error">
             {error}
-          </p>
+          </FormMessage>
         )}
       </div>
       <Button onClick={openReview} tone="primary">
@@ -8586,7 +8630,11 @@ function Scenarios({
                   {saveMessage}
                 </FormMessage>
               )}
-              <div className="scenario-actions">
+              <ActionGroup
+                align="end"
+                className="scenario-actions"
+                mobileLayout="grid"
+              >
                 <Button
                   disabled={!hasDraftChanges || saveState === "saving"}
                   onClick={resetDraft}
@@ -8601,7 +8649,7 @@ function Scenarios({
                 >
                   {saveState === "saving" ? "Saving…" : "Save scenario"}
                 </Button>
-              </div>
+              </ActionGroup>
             </Panel>
           </div>
         </TabsContent>
@@ -8717,16 +8765,16 @@ function HoldingsRouteStatus({
           </div>
         </div>
         {error === null ? (
-          <p className="investment-views__loading" role="status">
+          <FormMessage className="investment-views__loading">
             Loading reviewed exposures…
-          </p>
+          </FormMessage>
         ) : (
-          <div className="investment-views__error" role="alert">
+          <Notice className="investment-views__error" tone="error">
             <p>{error}</p>
             <Button onClick={onRetry} tone="secondary">
               Try again
             </Button>
-          </div>
+          </Notice>
         )}
       </section>
     </ScreenLayout>

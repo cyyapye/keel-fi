@@ -5,6 +5,7 @@ import {
   type PlanInputState,
 } from "@keel/domain";
 import {
+  ActionGroup,
   Badge,
   Button,
   Field,
@@ -472,7 +473,11 @@ export function PlanInputsEditor({
           </FormMessage>
         )}
 
-        <div className="plan-inputs__actions">
+        <ActionGroup
+          align="end"
+          className="plan-inputs__actions"
+          mobileLayout="grid"
+        >
           {saveState === "error" && (
             <Button onClick={reloadLatest} tone="quiet">
               Reload latest
@@ -497,7 +502,7 @@ export function PlanInputsEditor({
           >
             {saveState === "saving" ? "Saving…" : "Save plan"}
           </Button>
-        </div>
+        </ActionGroup>
       </form>
     </Panel>
   );

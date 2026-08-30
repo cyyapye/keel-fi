@@ -7,6 +7,7 @@ import {
   type CashFlowTreatment,
 } from "@keel/domain";
 import {
+  ActionGroup,
   Badge,
   Button,
   Field,
@@ -434,7 +435,11 @@ export function ObservedCashFlow({
           <FormMessage tone="error">{actionError}</FormMessage>
         )}
         {message !== null && <FormMessage>{message}</FormMessage>}
-        <div className="cash-flow__actions">
+        <ActionGroup
+          align="end"
+          className="cash-flow__actions"
+          mobileLayout="stack"
+        >
           {readyForPlan ? (
             <Button
               disabled={proposal.planSuggestion === null}
@@ -459,7 +464,7 @@ export function ObservedCashFlow({
               {reviewing ? "Preparing…" : "Prepare plan draft"}
             </Button>
           )}
-        </div>
+        </ActionGroup>
       </Panel>
     );
   }
@@ -540,7 +545,11 @@ export function ObservedCashFlow({
                 </span>
               </label>
             )}
-            <div className="cash-flow__source-actions">
+            <ActionGroup
+              align="end"
+              className="cash-flow__source-actions"
+              mobileLayout="grid"
+            >
               {confirming ? (
                 <>
                   <small>
@@ -591,7 +600,7 @@ export function ObservedCashFlow({
                   </Button>
                 </>
               )}
-            </div>
+            </ActionGroup>
           </div>
         );
       })}

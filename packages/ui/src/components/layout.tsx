@@ -81,13 +81,36 @@ export function SectionHeader({
   );
 }
 
+type ActionGroupProps = HTMLAttributes<HTMLElement> & {
+  align?: "end" | "start";
+  as?: "div" | "footer";
+  layout?: "inline" | "split" | "stack";
+  mobileLayout?: "grid" | "inline" | "stack";
+  wrap?: boolean;
+};
+
 export function ActionGroup({
+  align = "start",
+  as = "div",
   className,
+  layout = "inline",
+  mobileLayout = "inline",
+  wrap = false,
   ...props
-}: HTMLAttributes<HTMLDivElement>) {
+}: ActionGroupProps) {
+  const Root = as;
   return (
-    <div
-      className={cn("action-group", className)}
+    <Root
+      className={cn(
+        "action-group",
+        align === "end" && "action-group--end",
+        layout === "split" && "action-group--split",
+        layout === "stack" && "action-group--stack",
+        mobileLayout === "grid" && "action-group--mobile-grid",
+        mobileLayout === "stack" && "action-group--mobile-stack",
+        wrap && "action-group--wrap",
+        className,
+      )}
       data-slot="action-group"
       {...props}
     />

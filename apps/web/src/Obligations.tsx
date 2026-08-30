@@ -7,9 +7,11 @@ import {
   type ManualLiabilityInput,
 } from "@keel/domain";
 import {
+  ActionGroup,
   Badge,
   Button,
   Field,
+  FormMessage,
   Input,
   InputGroup,
   Notice,
@@ -412,9 +414,14 @@ function ObligationReview({
         />
       </Field>
       {error !== null && <Notice tone="error">{error}</Notice>}
-      <footer className="obligation-review__actions">
+      <ActionGroup
+        as="footer"
+        className="obligation-review__actions"
+        layout="split"
+        mobileLayout="stack"
+      >
         <p>Only the selected payment treatments affect this planning view.</p>
-        <div>
+        <ActionGroup align="end" mobileLayout="grid">
           <Button disabled={working} onClick={onCancel} tone="quiet">
             Review later
           </Button>
@@ -425,8 +432,8 @@ function ObligationReview({
           >
             {working ? "Applying…" : "Apply review"}
           </Button>
-        </div>
-      </footer>
+        </ActionGroup>
+      </ActionGroup>
     </section>
   );
 }
@@ -602,19 +609,19 @@ function ManualObligationForm({
           </Field>
         </div>
         {error !== null && <Notice tone="error">{error}</Notice>}
-        <footer>
+        <ActionGroup as="footer" layout="split" mobileLayout="stack">
           <p>
             You will review the planning treatment before anything is accepted.
           </p>
-          <div>
+          <ActionGroup align="end" mobileLayout="grid">
             <Button disabled={working} onClick={onCancel} tone="quiet">
               Cancel
             </Button>
             <Button disabled={working} tone="primary" type="submit">
               {working ? "Preparing…" : "Continue to review"}
             </Button>
-          </div>
-        </footer>
+          </ActionGroup>
+        </ActionGroup>
       </form>
     </section>
   );
@@ -1107,14 +1114,14 @@ export function Obligations() {
       )}
 
       {notice !== null && (
-        <p className="obligations-page__notice" role="status">
+        <FormMessage className="obligations-page__notice" tone="success">
           {notice}
-        </p>
+        </FormMessage>
       )}
       {error !== null && (
-        <p className="obligations-page__error" role="alert">
+        <FormMessage className="obligations-page__error" tone="error">
           {error}
-        </p>
+        </FormMessage>
       )}
     </Screen>
   );
