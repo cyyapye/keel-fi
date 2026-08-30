@@ -28,6 +28,8 @@ const exactReviewedPrivateExposuresMigrationFile =
   "packages/database/migrations/0036_exact_reviewed_private_exposures.sql";
 const privateProviderPositionContinuityMigrationFile =
   "packages/database/migrations/0037_private_provider_position_continuity.sql";
+const portfolioWatchExposureUniverseMigrationFile =
+  "packages/database/migrations/0045_portfolio_watch_exposure_universe.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -66,6 +68,7 @@ const migrationFiles = [
   providerTemplateHoldingsMigrationFile,
   exactReviewedPrivateExposuresMigrationFile,
   privateProviderPositionContinuityMigrationFile,
+  portfolioWatchExposureUniverseMigrationFile,
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -2525,6 +2528,7 @@ describe("holding ownership and exposure reconciliation migration", () => {
             file !== reconnectedPositionContinuityMigrationFile &&
             file !== oneSidedPositionIdentityMigrationFile &&
             file !== privateProviderPositionContinuityMigrationFile &&
+            file !== portfolioWatchExposureUniverseMigrationFile &&
             file !== "packages/database/seed/synthetic.sql",
         )
         .forEach((file) => {

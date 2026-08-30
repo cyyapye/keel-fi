@@ -7,13 +7,16 @@ import {
 } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { D1AlphaRepository } from "./index";
+import { __alphaRepositoryTest, D1AlphaRepository } from "./index";
 import {
   __portfolioWatchTest,
   D1PortfolioWatchRepository,
   PortfolioWatchObservationInputSchema,
 } from "./portfolio-watch";
 
+const portfolioWatchExposureUniverseMigrationFile =
+  "packages/database/migrations/0045_portfolio_watch_exposure_universe.sql";
+const syntheticSeedFile = "packages/database/seed/synthetic.sql";
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
@@ -50,13 +53,17 @@ const migrationFiles = [
   "packages/database/migrations/0039_reviewed_position_economics.sql",
   "packages/database/migrations/0040_holdings_read_performance.sql",
   "packages/database/migrations/0041_reported_position_economics.sql",
-  "packages/database/seed/synthetic.sql",
+  portfolioWatchExposureUniverseMigrationFile,
+  syntheticSeedFile,
 ] as const;
 
 class TestD1Statement {
   private bindings: SQLInputValue[] = [];
 
-  public constructor(private readonly statement: StatementSync) {}
+  public constructor(
+    private readonly statement: StatementSync,
+    private readonly recordRoundTrip: () => void,
+  ) {}
 
   public bind(...values: SQLInputValue[]): TestD1Statement {
     this.bindings = values;
@@ -64,6 +71,7 @@ class TestD1Statement {
   }
 
   public first<T>(columnName?: string): Promise<T | null> {
+    this.recordRoundTrip();
     const row = this.statement.get(...this.bindings);
     if (row === undefined) {
       return Promise.resolve(null);
@@ -74,36 +82,49 @@ class TestD1Statement {
   }
 
   public all<T>(): Promise<{ results: T[] }> {
+    this.recordRoundTrip();
     return Promise.resolve({
       results: this.statement.all(...this.bindings) as unknown as T[],
     });
   }
 
-  public execute(): { success: true } {
+  public execute(recordRoundTrip = true): { success: true } {
+    if (recordRoundTrip) {
+      this.recordRoundTrip();
+    }
     this.statement.run(...this.bindings);
     return { success: true };
   }
 }
 
 class TestD1Database {
+  public roundTripCount = 0;
+
   public constructor(private readonly database: DatabaseSync) {}
 
   public prepare(query: string): TestD1Statement {
-    return new TestD1Statement(this.database.prepare(query));
+    return new TestD1Statement(this.database.prepare(query), () => {
+      this.roundTripCount += 1;
+    });
   }
 
   public batch(
     statements: readonly TestD1Statement[],
   ): Promise<{ success: true }[]> {
+    this.roundTripCount += 1;
     this.database.exec("BEGIN");
     try {
-      const results = statements.map((statement) => statement.execute());
+      const results = statements.map((statement) => statement.execute(false));
       this.database.exec("COMMIT");
       return Promise.resolve(results);
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  public resetRoundTripCount(): void {
+    this.roundTripCount = 0;
   }
 }
 
@@ -113,6 +134,10 @@ function createTestDatabase(): DatabaseSync {
     database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
   }
   database.exec(`
+    UPDATE portfolio_watch_targets
+    SET status = 'active'
+    WHERE id = 'watch_northstar';
+
     INSERT INTO portfolio_watch_sources (
       id, household_id, watch_target_id, company_id, source_kind, source_class,
       canonical_url, allowed_origin, allowed_path_prefix, status,
@@ -131,6 +156,195 @@ function createTestDatabase(): DatabaseSync {
   return database;
 }
 
+function createTestDatabaseBeforeExposureUniverse(): DatabaseSync {
+  const database = new DatabaseSync(":memory:");
+  for (const file of migrationFiles) {
+    if (
+      file !== portfolioWatchExposureUniverseMigrationFile &&
+      file !== syntheticSeedFile
+    ) {
+      database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+    }
+  }
+  database.exec(
+    readFileSync(resolve(process.cwd(), syntheticSeedFile), "utf8"),
+  );
+  return database;
+}
+
+function seedPrivateExposureUniverse(
+  database: DatabaseSync,
+  companyCount: number,
+  options: { withWebsiteHosts?: boolean } = {},
+): void {
+  const websiteHostExpression =
+    options.withWebsiteHosts === false
+      ? "NULL"
+      : "printf('watch-scale-%03d.example', value)";
+  database.exec(`
+    UPDATE portfolio_watch_targets SET status = 'paused';
+
+    INSERT INTO investment_connections (
+      id, household_id, adapter_type, protected_source_key,
+      created_by_user_id, created_at, immutable
+    ) VALUES (
+      'watch_scale_connection', 'hh_demo', 'manual',
+      printf('%064x', 7001), 'usr_demo', '2026-08-29T12:00:00.000Z', 1
+    );
+
+    INSERT INTO investment_connection_versions (
+      id, household_id, connection_id, version, institution_key,
+      institution_label, lifecycle_state, credential_reference,
+      supersedes_version_id, recorded_by_user_id, recorded_at, immutable
+    ) VALUES (
+      'watch_scale_connection_v1', 'hh_demo', 'watch_scale_connection', 1,
+      'watch-scale', 'Synthetic watch scale', 'active', NULL, NULL,
+      'usr_demo', '2026-08-29T12:00:00.000Z', 1
+    );
+
+    INSERT INTO ownership_containers (
+      id, household_id, connection_id, protected_account_key,
+      created_by_user_id, created_at, immutable
+    ) VALUES (
+      'watch_scale_container', 'hh_demo', 'watch_scale_connection',
+      printf('%064x', 7002), 'usr_demo', '2026-08-29T12:00:00.000Z', 1
+    );
+
+    INSERT INTO ownership_container_versions (
+      id, household_id, container_id, version, display_label,
+      container_kind, tax_treatment, supersedes_version_id,
+      recorded_by_user_id, recorded_at, immutable
+    ) VALUES (
+      'watch_scale_container_v1', 'hh_demo', 'watch_scale_container', 1,
+      'Synthetic private positions', 'other', 'unknown', NULL, 'usr_demo',
+      '2026-08-29T12:00:00.000Z', 1
+    );
+
+    WITH RECURSIVE scale(value) AS (
+      SELECT 1
+      UNION ALL
+      SELECT value + 1 FROM scale WHERE value < ${companyCount}
+    )
+    INSERT INTO companies (
+      id, household_id, legal_name, website_host, status, created_at,
+      updated_at
+    )
+    SELECT
+      printf('co_watch_scale_%03d', value),
+      'hh_demo',
+      printf('Synthetic Watch Company %03d', value),
+      ${websiteHostExpression},
+      'active',
+      '2026-08-29T12:00:00.000Z',
+      '2026-08-29T12:00:00.000Z'
+    FROM scale;
+
+    WITH RECURSIVE scale(value) AS (
+      SELECT 1
+      UNION ALL
+      SELECT value + 1 FROM scale WHERE value < ${companyCount}
+    )
+    INSERT INTO holding_positions (
+      id, household_id, provider, position_fingerprint, legal_vehicle_name,
+      owner_label, position_kind, instrument_type, opened_on, currency,
+      created_by, created_at
+    )
+    SELECT
+      printf('position_watch_scale_%03d', value),
+      'hh_demo',
+      'angellist',
+      printf('%064x', 8000 + value),
+      printf('Synthetic SPV %03d', value),
+      'Synthetic owner',
+      'spv_interest',
+      'private_equity',
+      '2026-01-01',
+      'USD',
+      'usr_demo',
+      '2026-08-29T12:00:00.000Z'
+    FROM scale;
+
+    WITH RECURSIVE scale(value) AS (
+      SELECT 1
+      UNION ALL
+      SELECT value + 1 FROM scale WHERE value < ${companyCount}
+    )
+    INSERT INTO holding_position_ownerships (
+      id, household_id, container_id, position_id, protected_position_key,
+      association_basis, evidence_sha256, version, supersedes_ownership_id,
+      accepted_by_user_id, accepted_at, immutable
+    )
+    SELECT
+      printf('ownership_watch_scale_%03d', value),
+      'hh_demo',
+      'watch_scale_container',
+      printf('position_watch_scale_%03d', value),
+      printf('%064x', 8000 + value),
+      'reviewed_import',
+      printf('%064x', 9000 + value),
+      1,
+      NULL,
+      'usr_demo',
+      '2026-08-29T12:00:00.000Z',
+      1
+    FROM scale;
+
+    WITH RECURSIVE scale(value) AS (
+      SELECT 1
+      UNION ALL
+      SELECT value + 1 FROM scale WHERE value < ${companyCount}
+    )
+    INSERT INTO canonical_exposures (
+      id, household_id, exposure_kind, canonical_name,
+      protected_identity_key, company_id, resolution_method,
+      evidence_sha256, created_by_user_id, created_at, immutable
+    )
+    SELECT
+      printf('exposure_watch_scale_%03d', value),
+      'hh_demo',
+      'private_company',
+      printf('Synthetic Watch Company %03d', value),
+      NULL,
+      printf('co_watch_scale_%03d', value),
+      'reviewed_company',
+      printf('%064x', 9000 + value),
+      'usr_demo',
+      '2026-08-29T12:00:00.000Z',
+      1
+    FROM scale;
+
+    WITH RECURSIVE scale(value) AS (
+      SELECT 1
+      UNION ALL
+      SELECT value + 1 FROM scale WHERE value < ${companyCount}
+    )
+    INSERT INTO holding_position_exposure_mappings (
+      id, household_id, position_id, exposure_id, relationship_kind,
+      allocation_ppm, status, decision_source, decision_reference,
+      evidence_sha256, effective_at, version, supersedes_mapping_id,
+      accepted_by_user_id, accepted_at, immutable
+    )
+    SELECT
+      printf('mapping_watch_scale_%03d', value),
+      'hh_demo',
+      printf('position_watch_scale_%03d', value),
+      printf('exposure_watch_scale_%03d', value),
+      'look_through',
+      1000000,
+      'active',
+      'review',
+      'Synthetic reviewed private-company exposure',
+      printf('%064x', 9000 + value),
+      '2026-08-29T12:00:00.000Z',
+      1,
+      NULL,
+      'usr_demo',
+      '2026-08-29T12:00:00.000Z',
+      1
+    FROM scale;
+  `);
+}
+
 function tableSnapshot(database: DatabaseSync, table: string): string {
   return JSON.stringify(database.prepare(`SELECT * FROM ${table}`).all());
 }
@@ -140,6 +354,294 @@ let database: DatabaseSync | null = null;
 afterEach(() => {
   database?.close();
   database = null;
+});
+
+describe("Portfolio Watch exposure universe", () => {
+  it("backfills current exposures and makes their reviewed homepages due without a manual scan", async () => {
+    database = createTestDatabaseBeforeExposureUniverse();
+    seedPrivateExposureUniverse(database, 1);
+
+    database.exec(
+      readFileSync(
+        resolve(process.cwd(), portfolioWatchExposureUniverseMigrationFile),
+        "utf8",
+      ),
+    );
+
+    const targetId = "watch-current-exposure-v1:co_watch_scale_001";
+    const sourceId = `source-homepage-v1:${targetId}`;
+    expect(
+      database
+        .prepare(
+          `SELECT target.status, source.id AS source_id, source.status AS source_status
+           FROM portfolio_watch_targets target
+           JOIN portfolio_watch_sources source
+             ON source.watch_target_id = target.id
+           JOIN portfolio_watch_source_sync_state sync
+             ON sync.source_id = source.id
+           WHERE target.id = ?`,
+        )
+        .get(targetId),
+    ).toEqual({
+      status: "active",
+      source_id: sourceId,
+      source_status: "discovered",
+    });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM portfolio_watch_targets
+           WHERE id IN ('watch_northstar', 'watch_harbor', 'watch_lattice')
+             AND status = 'paused'`,
+        )
+        .get(),
+    ).toEqual({ count: 3 });
+
+    const dueJobs = await new D1PortfolioWatchRepository(
+      new TestD1Database(database) as unknown as D1Database,
+    ).listDueSourceJobs("2099-01-01T00:00:00.000Z", 100);
+    expect(dueJobs).toContainEqual({
+      type: "portfolio_watch_source_verify",
+      sourceId,
+    });
+  });
+
+  it("adds, hides, and restores one target from current private-company exposures", async () => {
+    database = createTestDatabase();
+    seedPrivateExposureUniverse(database, 1);
+
+    const targetId = "watch-current-exposure-v1:co_watch_scale_001";
+    expect(
+      database
+        .prepare(
+          `SELECT id, status FROM portfolio_watch_targets
+           WHERE company_id = 'co_watch_scale_001'`,
+        )
+        .get(),
+    ).toEqual({ id: targetId, status: "active" });
+
+    const sourceId = `source-homepage-v1:${targetId}`;
+    expect(
+      database
+        .prepare(
+          `SELECT id, status, canonical_url, allowed_origin
+           FROM portfolio_watch_sources
+           WHERE watch_target_id = ?`,
+        )
+        .get(targetId),
+    ).toEqual({
+      id: sourceId,
+      status: "discovered",
+      canonical_url: "https://watch-scale-001.example/",
+      allowed_origin: "https://watch-scale-001.example",
+    });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS event_count
+           FROM portfolio_watch_source_verification_events
+           WHERE source_id = ? AND event_type = 'discovered'
+             AND reason_code = 'configured_homepage'`,
+        )
+        .get(sourceId),
+    ).toEqual({ event_count: 1 });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS sync_count
+           FROM portfolio_watch_source_sync_state
+           WHERE source_id = ?`,
+        )
+        .get(sourceId),
+    ).toEqual({ sync_count: 1 });
+
+    database
+      .prepare(
+        `UPDATE portfolio_watch_targets SET status = 'active' WHERE id = ?`,
+      )
+      .run(targetId);
+    expect(
+      database
+        .prepare(
+          `SELECT
+             (SELECT COUNT(*) FROM portfolio_watch_sources
+              WHERE watch_target_id = ?) AS source_count,
+             (SELECT COUNT(*)
+              FROM portfolio_watch_source_verification_events
+              WHERE source_id = ?) AS event_count,
+             (SELECT COUNT(*) FROM portfolio_watch_source_sync_state
+              WHERE source_id = ?) AS sync_count`,
+        )
+        .get(targetId, sourceId, sourceId),
+    ).toEqual({ source_count: 1, event_count: 1, sync_count: 1 });
+
+    const dueJobs = await new D1PortfolioWatchRepository(
+      new TestD1Database(database) as unknown as D1Database,
+    ).listDueSourceJobs("2099-01-01T00:00:00.000Z", 100);
+    expect(dueJobs).toContainEqual({
+      type: "portfolio_watch_source_verify",
+      sourceId,
+    });
+
+    database.exec(`
+      INSERT INTO holding_position_exposure_mappings (
+        id, household_id, position_id, exposure_id, relationship_kind,
+        allocation_ppm, status, decision_source, decision_reference,
+        evidence_sha256, effective_at, version, supersedes_mapping_id,
+        accepted_by_user_id, accepted_at, immutable
+      ) VALUES (
+        'mapping_watch_scale_001_v2', 'hh_demo',
+        'position_watch_scale_001', 'exposure_watch_scale_001',
+        'look_through', NULL, 'withdrawn', 'review',
+        'Synthetic exposure removed after review', printf('%064x', 9001),
+        '2026-08-29T13:00:00.000Z', 2, 'mapping_watch_scale_001',
+        'usr_demo', '2026-08-29T13:00:00.000Z', 1
+      );
+    `);
+
+    expect(
+      database
+        .prepare(
+          `SELECT status FROM portfolio_watch_targets
+           WHERE id = ?`,
+        )
+        .get(targetId),
+    ).toEqual({ status: "paused" });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM portfolio_watch_sources
+           WHERE watch_target_id = ?`,
+        )
+        .get(targetId),
+    ).toEqual({ count: 1 });
+
+    const hidden = await new D1AlphaRepository(
+      new TestD1Database(database) as unknown as D1Database,
+    ).getAlphaData("synthetic-access-subject");
+    expect(hidden.portfolioWatch.targets).toEqual([]);
+
+    database.exec(`
+      INSERT INTO holding_positions (
+        id, household_id, provider, position_fingerprint, legal_vehicle_name,
+        owner_label, position_kind, instrument_type, opened_on, currency,
+        created_by, created_at
+      ) VALUES (
+        'position_watch_scale_returned', 'hh_demo', 'angellist',
+        printf('%064x', 9991), 'Synthetic returned SPV', 'Synthetic owner',
+        'spv_interest', 'private_equity', '2026-02-01', 'USD', 'usr_demo',
+        '2026-08-29T14:00:00.000Z'
+      );
+      INSERT INTO holding_position_ownerships (
+        id, household_id, container_id, position_id, protected_position_key,
+        association_basis, evidence_sha256, version,
+        supersedes_ownership_id, accepted_by_user_id, accepted_at, immutable
+      ) VALUES (
+        'ownership_watch_scale_returned', 'hh_demo', 'watch_scale_container',
+        'position_watch_scale_returned', printf('%064x', 9991),
+        'reviewed_import', printf('%064x', 9992), 1, NULL, 'usr_demo',
+        '2026-08-29T14:00:00.000Z', 1
+      );
+      INSERT INTO holding_position_exposure_mappings (
+        id, household_id, position_id, exposure_id, relationship_kind,
+        allocation_ppm, status, decision_source, decision_reference,
+        evidence_sha256, effective_at, version, supersedes_mapping_id,
+        accepted_by_user_id, accepted_at, immutable
+      ) VALUES (
+        'mapping_watch_scale_returned', 'hh_demo',
+        'position_watch_scale_returned', 'exposure_watch_scale_001',
+        'look_through', 1000000, 'active', 'review',
+        'Synthetic returned private-company exposure', printf('%064x', 9992),
+        '2026-08-29T14:00:00.000Z', 1, NULL, 'usr_demo',
+        '2026-08-29T14:00:00.000Z', 1
+      );
+    `);
+
+    expect(
+      database
+        .prepare(
+          `SELECT id, status FROM portfolio_watch_targets
+           WHERE company_id = 'co_watch_scale_001'`,
+        )
+        .get(),
+    ).toEqual({ id: targetId, status: "active" });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM portfolio_watch_targets
+           WHERE company_id = 'co_watch_scale_001'`,
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("does not guess a source when the reviewed company has no website host", () => {
+    database = createTestDatabase();
+    seedPrivateExposureUniverse(database, 1, { withWebsiteHosts: false });
+
+    expect(
+      database
+        .prepare(
+          `SELECT status FROM portfolio_watch_targets
+           WHERE company_id = 'co_watch_scale_001'`,
+        )
+        .get(),
+    ).toEqual({ status: "active" });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM portfolio_watch_sources
+           WHERE watch_target_id =
+             'watch-current-exposure-v1:co_watch_scale_001'`,
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("reads more than 120 derived targets in one indexed D1 round trip", async () => {
+    database = createTestDatabase();
+    seedPrivateExposureUniverse(database, 125);
+    const d1 = new TestD1Database(database);
+
+    d1.resetRoundTripCount();
+    const targets = await d1
+      .prepare(__alphaRepositoryTest.portfolioWatchTargetsSql)
+      .bind("hh_demo")
+      .all<{ id: string; status: "active" }>();
+
+    expect(targets.results).toHaveLength(125);
+    expect(new Set(targets.results.map((target) => target.id)).size).toBe(125);
+    expect(targets.results.every((target) => target.status === "active")).toBe(
+      true,
+    );
+    expect(d1.roundTripCount).toBe(1);
+    expect(
+      database
+        .prepare(
+          `SELECT
+             COUNT(DISTINCT source.id) AS source_count,
+             COUNT(DISTINCT sync.source_id) AS sync_count
+           FROM portfolio_watch_sources source
+           JOIN portfolio_watch_source_sync_state sync
+             ON sync.source_id = source.id
+           WHERE source.watch_target_id LIKE 'watch-current-exposure-v1:%'`,
+        )
+        .get(),
+    ).toEqual({ source_count: 125, sync_count: 125 });
+
+    const queryPlan = database
+      .prepare(
+        `EXPLAIN QUERY PLAN ${__alphaRepositoryTest.portfolioWatchTargetsSql}`,
+      )
+      .all("hh_demo") as { detail: string }[];
+    const details = queryPlan.map((row) => row.detail).join("\n");
+    expect(details).toContain("portfolio_watch_targets_household_idx");
+    expect(details).toContain("portfolio_watch_sources_target_status_idx");
+    expect(details).toContain("public_source_observations_company_idx");
+    expect(details).not.toMatch(/SCAN (source|observation)/u);
+  });
 });
 
 describe("Portfolio Watch scheduling", () => {

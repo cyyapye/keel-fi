@@ -211,6 +211,42 @@ type PortfolioWatchTargetRow = {
   latest_observation_at: string | null;
 };
 
+const PORTFOLIO_WATCH_TARGETS_SQL = `SELECT
+    target.id,
+    company.id AS company_id,
+    company.legal_name AS company_name,
+    company.website_host AS official_host,
+    target.status,
+    CASE
+      WHEN EXISTS (
+        SELECT 1 FROM portfolio_watch_sources source
+        WHERE source.watch_target_id = target.id
+          AND source.status = 'active'
+      ) THEN 'active'
+      WHEN EXISTS (
+        SELECT 1 FROM portfolio_watch_sources source
+        WHERE source.watch_target_id = target.id
+          AND source.status = 'degraded'
+      ) THEN 'degraded'
+      WHEN EXISTS (
+        SELECT 1 FROM portfolio_watch_sources source
+        WHERE source.watch_target_id = target.id
+          AND source.status IN ('discovered', 'verified')
+      ) OR target.last_checked_at IS NULL THEN 'discovering'
+      ELSE 'unavailable'
+    END AS coverage_status,
+    target.last_checked_at,
+    (
+      SELECT MAX(observation.retrieved_at)
+      FROM public_source_observations observation
+      WHERE observation.company_id = company.id
+    ) AS latest_observation_at
+  FROM portfolio_watch_targets target
+  JOIN companies company ON company.id = target.company_id
+  WHERE target.household_id = ?
+    AND target.status = 'active'
+  ORDER BY company.legal_name`;
+
 type PublicSourceObservationRow = {
   id: string;
   company_id: string;
@@ -967,44 +1003,7 @@ export class D1AlphaRepository implements AlphaRepository {
           .bind(householdId),
       ),
       all<PortfolioWatchTargetRow>(
-        this.db
-          .prepare(
-            `SELECT
-                target.id,
-                company.id AS company_id,
-                company.legal_name AS company_name,
-                company.website_host AS official_host,
-                target.status,
-                CASE
-                  WHEN EXISTS (
-                    SELECT 1 FROM portfolio_watch_sources source
-                    WHERE source.watch_target_id = target.id
-                      AND source.status = 'active'
-                  ) THEN 'active'
-                  WHEN EXISTS (
-                    SELECT 1 FROM portfolio_watch_sources source
-                    WHERE source.watch_target_id = target.id
-                      AND source.status = 'degraded'
-                  ) THEN 'degraded'
-                  WHEN EXISTS (
-                    SELECT 1 FROM portfolio_watch_sources source
-                    WHERE source.watch_target_id = target.id
-                      AND source.status IN ('discovered', 'verified')
-                  ) OR target.last_checked_at IS NULL THEN 'discovering'
-                  ELSE 'unavailable'
-                END AS coverage_status,
-                target.last_checked_at,
-                (
-                  SELECT MAX(observation.retrieved_at)
-                  FROM public_source_observations observation
-                  WHERE observation.company_id = company.id
-                ) AS latest_observation_at
-              FROM portfolio_watch_targets target
-              JOIN companies company ON company.id = target.company_id
-              WHERE target.household_id = ?
-              ORDER BY company.legal_name`,
-          )
-          .bind(householdId),
+        this.db.prepare(PORTFOLIO_WATCH_TARGETS_SQL).bind(householdId),
       ),
       this.getPublicSourceObservationRows(householdId),
       all<ScenarioRow>(
@@ -2855,5 +2854,9 @@ export class D1AlphaRepository implements AlphaRepository {
       .reverse();
   }
 }
+
+export const __alphaRepositoryTest = {
+  portfolioWatchTargetsSql: PORTFOLIO_WATCH_TARGETS_SQL,
+};
 
 export * from "./schema";

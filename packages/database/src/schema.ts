@@ -523,6 +523,10 @@ export const portfolioWatchSources = sqliteTable(
       table.status,
       table.updatedAt,
     ),
+    index("portfolio_watch_sources_target_status_idx").on(
+      table.watchTargetId,
+      table.status,
+    ),
     index("portfolio_watch_sources_company_idx").on(
       table.householdId,
       table.companyId,

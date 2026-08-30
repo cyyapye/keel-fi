@@ -1,13 +1,21 @@
 # Portfolio Watch source allowlist
 
-Portfolio Watch owns source discovery, grading, activation, and health. The user
-chooses holdings and asks Keel to check for updates; the UI does not ask the
-user to curate URLs or feeds.
+Portfolio Watch owns source discovery, grading, activation, and health. Keel
+derives one watch target for every current accepted private-company exposure,
+including direct and look-through holdings. Adding the first current mapping
+activates the company; removing the last current mapping pauses and hides it
+without deleting historical sources or observations. Public instruments and
+funds remain exposure records, but they do not enter this official-company
+source pipeline without a reviewed company identity and host. The UI does not
+ask the user to curate a separate watch list, URLs, or feeds, or to run an
+initial scan before monitoring begins.
 
 ## Automatic lifecycle
 
 1. An active watch target supplies only the company's configured official host.
-2. D1 creates a `discovered` homepage source bound to that exact HTTPS origin.
+2. D1 creates a `discovered` homepage source bound to that exact HTTPS origin
+   and makes it due for the next daily sweep. **Check now** is optional and only
+   starts that same work sooner.
 3. The API queues an internal source ID. URLs, hosts, household IDs, and paths
    are never accepted from a Queue message.
 4. The consumer reloads the complete source policy from D1. Cloudflare's
