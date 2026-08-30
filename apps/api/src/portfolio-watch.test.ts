@@ -56,6 +56,7 @@ const migrationFiles = [
   "packages/database/migrations/0039_reviewed_position_economics.sql",
   "packages/database/migrations/0040_holdings_read_performance.sql",
   "packages/database/migrations/0041_reported_position_economics.sql",
+  "packages/database/migrations/0045_portfolio_watch_exposure_universe.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -122,6 +123,10 @@ function createMigratedTestDatabase(): DatabaseSync {
     database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
   }
   database.exec(`
+    UPDATE portfolio_watch_targets
+    SET status = 'active'
+    WHERE id = 'watch_northstar';
+
     INSERT INTO portfolio_watch_sources (
       id, household_id, watch_target_id, company_id, source_kind, source_class,
       canonical_url, allowed_origin, allowed_path_prefix, status,
