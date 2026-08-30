@@ -31,6 +31,10 @@ Audited against `origin/main` at `7a97222` on 2026-08-29.
       migrated the four audited states, and added inspected desktop/mobile
       baselines for macOS and Linux. Exact-SHA post-merge run `33320978259`
       passed for `56a4386`.
+- [x] **UI-06 — Initial and loading route shells.** PR #183 consolidated the
+      dependency-light navigation, loading shell, and Holdings initial route
+      while preserving inspected desktop/mobile behavior on macOS and Linux.
+      Exact-SHA post-merge run `33334483580` passed for `da43cdf`.
 
 ## Active queue
 
@@ -63,32 +67,6 @@ description, and action pattern. The audited candidates are in `App.tsx`,
 **Ownership:** `packages/ui/src/components/layout.tsx`, the five audited screen
 files, and their focused visual specs. Remaining `App.tsx` adoption follows
 UI-07 so the same region is not moved twice.
-
-### [ ] UI-06 — Initial and loading route shells
-
-**Claim:** Active on 2026-08-30; implementation is owned by
-`codex/ui-06-route-shells`.
-
-**Progress:** The navigation definition, full-page loading shell, Holdings
-initial route, and focused desktop/mobile coverage are consolidated. The target
-remains open until the tested SHA is merged and its exact-SHA post-merge
-workflow passes.
-
-**Why it qualifies:** `InitialShell.tsx` and the bottom of `App.tsx` contain an
-exact full-page loading-shell duplicate, near-duplicate Holdings route
-scaffolds, and separate navigation definitions.
-
-- [x] Extract one dependency-light app-local navigation definition and loading
-      shell.
-- [x] Consolidate the Holdings initial route state without importing the
-      deferred `App` bundle into `InitialShell`.
-- [x] Preserve the early Holdings paint, route labels, active-state semantics,
-      and responsive navigation behavior.
-
-**Ownership:** `InitialShell.tsx`, the final route-shell region of `App.tsx`,
-new app-local shell files, `e2e/navigation.visual.spec.ts`, and the initial-load
-case in `e2e/investment-holdings.visual.spec.ts`. This is app-local composition,
-not a new `@keel/ui` primitive.
 
 ### [ ] UI-07 — Provider source controls
 
