@@ -204,7 +204,7 @@ type PortfolioWatchTargetRow = {
   id: string;
   company_id: string;
   company_name: string;
-  official_host: string;
+  official_host: string | null;
   status: "active" | "paused";
   coverage_status: "active" | "discovering" | "degraded" | "unavailable";
   last_checked_at: string | null;
@@ -232,7 +232,10 @@ const PORTFOLIO_WATCH_TARGETS_SQL = `SELECT
         SELECT 1 FROM portfolio_watch_sources source
         WHERE source.watch_target_id = target.id
           AND source.status IN ('discovered', 'verified')
-      ) OR target.last_checked_at IS NULL THEN 'discovering'
+      ) THEN 'discovering'
+      WHEN company.website_host IS NULL OR trim(company.website_host) = ''
+        THEN 'unavailable'
+      WHEN target.last_checked_at IS NULL THEN 'discovering'
       ELSE 'unavailable'
     END AS coverage_status,
     target.last_checked_at,

@@ -14,13 +14,17 @@ const deploymentSmokeToken = "preview-smoke-token-with-at-least-32-characters";
 
 function deploymentEnv(): {
   env: Env;
+  alphaProjectionLoader: ReturnType<typeof vi.fn>;
   deleteObject: ReturnType<typeof vi.fn>;
   getObject: ReturnType<typeof vi.fn>;
   headObject: ReturnType<typeof vi.fn>;
   putObject: ReturnType<typeof vi.fn>;
   queueSend: ReturnType<typeof vi.fn>;
 } {
-  const first = vi.fn(() => Promise.resolve({ ok: 1 }));
+  const first = vi.fn().mockResolvedValueOnce({ ok: 1 }).mockResolvedValueOnce({
+    access_subject: "synthetic-access-subject",
+  });
+  const alphaProjectionLoader = vi.fn(() => Promise.resolve());
   const putObject = vi.fn(() => Promise.resolve({}));
   const getObject = vi.fn(() =>
     Promise.resolve({
@@ -53,6 +57,7 @@ function deploymentEnv(): {
       ENVIRONMENT: "preview",
       INGESTION_QUEUE: { send: queueSend } as unknown as Queue,
     },
+    alphaProjectionLoader,
     deleteObject,
     getObject,
     headObject,
@@ -77,14 +82,20 @@ describe("preview deployment smoke", () => {
   it("verifies D1, transient R2, Queue, and deployment metadata", async () => {
     const bindings = deploymentEnv();
 
-    await expect(runDeploymentSmoke(bindings.env)).resolves.toEqual({
+    await expect(
+      runDeploymentSmoke(bindings.env, bindings.alphaProjectionLoader),
+    ).resolves.toEqual({
       status: "ok",
       service: "keel-api",
       deployedGitSha,
       workerVersionId: "api-version-1",
       workerVersionTag: deployedGitSha,
-      checks: { d1: true, queue: true, r2: true },
+      checks: { alpha: true, d1: true, queue: true, r2: true },
     });
+    expect(bindings.alphaProjectionLoader).toHaveBeenCalledWith(
+      bindings.env,
+      "synthetic-access-subject",
+    );
     expect(bindings.putObject).toHaveBeenCalledTimes(1);
     expect(bindings.getObject).toHaveBeenCalledTimes(1);
     expect(bindings.deleteObject).toHaveBeenCalledTimes(1);
@@ -101,15 +112,29 @@ describe("preview deployment smoke", () => {
     const bindings = deploymentEnv();
     bindings.queueSend.mockRejectedValueOnce(new Error("Queue unavailable"));
 
-    await expect(runDeploymentSmoke(bindings.env)).rejects.toThrow(
-      "Queue unavailable",
-    );
+    await expect(
+      runDeploymentSmoke(bindings.env, bindings.alphaProjectionLoader),
+    ).rejects.toThrow("Queue unavailable");
     expect(bindings.deleteObject).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails before resource writes when the user projection is invalid", async () => {
+    const bindings = deploymentEnv();
+    bindings.alphaProjectionLoader.mockRejectedValueOnce(
+      new Error("Invalid alpha projection"),
+    );
+
+    await expect(
+      runDeploymentSmoke(bindings.env, bindings.alphaProjectionLoader),
+    ).rejects.toThrow("Invalid alpha projection");
+    expect(bindings.putObject).not.toHaveBeenCalled();
+    expect(bindings.queueSend).not.toHaveBeenCalled();
   });
 
   it("exposes the resource check only in preview and behind both auth layers", async () => {
     const bindings = deploymentEnv();
     const app = createApp({
+      deploymentSmokeAlphaLoader: bindings.alphaProjectionLoader,
       verifyAccess: vi.fn(() =>
         Promise.resolve({
           kind: "service" as const,

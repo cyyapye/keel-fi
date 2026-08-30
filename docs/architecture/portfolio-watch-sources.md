@@ -10,6 +10,10 @@ source pipeline without a reviewed company identity and host. The UI does not
 ask the user to curate a separate watch list, URLs, or feeds, or to run an
 initial scan before monitoring begins.
 
+When a current private-company exposure has no reviewed official host, its
+target remains visible with unavailable coverage. Keel does not guess a URL;
+monitoring begins automatically once a reviewed official host is available.
+
 ## Automatic lifecycle
 
 1. An active watch target supplies only the company's configured official host.

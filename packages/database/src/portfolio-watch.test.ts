@@ -576,7 +576,7 @@ describe("Portfolio Watch exposure universe", () => {
     ).toEqual({ count: 1 });
   });
 
-  it("does not guess a source when the reviewed company has no website host", () => {
+  it("keeps a current exposure visible when no reviewed website host exists", async () => {
     database = createTestDatabase();
     seedPrivateExposureUniverse(database, 1, { withWebsiteHosts: false });
 
@@ -598,6 +598,20 @@ describe("Portfolio Watch exposure universe", () => {
         )
         .get(),
     ).toEqual({ count: 0 });
+
+    const alphaData = await new D1AlphaRepository(
+      new TestD1Database(database) as unknown as D1Database,
+    ).getAlphaData("synthetic-access-subject");
+    expect(alphaData.portfolioWatch.targets).toContainEqual({
+      id: "watch-current-exposure-v1:co_watch_scale_001",
+      companyId: "co_watch_scale_001",
+      companyName: "Synthetic Watch Company 001",
+      officialHost: null,
+      status: "active",
+      coverageStatus: "unavailable",
+      lastCheckedAt: null,
+      latestObservationAt: null,
+    });
   });
 
   it("reads more than 120 derived targets in one indexed D1 round trip", async () => {

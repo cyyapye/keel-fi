@@ -2870,7 +2870,7 @@ export const PortfolioWatchTargetSchema = z.object({
   id: z.string().min(1),
   companyId: z.string().min(1),
   companyName: z.string().min(1),
-  officialHost: z.string().min(1),
+  officialHost: z.string().min(1).nullable(),
   status: z.enum(["active", "paused"]),
   coverageStatus: PortfolioWatchCoverageStatusSchema,
   lastCheckedAt: IsoTimestampSchema.nullable(),
