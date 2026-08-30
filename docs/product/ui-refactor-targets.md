@@ -66,6 +66,9 @@ UI-07 so the same region is not moved twice.
 
 ### [ ] UI-06 — Initial and loading route shells
 
+**Claim:** Active on 2026-08-30; implementation is owned by
+`codex/ui-06-route-shells`.
+
 **Why it qualifies:** `InitialShell.tsx` and the bottom of `App.tsx` contain an
 exact full-page loading-shell duplicate, near-duplicate Holdings route
 scaffolds, and separate navigation definitions.
