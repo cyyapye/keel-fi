@@ -13,10 +13,73 @@ h1,
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 48px;
+  min-width: 0;
   min-height: 250px;
   padding: 42px 44px;
   color: var(--canvas);
   background: var(--ink);
+}
+
+.hero--carousel {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.hero__slide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 48px;
+  min-width: 0;
+  min-height: 210px;
+  padding: 42px 44px 14px;
+}
+
+.hero__slide > div,
+.hero-carousel {
+  min-width: 0;
+}
+
+.hero-carousel__slide {
+  display: flex;
+  user-select: none;
+}
+
+.hero-carousel__slide .hero__slide {
+  width: 100%;
+}
+
+.hero-carousel__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 44px 24px;
+}
+
+.hero-carousel__position {
+  color: rgb(247 244 238 / 60%);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+}
+
+.hero-carousel__controls {
+  display: flex;
+  gap: 8px;
+}
+
+.hero-carousel .carousel-control {
+  color: var(--canvas);
+  background: transparent;
+  border-color: rgb(247 244 238 / 38%);
+}
+
+.hero-carousel .carousel-control:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--canvas);
+  border-color: var(--canvas);
 }
 
 .hero .eyebrow {
@@ -262,116 +325,6 @@ h1,
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0;
-}
-
-.overview-goals {
-  min-width: 0;
-  padding: 24px 0 14px;
-}
-
-.overview-goals > header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.overview-goals h2 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.overview-goal-carousel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 10px 8px;
-  min-width: 0;
-  margin-top: 18px;
-}
-
-.overview-goal-carousel [data-slot="carousel-content"] {
-  grid-column: 1 / -1;
-}
-
-.overview-goal-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 28px;
-  min-width: 0;
-  min-height: 96px;
-  padding: 18px 0;
-  color: var(--ink);
-  user-select: none;
-}
-
-.overview-goal-card > div {
-  min-width: 0;
-}
-
-.overview-goal-card span,
-.overview-goal-card strong,
-.overview-goal-card small {
-  display: block;
-}
-
-.overview-goal-card span {
-  color: var(--faint);
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.overview-goal-card h3 {
-  margin: 7px 0 0;
-  overflow: hidden;
-  font-size: 22px;
-  font-weight: 650;
-  letter-spacing: -0.035em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.overview-goal-card__measure {
-  text-align: right;
-}
-
-.overview-goal-card strong {
-  overflow: hidden;
-  font-size: 27px;
-  font-weight: 620;
-  letter-spacing: -0.045em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.overview-goal-card small {
-  margin-top: 5px;
-  color: var(--faint);
-  font-size: 8px;
-}
-
-.overview-goal-carousel__position {
-  align-self: center;
-  color: var(--faint);
-  font-size: 8px;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-}
-
-.overview-goal-carousel [data-slot="carousel-previous"],
-.overview-goal-carousel [data-slot="carousel-next"] {
-  width: 40px;
-  min-height: 40px;
-}
-
-.overview-goal-carousel [data-slot="carousel-previous"] {
-  grid-column: 2;
-}
-
-.overview-goal-carousel [data-slot="carousel-next"] {
-  grid-column: 3;
 }
 
 .dashboard-grid {
@@ -5741,6 +5694,19 @@ h1,
     padding: 34px 30px;
   }
 
+  .hero--carousel {
+    padding: 0;
+  }
+
+  .hero__slide {
+    grid-template-columns: 1fr;
+    padding: 34px 30px 12px;
+  }
+
+  .hero-carousel__footer {
+    padding: 0 30px 26px;
+  }
+
   .hero__runway {
     width: 100%;
     padding: 22px 0 0;
@@ -6827,28 +6793,6 @@ h1,
 
   .watch-observation-list > article > footer .button {
     width: 100%;
-  }
-
-  .overview-goals > header {
-    align-items: center;
-  }
-
-  .overview-goal-card {
-    gap: 18px;
-  }
-
-  .overview-goal-card h3 {
-    font-size: 18px;
-  }
-
-  .overview-goal-card strong {
-    font-size: 23px;
-  }
-
-  .overview-goal-carousel [data-slot="carousel-previous"],
-  .overview-goal-carousel [data-slot="carousel-next"] {
-    width: 44px;
-    min-height: 44px;
   }
 
   .goal-form__fields {
