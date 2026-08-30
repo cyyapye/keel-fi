@@ -27,6 +27,10 @@ Audited against `origin/main` at `7a97222` on 2026-08-29.
       `FormMessage`, and shared feedback patterns.
 - [x] **UI-03 — Shared read-only data displays.** PR #171 adopted `DataList`,
       `StatGroup`, and the shared display usage guards.
+- [x] **UI-05 — Compact shared empty states.** PR #180 extended `EmptyState`,
+      migrated the four audited states, and added inspected desktop/mobile
+      baselines for macOS and Linux. Exact-SHA post-merge run `33320978259`
+      passed for `56a4386`.
 
 ## Active queue
 
@@ -59,33 +63,6 @@ description, and action pattern. The audited candidates are in `App.tsx`,
 **Ownership:** `packages/ui/src/components/layout.tsx`, the five audited screen
 files, and their focused visual specs. Remaining `App.tsx` adoption follows
 UI-07 so the same region is not moved twice.
-
-### [ ] UI-05 — Compact shared empty states
-
-**Claim:** Active on 2026-08-30; implementation is owned by
-`codex/ui-05-compact-empty-states`.
-
-**Progress:** The shared API, four audited migrations, bounded usage guard, and
-desktop/mobile visual coverage are complete. The target remains open until the
-tested SHA is merged and its exact-SHA post-merge workflow passes.
-
-**Why it qualifies:** nine screens already use `EmptyState`; exactly four
-bespoke empty presentations remain:
-
-- `PortfolioSnapshot.tsx` — no comparable changes.
-- `InvestmentHoldings.tsx` — no reviewed accounts and no company exposures.
-- `Obligations.tsx` — no accepted obligations.
-
-- [x] Add compact, iconless, title-only, and heading-level support to
-      `EmptyState` without changing its current default rendering.
-- [x] Migrate the four audited states and keep placement-specific layout CSS in
-      the consuming screen.
-- [x] Add deterministic desktop and mobile coverage for each previously untested
-      empty state.
-
-**Ownership:** `packages/ui/src/components/feedback.tsx`, the compact shared
-style block, the three consuming screens, and their focused visual specs. The
-goal selector's missing-value option is not an empty state.
 
 ### [ ] UI-06 — Initial and loading route shells
 
