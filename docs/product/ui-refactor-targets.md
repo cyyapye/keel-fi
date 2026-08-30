@@ -32,6 +32,9 @@ Audited against `origin/main` at `7a97222` on 2026-08-29.
 
 ### [ ] UI-04 — Shared section hierarchy
 
+**Claim:** Active on 2026-08-29; implementation is owned by
+`codex/ui-04-section-hierarchy`.
+
 **Why it qualifies:** four `SectionHeader` uses exist, while 42 additional
 high-confidence structural section headings still repeat the eyebrow, heading,
 description, and action pattern. The audited candidates are in `App.tsx`,
