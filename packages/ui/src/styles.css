@@ -625,6 +625,41 @@ h3 {
   text-decoration-thickness: 1px;
 }
 
+.data-list,
+.stat-group {
+  margin: 0;
+}
+
+.stat-group {
+  display: grid;
+}
+
+.data-list__item,
+.stat {
+  min-width: 0;
+}
+
+:where(.data-list__label, .data-list__value) {
+  margin: 0;
+}
+
+:where(.data-list__label, .stat__label) {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:where(.data-list__value, .stat__value) {
+  color: var(--ink);
+}
+
+:where(.stat__detail) {
+  color: var(--muted);
+  font-size: 8px;
+}
+
 .page-intro {
   display: flex;
   min-height: 156px;

@@ -33,6 +33,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Stat,
   TextLink,
 } from "@keel/ui";
 import {
@@ -1703,17 +1704,19 @@ function CashHoldingsView({
             exposures.
           </p>
         </div>
-        <span className="cash-holdings__total">
-          <small>Total cash</small>
-          <strong>{formatCurrencyTotals(totals, unavailableCount)}</strong>
-          <span>
-            {bankAccounts.length} bank{" "}
-            {bankAccounts.length === 1 ? "account" : "accounts"}
-            {" · "}
-            {brokeragePositions.length} brokerage{" "}
-            {brokeragePositions.length === 1 ? "position" : "positions"}
-          </span>
-        </span>
+        <Stat
+          as="span"
+          className="cash-holdings__total"
+          detail={`${bankAccounts.length} bank ${
+            bankAccounts.length === 1 ? "account" : "accounts"
+          } · ${brokeragePositions.length} brokerage ${
+            brokeragePositions.length === 1 ? "position" : "positions"
+          }`}
+          detailAs="span"
+          label="Total cash"
+          labelAs="small"
+          value={formatCurrencyTotals(totals, unavailableCount)}
+        />
       </div>
       {error !== null && <p className="cash-holdings__error">{error}</p>}
       {(bankAccounts.length > 0 || brokeragePositions.length > 0) && (
@@ -2502,19 +2505,25 @@ export function InvestmentHoldings({
                 </Select>
               </div>
             )}
-            <span className="investment-views__total">
-              <small>Total exposure</small>
-              <strong>{exposureGrandTotalLabel(data)}</strong>
-              <span>
-                {exposureCount} {exposureCount === 1 ? "exposure" : "exposures"}
-                {" · "}
-                {positionCount} legal{" "}
-                {positionCount === 1 ? "position" : "positions"}
-                {investedEstimateCount === 0
+            <Stat
+              as="span"
+              className="investment-views__total"
+              detail={`${exposureCount} ${
+                exposureCount === 1 ? "exposure" : "exposures"
+              } · ${positionCount} legal ${
+                positionCount === 1 ? "position" : "positions"
+              }${
+                investedEstimateCount === 0
                   ? ""
-                  : ` · ${investedEstimateCount} invested ${investedEstimateCount === 1 ? "estimate" : "estimates"}`}
-              </span>
-            </span>
+                  : ` · ${investedEstimateCount} invested ${
+                      investedEstimateCount === 1 ? "estimate" : "estimates"
+                    }`
+              }`}
+              detailAs="span"
+              label="Total exposure"
+              labelAs="small"
+              value={exposureGrandTotalLabel(data)}
+            />
           </div>
         </div>
         {exposureReviewNotice !== null && (

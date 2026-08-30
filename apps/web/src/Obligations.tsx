@@ -22,6 +22,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Stat,
+  StatGroup,
 } from "@keel/ui";
 import {
   type FormEvent,
@@ -256,43 +258,51 @@ function ObligationReview({
         </p>
       </header>
 
-      <div
+      <StatGroup
         aria-label="Draft planning impact"
         className="obligation-review__impact"
       >
-        <span>
-          <small>Net liquidity</small>
-          <strong>{formatCompactMoney(preview.netLiquidityMinor)}</strong>
-          <i>
-            {preview.reservedPaymentMinor === 0
+        <Stat
+          as="span"
+          detail={
+            preview.reservedPaymentMinor === 0
               ? "No payment reserve"
-              : `${formatMoney(preview.reservedPaymentMinor)} reserved`}
-          </i>
-        </span>
-        <span>
-          <small>Household burn</small>
-          <strong>
-            {formatCompactMoney(preview.adjustedHouseholdBurnMonthlyMinor)}
-          </strong>
-          <i>
-            {preview.addedHouseholdBurnMinor === 0
+              : `${formatMoney(preview.reservedPaymentMinor)} reserved`
+          }
+          detailAs="i"
+          label="Net liquidity"
+          labelAs="small"
+          value={formatCompactMoney(preview.netLiquidityMinor)}
+        />
+        <Stat
+          as="span"
+          detail={
+            preview.addedHouseholdBurnMinor === 0
               ? "No added payment"
-              : `+${formatMoney(preview.addedHouseholdBurnMinor)} monthly`}
-          </i>
-        </span>
-        <span>
-          <small>Protected runway</small>
-          <strong>{preview.protectedRunwayMonths} mo</strong>
-          <i>After the cash floor</i>
-        </span>
-        <span>
-          <small>FI gap</small>
-          <strong>
-            {formatCompactMoney(preview.obligationAdjustedFiGapMinor)}
-          </strong>
-          <i>After reviewed payments</i>
-        </span>
-      </div>
+              : `+${formatMoney(preview.addedHouseholdBurnMinor)} monthly`
+          }
+          detailAs="i"
+          label="Household burn"
+          labelAs="small"
+          value={formatCompactMoney(preview.adjustedHouseholdBurnMonthlyMinor)}
+        />
+        <Stat
+          as="span"
+          detail="After the cash floor"
+          detailAs="i"
+          label="Protected runway"
+          labelAs="small"
+          value={`${preview.protectedRunwayMonths} mo`}
+        />
+        <Stat
+          as="span"
+          detail="After reviewed payments"
+          detailAs="i"
+          label="FI gap"
+          labelAs="small"
+          value={formatCompactMoney(preview.obligationAdjustedFiGapMinor)}
+        />
+      </StatGroup>
 
       <div className="obligation-review__rows">
         {proposal.rows.map((row) => {
@@ -318,24 +328,30 @@ function ObligationReview({
                 </small>
                 {row.issues.length > 0 && <p>{row.issues.join(" ")}</p>}
               </div>
-              <div className="obligation-review__facts">
-                <span>
-                  <small>Outstanding</small>
-                  <strong>{valueLabel(row.balanceMinor)}</strong>
-                </span>
-                <span>
-                  <small>Payment</small>
-                  <strong>{paymentLabel(row.paymentMinor)}</strong>
-                </span>
-                <span>
-                  <small>Due</small>
-                  <strong>
-                    {row.nextPaymentDueDate === null
+              <StatGroup className="obligation-review__facts">
+                <Stat
+                  as="span"
+                  label="Outstanding"
+                  labelAs="small"
+                  value={valueLabel(row.balanceMinor)}
+                />
+                <Stat
+                  as="span"
+                  label="Payment"
+                  labelAs="small"
+                  value={paymentLabel(row.paymentMinor)}
+                />
+                <Stat
+                  as="span"
+                  label="Due"
+                  labelAs="small"
+                  value={
+                    row.nextPaymentDueDate === null
                       ? "Unknown"
-                      : formatDate(row.nextPaymentDueDate)}
-                  </strong>
-                </span>
-              </div>
+                      : formatDate(row.nextPaymentDueDate)
+                  }
+                />
+              </StatGroup>
               <div className="obligation-review__decision">
                 <label>
                   <Input
@@ -858,50 +874,48 @@ export function Obligations() {
         </p>
       )}
 
-      <section
+      <StatGroup
         aria-label="Reviewed obligation impact"
+        as="section"
         className="obligations-impact"
       >
-        <article>
-          <span>Outstanding reported</span>
-          <strong>
-            {formatCompactMoney(state.impact.totalOutstandingMinor)}
-          </strong>
-          <small>
-            {state.impact.unknownBalanceCount === 0
+        <Stat
+          detail={
+            state.impact.unknownBalanceCount === 0
               ? `${state.impact.liabilityCount} reviewed`
-              : `${state.impact.unknownBalanceCount} unknown`}
-          </small>
-        </article>
-        <article>
-          <span>Net liquidity</span>
-          <strong>{formatCompactMoney(state.impact.netLiquidityMinor)}</strong>
-          <small>
-            {state.impact.reservedPaymentMinor === 0
+              : `${state.impact.unknownBalanceCount} unknown`
+          }
+          label="Outstanding reported"
+          value={formatCompactMoney(state.impact.totalOutstandingMinor)}
+        />
+        <Stat
+          detail={
+            state.impact.reservedPaymentMinor === 0
               ? "No next-payment reserve"
-              : `${formatMoney(state.impact.reservedPaymentMinor)} reserved`}
-          </small>
-        </article>
-        <article>
-          <span>Household burn</span>
-          <strong>
-            {formatCompactMoney(state.impact.adjustedHouseholdBurnMonthlyMinor)}
-          </strong>
-          <small>
-            {state.impact.addedHouseholdBurnMinor === 0
+              : `${formatMoney(state.impact.reservedPaymentMinor)} reserved`
+          }
+          label="Net liquidity"
+          value={formatCompactMoney(state.impact.netLiquidityMinor)}
+        />
+        <Stat
+          detail={
+            state.impact.addedHouseholdBurnMinor === 0
               ? "No reviewed debt added"
-              : `+${formatMoney(state.impact.addedHouseholdBurnMinor)} monthly`}
-          </small>
-        </article>
-        <article>
-          <span>Protected runway</span>
-          <strong>{state.impact.protectedRunwayMonths} mo</strong>
-          <small>
-            FI gap{" "}
-            {formatCompactMoney(state.impact.obligationAdjustedFiGapMinor)}
-          </small>
-        </article>
-      </section>
+              : `+${formatMoney(state.impact.addedHouseholdBurnMinor)} monthly`
+          }
+          label="Household burn"
+          value={formatCompactMoney(
+            state.impact.adjustedHouseholdBurnMonthlyMinor,
+          )}
+        />
+        <Stat
+          detail={`FI gap ${formatCompactMoney(
+            state.impact.obligationAdjustedFiGapMinor,
+          )}`}
+          label="Protected runway"
+          value={`${state.impact.protectedRunwayMonths} mo`}
+        />
+      </StatGroup>
 
       {showManual && (
         <ManualObligationForm
@@ -987,24 +1001,30 @@ export function Obligations() {
                     {formatDate(liability.effectiveDate)}
                   </small>
                 </div>
-                <div>
-                  <span>
-                    <small>Outstanding</small>
-                    <strong>{valueLabel(liability.balanceMinor)}</strong>
-                  </span>
-                  <span>
-                    <small>Next payment</small>
-                    <strong>{valueLabel(liability.paymentMinor)}</strong>
-                  </span>
-                  <span>
-                    <small>APR</small>
-                    <strong>
-                      {liability.interestRatePpm === null
+                <StatGroup>
+                  <Stat
+                    as="span"
+                    label="Outstanding"
+                    labelAs="small"
+                    value={valueLabel(liability.balanceMinor)}
+                  />
+                  <Stat
+                    as="span"
+                    label="Next payment"
+                    labelAs="small"
+                    value={valueLabel(liability.paymentMinor)}
+                  />
+                  <Stat
+                    as="span"
+                    label="APR"
+                    labelAs="small"
+                    value={
+                      liability.interestRatePpm === null
                         ? "Unknown"
-                        : formatProbability(liability.interestRatePpm)}
-                    </strong>
-                  </span>
-                </div>
+                        : formatProbability(liability.interestRatePpm)
+                    }
+                  />
+                </StatGroup>
                 <div className="reviewed-obligations__status">
                   <Badge
                     tone={

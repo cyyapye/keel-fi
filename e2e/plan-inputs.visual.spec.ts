@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { AlphaData } from "../packages/domain/src/index";
 
 const planState = {
   baseCashFlowPlanId: "cash_plan_fi_v1",
@@ -19,6 +20,30 @@ const planState = {
   },
 } as const;
 
+function withStableFiScenario(data: AlphaData): AlphaData {
+  return {
+    ...data,
+    scenarios: data.scenarios.map((scenario) =>
+      scenario.id === "scn_fi"
+        ? {
+            ...scenario,
+            conditionalValueMinor: 168_000_000,
+            timingAdjustedLiquidityMinor: 92_500_000,
+            assumptions: scenario.assumptions.map((assumption) => ({
+              ...assumption,
+              value:
+                assumption.key === "liquidity_probability"
+                  ? 430_000
+                  : assumption.key === "timing_delay_months"
+                    ? 18
+                    : assumption.value,
+            })),
+          }
+        : scenario,
+    ),
+  };
+}
+
 async function expectNoHorizontalOverflow(page: Page) {
   const widths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -30,7 +55,9 @@ async function expectNoHorizontalOverflow(page: Page) {
 test("keeps current and draft runway plan inputs clear", async ({ page }) => {
   const alphaResponse = await page.request.get("/api/alpha");
   expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
+  const alphaFixture = withStableFiScenario(
+    (await alphaResponse.json()) as AlphaData,
+  );
 
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
@@ -43,6 +70,12 @@ test("keeps current and draft runway plan inputs clear", async ({ page }) => {
   await page.addStyleTag({
     content:
       ".topbar { position: absolute !important; visibility: hidden !important; }",
+  });
+  const scenarioSummary = page.locator(".scenario-summary");
+  await expect(scenarioSummary).toContainText("Conditional value");
+  await expect(scenarioSummary).toContainText("Timing-adjusted liquidity");
+  await expect(scenarioSummary).toHaveScreenshot("scenario-summary.png", {
+    animations: "disabled",
   });
   const editor = page.locator(".plan-inputs-editor");
   await expect(

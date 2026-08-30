@@ -46,6 +46,8 @@ import {
   BrandMark,
   Button,
   ButtonLink,
+  DataItem,
+  DataList,
   DatePicker,
   EmptyState,
   Field,
@@ -62,6 +64,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Stat,
+  StatGroup,
   SectionHeader,
   Tabs,
   TabsContent,
@@ -2077,20 +2081,29 @@ function HoldingImportWorkspace({
           </p>
         </div>
 
-        <div aria-label="Automatic review summary" className="import-summary">
-          <div>
-            <strong>{preview.summary.autoAppliedCount}</strong>
-            <span>Applied</span>
-          </div>
-          <div>
-            <strong>{preview.summary.quarantinedCount}</strong>
-            <span>Exceptions</span>
-          </div>
-          <div>
-            <strong>{preview.summary.preservedPositionCount}</strong>
-            <span>Prior positions kept</span>
-          </div>
-        </div>
+        <StatGroup
+          aria-label="Automatic review summary"
+          className="import-summary"
+        >
+          <Stat
+            as="div"
+            label="Applied"
+            value={preview.summary.autoAppliedCount}
+            valueFirst
+          />
+          <Stat
+            as="div"
+            label="Exceptions"
+            value={preview.summary.quarantinedCount}
+            valueFirst
+          />
+          <Stat
+            as="div"
+            label="Prior positions kept"
+            value={preview.summary.preservedPositionCount}
+            valueFirst
+          />
+        </StatGroup>
 
         {preview.summary.preservedPositionCount > 0 && (
           <Notice className="import-attention">
@@ -2306,38 +2319,44 @@ function HoldingImportWorkspace({
         )}
       </div>
 
-      <div aria-label="Import summary" className="import-summary">
-        <div>
-          <strong>{preview.summary.rowCount}</strong>
-          <span>Positions</span>
-        </div>
-        <div>
-          <strong>{preview.summary.administratorValueCount}</strong>
-          <span>
-            {isPlaidInvestments
+      <StatGroup aria-label="Import summary" className="import-summary">
+        <Stat
+          as="div"
+          label="Positions"
+          value={preview.summary.rowCount}
+          valueFirst
+        />
+        <Stat
+          as="div"
+          label={
+            isPlaidInvestments
               ? "Market values"
               : isAngelList
                 ? "Administrator values"
-                : "Current values"}
-          </span>
-        </div>
-        <div>
-          <strong>
-            {isPlaidInvestments
-              ? preview.summary.needsAttentionCount
-              : isAngelList
-                ? preview.summary.lockedValueCount
-                : unavailableValueCount}
-          </strong>
-          <span>
-            {isPlaidInvestments
+                : "Current values"
+          }
+          value={preview.summary.administratorValueCount}
+          valueFirst
+        />
+        <Stat
+          as="div"
+          label={
+            isPlaidInvestments
               ? "Need attention"
               : isAngelList
                 ? "Locked values"
-                : "Unavailable values"}
-          </span>
-        </div>
-      </div>
+                : "Unavailable values"
+          }
+          value={
+            isPlaidInvestments
+              ? preview.summary.needsAttentionCount
+              : isAngelList
+                ? preview.summary.lockedValueCount
+                : unavailableValueCount
+          }
+          valueFirst
+        />
+      </StatGroup>
 
       {preview.summary.needsAttentionCount > 0 && (
         <Notice className="import-attention">
@@ -3214,30 +3233,20 @@ function PositionEconomicsEditor({
         )}
       </div>
 
-      <div className="position-economics__values">
-        <article>
-          <span>Commitment</span>
-          <strong>{formatCompactMoney(context.committedMinor)}</strong>
-          <small>Accepted from {holding.sourceLabel}.</small>
-        </article>
-        <article>
-          <span>Funded capital</span>
-          <strong>{formatCompactMoney(context.fundedMinor)}</strong>
-          <small>Capital paid into the SPV so far.</small>
-        </article>
-        <article>
-          <span>Upfront admin fee</span>
-          <strong className={displayedEconomics === null ? "is-not-set" : ""}>
-            {displayedEconomics === null
-              ? termsNeedReview
-                ? "Needs review"
-                : reportedManagementFeePpm === null
-                  ? "Not set"
-                  : "Not accepted"
-              : formatCompactMoney(displayedEconomics.upfrontAdminFeeMinor)}
-          </strong>
-          <small>
-            {reportedFeeDiffers && reportedTerms !== null
+      <StatGroup className="position-economics__values">
+        <Stat
+          detail={`Accepted from ${holding.sourceLabel}.`}
+          label="Commitment"
+          value={formatCompactMoney(context.committedMinor)}
+        />
+        <Stat
+          detail="Capital paid into the SPV so far."
+          label="Funded capital"
+          value={formatCompactMoney(context.fundedMinor)}
+        />
+        <Stat
+          detail={
+            reportedFeeDiffers && reportedTerms !== null
               ? `${reportedTerms.sourceLabel} now reports ${reportedFeeLabel}; accepted terms remain in use until review.`
               : hasReportedFee &&
                   reportedTerms !== null &&
@@ -3249,37 +3258,35 @@ function PositionEconomicsEditor({
                     : "Add the fee rate and term."
                   : termsNeedReview
                     ? "Commitment or funded capital changed after acceptance."
-                    : `${formatProbability(terms.annualAdminFeePpm)} for ${terms.adminFeeYears} years, paid upfront.`}
-          </small>
-        </article>
-        <article>
-          <span>Position cost basis</span>
-          <strong className={displayedEconomics === null ? "is-not-set" : ""}>
-            {displayedEconomics === null
+                    : `${formatProbability(terms.annualAdminFeePpm)} for ${terms.adminFeeYears} years, paid upfront.`
+          }
+          label="Upfront admin fee"
+          value={
+            displayedEconomics === null
+              ? termsNeedReview
+                ? "Needs review"
+                : reportedManagementFeePpm === null
+                  ? "Not set"
+                  : "Not accepted"
+              : formatCompactMoney(displayedEconomics.upfrontAdminFeeMinor)
+          }
+          valueClassName={displayedEconomics === null ? "is-not-set" : ""}
+        />
+        <Stat
+          detail="Commitment less upfront admin fee. Not tax basis."
+          label="Position cost basis"
+          value={
+            displayedEconomics === null
               ? termsNeedReview
                 ? "Needs review"
                 : "Not set"
-              : formatCompactMoney(displayedEconomics.positionCostBasisMinor)}
-          </strong>
-          <small>Commitment less upfront admin fee. Not tax basis.</small>
-        </article>
-        <article>
-          <span>Carry</span>
-          <strong
-            className={terms === null || termsNeedReview ? "is-not-set" : ""}
-          >
-            {terms === null
-              ? reportedCarryPpm === null
-                ? "Not set"
-                : formatProbability(reportedCarryPpm)
-              : termsNeedReview
-                ? reportedCarryPpm === null
-                  ? "Needs review"
-                  : formatProbability(reportedCarryPpm)
-                : formatProbability(terms.carryPpm)}
-          </strong>
-          <small>
-            {reportedCarryDiffers && reportedTerms !== null
+              : formatCompactMoney(displayedEconomics.positionCostBasisMinor)
+          }
+          valueClassName={displayedEconomics === null ? "is-not-set" : ""}
+        />
+        <Stat
+          detail={
+            reportedCarryDiffers && reportedTerms !== null
               ? `${reportedTerms.sourceLabel} now reports ${reportedCarryLabel}; accepted carry remains in use.`
               : hasReportedCarryTerm &&
                   reportedTerms !== null &&
@@ -3289,10 +3296,23 @@ function PositionEconomicsEditor({
                   ? "Carry is not included in this source."
                   : termsNeedReview
                     ? "Review against the current source before applying carry."
-                    : "Applied to gains when an exit is recorded."}
-          </small>
-        </article>
-      </div>
+                    : "Applied to gains when an exit is recorded."
+          }
+          label="Carry"
+          value={
+            terms === null
+              ? reportedCarryPpm === null
+                ? "Not set"
+                : formatProbability(reportedCarryPpm)
+              : termsNeedReview
+                ? reportedCarryPpm === null
+                  ? "Needs review"
+                  : formatProbability(reportedCarryPpm)
+                : formatProbability(terms.carryPpm)
+          }
+          valueClassName={terms === null || termsNeedReview ? "is-not-set" : ""}
+        />
+      </StatGroup>
 
       {notice !== null && <FormMessage tone="success">{notice}</FormMessage>}
       {open && !reviewing && (
@@ -3469,61 +3489,66 @@ function PositionPerformanceSummary({ holding }: { holding: Holding }) {
     >
       <p className="eyebrow">Performance</p>
       <h3 id="holding-performance-title">Position return</h3>
-      <div className="holding-performance__values">
-        <article>
-          <span>Cost basis</span>
-          <strong
-            className={performance.costBasisMinor === null ? "is-not-set" : ""}
-          >
-            {performance.costBasisMinor === null
-              ? "Not reported"
-              : formatCompactMoney(performance.costBasisMinor)}
-          </strong>
-          <small>
-            {performance.costBasisMinor === null
+      <StatGroup className="holding-performance__values">
+        <Stat
+          detail={
+            performance.costBasisMinor === null
               ? "Add SPV terms or wait for source cost basis."
-              : basisHelper}
-          </small>
-        </article>
-        <article>
-          <span>Total gain / loss</span>
-          <strong
-            className={performance.totalGainMinor === null ? "is-not-set" : ""}
-          >
-            {performance.totalGainMinor === null
+              : basisHelper
+          }
+          label="Cost basis"
+          value={
+            performance.costBasisMinor === null
+              ? "Not reported"
+              : formatCompactMoney(performance.costBasisMinor)
+          }
+          valueClassName={
+            performance.costBasisMinor === null ? "is-not-set" : ""
+          }
+        />
+        <Stat
+          detail="Current value plus realized proceeds, less cost basis."
+          label="Total gain / loss"
+          value={
+            performance.totalGainMinor === null
               ? "Unavailable"
               : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)}`.replace(
                   "-",
                   "−",
-                )}
-          </strong>
-          <small>Current value plus realized proceeds, less cost basis.</small>
-        </article>
-        <article>
-          <span>Total return</span>
-          <strong
-            className={performance.totalReturnPpm === null ? "is-not-set" : ""}
-          >
-            {performance.totalReturnPpm === null
+                )
+          }
+          valueClassName={
+            performance.totalGainMinor === null ? "is-not-set" : ""
+          }
+        />
+        <Stat
+          details={
+            projectedEstimate !== null && acceptedAdjustment === null
+              ? [
+                  "Not annualized. Carry is applied only after an exit.",
+                  "Uses the Portfolio Watch estimate until stronger evidence is reviewed.",
+                ]
+              : ["Not annualized. Carry is applied only after an exit."]
+          }
+          label="Total return"
+          value={
+            performance.totalReturnPpm === null
               ? "Unavailable"
-              : formatSignedProbability(performance.totalReturnPpm)}
-          </strong>
-          <small>Not annualized. Carry is applied only after an exit.</small>
-          {projectedEstimate !== null && acceptedAdjustment === null && (
-            <small>
-              Uses the Portfolio Watch estimate until stronger evidence is
-              reviewed.
-            </small>
-          )}
-        </article>
+              : formatSignedProbability(performance.totalReturnPpm)
+          }
+          valueClassName={
+            performance.totalReturnPpm === null ? "is-not-set" : ""
+          }
+        />
         {isPlaidInvestmentsHolding(holding) && (
-          <article>
-            <span>Day gain / loss</span>
-            <strong className="is-not-set">Unavailable</strong>
-            <small>Needs a prior daily price at the same share count.</small>
-          </article>
+          <Stat
+            detail="Needs a prior daily price at the same share count."
+            label="Day gain / loss"
+            value="Unavailable"
+            valueClassName="is-not-set"
+          />
         )}
-      </div>
+      </StatGroup>
     </section>
   );
 }
@@ -3639,24 +3664,22 @@ function HoldingDetailWorkspace({
       <section aria-labelledby="holding-values-title">
         <p className="eyebrow">Value lenses</p>
         <h3 id="holding-values-title">Current values</h3>
-        <div className="holding-detail-values">
+        <StatGroup className="holding-detail-values">
           {valueLenses.map((lens) => (
-            <article
+            <Stat
               className={
                 lens.wide
                   ? "holding-detail-value holding-detail-value--wide"
                   : "holding-detail-value"
               }
+              detail={lens.helper}
               key={lens.label}
-            >
-              <span>{lens.label}</span>
-              <strong className={lens.value === "Not set" ? "is-not-set" : ""}>
-                {lens.value}
-              </strong>
-              <small>{lens.helper}</small>
-            </article>
+              label={lens.label}
+              value={lens.value}
+              valueClassName={lens.value === "Not set" ? "is-not-set" : ""}
+            />
           ))}
-        </div>
+        </StatGroup>
       </section>
 
       <PositionPerformanceSummary holding={holding} />
@@ -3674,61 +3697,47 @@ function HoldingDetailWorkspace({
         <section aria-labelledby="holding-position-title">
           <p className="eyebrow">Accepted record</p>
           <h3 id="holding-position-title">Position</h3>
-          <dl>
-            <div>
-              <dt>{legalPositionLabel}</dt>
-              <dd>{holding.positionName}</dd>
-            </div>
-            <div>
-              <dt>Held through</dt>
-              <dd>{holding.ownerLabel}</dd>
-            </div>
+          <DataList>
+            <DataItem label={legalPositionLabel} value={holding.positionName} />
+            <DataItem label="Held through" value={holding.ownerLabel} />
             {isPlaidInvestmentsHolding(holding) && (
               <>
-                <div>
-                  <dt>Ticker</dt>
-                  <dd>{holding.ticker ?? "Not reported"}</dd>
-                </div>
-                <div>
-                  <dt>Shares</dt>
-                  <dd>{formatQuantityMicros(holding.quantityMicros)}</dd>
-                </div>
-                <div>
-                  <dt>Cost basis</dt>
-                  <dd>{holdingValueLabel(holding.costBasisMinor)}</dd>
-                </div>
+                <DataItem
+                  label="Ticker"
+                  value={holding.ticker ?? "Not reported"}
+                />
+                <DataItem
+                  label="Shares"
+                  value={formatQuantityMicros(holding.quantityMicros)}
+                />
+                <DataItem
+                  label="Cost basis"
+                  value={holdingValueLabel(holding.costBasisMinor)}
+                />
               </>
             )}
-          </dl>
+          </DataList>
         </section>
 
         <section aria-labelledby="holding-source-title">
           <p className="eyebrow">Value evidence</p>
           <h3 id="holding-source-title">{sourceSectionTitle}</h3>
-          <dl>
-            <div>
-              <dt>Source</dt>
-              <dd>{holding.sourceLabel}</dd>
-            </div>
-            <div>
-              <dt>As of</dt>
-              <dd>{formatDate(holding.effectiveDate)}</dd>
-            </div>
+          <DataList>
+            <DataItem label="Source" value={holding.sourceLabel} />
+            <DataItem label="As of" value={formatDate(holding.effectiveDate)} />
             {holding.confidencePpm !== null && (
-              <div>
-                <dt>Source confidence</dt>
-                <dd>{formatProbability(holding.confidencePpm)}</dd>
-              </div>
+              <DataItem
+                label="Source confidence"
+                value={formatProbability(holding.confidencePpm)}
+              />
             )}
             {holding.sourceStatus !== "verified" && (
-              <div>
-                <dt>Source status</dt>
-                <dd>
-                  <SourceBadge status={holding.sourceStatus} />
-                </dd>
-              </div>
+              <DataItem
+                label="Source status"
+                value={<SourceBadge status={holding.sourceStatus} />}
+              />
             )}
-          </dl>
+          </DataList>
         </section>
       </div>
       {acceptedAdjustment !== null && (
@@ -3740,25 +3749,25 @@ function HoldingDetailWorkspace({
           <h3 id="holding-reviewed-mark-title">
             {acceptedAdjustment.sourceLabel}
           </h3>
-          <dl>
-            <div>
-              <dt>Value</dt>
-              <dd>{holdingValueLabel(holding.externalMarkMinor)}</dd>
-            </div>
-            <div>
-              <dt>As of</dt>
-              <dd>{formatDate(acceptedAdjustment.effectiveDate)}</dd>
-            </div>
-            <div>
-              <dt>Source</dt>
-              <dd>
-                {positionValueSourceKindLabel(acceptedAdjustment.sourceKind)}
-              </dd>
-            </div>
+          <DataList>
+            <DataItem
+              label="Value"
+              value={holdingValueLabel(holding.externalMarkMinor)}
+            />
+            <DataItem
+              label="As of"
+              value={formatDate(acceptedAdjustment.effectiveDate)}
+            />
+            <DataItem
+              label="Source"
+              value={positionValueSourceKindLabel(
+                acceptedAdjustment.sourceKind,
+              )}
+            />
             {acceptedAdjustment.sourceUrl !== null && (
-              <div>
-                <dt>Link</dt>
-                <dd>
+              <DataItem
+                label="Link"
+                value={
                   <TextLink
                     href={acceptedAdjustment.sourceUrl}
                     rel="noreferrer"
@@ -3766,14 +3775,15 @@ function HoldingDetailWorkspace({
                   >
                     Open source
                   </TextLink>
-                </dd>
-              </div>
+                }
+              />
             )}
-            <div className="holding-reviewed-mark__commentary">
-              <dt>Note</dt>
-              <dd>{acceptedAdjustment.commentary}</dd>
-            </div>
-          </dl>
+            <DataItem
+              className="holding-reviewed-mark__commentary"
+              label="Note"
+              value={acceptedAdjustment.commentary}
+            />
+          </DataList>
         </section>
       )}
       {acceptedAdjustment === null && projectedEstimate !== null && (
@@ -3785,46 +3795,50 @@ function HoldingDetailWorkspace({
           <h3 id="holding-portfolio-watch-estimate-title">
             Portfolio Watch estimate
           </h3>
-          <dl>
-            <div>
-              <dt>Value</dt>
-              <dd>{holdingValueLabel(projectedEstimate.valueMinor)}</dd>
-            </div>
-            <div>
-              <dt>As of</dt>
-              <dd>{formatDate(projectedEstimate.effectiveDate)}</dd>
-            </div>
-            <div>
-              <dt>GP mark</dt>
-              <dd>{projectedEstimate.referenceSourceLabel}</dd>
-            </div>
-            <div>
-              <dt>This tranche</dt>
-              <dd>
-                <TextLink
-                  href={projectedEstimate.positionRound.sourceUrl}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  {projectedEstimate.positionRound.sourceTitle}
-                </TextLink>{" "}
-                · {formatDate(projectedEstimate.positionRound.effectiveDate)}
-              </dd>
-            </div>
-            <div>
-              <dt>Reference tranche</dt>
-              <dd>
-                <TextLink
-                  href={projectedEstimate.referenceRound.sourceUrl}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  {projectedEstimate.referenceRound.sourceTitle}
-                </TextLink>{" "}
-                · {formatDate(projectedEstimate.referenceRound.effectiveDate)}
-              </dd>
-            </div>
-          </dl>
+          <DataList>
+            <DataItem
+              label="Value"
+              value={holdingValueLabel(projectedEstimate.valueMinor)}
+            />
+            <DataItem
+              label="As of"
+              value={formatDate(projectedEstimate.effectiveDate)}
+            />
+            <DataItem
+              label="GP mark"
+              value={projectedEstimate.referenceSourceLabel}
+            />
+            <DataItem
+              label="This tranche"
+              value={
+                <>
+                  <TextLink
+                    href={projectedEstimate.positionRound.sourceUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {projectedEstimate.positionRound.sourceTitle}
+                  </TextLink>{" "}
+                  · {formatDate(projectedEstimate.positionRound.effectiveDate)}
+                </>
+              }
+            />
+            <DataItem
+              label="Reference tranche"
+              value={
+                <>
+                  <TextLink
+                    href={projectedEstimate.referenceRound.sourceUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {projectedEstimate.referenceRound.sourceTitle}
+                  </TextLink>{" "}
+                  · {formatDate(projectedEstimate.referenceRound.effectiveDate)}
+                </>
+              }
+            />
+          </DataList>
           <small>
             Scales funded cost basis by the GP mark and the nearest accepted
             financing valuation for each tranche. Review it before treating it
@@ -4441,32 +4455,32 @@ function AngelListMacAgentControl() {
         )}
 
         {overview !== null && !setupRequired && (
-          <dl className="angellist-agent__meta">
-            <div>
-              <dt>Last agent check</dt>
-              <dd>
-                {overview.lastSeenAt === null
+          <DataList className="angellist-agent__meta">
+            <DataItem
+              label="Last agent check"
+              value={
+                overview.lastSeenAt === null
                   ? "Not yet"
-                  : formatDate(overview.lastSeenAt)}
-              </dd>
-            </div>
-            <div>
-              <dt>Last completed</dt>
-              <dd>
-                {overview.lastCompletedAt === null
+                  : formatDate(overview.lastSeenAt)
+              }
+            />
+            <DataItem
+              label="Last completed"
+              value={
+                overview.lastCompletedAt === null
                   ? "Not yet"
-                  : formatDate(overview.lastCompletedAt)}
-              </dd>
-            </div>
-            <div>
-              <dt>Next scheduled</dt>
-              <dd>
-                {overview.nextRunAt === null
+                  : formatDate(overview.lastCompletedAt)
+              }
+            />
+            <DataItem
+              label="Next scheduled"
+              value={
+                overview.nextRunAt === null
                   ? "Off"
-                  : formatDate(overview.nextRunAt)}
-              </dd>
-            </div>
-          </dl>
+                  : formatDate(overview.nextRunAt)
+              }
+            />
+          </DataList>
         )}
 
         {notice !== null && (
@@ -4817,32 +4831,32 @@ function ProviderPortfolioAgentRow({
         )}
 
         {overview !== null && !setupRequired && (
-          <dl className="provider-agent-row__meta">
-            <div>
-              <dt>Last agent check</dt>
-              <dd>
-                {overview.lastSeenAt === null
+          <DataList className="provider-agent-row__meta">
+            <DataItem
+              label="Last agent check"
+              value={
+                overview.lastSeenAt === null
                   ? "Not yet"
-                  : formatDate(overview.lastSeenAt)}
-              </dd>
-            </div>
-            <div>
-              <dt>Last completed</dt>
-              <dd>
-                {overview.lastCompletedAt === null
+                  : formatDate(overview.lastSeenAt)
+              }
+            />
+            <DataItem
+              label="Last completed"
+              value={
+                overview.lastCompletedAt === null
                   ? "Not yet"
-                  : formatDate(overview.lastCompletedAt)}
-              </dd>
-            </div>
-            <div>
-              <dt>Next scheduled</dt>
-              <dd>
-                {overview.nextRunAt === null
+                  : formatDate(overview.lastCompletedAt)
+              }
+            />
+            <DataItem
+              label="Next scheduled"
+              value={
+                overview.nextRunAt === null
                   ? "Off"
-                  : formatDate(overview.nextRunAt)}
-              </dd>
-            </div>
-          </dl>
+                  : formatDate(overview.nextRunAt)
+              }
+            />
+          </DataList>
         )}
         {notice !== null && (
           <FormMessage className="provider-agent-row__notice" tone="success">
@@ -5450,20 +5464,32 @@ function CashBalanceProposalReview({
         </p>
       </header>
 
-      <div aria-label="Cash balance totals" className="cash-review__totals">
-        <span>
-          <strong>{proposal.summary.rowCount}</strong> accounts
-        </span>
-        <span>
-          <strong>
-            {formatCompactMoney(proposal.summary.totalReportedMinor)}
-          </strong>{" "}
-          reported
-        </span>
-        <span>
-          <strong>{proposal.summary.needsAttentionCount}</strong> need attention
-        </span>
-      </div>
+      <StatGroup
+        aria-label="Cash balance totals"
+        className="cash-review__totals"
+      >
+        <Stat
+          as="span"
+          inline
+          label="accounts"
+          value={proposal.summary.rowCount}
+          valueFirst
+        />
+        <Stat
+          as="span"
+          inline
+          label="reported"
+          value={formatCompactMoney(proposal.summary.totalReportedMinor)}
+          valueFirst
+        />
+        <Stat
+          as="span"
+          inline
+          label="need attention"
+          value={proposal.summary.needsAttentionCount}
+          valueFirst
+        />
+      </StatGroup>
 
       <div className="cash-review__rows">
         {proposal.rows.map((row) => {
@@ -6382,16 +6408,19 @@ function PortfolioAccessDetail({
           </h2>
           <p>{copy.description}</p>
         </div>
-        <span className="portfolio-access-detail__total">
-          <small>Known reviewed value</small>
-          <strong>{formatCompactMoney(knownTotalMinor)}</strong>
-          <span>
-            {rows.length} {rows.length === 1 ? "source" : "sources"}
-            {unavailableCount === 0
+        <Stat
+          as="span"
+          className="portfolio-access-detail__total"
+          detail={`${rows.length} ${rows.length === 1 ? "source" : "sources"}${
+            unavailableCount === 0
               ? ""
-              : ` · ${unavailableCount} ${unavailableCount === 1 ? "value" : "values"} unavailable`}
-          </span>
-        </span>
+              : ` · ${unavailableCount} ${unavailableCount === 1 ? "value" : "values"} unavailable`
+          }`}
+          detailAs="span"
+          label="Known reviewed value"
+          labelAs="small"
+          value={formatCompactMoney(knownTotalMinor)}
+        />
       </header>
       {rows.length === 0 ? (
         <EmptyState title={`No ${copy.title.toLowerCase()} detail`}>
@@ -8528,7 +8557,7 @@ function Scenarios({
             </div>
           ) : null}
 
-          <div className="scenario-summary">
+          <StatGroup className="scenario-summary">
             <div>
               <p>{selected.description}</p>
               <span>
@@ -8537,26 +8566,24 @@ function Scenarios({
                   : "Current saved forecast output"}
               </span>
             </div>
-            <article>
-              <span>Conditional value</span>
-              <strong>
-                {formatCompactMoney(displayedScenario.conditionalValueMinor)}
-              </strong>
-              <small>Value if the modeled liquidity events occur</small>
-            </article>
+            <Stat
+              detail="Value if the modeled liquidity events occur"
+              label="Conditional value"
+              value={formatCompactMoney(
+                displayedScenario.conditionalValueMinor,
+              )}
+            />
             <i aria-hidden="true">≠</i>
-            <article className="usable">
-              <span>Timing-adjusted liquidity</span>
-              <strong>
-                {formatCompactMoney(
-                  displayedScenario.timingAdjustedLiquidityMinor,
-                )}
-              </strong>
-              <small className="scenario-summary__assumptions">
-                {scenarioConditions}
-              </small>
-            </article>
-          </div>
+            <Stat
+              className="usable"
+              detail={scenarioConditions}
+              detailClassName="scenario-summary__assumptions"
+              label="Timing-adjusted liquidity"
+              value={formatCompactMoney(
+                displayedScenario.timingAdjustedLiquidityMinor,
+              )}
+            />
+          </StatGroup>
 
           <div className="scenario-grid">
             <Panel

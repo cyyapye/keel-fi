@@ -2,7 +2,14 @@ import {
   type PlanActualActionItem,
   type PlanActualMonitoringState,
 } from "@keel/domain/plan-actual-monitoring";
-import { ActionGroup, Badge, Button, FormMessage } from "@keel/ui";
+import {
+  ActionGroup,
+  Badge,
+  Button,
+  DataItem,
+  DataList,
+  FormMessage,
+} from "@keel/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadPlanActualMonitoring, snoozePlanActualMonitoring } from "./api";
@@ -31,42 +38,39 @@ const coverageLabels: Record<
 function ActionValues({ item }: { item: PlanActualActionItem }) {
   if (item.plannedMonths !== null && item.actualMonths !== null) {
     return (
-      <dl className="plan-monitoring__values">
-        <div>
-          <dt>Saved plan</dt>
-          <dd>{item.plannedMonths} months</dd>
-        </div>
-        <div>
-          <dt>Reviewed actual</dt>
-          <dd>{item.actualMonths} months</dd>
-        </div>
-      </dl>
+      <DataList className="plan-monitoring__values">
+        <DataItem label="Saved plan" value={`${item.plannedMonths} months`} />
+        <DataItem
+          label="Reviewed actual"
+          value={`${item.actualMonths} months`}
+        />
+      </DataList>
     );
   }
   if (item.plannedValueMinor === null && item.actualValueMinor === null) {
     return null;
   }
   return (
-    <dl className="plan-monitoring__values">
+    <DataList className="plan-monitoring__values">
       {item.plannedValueMinor !== null && (
-        <div>
-          <dt>Saved plan</dt>
-          <dd>{formatCompactMoney(item.plannedValueMinor)}</dd>
-        </div>
+        <DataItem
+          label="Saved plan"
+          value={formatCompactMoney(item.plannedValueMinor)}
+        />
       )}
       {item.actualValueMinor !== null && (
-        <div>
-          <dt>Reviewed actual</dt>
-          <dd>{formatCompactMoney(item.actualValueMinor)}</dd>
-        </div>
+        <DataItem
+          label="Reviewed actual"
+          value={formatCompactMoney(item.actualValueMinor)}
+        />
       )}
       {item.differenceMinor !== null && (
-        <div>
-          <dt>Difference</dt>
-          <dd>{formatCompactMoney(item.differenceMinor)}</dd>
-        </div>
+        <DataItem
+          label="Difference"
+          value={formatCompactMoney(item.differenceMinor)}
+        />
       )}
-    </dl>
+    </DataList>
   );
 }
 
@@ -218,23 +222,24 @@ export function PlanActualMonitoring({
         </Badge>
       </header>
 
-      <dl
+      <DataList
         aria-label="Monitoring coverage"
         className="plan-monitoring__coverage"
       >
         {(["cash", "debt", "burn"] as const).map((metric) => (
-          <div key={metric}>
-            <dt>{metricLabels[metric]}</dt>
-            <dd>{coverageLabels[state.coverage[metric]]}</dd>
-          </div>
+          <DataItem
+            key={metric}
+            label={metricLabels[metric]}
+            value={coverageLabels[state.coverage[metric]]}
+          />
         ))}
-        <div>
-          <dt>Runway</dt>
-          <dd>
-            {state.coverage.runway === "available" ? "Available" : "Limited"}
-          </dd>
-        </div>
-      </dl>
+        <DataItem
+          label="Runway"
+          value={
+            state.coverage.runway === "available" ? "Available" : "Limited"
+          }
+        />
+      </DataList>
 
       {state.actionItems.length > 0 && (
         <ol aria-label="Monitoring decisions" className="plan-monitoring__list">
