@@ -19,11 +19,16 @@ test("loads the database-backed dashboard and primary views", async ({
     }),
   ).toBeVisible();
   await expect(page.getByText("Private · Access protected")).toHaveCount(0);
+  const monitoringSummary = page.getByRole("button", {
+    name: /Monitoring is limited/u,
+  });
+  await expect(monitoringSummary).toBeVisible();
+  await expect(monitoringSummary).toHaveAttribute("aria-expanded", "false");
   await expect(
     page.getByRole("heading", {
       name: "Monitoring is ready for connected actuals",
     }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 
   await page
     .getByRole("button", { name: /2031 liquidity range/ })
@@ -43,7 +48,7 @@ test("loads the database-backed dashboard and primary views", async ({
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { level: 3, name: "No company exposures" }),
+    page.getByRole("heading", { name: "Exposures", exact: true }),
   ).toBeVisible();
   for (const retiredCompany of [
     "Harbor Health Systems",

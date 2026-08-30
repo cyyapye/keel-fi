@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { AlphaData } from "../packages/domain/src/index";
+import { formatCompactMoney, formatProbability } from "../apps/web/src/format";
 
 import { withStableOverviewValues } from "./overview-alpha-fixture";
 
@@ -19,6 +20,29 @@ function latestGoalName(goal: AlphaData["goals"][number] | undefined) {
   return version.name;
 }
 
+function formatExpectedGoalValue(
+  value: number,
+  unit: AlphaData["goals"][number]["versions"][number]["targetUnit"],
+) {
+  if (unit === "minor_units") return formatCompactMoney(value);
+  if (unit === "ppm") return formatProbability(value);
+  return `${new Intl.NumberFormat("en-US").format(value)} ${
+    unit === "months" ? "months" : ""
+  }`.trim();
+}
+
+function expectedGoalProgress(
+  version: AlphaData["goals"][number]["versions"][number],
+) {
+  const target = version.targetValueInteger;
+  if (target === null) return 0;
+  if (target === 0) return 1_000_000;
+  return Math.min(
+    Number((BigInt(version.currentValueInteger) * 1_000_000n) / BigInt(target)),
+    1_000_000,
+  );
+}
+
 test("keeps the Overview masthead swipeable without a duplicate goals section", async ({
   page,
 }, testInfo) => {
@@ -35,19 +59,31 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
 
   const goalHero = page.getByRole("region", { name: "Goal overview" });
   const goalSlides = goalHero.locator("[data-slot='carousel-item']");
+  const goalDots = goalHero.locator("[data-slot='carousel-dot']");
   await expect(goalHero).toBeVisible();
   await expect(goalSlides).toHaveCount(alphaFixture.goals.length);
-  await expect(goalHero.locator(".hero-carousel__position")).toHaveText(
-    `1 / ${alphaFixture.goals.length}`,
+  await expect(goalDots).toHaveCount(alphaFixture.goals.length);
+  await expect(goalDots.first()).toHaveAttribute("aria-current", "true");
+  await expect(
+    goalHero.getByRole("group", { name: "Choose a goal" }),
+  ).toBeVisible();
+  await expect(
+    goalHero.getByRole("button", { name: "Previous goal" }),
+  ).toHaveCount(0);
+  await expect(goalHero.getByRole("button", { name: "Next goal" })).toHaveCount(
+    0,
   );
-  const previousGoal = goalHero.getByRole("button", {
-    name: "Previous goal",
-  });
-  const nextGoal = goalHero.getByRole("button", { name: "Next goal" });
-  await expect(previousGoal).toBeDisabled();
-  await expect(nextGoal).toBeEnabled();
   await expect(goalSlides.first().getByText(/Primary goal/u)).toBeVisible();
   await expect(page.locator(".overview-goals")).toHaveCount(0);
+
+  const goalOverview = page.locator(".goal-overview");
+  const goalMetrics = goalOverview.locator("[data-slot='metric-card']");
+  const goalSignal = goalOverview.locator(".goal-signal");
+  const initialGoal = alphaFixture.goals[0];
+  await expect(goalOverview).toHaveAttribute("data-goal-id", initialGoal!.id);
+  await expect(goalSignal.getByRole("heading", { level: 2 })).toHaveText(
+    latestGoalName(initialGoal),
+  );
 
   const heroAction = page
     .locator(".hero")
@@ -74,43 +110,45 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
       threshold: 0.25,
     },
   );
-  await expect(page.locator(".metrics-grid")).toHaveScreenshot(
-    "overview-metric-links.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
+  await expect(goalOverview).toHaveScreenshot("overview-goal-overview.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
 
-  await nextGoal.focus();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await goalDots.first().focus();
   await page.keyboard.press("ArrowRight");
-  await expect(goalHero.locator(".hero-carousel__position")).toHaveText(
-    `2 / ${alphaFixture.goals.length}`,
-  );
-  await page.keyboard.press("ArrowLeft");
-  await expect(goalHero.locator(".hero-carousel__position")).toHaveText(
-    `1 / ${alphaFixture.goals.length}`,
-  );
+  await expect(goalDots.nth(1)).toHaveAttribute("aria-current", "true");
+  await goalDots.first().click();
+  await expect(goalDots.first()).toHaveAttribute("aria-current", "true");
 
   const viewport = goalHero.locator("[data-slot='carousel-content']");
+  await expect
+    .poll(async () => {
+      const [firstSlideBox, currentViewportBox] = await Promise.all([
+        goalSlides.first().locator(".hero__slide").boundingBox(),
+        viewport.boundingBox(),
+      ]);
+      if (firstSlideBox === null || currentViewportBox === null) return null;
+      return Math.abs(Math.round(firstSlideBox.x - currentViewportBox.x));
+    })
+    .toBe(0);
   const viewportBox = await viewport.boundingBox();
   expect(viewportBox).not.toBeNull();
   await page.mouse.move(
-    viewportBox!.x + viewportBox!.width * 0.82,
+    viewportBox!.x + viewportBox!.width * 0.9,
     viewportBox!.y + viewportBox!.height / 2,
   );
   await page.mouse.down();
   await page.mouse.move(
-    viewportBox!.x + viewportBox!.width * 0.16,
+    viewportBox!.x - viewportBox!.width * 0.2,
     viewportBox!.y + viewportBox!.height / 2,
-    { steps: 10 },
+    { steps: 20 },
   );
   await page.mouse.up();
-  await expect(goalHero.locator(".hero-carousel__position")).toHaveText(
-    `2 / ${alphaFixture.goals.length}`,
-  );
+  await expect(goalDots.nth(1)).toHaveAttribute("aria-current", "true");
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
   await expect
     .poll(async () => {
@@ -128,9 +166,51 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   await expect(
     goalSlides.nth(1).locator("[data-slot='text-link']"),
   ).toHaveAttribute("tabindex", "0");
+
+  const selectedGoal = alphaFixture.goals[1];
+  const selectedVersion = selectedGoal?.versions[0];
+  if (selectedGoal === undefined || selectedVersion === undefined) {
+    throw new Error("Expected a second saved goal in the Overview fixture.");
+  }
+  await expect(goalOverview).toHaveAttribute("data-goal-id", selectedGoal.id);
+  await expect(goalMetrics.first().locator("strong")).toHaveText(
+    formatExpectedGoalValue(
+      selectedVersion.currentValueInteger,
+      selectedVersion.targetUnit,
+    ),
+  );
+  await expect(goalMetrics.nth(1).locator("strong")).toHaveText(
+    selectedVersion.targetValueInteger === null
+      ? "Not set"
+      : formatExpectedGoalValue(
+          selectedVersion.targetValueInteger,
+          selectedVersion.targetUnit,
+        ),
+  );
+  await expect(goalSignal.getByRole("heading", { level: 2 })).toHaveText(
+    selectedVersion.name,
+  );
+  await expect(goalSignal.locator(".probability-ring strong")).toHaveText(
+    formatProbability(expectedGoalProgress(selectedVersion)),
+  );
+
+  const dotHeights = await goalDots.evaluateAll((dots) =>
+    dots.map((dot) => dot.getBoundingClientRect().height),
+  );
+  expect(dotHeights.every((height) => height >= 44)).toBe(true);
+
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page.locator(".hero")).toHaveScreenshot(
     "overview-hero-carousel-swiped.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  await expect(goalOverview).toHaveScreenshot(
+    "overview-goal-overview-swiped.png",
     {
       animations: "disabled",
       caret: "hide",
@@ -161,10 +241,10 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
         textDecorationLine === "none",
     ),
   ).toBe(true);
-  await expect(page.locator(".metrics-grid")).not.toContainText("→");
+  await expect(goalOverview).not.toContainText("→");
   await expectNoHorizontalOverflow(page);
 
-  const selectedGoalName = latestGoalName(alphaFixture.goals[1]);
+  const selectedGoalName = latestGoalName(selectedGoal);
   await goalHero.getByRole("button", { name: "Edit this goal" }).click();
   await expect(page).toHaveURL(/\/goals$/u);
   await expect(
@@ -192,6 +272,9 @@ test("keeps the masthead static when only one goal is active", async ({
   await page.goto("/");
 
   await expect(page.getByRole("region", { name: "Goal overview" })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole("group", { name: "Choose a goal" })).toHaveCount(
     0,
   );
   await expect(page.locator(".overview-goals")).toHaveCount(0);

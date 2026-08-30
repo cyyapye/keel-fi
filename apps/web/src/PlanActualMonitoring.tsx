@@ -4,7 +4,6 @@ import {
 } from "@keel/domain/plan-actual-monitoring";
 import {
   ActionGroup,
-  Badge,
   Button,
   DataItem,
   DataList,
@@ -101,6 +100,44 @@ function copyFor(state: PlanActualMonitoringState): string {
   return "Review cash, debt, and observed burn to complete the runway comparison. Keel will not fill missing values or change the plan.";
 }
 
+function summaryFor(state: PlanActualMonitoringState): {
+  detail: string;
+  indicator: string;
+  tone: "attention" | "healthy" | "limited";
+  title: string;
+} {
+  if (state.status === "needs_action") {
+    return {
+      detail: `${state.actionItems.length} ${state.actionItems.length === 1 ? "decision" : "decisions"} to review`,
+      indicator: "Needs attention",
+      tone: "attention",
+      title: "Monitoring needs attention",
+    };
+  }
+  if (state.status === "limited") {
+    return {
+      detail: "More reviewed actuals are needed",
+      indicator: "Limited",
+      tone: "limited",
+      title: "Monitoring is limited",
+    };
+  }
+  if (state.status === "deferred") {
+    return {
+      detail: "Nothing needs review today",
+      indicator: "Healthy",
+      tone: "healthy",
+      title: "Monitoring is healthy",
+    };
+  }
+  return {
+    detail: "Reviewed actuals are within plan guardrails",
+    indicator: "Healthy",
+    tone: "healthy",
+    title: "Monitoring is healthy",
+  };
+}
+
 export function PlanActualMonitoring({
   onNavigate,
 }: {
@@ -112,7 +149,8 @@ export function PlanActualMonitoring({
     null,
   );
   const [notice, setNotice] = useState<string | null>(null);
-  const headingRef = useRef<HTMLHeadingElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const summaryRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -152,7 +190,7 @@ export function PlanActualMonitoring({
       });
       setState(nextState);
       setNotice("Moved to review later for 7 days.");
-      window.requestAnimationFrame(() => headingRef.current?.focus());
+      window.requestAnimationFrame(() => summaryRef.current?.focus());
     } catch (caught) {
       setNotice(
         caught instanceof Error
@@ -171,144 +209,196 @@ export function PlanActualMonitoring({
         aria-label="Plan versus actual monitoring"
         className="plan-monitoring plan-monitoring--loading"
       >
-        <SectionHeader
-          eyebrow="Plan vs actual"
-          title="Checking reviewed actuals…"
-        />
+        <div className="plan-monitoring__summary plan-monitoring__summary--static">
+          <span className="plan-monitoring__summary-main">
+            <span className="eyebrow">Plan vs actual</span>
+            <span className="plan-monitoring__summary-text">
+              <strong>Checking monitoring…</strong>
+            </span>
+          </span>
+          <span className="plan-monitoring__indicator" data-tone="limited">
+            <i aria-hidden="true" /> Checking
+          </span>
+        </div>
       </section>
     );
   }
 
   if (state === null) {
     return (
-      <section className="plan-monitoring plan-monitoring--error">
-        <SectionHeader
-          eyebrow="Plan vs actual"
-          title="Monitoring could not load"
-        />
-        <FormMessage className="plan-monitoring__copy" tone="error">
-          {error}
-        </FormMessage>
-        <Button onClick={() => void load()}>Try again</Button>
+      <section
+        aria-label="Plan versus actual monitoring"
+        className="plan-monitoring plan-monitoring--error"
+        data-status="error"
+      >
+        <Button
+          aria-controls="plan-monitoring-details"
+          aria-expanded={expanded}
+          className="plan-monitoring__summary"
+          onClick={() => setExpanded((current) => !current)}
+          ref={summaryRef}
+          tone="plain"
+        >
+          <span className="plan-monitoring__summary-main">
+            <span className="eyebrow">Plan vs actual</span>
+            <span className="plan-monitoring__summary-text">
+              <strong>Monitoring is unavailable</strong>
+              <small>Open details to retry</small>
+            </span>
+          </span>
+          <span className="plan-monitoring__summary-action">
+            <span className="plan-monitoring__indicator" data-tone="attention">
+              <i aria-hidden="true" /> Needs attention
+            </span>
+            <span className="plan-monitoring__toggle-label">Details</span>
+            <span aria-hidden="true" className="plan-monitoring__toggle-mark">
+              {expanded ? "−" : "+"}
+            </span>
+          </span>
+        </Button>
+        {expanded && (
+          <div
+            className="plan-monitoring__details"
+            id="plan-monitoring-details"
+          >
+            <FormMessage className="plan-monitoring__copy" tone="error">
+              {error}
+            </FormMessage>
+            <Button onClick={() => void load()}>Try again</Button>
+          </div>
+        )}
       </section>
     );
   }
 
+  const summary = summaryFor(state);
+
   return (
     <section
-      aria-labelledby="plan-monitoring-heading"
+      aria-label="Plan versus actual monitoring"
       className={`plan-monitoring plan-monitoring--${state.status}`}
       data-status={state.status}
     >
-      <SectionHeader
-        action={
-          <Badge
-            tone={
-              state.status === "needs_action"
-                ? "accent"
-                : state.status === "clear"
-                  ? "positive"
-                  : "neutral"
-            }
-          >
-            {state.status === "needs_action"
-              ? "Review"
-              : state.status === "deferred"
-                ? "Later"
-                : state.status === "clear"
-                  ? "Current"
-                  : "Limited"}
-          </Badge>
-        }
-        className="plan-monitoring__header"
-        description={copyFor(state)}
-        descriptionPlacement="title-group"
-        descriptionProps={{ className: "plan-monitoring__copy" }}
-        eyebrow="Plan vs actual"
-        headingProps={{
-          id: "plan-monitoring-heading",
-          ref: headingRef,
-          tabIndex: -1,
-        }}
-        title={headingFor(state)}
-      />
-
-      <DataList
-        aria-label="Monitoring coverage"
-        className="plan-monitoring__coverage"
+      <Button
+        aria-controls="plan-monitoring-details"
+        aria-expanded={expanded}
+        className="plan-monitoring__summary"
+        onClick={() => setExpanded((current) => !current)}
+        ref={summaryRef}
+        tone="plain"
       >
-        {(["cash", "debt", "burn"] as const).map((metric) => (
-          <DataItem
-            key={metric}
-            label={metricLabels[metric]}
-            value={coverageLabels[state.coverage[metric]]}
+        <span className="plan-monitoring__summary-main">
+          <span className="eyebrow">Plan vs actual</span>
+          <span className="plan-monitoring__summary-text">
+            <strong>{summary.title}</strong>
+            <small>{summary.detail}</small>
+          </span>
+        </span>
+        <span className="plan-monitoring__summary-action">
+          <span className="plan-monitoring__indicator" data-tone={summary.tone}>
+            <i aria-hidden="true" /> {summary.indicator}
+          </span>
+          <span className="plan-monitoring__toggle-label">Details</span>
+          <span aria-hidden="true" className="plan-monitoring__toggle-mark">
+            {expanded ? "−" : "+"}
+          </span>
+        </span>
+      </Button>
+
+      {expanded && (
+        <div className="plan-monitoring__details" id="plan-monitoring-details">
+          <SectionHeader
+            className="plan-monitoring__header"
+            description={copyFor(state)}
+            descriptionPlacement="title-group"
+            descriptionProps={{ className: "plan-monitoring__copy" }}
+            title={headingFor(state)}
           />
-        ))}
-        <DataItem
-          label="Runway"
-          value={
-            state.coverage.runway === "available" ? "Available" : "Limited"
-          }
-        />
-      </DataList>
 
-      {state.actionItems.length > 0 && (
-        <ol aria-label="Monitoring decisions" className="plan-monitoring__list">
-          {state.actionItems.map((item) => (
-            <li key={item.key}>
-              <article className="plan-monitoring__item">
-                <div className="plan-monitoring__item-copy">
+          <DataList
+            aria-label="Monitoring coverage"
+            className="plan-monitoring__coverage"
+          >
+            {(["cash", "debt", "burn"] as const).map((metric) => (
+              <DataItem
+                key={metric}
+                label={metricLabels[metric]}
+                value={coverageLabels[state.coverage[metric]]}
+              />
+            ))}
+            <DataItem
+              label="Runway"
+              value={
+                state.coverage.runway === "available" ? "Available" : "Limited"
+              }
+            />
+          </DataList>
+
+          {state.actionItems.length > 0 && (
+            <ol
+              aria-label="Monitoring decisions"
+              className="plan-monitoring__list"
+            >
+              {state.actionItems.map((item) => (
+                <li key={item.key}>
+                  <article className="plan-monitoring__item">
+                    <div className="plan-monitoring__item-copy">
+                      <span>{metricLabels[item.metric]}</span>
+                      <h3>{item.title}</h3>
+                      <p>{item.reason}</p>
+                      {item.observedAt !== null && (
+                        <small>Observed {formatDate(item.observedAt)}</small>
+                      )}
+                    </div>
+                    <ActionValues item={item} />
+                    <ActionGroup
+                      className="plan-monitoring__actions"
+                      layout="stack"
+                    >
+                      <Button
+                        onClick={() => onNavigate(item.route)}
+                        tone="primary"
+                      >
+                        {item.nextAction}
+                      </Button>
+                      <Button
+                        disabled={busyKey !== null}
+                        onClick={() => void reviewLater(item)}
+                        tone="quiet"
+                      >
+                        {busyKey === item.key ? "Saving…" : "Review in 7 days"}
+                      </Button>
+                    </ActionGroup>
+                  </article>
+                </li>
+              ))}
+            </ol>
+          )}
+
+          {state.deferredItems.length > 0 && (
+            <ul
+              aria-label="Deferred decisions"
+              className="plan-monitoring__deferred"
+            >
+              {state.deferredItems.map((item) => (
+                <li key={item.key}>
                   <span>{metricLabels[item.metric]}</span>
-                  <h3>{item.title}</h3>
-                  <p>{item.reason}</p>
-                  {item.observedAt !== null && (
-                    <small>Observed {formatDate(item.observedAt)}</small>
-                  )}
-                </div>
-                <ActionValues item={item} />
-                <ActionGroup
-                  className="plan-monitoring__actions"
-                  layout="stack"
-                >
-                  <Button onClick={() => onNavigate(item.route)} tone="primary">
-                    {item.nextAction}
-                  </Button>
-                  <Button
-                    disabled={busyKey !== null}
-                    onClick={() => void reviewLater(item)}
-                    tone="quiet"
-                  >
-                    {busyKey === item.key ? "Saving…" : "Review in 7 days"}
-                  </Button>
-                </ActionGroup>
-              </article>
-            </li>
-          ))}
-        </ol>
-      )}
+                  <strong>{item.title}</strong>
+                  <small>
+                    Review after{" "}
+                    {formatDate(item.cooldownUntil ?? state.evaluatedAt)}
+                  </small>
+                </li>
+              ))}
+            </ul>
+          )}
 
-      {state.deferredItems.length > 0 && (
-        <ul
-          aria-label="Deferred decisions"
-          className="plan-monitoring__deferred"
-        >
-          {state.deferredItems.map((item) => (
-            <li key={item.key}>
-              <span>{metricLabels[item.metric]}</span>
-              <strong>{item.title}</strong>
-              <small>
-                Review after{" "}
-                {formatDate(item.cooldownUntil ?? state.evaluatedAt)}
-              </small>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {notice !== null && (
-        <FormMessage className="plan-monitoring__notice" tone="success">
-          {notice}
-        </FormMessage>
+          {notice !== null && (
+            <FormMessage className="plan-monitoring__notice" tone="success">
+              {notice}
+            </FormMessage>
+          )}
+        </div>
       )}
     </section>
   );
