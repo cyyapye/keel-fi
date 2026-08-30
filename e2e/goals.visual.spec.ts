@@ -191,12 +191,12 @@ test("keeps saved goals compact and templates creation-only", async ({
   await expect(newGoalAction).toHaveAttribute("data-slot", "text-link");
   await expect(page.locator(".goal-form .field--filled")).toHaveCount(7);
   await expect(page.locator(".goal-form input[type='date']")).toHaveCount(0);
-  const primaryGoalSwitch = page.getByRole("switch", {
-    name: "Primary goal",
-  });
-  await expect(primaryGoalSwitch).toHaveAttribute("data-slot", "switch");
-  await expect(primaryGoalSwitch).toHaveAttribute("aria-checked", "true");
-  await expect(primaryGoalSwitch).toHaveAttribute("aria-readonly", "true");
+  const primaryStatus = page.locator(
+    ".goal-form__panel > .panel__header [data-slot='badge']",
+  );
+  await expect(primaryStatus).toHaveText("Primary");
+  await expect(primaryStatus).toHaveClass(/badge--positive/u);
+  await expect(page.getByRole("switch")).toHaveCount(0);
   await expect(page.getByRole("checkbox")).toHaveCount(0);
   const targetDate = page.getByRole("button", { name: "Target date" });
   await expect(targetDate).toHaveAttribute("data-slot", "date-picker");
@@ -242,10 +242,24 @@ test("keeps saved goals compact and templates creation-only", async ({
     "Keep a three-year cash runway",
   );
   await expect(page.locator(".goal-templates")).toHaveCount(0);
-  await expect(primaryGoalSwitch).toHaveAttribute("aria-checked", "false");
-  await expect(primaryGoalSwitch).not.toHaveAttribute("aria-readonly", "true");
-  await primaryGoalSwitch.click();
-  await expect(primaryGoalSwitch).toHaveAttribute("aria-checked", "true");
+  const makePrimary = page.getByRole("button", { name: "Make primary" });
+  await expect(makePrimary).toHaveAttribute("data-slot", "button");
+  await expect(makePrimary).toHaveAttribute("aria-pressed", "false");
+  await makePrimary.click();
+  const primaryOnSave = page.getByRole("button", {
+    name: "Primary on save",
+  });
+  await expect(primaryOnSave).toHaveAttribute("aria-pressed", "true");
+  await expect(page).toHaveScreenshot("goals-primary-pending.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+  await primaryOnSave.click();
+  await expect(makePrimary).toHaveAttribute("aria-pressed", "false");
+  await makePrimary.click();
+  await expect(primaryOnSave).toHaveAttribute("aria-pressed", "true");
 
   const unit = page.getByRole("combobox", { name: "Unit" });
   await expect(unit).toBeEnabled();
@@ -298,7 +312,7 @@ test("keeps saved goals compact and templates creation-only", async ({
   await newGoalAction.click();
   await expect(page.getByText("Start from a template")).toBeVisible();
   await expect(newGoalAction).toHaveCount(0);
-  await expect(primaryGoalSwitch).toHaveAttribute("aria-checked", "false");
+  await expect(makePrimary).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".goal-templates").getByRole("button")).toHaveCount(
     4,
   );
