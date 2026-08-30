@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { D1AlphaRepository } from "./index";
 import {
+  __portfolioWatchTest,
   D1PortfolioWatchRepository,
   PortfolioWatchObservationInputSchema,
 } from "./portfolio-watch";
@@ -139,6 +140,132 @@ let database: DatabaseSync | null = null;
 afterEach(() => {
   database?.close();
   database = null;
+});
+
+describe("Portfolio Watch scheduling", () => {
+  it("lists a bounded batch from more than 120 due sources with an indexed query", async () => {
+    database = createTestDatabase();
+    const insertSource = database.prepare(
+      `INSERT INTO portfolio_watch_sources (
+         id, household_id, watch_target_id, company_id, source_kind,
+         source_class, canonical_url, allowed_origin, allowed_path_prefix,
+         status, authority_ppm, identity_confidence_ppm,
+         operational_health_ppm, coverage_json, auto_activated_at,
+         created_at, updated_at
+       ) VALUES (?, 'hh_demo', 'watch_northstar', 'co_northstar',
+         'official_company_web', 'official_company', ?, ?, '/', ?, 1000000,
+         1000000, 1000000, '{}', ?, '2026-08-01T00:00:00Z',
+         '2026-08-01T00:00:00Z')`,
+    );
+    const insertSync = database.prepare(
+      `INSERT INTO portfolio_watch_source_sync_state (
+         source_id, next_check_at, consecutive_failure_count, updated_at
+       ) VALUES (?, '2026-08-01T00:00:00Z', 0, '2026-08-01T00:00:00Z')`,
+    );
+    database.exec("BEGIN");
+    for (let index = 1; index <= 130; index += 1) {
+      const suffix = index.toString().padStart(3, "0");
+      const sourceId = `source_scale_${suffix}`;
+      const origin = `https://synthetic-${suffix}.example`;
+      const status = index % 2 === 0 ? "active" : "degraded";
+      insertSource.run(
+        sourceId,
+        `${origin}/news`,
+        origin,
+        status,
+        status === "active" ? "2026-08-01T00:00:00Z" : null,
+      );
+      insertSync.run(sourceId);
+    }
+    database.exec("COMMIT");
+
+    const repository = new D1PortfolioWatchRepository(
+      new TestD1Database(database) as unknown as D1Database,
+    );
+    const firstBatch = await repository.listDueSourceJobs(
+      "2026-08-28T13:00:00Z",
+      100,
+    );
+    expect(firstBatch).toHaveLength(100);
+    expect(new Set(firstBatch.map((job) => job.sourceId)).size).toBe(100);
+    expect(firstBatch).toContainEqual({
+      type: "portfolio_watch_source_verify",
+      sourceId: "source_scale_001",
+    });
+    expect(firstBatch).toContainEqual({
+      type: "portfolio_watch_source_scan",
+      sourceId: "source_scale_002",
+    });
+
+    const queryPlan = database
+      .prepare(`EXPLAIN QUERY PLAN ${__portfolioWatchTest.dueSourceJobsSql}`)
+      .all("2026-08-28T13:00:00Z", 100) as { detail: string }[];
+    const details = queryPlan.map((row) => row.detail).join("\n");
+    expect(details).toContain("portfolio_watch_source_sync_due_idx");
+  });
+
+  it("checks healthy sources weekly and keeps failed sources retryable", async () => {
+    database = createTestDatabase();
+    const repository = new D1PortfolioWatchRepository(
+      new TestD1Database(database) as unknown as D1Database,
+    );
+    const common = {
+      sourceId: "source_financing_test",
+      observedUrl: "https://northstar-robotics.example/news",
+      normalizedUrl: "https://northstar-robotics.example/news",
+      httpStatus: 200,
+      contentType: "text/html",
+      redirectUrl: null,
+      securityPassed: true,
+      grade: {
+        authorityPpm: 1_000_000,
+        identityPpm: 1_000_000,
+        securityPpm: 1_000_000,
+        operationalPpm: 1_000_000,
+      },
+      contentSha256: "a".repeat(64),
+      etag: null,
+      lastModified: null,
+    } as const;
+
+    await repository.recordVerification({
+      ...common,
+      nextStatus: "active",
+      reasonCode: "all_hard_gates_passed",
+      checkedAt: "2026-08-07T12:00:00Z",
+      errorCode: null,
+    });
+    expect(
+      database
+        .prepare(
+          `SELECT next_check_at FROM portfolio_watch_source_sync_state
+           WHERE source_id = 'source_financing_test'`,
+        )
+        .get(),
+    ).toEqual({ next_check_at: "2026-08-14T12:00:00.000Z" });
+
+    await repository.recordVerification({
+      ...common,
+      nextStatus: "degraded",
+      reasonCode: "fetch_failed",
+      checkedAt: "2026-08-08T12:00:00Z",
+      grade: { ...common.grade, operationalPpm: 0 },
+      contentSha256: null,
+      errorCode: "fetch_failed",
+    });
+    expect(
+      database
+        .prepare(
+          `SELECT next_check_at, consecutive_failure_count
+           FROM portfolio_watch_source_sync_state
+           WHERE source_id = 'source_financing_test'`,
+        )
+        .get(),
+    ).toEqual({
+      next_check_at: "2026-08-08T13:00:00.000Z",
+      consecutive_failure_count: 1,
+    });
+  });
 });
 
 describe("Portfolio Watch financing fact persistence", () => {

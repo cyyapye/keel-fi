@@ -27,6 +27,17 @@ Third-party press rooms, cross-host feeds, JavaScript-only pages, and sites that
 redirect away from the approved host are coverage gaps in this first version.
 They are not silently trusted.
 
+## Check cadence
+
+The existing daily `0 13 * * *` Worker trigger also performs one bounded due
+source lookup for Portfolio Watch. A successful source check becomes eligible
+again after seven days, so healthy official sources are fetched weekly rather
+than daily. A failed check becomes eligible again after one hour and is picked
+up by the next daily sweep; unexpected Queue failures retain the Queue's bounded
+retry policy. The scheduled lookup queues at most 100 opaque source-ID jobs per
+run. **Check now** remains an explicit on-demand scan and does not wait for the
+scheduled eligibility window.
+
 ## Evidence boundary
 
 Accepted source bytes are stored under opaque keys in private R2. A classified

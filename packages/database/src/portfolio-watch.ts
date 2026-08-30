@@ -25,6 +25,21 @@ const SourceJobSchema = z.object({
   sourceId: z.string().min(1),
 });
 
+const DUE_PORTFOLIO_WATCH_SOURCE_JOBS_SQL = `
+  SELECT source.id, source.status
+  FROM portfolio_watch_source_sync_state sync
+    INDEXED BY portfolio_watch_source_sync_due_idx
+  JOIN portfolio_watch_sources source ON source.id = sync.source_id
+  JOIN portfolio_watch_targets target
+    ON target.id = source.watch_target_id
+   AND target.household_id = source.household_id
+   AND target.company_id = source.company_id
+  WHERE sync.next_check_at <= ?
+    AND target.status = 'active'
+    AND source.status IN ('discovered', 'verified', 'active', 'degraded')
+  ORDER BY sync.next_check_at, source.id
+  LIMIT ?`;
+
 export const PortfolioWatchScanPreparationSchema = z.object({
   checkedAt: IsoTimestampSchema,
   jobs: z.array(SourceJobSchema),
@@ -165,6 +180,13 @@ export type PortfolioWatchObservationInput = z.infer<
   typeof PortfolioWatchObservationInputSchema
 >;
 
+export interface ScheduledPortfolioWatchRepository {
+  listDueSourceJobs(
+    dueAt: string,
+    limit: number,
+  ): Promise<PortfolioWatchScanPreparation["jobs"]>;
+}
+
 type TargetRow = {
   id: string;
   company_id: string;
@@ -232,7 +254,7 @@ function sourceRecord(row: SourceRow): PortfolioWatchSourceRecord {
 
 function nextCheckAt(checkedAt: string, succeeded: boolean): string {
   const next = new Date(checkedAt);
-  next.setUTCMinutes(next.getUTCMinutes() + (succeeded ? 6 * 60 : 60));
+  next.setUTCMinutes(next.getUTCMinutes() + (succeeded ? 7 * 24 * 60 : 60));
   return next.toISOString();
 }
 
@@ -247,6 +269,27 @@ function isSourceUniqueConstraint(error: unknown): boolean {
 
 export class D1PortfolioWatchRepository {
   public constructor(private readonly db: D1Database) {}
+
+  public async listDueSourceJobs(
+    rawDueAt: string,
+    rawLimit: number,
+  ): Promise<PortfolioWatchScanPreparation["jobs"]> {
+    const dueAt = z.iso.datetime({ offset: true }).parse(rawDueAt);
+    const limit = z.number().int().min(1).max(100).parse(rawLimit);
+    const rows = await all<{
+      id: string;
+      status: z.infer<typeof OfficialCompanySourceStatusSchema>;
+    }>(this.db.prepare(DUE_PORTFOLIO_WATCH_SOURCE_JOBS_SQL).bind(dueAt, limit));
+    return z.array(SourceJobSchema).parse(
+      rows.map((source) => ({
+        type:
+          source.status === "active"
+            ? "portfolio_watch_source_scan"
+            : "portfolio_watch_source_verify",
+        sourceId: source.id,
+      })),
+    );
+  }
 
   public async prepareScan(
     householdId: string,
@@ -861,3 +904,7 @@ export class D1PortfolioWatchRepository {
     return true;
   }
 }
+
+export const __portfolioWatchTest = {
+  dueSourceJobsSql: DUE_PORTFOLIO_WATCH_SOURCE_JOBS_SQL,
+};
