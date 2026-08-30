@@ -25,6 +25,7 @@ import {
   ActionGroup,
   Badge,
   Button,
+  EmptyState,
   FormMessage,
   Input,
   Notice,
@@ -803,7 +804,13 @@ function InvestmentAccountRows({
 }) {
   if (connection === null || connection.containers.length === 0) {
     return (
-      <p className="investment-institution__empty">No reviewed accounts yet.</p>
+      <EmptyState
+        className="investment-institution__empty"
+        compact
+        headingAs="h4"
+        icon={null}
+        title="No reviewed accounts yet."
+      />
     );
   }
   return (
@@ -1309,10 +1316,15 @@ function ExposureView({
     canonicalUnallocated.length === 0
   ) {
     return (
-      <div className="investment-views__empty">
-        <h3>No company exposures</h3>
-        <p>Connect an investment institution or import a holding update.</p>
-      </div>
+      <EmptyState
+        className="investment-views__empty"
+        compact
+        headingAs="h3"
+        icon={null}
+        title="No company exposures"
+      >
+        Connect an investment institution or import a holding update.
+      </EmptyState>
     );
   }
   return (

@@ -83,6 +83,36 @@ describe("shared UI usage", () => {
     expect(violations).toEqual([]);
   });
 
+  it("routes audited compact empty states through EmptyState", () => {
+    const emptyStateClassesByFile: Record<string, readonly string[]> = {
+      "InvestmentHoldings.tsx": [
+        "investment-institution__empty",
+        "investment-views__empty",
+      ],
+      "Obligations.tsx": ["reviewed-obligations__empty"],
+      "PortfolioSnapshot.tsx": ["portfolio-movers__empty"],
+    };
+    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
+      const relativePath = relative(webSourceDirectory, path);
+      const emptyStateClasses = emptyStateClassesByFile[relativePath] ?? [];
+      const source = readFileSync(path, "utf8");
+      const elements = source.matchAll(
+        /<([A-Za-z][\w.]*)\b[^>]*\bclassName="([^"]+)"/gsu,
+      );
+      return Array.from(elements).flatMap((match) => {
+        const [, component = "", className = ""] = match;
+        const isAuditedEmptyState = className
+          .split(/\s+/u)
+          .some((token) => emptyStateClasses.includes(token));
+        return isAuditedEmptyState && component !== "EmptyState"
+          ? [`${relativePath}: <${component} className="${className}">`]
+          : [];
+      });
+    });
+
+    expect(violations).toEqual([]);
+  });
+
   it("routes alert feedback through shared components", () => {
     const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
       const source = readFileSync(path, "utf8");

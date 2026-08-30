@@ -10,6 +10,7 @@ import {
   ActionGroup,
   Badge,
   Button,
+  EmptyState,
   Field,
   FormMessage,
   Input,
@@ -990,10 +991,16 @@ export function Obligations() {
           title="Accepted obligations"
         />
         {state.acceptedLiabilities.length === 0 ? (
-          <p className="reviewed-obligations__empty">
-            No obligations have been accepted. Add one manually or connect an
-            institution, then review the reported values.
-          </p>
+          <EmptyState
+            className="reviewed-obligations__empty"
+            compact
+            headingAs="h3"
+            icon={null}
+            title="No obligations have been accepted."
+          >
+            Add one manually or connect an institution, then review the reported
+            values.
+          </EmptyState>
         ) : (
           <div className="reviewed-obligations__list">
             {state.acceptedLiabilities.map((liability) => (
