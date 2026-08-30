@@ -52,7 +52,6 @@ describe("shared UI usage", () => {
 
   it("routes approved structural headings through SectionHeader", () => {
     const structuralHeadingClassesByFile: Record<string, readonly string[]> = {
-      "InitialShell.tsx": ["investment-views__heading"],
       "InvestmentHoldings.tsx": [
         "cash-holdings__heading",
         "investment-institutions__heading",
@@ -60,6 +59,7 @@ describe("shared UI usage", () => {
       ],
       "Obligations.tsx": ["obligation-review__heading"],
       "PlanActualMonitoring.tsx": ["plan-monitoring__header"],
+      "RouteShells.tsx": ["investment-views__heading"],
     };
     const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
       const relativePath = relative(webSourceDirectory, path);

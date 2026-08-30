@@ -1,75 +1,9 @@
-import {
-  AppShell,
-  BrandMark,
-  FormMessage,
-  PageHeader,
-  Screen,
-  SectionHeader,
-} from "@keel/ui";
-
-const navigation = [
-  { id: "dashboard", index: "01", label: "Overview" },
-  { id: "goals", index: "02", label: "Goals" },
-  { id: "holdings", index: "03", label: "Holdings" },
-  { id: "obligations", index: "04", label: "Obligations" },
-  { id: "watch", index: "05", label: "Portfolio Watch" },
-  { id: "evidence", index: "06", label: "Evidence Inbox" },
-  { id: "scenarios", index: "07", label: "Scenarios" },
-  { id: "history", index: "08", label: "Forecast History" },
-] as const;
-
-function HoldingsShell() {
-  return (
-    <AppShell
-      activeItemId="holdings"
-      brandMark={<BrandMark />}
-      brandName="Keel"
-      brandSubtitle="Private alpha"
-      contextName="Portfolio"
-      items={navigation}
-      onNavigate={() => undefined}
-      operatorInitials="DO"
-      operatorName="Demo Operator"
-      pageTitle="Holdings"
-    >
-      <Screen className="holdings-screen">
-        <PageHeader
-          description="See shared economic exposure, then open each legal position for ownership and source details."
-          eyebrow="Portfolio evidence"
-          title="Holdings"
-        />
-        <section
-          aria-labelledby="investment-views-title"
-          className="investment-views"
-        >
-          <SectionHeader
-            className="investment-views__heading"
-            description="Legal positions stay separate inside each exposure. Open one for ownership and source details."
-            descriptionPlacement="title-group"
-            eyebrow="Reviewed ownership"
-            headingProps={{ id: "investment-views-title" }}
-            title="Exposures"
-          />
-          <FormMessage className="investment-views__loading">
-            Loading reviewed exposures…
-          </FormMessage>
-        </section>
-      </Screen>
-    </AppShell>
-  );
-}
+import { isHoldingsPath } from "./app-navigation";
+import { HoldingsInitialShell, LoadingShell } from "./RouteShells";
 
 export function InitialShell() {
-  if (/^\/holdings(?:\/|$)/u.test(window.location.pathname)) {
-    return <HoldingsShell />;
+  if (isHoldingsPath(window.location.pathname)) {
+    return <HoldingsInitialShell />;
   }
-  return (
-    <div className="loading-shell">
-      <div className="loading-brand">Keel</div>
-      <div aria-live="polite" className="loading-card" role="status">
-        <span aria-hidden="true" className="loader" />
-        <h1>Loading your portfolio</h1>
-      </div>
-    </div>
-  );
+  return <LoadingShell />;
 }

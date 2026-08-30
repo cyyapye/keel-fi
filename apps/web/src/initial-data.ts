@@ -1,8 +1,10 @@
+import { isHoldingsPath } from "./app-navigation";
+
 let alphaPreload: Promise<Response | null> | null = null;
 let holdingsPagePreload: Promise<Response | null> | null = null;
 
 export function startInitialDataPreload(): void {
-  if (/^\/holdings(?:\/|$)/u.test(window.location.pathname)) {
+  if (isHoldingsPath(window.location.pathname)) {
     holdingsPagePreload = preload("/api/holdings-page");
     return;
   }
