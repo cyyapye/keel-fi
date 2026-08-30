@@ -316,6 +316,16 @@ function latestGoalVersion(goal: Goal) {
   return version;
 }
 
+function goalProgressPpm(version: ReturnType<typeof latestGoalVersion>) {
+  const target = version.targetValueInteger;
+  if (target === null) return 0;
+  if (target === 0) return 1_000_000;
+  return Math.min(
+    Number((BigInt(version.currentValueInteger) * 1_000_000n) / BigInt(target)),
+    1_000_000,
+  );
+}
+
 function formatGoalValue(value: number, unit: GoalUnit): string {
   if (unit === "minor_units") {
     return formatCompactMoney(value);
@@ -592,10 +602,12 @@ function LiquidityChart({
 
 function Dashboard({
   data,
+  onEditGoal,
   onNavigate,
   onPortfolioDrilldown,
 }: {
   data: AlphaData;
+  onEditGoal: (goalId: string) => void;
   onNavigate: (screen: Screen) => void;
   onPortfolioDrilldown: (drilldown: PortfolioSnapshotDrilldown) => void;
 }) {
@@ -615,18 +627,7 @@ function Dashboard({
   const primaryVersion = latestGoalVersion(primaryGoal);
   const primaryForecast = primaryVersion.forecast;
   const target = primaryVersion.targetValueInteger;
-  const progressPpm =
-    target === null
-      ? 0
-      : target === 0
-        ? 1_000_000
-        : Math.min(
-            Number(
-              (BigInt(primaryVersion.currentValueInteger) * 1_000_000n) /
-                BigInt(target),
-            ),
-            1_000_000,
-          );
+  const progressPpm = goalProgressPpm(primaryVersion);
   const signalPpm = primaryForecast.successProbabilityPpm ?? progressPpm;
   const ringStyle = {
     "--probability": `${Math.floor(signalPpm / 10_000)}%`,
@@ -639,49 +640,7 @@ function Dashboard({
 
   return (
     <ScreenLayout>
-      <section className="hero">
-        <div>
-          <p className="eyebrow">
-            Primary goal · saved plan v{primaryVersion.version}
-          </p>
-          <h1>{primaryVersion.name}</h1>
-          <p className="hero__copy">
-            {primaryVersion.metricLabel}:{" "}
-            {formatGoalValue(
-              primaryVersion.currentValueInteger,
-              primaryVersion.targetUnit,
-            )}
-            {target === null
-              ? ". Add a target when it becomes useful."
-              : ` of ${formatGoalValue(target, primaryVersion.targetUnit)}${
-                  primaryVersion.targetDate === null
-                    ? "."
-                    : ` by ${formatDate(primaryVersion.targetDate)}.`
-                }`}
-          </p>
-          <TextLink
-            className="hero__action"
-            onClick={() => onNavigate("goals")}
-            tone="inverse"
-          >
-            Edit this goal
-          </TextLink>
-        </div>
-        <div className="hero__runway">
-          <span>Current measure</span>
-          <strong>
-            {formatGoalValue(
-              primaryVersion.currentValueInteger,
-              primaryVersion.targetUnit,
-            )}
-          </strong>
-          <small>
-            {target === null
-              ? "No target set"
-              : `${formatProbability(progressPpm)} of target`}
-          </small>
-        </div>
-      </section>
+      <OverviewGoalHero goals={data.goals} onEditGoal={onEditGoal} />
 
       <PlanActualMonitoring onNavigate={onNavigate} />
 
@@ -728,21 +687,6 @@ function Dashboard({
           value={formatCompactMoney(dashboard.fiEligibleLiquidMinor)}
         />
       </div>
-
-      {data.goals.length > 1 && (
-        <section className="overview-goals">
-          <header>
-            <div>
-              <p className="eyebrow">Goals</p>
-              <h2>Active goals</h2>
-            </div>
-            <TextLink onClick={() => onNavigate("goals")}>
-              Manage goals
-            </TextLink>
-          </header>
-          <OverviewGoalCarousel goals={data.goals} />
-        </section>
-      )}
 
       <Suspense fallback={null}>
         <PortfolioSnapshot
@@ -995,23 +939,79 @@ function GoalSelectorHeader({ goal }: { goal: Goal }) {
   );
 }
 
-function OverviewGoalCarousel({ goals }: { goals: Goal[] }) {
-  const [initialIndex] = useState(() =>
-    Math.max(
-      0,
-      goals.findIndex((goal) => goal.isPrimary),
-    ),
+function GoalHeroContent({
+  goal,
+  isActive = true,
+  onEditGoal,
+}: {
+  goal: Goal;
+  isActive?: boolean;
+  onEditGoal: (goalId: string) => void;
+}) {
+  const version = latestGoalVersion(goal);
+  const target = version.targetValueInteger;
+  const progressPpm = goalProgressPpm(version);
+
+  return (
+    <>
+      <div>
+        <p className="eyebrow">
+          {goal.isPrimary ? "Primary goal" : templateLabels[goal.templateKey]} ·
+          saved plan v{version.version}
+        </p>
+        <h1>{version.name}</h1>
+        <p className="hero__copy">
+          {version.metricLabel}:{" "}
+          {formatGoalValue(version.currentValueInteger, version.targetUnit)}
+          {target === null
+            ? ". Add a target when it becomes useful."
+            : ` of ${formatGoalValue(target, version.targetUnit)}${
+                version.targetDate === null
+                  ? "."
+                  : ` by ${formatDate(version.targetDate)}.`
+              }`}
+        </p>
+        <TextLink
+          className="hero__action"
+          onClick={() => onEditGoal(goal.id)}
+          tabIndex={isActive ? 0 : -1}
+          tone="inverse"
+        >
+          Edit this goal
+        </TextLink>
+      </div>
+      <div className="hero__runway">
+        <span>Current measure</span>
+        <strong>
+          {formatGoalValue(version.currentValueInteger, version.targetUnit)}
+        </strong>
+        <small>
+          {target === null
+            ? "No target set"
+            : `${formatProbability(progressPpm)} of target`}
+        </small>
+      </div>
+    </>
   );
-  const options = useMemo(
+}
+
+function OverviewGoalHero({
+  goals,
+  onEditGoal,
+}: {
+  goals: Goal[];
+  onEditGoal: (goalId: string) => void;
+}) {
+  const orderedGoals = useMemo(
     () =>
-      ({
-        align: "start" as const,
-        startIndex: initialIndex,
-      }) as const,
-    [initialIndex],
+      [...goals].sort(
+        (left, right) => Number(right.isPrimary) - Number(left.isPrimary),
+      ),
+    [goals],
   );
+  const options = useMemo(() => ({ align: "start" as const }), []);
   const [api, setApi] = useState<CarouselApi>();
-  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
     if (api === undefined) return;
@@ -1027,75 +1027,77 @@ function OverviewGoalCarousel({ goals }: { goals: Goal[] }) {
     };
   }, [api]);
 
+  const onlyGoal = orderedGoals[0];
+  if (orderedGoals.length === 1 && onlyGoal !== undefined) {
+    return (
+      <section className="hero">
+        <GoalHeroContent goal={onlyGoal} onEditGoal={onEditGoal} />
+      </section>
+    );
+  }
+
   return (
-    <Carousel
-      aria-label="Active goals"
-      className="overview-goal-carousel"
-      opts={options}
-      setApi={setApi}
-    >
-      <CarouselContent>
-        {goals.map((goal, index) => {
-          const version = latestGoalVersion(goal);
-          return (
-            <CarouselItem
-              aria-label={`${index + 1} of ${goals.length}`}
-              className="overview-goal-carousel__slide"
-              key={goal.id}
-            >
-              <article className="overview-goal-card">
-                <div>
-                  <span>
-                    {goal.isPrimary
-                      ? "Primary goal"
-                      : templateLabels[goal.templateKey]}
-                  </span>
-                  <h3>{version.name}</h3>
-                </div>
-                <div className="overview-goal-card__measure">
-                  <strong>
-                    {formatGoalValue(
-                      version.currentValueInteger,
-                      version.targetUnit,
-                    )}
-                  </strong>
-                  <small>
-                    {version.targetValueInteger === null
-                      ? "No target set"
-                      : `of ${formatGoalValue(
-                          version.targetValueInteger,
-                          version.targetUnit,
-                        )}`}
-                  </small>
-                </div>
-              </article>
-            </CarouselItem>
-          );
-        })}
-      </CarouselContent>
-      <span
-        aria-atomic="true"
-        aria-label={`Goal ${currentIndex + 1} of ${goals.length}`}
-        aria-live="polite"
-        className="overview-goal-carousel__position"
+    <section className="hero hero--carousel">
+      <Carousel
+        aria-label="Goal overview"
+        className="hero-carousel"
+        opts={options}
+        setApi={setApi}
       >
-        {currentIndex + 1} / {goals.length}
-      </span>
-      <CarouselPrevious aria-label="Previous goal" />
-      <CarouselNext aria-label="Next goal" />
-    </Carousel>
+        <CarouselContent>
+          {orderedGoals.map((goal, index) => {
+            const version = latestGoalVersion(goal);
+            const isActive = index === currentIndex;
+            return (
+              <CarouselItem
+                aria-hidden={!isActive}
+                aria-label={`${index + 1} of ${orderedGoals.length}: ${version.name}`}
+                className="hero-carousel__slide"
+                key={goal.id}
+              >
+                <article className="hero__slide">
+                  <GoalHeroContent
+                    goal={goal}
+                    isActive={isActive}
+                    onEditGoal={onEditGoal}
+                  />
+                </article>
+              </CarouselItem>
+            );
+          })}
+        </CarouselContent>
+        <footer className="hero-carousel__footer">
+          <span
+            aria-atomic="true"
+            aria-label={`Goal ${currentIndex + 1} of ${orderedGoals.length}`}
+            aria-live="polite"
+            className="hero-carousel__position"
+          >
+            {currentIndex + 1} / {orderedGoals.length}
+          </span>
+          <div className="hero-carousel__controls">
+            <CarouselPrevious aria-label="Previous goal" />
+            <CarouselNext aria-label="Next goal" />
+          </div>
+        </footer>
+      </Carousel>
+    </section>
   );
 }
 
 function Goals({
   data,
+  initialGoalId,
   onSave,
 }: {
   data: AlphaData;
+  initialGoalId: string | null;
   onSave: (input: GoalDraftInput) => Promise<void>;
 }) {
   const initialGoal =
-    data.goals.find((goal) => goal.isPrimary) ?? data.goals[0];
+    data.goals.find((goal) => goal.id === initialGoalId) ??
+    data.goals.find((goal) => goal.isPrimary) ??
+    data.goals[0];
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(
     initialGoal?.id ?? null,
   );
@@ -8886,6 +8888,7 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>(
     () => routeFromLocation().screen,
   );
+  const [requestedGoalId, setRequestedGoalId] = useState<string | null>(null);
   const [holdingImportId, setHoldingImportId] = useState<string | null>(
     () => routeFromLocation().holdingImportId,
   );
@@ -8984,6 +8987,19 @@ export function App() {
     setHoldingImportId(null);
     setHoldingsDrilldown(null);
     setHoldingsView("overview");
+    setRequestedGoalId(null);
+  }, []);
+
+  const navigateToGoal = useCallback((goalId: string) => {
+    const path = pathForScreen("goals");
+    if (`${window.location.pathname}${window.location.search}` !== path) {
+      window.history.pushState(null, "", path);
+    }
+    setActiveScreen("goals");
+    setHoldingImportId(null);
+    setHoldingsDrilldown(null);
+    setHoldingsView("overview");
+    setRequestedGoalId(goalId);
   }, []);
 
   const navigateToHoldingImport = useCallback((importId: string | null) => {
@@ -9038,6 +9054,7 @@ export function App() {
       setHoldingImportId(route.holdingImportId);
       setHoldingsDrilldown(route.holdingsDrilldown);
       setHoldingsView(route.holdingsView);
+      setRequestedGoalId(null);
     };
     window.addEventListener("popstate", updateRoute);
     return () => window.removeEventListener("popstate", updateRoute);
@@ -9136,6 +9153,7 @@ export function App() {
         return (
           <Dashboard
             data={data}
+            onEditGoal={navigateToGoal}
             onNavigate={navigateToScreen}
             onPortfolioDrilldown={navigateToPortfolioDrilldown}
           />
@@ -9144,6 +9162,7 @@ export function App() {
         return (
           <Goals
             data={data}
+            initialGoalId={requestedGoalId}
             onSave={async (input) => {
               await saveGoalVersion(input);
               setData(await loadAlphaData());
@@ -9257,10 +9276,12 @@ export function App() {
     holdingsView,
     navigateToHoldingImport,
     navigateToHoldingsView,
+    navigateToGoal,
     navigateToPortfolioDrilldown,
     navigateToScreen,
     refreshAlphaData,
     refreshHoldingsPage,
+    requestedGoalId,
     reviewError,
     scenarioContext,
   ]);

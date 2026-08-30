@@ -11,7 +11,15 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("keeps Overview actions restrained and goals swipeable", async ({
+function latestGoalName(goal: AlphaData["goals"][number] | undefined) {
+  const version = goal?.versions[0];
+  if (version === undefined) {
+    throw new Error("Expected a saved goal version in the Overview fixture.");
+  }
+  return version.name;
+}
+
+test("keeps the Overview masthead swipeable without a duplicate goals section", async ({
   page,
 }, testInfo) => {
   const alphaResponse = await page.request.get("/api/alpha");
@@ -25,90 +33,21 @@ test("keeps Overview actions restrained and goals swipeable", async ({
 
   await page.goto("/");
 
-  const goals = page.getByRole("region", { name: "Active goals" });
-  const goalSlides = goals.locator("[data-slot='carousel-item']");
-  await expect(goals).toBeVisible();
+  const goalHero = page.getByRole("region", { name: "Goal overview" });
+  const goalSlides = goalHero.locator("[data-slot='carousel-item']");
+  await expect(goalHero).toBeVisible();
   await expect(goalSlides).toHaveCount(alphaFixture.goals.length);
-  await expect(goals.locator(".overview-goal-carousel__position")).toHaveText(
+  await expect(goalHero.locator(".hero-carousel__position")).toHaveText(
     `1 / ${alphaFixture.goals.length}`,
   );
-  const previousGoal = goals.getByRole("button", { name: "Previous goal" });
-  const nextGoal = goals.getByRole("button", { name: "Next goal" });
+  const previousGoal = goalHero.getByRole("button", {
+    name: "Previous goal",
+  });
+  const nextGoal = goalHero.getByRole("button", { name: "Next goal" });
   await expect(previousGoal).toBeDisabled();
   await expect(nextGoal).toBeEnabled();
-  await expect(goalSlides.first().getByText("Primary goal")).toBeVisible();
-
-  await nextGoal.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(goals.locator(".overview-goal-carousel__position")).toHaveText(
-    `2 / ${alphaFixture.goals.length}`,
-  );
-  await page.keyboard.press("ArrowLeft");
-  await expect(goals.locator(".overview-goal-carousel__position")).toHaveText(
-    `1 / ${alphaFixture.goals.length}`,
-  );
-
-  const viewport = goals.locator("[data-slot='carousel-content']");
-  const viewportBox = await viewport.boundingBox();
-  expect(viewportBox).not.toBeNull();
-  await page.mouse.move(
-    viewportBox!.x + viewportBox!.width * 0.82,
-    viewportBox!.y + viewportBox!.height / 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    viewportBox!.x + viewportBox!.width * 0.16,
-    viewportBox!.y + viewportBox!.height / 2,
-    { steps: 10 },
-  );
-  await page.mouse.up();
-  await expect(goals.locator(".overview-goal-carousel__position")).toHaveText(
-    `2 / ${alphaFixture.goals.length}`,
-  );
-  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
-  await expect
-    .poll(async () => {
-      const [secondSlideBox, currentViewportBox] = await Promise.all([
-        goalSlides.nth(1).locator(".overview-goal-card").boundingBox(),
-        viewport.boundingBox(),
-      ]);
-      if (secondSlideBox === null || currentViewportBox === null) return null;
-      return Math.abs(Math.round(secondSlideBox.x - currentViewportBox.x));
-    })
-    .toBe(0);
-  await expect(page.locator(".overview-goals")).toHaveScreenshot(
-    "overview-goals-carousel-swiped.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  const textLinks = page.locator('[data-slot="text-link"]');
-  await expect(textLinks).toHaveCount(4);
-  expect(
-    (await textLinks.allTextContents()).every((label) => !label.includes("→")),
-  ).toBe(true);
-
-  const linkStyles = await textLinks.evaluateAll((links) =>
-    links.map((link) => {
-      const styles = window.getComputedStyle(link);
-      const bounds = link.getBoundingClientRect();
-      return {
-        height: bounds.height,
-        textDecorationLine: styles.textDecorationLine,
-      };
-    }),
-  );
-  expect(
-    linkStyles.every(
-      ({ height, textDecorationLine }) =>
-        height >= (testInfo.project.name === "mobile-chromium" ? 44 : 40) &&
-        textDecorationLine === "none",
-    ),
-  ).toBe(true);
+  await expect(goalSlides.first().getByText(/Primary goal/u)).toBeVisible();
+  await expect(page.locator(".overview-goals")).toHaveCount(0);
 
   const heroAction = page
     .locator(".hero")
@@ -144,11 +83,96 @@ test("keeps Overview actions restrained and goals swipeable", async ({
       threshold: 0.25,
     },
   );
+
+  await nextGoal.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(goalHero.locator(".hero-carousel__position")).toHaveText(
+    `2 / ${alphaFixture.goals.length}`,
+  );
+  await page.keyboard.press("ArrowLeft");
+  await expect(goalHero.locator(".hero-carousel__position")).toHaveText(
+    `1 / ${alphaFixture.goals.length}`,
+  );
+
+  const viewport = goalHero.locator("[data-slot='carousel-content']");
+  const viewportBox = await viewport.boundingBox();
+  expect(viewportBox).not.toBeNull();
+  await page.mouse.move(
+    viewportBox!.x + viewportBox!.width * 0.82,
+    viewportBox!.y + viewportBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    viewportBox!.x + viewportBox!.width * 0.16,
+    viewportBox!.y + viewportBox!.height / 2,
+    { steps: 10 },
+  );
+  await page.mouse.up();
+  await expect(goalHero.locator(".hero-carousel__position")).toHaveText(
+    `2 / ${alphaFixture.goals.length}`,
+  );
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+  await expect
+    .poll(async () => {
+      const [secondSlideBox, currentViewportBox] = await Promise.all([
+        goalSlides.nth(1).locator(".hero__slide").boundingBox(),
+        viewport.boundingBox(),
+      ]);
+      if (secondSlideBox === null || currentViewportBox === null) return null;
+      return Math.abs(Math.round(secondSlideBox.x - currentViewportBox.x));
+    })
+    .toBe(0);
+  await expect(
+    goalSlides.first().locator("[data-slot='text-link']"),
+  ).toHaveAttribute("tabindex", "-1");
+  await expect(
+    goalSlides.nth(1).locator("[data-slot='text-link']"),
+  ).toHaveAttribute("tabindex", "0");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.locator(".hero")).toHaveScreenshot(
+    "overview-hero-carousel-swiped.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  const textLinks = page.locator('[data-slot="text-link"]');
+  expect(
+    (await textLinks.allTextContents()).every((label) => !label.includes("→")),
+  ).toBe(true);
+
+  const linkStyles = await textLinks.evaluateAll((links) =>
+    links.map((link) => {
+      const styles = window.getComputedStyle(link);
+      const bounds = link.getBoundingClientRect();
+      return {
+        height: bounds.height,
+        textDecorationLine: styles.textDecorationLine,
+      };
+    }),
+  );
+  expect(
+    linkStyles.every(
+      ({ height, textDecorationLine }) =>
+        height >= (testInfo.project.name === "mobile-chromium" ? 44 : 40) &&
+        textDecorationLine === "none",
+    ),
+  ).toBe(true);
   await expect(page.locator(".metrics-grid")).not.toContainText("→");
   await expectNoHorizontalOverflow(page);
+
+  const selectedGoalName = latestGoalName(alphaFixture.goals[1]);
+  await goalHero.getByRole("button", { name: "Edit this goal" }).click();
+  await expect(page).toHaveURL(/\/goals$/u);
+  await expect(
+    page.getByRole("combobox", { name: "Saved goal" }).locator("strong"),
+  ).toHaveText(selectedGoalName);
 });
 
-test("keeps the carousel off Overview when only one goal is active", async ({
+test("keeps the masthead static when only one goal is active", async ({
   page,
 }) => {
   const alphaResponse = await page.request.get("/api/alpha");
@@ -167,7 +191,7 @@ test("keeps the carousel off Overview when only one goal is active", async ({
 
   await page.goto("/");
 
-  await expect(page.getByRole("region", { name: "Active goals" })).toHaveCount(
+  await expect(page.getByRole("region", { name: "Goal overview" })).toHaveCount(
     0,
   );
   await expect(page.locator(".overview-goals")).toHaveCount(0);
