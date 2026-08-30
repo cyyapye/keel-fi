@@ -134,6 +134,12 @@ import {
   type UploadHoldingImportProvider,
 } from "./api";
 import {
+  navigation,
+  pageHeading,
+  pathForScreen,
+  type Screen,
+} from "./app-navigation";
+import {
   formatCompactCurrency,
   formatCompactMoney,
   formatDate,
@@ -147,59 +153,15 @@ import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanActualMonitoring } from "./PlanActualMonitoring";
 import { PlanInputsEditor } from "./PlanInputsEditor";
 import type { PortfolioSnapshotDrilldown } from "./PortfolioSnapshot";
+import { HoldingsRouteShell, LoadingShell } from "./RouteShells";
 
 const PortfolioSnapshot = lazy(async () => {
   const module = await import("./PortfolioSnapshot");
   return { default: module.PortfolioSnapshot };
 });
 
-type Screen =
-  | "dashboard"
-  | "goals"
-  | "holdings"
-  | "obligations"
-  | "watch"
-  | "evidence"
-  | "scenarios"
-  | "history";
-
 const isRealCompanyAcceptanceProfile =
   import.meta.env.VITE_KEEL_ACCEPTANCE_PROFILE === "real-company";
-
-const navigation: readonly {
-  id: Screen;
-  label: string;
-  index: string;
-}[] = [
-  {
-    id: "dashboard",
-    label: "Overview",
-    index: "01",
-  },
-  { id: "goals", label: "Goals", index: "02" },
-  { id: "holdings", label: "Holdings", index: "03" },
-  { id: "obligations", label: "Obligations", index: "04" },
-  {
-    id: "watch",
-    label: "Portfolio Watch",
-    index: "05",
-  },
-  {
-    id: "evidence",
-    label: "Evidence Inbox",
-    index: "06",
-  },
-  { id: "scenarios", label: "Scenarios", index: "07" },
-  {
-    id: "history",
-    label: "Forecast History",
-    index: "08",
-  },
-];
-
-function pageHeading(screen: Screen) {
-  return navigation.find((item) => item.id === screen)?.label ?? "Keel";
-}
 
 type AppRoute = {
   screen: Screen;
@@ -279,10 +241,6 @@ function routeFromLocation(): AppRoute {
       screen === "holdings" ? holdingsDrilldownFromLocation() : null,
     holdingsView: "overview",
   };
-}
-
-function pathForScreen(screen: Screen): string {
-  return screen === "dashboard" ? "/" : `/${screen}`;
 }
 
 function SourceBadge({
@@ -8827,18 +8785,6 @@ function ForecastHistory({ data }: { data: AlphaData }) {
   );
 }
 
-function LoadingShell() {
-  return (
-    <div className="loading-shell">
-      <div className="loading-brand">Keel</div>
-      <div aria-live="polite" className="loading-card" role="status">
-        <span aria-hidden="true" className="loader" />
-        <h1>Loading your portfolio</h1>
-      </div>
-    </div>
-  );
-}
-
 function HoldingsRouteStatus({
   error,
   onRetry,
@@ -8847,40 +8793,18 @@ function HoldingsRouteStatus({
   onRetry: () => void;
 }) {
   return (
-    <ScreenLayout className="holdings-screen">
-      <PageHeader
-        description="See shared economic exposure, then open each legal position for ownership and source details."
-        eyebrow="Portfolio evidence"
-        title="Holdings"
-      />
-      <section
-        aria-labelledby="investment-views-title"
-        className="investment-views"
-      >
-        <div className="investment-views__heading">
-          <div>
-            <p className="eyebrow">Reviewed ownership</p>
-            <h2 id="investment-views-title">Exposures</h2>
-            <p>
-              Legal positions stay separate inside each exposure. Open one for
-              ownership and source details.
-            </p>
-          </div>
-        </div>
-        {error === null ? (
-          <FormMessage className="investment-views__loading">
-            Loading reviewed exposures…
-          </FormMessage>
-        ) : (
+    <HoldingsRouteShell
+      status={
+        error === null ? undefined : (
           <Notice className="investment-views__error" tone="error">
             <p>{error}</p>
             <Button onClick={onRetry} tone="secondary">
               Try again
             </Button>
           </Notice>
-        )}
-      </section>
-    </ScreenLayout>
+        )
+      }
+    />
   );
 }
 

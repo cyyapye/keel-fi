@@ -69,15 +69,20 @@ UI-07 so the same region is not moved twice.
 **Claim:** Active on 2026-08-30; implementation is owned by
 `codex/ui-06-route-shells`.
 
+**Progress:** The navigation definition, full-page loading shell, Holdings
+initial route, and focused desktop/mobile coverage are consolidated. The target
+remains open until the tested SHA is merged and its exact-SHA post-merge
+workflow passes.
+
 **Why it qualifies:** `InitialShell.tsx` and the bottom of `App.tsx` contain an
 exact full-page loading-shell duplicate, near-duplicate Holdings route
 scaffolds, and separate navigation definitions.
 
-- [ ] Extract one dependency-light app-local navigation definition and loading
+- [x] Extract one dependency-light app-local navigation definition and loading
       shell.
-- [ ] Consolidate the Holdings initial route state without importing the
+- [x] Consolidate the Holdings initial route state without importing the
       deferred `App` bundle into `InitialShell`.
-- [ ] Preserve the early Holdings paint, route labels, active-state semantics,
+- [x] Preserve the early Holdings paint, route labels, active-state semantics,
       and responsive navigation behavior.
 
 **Ownership:** `InitialShell.tsx`, the final route-shell region of `App.tsx`,
