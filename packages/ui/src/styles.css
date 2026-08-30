@@ -452,6 +452,54 @@ h3 {
   padding: 0;
 }
 
+.carousel {
+  position: relative;
+  min-width: 0;
+}
+
+.carousel-viewport {
+  min-width: 0;
+  overflow: hidden;
+  touch-action: pan-y pinch-zoom;
+}
+
+.carousel-track {
+  display: flex;
+  backface-visibility: hidden;
+  touch-action: pan-y pinch-zoom;
+}
+
+.carousel-track--horizontal {
+  margin-left: -16px;
+}
+
+.carousel-track--vertical {
+  flex-direction: column;
+  margin-top: -16px;
+}
+
+.carousel-item {
+  min-width: 0;
+  flex: 0 0 100%;
+}
+
+.carousel-item--horizontal {
+  padding-left: 16px;
+}
+
+.carousel-item--vertical {
+  padding-top: 16px;
+}
+
+.carousel-control svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1.4;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

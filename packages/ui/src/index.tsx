@@ -3,6 +3,14 @@ export { Badge } from "./components/badge";
 export { BrandMark } from "./components/brand-mark";
 export { Button, ButtonLink } from "./components/button";
 export {
+  Carousel,
+  type CarouselApi,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "./components/carousel";
+export {
   ChartContainer,
   ChartTooltipContent,
   type ChartConfig,
