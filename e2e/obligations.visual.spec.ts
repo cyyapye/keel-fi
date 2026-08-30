@@ -221,6 +221,29 @@ const appliedState = {
   },
 } as const;
 
+const emptyState = {
+  ...pendingState,
+  connections: [],
+  acceptedLiabilities: [],
+  pendingProposals: [],
+  impact: {
+    liabilityCount: 0,
+    totalOutstandingMinor: 0,
+    unknownBalanceCount: 0,
+    unknownPaymentCount: 0,
+    overdueCount: 0,
+    reservedPaymentMinor: 0,
+    addedHouseholdBurnMinor: 0,
+    netLiquidityMinor: planning.currentFiEligibleLiquidMinor,
+    adjustedHouseholdBurnMonthlyMinor: planning.householdBurnMonthlyMinor,
+    adjustedTotalBurnMonthlyMinor:
+      planning.householdBurnMonthlyMinor + planning.businessBurnMonthlyMinor,
+    protectedRunwayMonths: 42,
+    obligationAdjustedFiGapMinor:
+      planning.fiTargetMinor - planning.currentFiEligibleLiquidMinor,
+  },
+} as const;
+
 const manualProposal = {
   id: "liability_proposal_manual",
   connectionId: null,
@@ -269,6 +292,43 @@ async function expectNoHorizontalOverflow(page: Page) {
   }));
   expect(widths.scroll).toBe(widths.client);
 }
+
+test("shows a compact empty state before obligations are accepted", async ({
+  page,
+}) => {
+  const alphaResponse = await page.request.get("/api/alpha");
+  expect(alphaResponse.ok()).toBe(true);
+  const alphaFixture = await alphaResponse.json();
+
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: alphaFixture });
+  });
+  await page.route("**/api/liabilities", async (route) => {
+    await route.fulfill({ json: emptyState });
+  });
+
+  await page.goto("/obligations");
+  const reviewed = page.locator(".reviewed-obligations");
+  await expect(
+    reviewed.getByRole("heading", {
+      level: 3,
+      name: "No obligations have been accepted.",
+    }),
+  ).toBeVisible();
+  await expect(reviewed).toContainText(
+    "Add one manually or connect an institution, then review the reported values.",
+  );
+  await expect(
+    reviewed.locator('[data-slot="empty-state"] > span'),
+  ).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  await expect(reviewed).toHaveScreenshot("obligations-empty.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+});
 
 test("reviews obligations and preserves unknown and stale states", async ({
   page,

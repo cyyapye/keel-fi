@@ -1208,7 +1208,7 @@ h3 {
   font-size: 28px;
 }
 
-.empty-state h2 {
+.empty-state :is(h2, h3, h4) {
   margin: 12px 0 7px;
   font-size: 20px;
 }
@@ -1219,6 +1219,26 @@ h3 {
   color: var(--muted);
   font-size: var(--text-body);
   line-height: 1.6;
+}
+
+.empty-state--compact {
+  min-height: 0;
+  padding: 0;
+  text-align: left;
+  place-content: initial;
+}
+
+.empty-state--compact > :is(h2, h3, h4) {
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.empty-state--compact > p {
+  max-width: none;
+  margin-top: 5px;
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .tabs,

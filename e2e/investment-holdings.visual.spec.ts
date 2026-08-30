@@ -3,6 +3,7 @@ import type { Holding } from "../packages/domain/src/index";
 import type { InvestmentHoldingsView } from "../packages/domain/src/investment-holdings-view";
 
 import {
+  emptyInvestmentHoldingsView,
   investmentHoldingsViewFor,
   multiInstitutionInvestmentHoldingsView,
   reconciledReviewedHistoryInvestmentHoldingsView,
@@ -536,6 +537,111 @@ test("shows the Holdings shell while one read-only projection loads", async ({
     )
     .toBe(1);
   expect(apiRequests.filter((request) => request.method !== "GET")).toEqual([]);
+});
+
+test("shows compact empty exposure and account states", async ({ page }) => {
+  const emptyAlphaFixture = { ...alphaFixture, holdings: [] };
+  const emptyConnectionStatus = {
+    ...statuses[0]!,
+    connectionId: "77777777-7777-4777-8777-777777777777",
+    institutionKey: "ins_demo_empty",
+    institutionLabel: "Demo Empty Brokerage",
+    lastSyncedAt: null,
+    latestAdjudication: null,
+  };
+  const emptyConnectionState = {
+    version: 1 as const,
+    configured: true,
+    connections: [emptyConnectionStatus],
+    errorCode: null,
+  };
+
+  await page.unroute("**/api/alpha");
+  await page.route("**/api/alpha", async (route) => {
+    await route.fulfill({ json: emptyAlphaFixture });
+  });
+  await page.unroute("**/api/holdings-page");
+  await routeHoldingsPage(page, {
+    householdName: emptyAlphaFixture.dashboard.householdName,
+    holdings: [],
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.unroute("**/api/investment-holdings");
+  await page.route("**/api/investment-holdings", async (route) => {
+    await route.fulfill({ json: emptyInvestmentHoldingsView });
+  });
+  await page.unroute("**/api/investment-connections");
+  await page.route("**/api/investment-connections", async (route) => {
+    await route.fulfill({ json: emptyConnectionState });
+  });
+  await page.unroute("**/api/investment-connections/auto-sync");
+  await page.route("**/api/investment-connections/auto-sync", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({ json: emptyConnectionState });
+  });
+  await page.unroute("**/api/cash-accounts");
+  await page.route("**/api/cash-accounts", async (route) => {
+    await route.fulfill({
+      json: {
+        version: 1,
+        configured: true,
+        status: "disconnected",
+        connections: [],
+        acceptedAccounts: [],
+        pendingProposals: [],
+        errorCode: null,
+      },
+    });
+  });
+
+  await page.goto("/holdings");
+  const exposureView = page.locator(".investment-views");
+  await expect(
+    exposureView.getByRole("heading", {
+      level: 3,
+      name: "No company exposures",
+    }),
+  ).toBeVisible();
+  await expect(
+    exposureView.locator('[data-slot="empty-state"] > span'),
+  ).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  await expect(exposureView).toHaveScreenshot(
+    "investment-holdings-empty-exposures.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  await openHoldingSources(page);
+  const emptyInstitution = page
+    .locator(".investment-institution")
+    .filter({ hasText: "Demo Empty Brokerage" });
+  await emptyInstitution.locator("summary").click();
+  await expect(
+    emptyInstitution.getByRole("heading", {
+      level: 4,
+      name: "No reviewed accounts yet.",
+    }),
+  ).toBeVisible();
+  await expect(
+    emptyInstitution.locator('[data-slot="empty-state"] > span'),
+  ).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  await expect(emptyInstitution).toHaveScreenshot(
+    "investment-holdings-empty-accounts.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
 });
 
 test("operates multiple institutions from one exposure-first holdings view", async ({

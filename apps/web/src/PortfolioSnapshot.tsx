@@ -346,7 +346,15 @@ function MoverBarChart({
   onViewExposure: (exposureId: string) => void;
 }) {
   if (movers.length === 0) {
-    return <p className="portfolio-movers__empty">No comparable changes.</p>;
+    return (
+      <EmptyState
+        className="portfolio-movers__empty"
+        compact
+        headingAs="h4"
+        icon={null}
+        title="No comparable changes."
+      />
+    );
   }
   const rows = movers.map((mover) => ({
     ...mover,

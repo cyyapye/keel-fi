@@ -125,6 +125,7 @@ const priorValuesByPosition = {
 } as const;
 
 const holdingsView = investmentHoldingsViewFor(holdings, priorValuesByPosition);
+const unchangedHoldingsView = investmentHoldingsViewFor(holdings);
 
 let holdingsRequestCount = 0;
 let baselineRequestCount = 0;
@@ -301,6 +302,36 @@ test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
   });
   await expect(snapshot).toHaveScreenshot("portfolio-snapshot.png", {
     animations: "disabled",
+  });
+});
+
+test("shows compact empty states when no portfolio changes are comparable", async ({
+  page,
+}) => {
+  await page.unroute("**/api/investment-holdings");
+  await page.route("**/api/investment-holdings", async (route) => {
+    holdingsRequestCount += 1;
+    await route.fulfill({ json: unchangedHoldingsView });
+  });
+
+  await page.goto("/");
+  const movers = page.locator(".portfolio-movers");
+  await expect(
+    movers.getByRole("heading", {
+      level: 4,
+      name: "No comparable changes.",
+    }),
+  ).toHaveCount(2);
+  await expect(movers.locator('[data-slot="empty-state"] > span')).toHaveCount(
+    0,
+  );
+  expect(holdingsRequestCount).toBe(1);
+  await expectNoHorizontalOverflow(page);
+  await expect(movers).toHaveScreenshot("portfolio-empty-movers.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
   });
 });
 

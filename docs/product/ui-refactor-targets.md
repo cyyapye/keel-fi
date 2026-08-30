@@ -62,6 +62,13 @@ UI-07 so the same region is not moved twice.
 
 ### [ ] UI-05 — Compact shared empty states
 
+**Claim:** Active on 2026-08-30; implementation is owned by
+`codex/ui-05-compact-empty-states`.
+
+**Progress:** The shared API, four audited migrations, bounded usage guard, and
+desktop/mobile visual coverage are complete. The target remains open until the
+tested SHA is merged and its exact-SHA post-merge workflow passes.
+
 **Why it qualifies:** nine screens already use `EmptyState`; exactly four
 bespoke empty presentations remain:
 
@@ -69,11 +76,11 @@ bespoke empty presentations remain:
 - `InvestmentHoldings.tsx` — no reviewed accounts and no company exposures.
 - `Obligations.tsx` — no accepted obligations.
 
-- [ ] Add compact, iconless, title-only, and heading-level support to
+- [x] Add compact, iconless, title-only, and heading-level support to
       `EmptyState` without changing its current default rendering.
-- [ ] Migrate the four audited states and keep placement-specific layout CSS in
+- [x] Migrate the four audited states and keep placement-specific layout CSS in
       the consuming screen.
-- [ ] Add deterministic desktop and mobile coverage for each previously untested
+- [x] Add deterministic desktop and mobile coverage for each previously untested
       empty state.
 
 **Ownership:** `packages/ui/src/components/feedback.tsx`, the compact shared

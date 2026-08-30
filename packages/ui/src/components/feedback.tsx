@@ -3,6 +3,8 @@ import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
 import { cn } from "../lib/utils";
 
 type EmptyStateProps = HTMLAttributes<HTMLDivElement> & {
+  compact?: boolean;
+  headingAs?: "h2" | "h3" | "h4";
   icon?: ReactNode;
   title: ReactNode;
 };
@@ -10,19 +12,29 @@ type EmptyStateProps = HTMLAttributes<HTMLDivElement> & {
 export function EmptyState({
   children,
   className,
+  compact = false,
+  headingAs = "h2",
   icon = "◎",
   title,
   ...props
 }: EmptyStateProps) {
+  const Heading = headingAs;
+
   return (
     <div
-      className={cn("empty-state", className)}
+      className={cn(
+        "empty-state",
+        compact && "empty-state--compact",
+        className,
+      )}
       data-slot="empty-state"
       {...props}
     >
-      <span aria-hidden="true">{icon}</span>
-      <h2>{title}</h2>
-      <p>{children}</p>
+      {icon !== null && icon !== false && (
+        <span aria-hidden="true">{icon}</span>
+      )}
+      <Heading>{title}</Heading>
+      {children !== undefined && children !== null && <p>{children}</p>}
     </div>
   );
 }
