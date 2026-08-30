@@ -4,7 +4,9 @@ Keel should feel calm, sparse, and decision-oriented. The interface explains
 financial distinctions without exposing the machinery used to implement them.
 
 Use the repo-local `$keel-ui-quality` skill for the required implementation and
-verification workflow. This document remains the canonical product contract.
+verification workflow. This document remains the canonical product contract. The
+finite maintenance queue lives in
+[`ui-refactor-targets.md`](./ui-refactor-targets.md).
 
 ## Visual language
 
