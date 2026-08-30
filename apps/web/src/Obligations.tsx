@@ -17,6 +17,7 @@ import {
   Notice,
   PageHeader,
   Screen,
+  SectionHeader,
   Select,
   SelectContent,
   SelectItem,
@@ -247,16 +248,23 @@ function ObligationReview({
       aria-labelledby="obligation-review-title"
       className="obligation-review"
     >
-      <header className="obligation-review__heading">
-        <p className="eyebrow">Obligation review</p>
-        <h2 id="obligation-review-title" ref={headingRef} tabIndex={-1}>
-          Review {proposal.institutionLabel}
-        </h2>
-        <p>
-          Retrieved {formatDate(proposal.retrievedAt)}. Confirm each balance and
-          decide whether its next payment changes liquidity or monthly burn.
-        </p>
-      </header>
+      <SectionHeader
+        className="obligation-review__heading"
+        description={
+          <>
+            Retrieved {formatDate(proposal.retrievedAt)}. Confirm each balance
+            and decide whether its next payment changes liquidity or monthly
+            burn.
+          </>
+        }
+        eyebrow="Obligation review"
+        headingProps={{
+          id: "obligation-review-title",
+          ref: headingRef,
+          tabIndex: -1,
+        }}
+        title={`Review ${proposal.institutionLabel}`}
+      />
 
       <StatGroup
         aria-label="Draft planning impact"
@@ -535,13 +543,12 @@ function ManualObligationForm({
       aria-labelledby="manual-obligation-title"
       className="manual-obligation"
     >
-      <header>
-        <p className="eyebrow">Manual fallback</p>
-        <h2 id="manual-obligation-title">Add an obligation</h2>
-        <p>
-          Enter only the values you can support. Blank amounts stay unknown.
-        </p>
-      </header>
+      <SectionHeader
+        description="Enter only the values you can support. Blank amounts stay unknown."
+        eyebrow="Manual fallback"
+        headingProps={{ id: "manual-obligation-title" }}
+        title="Add an obligation"
+      />
       <form onSubmit={(event) => void submit(event)}>
         <div className="manual-obligation__fields">
           <Field label="Institution">
@@ -947,12 +954,11 @@ export function Obligations() {
           aria-labelledby="pending-obligations-title"
           className="obligations-pending"
         >
-          <header>
-            <p className="eyebrow">Waiting for review</p>
-            <h2 id="pending-obligations-title">
-              Reported values are still proposals
-            </h2>
-          </header>
+          <SectionHeader
+            eyebrow="Waiting for review"
+            headingProps={{ id: "pending-obligations-title" }}
+            title="Reported values are still proposals"
+          />
           {state.pendingProposals.map((proposal) => (
             <div key={proposal.id}>
               <span>
@@ -977,13 +983,12 @@ export function Obligations() {
         aria-labelledby="reviewed-obligations-title"
         className="reviewed-obligations"
       >
-        <header>
-          <div>
-            <p className="eyebrow">Reviewed record</p>
-            <h2 id="reviewed-obligations-title">Accepted obligations</h2>
-          </div>
-          <span>{state.acceptedLiabilities.length} total</span>
-        </header>
+        <SectionHeader
+          action={<span>{state.acceptedLiabilities.length} total</span>}
+          eyebrow="Reviewed record"
+          headingProps={{ id: "reviewed-obligations-title" }}
+          title="Accepted obligations"
+        />
         {state.acceptedLiabilities.length === 0 ? (
           <p className="reviewed-obligations__empty">
             No obligations have been accepted. Add one manually or connect an
@@ -1049,10 +1054,11 @@ export function Obligations() {
           aria-labelledby="obligation-sources-title"
           className="obligation-sources"
         >
-          <header>
-            <p className="eyebrow">Institution access</p>
-            <h2 id="obligation-sources-title">Connected institutions</h2>
-          </header>
+          <SectionHeader
+            eyebrow="Institution access"
+            headingProps={{ id: "obligation-sources-title" }}
+            title="Connected institutions"
+          />
           {state.connections.map((connection) => {
             const reviewWaiting = state.pendingProposals.some(
               (proposal) => proposal.connectionId === connection.id,

@@ -1,4 +1,9 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type {
+  ComponentPropsWithoutRef,
+  ComponentPropsWithRef,
+  HTMLAttributes,
+  ReactNode,
+} from "react";
 
 import { cn } from "../lib/utils";
 
@@ -53,7 +58,11 @@ export function PageHeader({
 type SectionHeaderProps = HTMLAttributes<HTMLElement> & {
   action?: ReactNode;
   description?: ReactNode;
+  descriptionPlacement?: "after-title-group" | "title-group";
+  descriptionProps?: Omit<ComponentPropsWithoutRef<"p">, "children">;
   eyebrow?: ReactNode;
+  headingAs?: "h2" | "h3" | "h4";
+  headingProps?: Omit<ComponentPropsWithRef<"h2">, "children">;
   title: ReactNode;
 };
 
@@ -61,10 +70,20 @@ export function SectionHeader({
   action,
   className,
   description,
+  descriptionPlacement = "after-title-group",
+  descriptionProps,
   eyebrow,
+  headingAs = "h2",
+  headingProps,
   title,
   ...props
 }: SectionHeaderProps) {
+  const Heading = headingAs;
+  const descriptionNode =
+    description === undefined ? undefined : (
+      <p {...descriptionProps}>{description}</p>
+    );
+
   return (
     <header
       className={cn("section-heading", className)}
@@ -73,9 +92,10 @@ export function SectionHeader({
     >
       <div>
         {eyebrow !== undefined && <p className="eyebrow">{eyebrow}</p>}
-        <h2>{title}</h2>
+        <Heading {...headingProps}>{title}</Heading>
+        {descriptionPlacement === "title-group" && descriptionNode}
       </div>
-      {description !== undefined && <p>{description}</p>}
+      {descriptionPlacement === "after-title-group" && descriptionNode}
       {action}
     </header>
   );

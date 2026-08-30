@@ -35,20 +35,26 @@ Audited against `origin/main` at `7a97222` on 2026-08-29.
 **Claim:** Active on 2026-08-29; implementation is owned by
 `codex/ui-04-section-hierarchy`.
 
+**Progress:** The shared API and the file-owned `InitialShell.tsx`,
+`InvestmentHoldings.tsx`, `Obligations.tsx`, and `PlanActualMonitoring.tsx`
+adoption are complete. Direct `App.tsx` adoption remains sequenced after UI-07.
+
 **Why it qualifies:** four `SectionHeader` uses exist, while 42 additional
 high-confidence structural section headings still repeat the eyebrow, heading,
 description, and action pattern. The audited candidates are in `App.tsx`,
 `InitialShell.tsx`, `InvestmentHoldings.tsx`, `Obligations.tsx`, and
 `PlanActualMonitoring.tsx`.
 
-- [ ] Extend `SectionHeader` to preserve `h2`, `h3`, or `h4` semantics, required
+- [x] Extend `SectionHeader` to preserve `h2`, `h3`, or `h4` semantics, required
       description placement, and heading `id`, focus ref, and `tabIndex`.
-- [ ] Migrate only page-level or section-level structure. Keep record, evidence,
+- [x] Migrate only page-level or section-level structure. Keep record, evidence,
       reconciliation, final-review, and other domain-card headings local.
-- [ ] Preserve existing domain class names and layout anatomy unless a visual
+- [x] Preserve existing domain class names and layout anatomy unless a visual
       change is explicitly approved.
-- [ ] Add a bounded usage guard for approved structural patterns; do not ban all
+- [x] Add a bounded usage guard for approved structural patterns; do not ban all
       raw eyebrow headings.
+- [ ] Finish direct `App.tsx` adoption after UI-07 moves the provider-control
+      region.
 
 **Ownership:** `packages/ui/src/components/layout.tsx`, the five audited screen
 files, and their focused visual specs. Remaining `App.tsx` adoption follows

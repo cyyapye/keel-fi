@@ -50,6 +50,39 @@ describe("shared UI usage", () => {
     expect(violations).toEqual([]);
   });
 
+  it("routes approved structural headings through SectionHeader", () => {
+    const structuralHeadingClassesByFile: Record<string, readonly string[]> = {
+      "InitialShell.tsx": ["investment-views__heading"],
+      "InvestmentHoldings.tsx": [
+        "cash-holdings__heading",
+        "investment-institutions__heading",
+        "investment-views__heading",
+      ],
+      "Obligations.tsx": ["obligation-review__heading"],
+      "PlanActualMonitoring.tsx": ["plan-monitoring__header"],
+    };
+    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
+      const relativePath = relative(webSourceDirectory, path);
+      const structuralHeadingClasses =
+        structuralHeadingClassesByFile[relativePath] ?? [];
+      const source = readFileSync(path, "utf8");
+      const elements = source.matchAll(
+        /<([A-Za-z][\w.]*)\b[^>]*\bclassName="([^"]+)"/gsu,
+      );
+      return Array.from(elements).flatMap((match) => {
+        const [, component = "", className = ""] = match;
+        const isStructuralHeading = className
+          .split(/\s+/u)
+          .some((token) => structuralHeadingClasses.includes(token));
+        return isStructuralHeading && component !== "SectionHeader"
+          ? [`${relativePath}: <${component} className="${className}">`]
+          : [];
+      });
+    });
+
+    expect(violations).toEqual([]);
+  });
+
   it("routes alert feedback through shared components", () => {
     const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
       const source = readFileSync(path, "utf8");
