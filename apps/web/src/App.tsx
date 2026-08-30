@@ -63,7 +63,6 @@ import {
   SelectTrigger,
   SelectValue,
   SectionHeader,
-  Switch,
   Tabs,
   TabsContent,
   TabsList,
@@ -1252,22 +1251,19 @@ function Goals({
             <form className="goal-form" onSubmit={submit}>
               <Panel
                 action={
-                  <label
-                    className="goal-primary-control"
-                    data-readonly={
-                      selectedGoal?.isPrimary === true ? "" : undefined
-                    }
-                  >
-                    <span>Primary</span>
-                    <Switch
-                      aria-label="Primary goal"
-                      checked={form.makePrimary}
-                      onCheckedChange={(checked) =>
-                        updateForm("makePrimary", checked)
+                  selectedGoal?.isPrimary === true ? (
+                    <Badge tone="positive">Primary</Badge>
+                  ) : (
+                    <Button
+                      aria-pressed={form.makePrimary}
+                      onClick={() =>
+                        updateForm("makePrimary", !form.makePrimary)
                       }
-                      readOnly={selectedGoal?.isPrimary === true}
-                    />
-                  </label>
+                      size="compact"
+                    >
+                      {form.makePrimary ? "Primary on save" : "Make primary"}
+                    </Button>
+                  )
                 }
                 className="goal-form__panel"
                 eyebrow={
