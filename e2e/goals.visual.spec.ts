@@ -129,7 +129,7 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("only shows the carousel for multiple saved goals", async ({ page }) => {
+test("uses the saved-goal dropdown with one goal", async ({ page }) => {
   const alphaResponse = await page.request.get("/api/alpha");
   expect(alphaResponse.ok()).toBe(true);
   const alphaFixture = (await alphaResponse.json()) as AlphaData;
@@ -144,19 +144,16 @@ test("only shows the carousel for multiple saved goals", async ({ page }) => {
 
   await page.goto("/goals");
 
-  await expect(page.getByRole("region", { name: "Saved goals" })).toHaveCount(
-    0,
-  );
-  const savedGoal = page.getByRole("button", {
-    name: "View Financial independence",
-  });
-  await expect(savedGoal).toHaveAttribute("aria-pressed", "true");
+  const selector = page.getByRole("combobox", { name: "Saved goal" });
+  await expect(selector).toBeVisible();
+  await expect(selector.locator("strong")).toHaveText("Financial independence");
   await expect(page.getByText("1 active goal", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "New goal +" }).click();
-  await expect(savedGoal).toHaveAttribute("aria-pressed", "false");
+  await expect(selector.locator("strong")).toHaveText("Choose a goal");
   await expect(page.getByText("Start from a template")).toBeVisible();
-  await savedGoal.click();
+  await selector.click();
+  await page.getByRole("option", { name: /Financial independence/u }).click();
   await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
     "Financial independence",
   );
@@ -188,12 +185,8 @@ test("keeps saved goals compact and templates creation-only", async ({
 
   await page.goto("/goals");
 
-  const carousel = page.getByRole("region", { name: "Saved goals" });
-  const goalCards = carousel.locator(".goal-carousel__goal");
-  const selectorHeader = carousel.locator(
-    ".goal-carousel__goal[aria-pressed='true'] .goal-selector__goal-header",
-  );
-  await expect(goalCards).toHaveCount(3);
+  const selector = page.getByRole("combobox", { name: "Saved goal" });
+  const selectorHeader = selector.locator(".goal-selector__goal-header");
   await expect(selectorHeader.locator(":scope > span")).toHaveText("Primary");
   await expect(selectorHeader.locator("strong")).toHaveText(
     "Financial independence",
@@ -201,28 +194,6 @@ test("keeps saved goals compact and templates creation-only", async ({
   await expect(selectorHeader.locator("small")).toHaveText("v1 · $1.8M");
   await expect(page.locator(".goal-templates")).toHaveCount(0);
   await expect(page.locator(".goal-selector .eyebrow")).toHaveText("Goals");
-  await expect(carousel.locator(".goal-carousel__position")).toHaveText(
-    "1 / 3",
-  );
-  await expect(
-    carousel.getByRole("button", { name: "Previous goal" }),
-  ).toBeDisabled();
-  await expect(
-    carousel.getByRole("button", { name: "Next goal" }),
-  ).toBeEnabled();
-  expect(
-    await carousel
-      .locator("[data-slot='carousel-item'] .goal-selector__goal-header")
-      .evaluateAll((headers) =>
-        headers.map((header) =>
-          Array.from(header.children).map((child) => child.tagName),
-        ),
-      ),
-  ).toEqual([
-    ["SPAN", "STRONG", "SMALL"],
-    ["SPAN", "STRONG", "SMALL"],
-    ["SPAN", "STRONG", "SMALL"],
-  ]);
   await expect(
     page.getByText("Goal version and forecast snapshot save together."),
   ).toHaveCount(0);
@@ -266,59 +237,34 @@ test("keeps saved goals compact and templates creation-only", async ({
     threshold: 0.25,
   });
 
-  const firstGoal = carousel.getByRole("button", {
-    name: "View Financial independence",
-  });
-  await firstGoal.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
-    "Keep a three-year cash runway",
-  );
-  await page.keyboard.press("ArrowLeft");
-  await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
-    "Financial independence",
-  );
-
-  const viewport = carousel.locator("[data-slot='carousel-content']");
-  const viewportBox = await viewport.boundingBox();
-  expect(viewportBox).not.toBeNull();
-  await page.mouse.move(
-    viewportBox!.x + viewportBox!.width * 0.82,
-    viewportBox!.y + viewportBox!.height / 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    viewportBox!.x + viewportBox!.width * 0.16,
-    viewportBox!.y + viewportBox!.height / 2,
-    { steps: 10 },
-  );
-  await page.mouse.up();
-  await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
-    "Keep a three-year cash runway",
-  );
-  await expect(carousel.locator(".goal-carousel__position")).toHaveText(
-    "2 / 3",
-  );
-  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
-  await expect
-    .poll(async () => {
-      const [activeBox, currentViewportBox] = await Promise.all([
-        carousel
-          .getByRole("button", { name: "View Keep a three-year cash runway" })
-          .boundingBox(),
-        viewport.boundingBox(),
-      ]);
-      if (activeBox === null || currentViewportBox === null) return null;
-      return Math.abs(Math.round(activeBox.x - currentViewportBox.x));
-    })
-    .toBe(0);
-  await expect(page).toHaveScreenshot("goals-carousel-swiped.png", {
+  await selector.click();
+  const options = page.getByRole("option");
+  await expect(options).toHaveCount(3);
+  expect(
+    await page
+      .locator(".goal-selector__item .goal-selector__goal-header")
+      .evaluateAll((headers) =>
+        headers.map((header) =>
+          Array.from(header.children).map((child) => child.tagName),
+        ),
+      ),
+  ).toEqual([
+    ["SPAN", "STRONG", "SMALL"],
+    ["SPAN", "STRONG", "SMALL"],
+    ["SPAN", "STRONG", "SMALL"],
+  ]);
+  await expect(page).toHaveScreenshot("goals-selector-open.png", {
     animations: "disabled",
     caret: "hide",
     maxDiffPixelRatio: 0.025,
     threshold: 0.25,
   });
 
+  await page
+    .getByRole("option", {
+      name: "Cash runway Keep a three-year cash runway v1 · 42 months",
+    })
+    .click();
   await expect(selectorHeader.locator(":scope > span")).toHaveText(
     "Cash runway",
   );
@@ -379,8 +325,11 @@ test("keeps saved goals compact and templates creation-only", async ({
     threshold: 0.25,
   });
 
-  await carousel
-    .getByRole("button", { name: "View Future home purchase" })
+  await selector.click();
+  await page
+    .getByRole("option", {
+      name: "Major purchase Future home purchase v1 · $250k",
+    })
     .click();
   await expect(targetDate).toHaveText("Jun 30, 2030");
   await targetDate.click();
@@ -422,9 +371,7 @@ test("keeps saved goals compact and templates creation-only", async ({
   await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
     "Protect cash runway",
   );
-  await expect(
-    carousel.locator(".goal-carousel__goal[aria-pressed='true']"),
-  ).toHaveCount(0);
+  await expect(selectorHeader.locator("strong")).toHaveText("Choose a goal");
   await expectNoHorizontalOverflow(page);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);

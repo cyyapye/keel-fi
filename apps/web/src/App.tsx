@@ -631,7 +631,6 @@ function Dashboard({
   const ringStyle = {
     "--probability": `${Math.floor(signalPpm / 10_000)}%`,
   } as CSSProperties;
-  const secondaryGoals = data.goals.filter((goal) => !goal.isPrimary);
   const targetMet =
     target !== null && primaryVersion.currentValueInteger >= target;
   const pendingEvidence = data.evidenceInbox.filter(
@@ -730,46 +729,18 @@ function Dashboard({
         />
       </div>
 
-      {secondaryGoals.length > 0 && (
-        <section className="secondary-goals">
+      {data.goals.length > 1 && (
+        <section className="overview-goals">
           <header>
             <div>
-              <p className="eyebrow">Other goals</p>
-              <h2>Tracked alongside the primary goal</h2>
+              <p className="eyebrow">Goals</p>
+              <h2>Active goals</h2>
             </div>
             <TextLink onClick={() => onNavigate("goals")}>
               Manage goals
             </TextLink>
           </header>
-          <div>
-            {secondaryGoals.map((goal) => {
-              const version = latestGoalVersion(goal);
-              return (
-                <Button
-                  className="secondary-goal-card"
-                  key={goal.id}
-                  onClick={() => onNavigate("goals")}
-                  tone="plain"
-                >
-                  <span>{version.name}</span>
-                  <strong>
-                    {formatGoalValue(
-                      version.currentValueInteger,
-                      version.targetUnit,
-                    )}
-                  </strong>
-                  <small>
-                    {version.targetValueInteger === null
-                      ? "No target set"
-                      : `of ${formatGoalValue(
-                          version.targetValueInteger,
-                          version.targetUnit,
-                        )}`}
-                  </small>
-                </Button>
-              );
-            })}
-          </div>
+          <OverviewGoalCarousel goals={data.goals} />
         </section>
       )}
 
@@ -1024,19 +995,11 @@ function GoalSelectorHeader({ goal }: { goal: Goal }) {
   );
 }
 
-function GoalCarousel({
-  goals,
-  onSelect,
-  selectedGoalId,
-}: {
-  goals: Goal[];
-  onSelect: (goal: Goal) => void;
-  selectedGoalId: string | null;
-}) {
+function OverviewGoalCarousel({ goals }: { goals: Goal[] }) {
   const [initialIndex] = useState(() =>
     Math.max(
       0,
-      goals.findIndex((goal) => goal.id === selectedGoalId),
+      goals.findIndex((goal) => goal.isPrimary),
     ),
   );
   const options = useMemo(
@@ -1053,64 +1016,68 @@ function GoalCarousel({
   useEffect(() => {
     if (api === undefined) return;
 
-    const selectVisibleGoal = () => {
-      const index = api.selectedScrollSnap();
-      setCurrentIndex(index);
-      const goal = goals[index];
-      if (goal !== undefined && goal.id !== selectedGoalId) onSelect(goal);
-    };
+    const updateVisibleGoal = () => setCurrentIndex(api.selectedScrollSnap());
 
-    api.on("reInit", selectVisibleGoal);
-    api.on("select", selectVisibleGoal);
+    api.on("reInit", updateVisibleGoal);
+    api.on("select", updateVisibleGoal);
 
     return () => {
-      api.off("reInit", selectVisibleGoal);
-      api.off("select", selectVisibleGoal);
+      api.off("reInit", updateVisibleGoal);
+      api.off("select", updateVisibleGoal);
     };
-  }, [api, goals, onSelect, selectedGoalId]);
-
-  useEffect(() => {
-    if (api === undefined || selectedGoalId === null) return;
-    const index = goals.findIndex((goal) => goal.id === selectedGoalId);
-    if (index < 0) return;
-    if (api.selectedScrollSnap() !== index) api.scrollTo(index);
-  }, [api, goals, selectedGoalId]);
+  }, [api]);
 
   return (
     <Carousel
-      aria-label="Saved goals"
-      className="goal-carousel"
+      aria-label="Active goals"
+      className="overview-goal-carousel"
       opts={options}
       setApi={setApi}
     >
       <CarouselContent>
-        {goals.map((goal, index) => (
-          <CarouselItem
-            aria-label={`${index + 1} of ${goals.length}`}
-            className="goal-carousel__slide"
-            key={goal.id}
-          >
-            <Button
-              aria-label={`View ${latestGoalVersion(goal).name}`}
-              aria-pressed={goal.id === selectedGoalId}
-              className="goal-carousel__goal"
-              onClick={() => {
-                api?.scrollTo(index);
-                onSelect(goal);
-              }}
-              tone="plain"
-              type="button"
+        {goals.map((goal, index) => {
+          const version = latestGoalVersion(goal);
+          return (
+            <CarouselItem
+              aria-label={`${index + 1} of ${goals.length}`}
+              className="overview-goal-carousel__slide"
+              key={goal.id}
             >
-              <GoalSelectorHeader goal={goal} />
-            </Button>
-          </CarouselItem>
-        ))}
+              <article className="overview-goal-card">
+                <div>
+                  <span>
+                    {goal.isPrimary
+                      ? "Primary goal"
+                      : templateLabels[goal.templateKey]}
+                  </span>
+                  <h3>{version.name}</h3>
+                </div>
+                <div className="overview-goal-card__measure">
+                  <strong>
+                    {formatGoalValue(
+                      version.currentValueInteger,
+                      version.targetUnit,
+                    )}
+                  </strong>
+                  <small>
+                    {version.targetValueInteger === null
+                      ? "No target set"
+                      : `of ${formatGoalValue(
+                          version.targetValueInteger,
+                          version.targetUnit,
+                        )}`}
+                  </small>
+                </div>
+              </article>
+            </CarouselItem>
+          );
+        })}
       </CarouselContent>
       <span
         aria-atomic="true"
         aria-label={`Goal ${currentIndex + 1} of ${goals.length}`}
         aria-live="polite"
-        className="goal-carousel__position"
+        className="overview-goal-carousel__position"
       >
         {currentIndex + 1} / {goals.length}
       </span>
@@ -1143,7 +1110,10 @@ function Goals({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const selectedGoal =
     data.goals.find((goal) => goal.id === selectedGoalId) ?? null;
-  const singleGoal = data.goals.length === 1 ? data.goals[0] : undefined;
+  const goalOptions = data.goals.map((goal) => ({
+    label: latestGoalVersion(goal).name,
+    value: goal.id,
+  }));
   const parsedCurrent = parseGoalInteger(form.currentValue, form.targetUnit);
   const parsedTarget =
     form.targetValue.trim() === ""
@@ -1287,32 +1257,52 @@ function Goals({
           className="goal-selector"
           eyebrow="Goals"
         >
-          {data.goals.length > 1 ? (
-            <GoalCarousel
-              goals={data.goals}
-              onSelect={chooseGoal}
-              selectedGoalId={selectedGoalId}
-            />
-          ) : singleGoal === undefined ? (
-            <div className="goal-selector__single goal-selector__single--empty">
-              <span className="goal-selector__goal-header goal-selector__goal-header--empty">
-                <span>Saved goals</span>
-                <strong>No saved goals</strong>
-                <small>Start from a template below</small>
-              </span>
-            </div>
-          ) : (
-            <Button
-              aria-label={`View ${latestGoalVersion(singleGoal).name}`}
-              aria-pressed={selectedGoalId === singleGoal.id}
-              className="goal-selector__single"
-              onClick={() => chooseGoal(singleGoal)}
-              tone="plain"
-              type="button"
+          <Select
+            items={goalOptions}
+            onValueChange={(value) => {
+              if (typeof value !== "string") return;
+              const goal = data.goals.find(
+                (candidate) => candidate.id === value,
+              );
+              if (goal !== undefined) chooseGoal(goal);
+            }}
+            value={selectedGoalId}
+          >
+            <SelectTrigger
+              aria-label="Saved goal"
+              className="goal-selector__trigger"
             >
-              <GoalSelectorHeader goal={singleGoal} />
-            </Button>
-          )}
+              <SelectValue>
+                {(value) => {
+                  const goal =
+                    typeof value === "string"
+                      ? data.goals.find((candidate) => candidate.id === value)
+                      : undefined;
+                  return goal === undefined ? (
+                    <span className="goal-selector__goal-header goal-selector__goal-header--empty">
+                      <span>Saved goals</span>
+                      <strong>Choose a goal</strong>
+                      <small>Edit its latest version</small>
+                    </span>
+                  ) : (
+                    <GoalSelectorHeader goal={goal} />
+                  );
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent className="goal-selector__content">
+              {data.goals.map((goal) => (
+                <SelectItem
+                  className="goal-selector__item"
+                  key={goal.id}
+                  label={latestGoalVersion(goal).name}
+                  value={goal.id}
+                >
+                  <GoalSelectorHeader goal={goal} />
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Panel>
 
         <div className="goal-main">
