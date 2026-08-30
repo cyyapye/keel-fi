@@ -49,9 +49,8 @@ import {
   Carousel,
   type CarouselApi,
   CarouselContent,
+  CarouselDots,
   CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
   DataItem,
   DataList,
   DatePicker,
@@ -272,6 +271,12 @@ function latestGoalVersion(goal: Goal) {
     throw new Error("A goal must have at least one saved version.");
   }
   return version;
+}
+
+function orderGoalsPrimaryFirst(goals: Goal[]) {
+  return [...goals].sort(
+    (left, right) => Number(right.isPrimary) - Number(left.isPrimary),
+  );
 }
 
 function goalProgressPpm(version: ReturnType<typeof latestGoalVersion>) {
@@ -573,77 +578,129 @@ function Dashboard({
     data.scenarios.find((item) => item.name === "FI Underwriting") ??
     data.scenarios[0];
   const dashboard = data.dashboard;
-  const primaryGoal =
-    data.goals.find((goal) => goal.isPrimary) ?? data.goals[0];
-  if (primaryGoal === undefined) {
+  const orderedGoals = useMemo(
+    () => orderGoalsPrimaryFirst(data.goals),
+    [data.goals],
+  );
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(
+    () => orderedGoals[0]?.id ?? null,
+  );
+  const selectGoal = useCallback((goalId: string) => {
+    setSelectedGoalId(goalId);
+  }, []);
+  const selectedGoal =
+    orderedGoals.find((goal) => goal.id === selectedGoalId) ?? orderedGoals[0];
+  if (selectedGoal === undefined) {
     return (
       <EmptyState title="No planning goal">
         Create a goal before using the overview.
       </EmptyState>
     );
   }
-  const primaryVersion = latestGoalVersion(primaryGoal);
-  const primaryForecast = primaryVersion.forecast;
-  const target = primaryVersion.targetValueInteger;
-  const progressPpm = goalProgressPpm(primaryVersion);
-  const signalPpm = primaryForecast.successProbabilityPpm ?? progressPpm;
+  const selectedVersion = latestGoalVersion(selectedGoal);
+  const selectedForecast = selectedVersion.forecast;
+  const target = selectedVersion.targetValueInteger;
+  const progressPpm = goalProgressPpm(selectedVersion);
   const ringStyle = {
-    "--probability": `${Math.floor(signalPpm / 10_000)}%`,
+    "--probability": `${Math.floor(progressPpm / 10_000)}%`,
   } as CSSProperties;
   const targetMet =
-    target !== null && primaryVersion.currentValueInteger >= target;
+    target !== null && selectedVersion.currentValueInteger >= target;
   const pendingEvidence = data.evidenceInbox.filter(
     (item) => item.status === "pending_review",
   ).length;
 
   return (
     <ScreenLayout>
-      <OverviewGoalHero goals={data.goals} onEditGoal={onEditGoal} />
+      <OverviewGoalHero
+        goals={orderedGoals}
+        onEditGoal={onEditGoal}
+        onSelectedGoalChange={selectGoal}
+      />
 
-      <PlanActualMonitoring onNavigate={onNavigate} />
+      <div className="goal-overview" data-goal-id={selectedGoal.id}>
+        <div className="metrics-grid">
+          <MetricCard
+            actionLabel="Edit goal"
+            detail={selectedVersion.metricLabel}
+            label="Current measure"
+            onClick={() => onEditGoal(selectedGoal.id)}
+            tone="dark"
+            value={formatGoalValue(
+              selectedVersion.currentValueInteger,
+              selectedVersion.targetUnit,
+            )}
+          />
+          <MetricCard
+            actionLabel="Edit goal"
+            detail={
+              target === null
+                ? "No target set"
+                : selectedVersion.targetDate === null
+                  ? "No target date"
+                  : `By ${formatDate(selectedVersion.targetDate)}`
+            }
+            label="Goal target"
+            onClick={() => onEditGoal(selectedGoal.id)}
+            value={
+              target === null
+                ? "Not set"
+                : formatGoalValue(target, selectedVersion.targetUnit)
+            }
+          />
+          <MetricCard
+            actionLabel="View plan inputs"
+            detail="Guardrail, not the goal"
+            label="Protected runway"
+            onClick={() => onNavigate("scenarios")}
+            value={`${dashboard.protectedRunwayMonths} months`}
+          />
+          <MetricCard
+            actionLabel="View holdings"
+            detail="Decision-usable today"
+            label="FI-eligible liquid"
+            onClick={() => onNavigate("holdings")}
+            tone="accent"
+            value={formatCompactMoney(dashboard.fiEligibleLiquidMinor)}
+          />
+        </div>
 
-      <div className="metrics-grid">
-        <MetricCard
-          actionLabel="Edit goal"
-          detail={primaryVersion.metricLabel}
-          label="Primary goal now"
-          onClick={() => onNavigate("goals")}
-          tone="dark"
-          value={formatGoalValue(
-            primaryVersion.currentValueInteger,
-            primaryVersion.targetUnit,
-          )}
-        />
-        <MetricCard
-          actionLabel="Edit goal"
-          detail={
-            primaryVersion.targetDate === null
-              ? "No target date"
-              : `By ${formatDate(primaryVersion.targetDate)}`
-          }
-          label="Goal target"
-          onClick={() => onNavigate("goals")}
-          value={
-            target === null
-              ? "Not set"
-              : formatGoalValue(target, primaryVersion.targetUnit)
-          }
-        />
-        <MetricCard
-          actionLabel="View plan inputs"
-          detail="Guardrail, not the goal"
-          label="Protected runway"
-          onClick={() => onNavigate("scenarios")}
-          value={`${dashboard.protectedRunwayMonths} months`}
-        />
-        <MetricCard
-          actionLabel="View holdings"
-          detail="Decision-usable today"
-          label="FI-eligible liquid"
-          onClick={() => onNavigate("holdings")}
-          tone="accent"
-          value={formatCompactMoney(dashboard.fiEligibleLiquidMinor)}
-        />
+        <Panel
+          className="goal-signal"
+          eyebrow="Goal progress"
+          title={selectedVersion.name}
+        >
+          <div className="goal-signal__body">
+            <div className="probability-ring" style={ringStyle}>
+              <div>
+                <strong>{formatProbability(progressPpm)}</strong>
+                <span>current progress</span>
+              </div>
+            </div>
+            <div className="goal-signal__readout">
+              <div className="fi-gap">
+                <span>{targetMet ? "Target status" : "Current gap"}</span>
+                <strong>
+                  {target === null
+                    ? "No target"
+                    : targetMet
+                      ? "Met"
+                      : formatGoalValue(
+                          target - selectedVersion.currentValueInteger,
+                          selectedVersion.targetUnit,
+                        )}
+                </strong>
+              </div>
+              <p className="panel-note">
+                {target === null
+                  ? "Add a target to measure progress."
+                  : selectedForecast.successProbabilityPpm !== null
+                    ? `Current progress uses the saved baseline. Saved plan v${selectedVersion.version} estimates ${formatProbability(selectedForecast.successProbabilityPpm)} success.`
+                    : "Current progress is saved. Add scenario inputs before treating this goal as a forecast."}
+              </p>
+            </div>
+          </div>
+        </Panel>
       </div>
 
       <Suspense fallback={null}>
@@ -653,77 +710,42 @@ function Dashboard({
         />
       </Suspense>
 
-      <div className="dashboard-grid">
-        <Panel
-          action={<Badge tone="neutral">Portfolio outlook</Badge>}
-          className="liquidity-panel"
-          eyebrow="Five-year outlook"
-          title="Cumulative usable liquidity"
-        >
-          {scenario === undefined ? (
-            <EmptyState title="No forecast curve">
-              Create a forecast snapshot.
-            </EmptyState>
-          ) : (
-            <>
-              <div className="chart-kpis">
-                <div>
-                  <span title="25th percentile">Lower</span>
-                  <strong>
-                    {formatCompactMoney(dashboard.p25FiveYearLiquidityMinor)}
-                  </strong>
-                </div>
-                <div>
-                  <span title="50th percentile">Middle</span>
-                  <strong>
-                    {formatCompactMoney(dashboard.p50FiveYearLiquidityMinor)}
-                  </strong>
-                </div>
+      <Panel
+        action={<Badge tone="neutral">Portfolio outlook</Badge>}
+        className="liquidity-panel"
+        eyebrow="Five-year outlook"
+        title="Cumulative usable liquidity"
+      >
+        {scenario === undefined ? (
+          <EmptyState title="No forecast curve">
+            Create a forecast snapshot.
+          </EmptyState>
+        ) : (
+          <>
+            <div className="chart-kpis">
+              <div>
+                <span title="25th percentile">Lower</span>
+                <strong>
+                  {formatCompactMoney(dashboard.p25FiveYearLiquidityMinor)}
+                </strong>
               </div>
-              <LiquidityChart compact scenario={scenario} />
-            </>
-          )}
-        </Panel>
-
-        <Panel
-          className="fi-panel"
-          eyebrow="Goal signal"
-          title={primaryVersion.name}
-        >
-          <div className="probability-ring" style={ringStyle}>
-            <div>
-              <strong>{formatProbability(signalPpm)}</strong>
-              <span>
-                {primaryForecast.successProbabilityPpm === null
-                  ? "current progress"
-                  : "estimated success"}
-              </span>
+              <div>
+                <span title="50th percentile">Middle</span>
+                <strong>
+                  {formatCompactMoney(dashboard.p50FiveYearLiquidityMinor)}
+                </strong>
+              </div>
             </div>
-          </div>
-          <div className="fi-gap">
-            <span>{targetMet ? "Target status" : "Current gap"}</span>
-            <strong>
-              {target === null
-                ? "No target"
-                : targetMet
-                  ? "Met"
-                  : formatGoalValue(
-                      target - primaryVersion.currentValueInteger,
-                      primaryVersion.targetUnit,
-                    )}
-            </strong>
-          </div>
-          <p className="panel-note">
-            {primaryForecast.modelStatus === "modeled"
-              ? `This estimate is tied to saved plan v${primaryVersion.version}. Private-paper values stay excluded until their timing is modeled.`
-              : "Current progress is saved. Add scenario inputs before treating this goal as a forecast."}
-          </p>
-        </Panel>
-      </div>
+            <LiquidityChart compact scenario={scenario} />
+          </>
+        )}
+      </Panel>
 
       <Panel
         action={
-          <TextLink onClick={() => onNavigate("goals")}>Review goal</TextLink>
+          <TextLink onClick={() => onEditGoal(selectedGoal.id)}>
+            Review goal
+          </TextLink>
         }
         eyebrow="Current readout"
         title="What the saved plan says"
@@ -774,6 +796,8 @@ function Dashboard({
           </article>
         </div>
       </Panel>
+
+      <PlanActualMonitoring onNavigate={onNavigate} />
     </ScreenLayout>
   );
 }
@@ -956,17 +980,12 @@ function GoalHeroContent({
 function OverviewGoalHero({
   goals,
   onEditGoal,
+  onSelectedGoalChange,
 }: {
   goals: Goal[];
   onEditGoal: (goalId: string) => void;
+  onSelectedGoalChange: (goalId: string) => void;
 }) {
-  const orderedGoals = useMemo(
-    () =>
-      [...goals].sort(
-        (left, right) => Number(right.isPrimary) - Number(left.isPrimary),
-      ),
-    [goals],
-  );
   const options = useMemo(() => ({ align: "start" as const }), []);
   const [api, setApi] = useState<CarouselApi>();
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -974,19 +993,26 @@ function OverviewGoalHero({
   useEffect(() => {
     if (api === undefined) return;
 
-    const updateVisibleGoal = () => setCurrentIndex(api.selectedScrollSnap());
+    const updateVisibleGoal = () => {
+      const nextIndex = api.selectedScrollSnap();
+      const nextGoal = goals[nextIndex];
+      setCurrentIndex(nextIndex);
+      if (nextGoal !== undefined) onSelectedGoalChange(nextGoal.id);
+    };
 
     api.on("reInit", updateVisibleGoal);
     api.on("select", updateVisibleGoal);
+    const frame = requestAnimationFrame(updateVisibleGoal);
 
     return () => {
+      cancelAnimationFrame(frame);
       api.off("reInit", updateVisibleGoal);
       api.off("select", updateVisibleGoal);
     };
-  }, [api]);
+  }, [api, goals, onSelectedGoalChange]);
 
-  const onlyGoal = orderedGoals[0];
-  if (orderedGoals.length === 1 && onlyGoal !== undefined) {
+  const onlyGoal = goals[0];
+  if (goals.length === 1 && onlyGoal !== undefined) {
     return (
       <section className="hero">
         <GoalHeroContent goal={onlyGoal} onEditGoal={onEditGoal} />
@@ -1003,13 +1029,13 @@ function OverviewGoalHero({
         setApi={setApi}
       >
         <CarouselContent>
-          {orderedGoals.map((goal, index) => {
+          {goals.map((goal, index) => {
             const version = latestGoalVersion(goal);
             const isActive = index === currentIndex;
             return (
               <CarouselItem
                 aria-hidden={!isActive}
-                aria-label={`${index + 1} of ${orderedGoals.length}: ${version.name}`}
+                aria-label={`${index + 1} of ${goals.length}: ${version.name}`}
                 className="hero-carousel__slide"
                 key={goal.id}
               >
@@ -1025,18 +1051,25 @@ function OverviewGoalHero({
           })}
         </CarouselContent>
         <footer className="hero-carousel__footer">
+          <CarouselDots
+            aria-label="Choose a goal"
+            getDotLabel={(index) => {
+              const goal = goals[index];
+              return goal === undefined
+                ? `Show goal ${index + 1}`
+                : `Show goal ${index + 1} of ${goals.length}: ${latestGoalVersion(goal).name}`;
+            }}
+          />
           <span
             aria-atomic="true"
-            aria-label={`Goal ${currentIndex + 1} of ${orderedGoals.length}`}
             aria-live="polite"
-            className="hero-carousel__position"
+            className="visually-hidden"
           >
-            {currentIndex + 1} / {orderedGoals.length}
+            Goal {currentIndex + 1} of {goals.length}:{" "}
+            {goals[currentIndex] === undefined
+              ? ""
+              : latestGoalVersion(goals[currentIndex]).name}
           </span>
-          <div className="hero-carousel__controls">
-            <CarouselPrevious aria-label="Previous goal" />
-            <CarouselNext aria-label="Next goal" />
-          </div>
         </footer>
       </Carousel>
     </section>

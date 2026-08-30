@@ -26,6 +26,10 @@ type CarouselProps = {
   setApi?: (api: CarouselApi) => void;
 };
 
+type CarouselDotsProps = ComponentProps<"div"> & {
+  getDotLabel?: (index: number) => string;
+};
+
 type CarouselContextValue = {
   api: CarouselApi;
   canScrollNext: boolean;
@@ -180,6 +184,66 @@ export function CarouselItem({ className, ...props }: ComponentProps<"div">) {
       role="group"
       {...props}
     />
+  );
+}
+
+export function CarouselDots({
+  "aria-label": ariaLabel = "Choose slide",
+  className,
+  getDotLabel,
+  ...props
+}: CarouselDotsProps) {
+  const { api } = useCarousel();
+  const [scrollSnaps, setScrollSnaps] = useState<number[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const updateDots = useCallback((carouselApi: CarouselApi) => {
+    if (carouselApi === undefined) return;
+    setScrollSnaps(carouselApi.scrollSnapList());
+    setSelectedIndex(carouselApi.selectedScrollSnap());
+  }, []);
+
+  useEffect(() => {
+    if (api === undefined) return;
+    api.on("reInit", updateDots);
+    api.on("select", updateDots);
+    const frame = requestAnimationFrame(() => updateDots(api));
+
+    return () => {
+      cancelAnimationFrame(frame);
+      api.off("reInit", updateDots);
+      api.off("select", updateDots);
+    };
+  }, [api, updateDots]);
+
+  if (scrollSnaps.length <= 1) return null;
+
+  return (
+    <div
+      aria-label={ariaLabel}
+      className={cn("carousel-dots", className)}
+      data-slot="carousel-dots"
+      role="group"
+      {...props}
+    >
+      {scrollSnaps.map((_, index) => {
+        const isActive = index === selectedIndex;
+        return (
+          <button
+            aria-current={isActive ? "true" : undefined}
+            aria-label={getDotLabel?.(index) ?? `Show slide ${index + 1}`}
+            className="carousel-dot"
+            data-active={isActive ? "" : undefined}
+            data-slot="carousel-dot"
+            key={index}
+            onClick={() => api?.scrollTo(index)}
+            type="button"
+          >
+            <span aria-hidden="true" className="carousel-dot__mark" />
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

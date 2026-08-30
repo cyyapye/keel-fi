@@ -144,6 +144,40 @@ test("keeps material plan drift actionable without changing the plan", async ({
   await page.goto("/");
   await hideStickyTopbar(page);
   const monitoring = page.locator(".plan-monitoring");
+  const monitoringSummary = monitoring.getByRole("button", {
+    name: /Monitoring needs attention/u,
+  });
+  await expect(monitoringSummary).toHaveAttribute("aria-expanded", "false");
+  await expect(monitoringSummary).toContainText("4 decisions to review");
+  await expect(monitoringSummary).toContainText("Needs attention");
+  await expect(monitoring.locator(".plan-monitoring__details")).toHaveCount(0);
+  await expect(
+    monitoring.getByRole("heading", { name: "4 decisions to review" }),
+  ).toHaveCount(0);
+  await expect(
+    monitoring.getByText("Nothing here changes your saved plan or forecast."),
+  ).toHaveCount(0);
+  await expect(
+    monitoring.getByRole("button", { name: "Reconcile cash and baseline" }),
+  ).toHaveCount(0);
+  expect(
+    await monitoring.evaluate(
+      (element) =>
+        element.previousElementSibling?.querySelector("h2")?.textContent,
+    ),
+  ).toBe("What the saved plan says");
+  await expect(monitoring).toHaveScreenshot("plan-actual-attention.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+
+  await monitoringSummary.click();
+  await expect(monitoringSummary).toHaveAttribute("aria-expanded", "true");
+  await expect(monitoring.locator(".plan-monitoring__toggle-mark")).toHaveText(
+    "−",
+  );
   await expect(
     monitoring.getByRole("heading", { name: "4 decisions to review" }),
   ).toBeVisible();
@@ -179,13 +213,16 @@ test("keeps material plan drift actionable without changing the plan", async ({
 
   await page.goto("/");
   const restoredMonitoring = page.locator(".plan-monitoring");
+  const restoredSummary = restoredMonitoring.getByRole("button", {
+    name: /Monitoring needs attention/u,
+  });
+  await restoredSummary.click();
   await restoredMonitoring
     .getByRole("button", { name: "Review in 7 days" })
     .first()
     .click();
-  await expect(
-    restoredMonitoring.getByRole("heading", { name: "3 decisions to review" }),
-  ).toBeFocused();
+  await expect(restoredSummary).toBeFocused();
+  await expect(restoredSummary).toContainText("3 decisions to review");
   await expect(restoredMonitoring.getByRole("status")).toHaveText(
     "Moved to review later for 7 days.",
   );
@@ -198,20 +235,32 @@ test("keeps material plan drift actionable without changing the plan", async ({
   };
   await page.reload();
   await hideStickyTopbar(page);
+  const clearMonitoring = page.locator(".plan-monitoring");
+  const clearSummary = clearMonitoring.getByRole("button", {
+    name: /Monitoring is healthy/u,
+  });
+  await expect(clearSummary).toHaveAttribute("aria-expanded", "false");
+  await expect(clearSummary).toContainText(
+    "Reviewed actuals are within plan guardrails",
+  );
+  await expect(clearSummary).toContainText("Healthy");
   await expect(
     page.getByRole("heading", {
       name: "Reviewed actuals are within the plan guardrails",
     }),
+  ).toHaveCount(0);
+  await expect(clearMonitoring).toHaveScreenshot("plan-actual-clear.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+  await clearSummary.click();
+  await expect(
+    clearMonitoring.getByRole("heading", {
+      name: "Reviewed actuals are within the plan guardrails",
+    }),
   ).toBeVisible();
-  await expect(page.locator(".plan-monitoring")).toHaveScreenshot(
-    "plan-actual-clear.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
 
   monitoringState = {
     ...monitoringBase,
@@ -226,11 +275,19 @@ test("keeps material plan drift actionable without changing the plan", async ({
     deferredItems: [],
   };
   await page.reload();
+  const limitedMonitoring = page.locator(".plan-monitoring");
+  const limitedSummary = limitedMonitoring.getByRole("button", {
+    name: /Monitoring is limited/u,
+  });
+  await expect(limitedSummary).toHaveAttribute("aria-expanded", "false");
+  await expect(limitedSummary).toContainText(
+    "More reviewed actuals are needed",
+  );
   await expect(
-    page.getByRole("heading", {
+    limitedMonitoring.getByRole("heading", {
       name: "Monitoring is ready for connected actuals",
     }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   const goalMetrics = page.locator(".metrics-grid");
   await expect(goalMetrics).toHaveScreenshot("goal-metrics.png", {
     animations: "disabled",
