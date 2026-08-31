@@ -314,27 +314,18 @@ test("keeps material plan drift actionable without changing the plan", async ({
       name: "Monitoring is ready for connected actuals",
     }),
   ).toHaveCount(0);
-  const goalMetrics = page.locator(".metrics-grid");
-  await expect(goalMetrics).toHaveScreenshot("goal-metrics.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  const goalMetricLabelOffsets = await goalMetrics
-    .locator(".metric-card")
-    .evaluateAll((cards) =>
-      cards.map((card) => {
-        const label = card.querySelector("p");
-        if (label === null) {
-          return null;
-        }
-        return Math.round(
-          label.getBoundingClientRect().left -
-            card.getBoundingClientRect().left,
-        );
-      }),
-    );
-  expect(goalMetricLabelOffsets).toEqual([0, 0, 0, 0]);
+  const goalSignal = page.locator(".goal-signal");
+  const goalStats = goalSignal.locator(
+    ".goal-signal__stats [data-slot='stat']",
+  );
+  await expect(goalStats).toHaveCount(2);
+  await expect(goalSignal).toContainText("Goal target");
+  await expect(goalSignal).not.toContainText("Protected runway");
+  await expect(goalSignal).not.toContainText("FI-eligible liquid");
+
+  const portfolioBase = page.locator(".portfolio-outlook__base");
+  await expect(portfolioBase).toContainText("Current base");
+  await expect(portfolioBase).toContainText("Protected runway");
+  await expect(portfolioBase).toContainText("FI-eligible liquid");
   await expectNoHorizontalOverflow(page);
 });

@@ -610,6 +610,42 @@ function Dashboard({
   } as CSSProperties;
   const targetMet =
     target !== null && selectedVersion.currentValueInteger >= target;
+  const targetDifference =
+    target === null ? null : selectedVersion.currentValueInteger - target;
+  const targetPosition =
+    targetDifference === null
+      ? {
+          detail: "Add a target to measure progress",
+          label: "Goal gap",
+          value: "Not available",
+        }
+      : targetDifference === 0
+        ? {
+            detail: "Current measure equals the saved target",
+            label: "Target status",
+            value: "Met",
+          }
+        : targetDifference > 0
+          ? {
+              detail: "Current measure is above the saved target",
+              label: "Above target",
+              value: formatGoalValue(
+                targetDifference,
+                selectedVersion.targetUnit,
+              ),
+            }
+          : {
+              detail: "To reach the saved target",
+              label: "Still needed",
+              value: formatGoalValue(
+                -targetDifference,
+                selectedVersion.targetUnit,
+              ),
+            };
+  const totalMonthlyBurnMinor = addMinorUnits(
+    dashboard.householdBurnMonthlyMinor,
+    dashboard.businessBurnMonthlyMinor,
+  );
   const pendingEvidence = data.evidenceInbox.filter(
     (item) => item.status === "pending_review",
   ).length;
@@ -623,52 +659,6 @@ function Dashboard({
       />
 
       <div className="goal-overview" data-goal-id={selectedGoal.id}>
-        <div className="metrics-grid">
-          <MetricCard
-            actionLabel="Edit goal"
-            detail={selectedVersion.metricLabel}
-            label="Current measure"
-            onClick={() => onEditGoal(selectedGoal.id)}
-            tone="dark"
-            value={formatGoalValue(
-              selectedVersion.currentValueInteger,
-              selectedVersion.targetUnit,
-            )}
-          />
-          <MetricCard
-            actionLabel="Edit goal"
-            detail={
-              target === null
-                ? "No target set"
-                : selectedVersion.targetDate === null
-                  ? "No target date"
-                  : `By ${formatDate(selectedVersion.targetDate)}`
-            }
-            label="Goal target"
-            onClick={() => onEditGoal(selectedGoal.id)}
-            value={
-              target === null
-                ? "Not set"
-                : formatGoalValue(target, selectedVersion.targetUnit)
-            }
-          />
-          <MetricCard
-            actionLabel="View plan inputs"
-            detail="Guardrail, not the goal"
-            label="Protected runway"
-            onClick={() => onNavigate("scenarios")}
-            value={`${dashboard.protectedRunwayMonths} months`}
-          />
-          <MetricCard
-            actionLabel="View holdings"
-            detail="Decision-usable today"
-            label="FI-eligible liquid"
-            onClick={() => onNavigate("holdings")}
-            tone="accent"
-            value={formatCompactMoney(dashboard.fiEligibleLiquidMinor)}
-          />
-        </div>
-
         <Panel
           className="goal-signal"
           eyebrow="Goal progress"
@@ -682,19 +672,31 @@ function Dashboard({
               </div>
             </div>
             <div className="goal-signal__readout">
-              <div className="fi-gap">
-                <span>{targetMet ? "Target status" : "Current gap"}</span>
-                <strong>
-                  {target === null
-                    ? "No target"
-                    : targetMet
-                      ? "Met"
-                      : formatGoalValue(
-                          target - selectedVersion.currentValueInteger,
-                          selectedVersion.targetUnit,
-                        )}
-                </strong>
-              </div>
+              <StatGroup
+                aria-label="Selected goal target"
+                className="goal-signal__stats"
+              >
+                <Stat
+                  detail={
+                    target === null
+                      ? "Add a target when it becomes useful"
+                      : selectedVersion.targetDate === null
+                        ? "No target date"
+                        : `By ${formatDate(selectedVersion.targetDate)}`
+                  }
+                  label="Goal target"
+                  value={
+                    target === null
+                      ? "Not set"
+                      : formatGoalValue(target, selectedVersion.targetUnit)
+                  }
+                />
+                <Stat
+                  detail={targetPosition.detail}
+                  label={targetPosition.label}
+                  value={targetPosition.value}
+                />
+              </StatGroup>
               <p className="panel-note">
                 {target === null
                   ? "Add a target to measure progress."
@@ -715,7 +717,6 @@ function Dashboard({
       </Suspense>
 
       <Panel
-        action={<Badge tone="neutral">Portfolio outlook</Badge>}
         className="liquidity-panel"
         eyebrow="Five-year outlook"
         title="Cumulative usable liquidity"
@@ -741,6 +742,47 @@ function Dashboard({
               </div>
             </div>
             <LiquidityChart compact scenario={scenario} />
+            <section
+              aria-labelledby="portfolio-outlook-current-base"
+              className="portfolio-outlook__base"
+            >
+              <SectionHeader
+                className="portfolio-outlook__base-heading"
+                headingAs="h3"
+                headingProps={{
+                  className: "eyebrow",
+                  id: "portfolio-outlook-current-base",
+                }}
+                title="Current base"
+              />
+              <StatGroup
+                aria-label="Current portfolio base"
+                className="portfolio-outlook__metrics"
+              >
+                <article className="portfolio-outlook__metric">
+                  <Stat
+                    as="div"
+                    detail="From accepted holdings"
+                    label="FI-eligible liquid"
+                    value={formatCompactMoney(dashboard.fiEligibleLiquidMinor)}
+                  />
+                  <TextLink onClick={() => onNavigate("holdings")}>
+                    View holdings
+                  </TextLink>
+                </article>
+                <article className="portfolio-outlook__metric">
+                  <Stat
+                    as="div"
+                    detail={`${formatCompactMoney(totalMonthlyBurnMinor)}/month after a ${formatCompactMoney(dashboard.protectedCashFloorMinor)} cash floor`}
+                    label="Protected runway"
+                    value={`${dashboard.protectedRunwayMonths} months`}
+                  />
+                  <TextLink onClick={() => onNavigate("scenarios")}>
+                    View plan inputs
+                  </TextLink>
+                </article>
+              </StatGroup>
+            </section>
           </>
         )}
       </Panel>
@@ -777,18 +819,6 @@ function Dashboard({
           </article>
           <article>
             <span className="decision-index">02</span>
-            <div>
-              <h3>Runway remains a separate guardrail</h3>
-              <p>
-                The accepted cash-flow plan protects{" "}
-                {dashboard.protectedRunwayMonths} months after the cash floor.
-                It supports the goal; it does not define every goal.
-              </p>
-            </div>
-            <Badge tone="positive">Healthy</Badge>
-          </article>
-          <article>
-            <span className="decision-index">03</span>
             <div>
               <h3>Evidence needs review</h3>
               <p>

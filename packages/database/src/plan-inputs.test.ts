@@ -215,6 +215,7 @@ describe("plan input persistence", () => {
     expect(alpha.dashboard).toMatchObject({
       householdBurnMonthlyMinor: 3_000_000,
       businessBurnMonthlyMinor: 1_500_000,
+      protectedCashFloorMinor: 15_000_000,
       protectedRunwayMonths: 37,
     });
     expect(alpha.forecastHistory[0]).toMatchObject({

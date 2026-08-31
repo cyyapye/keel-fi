@@ -75,6 +75,7 @@ type DashboardRow = {
   household_name: string;
   fi_eligible_liquid_minor: number;
   protected_runway_months: number;
+  protected_cash_floor_minor: number;
   household_burn_monthly_minor: number;
   business_burn_monthly_minor: number;
   fi_target_minor: number;
@@ -2613,6 +2614,7 @@ export class D1AlphaRepository implements AlphaRepository {
               ) AS INTEGER
             )
           END AS protected_runway_months,
+          plan.protected_cash_floor_minor,
           plan.household_burn_monthly_minor,
           plan.business_burn_monthly_minor,
           plan.fi_target_minor,
@@ -2669,6 +2671,7 @@ export class D1AlphaRepository implements AlphaRepository {
       householdName: row.household_name,
       fiEligibleLiquidMinor: row.fi_eligible_liquid_minor,
       protectedRunwayMonths: row.protected_runway_months,
+      protectedCashFloorMinor: row.protected_cash_floor_minor,
       householdBurnMonthlyMinor: row.household_burn_monthly_minor,
       businessBurnMonthlyMinor: row.business_burn_monthly_minor,
       fiTargetMinor: row.fi_target_minor,
