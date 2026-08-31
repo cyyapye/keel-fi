@@ -7,6 +7,7 @@ import {
   Button,
   DataItem,
   DataList,
+  DisclosureIndicator,
   FormMessage,
   SectionHeader,
 } from "@keel/ui";
@@ -251,9 +252,10 @@ export function PlanActualMonitoring({
               <i aria-hidden="true" /> Needs attention
             </span>
             <span className="plan-monitoring__toggle-label">Details</span>
-            <span aria-hidden="true" className="plan-monitoring__toggle-mark">
-              {expanded ? "−" : "+"}
-            </span>
+            <DisclosureIndicator
+              className="plan-monitoring__toggle-mark"
+              expanded={expanded}
+            />
           </span>
         </Button>
         {expanded && (
@@ -299,9 +301,10 @@ export function PlanActualMonitoring({
             <i aria-hidden="true" /> {summary.indicator}
           </span>
           <span className="plan-monitoring__toggle-label">Details</span>
-          <span aria-hidden="true" className="plan-monitoring__toggle-mark">
-            {expanded ? "−" : "+"}
-          </span>
+          <DisclosureIndicator
+            className="plan-monitoring__toggle-mark"
+            expanded={expanded}
+          />
         </span>
       </Button>
 

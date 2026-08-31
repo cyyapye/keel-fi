@@ -54,6 +54,7 @@ import {
   DataItem,
   DataList,
   DatePicker,
+  DisclosureIndicator,
   EmptyState,
   Field,
   FormMessage,
@@ -4304,7 +4305,10 @@ function AgentTroubleshooting({
 }) {
   return (
     <details className="provider-agent-troubleshooting">
-      <summary>Troubleshooting</summary>
+      <summary>
+        <span>Troubleshooting</span>
+        <DisclosureIndicator />
+      </summary>
       <p>
         If Keel cannot open the private browser, run the repair command on the
         update computer.

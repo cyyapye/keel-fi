@@ -25,6 +25,7 @@ import {
   ActionGroup,
   Badge,
   Button,
+  DisclosureIndicator,
   EmptyState,
   FormMessage,
   Input,
@@ -1551,6 +1552,7 @@ function ExposureView({
                   </small>
                 )}
               </span>
+              <DisclosureIndicator className="exposure-group__indicator" />
             </summary>
             <div className="exposure-group__positions">
               {positions.map((position) => {
@@ -1780,9 +1782,12 @@ function CashHoldingsView({
             aria-expanded={showSmallBalances}
             onClick={() => setShowSmallBalances((current) => !current)}
           >
-            {showSmallBalances
-              ? "Hide balances under $100"
-              : `Show ${smallBalanceCount} ${smallBalanceCount === 1 ? "balance" : "balances"} under $100`}
+            <span>
+              {showSmallBalances
+                ? "Hide balances under $100"
+                : `Show ${smallBalanceCount} ${smallBalanceCount === 1 ? "balance" : "balances"} under $100`}
+            </span>
+            <DisclosureIndicator expanded={showSmallBalances} />
           </TextLink>
         </div>
       )}
@@ -2427,9 +2432,12 @@ export function InvestmentHoldings({
                             : ""}
                         </small>
                       </span>
-                      <strong className="investment-institution__value">
-                        {investmentConnectionTotalsLabel(connection)}
-                      </strong>
+                      <span className="investment-institution__summary-action">
+                        <strong className="investment-institution__value">
+                          {investmentConnectionTotalsLabel(connection)}
+                        </strong>
+                        <DisclosureIndicator />
+                      </span>
                     </summary>
                     <InvestmentAccountRows connection={connection} />
                   </details>
