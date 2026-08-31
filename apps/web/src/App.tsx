@@ -7221,6 +7221,22 @@ function Holdings({
     });
   }, []);
 
+  const openHoldingDetail = useCallback((holdingId: string) => {
+    const action = document.querySelector<HTMLElement>(
+      `[data-holding-id="${CSS.escape(holdingId)}"]`,
+    );
+    const exposureId = action
+      ?.closest<HTMLElement>("[data-exposure-id]")
+      ?.getAttribute("data-exposure-id");
+
+    setOpenExposureIds(
+      exposureId === null || exposureId === undefined
+        ? new Set()
+        : new Set([exposureId]),
+    );
+    setSelectedHoldingId(holdingId);
+  }, []);
+
   const closeHoldingDetail = () => {
     const returnFocusId = selectedHoldingId;
     setSelectedHoldingId(null);
@@ -7387,7 +7403,7 @@ function Holdings({
             onExposureOpenChange={setExposureOpen}
             onExposureResolved={onExposureResolved}
             onLoadMoreExposures={loadMoreExposures}
-            onOpenHolding={setSelectedHoldingId}
+            onOpenHolding={openHoldingDetail}
             onReviewImport={reviewPendingImport}
             onShowSmallBalancesChange={setShowSmallCashBalances}
             openExposureIds={openExposureIds}

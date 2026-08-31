@@ -1052,6 +1052,12 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     harborExposure.locator(".exposure-group__summary"),
   ).toContainText("$183k · +28%");
+  await expect(
+    harborExposure.locator(".exposure-group__summary"),
+  ).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    latticeExposure.locator(".exposure-group__summary"),
+  ).toHaveAttribute("aria-expanded", "false");
   const adjustedBeaconPosition = harborExposure
     .locator(".exposure-group__positions article")
     .filter({ hasText: "Beacon Demo SPV" });
