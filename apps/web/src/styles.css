@@ -235,12 +235,9 @@ h1,
 }
 
 .plan-monitoring__toggle-mark {
-  width: 14px;
+  width: 12px;
+  height: 12px;
   color: var(--ink);
-  font-size: 18px;
-  font-weight: 450;
-  line-height: 1;
-  text-align: center;
 }
 
 .plan-monitoring__details {
@@ -2574,6 +2571,12 @@ h1,
   line-height: 1.5;
 }
 
+.investment-institution__summary-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .investment-institution__value {
   max-width: 280px;
   font-size: 18px;
@@ -2820,6 +2823,7 @@ h1,
 }
 
 .cash-holdings__disclosure .keel-link {
+  gap: 8px;
   min-height: 44px;
 }
 
@@ -2952,6 +2956,7 @@ h1,
 }
 
 .exposure-group summary {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-content: center;
@@ -2959,7 +2964,7 @@ h1,
   column-gap: 24px;
   row-gap: 2px;
   min-height: 88px;
-  padding: 20px 0;
+  padding: 20px 28px 20px 0;
   cursor: pointer;
   list-style: none;
 }
@@ -2971,6 +2976,13 @@ h1,
 .exposure-group summary[aria-current="true"]:focus-visible {
   padding-left: 10px;
   box-shadow: inset 2px 0 0 var(--ink);
+}
+
+.exposure-group__indicator {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  margin-top: -6px;
 }
 
 .exposure-group__identity,
@@ -3522,12 +3534,21 @@ h1,
 }
 
 .provider-agent-troubleshooting summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
   min-height: 32px;
   color: var(--muted);
   font-size: 9px;
   font-weight: 700;
-  line-height: 32px;
+  line-height: 1.25;
   cursor: pointer;
+  list-style: none;
+}
+
+.provider-agent-troubleshooting summary::-webkit-details-marker {
+  display: none;
 }
 
 .provider-agent-troubleshooting[open] summary {
@@ -6694,7 +6715,6 @@ h1,
 
   .provider-agent-troubleshooting summary {
     min-height: 44px;
-    line-height: 44px;
   }
 
   .provider-agent-row__meta {

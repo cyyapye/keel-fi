@@ -1115,21 +1115,25 @@ h3 {
   white-space: nowrap;
 }
 
-.select-trigger__icon {
+.disclosure-indicator {
+  display: block;
   flex: 0 0 auto;
   width: 12px;
   height: 12px;
+  transform-origin: center;
   transition: transform 140ms ease;
 }
 
-.select-trigger__icon path {
+.disclosure-indicator path {
   stroke: currentColor;
   stroke-linecap: square;
   stroke-linejoin: miter;
   stroke-width: 1.4;
 }
 
-.select-trigger[data-popup-open] .select-trigger__icon {
+.disclosure-indicator[data-expanded="true"],
+details[open] > summary .disclosure-indicator,
+.select-trigger[data-popup-open] .disclosure-indicator {
   transform: rotate(180deg);
 }
 

@@ -1,6 +1,7 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 
 import { cn } from "../lib/utils";
+import { DisclosureIndicator } from "./disclosure-indicator";
 
 export function Select({
   ...props
@@ -33,14 +34,7 @@ export function SelectTrigger({
       {...props}
     >
       {children}
-      <svg
-        aria-hidden="true"
-        className="select-trigger__icon"
-        fill="none"
-        viewBox="0 0 12 12"
-      >
-        <path d="m2.5 4.25 3.5 3.5 3.5-3.5" />
-      </svg>
+      <DisclosureIndicator className="select-trigger__icon" />
     </SelectPrimitive.Trigger>
   );
 }

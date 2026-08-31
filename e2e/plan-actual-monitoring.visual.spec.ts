@@ -150,6 +150,26 @@ test("keeps material plan drift actionable without changing the plan", async ({
   await expect(monitoringSummary).toHaveAttribute("aria-expanded", "false");
   await expect(monitoringSummary).toContainText("4 decisions to review");
   await expect(monitoringSummary).toContainText("Needs attention");
+  const disclosureIndicator = monitoring.locator(
+    ".plan-monitoring__toggle-mark",
+  );
+  await expect(disclosureIndicator).toHaveAttribute("data-expanded", "false");
+  expect(
+    await monitoringSummary.evaluate((summary) => {
+      const status = summary.querySelector(".plan-monitoring__indicator");
+      const indicator = summary.querySelector(".plan-monitoring__toggle-mark");
+      if (status === null || indicator === null) {
+        return Number.POSITIVE_INFINITY;
+      }
+      const statusBounds = status.getBoundingClientRect();
+      const indicatorBounds = indicator.getBoundingClientRect();
+      return Math.abs(
+        statusBounds.top +
+          statusBounds.height / 2 -
+          (indicatorBounds.top + indicatorBounds.height / 2),
+      );
+    }),
+  ).toBeLessThanOrEqual(1);
   await expect(monitoring.locator(".plan-monitoring__details")).toHaveCount(0);
   await expect(
     monitoring.getByRole("heading", { name: "4 decisions to review" }),
@@ -175,9 +195,7 @@ test("keeps material plan drift actionable without changing the plan", async ({
 
   await monitoringSummary.click();
   await expect(monitoringSummary).toHaveAttribute("aria-expanded", "true");
-  await expect(monitoring.locator(".plan-monitoring__toggle-mark")).toHaveText(
-    "−",
-  );
+  await expect(disclosureIndicator).toHaveAttribute("data-expanded", "true");
   await expect(
     monitoring.getByRole("heading", { name: "4 decisions to review" }),
   ).toBeVisible();

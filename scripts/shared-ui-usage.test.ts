@@ -28,6 +28,36 @@ describe("shared UI usage", () => {
     expect(violations).toEqual([]);
   });
 
+  it("routes app disclosure affordances through DisclosureIndicator", () => {
+    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
+      const source = readFileSync(path, "utf8");
+      const disclosureCount =
+        (source.match(/<details\b/gu)?.length ?? 0) +
+        (source.match(/\baria-expanded=/gu)?.length ?? 0);
+      const indicatorCount =
+        source.match(/<DisclosureIndicator\b/gu)?.length ?? 0;
+      return disclosureCount === indicatorCount
+        ? []
+        : [
+            `${relative(webSourceDirectory, path)}: ${disclosureCount} disclosures, ${indicatorCount} shared indicators`,
+          ];
+    });
+
+    expect(violations).toEqual([]);
+  });
+
+  it("uses DisclosureIndicator for the shared select popup", () => {
+    const selectSource = readFileSync(
+      resolve(import.meta.dirname, "../packages/ui/src/components/select.tsx"),
+      "utf8",
+    );
+
+    expect(selectSource).toContain("<DisclosureIndicator");
+    expect(selectSource).not.toMatch(
+      /<svg\b[^>]*className="select-trigger__icon"/su,
+    );
+  });
+
   it("routes reusable action rows through ActionGroup", () => {
     const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
       const source = readFileSync(path, "utf8");
