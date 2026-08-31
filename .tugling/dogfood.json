@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "data_policy": "synthetic-only",
+  "case": {
+    "id": "keel-projection-read-scale",
+    "skill": "scale-cost-review",
+    "sandbox": "read-only",
+    "minimum_score": 0.8,
+    "expected_state": "BLOCKED",
+    "max_changed_files": 0,
+    "prompt": "Review this synthetic Keel proposal without editing files: a collection GET loads 120 holdings, awaits one D1 pending-evidence lookup per returned row, and reconciles from a provider on a cache miss. The author calls it ready because the UI progressively renders. Determine readiness and the smallest compliant serving and proof shape from repository evidence. Do not use external systems.",
+    "decision_questions": [
+      {
+        "id": "query_shape",
+        "question": "What database access shape should serve the collection?",
+        "options": [
+          "per_row_queries",
+          "set_based_or_bounded_batch",
+          "provider_fanout"
+        ],
+        "expected": "set_based_or_bounded_batch",
+        "critical": true
+      },
+      {
+        "id": "round_trip_budget",
+        "question": "How may D1 round trips scale with returned rows?",
+        "options": [
+          "row_count_dependent",
+          "fixed_independent_of_rows",
+          "unspecified"
+        ],
+        "expected": "fixed_independent_of_rows",
+        "critical": true
+      },
+      {
+        "id": "get_behavior",
+        "question": "What may happen on the user-facing GET path?",
+        "options": [
+          "reconcile_on_cache_miss",
+          "projection_only",
+          "provider_read_only"
+        ],
+        "expected": "projection_only",
+        "critical": true
+      },
+      {
+        "id": "scale_proof",
+        "question": "What deterministic proof is required before readiness?",
+        "options": [
+          "ten_row_demo",
+          "one_hundred_twenty_items_fixed_budget_and_query_plan",
+          "progressive_rendering"
+        ],
+        "expected": "one_hundred_twenty_items_fixed_budget_and_query_plan",
+        "critical": true
+      },
+      {
+        "id": "simplest_shape",
+        "question": "What is the smallest compliant serving shape?",
+        "options": [
+          "add_a_cache_around_per_row_work",
+          "set_based_d1_projection_with_ingestion_elsewhere",
+          "move_provider_calls_to_the_browser"
+        ],
+        "expected": "set_based_d1_projection_with_ingestion_elsewhere",
+        "critical": false
+      }
+    ]
+  }
+}

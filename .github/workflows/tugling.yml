@@ -1,0 +1,65 @@
+name: Tugling
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group:
+    tugling-${{ github.event_name }}-${{ github.event.pull_request.number ||
+    github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pinned-contract:
+    name: Pinned project contract
+    runs-on: [self-hosted, Linux, X64, keel-ci]
+    timeout-minutes: 5
+    steps:
+      - name: Check out Keel
+        uses: actions/checkout@v5
+      - name: Check out accepted Tugling revision
+        uses: actions/checkout@v5
+        with:
+          repository: cyyapye/tugling
+          ref: 5daa3ade1f6168a9cf85bac3c7f40217ad04574a
+          path: .tugling/checkouts/pinned
+          persist-credentials: false
+      - name: Verify project adapter and privacy boundary
+        run: >-
+          python3
+          .tugling/checkouts/pinned/plugins/tugling/scripts/project_contract.py
+          --repo . --source-root .tugling/checkouts/pinned --source-mode pinned
+
+  stable-update-signal:
+    name: Stable update signal
+    if:
+      github.event_name == 'schedule' || github.event_name ==
+      'workflow_dispatch'
+    runs-on: [self-hosted, Linux, X64, keel-ci]
+    timeout-minutes: 5
+    steps:
+      - name: Check out Keel
+        uses: actions/checkout@v5
+      - name: Check out Tugling stable
+        uses: actions/checkout@v5
+        with:
+          repository: cyyapye/tugling
+          ref: stable
+          path: .tugling/checkouts/stable
+          persist-credentials: false
+      - name: Surface an unevaluated stable release
+        run: >-
+          python3
+          .tugling/checkouts/stable/plugins/tugling/scripts/project_contract.py
+          --repo . --source-root .tugling/checkouts/stable --source-mode
+          candidate

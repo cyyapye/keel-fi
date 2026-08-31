@@ -37,6 +37,10 @@ worker-configuration.d.ts
 *.tmp
 tmp/
 
+# Tugling keeps correction evidence and isolated source checkouts local.
+.tugling/local/
+.tugling/checkouts/
+
 # Financial and source-document file types are never repository inputs
 *.csv
 *.ofx
