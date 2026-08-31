@@ -582,26 +582,36 @@ test("leads with the investment and opens a truthful holding detail", async ({
     has: page.getByText("Northstar Robotics", { exact: true }),
   });
   const publicExposure = page.locator(".exposure-group").filter({
-    has: page.locator('summary strong[title="Synthetic Public Company"]'),
+    has: page.locator(
+      '.exposure-group__summary strong[title="Synthetic Public Company"]',
+    ),
   });
-  await harborExposure.locator("summary").click();
-  await northstarExposure.locator("summary").click();
-  await publicExposure.locator("summary").click();
-  await expect(harborExposure.locator("summary")).toContainText("$185k · +14%");
-  await expect(publicExposure.locator("summary")).toContainText(
-    "$183k · $190.4 · +30%",
-  );
+  await harborExposure.locator(".exposure-group__summary").click();
+  await northstarExposure.locator(".exposure-group__summary").click();
+  await publicExposure.locator(".exposure-group__summary").click();
   await expect(
-    publicExposure.locator("summary .exposure-group__market-meta"),
+    harborExposure.locator(".exposure-group__summary"),
+  ).toContainText("$185k · +14%");
+  await expect(
+    publicExposure.locator(".exposure-group__summary"),
+  ).toContainText("$183k · $190.4 · +30%");
+  await expect(
+    publicExposure.locator(
+      ".exposure-group__summary .exposure-group__market-meta",
+    ),
   ).toHaveAttribute("title", "Share price as of Aug 10, 2026");
-  await expect(publicExposure.locator("summary")).not.toContainText(
-    "Cost basis",
-  );
-  await expect(publicExposure.locator("summary")).not.toContainText("Return");
-  await expect(harborExposure.locator("summary")).not.toContainText(
-    "Cost basis",
-  );
-  await expect(harborExposure.locator("summary")).not.toContainText("Return");
+  await expect(
+    publicExposure.locator(".exposure-group__summary"),
+  ).not.toContainText("Cost basis");
+  await expect(
+    publicExposure.locator(".exposure-group__summary"),
+  ).not.toContainText("Return");
+  await expect(
+    harborExposure.locator(".exposure-group__summary"),
+  ).not.toContainText("Cost basis");
+  await expect(
+    harborExposure.locator(".exposure-group__summary"),
+  ).not.toContainText("Return");
   expect(
     await page.locator(".exposure-group__performance").evaluateAll((elements) =>
       elements.map((element) => {
@@ -611,9 +621,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
       }),
     ),
   ).toEqual([1, 1, 1]);
-  await expect(northstarExposure.locator("summary")).toContainText(
-    "$400k · +200%",
-  );
+  await expect(
+    northstarExposure.locator(".exposure-group__summary"),
+  ).toContainText("$400k · +200%");
   const harborAction = page.getByRole("button", {
     name: "View Beacon Demo SPV holding details",
   });
@@ -666,7 +676,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     `,
   });
   await expect(harborExposure).toContainText("2 positions");
-  await harborExposure.locator("summary").click();
+  await harborExposure.locator(".exposure-group__summary").click();
   await expect(harborExposure.getByText("Beacon Demo SPV")).toBeVisible();
   await expect(harborExposure.getByText("Summit Demo SPV")).toBeVisible();
   await expect(
@@ -791,7 +801,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     has: page.getByText("Lattice Grove Energy", { exact: true }),
   });
   await expect(latticeExposure).toContainText("1 position");
-  await latticeExposure.locator("summary").click();
+  await latticeExposure.locator(".exposure-group__summary").click();
   await expect(latticeExposure.getByText("Ridge Demo SPV")).toBeVisible();
   await expect(
     page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
@@ -847,11 +857,12 @@ test("leads with the investment and opens a truthful holding detail", async ({
       if (await reopenedHarborAction.isVisible()) {
         return true;
       }
-      const isOpen = await harborExposure.evaluate(
-        (element) => (element as HTMLDetailsElement).open,
-      );
+      const isOpen =
+        (await harborExposure
+          .locator(".exposure-group__summary")
+          .getAttribute("aria-expanded")) === "true";
       if (!isOpen) {
-        await harborExposure.locator("summary").click();
+        await harborExposure.locator(".exposure-group__summary").click();
       }
       return reopenedHarborAction.isVisible();
     })
@@ -1038,7 +1049,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(harborAction).toBeFocused();
   await expect(harborExposure).toContainText("$240k");
-  await expect(harborExposure.locator("summary")).toContainText("$183k · +28%");
+  await expect(
+    harborExposure.locator(".exposure-group__summary"),
+  ).toContainText("$183k · +28%");
   const adjustedBeaconPosition = harborExposure
     .locator(".exposure-group__positions article")
     .filter({ hasText: "Beacon Demo SPV" });
@@ -1047,7 +1060,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   ).toHaveAttribute("title", "Reviewed mark as of Aug 18, 2026");
   await expect(adjustedBeaconPosition).not.toContainText("Reviewed mark");
 
-  await latticeExposure.locator("summary").click();
+  await latticeExposure.locator(".exposure-group__summary").click();
   await page
     .getByRole("button", {
       name: "View Ridge Demo SPV holding details",
@@ -1060,7 +1073,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expectNoHorizontalOverflow(page);
 
   await page.getByRole("button", { name: "Back to holdings" }).click();
-  await publicExposure.locator("summary").click();
+  await publicExposure.locator(".exposure-group__summary").click();
   await page
     .getByRole("button", {
       name: "View SYN holding details",

@@ -5,6 +5,9 @@ import {
 import {
   ActionGroup,
   Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   DataItem,
   DataList,
   DisclosureIndicator,
@@ -232,43 +235,38 @@ export function PlanActualMonitoring({
         className="plan-monitoring plan-monitoring--error"
         data-status="error"
       >
-        <Button
-          aria-controls="plan-monitoring-details"
-          aria-expanded={expanded}
-          className="plan-monitoring__summary"
-          onClick={() => setExpanded((current) => !current)}
-          ref={summaryRef}
-          tone="plain"
-        >
-          <span className="plan-monitoring__summary-main">
-            <span className="eyebrow">Plan vs actual</span>
-            <span className="plan-monitoring__summary-text">
-              <strong>Monitoring is unavailable</strong>
-              <small>Open details to retry</small>
-            </span>
-          </span>
-          <span className="plan-monitoring__summary-action">
-            <span className="plan-monitoring__indicator" data-tone="attention">
-              <i aria-hidden="true" /> Needs attention
-            </span>
-            <span className="plan-monitoring__toggle-label">Details</span>
-            <DisclosureIndicator
-              className="plan-monitoring__toggle-mark"
-              expanded={expanded}
-            />
-          </span>
-        </Button>
-        {expanded && (
-          <div
-            className="plan-monitoring__details"
-            id="plan-monitoring-details"
+        <Collapsible onOpenChange={(open) => setExpanded(open)} open={expanded}>
+          <CollapsibleTrigger
+            className="plan-monitoring__summary"
+            ref={summaryRef}
           >
-            <FormMessage className="plan-monitoring__copy" tone="error">
-              {error}
-            </FormMessage>
-            <Button onClick={() => void load()}>Try again</Button>
-          </div>
-        )}
+            <span className="plan-monitoring__summary-main">
+              <span className="eyebrow">Plan vs actual</span>
+              <span className="plan-monitoring__summary-text">
+                <strong>Monitoring is unavailable</strong>
+                <small>Open details to retry</small>
+              </span>
+            </span>
+            <span className="plan-monitoring__summary-action">
+              <span
+                className="plan-monitoring__indicator"
+                data-tone="attention"
+              >
+                <i aria-hidden="true" /> Needs attention
+              </span>
+              <span className="plan-monitoring__toggle-label">Details</span>
+              <DisclosureIndicator className="plan-monitoring__toggle-mark" />
+            </span>
+          </CollapsibleTrigger>
+          <CollapsibleContent id="plan-monitoring-details">
+            <div className="plan-monitoring__details">
+              <FormMessage className="plan-monitoring__copy" tone="error">
+                {error}
+              </FormMessage>
+              <Button onClick={() => void load()}>Try again</Button>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </section>
     );
   }
@@ -281,128 +279,130 @@ export function PlanActualMonitoring({
       className={`plan-monitoring plan-monitoring--${state.status}`}
       data-status={state.status}
     >
-      <Button
-        aria-controls="plan-monitoring-details"
-        aria-expanded={expanded}
-        className="plan-monitoring__summary"
-        onClick={() => setExpanded((current) => !current)}
-        ref={summaryRef}
-        tone="plain"
-      >
-        <span className="plan-monitoring__summary-main">
-          <span className="eyebrow">Plan vs actual</span>
-          <span className="plan-monitoring__summary-text">
-            <strong>{summary.title}</strong>
-            <small>{summary.detail}</small>
+      <Collapsible onOpenChange={(open) => setExpanded(open)} open={expanded}>
+        <CollapsibleTrigger
+          className="plan-monitoring__summary"
+          ref={summaryRef}
+        >
+          <span className="plan-monitoring__summary-main">
+            <span className="eyebrow">Plan vs actual</span>
+            <span className="plan-monitoring__summary-text">
+              <strong>{summary.title}</strong>
+              <small>{summary.detail}</small>
+            </span>
           </span>
-        </span>
-        <span className="plan-monitoring__summary-action">
-          <span className="plan-monitoring__indicator" data-tone={summary.tone}>
-            <i aria-hidden="true" /> {summary.indicator}
+          <span className="plan-monitoring__summary-action">
+            <span
+              className="plan-monitoring__indicator"
+              data-tone={summary.tone}
+            >
+              <i aria-hidden="true" /> {summary.indicator}
+            </span>
+            <span className="plan-monitoring__toggle-label">Details</span>
+            <DisclosureIndicator className="plan-monitoring__toggle-mark" />
           </span>
-          <span className="plan-monitoring__toggle-label">Details</span>
-          <DisclosureIndicator
-            className="plan-monitoring__toggle-mark"
-            expanded={expanded}
-          />
-        </span>
-      </Button>
+        </CollapsibleTrigger>
 
-      {expanded && (
-        <div className="plan-monitoring__details" id="plan-monitoring-details">
-          <SectionHeader
-            className="plan-monitoring__header"
-            description={copyFor(state)}
-            descriptionPlacement="title-group"
-            descriptionProps={{ className: "plan-monitoring__copy" }}
-            title={headingFor(state)}
-          />
-
-          <DataList
-            aria-label="Monitoring coverage"
-            className="plan-monitoring__coverage"
-          >
-            {(["cash", "debt", "burn"] as const).map((metric) => (
-              <DataItem
-                key={metric}
-                label={metricLabels[metric]}
-                value={coverageLabels[state.coverage[metric]]}
-              />
-            ))}
-            <DataItem
-              label="Runway"
-              value={
-                state.coverage.runway === "available" ? "Available" : "Limited"
-              }
+        <CollapsibleContent id="plan-monitoring-details">
+          <div className="plan-monitoring__details">
+            <SectionHeader
+              className="plan-monitoring__header"
+              description={copyFor(state)}
+              descriptionPlacement="title-group"
+              descriptionProps={{ className: "plan-monitoring__copy" }}
+              title={headingFor(state)}
             />
-          </DataList>
 
-          {state.actionItems.length > 0 && (
-            <ol
-              aria-label="Monitoring decisions"
-              className="plan-monitoring__list"
+            <DataList
+              aria-label="Monitoring coverage"
+              className="plan-monitoring__coverage"
             >
-              {state.actionItems.map((item) => (
-                <li key={item.key}>
-                  <article className="plan-monitoring__item">
-                    <div className="plan-monitoring__item-copy">
-                      <span>{metricLabels[item.metric]}</span>
-                      <h3>{item.title}</h3>
-                      <p>{item.reason}</p>
-                      {item.observedAt !== null && (
-                        <small>Observed {formatDate(item.observedAt)}</small>
-                      )}
-                    </div>
-                    <ActionValues item={item} />
-                    <ActionGroup
-                      className="plan-monitoring__actions"
-                      layout="stack"
-                    >
-                      <Button
-                        onClick={() => onNavigate(item.route)}
-                        tone="primary"
-                      >
-                        {item.nextAction}
-                      </Button>
-                      <Button
-                        disabled={busyKey !== null}
-                        onClick={() => void reviewLater(item)}
-                        tone="quiet"
-                      >
-                        {busyKey === item.key ? "Saving…" : "Review in 7 days"}
-                      </Button>
-                    </ActionGroup>
-                  </article>
-                </li>
+              {(["cash", "debt", "burn"] as const).map((metric) => (
+                <DataItem
+                  key={metric}
+                  label={metricLabels[metric]}
+                  value={coverageLabels[state.coverage[metric]]}
+                />
               ))}
-            </ol>
-          )}
+              <DataItem
+                label="Runway"
+                value={
+                  state.coverage.runway === "available"
+                    ? "Available"
+                    : "Limited"
+                }
+              />
+            </DataList>
 
-          {state.deferredItems.length > 0 && (
-            <ul
-              aria-label="Deferred decisions"
-              className="plan-monitoring__deferred"
-            >
-              {state.deferredItems.map((item) => (
-                <li key={item.key}>
-                  <span>{metricLabels[item.metric]}</span>
-                  <strong>{item.title}</strong>
-                  <small>
-                    Review after{" "}
-                    {formatDate(item.cooldownUntil ?? state.evaluatedAt)}
-                  </small>
-                </li>
-              ))}
-            </ul>
-          )}
+            {state.actionItems.length > 0 && (
+              <ol
+                aria-label="Monitoring decisions"
+                className="plan-monitoring__list"
+              >
+                {state.actionItems.map((item) => (
+                  <li key={item.key}>
+                    <article className="plan-monitoring__item">
+                      <div className="plan-monitoring__item-copy">
+                        <span>{metricLabels[item.metric]}</span>
+                        <h3>{item.title}</h3>
+                        <p>{item.reason}</p>
+                        {item.observedAt !== null && (
+                          <small>Observed {formatDate(item.observedAt)}</small>
+                        )}
+                      </div>
+                      <ActionValues item={item} />
+                      <ActionGroup
+                        className="plan-monitoring__actions"
+                        layout="stack"
+                      >
+                        <Button
+                          onClick={() => onNavigate(item.route)}
+                          tone="primary"
+                        >
+                          {item.nextAction}
+                        </Button>
+                        <Button
+                          disabled={busyKey !== null}
+                          onClick={() => void reviewLater(item)}
+                          tone="quiet"
+                        >
+                          {busyKey === item.key
+                            ? "Saving…"
+                            : "Review in 7 days"}
+                        </Button>
+                      </ActionGroup>
+                    </article>
+                  </li>
+                ))}
+              </ol>
+            )}
 
-          {notice !== null && (
-            <FormMessage className="plan-monitoring__notice" tone="success">
-              {notice}
-            </FormMessage>
-          )}
-        </div>
-      )}
+            {state.deferredItems.length > 0 && (
+              <ul
+                aria-label="Deferred decisions"
+                className="plan-monitoring__deferred"
+              >
+                {state.deferredItems.map((item) => (
+                  <li key={item.key}>
+                    <span>{metricLabels[item.metric]}</span>
+                    <strong>{item.title}</strong>
+                    <small>
+                      Review after{" "}
+                      {formatDate(item.cooldownUntil ?? state.evaluatedAt)}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {notice !== null && (
+              <FormMessage className="plan-monitoring__notice" tone="success">
+                {notice}
+              </FormMessage>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }

@@ -25,6 +25,9 @@ import {
   ActionGroup,
   Badge,
   Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   DisclosureIndicator,
   EmptyState,
   FormMessage,
@@ -1165,10 +1168,12 @@ function ExposureView({
   exposureReviewError,
   exposureReviewPositionId,
   exposureReviewState,
+  openExposureIds,
   openableHoldingIds,
   onBeginExposureReview,
   onApplyExactBatch,
   onCancelExposureReview,
+  onExposureOpenChange,
   onOpenHolding,
   onLoadMoreExposures,
   onSubmitExposureReview,
@@ -1183,10 +1188,12 @@ function ExposureView({
   exposureReviewError: string | null;
   exposureReviewPositionId: string | null;
   exposureReviewState: PrivateExposureReviewState | null;
+  openExposureIds: ReadonlySet<string>;
   openableHoldingIds: ReadonlySet<string>;
   onBeginExposureReview: (positionId: string) => void;
   onApplyExactBatch: () => void;
   onCancelExposureReview: () => void;
+  onExposureOpenChange: (exposureId: string, open: boolean) => void;
   onOpenHolding: (holdingId: string) => void;
   onLoadMoreExposures: () => void;
   onSubmitExposureReview: (
@@ -1277,21 +1284,25 @@ function ExposureView({
     if (requestedExposureId === null) {
       return;
     }
+    onExposureOpenChange(requestedExposureId, true);
     const frame = window.requestAnimationFrame(() => {
-      const target =
-        exposureGroupsRef.current?.querySelector<HTMLDetailsElement>(
-          `[data-exposure-id="${CSS.escape(requestedExposureId)}"]`,
-        );
+      const target = exposureGroupsRef.current?.querySelector<HTMLElement>(
+        `[data-exposure-id="${CSS.escape(requestedExposureId)}"] [data-slot="collapsible-trigger"]`,
+      );
       if (target === undefined || target === null) {
         return;
       }
-      target.open = true;
-      const summary = target.querySelector<HTMLElement>("summary");
-      summary?.focus({ preventScroll: true });
-      summary?.scrollIntoView({ block: "nearest" });
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "nearest" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [data, requestedExposureId, sortDirection, visibleExposureCount]);
+  }, [
+    data,
+    onExposureOpenChange,
+    requestedExposureId,
+    sortDirection,
+    visibleExposureCount,
+  ]);
   useEffect(() => {
     const target = loadMoreRef.current;
     if (
@@ -1503,15 +1514,20 @@ function ExposureView({
           .filter((label): label is string => label !== null)
           .join(" · ");
         return (
-          <details
+          <Collapsible
             className="exposure-group"
             data-exposure-id={group.exposure.id}
             key={group.exposure.id}
+            onOpenChange={(open) =>
+              onExposureOpenChange(group.exposure.id, open)
+            }
+            open={openExposureIds.has(group.exposure.id)}
           >
-            <summary
+            <CollapsibleTrigger
               aria-current={
                 group.exposure.id === requestedExposureId ? "true" : undefined
               }
+              className="exposure-group__summary"
             >
               <span className="exposure-group__identity">
                 <strong
@@ -1553,76 +1569,79 @@ function ExposureView({
                 )}
               </span>
               <DisclosureIndicator className="exposure-group__indicator" />
-            </summary>
-            <div className="exposure-group__positions">
-              {positions.map((position) => {
-                const positionName = positionDisplayName(position);
-                const valueSourceLabel = exposureValueSourceLabel(position);
-                const currentSharePrice =
-                  positionSharePricePresentation(position);
-                const economicsLabel = positionEconomicsLabel(
-                  position,
-                  currentSharePrice?.label ?? null,
-                );
-                const allocationLabel = position.hasUnknownAllocation
-                  ? "Allocation unknown"
-                  : position.knownAllocationPpm === 1_000_000
-                    ? null
-                    : `${Math.floor(position.knownAllocationPpm / 10_000)}% allocated`;
-                return (
-                  <article key={position.id}>
-                    <span>
-                      <strong
-                        title={
-                          positionName === position.legalVehicleName
-                            ? undefined
-                            : position.legalVehicleName
-                        }
-                      >
-                        {positionName}
-                      </strong>
-                      <small>{positionContext(position)}</small>
-                    </span>
-                    <span
-                      className="position-row__value"
-                      title={
-                        valueSourceLabel !== null
-                          ? `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`
-                          : undefined
-                      }
-                    >
-                      {exposurePositionValue(position)}
-                      {valueSourceLabel !== null && economicsLabel === null && (
-                        <small>{valueSourceLabel}</small>
-                      )}
-                      {economicsLabel !== null && (
-                        <small
-                          className={
-                            currentSharePrice === null
-                              ? undefined
-                              : "position-row__market-meta"
-                          }
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="exposure-group__positions">
+                {positions.map((position) => {
+                  const positionName = positionDisplayName(position);
+                  const valueSourceLabel = exposureValueSourceLabel(position);
+                  const currentSharePrice =
+                    positionSharePricePresentation(position);
+                  const economicsLabel = positionEconomicsLabel(
+                    position,
+                    currentSharePrice?.label ?? null,
+                  );
+                  const allocationLabel = position.hasUnknownAllocation
+                    ? "Allocation unknown"
+                    : position.knownAllocationPpm === 1_000_000
+                      ? null
+                      : `${Math.floor(position.knownAllocationPpm / 10_000)}% allocated`;
+                  return (
+                    <article key={position.id}>
+                      <span>
+                        <strong
                           title={
-                            currentSharePrice === null
+                            positionName === position.legalVehicleName
                               ? undefined
-                              : `Share price as of ${formatDate(currentSharePrice.observedAt)}`
+                              : position.legalVehicleName
                           }
                         >
-                          {economicsLabel}
-                        </small>
-                      )}
-                      {allocationLabel !== null && (
-                        <small className="position-row__allocation">
-                          {allocationLabel}
-                        </small>
-                      )}
-                    </span>
-                    {holdingDetailAction(position.id, positionName)}
-                  </article>
-                );
-              })}
-            </div>
-          </details>
+                          {positionName}
+                        </strong>
+                        <small>{positionContext(position)}</small>
+                      </span>
+                      <span
+                        className="position-row__value"
+                        title={
+                          valueSourceLabel !== null
+                            ? `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`
+                            : undefined
+                        }
+                      >
+                        {exposurePositionValue(position)}
+                        {valueSourceLabel !== null &&
+                          economicsLabel === null && (
+                            <small>{valueSourceLabel}</small>
+                          )}
+                        {economicsLabel !== null && (
+                          <small
+                            className={
+                              currentSharePrice === null
+                                ? undefined
+                                : "position-row__market-meta"
+                            }
+                            title={
+                              currentSharePrice === null
+                                ? undefined
+                                : `Share price as of ${formatDate(currentSharePrice.observedAt)}`
+                            }
+                          >
+                            {economicsLabel}
+                          </small>
+                        )}
+                        {allocationLabel !== null && (
+                          <small className="position-row__allocation">
+                            {allocationLabel}
+                          </small>
+                        )}
+                      </span>
+                      {holdingDetailAction(position.id, positionName)}
+                    </article>
+                  );
+                })}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         );
       })}
       {hasMoreExposures && (
@@ -1644,16 +1663,19 @@ function CashHoldingsView({
   accounts,
   data,
   error,
+  onShowSmallBalancesChange,
   onOpenHolding,
   openableHoldingIds,
+  showSmallBalances,
 }: {
   accounts: readonly AcceptedCashAccount[];
   data: InvestmentHoldingsView;
   error: string | null;
+  onShowSmallBalancesChange: (open: boolean) => void;
   onOpenHolding: (holdingId: string) => void;
   openableHoldingIds: ReadonlySet<string>;
+  showSmallBalances: boolean;
 }) {
-  const [showSmallBalances, setShowSmallBalances] = useState(false);
   const bankAccounts = accounts;
   const brokeragePositions = data.exposureView.positions.filter(isCashPosition);
   if (
@@ -1699,14 +1721,56 @@ function CashHoldingsView({
   const smallBalanceCount =
     bankAccounts.filter(isSmallBankAccount).length +
     brokeragePositions.filter(isSmallBrokeragePosition).length;
-  const visibleBankAccounts = showSmallBalances
-    ? bankAccounts
-    : bankAccounts.filter((account) => !isSmallBankAccount(account));
-  const visibleBrokeragePositions = showSmallBalances
-    ? brokeragePositions
-    : brokeragePositions.filter(
-        (position) => !isSmallBrokeragePosition(position),
-      );
+  const regularBankAccounts = bankAccounts.filter(
+    (account) => !isSmallBankAccount(account),
+  );
+  const smallBankAccounts = bankAccounts.filter(isSmallBankAccount);
+  const regularBrokeragePositions = brokeragePositions.filter(
+    (position) => !isSmallBrokeragePosition(position),
+  );
+  const smallBrokeragePositions = brokeragePositions.filter(
+    isSmallBrokeragePosition,
+  );
+  const bankAccountRow = (account: (typeof bankAccounts)[number]) => (
+    <article key={account.id}>
+      <span>
+        <strong>{account.accountLabel}</strong>
+        <small>
+          {account.institutionLabel} · Bank cash · As of{" "}
+          {formatDate(account.observedAt)}
+        </small>
+      </span>
+      <strong>
+        {account.valueMinor === null
+          ? "Not reported"
+          : formatHoldingCurrency(account.valueMinor, "USD")}
+      </strong>
+    </article>
+  );
+  const brokeragePositionRow = (
+    position: (typeof brokeragePositions)[number],
+  ) => (
+    <article key={position.id}>
+      <span>
+        <strong>{positionDisplayName(position)}</strong>
+        <small>
+          {position.institutionLabel} · {position.containerLabel} · As of{" "}
+          {formatDate(position.observedAt)}
+        </small>
+      </span>
+      <strong>{exposurePositionValue(position)}</strong>
+      {openableHoldingIds.has(position.id) && (
+        <TextLink
+          aria-label={`View ${positionDisplayName(position)} holding details`}
+          className="position-row__action"
+          data-holding-id={position.id}
+          onClick={() => onOpenHolding(position.id)}
+        >
+          View details
+        </TextLink>
+      )}
+    </article>
+  );
 
   return (
     <section aria-labelledby="cash-holdings-title" className="cash-holdings">
@@ -1735,61 +1799,35 @@ function CashHoldingsView({
       />
       {error !== null && <p className="cash-holdings__error">{error}</p>}
       {(bankAccounts.length > 0 || brokeragePositions.length > 0) && (
-        <div className="cash-holdings__rows">
-          {visibleBankAccounts.map((account) => (
-            <article key={account.id}>
-              <span>
-                <strong>{account.accountLabel}</strong>
-                <small>
-                  {account.institutionLabel} · Bank cash · As of{" "}
-                  {formatDate(account.observedAt)}
-                </small>
-              </span>
-              <strong>
-                {account.valueMinor === null
-                  ? "Not reported"
-                  : formatHoldingCurrency(account.valueMinor, "USD")}
-              </strong>
-            </article>
-          ))}
-          {visibleBrokeragePositions.map((position) => (
-            <article key={position.id}>
-              <span>
-                <strong>{positionDisplayName(position)}</strong>
-                <small>
-                  {position.institutionLabel} · {position.containerLabel} · As
-                  of {formatDate(position.observedAt)}
-                </small>
-              </span>
-              <strong>{exposurePositionValue(position)}</strong>
-              {openableHoldingIds.has(position.id) && (
-                <TextLink
-                  aria-label={`View ${positionDisplayName(position)} holding details`}
-                  className="position-row__action"
-                  data-holding-id={position.id}
-                  onClick={() => onOpenHolding(position.id)}
-                >
-                  View details
-                </TextLink>
-              )}
-            </article>
-          ))}
-        </div>
-      )}
-      {smallBalanceCount > 0 && (
-        <div className="cash-holdings__disclosure">
-          <TextLink
-            aria-expanded={showSmallBalances}
-            onClick={() => setShowSmallBalances((current) => !current)}
-          >
-            <span>
-              {showSmallBalances
-                ? "Hide balances under $100"
-                : `Show ${smallBalanceCount} ${smallBalanceCount === 1 ? "balance" : "balances"} under $100`}
-            </span>
-            <DisclosureIndicator expanded={showSmallBalances} />
-          </TextLink>
-        </div>
+        <Collapsible
+          onOpenChange={onShowSmallBalancesChange}
+          open={showSmallBalances}
+        >
+          <div className="cash-holdings__rows">
+            {regularBankAccounts.map(bankAccountRow)}
+            {regularBrokeragePositions.map(brokeragePositionRow)}
+          </div>
+          {smallBalanceCount > 0 && (
+            <>
+              <div className="cash-holdings__disclosure">
+                <CollapsibleTrigger className="keel-link">
+                  <span>
+                    {showSmallBalances
+                      ? "Hide balances under $100"
+                      : `Show ${smallBalanceCount} ${smallBalanceCount === 1 ? "balance" : "balances"} under $100`}
+                  </span>
+                  <DisclosureIndicator />
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent>
+                <div className="cash-holdings__rows cash-holdings__small-balances">
+                  {smallBankAccounts.map(bankAccountRow)}
+                  {smallBrokeragePositions.map(brokeragePositionRow)}
+                </div>
+              </CollapsibleContent>
+            </>
+          )}
+        </Collapsible>
       )}
     </section>
   );
@@ -1800,22 +1838,30 @@ export function InvestmentHoldings({
   data,
   holdings,
   mode,
+  onExposureOpenChange,
   onExposureResolved,
   onLoadMoreExposures,
   onOpenHolding,
   onReviewImport,
+  onShowSmallBalancesChange,
+  openExposureIds,
   requestedExposureId,
+  showSmallBalances,
   visibleExposureCount,
 }: {
   acceptedCashAccounts: readonly AcceptedCashAccount[];
   data: InvestmentHoldingsView;
   holdings: readonly Holding[];
   mode: "exposures" | "sources";
+  onExposureOpenChange: (exposureId: string, open: boolean) => void;
   onExposureResolved: () => Promise<void>;
   onLoadMoreExposures: () => void;
   onOpenHolding: (holdingId: string) => void;
   onReviewImport: (importId: string) => void;
+  onShowSmallBalancesChange: (open: boolean) => void;
+  openExposureIds: ReadonlySet<string>;
   requestedExposureId: string | null;
+  showSmallBalances: boolean;
   visibleExposureCount: number;
 }) {
   const [connectionState, setConnectionState] =
@@ -2402,11 +2448,11 @@ export function InvestmentHoldings({
               const accountCount = connection?.containers.length ?? 0;
               return (
                 <article className="investment-institution" key={connectionId}>
-                  <details
+                  <Collapsible
                     className="investment-institution__details"
-                    open={status !== null && status.status !== "ready"}
+                    defaultOpen={status !== null && status.status !== "ready"}
                   >
-                    <summary>
+                    <CollapsibleTrigger className="investment-institution__trigger">
                       <span className="investment-institution__heading">
                         <span>
                           <h3>{label}</h3>
@@ -2438,9 +2484,11 @@ export function InvestmentHoldings({
                         </strong>
                         <DisclosureIndicator />
                       </span>
-                    </summary>
-                    <InvestmentAccountRows connection={connection} />
-                  </details>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <InvestmentAccountRows connection={connection} />
+                    </CollapsibleContent>
+                  </Collapsible>
                   {status !== null && (
                     <InstitutionActions
                       busy={busy}
@@ -2486,8 +2534,10 @@ export function InvestmentHoldings({
         accounts={acceptedCashAccounts}
         data={data}
         error={null}
+        onShowSmallBalancesChange={onShowSmallBalancesChange}
         onOpenHolding={onOpenHolding}
         openableHoldingIds={knownHoldingIds}
+        showSmallBalances={showSmallBalances}
       />
       <section
         aria-labelledby="investment-views-title"
@@ -2586,10 +2636,12 @@ export function InvestmentHoldings({
           exposureReviewError={exposureReviewError}
           exposureReviewPositionId={exposureReviewPositionId}
           exposureReviewState={exposureReviewState}
+          openExposureIds={openExposureIds}
           openableHoldingIds={knownHoldingIds}
           onBeginExposureReview={beginExposureReview}
           onApplyExactBatch={() => void applyExactExposureBatch()}
           onCancelExposureReview={cancelExposureReview}
+          onExposureOpenChange={onExposureOpenChange}
           onOpenHolding={onOpenHolding}
           onLoadMoreExposures={onLoadMoreExposures}
           onSubmitExposureReview={(position, input) =>
