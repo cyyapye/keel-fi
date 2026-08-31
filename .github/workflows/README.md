@@ -10,8 +10,18 @@ matching runner is online:
 - `Critical browser flows`
 - `Secret scan`
 
-Configure the `main` branch ruleset to require all four jobs and require the
-branch to be up to date before merge.
+`tugling.yml` separately verifies the project adapter, synthetic dogfood case,
+instruction routing, ignored local-learning ledger, and exact accepted Tugling
+revision. It is deterministic and does not call a model. Configure the `main`
+ruleset to require `Pinned project contract` alongside the four native jobs, and
+require the branch to be up to date before merge.
+
+Every Monday, and on manual dispatch, the workflow also checks Tugling's
+`stable` branch. It passes while stable is the accepted version and fails closed
+after stable advances, making the available update visible without changing
+Keel's pin. Review the upstream release proof and run the synthetic Keel dogfood
+case before accepting a new revision. Live model evaluation does not run on pull
+requests.
 
 ## Self-hosted runner lanes
 

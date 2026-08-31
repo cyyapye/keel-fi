@@ -65,3 +65,17 @@
   or `make e2e` while iterating.
 - Do not copy `.env` files, credentials, or private financial inputs into
   worktrees. Local development uses only the checked-in synthetic seed.
+
+## Tugling project adapter
+
+- Keel's instructions remain authoritative. Tugling supplies generic
+  engineering-review skills; it does not weaken any rule in this file or a
+  path-specific `AGENTS.md`.
+- The accepted Tugling source, project verification command, synthetic dogfood
+  case, and local-learning mode are declared in `.tugling/project.json`.
+- Record reusable user corrections only through Tugling's local learning helper.
+  The ledger under `.tugling/local/` is ignored, stays on this machine, and is
+  never an instruction source or CI input.
+- Promote a lesson only after review, sanitization into a synthetic case, and a
+  released-versus-candidate evaluation. Never publish Keel records, prompts,
+  credentials, or private source material to Tugling.
