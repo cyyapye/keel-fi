@@ -51,6 +51,9 @@ import {
   CarouselContent,
   CarouselDots,
   CarouselItem,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   DataItem,
   DataList,
   DatePicker,
@@ -4304,20 +4307,24 @@ function AgentTroubleshooting({
   setupCommand: string;
 }) {
   return (
-    <details className="provider-agent-troubleshooting">
-      <summary>
+    <Collapsible className="provider-agent-troubleshooting">
+      <CollapsibleTrigger className="provider-agent-troubleshooting__trigger">
         <span>Troubleshooting</span>
         <DisclosureIndicator />
-      </summary>
-      <p>
-        If Keel cannot open the private browser, run the repair command on the
-        update computer.
-      </p>
-      <Button onClick={copyCommand} tone="quiet">
-        Copy {label} repair command
-      </Button>
-      {error === COPY_AGENT_COMMAND_ERROR && <code>{setupCommand}</code>}
-    </details>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="provider-agent-troubleshooting__content">
+          <p>
+            If Keel cannot open the private browser, run the repair command on
+            the update computer.
+          </p>
+          <Button onClick={copyCommand} tone="quiet">
+            Copy {label} repair command
+          </Button>
+          {error === COPY_AGENT_COMMAND_ERROR && <code>{setupCommand}</code>}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -7115,6 +7122,10 @@ function Holdings({
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(
     null,
   );
+  const [openExposureIds, setOpenExposureIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [showSmallCashBalances, setShowSmallCashBalances] = useState(false);
   const [cashRefreshVersion, setCashRefreshVersion] = useState(0);
   const [visibleExposureCount, setVisibleExposureCount] = useState(
     HOLDINGS_EXPOSURE_PAGE_SIZE,
@@ -7195,6 +7206,36 @@ function Holdings({
       ),
     [],
   );
+  const setExposureOpen = useCallback((exposureId: string, open: boolean) => {
+    setOpenExposureIds((current) => {
+      if (current.has(exposureId) === open) {
+        return current;
+      }
+      const next = new Set(current);
+      if (open) {
+        next.add(exposureId);
+      } else {
+        next.delete(exposureId);
+      }
+      return next;
+    });
+  }, []);
+
+  const openHoldingDetail = useCallback((holdingId: string) => {
+    const action = document.querySelector<HTMLElement>(
+      `[data-holding-id="${CSS.escape(holdingId)}"]`,
+    );
+    const exposureId = action
+      ?.closest<HTMLElement>("[data-exposure-id]")
+      ?.getAttribute("data-exposure-id");
+
+    setOpenExposureIds(
+      exposureId === null || exposureId === undefined
+        ? new Set()
+        : new Set([exposureId]),
+    );
+    setSelectedHoldingId(holdingId);
+  }, []);
 
   const closeHoldingDetail = () => {
     const returnFocusId = selectedHoldingId;
@@ -7206,11 +7247,6 @@ function Holdings({
           `[data-holding-id="${CSS.escape(returnFocusId)}"]`,
         );
         if (action !== null) {
-          const exposure =
-            action.closest<HTMLDetailsElement>(".exposure-group");
-          if (exposure !== null) {
-            exposure.open = true;
-          }
           action.focus();
           return;
         }
@@ -7364,15 +7400,19 @@ function Holdings({
             data={data.investmentHoldings}
             holdings={data.holdings}
             mode={sourcesVisible ? "sources" : "exposures"}
+            onExposureOpenChange={setExposureOpen}
             onExposureResolved={onExposureResolved}
             onLoadMoreExposures={loadMoreExposures}
-            onOpenHolding={setSelectedHoldingId}
+            onOpenHolding={openHoldingDetail}
             onReviewImport={reviewPendingImport}
+            onShowSmallBalancesChange={setShowSmallCashBalances}
+            openExposureIds={openExposureIds}
             requestedExposureId={
               requestedDrilldown?.type === "exposure"
                 ? requestedDrilldown.exposureId
                 : null
             }
+            showSmallBalances={showSmallCashBalances}
             visibleExposureCount={visibleExposureCount}
           />
         </>

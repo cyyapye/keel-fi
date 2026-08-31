@@ -2531,18 +2531,15 @@ h1,
   border-top: 1px solid var(--line-soft);
 }
 
-.investment-institution__details > summary {
+.investment-institution__details > .investment-institution__trigger {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 28px;
   min-height: 58px;
   cursor: pointer;
-  list-style: none;
-}
-
-.investment-institution__details > summary::-webkit-details-marker {
-  display: none;
+  width: 100%;
+  text-align: left;
 }
 
 .investment-institution__heading {
@@ -2814,6 +2811,11 @@ h1,
   text-align: right;
 }
 
+.cash-holdings__small-balances {
+  display: grid;
+  margin-top: 0;
+}
+
 .cash-holdings__error {
   margin-top: 18px;
 }
@@ -2955,7 +2957,7 @@ h1,
   font-weight: 800;
 }
 
-.exposure-group summary {
+.exposure-group__summary {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2963,17 +2965,14 @@ h1,
   align-items: baseline;
   column-gap: 24px;
   row-gap: 2px;
+  width: 100%;
   min-height: 88px;
   padding: 20px 28px 20px 0;
   cursor: pointer;
-  list-style: none;
+  text-align: left;
 }
 
-.exposure-group summary::-webkit-details-marker {
-  display: none;
-}
-
-.exposure-group summary[aria-current="true"]:focus-visible {
+.exposure-group__summary[aria-current="true"]:focus-visible {
   padding-left: 10px;
   box-shadow: inset 2px 0 0 var(--ink);
 }
@@ -3531,9 +3530,10 @@ h1,
   display: grid;
   width: min(100%, 520px);
   gap: 8px;
+  padding-bottom: 8px;
 }
 
-.provider-agent-troubleshooting summary {
+.provider-agent-troubleshooting__trigger {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -3544,15 +3544,14 @@ h1,
   font-weight: 700;
   line-height: 1.25;
   cursor: pointer;
-  list-style: none;
 }
 
-.provider-agent-troubleshooting summary::-webkit-details-marker {
-  display: none;
-}
-
-.provider-agent-troubleshooting[open] summary {
+.provider-agent-troubleshooting__trigger[data-panel-open] {
   color: var(--ink);
+}
+
+.provider-agent-troubleshooting__content {
+  padding-top: 8px;
 }
 
 .provider-agent-troubleshooting p,
@@ -6476,7 +6475,7 @@ h1,
     padding: 22px 0;
   }
 
-  .investment-institution__details > summary {
+  .investment-institution__details > .investment-institution__trigger {
     gap: 16px;
   }
 
@@ -6567,7 +6566,7 @@ h1,
     text-align: left;
   }
 
-  .exposure-group summary {
+  .exposure-group__summary {
     grid-template-columns: minmax(0, 1fr) auto;
     column-gap: 14px;
   }
@@ -6713,7 +6712,7 @@ h1,
     width: 100%;
   }
 
-  .provider-agent-troubleshooting summary {
+  .provider-agent-troubleshooting__trigger {
     min-height: 44px;
   }
 

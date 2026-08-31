@@ -1,19 +1,10 @@
 import { cn } from "../lib/utils";
 
-export function DisclosureIndicator({
-  className,
-  expanded,
-}: {
-  className?: string;
-  expanded?: boolean;
-}) {
+export function DisclosureIndicator({ className }: { className?: string }) {
   return (
     <svg
       aria-hidden="true"
       className={cn("disclosure-indicator", className)}
-      data-expanded={
-        expanded === undefined ? undefined : expanded ? "true" : "false"
-      }
       data-slot="disclosure-indicator"
       fill="none"
       focusable="false"

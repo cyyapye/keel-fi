@@ -18,6 +18,11 @@ export {
 } from "./components/chart";
 export { DatePicker } from "./components/date-picker";
 export { DataItem, DataList, Stat, StatGroup } from "./components/data-display";
+export {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "./components/collapsible";
 export { DisclosureIndicator } from "./components/disclosure-indicator";
 export { EmptyState, FormMessage, Notice } from "./components/feedback";
 export { Field, Input, InputGroup, Textarea } from "./components/field";

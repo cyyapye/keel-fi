@@ -150,10 +150,7 @@ test("keeps material plan drift actionable without changing the plan", async ({
   await expect(monitoringSummary).toHaveAttribute("aria-expanded", "false");
   await expect(monitoringSummary).toContainText("4 decisions to review");
   await expect(monitoringSummary).toContainText("Needs attention");
-  const disclosureIndicator = monitoring.locator(
-    ".plan-monitoring__toggle-mark",
-  );
-  await expect(disclosureIndicator).toHaveAttribute("data-expanded", "false");
+  await expect(monitoringSummary).not.toHaveAttribute("data-panel-open", "");
   expect(
     await monitoringSummary.evaluate((summary) => {
       const status = summary.querySelector(".plan-monitoring__indicator");
@@ -195,7 +192,18 @@ test("keeps material plan drift actionable without changing the plan", async ({
 
   await monitoringSummary.click();
   await expect(monitoringSummary).toHaveAttribute("aria-expanded", "true");
-  await expect(disclosureIndicator).toHaveAttribute("data-expanded", "true");
+  await expect(monitoringSummary).toHaveAttribute("data-panel-open", "");
+  const disclosureMotion = await monitoring
+    .locator('[data-slot="collapsible-content"]')
+    .evaluate((panel) => {
+      const style = window.getComputedStyle(panel);
+      return {
+        duration: style.transitionDuration,
+        property: style.transitionProperty,
+      };
+    });
+  expect(disclosureMotion.property).toContain("height");
+  expect(disclosureMotion.duration).not.toBe("0s");
   await expect(
     monitoring.getByRole("heading", { name: "4 decisions to review" }),
   ).toBeVisible();

@@ -349,8 +349,8 @@ test("drills each portfolio chart into its corresponding Holdings detail without
     await expect(page).toHaveURL(/\/holdings\?exposure=/u);
     expect(new URL(page.url()).searchParams.get("exposure")).toBe(exposureId);
     const exposure = page.locator(`[data-exposure-id="${exposureId}"]`);
-    await expect(exposure).toHaveJSProperty("open", true);
-    await expect(exposure.locator("summary")).toBeFocused();
+    await expect(exposure).toHaveAttribute("data-open", "");
+    await expect(exposure.locator(".exposure-group__summary")).toBeFocused();
     await expectNoHorizontalOverflow(page);
     return exposure;
   };

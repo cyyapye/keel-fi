@@ -28,22 +28,45 @@ describe("shared UI usage", () => {
     expect(violations).toEqual([]);
   });
 
-  it("routes app disclosure affordances through DisclosureIndicator", () => {
+  it("routes app disclosures through the shared Collapsible composition", () => {
     const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
       const source = readFileSync(path, "utf8");
-      const disclosureCount =
-        (source.match(/<details\b/gu)?.length ?? 0) +
-        (source.match(/\baria-expanded=/gu)?.length ?? 0);
+      const disclosureCount = source.match(/<Collapsible\b/gu)?.length ?? 0;
+      const triggerCount = source.match(/<CollapsibleTrigger\b/gu)?.length ?? 0;
+      const contentCount = source.match(/<CollapsibleContent\b/gu)?.length ?? 0;
       const indicatorCount =
         source.match(/<DisclosureIndicator\b/gu)?.length ?? 0;
-      return disclosureCount === indicatorCount
+      const nativeDetailsCount = source.match(/<details\b/gu)?.length ?? 0;
+      return disclosureCount === triggerCount &&
+        triggerCount === contentCount &&
+        contentCount === indicatorCount &&
+        nativeDetailsCount === 0
         ? []
         : [
-            `${relative(webSourceDirectory, path)}: ${disclosureCount} disclosures, ${indicatorCount} shared indicators`,
+            `${relative(webSourceDirectory, path)}: ${disclosureCount} roots, ${triggerCount} triggers, ${contentCount} panels, ${indicatorCount} indicators, ${nativeDetailsCount} native details`,
           ];
     });
 
     expect(violations).toEqual([]);
+  });
+
+  it("uses Base UI measured-height motion for shared disclosures", () => {
+    const collapsibleSource = readFileSync(
+      resolve(
+        import.meta.dirname,
+        "../packages/ui/src/components/collapsible.tsx",
+      ),
+      "utf8",
+    );
+    const sharedStyles = readFileSync(
+      resolve(import.meta.dirname, "../packages/ui/src/styles.css"),
+      "utf8",
+    );
+
+    expect(collapsibleSource).toContain('from "@base-ui/react/collapsible"');
+    expect(sharedStyles).toContain("height: var(--collapsible-panel-height)");
+    expect(sharedStyles).toContain("[data-ending-style]");
+    expect(sharedStyles).toContain("prefers-reduced-motion: reduce");
   });
 
   it("uses DisclosureIndicator for the shared select popup", () => {
