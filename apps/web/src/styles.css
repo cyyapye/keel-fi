@@ -2,7 +2,6 @@ h1,
 .metric-card strong,
 .hero__runway strong,
 .chart-kpis strong,
-.fi-gap strong,
 .scenario-summary article strong,
 .forecast-impact strong {
   font-weight: 600;
@@ -407,12 +406,6 @@ h1,
   font-weight: 680;
 }
 
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0;
-}
-
 .goal-overview {
   min-width: 0;
   padding-bottom: 8px;
@@ -664,6 +657,51 @@ h1,
   font-size: 24px;
 }
 
+.portfolio-outlook__base {
+  min-width: 0;
+  margin-top: 30px;
+  padding-top: 8px;
+}
+
+.portfolio-outlook__base-heading {
+  display: block;
+  margin-bottom: 18px;
+}
+
+.portfolio-outlook__base-heading .eyebrow {
+  margin: 0;
+}
+
+.portfolio-outlook__metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 48px;
+  max-width: 760px;
+}
+
+.portfolio-outlook__metric {
+  min-width: 0;
+}
+
+.portfolio-outlook__metric .stat__value {
+  display: block;
+  margin-top: 8px;
+  font-size: clamp(24px, 2.5vw, 34px);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+
+.portfolio-outlook__metric .stat__detail {
+  display: block;
+  min-height: 13px;
+  margin-top: 9px;
+  line-height: 1.5;
+}
+
+.portfolio-outlook__metric .keel-link {
+  margin-top: 8px;
+}
+
 .chart-wrap {
   min-width: 0;
 }
@@ -807,11 +845,35 @@ h1,
   grid-template-columns: 164px minmax(0, 1fr);
   align-items: center;
   gap: 46px;
-  max-width: 760px;
+  max-width: 860px;
 }
 
 .goal-signal__readout {
   min-width: 0;
+}
+
+.goal-signal__stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 44px;
+}
+
+.goal-signal__stats .stat__value {
+  display: block;
+  margin-top: 8px;
+  font-size: clamp(22px, 2.5vw, 32px);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+
+.goal-signal__stats .stat__detail {
+  display: block;
+  margin-top: 9px;
+  line-height: 1.5;
+}
+
+.goal-signal__readout .panel-note {
+  margin-top: 26px;
 }
 
 .probability-ring {
@@ -864,24 +926,6 @@ h1,
   letter-spacing: 0.08em;
   line-height: 1.4;
   text-transform: uppercase;
-}
-
-.fi-gap {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 0;
-}
-
-.fi-gap span {
-  color: var(--muted);
-  font-size: 8px;
-  font-weight: 750;
-  text-transform: uppercase;
-}
-
-.fi-gap strong {
-  font-size: 22px;
 }
 
 .panel-note {
@@ -5753,10 +5797,6 @@ h1,
 }
 
 @media (max-width: 1180px) {
-  .metrics-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
   .scenario-grid {
     grid-template-columns: 1fr;
   }
@@ -6875,10 +6915,6 @@ h1,
     font-size: 42px;
   }
 
-  .metrics-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
   .watch-control-panel,
   .watch-target-grid,
   .watch-observation-list > article > header,
@@ -6939,9 +6975,17 @@ h1,
     gap: 16px;
   }
 
+  .goal-signal__stats {
+    gap: 24px;
+  }
+
   .goal-signal .probability-ring {
     margin-right: auto;
     margin-left: auto;
+  }
+
+  .portfolio-outlook__metrics {
+    gap: 20px;
   }
 
   .decision-list article {

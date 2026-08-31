@@ -39,6 +39,50 @@ const overviewPrimaryGoal: AlphaData["goals"][number] = {
   ],
 };
 
+const overviewLiquidityCurve: AlphaData["scenarios"][number]["liquidityCurve"] =
+  [
+    {
+      year: 2027,
+      p25Minor: 0,
+      p50Minor: 18_000_000,
+      p75Minor: 62_000_000,
+      expectedMinor: 26_000_000,
+      probabilityZeroPpm: 690_000,
+    },
+    {
+      year: 2028,
+      p25Minor: 12_000_000,
+      p50Minor: 54_000_000,
+      p75Minor: 128_000_000,
+      expectedMinor: 71_000_000,
+      probabilityZeroPpm: 420_000,
+    },
+    {
+      year: 2029,
+      p25Minor: 42_000_000,
+      p50Minor: 108_000_000,
+      p75Minor: 210_000_000,
+      expectedMinor: 132_000_000,
+      probabilityZeroPpm: 230_000,
+    },
+    {
+      year: 2030,
+      p25Minor: 72_000_000,
+      p50Minor: 166_000_000,
+      p75Minor: 286_000_000,
+      expectedMinor: 195_000_000,
+      probabilityZeroPpm: 120_000,
+    },
+    {
+      year: 2031,
+      p25Minor: 94_000_000,
+      p50Minor: 210_000_000,
+      p75Minor: 354_000_000,
+      expectedMinor: 246_000_000,
+      probabilityZeroPpm: 70_000,
+    },
+  ];
+
 export function withStableOverviewValues(data: AlphaData): AlphaData {
   return {
     ...data,
@@ -46,12 +90,24 @@ export function withStableOverviewValues(data: AlphaData): AlphaData {
       ...data.dashboard,
       fiEligibleLiquidMinor: 182_500_000,
       protectedRunwayMonths: 42,
+      protectedCashFloorMinor: 10_300_000,
+      householdBurnMonthlyMinor: 2_850_000,
+      businessBurnMonthlyMinor: 1_250_000,
       fiTargetMinor: 325_000_000,
       fiGapMinor: 142_500_000,
+      p25FiveYearLiquidityMinor: 94_000_000,
+      p50FiveYearLiquidityMinor: 210_000_000,
+      p75FiveYearLiquidityMinor: 354_000_000,
+      probabilityCrossingFiPpm: 640_000,
     },
     goals: [
       overviewPrimaryGoal,
       ...data.goals.filter((goal) => !goal.isPrimary),
     ],
+    scenarios: data.scenarios.map((scenario) =>
+      scenario.name === "FI Underwriting"
+        ? { ...scenario, liquidityCurve: overviewLiquidityCurve }
+        : scenario,
+    ),
   };
 }

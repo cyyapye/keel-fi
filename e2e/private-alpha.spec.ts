@@ -13,10 +13,11 @@ test("loads the database-backed dashboard and primary views", async ({
       name: "Financial independence",
     }),
   ).toBeVisible();
+  const fiEligibleMetric = page
+    .locator(".portfolio-outlook__metric")
+    .filter({ hasText: "FI-eligible liquid" });
   await expect(
-    page.getByRole("button", {
-      name: "FI-eligible liquid: $1.8M. View holdings",
-    }),
+    fiEligibleMetric.getByRole("button", { name: "View holdings" }),
   ).toBeVisible();
   await expect(page.getByText("Private · Access protected")).toHaveCount(0);
   const monitoringSummary = page.getByRole("button", {
@@ -38,9 +39,7 @@ test("loads the database-backed dashboard and primary views", async ({
 
   const mobile = test.info().project.name === "mobile-chromium";
 
-  await page
-    .getByRole("button", { name: /FI-eligible liquid.*View holdings/ })
-    .click();
+  await fiEligibleMetric.getByRole("button", { name: "View holdings" }).click();
   await expect(
     page.getByRole("heading", { name: "Holdings", exact: true }),
   ).toBeVisible();
@@ -107,7 +106,9 @@ test("loads the database-backed dashboard and primary views", async ({
 
   await navigateToScreen(page, mobile, /Overview/);
   await page
-    .getByRole("button", { name: /Protected runway.*View plan inputs/ })
+    .locator(".portfolio-outlook__metric")
+    .filter({ hasText: "Protected runway" })
+    .getByRole("button", { name: "View plan inputs" })
     .click();
   await expect(page.getByRole("heading", { name: "Scenarios" })).toBeVisible();
   const planInputs = page.locator(".plan-inputs-editor");

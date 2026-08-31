@@ -124,6 +124,7 @@ const alphaFixture = {
     householdName: "Demo Household",
     fiEligibleLiquidMinor: 182_500_000,
     protectedRunwayMonths: 42,
+    protectedCashFloorMinor: 10_300_000,
     householdBurnMonthlyMinor: 2_850_000,
     businessBurnMonthlyMinor: 1_250_000,
     fiTargetMinor: 325_000_000,

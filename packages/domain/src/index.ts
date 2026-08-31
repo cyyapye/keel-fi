@@ -125,6 +125,7 @@ export const DashboardSchema = z.object({
   householdName: z.string().min(1),
   fiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
   protectedRunwayMonths: z.number().int().nonnegative(),
+  protectedCashFloorMinor: NonNegativeMoneyMinorSchema,
   householdBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
   businessBurnMonthlyMinor: NonNegativeMoneyMinorSchema,
   fiTargetMinor: NonNegativeMoneyMinorSchema,

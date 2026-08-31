@@ -43,6 +43,16 @@ function expectedGoalProgress(
   );
 }
 
+function expectedGoalPosition(
+  version: AlphaData["goals"][number]["versions"][number],
+) {
+  const target = version.targetValueInteger;
+  if (target === null) return "Not available";
+  const difference = version.currentValueInteger - target;
+  if (difference === 0) return "Met";
+  return formatExpectedGoalValue(Math.abs(difference), version.targetUnit);
+}
+
 test("keeps the Overview masthead swipeable without a duplicate goals section", async ({
   page,
 }, testInfo) => {
@@ -77,8 +87,12 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   await expect(page.locator(".overview-goals")).toHaveCount(0);
 
   const goalOverview = page.locator(".goal-overview");
-  const goalMetrics = goalOverview.locator("[data-slot='metric-card']");
   const goalSignal = goalOverview.locator(".goal-signal");
+  const goalStats = goalSignal.locator(
+    ".goal-signal__stats [data-slot='stat']",
+  );
+  const portfolioOutlook = page.locator(".liquidity-panel");
+  const portfolioBase = portfolioOutlook.locator(".portfolio-outlook__base");
   const initialGoal = alphaFixture.goals[0];
   await expect(goalOverview).toHaveAttribute("data-goal-id", initialGoal!.id);
   await expect(goalSignal.getByRole("heading", { level: 2 })).toHaveText(
@@ -111,6 +125,27 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
     },
   );
   await expect(goalOverview).toHaveScreenshot("overview-goal-overview.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+  await expect(goalOverview).not.toContainText("Protected runway");
+  await expect(goalOverview).not.toContainText("FI-eligible liquid");
+  await expect(portfolioBase).toContainText("Current base");
+  await expect(portfolioBase).toContainText("FI-eligible liquid");
+  await expect(portfolioBase).toContainText("Protected runway");
+  await expect(portfolioBase).toContainText(
+    "$41k/month after a $103k cash floor",
+  );
+  const [chartBox, portfolioBaseBox] = await Promise.all([
+    portfolioOutlook.locator(".liquidity-chart").boundingBox(),
+    portfolioBase.boundingBox(),
+  ]);
+  expect(chartBox).not.toBeNull();
+  expect(portfolioBaseBox).not.toBeNull();
+  expect(portfolioBaseBox!.y).toBeGreaterThan(chartBox!.y + chartBox!.height);
+  await expect(portfolioBase).toHaveScreenshot("overview-portfolio-base.png", {
     animations: "disabled",
     caret: "hide",
     maxDiffPixelRatio: 0.025,
@@ -173,13 +208,7 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
     throw new Error("Expected a second saved goal in the Overview fixture.");
   }
   await expect(goalOverview).toHaveAttribute("data-goal-id", selectedGoal.id);
-  await expect(goalMetrics.first().locator("strong")).toHaveText(
-    formatExpectedGoalValue(
-      selectedVersion.currentValueInteger,
-      selectedVersion.targetUnit,
-    ),
-  );
-  await expect(goalMetrics.nth(1).locator("strong")).toHaveText(
+  await expect(goalStats.first().locator("strong")).toHaveText(
     selectedVersion.targetValueInteger === null
       ? "Not set"
       : formatExpectedGoalValue(
@@ -187,12 +216,16 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
           selectedVersion.targetUnit,
         ),
   );
+  await expect(goalStats.nth(1).locator("strong")).toHaveText(
+    expectedGoalPosition(selectedVersion),
+  );
   await expect(goalSignal.getByRole("heading", { level: 2 })).toHaveText(
     selectedVersion.name,
   );
   await expect(goalSignal.locator(".probability-ring strong")).toHaveText(
     formatProbability(expectedGoalProgress(selectedVersion)),
   );
+  await expect(portfolioBase).toContainText("42 months");
 
   const dotHeights = await goalDots.evaluateAll((dots) =>
     dots.map((dot) => dot.getBoundingClientRect().height),

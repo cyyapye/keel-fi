@@ -2439,6 +2439,7 @@ describe("reviewed portfolio baseline persistence", () => {
     expect(alpha.dashboard).toMatchObject({
       asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/u),
       fiEligibleLiquidMinor: 200_000_000,
+      protectedCashFloorMinor: 10_300_000,
       protectedRunwayMonths: 46,
       fiGapMinor: 125_000_000,
       probabilityCrossingFiPpm: 683_190,
