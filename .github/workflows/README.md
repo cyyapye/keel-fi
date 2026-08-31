@@ -12,9 +12,12 @@ matching runner is online:
 
 `tugling.yml` separately verifies the project adapter, synthetic dogfood case,
 instruction routing, ignored local-learning ledger, and exact accepted Tugling
-revision. It is deterministic and does not call a model. Configure the `main`
-ruleset to require `Pinned project contract` alongside the four native jobs, and
-require the branch to be up to date before merge.
+revision. It is deterministic and does not call a model. On repository plans
+that cannot require checks for a private branch, this workflow provides
+pre-merge feedback while `post-merge.yml` repeats the exact pinned contract as a
+hard deployment dependency. A change can land on `main`, but it cannot reach
+preview unless Tugling, native verification, and the secret scan all pass for
+that exact commit.
 
 Every Monday, and on manual dispatch, the workflow also checks Tugling's
 `stable` branch. It passes while stable is the accepted version and fails closed
@@ -42,10 +45,10 @@ untrusted-fork pull requests to these persistent runners. Return PR jobs to
 GitHub-hosted or ephemeral runners before changing repository visibility or
 accepting untrusted contributors.
 
-`post-merge.yml` runs `make verify` plus a full-history secret scan on the exact
-commit pushed to `main`. After both jobs pass, it automatically deploys that
-same SHA to the protected Cloudflare preview. A manual dispatch deploys only
-when it targets `main`.
+`post-merge.yml` runs `make verify`, the exact pinned Tugling project contract,
+and a full-history secret scan on the exact commit pushed to `main`. After all
+three jobs pass, it automatically deploys that same SHA to the protected
+Cloudflare preview. A manual dispatch deploys only when it targets `main`.
 
 The preview deployment is serialized and fail-closed. It exports, encrypts, and
 round-trip verifies D1 before applying forward-only migrations, deploys the API

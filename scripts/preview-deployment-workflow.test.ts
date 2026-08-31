@@ -20,7 +20,7 @@ describe("post-merge preview deployment workflow", () => {
     ).toHaveLength(4);
     expect(
       verification.match(/runs-on: \[self-hosted, Linux, X64, keel-ci\]/g),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(deployment).toContain(
       "runs-on: [self-hosted, Linux, X64, keel-deploy]",
     );
@@ -46,6 +46,7 @@ describe("post-merge preview deployment workflow", () => {
 
     expect(jobConfiguration).toContain("- verify");
     expect(jobConfiguration).toContain("- secret-scan");
+    expect(jobConfiguration).toContain("- tugling-contract");
     expect(jobConfiguration).toContain("name: preview");
     expect(jobConfiguration).toContain("cancel-in-progress: false");
     expect(jobConfiguration).not.toContain("secrets.");
@@ -59,6 +60,16 @@ describe("post-merge preview deployment workflow", () => {
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).not.toContain("preview_database_action:");
     expect(workflow).not.toContain("wrangler d1 time-travel restore");
+
+    const tuglingStart = workflow.indexOf("  tugling-contract:");
+    expect(tuglingStart).toBeGreaterThan(-1);
+    const tugling = workflow.slice(tuglingStart, deploymentStart);
+    expect(tugling).toContain("ref: ${{ github.sha }}");
+    expect(tugling).toContain("repository: cyyapye/tugling");
+    expect(tugling).toContain("ref: 5daa3ade1f6168a9cf85bac3c7f40217ad04574a");
+    expect(tugling).toContain("persist-credentials: false");
+    expect(tugling).toContain("project_contract.py");
+    expect(tugling).toContain("--source-mode pinned");
 
     const backup = deployment.indexOf("wrangler d1 export");
     const backupVerification = deployment.indexOf("cmp --silent");
