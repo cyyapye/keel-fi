@@ -21,6 +21,8 @@ export type LocalSeedScenario = z.infer<typeof LocalSeedScenarioSchema>;
 type LocalSeedScenarioDefinition = {
   readonly description: string;
   readonly expectedCurrentPositionCount: number;
+  readonly minimumAcceptedValueDecreaseCount: number;
+  readonly minimumAcceptedValueIncreaseCount: number;
   readonly minimumCanonicalExposureCount: number;
   readonly seedFiles: readonly string[];
   readonly version: number;
@@ -28,18 +30,23 @@ type LocalSeedScenarioDefinition = {
 
 export const LocalSeedScenarios = {
   default: {
-    description: "Planning data and fresh synthetic public-equity holdings",
+    description:
+      "Planning data and fresh synthetic public-equity holdings with reviewed value history",
     expectedCurrentPositionCount: 5,
+    minimumAcceptedValueDecreaseCount: 1,
+    minimumAcceptedValueIncreaseCount: 1,
     minimumCanonicalExposureCount: 3,
     seedFiles: [
       "packages/database/seed/synthetic.sql",
       "packages/database/seed/scenarios/default.sql",
     ],
-    version: 1,
+    version: 2,
   },
   "empty-holdings": {
     description: "Planning data with no current holdings",
     expectedCurrentPositionCount: 0,
+    minimumAcceptedValueDecreaseCount: 0,
+    minimumAcceptedValueIncreaseCount: 0,
     minimumCanonicalExposureCount: 0,
     seedFiles: ["packages/database/seed/synthetic.sql"],
     version: 1,
@@ -57,6 +64,8 @@ type ScenarioMarker = z.infer<typeof ScenarioMarkerSchema>;
 
 const ScenarioCheckRowSchema = z
   .object({
+    accepted_value_decreases: z.number().int().nonnegative(),
+    accepted_value_increases: z.number().int().nonnegative(),
     canonical_exposures: z.number().int().nonnegative(),
     current_positions: z.number().int().nonnegative(),
     forecast_snapshots: z.number().int().nonnegative(),
@@ -383,6 +392,22 @@ function checkScenario(
           SELECT 1 FROM holding_position_continuities continuity
           WHERE continuity.predecessor_position_id = position.id
         )) AS current_positions,
+       (SELECT COUNT(*)
+        FROM holding_position_value_proposals proposal
+        JOIN holding_position_value_reviews review
+          ON review.proposal_id = proposal.id
+         AND review.decision = 'accepted'
+        WHERE proposal.prior_value_state = 'reported'
+          AND proposal.value_minor > proposal.prior_value_minor
+       ) AS accepted_value_increases,
+       (SELECT COUNT(*)
+        FROM holding_position_value_proposals proposal
+        JOIN holding_position_value_reviews review
+          ON review.proposal_id = proposal.id
+         AND review.decision = 'accepted'
+        WHERE proposal.prior_value_state = 'reported'
+          AND proposal.value_minor < proposal.prior_value_minor
+       ) AS accepted_value_decreases,
        (SELECT COUNT(*) FROM canonical_exposures) AS canonical_exposures;`,
     persistRoot,
     rootDir,
@@ -410,6 +435,10 @@ export function assertScenarioCheck(
     result.primary_goals < 1 ||
     result.goal_versions_without_snapshot !== 0 ||
     !positionsAreValid ||
+    result.accepted_value_increases <
+      definition.minimumAcceptedValueIncreaseCount ||
+    result.accepted_value_decreases <
+      definition.minimumAcceptedValueDecreaseCount ||
     result.canonical_exposures < definition.minimumCanonicalExposureCount
   ) {
     throw new Error(`Local D1 scenario "${scenario}" failed its invariants.`);

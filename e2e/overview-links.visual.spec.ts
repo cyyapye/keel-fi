@@ -176,6 +176,41 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   expect(chartBox).not.toBeNull();
   expect(portfolioBaseBox).not.toBeNull();
   expect(portfolioBaseBox!.y).toBeGreaterThan(chartBox!.y + chartBox!.height);
+  if ((page.viewportSize()?.width ?? 0) > 620) {
+    const portfolioMetrics = portfolioBase.locator(
+      ".portfolio-outlook__metrics",
+    );
+    const portfolioMetricItems = portfolioMetrics.locator(
+      ".portfolio-outlook__metric",
+    );
+    const [
+      portfolioMetricsBox,
+      firstPortfolioMetricBox,
+      secondPortfolioMetricBox,
+    ] = await Promise.all([
+      portfolioMetrics.boundingBox(),
+      portfolioMetricItems.nth(0).boundingBox(),
+      portfolioMetricItems.nth(1).boundingBox(),
+    ]);
+    expect(portfolioMetricsBox).not.toBeNull();
+    expect(firstPortfolioMetricBox).not.toBeNull();
+    expect(secondPortfolioMetricBox).not.toBeNull();
+    expect(
+      Math.abs(portfolioMetricsBox!.width - portfolioBaseBox!.width),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(
+        firstPortfolioMetricBox!.width - secondPortfolioMetricBox!.width,
+      ),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(
+        secondPortfolioMetricBox!.x -
+          firstPortfolioMetricBox!.x -
+          portfolioMetricsBox!.width / 2,
+      ),
+    ).toBeLessThanOrEqual(1);
+  }
   await expect(portfolioBase).toHaveScreenshot("overview-portfolio-base.png", {
     animations: "disabled",
     caret: "hide",

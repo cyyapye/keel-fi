@@ -30,8 +30,11 @@ describe("local seed scenarios", () => {
 
   it("invalidates stale or mismatched seed markers", () => {
     expect(
-      scenarioMarkerMatches({ scenario: "default", version: 1 }, "default"),
+      scenarioMarkerMatches({ scenario: "default", version: 2 }, "default"),
     ).toBe(true);
+    expect(
+      scenarioMarkerMatches({ scenario: "default", version: 1 }, "default"),
+    ).toBe(false);
     expect(
       scenarioMarkerMatches(
         { scenario: "empty-holdings", version: 1 },
@@ -45,6 +48,8 @@ describe("local seed scenarios", () => {
 
   it("checks populated and empty Holdings scenario contracts", () => {
     const common = {
+      accepted_value_decreases: 1,
+      accepted_value_increases: 1,
       canonical_exposures: 3,
       current_positions: 5,
       forecast_snapshots: 1,
@@ -64,5 +69,11 @@ describe("local seed scenarios", () => {
     expect(() => assertScenarioCheck("empty-holdings", common)).toThrow(
       /failed its invariants/,
     );
+    expect(() =>
+      assertScenarioCheck("default", {
+        ...common,
+        accepted_value_decreases: 0,
+      }),
+    ).toThrow(/failed its invariants/);
   });
 });
