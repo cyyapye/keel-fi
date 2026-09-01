@@ -98,6 +98,37 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   await expect(goalSignal.getByRole("heading", { level: 2 })).toHaveText(
     latestGoalName(initialGoal),
   );
+  const [goalSignalHeaderBox, goalSignalBodyBox] = await Promise.all([
+    goalSignal.locator(".panel__header").boundingBox(),
+    goalSignal.locator(".goal-signal__body").boundingBox(),
+  ]);
+  expect(goalSignalHeaderBox).not.toBeNull();
+  expect(goalSignalBodyBox).not.toBeNull();
+  expect(
+    Math.abs(
+      goalSignalHeaderBox!.x +
+        goalSignalHeaderBox!.width -
+        (goalSignalBodyBox!.x + goalSignalBodyBox!.width),
+    ),
+  ).toBeLessThanOrEqual(1);
+  if ((page.viewportSize()?.width ?? 0) > 620) {
+    const [goalRingBox, firstGoalStatBox, secondGoalStatBox] =
+      await Promise.all([
+        goalSignal.locator(".probability-ring").boundingBox(),
+        goalStats.nth(0).boundingBox(),
+        goalStats.nth(1).boundingBox(),
+      ]);
+    expect(goalRingBox).not.toBeNull();
+    expect(firstGoalStatBox).not.toBeNull();
+    expect(secondGoalStatBox).not.toBeNull();
+    expect(
+      Math.abs(
+        firstGoalStatBox!.x -
+          goalRingBox!.x -
+          (secondGoalStatBox!.x - firstGoalStatBox!.x),
+      ),
+    ).toBeLessThanOrEqual(1);
+  }
 
   const heroAction = page
     .locator(".hero")

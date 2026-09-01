@@ -842,13 +842,13 @@ h1,
 
 .goal-signal__body {
   display: grid;
-  grid-template-columns: 164px minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: center;
-  gap: 46px;
-  max-width: 860px;
+  gap: 44px;
 }
 
 .goal-signal__readout {
+  grid-column: span 2;
   min-width: 0;
 }
 
@@ -881,7 +881,7 @@ h1,
   display: grid;
   width: 164px;
   height: 164px;
-  margin: 4px auto 21px;
+  margin: 4px 0 21px;
   place-items: center;
   background: conic-gradient(
     var(--ink) 0 var(--probability),
@@ -6973,6 +6973,10 @@ h1,
   .goal-signal__body {
     grid-template-columns: 1fr;
     gap: 16px;
+  }
+
+  .goal-signal__readout {
+    grid-column: auto;
   }
 
   .goal-signal__stats {
