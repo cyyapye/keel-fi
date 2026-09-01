@@ -151,6 +151,37 @@ test("keeps material plan drift actionable without changing the plan", async ({
   await expect(monitoringSummary).toContainText("4 decisions to review");
   await expect(monitoringSummary).toContainText("Needs attention");
   await expect(monitoringSummary).not.toHaveAttribute("data-panel-open", "");
+  const summaryHierarchy = await monitoringSummary.evaluate((summary) => {
+    const eyebrow = summary.querySelector(".eyebrow");
+    const title = summary.querySelector(
+      ".plan-monitoring__summary-text strong",
+    );
+    const detail = summary.querySelector(
+      ".plan-monitoring__summary-text small",
+    );
+    if (eyebrow === null || title === null || detail === null) return null;
+    const eyebrowBounds = eyebrow.getBoundingClientRect();
+    const titleBounds = title.getBoundingClientRect();
+    const detailBounds = detail.getBoundingClientRect();
+    return {
+      detailTop: detailBounds.top,
+      eyebrowBottom: eyebrowBounds.bottom,
+      eyebrowLeft: eyebrowBounds.left,
+      titleBottom: titleBounds.bottom,
+      titleLeft: titleBounds.left,
+      titleTop: titleBounds.top,
+    };
+  });
+  expect(summaryHierarchy).not.toBeNull();
+  expect(
+    Math.abs(summaryHierarchy!.eyebrowLeft - summaryHierarchy!.titleLeft),
+  ).toBeLessThanOrEqual(1);
+  expect(summaryHierarchy!.titleTop).toBeGreaterThanOrEqual(
+    summaryHierarchy!.eyebrowBottom,
+  );
+  expect(summaryHierarchy!.detailTop).toBeGreaterThanOrEqual(
+    summaryHierarchy!.titleBottom,
+  );
   expect(
     await monitoringSummary.evaluate((summary) => {
       const status = summary.querySelector(".plan-monitoring__indicator");
@@ -314,6 +345,12 @@ test("keeps material plan drift actionable without changing the plan", async ({
       name: "Monitoring is ready for connected actuals",
     }),
   ).toHaveCount(0);
+  await expect(limitedMonitoring).toHaveScreenshot("plan-actual-limited.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
   const goalSignal = page.locator(".goal-signal");
   const goalStats = goalSignal.locator(
     ".goal-signal__stats [data-slot='stat']",

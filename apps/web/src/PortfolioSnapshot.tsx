@@ -489,11 +489,7 @@ export function PortfolioSnapshot({
 
   return (
     <section aria-label="Portfolio snapshot" className="portfolio-snapshot">
-      <SectionHeader
-        action={<TextLink onClick={onViewHoldings}>View holdings</TextLink>}
-        eyebrow="Current portfolio"
-        title="Portfolio snapshot"
-      />
+      <SectionHeader eyebrow="Current portfolio" title="Portfolio snapshot" />
 
       {loading && (
         <FormMessage className="portfolio-snapshot__status">
@@ -512,7 +508,7 @@ export function PortfolioSnapshot({
         <>
           <DataList className="portfolio-snapshot__metrics">
             <DataItem
-              label="Known portfolio"
+              label="Reviewed total"
               value={formatChartMoney(
                 snapshot.knownPortfolioValueMinor,
                 snapshot.currency,
@@ -532,7 +528,7 @@ export function PortfolioSnapshot({
           </DataList>
 
           <p className="portfolio-snapshot__trust">
-            Known reviewed values as of {formatDate(snapshot.asOf)}.
+            Reviewed values as of {formatDate(snapshot.asOf)}.
             {snapshot.unknownValueCount > 0 &&
               ` ${snapshot.unknownValueCount} ${snapshot.unknownValueCount === 1 ? "value is" : "values are"} unavailable and excluded.`}
             {snapshot.otherCurrencyCount > 0 &&
@@ -541,6 +537,9 @@ export function PortfolioSnapshot({
 
           <div className="portfolio-snapshot__grid">
             <Panel
+              action={
+                <TextLink onClick={onViewHoldings}>View holdings</TextLink>
+              }
               className="portfolio-snapshot__top"
               eyebrow={`Economic exposure · ${snapshot.currency}`}
               title="Top 10 holdings"

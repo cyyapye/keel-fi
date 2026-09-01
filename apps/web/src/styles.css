@@ -134,10 +134,10 @@ h1,
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 24px;
+  gap: 30px;
   width: 100%;
-  min-height: 64px;
-  padding: 10px 0;
+  min-height: 76px;
+  padding: 12px 0;
   color: var(--ink);
   font: inherit;
   text-align: left;
@@ -155,8 +155,6 @@ h1,
   outline-offset: 4px;
 }
 
-.plan-monitoring__summary-main,
-.plan-monitoring__summary-text,
 .plan-monitoring__summary-action,
 .plan-monitoring__indicator {
   display: flex;
@@ -164,7 +162,9 @@ h1,
 }
 
 .plan-monitoring__summary-main {
-  gap: 18px;
+  display: grid;
+  align-items: start;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -174,21 +174,25 @@ h1,
 }
 
 .plan-monitoring__summary-text {
-  gap: 10px;
+  display: grid;
+  align-items: start;
+  gap: 2px;
   min-width: 0;
 }
 
 .plan-monitoring__summary-text strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 680;
   letter-spacing: -0.015em;
+  line-height: 1.25;
 }
 
 .plan-monitoring__summary-text small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -416,20 +420,9 @@ h1,
   padding: 38px 0 10px;
 }
 
-.portfolio-snapshot > .section-heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 28px;
-}
-
 .portfolio-snapshot > .section-heading h2 {
   font-size: clamp(28px, 3.4vw, 42px);
   letter-spacing: -0.05em;
-}
-
-.portfolio-snapshot > .section-heading .keel-link {
-  justify-self: end;
 }
 
 .portfolio-snapshot__status,
@@ -674,8 +667,7 @@ h1,
 
 .portfolio-outlook__metrics {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 48px;
-  max-width: 760px;
+  gap: 0;
 }
 
 .portfolio-outlook__metric {
@@ -5956,16 +5948,6 @@ h1,
     padding-top: 30px;
   }
 
-  .portfolio-snapshot > .section-heading {
-    align-items: flex-start;
-    grid-template-columns: 1fr;
-    gap: 18px;
-  }
-
-  .portfolio-snapshot > .section-heading .keel-link {
-    justify-self: start;
-  }
-
   .portfolio-snapshot__metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 20px 22px;
@@ -5992,12 +5974,6 @@ h1,
     min-height: 72px;
     gap: 14px;
     padding: 9px 0;
-  }
-
-  .plan-monitoring__summary-main,
-  .plan-monitoring__summary-text {
-    display: grid;
-    align-items: start;
   }
 
   .plan-monitoring__summary-main {

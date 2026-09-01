@@ -266,6 +266,8 @@ test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
   await expect(
     snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
   ).toBeVisible();
+  await expect(snapshot).toContainText("Reviewed total");
+  await expect(snapshot).not.toContainText("Known portfolio");
   await expect(snapshot).toContainText("$3.6M");
   await expect(snapshot).toContainText("$3.0M");
   await expect(snapshot).toContainText("61.8%");
@@ -273,6 +275,23 @@ test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
   await expect(
     snapshot.getByRole("heading", { name: "Top 10 holdings" }),
   ).toBeVisible();
+  const portfolioHeader = snapshot.locator(":scope > .section-heading");
+  const topHoldings = snapshot.locator(".portfolio-snapshot__top");
+  const viewHoldings = topHoldings.getByRole("button", {
+    name: "View holdings",
+  });
+  await expect(portfolioHeader.getByRole("button")).toHaveCount(0);
+  await expect(viewHoldings).toBeVisible();
+  const [topHeaderBox, viewHoldingsBox] = await Promise.all([
+    topHoldings.locator(".panel__header").boundingBox(),
+    viewHoldings.boundingBox(),
+  ]);
+  expect(topHeaderBox).not.toBeNull();
+  expect(viewHoldingsBox).not.toBeNull();
+  expect(viewHoldingsBox!.x).toBeGreaterThanOrEqual(topHeaderBox!.x);
+  expect(viewHoldingsBox!.x + viewHoldingsBox!.width).toBeLessThanOrEqual(
+    topHeaderBox!.x + topHeaderBox!.width + 1,
+  );
   await expect(
     snapshot.getByRole("heading", { name: "Portfolio by access" }),
   ).toBeVisible();

@@ -1035,6 +1035,99 @@ VALUES
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-15 minutes')
   );
 
+-- Accepted synthetic reviews provide one increase and one decrease so the
+-- Overview can demonstrate comparable value history without inferring values.
+INSERT INTO holding_position_value_proposals (
+  id,
+  household_id,
+  position_id,
+  snapshot_id,
+  supersedes_proposal_id,
+  prior_value_state,
+  prior_value_minor,
+  value_minor,
+  currency,
+  effective_date,
+  source_kind,
+  source_label,
+  source_url,
+  commentary,
+  created_by,
+  created_at,
+  immutable
+)
+VALUES
+  (
+    'seed_value_review_voo',
+    'hh_demo',
+    'seed_position_robinhood_voo',
+    'seed_snapshot_robinhood_voo',
+    NULL,
+    'reported',
+    200000,
+    230000,
+    'USD',
+    strftime('%Y-%m-%d', 'now'),
+    'other',
+    'Synthetic valuation review',
+    NULL,
+    'Synthetic accepted value history for the Overview demonstration.',
+    'usr_demo',
+    strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-9 minutes'),
+    1
+  ),
+  (
+    'seed_value_review_sgov',
+    'hh_demo',
+    'seed_position_fidelity_sgov',
+    'seed_snapshot_fidelity_sgov',
+    NULL,
+    'reported',
+    250000,
+    225000,
+    'USD',
+    strftime('%Y-%m-%d', 'now'),
+    'other',
+    'Synthetic valuation review',
+    NULL,
+    'Synthetic accepted value history for the Overview demonstration.',
+    'usr_demo',
+    strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-9 minutes'),
+    1
+  );
+
+INSERT INTO holding_position_value_reviews (
+  id,
+  household_id,
+  proposal_id,
+  reviewer_user_id,
+  decision,
+  rationale,
+  decided_at,
+  immutable
+)
+VALUES
+  (
+    'seed_value_review_decision_voo',
+    'hh_demo',
+    'seed_value_review_voo',
+    'usr_demo',
+    'accepted',
+    'Accepted synthetic reviewed value for the Overview demonstration.',
+    strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-8 minutes'),
+    1
+  ),
+  (
+    'seed_value_review_decision_sgov',
+    'hh_demo',
+    'seed_value_review_sgov',
+    'usr_demo',
+    'accepted',
+    'Accepted synthetic reviewed value for the Overview demonstration.',
+    strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-8 minutes'),
+    1
+  );
+
 INSERT INTO canonical_exposures (
   id,
   household_id,
