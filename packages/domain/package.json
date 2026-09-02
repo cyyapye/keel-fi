@@ -8,6 +8,7 @@
     "./exposure-read-model": "./src/exposure-read-model.ts",
     "./holdings-page": "./src/holdings-page.ts",
     "./investment-holdings-view": "./src/investment-holdings-view.ts",
+    "./legal-entities": "./src/legal-entities.ts",
     "./plan-actual-monitoring": "./src/plan-actual-monitoring.ts",
     "./portfolio-dashboard": "./src/portfolio-dashboard.ts",
     "./private-position-value-estimate": "./src/private-position-value-estimate.ts",

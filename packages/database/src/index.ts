@@ -68,6 +68,7 @@ export * from "./position-read-model";
 export * from "./plan-actual-monitoring";
 export * from "./position-value-adjustments";
 export * from "./position-economics";
+export * from "./legal-entities";
 
 type DashboardRow = {
   as_of_date: string;

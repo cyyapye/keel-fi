@@ -3,6 +3,8 @@ import { z } from "zod";
 import { PositionValueContextSchema } from "./position-value";
 import { PositionEconomicsContextSchema } from "./position-economics";
 
+export * from "./legal-entities";
+
 export const PARTS_PER_MILLION = 1_000_000;
 
 export const MoneyMinorSchema = z.number().int().safe();

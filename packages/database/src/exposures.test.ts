@@ -69,6 +69,7 @@ const migrationFiles = [
   exactReviewedPrivateExposuresMigrationFile,
   privateProviderPositionContinuityMigrationFile,
   portfolioWatchExposureUniverseMigrationFile,
+  "packages/database/migrations/0046_reviewed_legal_entity_inventory.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

@@ -151,6 +151,7 @@ import {
 } from "./format";
 import { openPlaidLink } from "./plaid-link";
 import { InvestmentHoldings } from "./InvestmentHoldings";
+import { LegalEntities } from "./LegalEntities";
 import { Obligations } from "./Obligations";
 import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanActualMonitoring } from "./PlanActualMonitoring";
@@ -170,7 +171,7 @@ type AppRoute = {
   screen: Screen;
   holdingImportId: string | null;
   holdingsDrilldown: PortfolioSnapshotDrilldown | null;
-  holdingsView: "overview" | "sources";
+  holdingsView: "entities" | "overview" | "sources";
 };
 
 type PortfolioAccessKey = Extract<
@@ -206,6 +207,14 @@ function holdingsDrilldownFromLocation(): PortfolioSnapshotDrilldown | null {
 }
 
 function routeFromLocation(): AppRoute {
+  if (/^\/holdings\/entities\/?$/u.test(window.location.pathname)) {
+    return {
+      screen: "holdings",
+      holdingImportId: null,
+      holdingsDrilldown: null,
+      holdingsView: "entities",
+    };
+  }
   if (/^\/holdings\/sources\/?$/u.test(window.location.pathname)) {
     return {
       screen: "holdings",
@@ -7134,10 +7143,10 @@ function Holdings({
     provider: UploadHoldingImportProvider,
     file: File,
   ) => Promise<HoldingImportPreview>;
-  onViewChange: (view: "overview" | "sources") => void;
+  onViewChange: (view: "entities" | "overview" | "sources") => void;
   requestedDrilldown: PortfolioSnapshotDrilldown | null;
   requestedImportId: string | null;
-  requestedView: "overview" | "sources";
+  requestedView: "entities" | "overview" | "sources";
 }) {
   const [showImporter, setShowImporter] = useState(false);
   const [reviewedImportIds, setReviewedImportIds] = useState<
@@ -7165,6 +7174,10 @@ function Holdings({
   const importerVisible = showImporter || requestedImportId !== null;
   const sourcesVisible =
     selectedHolding === null && !importerVisible && requestedView === "sources";
+  const entitiesVisible =
+    selectedHolding === null &&
+    !importerVisible &&
+    requestedView === "entities";
   const activeRoutedPreview =
     routedPreview?.id === requestedImportId ? routedPreview : null;
   const activeRoutedError =
@@ -7313,20 +7326,39 @@ function Holdings({
                   Import holdings
                 </Button>
               </>
+            ) : entitiesVisible ? (
+              <TextLink onClick={() => onViewChange("overview")}>
+                Back to holdings
+              </TextLink>
             ) : (
-              <Button onClick={() => onViewChange("sources")} tone="primary">
-                Manage sources
-              </Button>
+              <>
+                <TextLink onClick={() => onViewChange("entities")}>
+                  Legal entities
+                </TextLink>
+                <Button onClick={() => onViewChange("sources")} tone="primary">
+                  Manage sources
+                </Button>
+              </>
             )}
           </>
         }
         description={
-          sourcesVisible
-            ? "Manage automatic updates, bank accounts, and brokerages."
-            : "See shared economic exposure, then open each legal position for ownership and source details."
+          entitiesVisible
+            ? "Prepare a reviewed entity list for counsel. This inventory does not transfer an entity to a trust."
+            : sourcesVisible
+              ? "Manage automatic updates, bank accounts, and brokerages."
+              : "See shared economic exposure, then open each legal position for ownership and source details."
         }
-        eyebrow={sourcesVisible ? "Holdings" : "Portfolio evidence"}
-        title={sourcesVisible ? "Holding sources" : "Holdings"}
+        eyebrow={
+          sourcesVisible || entitiesVisible ? "Holdings" : "Portfolio evidence"
+        }
+        title={
+          entitiesVisible
+            ? "Legal entities"
+            : sourcesVisible
+              ? "Holding sources"
+              : "Holdings"
+        }
       />
 
       {selectedHolding !== null ? (
@@ -7363,6 +7395,8 @@ function Holdings({
             onPreview={onPreviewImport}
           />
         )
+      ) : entitiesVisible ? (
+        <LegalEntities />
       ) : (
         <>
           {sourcesVisible ? (
@@ -8927,9 +8961,9 @@ export function App() {
     useState<PortfolioSnapshotDrilldown | null>(
       () => routeFromLocation().holdingsDrilldown,
     );
-  const [holdingsView, setHoldingsView] = useState<"overview" | "sources">(
-    () => routeFromLocation().holdingsView,
-  );
+  const [holdingsView, setHoldingsView] = useState<
+    "entities" | "overview" | "sources"
+  >(() => routeFromLocation().holdingsView);
   const [data, setData] = useState<AlphaData | null>(null);
   const [holdingsPageData, setHoldingsPageData] = useState<HoldingsPage | null>(
     null,
@@ -9047,16 +9081,24 @@ export function App() {
     setHoldingsView("overview");
   }, []);
 
-  const navigateToHoldingsView = useCallback((view: "overview" | "sources") => {
-    const path = view === "sources" ? "/holdings/sources" : "/holdings";
-    if (`${window.location.pathname}${window.location.search}` !== path) {
-      window.history.pushState(null, "", path);
-    }
-    setActiveScreen("holdings");
-    setHoldingImportId(null);
-    setHoldingsDrilldown(null);
-    setHoldingsView(view);
-  }, []);
+  const navigateToHoldingsView = useCallback(
+    (view: "entities" | "overview" | "sources") => {
+      const path =
+        view === "entities"
+          ? "/holdings/entities"
+          : view === "sources"
+            ? "/holdings/sources"
+            : "/holdings";
+      if (`${window.location.pathname}${window.location.search}` !== path) {
+        window.history.pushState(null, "", path);
+      }
+      setActiveScreen("holdings");
+      setHoldingImportId(null);
+      setHoldingsDrilldown(null);
+      setHoldingsView(view);
+    },
+    [],
+  );
 
   const navigateToPortfolioDrilldown = useCallback(
     (drilldown: PortfolioSnapshotDrilldown) => {

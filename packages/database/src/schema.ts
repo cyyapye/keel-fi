@@ -3239,6 +3239,217 @@ export const holdingPositionOwnerships = sqliteTable(
   ],
 );
 
+export const legalEntities = sqliteTable(
+  "legal_entities",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    index("legal_entities_household_created_idx").on(
+      table.householdId,
+      table.createdAt,
+      table.id,
+    ),
+    check("legal_entities_immutable_check", sql`${table.immutable} = 1`),
+  ],
+);
+
+export const legalEntityVersions = sqliteTable(
+  "legal_entity_versions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    legalEntityId: text("legal_entity_id")
+      .notNull()
+      .references(() => legalEntities.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    legalName: text("legal_name").notNull(),
+    entityType: text("entity_type").notNull(),
+    relationship: text("relationship").notNull(),
+    currentOwner: text("current_owner"),
+    jurisdiction: text("jurisdiction"),
+    formedOn: text("formed_on"),
+    einLastFour: text("ein_last_four"),
+    ownershipInterestPpm: integer("ownership_interest_ppm"),
+    interestStatus: text("interest_status").notNull(),
+    taxClassification: text("tax_classification"),
+    notes: text("notes"),
+    supersedesVersionId: text("supersedes_version_id"),
+    recordedByUserId: text("recorded_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    recordedAt: timestamp("recorded_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesVersionId],
+      foreignColumns: [table.id],
+      name: "legal_entity_versions_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("legal_entity_versions_supersedes_unique").on(
+      table.supersedesVersionId,
+    ),
+    uniqueIndex("legal_entity_versions_entity_version_unique").on(
+      table.legalEntityId,
+      table.version,
+    ),
+    index("legal_entity_versions_household_entity_idx").on(
+      table.householdId,
+      table.legalEntityId,
+      table.version,
+    ),
+    check(
+      "legal_entity_versions_version_check",
+      sql`${table.version} > 0 AND ((${table.version} = 1 AND ${table.supersedesVersionId} IS NULL) OR (${table.version} > 1 AND ${table.supersedesVersionId} IS NOT NULL))`,
+    ),
+    check(
+      "legal_entity_versions_name_check",
+      sql`length(${table.legalName}) BETWEEN 1 AND 1000`,
+    ),
+    check(
+      "legal_entity_versions_type_check",
+      sql`${table.entityType} IN ('llc', 'limited_partnership', 'corporation', 'partnership', 'trust', 'other')`,
+    ),
+    check(
+      "legal_entity_versions_relationship_check",
+      sql`${table.relationship} IN ('direct_interest', 'ownership_entity', 'operating_entity', 'investment_vehicle', 'other')`,
+    ),
+    check(
+      "legal_entity_versions_owner_check",
+      sql`${table.currentOwner} IS NULL OR length(${table.currentOwner}) BETWEEN 1 AND 1000`,
+    ),
+    check(
+      "legal_entity_versions_jurisdiction_check",
+      sql`${table.jurisdiction} IS NULL OR length(${table.jurisdiction}) BETWEEN 1 AND 240`,
+    ),
+    check(
+      "legal_entity_versions_formed_on_check",
+      sql`${table.formedOn} IS NULL OR length(${table.formedOn}) = 10`,
+    ),
+    check(
+      "legal_entity_versions_ein_check",
+      sql`${table.einLastFour} IS NULL OR (length(${table.einLastFour}) = 4 AND ${table.einLastFour} NOT GLOB '*[^0-9]*')`,
+    ),
+    check(
+      "legal_entity_versions_ownership_check",
+      sql`${table.ownershipInterestPpm} IS NULL OR ${table.ownershipInterestPpm} BETWEEN 0 AND 1000000`,
+    ),
+    check(
+      "legal_entity_versions_status_check",
+      sql`${table.interestStatus} IN ('current', 'historical', 'unknown')`,
+    ),
+    check(
+      "legal_entity_versions_tax_check",
+      sql`${table.taxClassification} IS NULL OR length(${table.taxClassification}) BETWEEN 1 AND 240`,
+    ),
+    check(
+      "legal_entity_versions_notes_check",
+      sql`${table.notes} IS NULL OR length(${table.notes}) BETWEEN 1 AND 2000`,
+    ),
+    check("legal_entity_versions_immutable_check", sql`${table.immutable} = 1`),
+  ],
+);
+
+export const legalEntitySourceDecisions = sqliteTable(
+  "legal_entity_source_decisions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    sourceKind: text("source_kind").notNull(),
+    sourceReference: text("source_reference").notNull(),
+    sourceName: text("source_name").notNull(),
+    sourceLabel: text("source_label").notNull(),
+    sourceAsOf: text("source_as_of").notNull(),
+    relationship: text("relationship").notNull(),
+    currentOwner: text("current_owner"),
+    interestStatus: text("interest_status").notNull(),
+    openedOn: text("opened_on"),
+    decision: text("decision").notNull(),
+    legalEntityId: text("legal_entity_id").references(() => legalEntities.id, {
+      onDelete: "restrict",
+    }),
+    version: integer("version").notNull(),
+    supersedesDecisionId: text("supersedes_decision_id"),
+    decidedByUserId: text("decided_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    decidedAt: timestamp("decided_at"),
+    immutable: integer("immutable", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesDecisionId],
+      foreignColumns: [table.id],
+      name: "legal_entity_source_decisions_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("legal_entity_source_decisions_supersedes_unique").on(
+      table.supersedesDecisionId,
+    ),
+    uniqueIndex("legal_entity_source_decisions_root_unique")
+      .on(table.sourceKind, table.sourceReference)
+      .where(sql`${table.supersedesDecisionId} IS NULL`),
+    uniqueIndex("legal_entity_source_decisions_source_version_unique").on(
+      table.sourceKind,
+      table.sourceReference,
+      table.version,
+    ),
+    index("legal_entity_source_decisions_household_source_idx").on(
+      table.householdId,
+      table.sourceKind,
+      table.sourceReference,
+      table.version,
+    ),
+    index("legal_entity_source_decisions_household_entity_idx").on(
+      table.householdId,
+      table.legalEntityId,
+      table.version,
+    ),
+    check(
+      "legal_entity_source_decisions_source_check",
+      sql`${table.sourceKind} IN ('ownership_container', 'holding_position') AND length(${table.sourceReference}) BETWEEN 1 AND 500`,
+    ),
+    check(
+      "legal_entity_source_decisions_metadata_check",
+      sql`length(${table.sourceName}) BETWEEN 1 AND 1000 AND length(${table.sourceLabel}) BETWEEN 1 AND 1000 AND length(${table.sourceAsOf}) = 10`,
+    ),
+    check(
+      "legal_entity_source_decisions_relationship_check",
+      sql`${table.relationship} IN ('direct_interest', 'ownership_entity', 'operating_entity', 'investment_vehicle', 'other')`,
+    ),
+    check(
+      "legal_entity_source_decisions_owner_check",
+      sql`${table.currentOwner} IS NULL OR length(${table.currentOwner}) BETWEEN 1 AND 1000`,
+    ),
+    check(
+      "legal_entity_source_decisions_status_check",
+      sql`${table.interestStatus} IN ('current', 'historical', 'unknown')`,
+    ),
+    check(
+      "legal_entity_source_decisions_opened_on_check",
+      sql`${table.openedOn} IS NULL OR length(${table.openedOn}) = 10`,
+    ),
+    check(
+      "legal_entity_source_decisions_decision_check",
+      sql`(${table.decision} = 'linked' AND ${table.legalEntityId} IS NOT NULL) OR (${table.decision} = 'not_llc' AND ${table.legalEntityId} IS NULL)`,
+    ),
+    check(
+      "legal_entity_source_decisions_version_check",
+      sql`${table.version} > 0 AND ((${table.version} = 1 AND ${table.supersedesDecisionId} IS NULL) OR (${table.version} > 1 AND ${table.supersedesDecisionId} IS NOT NULL))`,
+    ),
+    check(
+      "legal_entity_source_decisions_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
 export const holdingPositionContinuities = sqliteTable(
   "holding_position_continuities",
   {
