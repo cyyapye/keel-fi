@@ -3,8 +3,8 @@
   "tugling": {
     "repository": "https://github.com/cyyapye/tugling",
     "channel": "pinned",
-    "revision": "81d4e9b498cc9dc3e9ce643f442742904433fe97",
-    "version": "0.3.0"
+    "revision": "e709bd77128e3d14ebc8ded37ccc2afe8f4b6eba",
+    "version": "0.4.0"
   },
   "project": {
     "adapter": "AGENTS.md",
