@@ -16,6 +16,7 @@
     "provider:agent": "tsx scripts/provider-portfolio-mac-agent.ts once",
     "provider:run": "tsx scripts/provider-portfolio-mac-agent.ts run",
     "provider:setup": "tsx scripts/provider-portfolio-mac-agent.ts setup",
+    "queue:dlq": "tsx scripts/ingestion-dlq-redrive.ts",
     "build": "pnpm -r build",
     "check": "pnpm data:scan && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "data:scan": "node scripts/check-public-data.mjs",

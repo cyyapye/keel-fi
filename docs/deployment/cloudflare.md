@@ -10,7 +10,8 @@ Create in a private Cloudflare account:
 
 - D1 database for canonical records;
 - R2 bucket with public access disabled;
-- Queue for ingestion proposals;
+- Queue for ingestion proposals and a separate dead-letter Queue with no
+  automatic consumer;
 - private API Worker with its daily 13:00 UTC Cron Trigger and a static-assets
   Worker with a service binding; and
 - Access application protecting the public app origin. When Robinhood is
@@ -91,6 +92,11 @@ Configure the GitHub environment and Access service policy as documented in
 [the workflow README](../../.github/workflows/README.md). Cloudflare account,
 database, Worker, R2, Queue, Access, and token values remain outside Git.
 
+The preview ingestion consumer must name its dedicated dead-letter Queue. The
+checked-in production template uses `keel-ingestion-dlq`; create that Queue
+before the first deployment. A failed message is retained there after the
+consumer's three retries instead of being deleted.
+
 ## Production configuration
 
 Configure these bindings outside Git:
@@ -142,6 +148,47 @@ pnpm --filter @keel/web exec wrangler deploy
 Run production commands only after replacing private deployment configuration
 and obtaining explicit deployment approval. Do not reuse the automatic preview
 job or its credentials for production.
+
+## Queue failure recovery
+
+The Plaid holdings path retries every two minutes. Its third and final retry
+therefore runs after the five-minute D1 sync lease can be reclaimed. A real
+Worker/D1 fake-clock test covers termination immediately after the first lease,
+the blocked retries, stale-lease expiration, successful processing, and replay.
+
+The ingestion dead-letter Queue has no automatic consumer. Inspect it with a
+Cloudflare API token scoped to Queues read/write in the intended account:
+
+```sh
+pnpm queue:dlq list
+```
+
+The command prints only Cloudflare message ID, attempts, timestamps, Keel job
+type, and opaque internal message ID. It never prints the body. For a selected
+message, first run the validation-only form:
+
+```sh
+pnpm queue:dlq redrive --message-id <cloudflare-message-id>
+```
+
+After fixing or confirming the cause and obtaining recovery approval, apply the
+same exact selection:
+
+```sh
+pnpm queue:dlq redrive --message-id <cloudflare-message-id> --apply
+```
+
+The tool validates the job against Keel's current Zod queue contracts,
+re-publishes the same body and message ID to `keel-ingestion`, and only then
+purges the exact peeked DLQ reference. Set `KEEL_INGESTION_DLQ_NAME` and
+`KEEL_INGESTION_QUEUE_NAME`, or pass `--source` and `--destination`, for preview
+or another explicitly approved environment. `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN` are required and must not be logged or committed.
+
+Recovery remains at-least-once. If re-publication or purge is not confirmed, the
+command fails closed and tells the operator to reconcile the destination and D1
+delivery/run state before retrying; do not assume an unconfirmed request did
+nothing. Leave unsupported message types in the DLQ for investigation.
 
 The web Worker must keep `workers_dev` and preview URLs disabled in private
 deployment configuration. Public app routes remain Access-protected. The

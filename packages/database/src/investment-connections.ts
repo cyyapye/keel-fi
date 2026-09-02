@@ -1810,4 +1810,5 @@ export class D1InvestmentConnectionsRepository
 export const __investmentConnectionsTest = {
   dueAutomaticInvestmentConnectionsSql:
     DUE_AUTOMATIC_INVESTMENT_CONNECTIONS_SQL,
+  syncStaleAfterMs: INVESTMENT_SYNC_STALE_AFTER_MS,
 };

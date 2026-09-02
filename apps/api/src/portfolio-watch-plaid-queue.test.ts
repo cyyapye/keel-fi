@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { processPlaidHoldingsWebhookJob } from "./plaid-webhook";
 import { processScheduledInvestmentSyncJob } from "./plaid-investments-schedule";
-import { handlePortfolioWatchQueue } from "./portfolio-watch";
+import {
+  handlePortfolioWatchQueue,
+  PLAID_HOLDINGS_QUEUE_RETRY_DELAY_SECONDS,
+} from "./portfolio-watch";
 import type { Env } from "./types";
 
 vi.mock("./plaid-webhook", () => ({
@@ -89,6 +92,8 @@ describe("Plaid holdings queue routing", () => {
     await handlePortfolioWatchQueue(queued.value, {} as Env);
 
     expect(queued.ack).not.toHaveBeenCalled();
-    expect(queued.retry).toHaveBeenCalledWith({ delaySeconds: 60 });
+    expect(queued.retry).toHaveBeenCalledWith({
+      delaySeconds: PLAID_HOLDINGS_QUEUE_RETRY_DELAY_SECONDS,
+    });
   });
 });
