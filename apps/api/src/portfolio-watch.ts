@@ -60,6 +60,7 @@ export type ApprovedSourceFetchResult =
     };
 
 const OFFICIAL_COMPANY_FETCH_TIMEOUT_MS = 10_000;
+export const PLAID_HOLDINGS_QUEUE_RETRY_DELAY_SECONDS = 120;
 const DNS_JSON_RESOLVERS = [
   "https://cloudflare-dns.com/dns-query",
   "https://dns.google/resolve",
@@ -830,12 +831,16 @@ export async function handlePortfolioWatchQueue(
       try {
         const result = await processPlaidHoldingsWebhookJob(queued.body, env);
         if (result === "retry") {
-          queued.retry({ delaySeconds: 60 });
+          queued.retry({
+            delaySeconds: PLAID_HOLDINGS_QUEUE_RETRY_DELAY_SECONDS,
+          });
         } else {
           queued.ack();
         }
       } catch {
-        queued.retry({ delaySeconds: 60 });
+        queued.retry({
+          delaySeconds: PLAID_HOLDINGS_QUEUE_RETRY_DELAY_SECONDS,
+        });
       }
       continue;
     }

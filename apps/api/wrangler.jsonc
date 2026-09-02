@@ -34,6 +34,7 @@
     "consumers": [
       {
         "queue": "keel-ingestion",
+        "dead_letter_queue": "keel-ingestion-dlq",
         "max_batch_size": 1,
         "max_batch_timeout": 5,
         "max_retries": 3,
@@ -80,6 +81,7 @@
         "consumers": [
           {
             "queue": "keel-local-ingestion",
+            "dead_letter_queue": "keel-local-ingestion-dlq",
             "max_batch_size": 1,
             "max_batch_timeout": 1,
             "max_retries": 3,
