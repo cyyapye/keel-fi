@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: cyyapye/tugling
-          ref: 81d4e9b498cc9dc3e9ce643f442742904433fe97
+          ref: e709bd77128e3d14ebc8ded37ccc2afe8f4b6eba
           path: .tugling/checkouts/pinned
           persist-credentials: false
       - name: Verify the project adapter and privacy boundary
