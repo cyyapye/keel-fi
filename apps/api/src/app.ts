@@ -17,6 +17,7 @@ import {
   D1HoldingImportRepository,
   D1HoldingsPageRepository,
   D1InvestmentExposureViewRepository,
+  D1LegalEntityRepository,
   D1LiabilitiesRepository,
   D1MacAgentCredentialRepository,
   D1PlanActualMonitoringRepository,
@@ -45,10 +46,12 @@ import {
   type HoldingsPageRepository,
   type InvestmentExposureViewRepository,
   type InvestmentPositionViewRepository,
+  type LegalEntityRepository,
   type PositionEconomicsRepository,
   type PositionValueAdjustmentRepository,
   type ProviderBrowserSessionRepository,
   ProviderBrowserSessionRepositoryError,
+  LegalEntityRepositoryError,
   PositionEconomicsError,
   PositionValueAdjustmentError,
 } from "@keel/database";
@@ -96,6 +99,15 @@ import {
 import { InvestmentHoldingsViewSchema } from "@keel/domain/investment-holdings-view";
 import { HoldingsPageSchema } from "@keel/domain/holdings-page";
 import {
+  CreateLegalEntityInputSchema,
+  LegalEntityExportInputSchema,
+  LegalEntityInventorySchema,
+  LegalEntityRecordSchema,
+  LegalEntitySourceReviewResultSchema,
+  ReviewLegalEntitySourceInputSchema,
+  UpdateLegalEntityInputSchema,
+} from "@keel/domain/legal-entities";
+import {
   AcceptPositionEconomicsInputSchema,
   PositionEconomicsTermsSchema,
 } from "@keel/domain/position-economics";
@@ -120,6 +132,7 @@ import {
   readAngelListCsvUpload,
   readProviderTemplateCsvUpload,
 } from "./holding-import-upload";
+import { legalEntityExportCsv } from "./legal-entity-export";
 import {
   buildAngelListCanonicalScope,
   buildProviderTemplateCanonicalScope,
@@ -199,6 +212,7 @@ type AppOptions = {
   holdingsPageRepository?: HoldingsPageRepository;
   investmentExposureViewRepository?: InvestmentExposureViewRepository;
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
+  legalEntityRepository?: LegalEntityRepository;
   positionEconomicsRepository?: PositionEconomicsRepository;
   positionValueAdjustmentRepository?: PositionValueAdjustmentRepository;
   providerBrowserSessionRepository?: ProviderBrowserSessionRepository;
@@ -459,6 +473,42 @@ function liabilitiesErrorResponse(
     },
   } as const;
   const response = responses[code];
+  return context.json({ error: response.message }, response.status, {
+    "Cache-Control": "private, no-store",
+  });
+}
+
+function legalEntityErrorResponse(
+  context: Context<AppEnvironment>,
+  error: unknown,
+) {
+  const code =
+    error instanceof LegalEntityRepositoryError ? error.code : "unexpected";
+  console.error(
+    JSON.stringify({
+      event: "legal_entity_inventory_failed",
+      requestId: context.get("requestId"),
+      errorCode: code,
+    }),
+  );
+  const response = {
+    invalid_source: {
+      message: "This legal entity source is unavailable.",
+      status: 400 as const,
+    },
+    not_found: {
+      message: "This legal entity is unavailable.",
+      status: 404 as const,
+    },
+    stale: {
+      message: "This legal entity record changed. Review it and try again.",
+      status: 409 as const,
+    },
+    unexpected: {
+      message: "Legal entities are unavailable.",
+      status: 503 as const,
+    },
+  }[code];
   return context.json({ error: response.message }, response.status, {
     "Cache-Control": "private, no-store",
   });
@@ -752,6 +802,8 @@ export function createApp(options: AppOptions = {}) {
   const investmentExposureViewRepositoryFor = (env: Env) =>
     options.investmentExposureViewRepository ??
     new D1InvestmentExposureViewRepository(env.DB);
+  const legalEntityRepositoryFor = (env: Env) =>
+    options.legalEntityRepository ?? new D1LegalEntityRepository(env.DB);
   const positionValueAdjustmentRepositoryFor = (env: Env) =>
     options.positionValueAdjustmentRepository ??
     new D1PositionValueAdjustmentRepository(env.DB);
@@ -1892,6 +1944,155 @@ export function createApp(options: AppOptions = {}) {
         503,
         { "Cache-Control": "private, no-store" },
       );
+    }
+  });
+
+  app.get("/api/legal-entities", async (context) => {
+    const accessSubject = context.get("identity").subject;
+    const asOf = new Date().toISOString();
+    try {
+      const positionView = await investmentPositionViewRepositoryFor(
+        context.env,
+      ).list(accessSubject, asOf);
+      const inventory = await legalEntityRepositoryFor(context.env).getState(
+        accessSubject,
+        positionView,
+      );
+      return context.json(LegalEntityInventorySchema.parse(inventory), 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return legalEntityErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/legal-entities", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+    const input = CreateLegalEntityInputSchema.safeParse(rawInput);
+    if (!input.success) {
+      return context.json({ error: "Enter valid legal entity details." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const accessSubject = context.get("identity").subject;
+    const asOf = new Date().toISOString();
+    try {
+      const positionView = await investmentPositionViewRepositoryFor(
+        context.env,
+      ).list(accessSubject, asOf);
+      const entity = await legalEntityRepositoryFor(context.env).create(
+        accessSubject,
+        input.data,
+        positionView,
+      );
+      return context.json(LegalEntityRecordSchema.parse(entity), 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return legalEntityErrorResponse(context, error);
+    }
+  });
+
+  app.put("/api/legal-entities/:legalEntityId", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+    const input = UpdateLegalEntityInputSchema.safeParse(rawInput);
+    if (!input.success) {
+      return context.json({ error: "Enter valid legal entity details." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    try {
+      const entity = await legalEntityRepositoryFor(context.env).update(
+        context.get("identity").subject,
+        context.req.param("legalEntityId"),
+        input.data,
+      );
+      return context.json(LegalEntityRecordSchema.parse(entity), 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return legalEntityErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/legal-entity-sources/review", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+    const input = ReviewLegalEntitySourceInputSchema.safeParse(rawInput);
+    if (!input.success) {
+      return context.json(
+        { error: "Choose a valid source review decision." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    const accessSubject = context.get("identity").subject;
+    const asOf = new Date().toISOString();
+    try {
+      const positionView = await investmentPositionViewRepositoryFor(
+        context.env,
+      ).list(accessSubject, asOf);
+      const result = await legalEntityRepositoryFor(context.env).reviewSource(
+        accessSubject,
+        input.data,
+        positionView,
+      );
+      return context.json(
+        LegalEntitySourceReviewResultSchema.parse(result),
+        201,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return legalEntityErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/legal-entity-export", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+    const input = LegalEntityExportInputSchema.safeParse(rawInput);
+    if (!input.success) {
+      return context.json(
+        { error: "Choose at least one supported export field." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    const accessSubject = context.get("identity").subject;
+    const asOf = new Date().toISOString();
+    try {
+      const positionView = await investmentPositionViewRepositoryFor(
+        context.env,
+      ).list(accessSubject, asOf);
+      const inventory = await legalEntityRepositoryFor(context.env).getState(
+        accessSubject,
+        positionView,
+      );
+      return context.body(legalEntityExportCsv(inventory, input.data), 200, {
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": `attachment; filename="keel-legal-entities-${asOf.slice(0, 10)}.csv"`,
+        "Content-Type": "text/csv; charset=utf-8",
+      });
+    } catch (error) {
+      return legalEntityErrorResponse(context, error);
     }
   });
 

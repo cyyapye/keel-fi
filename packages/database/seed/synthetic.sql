@@ -23,6 +23,90 @@ VALUES
     '2026-07-01T09:00:00-07:00'
   );
 
+INSERT OR IGNORE INTO legal_entities
+  (id, household_id, created_by_user_id, created_at, immutable)
+VALUES
+  (
+    'legal_entity_demo_family_holdings',
+    'hh_demo',
+    'usr_demo',
+    '2026-08-30T10:00:00.000Z',
+    1
+  ),
+  (
+    'legal_entity_demo_studio',
+    'hh_demo',
+    'usr_demo',
+    '2026-08-30T10:05:00.000Z',
+    1
+  );
+
+INSERT OR IGNORE INTO legal_entity_versions
+  (
+    id,
+    household_id,
+    legal_entity_id,
+    version,
+    legal_name,
+    entity_type,
+    relationship,
+    current_owner,
+    jurisdiction,
+    formed_on,
+    ein_last_four,
+    ownership_interest_ppm,
+    interest_status,
+    tax_classification,
+    notes,
+    supersedes_version_id,
+    recorded_by_user_id,
+    recorded_at,
+    immutable
+  )
+VALUES
+  (
+    'legal_entity_version_demo_family_holdings_v1',
+    'hh_demo',
+    'legal_entity_demo_family_holdings',
+    1,
+    'Demo Family Holdings LLC',
+    'llc',
+    'ownership_entity',
+    'Demo Operator',
+    'Delaware, US',
+    '2024-03-12',
+    '4821',
+    1000000,
+    'current',
+    'Partnership',
+    'Synthetic entity used to demonstrate a reviewed counsel export.',
+    NULL,
+    'usr_demo',
+    '2026-08-30T10:00:00.000Z',
+    1
+  ),
+  (
+    'legal_entity_version_demo_studio_v1',
+    'hh_demo',
+    'legal_entity_demo_studio',
+    1,
+    'Demo Studio LLC',
+    'llc',
+    'operating_entity',
+    'Demo Operator',
+    'California, US',
+    '2022-07-08',
+    NULL,
+    650000,
+    'current',
+    NULL,
+    NULL,
+    NULL,
+    'usr_demo',
+    '2026-08-30T10:05:00.000Z',
+    1
+  );
+
 INSERT OR IGNORE INTO companies
   (id, household_id, legal_name, website_host, status, created_at, updated_at)
 VALUES

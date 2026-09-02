@@ -124,6 +124,21 @@ import {
   type HoldingsPage,
 } from "@keel/domain/holdings-page";
 import {
+  CreateLegalEntityInputSchema,
+  LegalEntityExportInputSchema,
+  LegalEntityInventorySchema,
+  LegalEntityRecordSchema,
+  LegalEntitySourceReviewResultSchema,
+  ReviewLegalEntitySourceInputSchema,
+  UpdateLegalEntityInputSchema,
+  type CreateLegalEntityInput,
+  type LegalEntityExportInput,
+  type LegalEntityInventory,
+  type LegalEntityRecord,
+  type ReviewLegalEntitySourceInput,
+  type UpdateLegalEntityInput,
+} from "@keel/domain/legal-entities";
+import {
   PLAN_ACTUAL_COOLDOWN_DAYS,
   PlanActualMonitoringStateSchema,
   PlanActualSnoozeInputSchema,
@@ -178,6 +193,114 @@ export async function loadHoldingsPage(
     );
   }
   return HoldingsPageSchema.parse(await response.json());
+}
+
+export async function loadLegalEntities(
+  signal?: AbortSignal,
+): Promise<LegalEntityInventory> {
+  const response = await fetch("/api/legal-entities", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: signal ?? null,
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Legal entities returned ${response.status}.`,
+    );
+  }
+  return LegalEntityInventorySchema.parse(await response.json());
+}
+
+export async function createLegalEntity(
+  input: CreateLegalEntityInput,
+): Promise<LegalEntityRecord> {
+  const response = await fetch("/api/legal-entities", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(CreateLegalEntityInputSchema.parse(input)),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Legal entity creation returned ${response.status}.`,
+    );
+  }
+  return LegalEntityRecordSchema.parse(await response.json());
+}
+
+export async function updateLegalEntity(
+  legalEntityId: string,
+  input: UpdateLegalEntityInput,
+): Promise<LegalEntityRecord> {
+  const response = await fetch(
+    `/api/legal-entities/${encodeURIComponent(legalEntityId)}`,
+    {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(UpdateLegalEntityInputSchema.parse(input)),
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Legal entity update returned ${response.status}.`,
+    );
+  }
+  return LegalEntityRecordSchema.parse(await response.json());
+}
+
+export async function reviewLegalEntitySource(
+  input: ReviewLegalEntitySourceInput,
+): Promise<void> {
+  const response = await fetch("/api/legal-entity-sources/review", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(ReviewLegalEntitySourceInputSchema.parse(input)),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Legal entity source review returned ${response.status}.`,
+    );
+  }
+  LegalEntitySourceReviewResultSchema.parse(await response.json());
+}
+
+export async function downloadLegalEntityExport(
+  input: LegalEntityExportInput,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch("/api/legal-entity-export", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "text/csv",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(LegalEntityExportInputSchema.parse(input)),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Legal entity export returned ${response.status}.`,
+    );
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename =
+    /filename="([^"]+)"/u.exec(disposition)?.[1] ?? "keel-legal-entities.csv";
+  return { blob: await response.blob(), filename };
 }
 
 export async function loadPortfolioBaseline(

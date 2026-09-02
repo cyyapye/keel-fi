@@ -1,0 +1,725 @@
+import {
+  CreateLegalEntityInputSchema,
+  LegalEntityInventorySchema,
+  LegalEntityProfileInputSchema,
+  LegalEntityRecordSchema,
+  LegalEntitySourceReviewResultSchema,
+  ReviewLegalEntitySourceInputSchema,
+  UpdateLegalEntityInputSchema,
+  type CreateLegalEntityInput,
+  type LegalEntityInterestStatus,
+  type LegalEntityInventory,
+  type LegalEntityProfileInput,
+  type LegalEntityRecord,
+  type LegalEntityRelationship,
+  type LegalEntitySourceReference,
+  type LegalEntitySourceSummary,
+  type LegalEntitySourceReviewResult,
+  type LegalEntityType,
+  type ReviewLegalEntitySourceInput,
+  type UpdateLegalEntityInput,
+} from "@keel/domain/legal-entities";
+import type {
+  InvestmentPositionRecord,
+  InvestmentPositionView,
+} from "@keel/domain/position-read-model";
+
+type HouseholdIdentity = {
+  household_id: string;
+  user_id: string;
+};
+
+type LegalEntityVersionRow = {
+  entity_id: string;
+  version_id: string;
+  version: number;
+  legal_name: string;
+  entity_type: LegalEntityType;
+  relationship: LegalEntityRelationship;
+  current_owner: string | null;
+  jurisdiction: string | null;
+  formed_on: string | null;
+  ein_last_four: string | null;
+  ownership_interest_ppm: number | null;
+  interest_status: LegalEntityInterestStatus;
+  tax_classification: string | null;
+  notes: string | null;
+  recorded_at: string;
+};
+
+type SourceDecisionRow = {
+  decision_id: string;
+  source_kind: LegalEntitySourceReference["kind"];
+  source_reference: string;
+  source_name: string;
+  source_label: string;
+  source_as_of: string;
+  relationship: LegalEntityRelationship;
+  current_owner: string | null;
+  interest_status: LegalEntityInterestStatus;
+  opened_on: string | null;
+  decision: "linked" | "not_llc";
+  legal_entity_id: string | null;
+  version: number;
+};
+
+type CurrentVersionIdentityRow = {
+  version_id: string;
+  version: number;
+};
+
+export class LegalEntityRepositoryError extends Error {
+  public constructor(
+    public readonly code: "invalid_source" | "not_found" | "stale",
+    message: string,
+  ) {
+    super(message);
+    this.name = "LegalEntityRepositoryError";
+  }
+}
+
+async function all<T>(statement: D1PreparedStatement): Promise<readonly T[]> {
+  const result = await statement.all<T>();
+  return result.results;
+}
+
+async function findIdentity(
+  db: D1Database,
+  accessSubject: string,
+): Promise<HouseholdIdentity> {
+  const identity = await db
+    .prepare(
+      `SELECT household.id AS household_id, user.id AS user_id
+       FROM users user
+       JOIN households household ON household.owner_user_id = user.id
+       WHERE user.access_subject = ?
+       ORDER BY household.created_at
+       LIMIT 1`,
+    )
+    .bind(accessSubject)
+    .first<HouseholdIdentity>();
+  if (identity === null) {
+    throw new Error("Household not found for the authenticated user.");
+  }
+  return identity;
+}
+
+function sourceKey(source: LegalEntitySourceReference): string {
+  return JSON.stringify([source.kind, source.id]);
+}
+
+function currentPositionValue(position: InvestmentPositionRecord) {
+  const adjustment = position.acceptedValueAdjustment ?? null;
+  if (adjustment !== null) {
+    return { state: "reported" as const, minor: adjustment.valueMinor };
+  }
+  if (position.snapshot.netValue.state !== "not_reported") {
+    return position.snapshot.netValue;
+  }
+  return position.snapshot.unrealizedValue;
+}
+
+function positionSourceSummary(
+  position: InvestmentPositionRecord,
+): LegalEntitySourceSummary {
+  return {
+    source: { kind: "holding_position", id: position.id },
+    suggestedName: position.legalVehicleName,
+    sourceLabel: position.source.label,
+    sourceAsOf: position.source.effectiveDate,
+    relationship: "investment_vehicle",
+    currentOwner: position.ownerLabel ?? null,
+    interestStatus:
+      position.snapshot.providerStatus === "live" ? "current" : "historical",
+    openedOn: position.openedOn,
+    financials: {
+      currency: position.snapshot.currency,
+      commitmentMinor:
+        position.acceptedEconomicsTerms?.commitmentMinorAtAcceptance ?? null,
+      fundedMinor:
+        position.acceptedEconomicsTerms?.fundedMinorAtAcceptance ?? null,
+      currentValue: currentPositionValue(position),
+    },
+    currentDecisionId: null,
+  };
+}
+
+export function legalEntitySourceCandidates(
+  positionView: InvestmentPositionView,
+): LegalEntitySourceSummary[] {
+  const candidates: LegalEntitySourceSummary[] = [];
+  for (const connection of positionView.connections) {
+    for (const container of connection.containers) {
+      if (container.kind === "entity") {
+        const hasCurrentPosition = container.positions.some(
+          (position) => position.snapshot.providerStatus === "live",
+        );
+        const hasHistoricalPosition = container.positions.some(
+          (position) => position.snapshot.providerStatus === "realized",
+        );
+        candidates.push({
+          source: { kind: "ownership_container", id: container.id },
+          suggestedName: container.label,
+          sourceLabel: connection.institutionLabel,
+          sourceAsOf: (
+            container.coverage?.observedAt ?? positionView.asOf
+          ).slice(0, 10),
+          relationship: "ownership_entity",
+          currentOwner: null,
+          interestStatus: hasCurrentPosition
+            ? "current"
+            : hasHistoricalPosition
+              ? "historical"
+              : "unknown",
+          openedOn: null,
+          financials: null,
+          currentDecisionId: null,
+        });
+      }
+      for (const position of container.positions) {
+        if (position.kind !== "direct") {
+          candidates.push(positionSourceSummary(position));
+        }
+      }
+    }
+  }
+  return candidates.sort(
+    (left, right) =>
+      left.suggestedName.localeCompare(right.suggestedName) ||
+      sourceKey(left.source).localeCompare(sourceKey(right.source)),
+  );
+}
+
+function sourceFromDecision(row: SourceDecisionRow): LegalEntitySourceSummary {
+  return {
+    source: { kind: row.source_kind, id: row.source_reference },
+    suggestedName: row.source_name,
+    sourceLabel: row.source_label,
+    sourceAsOf: row.source_as_of,
+    relationship: row.relationship,
+    currentOwner: row.current_owner,
+    interestStatus: row.interest_status,
+    openedOn: row.opened_on,
+    financials: null,
+    currentDecisionId: row.decision_id,
+  };
+}
+
+function recordFromRow(row: LegalEntityVersionRow): LegalEntityRecord {
+  return LegalEntityRecordSchema.parse({
+    id: row.entity_id,
+    versionId: row.version_id,
+    version: row.version,
+    legalName: row.legal_name,
+    entityType: row.entity_type,
+    relationship: row.relationship,
+    currentOwner: row.current_owner,
+    jurisdiction: row.jurisdiction,
+    formedOn: row.formed_on,
+    einLastFour: row.ein_last_four,
+    ownershipInterestPpm: row.ownership_interest_ppm,
+    interestStatus: row.interest_status,
+    taxClassification: row.tax_classification,
+    notes: row.notes,
+    recordedAt: row.recorded_at,
+    sources: [],
+  });
+}
+
+function inventoryFromRows(
+  entityRows: readonly LegalEntityVersionRow[],
+  decisionRows: readonly SourceDecisionRow[],
+  positionView: InvestmentPositionView,
+): LegalEntityInventory {
+  const entities = entityRows.map(recordFromRow);
+  const entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
+  const sourceCandidates = legalEntitySourceCandidates(positionView);
+  const candidateByKey = new Map(
+    sourceCandidates.map((candidate) => [
+      sourceKey(candidate.source),
+      candidate,
+    ]),
+  );
+  const decidedSourceKeys = new Set<string>();
+  const excludedCandidates: LegalEntitySourceSummary[] = [];
+
+  for (const decision of decisionRows) {
+    const key = sourceKey({
+      kind: decision.source_kind,
+      id: decision.source_reference,
+    });
+    decidedSourceKeys.add(key);
+    const liveSource = candidateByKey.get(key);
+    const summary = {
+      ...(liveSource ?? sourceFromDecision(decision)),
+      currentDecisionId: decision.decision_id,
+    };
+    if (decision.decision === "not_llc") {
+      excludedCandidates.push(summary);
+      continue;
+    }
+    const entity =
+      decision.legal_entity_id === null
+        ? undefined
+        : entitiesById.get(decision.legal_entity_id);
+    if (entity === undefined) {
+      throw new Error("Linked legal entity is unavailable.");
+    }
+    entity.sources.push(summary);
+  }
+
+  entities.forEach((entity) => {
+    entity.sources.sort(
+      (left, right) =>
+        left.suggestedName.localeCompare(right.suggestedName) ||
+        sourceKey(left.source).localeCompare(sourceKey(right.source)),
+    );
+  });
+
+  return LegalEntityInventorySchema.parse({
+    version: 1,
+    asOf: positionView.asOf,
+    entities,
+    candidates: sourceCandidates.filter(
+      (candidate) => !decidedSourceKeys.has(sourceKey(candidate.source)),
+    ),
+    excludedCandidates: excludedCandidates.sort(
+      (left, right) =>
+        left.suggestedName.localeCompare(right.suggestedName) ||
+        sourceKey(left.source).localeCompare(sourceKey(right.source)),
+    ),
+  });
+}
+
+function candidateFor(
+  positionView: InvestmentPositionView,
+  source: LegalEntitySourceReference,
+  fallback: SourceDecisionRow | null,
+): LegalEntitySourceSummary {
+  const candidate = legalEntitySourceCandidates(positionView).find(
+    (item) => sourceKey(item.source) === sourceKey(source),
+  );
+  if (candidate !== undefined) {
+    return candidate;
+  }
+  if (fallback !== null) {
+    return sourceFromDecision(fallback);
+  }
+  throw new LegalEntityRepositoryError(
+    "invalid_source",
+    "This legal entity source is unavailable.",
+  );
+}
+
+export interface LegalEntityRepository {
+  getState(
+    accessSubject: string,
+    positionView: InvestmentPositionView,
+  ): Promise<LegalEntityInventory>;
+  create(
+    accessSubject: string,
+    input: CreateLegalEntityInput,
+    positionView: InvestmentPositionView,
+  ): Promise<LegalEntityRecord>;
+  update(
+    accessSubject: string,
+    legalEntityId: string,
+    input: UpdateLegalEntityInput,
+  ): Promise<LegalEntityRecord>;
+  reviewSource(
+    accessSubject: string,
+    input: ReviewLegalEntitySourceInput,
+    positionView: InvestmentPositionView,
+  ): Promise<LegalEntitySourceReviewResult>;
+}
+
+export class D1LegalEntityRepository implements LegalEntityRepository {
+  public constructor(private readonly db: D1Database) {}
+
+  public async getState(
+    accessSubject: string,
+    positionView: InvestmentPositionView,
+  ): Promise<LegalEntityInventory> {
+    const identity = await findIdentity(this.db, accessSubject);
+    const [entityRows, decisionRows] = await Promise.all([
+      all<LegalEntityVersionRow>(
+        this.db
+          .prepare(
+            `SELECT
+               entity.id AS entity_id,
+               version.id AS version_id,
+               version.version,
+               version.legal_name,
+               version.entity_type,
+               version.relationship,
+               version.current_owner,
+               version.jurisdiction,
+               version.formed_on,
+               version.ein_last_four,
+               version.ownership_interest_ppm,
+               version.interest_status,
+               version.tax_classification,
+               version.notes,
+               version.recorded_at
+             FROM legal_entities entity
+             JOIN legal_entity_versions version
+               ON version.legal_entity_id = entity.id
+              AND NOT EXISTS (
+                SELECT 1
+                FROM legal_entity_versions later
+                WHERE later.supersedes_version_id = version.id
+              )
+             WHERE entity.household_id = ?
+             ORDER BY lower(version.legal_name), entity.id`,
+          )
+          .bind(identity.household_id),
+      ),
+      all<SourceDecisionRow>(
+        this.db
+          .prepare(
+            `SELECT
+               decision.id AS decision_id,
+               decision.source_kind,
+               decision.source_reference,
+               decision.source_name,
+               decision.source_label,
+               decision.source_as_of,
+               decision.relationship,
+               decision.current_owner,
+               decision.interest_status,
+               decision.opened_on,
+               decision.decision,
+               decision.legal_entity_id,
+               decision.version
+             FROM legal_entity_source_decisions decision
+             WHERE decision.household_id = ?
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM legal_entity_source_decisions later
+                 WHERE later.supersedes_decision_id = decision.id
+               )
+             ORDER BY decision.source_kind, decision.source_reference`,
+          )
+          .bind(identity.household_id),
+      ),
+    ]);
+    return inventoryFromRows(entityRows, decisionRows, positionView);
+  }
+
+  public async create(
+    accessSubject: string,
+    rawInput: CreateLegalEntityInput,
+    positionView: InvestmentPositionView,
+  ): Promise<LegalEntityRecord> {
+    const input = CreateLegalEntityInputSchema.parse(rawInput);
+    const identity = await findIdentity(this.db, accessSubject);
+    const currentDecision =
+      input.source === null
+        ? null
+        : await this.currentDecision(
+            identity.household_id,
+            input.source.reference,
+          );
+    if (
+      input.source !== null &&
+      (currentDecision?.decision_id ?? null) !== input.source.expectedDecisionId
+    ) {
+      throw new LegalEntityRepositoryError(
+        "stale",
+        "This source review changed. Review the current record and try again.",
+      );
+    }
+    const sourceSummary =
+      input.source === null
+        ? null
+        : candidateFor(positionView, input.source.reference, currentDecision);
+    const entityId = crypto.randomUUID();
+    const versionId = crypto.randomUUID();
+    const decisionId = sourceSummary === null ? null : crypto.randomUUID();
+    const recordedAt = new Date().toISOString();
+    const statements: D1PreparedStatement[] = [
+      this.db
+        .prepare(
+          `INSERT INTO legal_entities (
+             id, household_id, created_by_user_id, created_at, immutable
+           ) VALUES (?, ?, ?, ?, 1)`,
+        )
+        .bind(entityId, identity.household_id, identity.user_id, recordedAt),
+      this.versionInsert(
+        identity,
+        entityId,
+        versionId,
+        1,
+        null,
+        input.profile,
+        recordedAt,
+      ),
+    ];
+    if (sourceSummary !== null && decisionId !== null) {
+      statements.push(
+        this.sourceDecisionInsert(
+          identity,
+          decisionId,
+          sourceSummary,
+          "linked",
+          entityId,
+          1,
+          null,
+          recordedAt,
+        ),
+      );
+    }
+    await this.db.batch(statements);
+    return LegalEntityRecordSchema.parse({
+      id: entityId,
+      versionId,
+      version: 1,
+      ...input.profile,
+      recordedAt,
+      sources:
+        sourceSummary === null || decisionId === null
+          ? []
+          : [{ ...sourceSummary, currentDecisionId: decisionId }],
+    });
+  }
+
+  public async update(
+    accessSubject: string,
+    rawLegalEntityId: string,
+    rawInput: UpdateLegalEntityInput,
+  ): Promise<LegalEntityRecord> {
+    const legalEntityId =
+      LegalEntityRecordSchema.shape.id.parse(rawLegalEntityId);
+    const input = UpdateLegalEntityInputSchema.parse(rawInput);
+    const identity = await findIdentity(this.db, accessSubject);
+    const current = await this.db
+      .prepare(
+        `SELECT version.id AS version_id, version.version
+         FROM legal_entities entity
+         JOIN legal_entity_versions version
+           ON version.legal_entity_id = entity.id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM legal_entity_versions later
+            WHERE later.supersedes_version_id = version.id
+          )
+         WHERE entity.id = ? AND entity.household_id = ?`,
+      )
+      .bind(legalEntityId, identity.household_id)
+      .first<CurrentVersionIdentityRow>();
+    if (current === null) {
+      throw new LegalEntityRepositoryError(
+        "not_found",
+        "This legal entity is unavailable.",
+      );
+    }
+    if (current.version_id !== input.expectedVersionId) {
+      throw new LegalEntityRepositoryError(
+        "stale",
+        "This legal entity changed. Review the current record and try again.",
+      );
+    }
+    const versionId = crypto.randomUUID();
+    const recordedAt = new Date().toISOString();
+    await this.db.batch([
+      this.versionInsert(
+        identity,
+        legalEntityId,
+        versionId,
+        current.version + 1,
+        current.version_id,
+        input.profile,
+        recordedAt,
+      ),
+    ]);
+    return LegalEntityRecordSchema.parse({
+      id: legalEntityId,
+      versionId,
+      version: current.version + 1,
+      ...input.profile,
+      recordedAt,
+      sources: [],
+    });
+  }
+
+  public async reviewSource(
+    accessSubject: string,
+    rawInput: ReviewLegalEntitySourceInput,
+    positionView: InvestmentPositionView,
+  ): Promise<LegalEntitySourceReviewResult> {
+    const input = ReviewLegalEntitySourceInputSchema.parse(rawInput);
+    const identity = await findIdentity(this.db, accessSubject);
+    const current = await this.currentDecision(
+      identity.household_id,
+      input.source,
+    );
+    if ((current?.decision_id ?? null) !== input.expectedDecisionId) {
+      throw new LegalEntityRepositoryError(
+        "stale",
+        "This source review changed. Review the current record and try again.",
+      );
+    }
+    if (
+      input.decision.kind === "linked" &&
+      !(await this.entityExists(
+        identity.household_id,
+        input.decision.legalEntityId,
+      ))
+    ) {
+      throw new LegalEntityRepositoryError(
+        "not_found",
+        "The selected legal entity is unavailable.",
+      );
+    }
+    const source = candidateFor(positionView, input.source, current);
+    const decisionId = crypto.randomUUID();
+    const decidedAt = new Date().toISOString();
+    await this.db.batch([
+      this.sourceDecisionInsert(
+        identity,
+        decisionId,
+        source,
+        input.decision.kind,
+        input.decision.kind === "linked" ? input.decision.legalEntityId : null,
+        (current?.version ?? 0) + 1,
+        current?.decision_id ?? null,
+        decidedAt,
+      ),
+    ]);
+    return LegalEntitySourceReviewResultSchema.parse({
+      version: 1,
+      decisionId,
+    });
+  }
+
+  private async currentDecision(
+    householdId: string,
+    source: LegalEntitySourceReference,
+  ): Promise<SourceDecisionRow | null> {
+    return this.db
+      .prepare(
+        `SELECT
+           decision.id AS decision_id,
+           decision.source_kind,
+           decision.source_reference,
+           decision.source_name,
+           decision.source_label,
+           decision.source_as_of,
+           decision.relationship,
+           decision.current_owner,
+           decision.interest_status,
+           decision.opened_on,
+           decision.decision,
+           decision.legal_entity_id,
+           decision.version
+         FROM legal_entity_source_decisions decision
+         WHERE decision.household_id = ?
+           AND decision.source_kind = ?
+           AND decision.source_reference = ?
+           AND NOT EXISTS (
+             SELECT 1
+             FROM legal_entity_source_decisions later
+             WHERE later.supersedes_decision_id = decision.id
+           )`,
+      )
+      .bind(householdId, source.kind, source.id)
+      .first<SourceDecisionRow>();
+  }
+
+  private async entityExists(
+    householdId: string,
+    legalEntityId: string,
+  ): Promise<boolean> {
+    const row = await this.db
+      .prepare(
+        `SELECT id
+         FROM legal_entities
+         WHERE id = ? AND household_id = ?`,
+      )
+      .bind(legalEntityId, householdId)
+      .first<{ id: string }>();
+    return row !== null;
+  }
+
+  private versionInsert(
+    identity: HouseholdIdentity,
+    legalEntityId: string,
+    versionId: string,
+    version: number,
+    supersedesVersionId: string | null,
+    rawProfile: LegalEntityProfileInput,
+    recordedAt: string,
+  ): D1PreparedStatement {
+    const profile = LegalEntityProfileInputSchema.parse(rawProfile);
+    return this.db
+      .prepare(
+        `INSERT INTO legal_entity_versions (
+           id, household_id, legal_entity_id, version, legal_name,
+           entity_type, relationship, current_owner, jurisdiction,
+           formed_on, ein_last_four, ownership_interest_ppm,
+           interest_status, tax_classification, notes,
+           supersedes_version_id, recorded_by_user_id, recorded_at, immutable
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      )
+      .bind(
+        versionId,
+        identity.household_id,
+        legalEntityId,
+        version,
+        profile.legalName,
+        profile.entityType,
+        profile.relationship,
+        profile.currentOwner,
+        profile.jurisdiction,
+        profile.formedOn,
+        profile.einLastFour,
+        profile.ownershipInterestPpm,
+        profile.interestStatus,
+        profile.taxClassification,
+        profile.notes,
+        supersedesVersionId,
+        identity.user_id,
+        recordedAt,
+      );
+  }
+
+  private sourceDecisionInsert(
+    identity: HouseholdIdentity,
+    decisionId: string,
+    source: LegalEntitySourceSummary,
+    decision: "linked" | "not_llc",
+    legalEntityId: string | null,
+    version: number,
+    supersedesDecisionId: string | null,
+    decidedAt: string,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO legal_entity_source_decisions (
+           id, household_id, source_kind, source_reference, source_name,
+           source_label, source_as_of, relationship, current_owner,
+           interest_status, opened_on, decision, legal_entity_id, version,
+           supersedes_decision_id, decided_by_user_id, decided_at, immutable
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      )
+      .bind(
+        decisionId,
+        identity.household_id,
+        source.source.kind,
+        source.source.id,
+        source.suggestedName,
+        source.sourceLabel,
+        source.sourceAsOf,
+        source.relationship,
+        source.currentOwner,
+        source.interestStatus,
+        source.openedOn,
+        decision,
+        legalEntityId,
+        version,
+        supersedesDecisionId,
+        identity.user_id,
+        decidedAt,
+      );
+  }
+}
