@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { LegalEntityNameEvidenceSchema } from "./position-read-model";
+
 const IsoDateSchema = z.iso.date();
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
 const NullableTextSchema = (maximum: number) =>
@@ -19,7 +21,7 @@ export const ExactLegalEntityTypeSchema = z.enum([
   "limited_partnership",
 ]);
 
-export const MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES = 50;
+export const MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES = 500;
 
 export const LegalEntityRelationshipSchema = z.enum([
   "direct_interest",
@@ -73,7 +75,8 @@ export const LegalEntitySourceFinancialsSchema = z
 export const LegalEntitySourceSummarySchema = z
   .object({
     source: LegalEntitySourceReferenceSchema,
-    suggestedName: z.string().trim().min(1).max(1_000),
+    sourceDisplayName: z.string().trim().min(1).max(1_000),
+    legalEntityNameEvidence: LegalEntityNameEvidenceSchema,
     suggestedEntityType: ExactLegalEntityTypeSchema.nullable(),
     sourceLabel: z.string().trim().min(1).max(1_000),
     sourceAsOf: IsoDateSchema,
@@ -84,7 +87,19 @@ export const LegalEntitySourceSummarySchema = z
     financials: LegalEntitySourceFinancialsSchema.nullable(),
     currentDecisionId: z.string().min(1).nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const legalName = value.legalEntityNameEvidence.legalName;
+    const expectedType =
+      legalName === null ? null : exactLegalEntityTypeFromName(legalName);
+    if (value.suggestedEntityType !== expectedType) {
+      context.addIssue({
+        code: "custom",
+        message: "Entity type must match the evidenced legal name.",
+        path: ["suggestedEntityType"],
+      });
+    }
+  });
 
 export const LegalEntityExactBatchPreviewSchema = z
   .object({
@@ -181,7 +196,7 @@ export const LegalEntityRecordSchema = LegalEntityProfileInputSchema.extend({
 
 export const LegalEntityInventorySchema = z
   .object({
-    version: z.literal(2),
+    version: z.literal(3),
     asOf: IsoTimestampSchema,
     entities: z.array(LegalEntityRecordSchema),
     candidates: z.array(LegalEntitySourceSummarySchema),
@@ -287,6 +302,7 @@ export const LegalEntityExactBatchResultSchema = z
 
 export const LEGAL_ENTITY_EXPORT_FIELDS = [
   "legal_name",
+  "source_record",
   "entity_type",
   "relationship",
   "current_owner",
@@ -311,6 +327,7 @@ export const LegalEntityExportFieldSchema = z.enum(LEGAL_ENTITY_EXPORT_FIELDS);
 
 export const DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS = [
   "legal_name",
+  "source_record",
   "entity_type",
   "relationship",
   "current_owner",
@@ -327,6 +344,7 @@ export const LEGAL_ENTITY_EXPORT_FIELD_LABELS: Readonly<
   Record<LegalEntityExportField, string>
 > = {
   legal_name: "Legal name",
+  source_record: "Source record",
   entity_type: "Entity type",
   relationship: "Relationship",
   current_owner: "Current titled owner",

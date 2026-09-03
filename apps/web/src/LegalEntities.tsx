@@ -126,6 +126,10 @@ function emptyProfile(): LegalEntityProfileInput {
 }
 
 function editorForCandidate(candidate: LegalEntitySourceSummary): EditorState {
+  const legalName = candidate.legalEntityNameEvidence.legalName;
+  if (legalName === null) {
+    throw new Error("A source-reported legal name is required for review.");
+  }
   return {
     entityId: null,
     expectedVersionId: null,
@@ -135,7 +139,7 @@ function editorForCandidate(candidate: LegalEntitySourceSummary): EditorState {
     },
     profile: {
       ...emptyProfile(),
-      legalName: candidate.suggestedName,
+      legalName,
       entityType: candidate.suggestedEntityType ?? "llc",
       relationship: candidate.relationship,
       currentOwner: candidate.currentOwner,
@@ -184,7 +188,11 @@ function sourceKindLabel(kind: LegalEntitySourceSummary["source"]["kind"]) {
 }
 
 function sourceSummary(source: LegalEntitySourceSummary): string {
-  return `${source.sourceLabel} · ${formatDate(source.sourceAsOf)}`;
+  const sourceRecord =
+    source.legalEntityNameEvidence.legalName === source.sourceDisplayName
+      ? ""
+      : `${source.sourceDisplayName} · `;
+  return `${sourceRecord}${source.sourceLabel} · ${formatDate(source.sourceAsOf)}`;
 }
 
 function LegalEntityEditor({
@@ -547,6 +555,9 @@ function CandidateRow({
   );
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const legalName = candidate.legalEntityNameEvidence.legalName;
+  const nameUnavailable = legalName === null;
+  const displayName = legalName ?? candidate.sourceDisplayName;
 
   const decide = async (decision: "linked" | "not_llc") => {
     setWorking(true);
@@ -573,70 +584,86 @@ function CandidateRow({
   };
 
   return (
-    <article className="legal-entity-candidate">
+    <article
+      className={`legal-entity-candidate${
+        nameUnavailable ? " legal-entity-candidate--unresolved" : ""
+      }`}
+    >
       <div className="legal-entity-candidate__copy">
         <div>
-          <h3>{candidate.suggestedName}</h3>
-          {!excluded && <Badge tone="warning">Needs review</Badge>}
+          <h3>{displayName}</h3>
+          {nameUnavailable ? (
+            <Badge tone="warning">Name unavailable</Badge>
+          ) : (
+            !excluded && <Badge tone="warning">Needs review</Badge>
+          )}
         </div>
         <p>{sourceSummary(candidate)}</p>
         <p>
-          Suggested as{" "}
-          {relationshipLabels[candidate.relationship].toLowerCase()}
+          {nameUnavailable
+            ? candidate.source.kind === "ownership_container"
+              ? "This ownership label is a reference, not legal-name evidence."
+              : "No exact legal name was reported by this source. Use a governing document, K-1, or provider legal-vehicle report to resolve it."
+            : `Legal name reported in ${candidate.legalEntityNameEvidence.sourceField}.`}
+        </p>
+        <p>
+          Recorded as {relationshipLabels[candidate.relationship].toLowerCase()}
           {candidate.currentOwner === null
             ? ". Owner not recorded."
             : ` titled to ${candidate.currentOwner}.`}
         </p>
       </div>
-      <ActionGroup
-        className="legal-entity-candidate__actions"
-        layout="stack"
-        mobileLayout="stack"
-      >
-        <Button disabled={working} onClick={onAdd} tone="secondary">
-          {excluded ? "Review and add" : "Review details"}
-        </Button>
-        {entities.length > 0 && (
-          <div className="legal-entity-candidate__link">
-            <Select
-              items={entities.map((entity) => ({
-                label: entity.legalName,
-                value: entity.id,
-              }))}
-              onValueChange={(value) =>
-                setSelectedEntityId(typeof value === "string" ? value : "")
-              }
-              value={selectedEntityId}
-            >
-              <SelectTrigger
-                aria-label={`Existing entity for ${candidate.suggestedName}`}
+      {!nameUnavailable && (
+        <ActionGroup
+          className="legal-entity-candidate__actions"
+          layout="stack"
+          mobileLayout="stack"
+        >
+          <Button disabled={working} onClick={onAdd} tone="secondary">
+            {excluded ? "Review and add" : "Review details"}
+          </Button>
+          {entities.length > 0 && (
+            <div className="legal-entity-candidate__link">
+              <Select
+                items={entities.map((entity) => ({
+                  label: entity.legalName,
+                  value: entity.id,
+                }))}
+                onValueChange={(value) =>
+                  setSelectedEntityId(typeof value === "string" ? value : "")
+                }
+                value={selectedEntityId}
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {entities.map((entity) => (
-                  <SelectItem key={entity.id} value={entity.id}>
-                    {entity.legalName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              disabled={working || selectedEntityId.length === 0}
-              onClick={() => void decide("linked")}
-              size="compact"
-              tone="quiet"
-            >
-              Link source
-            </Button>
-          </div>
-        )}
-        {!excluded && (
-          <TextLink disabled={working} onClick={() => void decide("not_llc")}>
-            Exclude source
-          </TextLink>
-        )}
-      </ActionGroup>
+                <SelectTrigger
+                  aria-label={`Existing entity for ${displayName}`}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {entities.map((entity) => (
+                    <SelectItem key={entity.id} value={entity.id}>
+                      {entity.legalName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                disabled={working || selectedEntityId.length === 0}
+                onClick={() => void decide("linked")}
+                size="compact"
+                tone="quiet"
+              >
+                Link source
+              </Button>
+            </div>
+          )}
+          {!excluded && (
+            <TextLink disabled={working} onClick={() => void decide("not_llc")}>
+              Exclude source
+            </TextLink>
+          )}
+        </ActionGroup>
+      )}
       {error !== null && <FormMessage tone="error">{error}</FormMessage>}
     </article>
   );
@@ -678,24 +705,26 @@ function ExactBatchReview({
   const remainingCopy =
     batch.remainingCandidateCount === 0
       ? ""
-      : ` ${batch.remainingCandidateCount} ${
-          batch.remainingCandidateCount === 1 ? "source will" : "sources will"
-        } remain in the review queue.`;
+      : ` ${batch.remainingCandidateCount} source ${
+          batch.remainingCandidateCount === 1
+            ? "record remains"
+            : "records remain"
+        } outside this batch.`;
 
   return (
     <div className="legal-entity-exact-batch">
       <div>
-        <p className="eyebrow">LLC and LP endings</p>
+        <p className="eyebrow">Source-reported names</p>
         <h3>
-          {batch.sourceCount}{" "}
-          {batch.sourceCount === 1 ? "source can" : "sources can"} be reviewed
+          {batch.sourceCount} source-reported{" "}
+          {batch.sourceCount === 1 ? "name can" : "names can"} be reviewed
           together
         </h3>
         <p>
-          {typeSummary} {batch.entityCount === 1 ? "resolves" : "resolve"} to{" "}
-          {batch.entityCount} exact legal{" "}
-          {batch.entityCount === 1 ? "name" : "names"}. Duplicate source rows
-          will share one record.{existingCopy}
+          {typeSummary} {batch.entityCount === 1 ? "comes" : "come"} directly
+          from source records. {batch.entityCount} exact legal{" "}
+          {batch.entityCount === 1 ? "name" : "names"} will be added or linked;
+          duplicate source rows share one record.{existingCopy}
           {remainingCopy}
         </p>
         {error !== null && (
@@ -732,6 +761,11 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
     (entity) =>
       entity.entityType === "llc" && entity.interestStatus !== "historical",
   ).length;
+  const sourceNameReviewCount = inventory.candidates.filter(
+    (candidate) => candidate.legalEntityNameEvidence.legalName !== null,
+  ).length;
+  const unavailableNameCount =
+    inventory.candidates.length - sourceNameReviewCount;
 
   const toggleField = (field: LegalEntityExportField, checked: boolean) => {
     setFields((current) => {
@@ -792,7 +826,11 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
             {reviewedLlcCount} reviewed{" "}
             {reviewedLlcCount === 1 ? "LLC" : "LLCs"}
             {" · "}
-            {inventory.candidates.length} awaiting review
+            {sourceNameReviewCount} source{" "}
+            {sourceNameReviewCount === 1 ? "name" : "names"} to review
+            {" · "}
+            {unavailableNameCount} missing legal{" "}
+            {unavailableNameCount === 1 ? "name" : "names"}
           </p>
         </div>
         <label>
@@ -803,7 +841,7 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
             }
             type="checkbox"
           />
-          <span>Include sources that need review</span>
+          <span>Include unresolved source records</span>
         </label>
         <label>
           <Input
@@ -968,9 +1006,9 @@ export function LegalEntities() {
             ? ""
             : ` ${result.remainingCandidateCount} ${
                 result.remainingCandidateCount === 1
-                  ? "source remains"
-                  : "sources remain"
-              } in the review queue.`
+                  ? "source record remains"
+                  : "source records remain"
+              } unresolved.`
         }`,
       );
     } catch (caught) {
@@ -1113,7 +1151,7 @@ export function LegalEntities() {
           className="legal-entities__candidates"
         >
           <SectionHeader
-            description="Keel found ownership or investment records that may be legal entities. Clear LLC and LP endings can be reviewed together; uncertain records stay individual."
+            description="Source-reported legal names can be reviewed together. Records without an exact legal name stay visible for counsel."
             eyebrow="Review queue"
             headingProps={{ id: "legal-entity-candidates-title" }}
             title="Possible legal entities"

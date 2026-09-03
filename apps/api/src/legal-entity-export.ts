@@ -64,6 +64,13 @@ function sourceLabels(sources: readonly LegalEntitySourceSummary[]): string {
   return labels.length === 0 ? "Manual review" : labels.join("; ");
 }
 
+function sourceRecords(sources: readonly LegalEntitySourceSummary[]): string {
+  const records = uniqueValues(
+    sources.map((source) => source.sourceDisplayName),
+  );
+  return records.length === 0 ? NOT_RECORDED : records.join("; ");
+}
+
 function sourceDates(
   sources: readonly LegalEntitySourceSummary[],
   fallback: string,
@@ -85,7 +92,7 @@ function financialValues(
     if (source.financials === null) {
       return [];
     }
-    const prefix = `${source.suggestedName}: `;
+    const prefix = `${source.sourceDisplayName}: `;
     if (field === "commitment") {
       return [
         `${prefix}${
@@ -131,9 +138,11 @@ function missingInformation(input: {
   jurisdiction: string | null;
   ownershipInterestPpm: number | null;
   taxClassification: string | null;
+  needsLegalName: boolean;
   needsClassification: boolean;
 }): string {
   const missing: string[] = [];
+  if (input.needsLegalName) missing.push("Legal name");
   if (input.needsClassification) missing.push("Entity classification");
   if (input.currentOwner === null) missing.push("Current titled owner");
   if (input.jurisdiction === null) missing.push("Formation jurisdiction");
@@ -147,6 +156,7 @@ function missingInformation(input: {
 function confirmedRow(entity: LegalEntityRecord): ExportRow {
   return {
     legal_name: entity.legalName,
+    source_record: sourceRecords(entity.sources),
     entity_type: entityTypeLabel(entity.entityType),
     relationship: relationshipLabel(entity.relationship),
     current_owner: entity.currentOwner ?? NOT_RECORDED,
@@ -166,6 +176,7 @@ function confirmedRow(entity: LegalEntityRecord): ExportRow {
       jurisdiction: entity.jurisdiction,
       ownershipInterestPpm: entity.ownershipInterestPpm,
       taxClassification: entity.taxClassification,
+      needsLegalName: false,
       needsClassification: false,
     }),
     formed_on: entity.formedOn ?? NOT_RECORDED,
@@ -180,15 +191,18 @@ function confirmedRow(entity: LegalEntityRecord): ExportRow {
 }
 
 function candidateRow(candidate: LegalEntitySourceSummary): ExportRow {
+  const legalName = candidate.legalEntityNameEvidence.legalName;
+  const nameUnavailable = legalName === null;
   return {
-    legal_name: candidate.suggestedName,
-    entity_type: "Needs review",
+    legal_name: legalName ?? "",
+    source_record: candidate.sourceDisplayName,
+    entity_type: nameUnavailable ? "Not reported" : "Needs review",
     relationship: relationshipLabel(candidate.relationship),
     current_owner: candidate.currentOwner ?? NOT_RECORDED,
     jurisdiction: NOT_RECORDED,
     ownership_interest: NOT_RECORDED,
     interest_status: interestStatusLabel(candidate.interestStatus),
-    record_status: "Needs review",
+    record_status: nameUnavailable ? "Legal name unavailable" : "Needs review",
     source: candidate.sourceLabel,
     source_as_of: candidate.sourceAsOf,
     missing_information: missingInformation({
@@ -198,6 +212,7 @@ function candidateRow(candidate: LegalEntitySourceSummary): ExportRow {
       jurisdiction: null,
       ownershipInterestPpm: null,
       taxClassification: null,
+      needsLegalName: nameUnavailable,
       needsClassification: true,
     }),
     formed_on: NOT_RECORDED,
@@ -234,8 +249,9 @@ export function legalEntityExportRows(
     : [];
   return [...confirmed, ...candidates].sort(
     (left, right) =>
-      left.legal_name.localeCompare(right.legal_name) ||
-      left.record_status.localeCompare(right.record_status),
+      (left.legal_name || left.source_record).localeCompare(
+        right.legal_name || right.source_record,
+      ) || left.record_status.localeCompare(right.record_status),
   );
 }
 

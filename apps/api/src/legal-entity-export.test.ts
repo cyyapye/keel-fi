@@ -12,7 +12,12 @@ import {
 
 const source = {
   source: { kind: "holding_position", id: "position-synthetic" },
-  suggestedName: "Synthetic SPV, LLC",
+  sourceDisplayName: "Synthetic Robotics",
+  legalEntityNameEvidence: {
+    state: "provider_reported",
+    legalName: "Synthetic SPV, LLC",
+    sourceField: "Fund Name",
+  },
   suggestedEntityType: "llc",
   sourceLabel: 'Reviewed export "Alpha"',
   sourceAsOf: "2026-08-31",
@@ -30,7 +35,7 @@ const source = {
 } satisfies LegalEntitySourceSummary;
 
 const inventory = {
-  version: 2,
+  version: 3,
   asOf: "2026-09-01T12:00:00.000Z",
   entities: [
     {
@@ -92,7 +97,13 @@ const inventory = {
     {
       ...source,
       source: { kind: "ownership_container", id: "container-synthetic" },
-      suggestedName: "Possible Synthetic LLC",
+      sourceDisplayName: "Possible Synthetic LLC",
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+      },
+      suggestedEntityType: null,
       currentDecisionId: null,
     },
   ],
@@ -136,10 +147,10 @@ describe("legal entity CSV export", () => {
     });
 
     expect(row).toMatchObject({
-      commitment: "Synthetic SPV, LLC: USD 123.45",
+      commitment: "Synthetic Robotics: USD 123.45",
       current_owner: "Not recorded",
-      current_value: "Synthetic SPV, LLC: Locked",
-      funded: "Synthetic SPV, LLC: Not recorded",
+      current_value: "Synthetic Robotics: Locked",
+      funded: "Synthetic Robotics: Not recorded",
       ownership_interest: "50%",
     });
     expect(row?.missing_information).toBe(
@@ -156,8 +167,15 @@ describe("legal entity CSV export", () => {
     });
     expect(defaultRows.map((row) => row.legal_name)).toEqual([
       "=Synthetic Holdings LLC",
-      "Possible Synthetic LLC",
+      "",
     ]);
+    const unresolved = defaultRows.find((row) => row.legal_name === "");
+    expect(unresolved).toMatchObject({
+      source_record: "Possible Synthetic LLC",
+      record_status: "Legal name unavailable",
+      entity_type: "Not reported",
+    });
+    expect(unresolved?.missing_information).toContain("Legal name");
 
     const expandedRows = legalEntityExportRows(inventory, {
       fields: ["legal_name"],

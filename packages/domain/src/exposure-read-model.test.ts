@@ -18,6 +18,11 @@ function position(
   return {
     id,
     legalVehicleName: `Synthetic position ${id}`,
+    legalEntityNameEvidence: {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+    },
     reportedExposureName: "Synthetic common equity",
     kind: "direct",
     openedOn: "2026-01-15",

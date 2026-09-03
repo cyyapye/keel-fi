@@ -33,6 +33,11 @@ function position(input: {
   return {
     id: input.id,
     legalVehicleName: input.name,
+    legalEntityNameEvidence: {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+    },
     reportedExposureName: input.name,
     kind: "direct",
     openedOn: null,

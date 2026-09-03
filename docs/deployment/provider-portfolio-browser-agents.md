@@ -143,6 +143,19 @@ claiming the exact legal vehicle name.
 - Uses the provider position identifier for collision detection without writing
   it to logs.
 
+### Legal-entity name evidence
+
+- AngelList's `Fund Name` is the only current browser-agent field that Keel
+  treats as a provider-reported legal-entity name.
+- Tokenfolio and Sydecar position labels remain useful source references, but
+  they are not legal-name evidence and never prefill or enter the reviewed
+  legal-entity inventory as legal names.
+- A Tokenfolio or Sydecar position stays in the counsel export with a blank
+  legal-name cell and an explicit unavailable status until a governing document,
+  Schedule K-1, or provider legal-vehicle report supplies the exact name.
+- Ownership-container labels are also references only. An LLC or LP suffix in a
+  label does not make that label legal-name evidence.
+
 ## Operational state
 
 D1 stores only the household-scoped provider, interval, heartbeat, leases,

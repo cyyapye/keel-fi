@@ -10,7 +10,12 @@ import { routeHoldingsPage } from "./holdings-page-fixtures";
 
 const positionSource = {
   source: { kind: "holding_position" as const, id: "position_demo_venture" },
-  suggestedName: "Demo Venture SPV LLC",
+  sourceDisplayName: "Demo Robotics",
+  legalEntityNameEvidence: {
+    state: "provider_reported" as const,
+    legalName: "Demo Venture SPV LLC",
+    sourceField: "Fund Name",
+  },
   suggestedEntityType: "llc" as const,
   sourceLabel: "Reviewed venture export",
   sourceAsOf: "2026-08-31",
@@ -33,7 +38,12 @@ const limitedPartnershipSources = [
       kind: "holding_position",
       id: "position_demo_seed_fund_a",
     },
-    suggestedName: "Demo Seed Fund I, LP",
+    sourceDisplayName: "Demo Health",
+    legalEntityNameEvidence: {
+      state: "provider_reported",
+      legalName: "Demo Seed Fund I, LP",
+      sourceField: "Fund Name",
+    },
     suggestedEntityType: "limited_partnership",
     sourceLabel: "Reviewed venture export",
     sourceAsOf: "2026-08-30",
@@ -49,7 +59,12 @@ const limitedPartnershipSources = [
       kind: "holding_position",
       id: "position_demo_seed_fund_b",
     },
-    suggestedName: "Demo Seed Fund I, LP",
+    sourceDisplayName: "Demo Energy",
+    legalEntityNameEvidence: {
+      state: "document_reported",
+      legalName: "Demo Seed Fund I, LP",
+      sourceField: "Schedule K-1",
+    },
     suggestedEntityType: "limited_partnership",
     sourceLabel: "Reviewed tax export",
     sourceAsOf: "2026-08-29",
@@ -63,7 +78,7 @@ const limitedPartnershipSources = [
 ] satisfies LegalEntitySourceSummary[];
 
 const initialInventory = {
-  version: 2,
+  version: 3,
   asOf: "2026-09-01T12:00:00.000Z",
   entities: [
     {
@@ -107,17 +122,37 @@ const initialInventory = {
     positionSource,
     ...limitedPartnershipSources,
     {
-      source: {
-        kind: "ownership_container",
-        id: "container_demo_operating",
+      source: { kind: "holding_position", id: "position_demo_sydecar" },
+      sourceDisplayName: "Demo Climate",
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
       },
-      suggestedName: "Demo Operating Account",
       suggestedEntityType: null,
-      sourceLabel: "Reviewed banking records",
+      sourceLabel: "Sydecar template",
       sourceAsOf: "2026-08-29",
-      relationship: "ownership_entity",
-      currentOwner: null,
-      interestStatus: "unknown",
+      relationship: "investment_vehicle",
+      currentOwner: "Demo Family Holdings LLC",
+      interestStatus: "current",
+      openedOn: null,
+      financials: null,
+      currentDecisionId: null,
+    },
+    {
+      source: { kind: "holding_position", id: "position_demo_tokenfolio" },
+      sourceDisplayName: "Demo Pharmacy",
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+      },
+      suggestedEntityType: null,
+      sourceLabel: "Tokenfolio template",
+      sourceAsOf: "2026-08-28",
+      relationship: "investment_vehicle",
+      currentOwner: "Demo Family Holdings LLC",
+      interestStatus: "current",
       openedOn: null,
       financials: null,
       currentDecisionId: null,
@@ -126,12 +161,17 @@ const initialInventory = {
   excludedCandidates: [
     {
       source: {
-        kind: "ownership_container",
-        id: "container_demo_brokerage",
+        kind: "holding_position",
+        id: "position_demo_prior_vehicle",
       },
-      suggestedName: "Demo Brokerage",
-      suggestedEntityType: null,
-      sourceLabel: "Reviewed brokerage records",
+      sourceDisplayName: "Demo Prior Vehicle",
+      legalEntityNameEvidence: {
+        state: "provider_reported",
+        legalName: "Demo Prior Vehicle LLC",
+        sourceField: "Fund Name",
+      },
+      suggestedEntityType: "llc",
+      sourceLabel: "Reviewed venture export",
       sourceAsOf: "2026-08-28",
       relationship: "ownership_entity",
       currentOwner: null,
@@ -149,7 +189,7 @@ const initialInventory = {
     newEntityCount: 2,
     llcEntityCount: 1,
     limitedPartnershipEntityCount: 1,
-    remainingCandidateCount: 1,
+    remainingCandidateCount: 2,
   },
 } satisfies LegalEntityInventory;
 
@@ -244,7 +284,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
         newEntityCount: 1,
         llcEntityCount: 0,
         limitedPartnershipEntityCount: 1,
-        remainingCandidateCount: 1,
+        remainingCandidateCount: 2,
       },
     };
     await route.fulfill({ json: created, status: 201 });
@@ -292,7 +332,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
         newEntityCount: 0,
         llcEntityCount: 0,
         limitedPartnershipEntityCount: 0,
-        remainingCandidateCount: 1,
+        remainingCandidateCount: 2,
       },
     };
     await route.fulfill({
@@ -302,7 +342,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
         entityCount: 1,
         existingEntityCount: 0,
         createdEntityCount: 1,
-        remainingCandidateCount: 1,
+        remainingCandidateCount: 2,
       },
       status: 201,
     });
@@ -337,12 +377,14 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page.locator(
       '.legal-entity-export__field-grid input[type="checkbox"]:checked',
     ),
-  ).toHaveCount(11);
+  ).toHaveCount(12);
   await expect(
-    page.getByLabel("Include sources that need review"),
+    page.getByLabel("Include unresolved source records"),
   ).toBeChecked();
   await expect(
-    page.getByText("2 reviewed LLCs · 4 awaiting review"),
+    page.getByText(
+      "2 reviewed LLCs · 3 source names to review · 2 missing legal names",
+    ),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Add or link 3 sources" }),
@@ -351,6 +393,18 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expect(
     page.getByText("Needs review", { exact: true }).first(),
   ).toBeVisible();
+  await expect(page.getByText("Name unavailable", { exact: true })).toHaveCount(
+    2,
+  );
+  const unresolvedSydecar = page
+    .locator(".legal-entity-candidate")
+    .filter({ hasText: "Demo Climate" });
+  await expect(unresolvedSydecar).toContainText(
+    "No exact legal name was reported by this source.",
+  );
+  await expect(
+    unresolvedSydecar.getByRole("button", { name: "Review details" }),
+  ).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 
   await page.addStyleTag({
@@ -412,7 +466,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await page.getByRole("button", { name: "Add or link 2 sources" }).click();
   await expect(
     page.getByText(
-      "2 sources were reviewed into 1 legal entity. 1 source remains in the review queue.",
+      "2 sources were reviewed into 1 legal entity. 2 source records remain unresolved.",
     ),
   ).toBeVisible();
   await expect(
@@ -420,9 +474,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   ).toBeVisible();
   expect(exactBatchBody).toEqual({ expectedRevision: "b".repeat(64) });
   await expect(
-    page
-      .locator(".legal-entity-candidate")
-      .filter({ hasText: "Demo Operating Account" }),
+    page.locator(".legal-entity-candidate").filter({ hasText: "Demo Climate" }),
   ).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");
@@ -437,7 +489,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     includeOtherEntityTypes: false,
   });
   expect((exportBody as unknown as { fields: unknown[] }).fields).toHaveLength(
-    11,
+    12,
   );
   await expect(page).toHaveURL(/\/holdings\/entities$/u);
 });

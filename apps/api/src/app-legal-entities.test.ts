@@ -43,7 +43,7 @@ const entity = {
 } satisfies LegalEntityRecord;
 
 const inventory = {
-  version: 2,
+  version: 3,
   asOf: positionView.asOf,
   entities: [entity],
   candidates: [],
