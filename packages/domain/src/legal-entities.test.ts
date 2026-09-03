@@ -4,6 +4,7 @@ import {
   DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS,
   LegalEntityExportInputSchema,
   LegalEntityProfileInputSchema,
+  exactLegalEntityTypeFromName,
   formatOwnershipInterestPpm,
   ownershipPercentTextToPpm,
 } from "./legal-entities";
@@ -46,6 +47,33 @@ describe("legal entity contracts", () => {
       jurisdiction: null,
       ownershipInterestPpm: null,
     });
+  });
+
+  it("classifies only explicit LLC and limited-partnership endings", () => {
+    expect(exactLegalEntityTypeFromName("Synthetic Holdings LLC")).toBe("llc");
+    expect(exactLegalEntityTypeFromName("Synthetic Holdings, L.L.C.")).toBe(
+      "llc",
+    );
+    expect(exactLegalEntityTypeFromName("Synthetic Medical PLLC")).toBe("llc");
+    expect(
+      exactLegalEntityTypeFromName(
+        "Synthetic Holdings Limited Liability Company",
+      ),
+    ).toBe("llc");
+    expect(
+      exactLegalEntityTypeFromName("AL Fund I, a series of Hack VC, LP"),
+    ).toBe("limited_partnership");
+    expect(exactLegalEntityTypeFromName("Synthetic Fund, L.P.")).toBe(
+      "limited_partnership",
+    );
+    expect(
+      exactLegalEntityTypeFromName("Synthetic Fund Limited Partnership"),
+    ).toBe("limited_partnership");
+    expect(
+      exactLegalEntityTypeFromName("Synthetic Operating Account"),
+    ).toBeNull();
+    expect(exactLegalEntityTypeFromName("Synthetic SELLC Account")).toBeNull();
+    expect(exactLegalEntityTypeFromName("LP Fund Holdings")).toBeNull();
   });
 
   it("validates a unique, non-empty export field selection", () => {

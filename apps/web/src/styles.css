@@ -5944,6 +5944,53 @@ h1,
   border: 0;
 }
 
+.legal-entity-exact-batch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  margin-top: 24px;
+  padding: 22px 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.legal-entity-exact-batch > div {
+  display: grid;
+  gap: 6px;
+}
+
+.legal-entity-exact-batch h3,
+.legal-entity-exact-batch p {
+  margin: 0;
+}
+
+.legal-entity-exact-batch h3 {
+  font-size: 16px;
+  letter-spacing: -0.03em;
+}
+
+.legal-entity-exact-batch p {
+  max-width: 72ch;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.legal-entity-exact-batch .eyebrow,
+.legal-entity-exact-batch .legal-entity-exact-batch__error {
+  color: var(--ink);
+}
+
+.legal-entity-exact-batch .button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.legal-entity-exact-batch + .legal-entities__candidate-list {
+  margin-top: 10px;
+}
+
 .legal-entity-candidate {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 0.55fr);
@@ -6302,6 +6349,15 @@ h1,
   .legal-entity-candidate__actions > .button,
   .legal-entity-candidate__link,
   .legal-entity-candidate__link .button {
+    width: 100%;
+  }
+
+  .legal-entity-exact-batch {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .legal-entity-exact-batch .button {
     width: 100%;
   }
 

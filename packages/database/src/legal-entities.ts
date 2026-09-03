@@ -1,12 +1,21 @@
 import {
   CreateLegalEntityInputSchema,
+  LegalEntityExactBatchInputSchema,
+  LegalEntityExactBatchPreviewSchema,
+  LegalEntityExactBatchResultSchema,
   LegalEntityInventorySchema,
   LegalEntityProfileInputSchema,
   LegalEntityRecordSchema,
   LegalEntitySourceReviewResultSchema,
+  MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES,
   ReviewLegalEntitySourceInputSchema,
   UpdateLegalEntityInputSchema,
+  exactLegalEntityTypeFromName,
   type CreateLegalEntityInput,
+  type ExactLegalEntityType,
+  type LegalEntityExactBatchInput,
+  type LegalEntityExactBatchPreview,
+  type LegalEntityExactBatchResult,
   type LegalEntityInterestStatus,
   type LegalEntityInventory,
   type LegalEntityProfileInput,
@@ -70,7 +79,8 @@ type CurrentVersionIdentityRow = {
 
 export class LegalEntityRepositoryError extends Error {
   public constructor(
-    public readonly code: "invalid_source" | "not_found" | "stale",
+    public readonly code:
+      "invalid_source" | "no_matches" | "not_found" | "stale",
     message: string,
   ) {
     super(message);
@@ -125,6 +135,9 @@ function positionSourceSummary(
   return {
     source: { kind: "holding_position", id: position.id },
     suggestedName: position.legalVehicleName,
+    suggestedEntityType: exactLegalEntityTypeFromName(
+      position.legalVehicleName,
+    ),
     sourceLabel: position.source.label,
     sourceAsOf: position.source.effectiveDate,
     relationship: "investment_vehicle",
@@ -160,6 +173,7 @@ export function legalEntitySourceCandidates(
         candidates.push({
           source: { kind: "ownership_container", id: container.id },
           suggestedName: container.label,
+          suggestedEntityType: exactLegalEntityTypeFromName(container.label),
           sourceLabel: connection.institutionLabel,
           sourceAsOf: (
             container.coverage?.observedAt ?? positionView.asOf
@@ -194,6 +208,7 @@ function sourceFromDecision(row: SourceDecisionRow): LegalEntitySourceSummary {
   return {
     source: { kind: row.source_kind, id: row.source_reference },
     suggestedName: row.source_name,
+    suggestedEntityType: exactLegalEntityTypeFromName(row.source_name),
     sourceLabel: row.source_label,
     sourceAsOf: row.source_as_of,
     relationship: row.relationship,
@@ -226,11 +241,148 @@ function recordFromRow(row: LegalEntityVersionRow): LegalEntityRecord {
   });
 }
 
-function inventoryFromRows(
+type LegalEntityExactBatchGroup = {
+  key: string;
+  entity: LegalEntityRecord | null;
+  entityName: string;
+  entityType: ExactLegalEntityType;
+  sources: LegalEntitySourceSummary[];
+};
+
+type LegalEntityExactBatchPlan = {
+  groups: LegalEntityExactBatchGroup[];
+  preview: LegalEntityExactBatchPreview;
+};
+
+type LegalEntityState = {
+  inventory: LegalEntityInventory;
+  exactBatchPlan: LegalEntityExactBatchPlan;
+};
+
+function exactEntityName(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+}
+
+function exactEntityNameKey(value: string): string {
+  return exactEntityName(value).toLocaleLowerCase("en-US");
+}
+
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function buildLegalEntityExactBatchPlan(
+  entities: readonly LegalEntityRecord[],
+  candidates: readonly LegalEntitySourceSummary[],
+): Promise<LegalEntityExactBatchPlan> {
+  const entitiesByName = new Map<string, LegalEntityRecord[]>();
+  for (const entity of entities) {
+    const key = exactEntityNameKey(entity.legalName);
+    const matches = entitiesByName.get(key) ?? [];
+    matches.push(entity);
+    entitiesByName.set(key, matches);
+  }
+
+  const groupsByKey = new Map<string, LegalEntityExactBatchGroup>();
+  for (const candidate of candidates) {
+    if (candidate.suggestedEntityType === null) {
+      continue;
+    }
+    const entityName = exactEntityName(candidate.suggestedName);
+    const nameKey = exactEntityNameKey(entityName);
+    const entityMatches = entitiesByName.get(nameKey) ?? [];
+    if (
+      entityMatches.length > 1 ||
+      (entityMatches.length === 1 &&
+        entityMatches[0]?.entityType !== candidate.suggestedEntityType)
+    ) {
+      continue;
+    }
+    const key = JSON.stringify([candidate.suggestedEntityType, nameKey]);
+    const group = groupsByKey.get(key) ?? {
+      key,
+      entity: entityMatches[0] ?? null,
+      entityName,
+      entityType: candidate.suggestedEntityType,
+      sources: [],
+    };
+    group.sources.push(candidate);
+    groupsByKey.set(key, group);
+  }
+
+  const groups: LegalEntityExactBatchGroup[] = [];
+  let sourceCount = 0;
+  for (const group of [...groupsByKey.values()].sort((left, right) =>
+    left.key.localeCompare(right.key),
+  )) {
+    group.sources.sort((left, right) =>
+      sourceKey(left.source).localeCompare(sourceKey(right.source)),
+    );
+    const remainingCapacity =
+      MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES - sourceCount;
+    if (remainingCapacity === 0) {
+      break;
+    }
+    const sources = group.sources.slice(0, remainingCapacity);
+    groups.push({ ...group, sources });
+    sourceCount += sources.length;
+  }
+
+  const existingEntityCount = groups.filter(
+    (group) => group.entity !== null,
+  ).length;
+  const revision = await sha256(
+    JSON.stringify({
+      version: 1,
+      entities: entities.map((entity) => [
+        entity.id,
+        entity.versionId,
+        entity.legalName,
+        entity.entityType,
+      ]),
+      candidates: candidates.map((candidate) => [
+        candidate.source.kind,
+        candidate.source.id,
+        candidate.suggestedName,
+        candidate.suggestedEntityType,
+        candidate.sourceLabel,
+        candidate.sourceAsOf,
+        candidate.relationship,
+        candidate.currentOwner,
+        candidate.interestStatus,
+        candidate.openedOn,
+      ]),
+    }),
+  );
+  return {
+    groups,
+    preview: LegalEntityExactBatchPreviewSchema.parse({
+      revision,
+      sourceCount,
+      entityCount: groups.length,
+      existingEntityCount,
+      newEntityCount: groups.length - existingEntityCount,
+      llcEntityCount: groups.filter((group) => group.entityType === "llc")
+        .length,
+      limitedPartnershipEntityCount: groups.filter(
+        (group) => group.entityType === "limited_partnership",
+      ).length,
+      remainingCandidateCount: candidates.length - sourceCount,
+    }),
+  };
+}
+
+async function stateFromRows(
   entityRows: readonly LegalEntityVersionRow[],
   decisionRows: readonly SourceDecisionRow[],
   positionView: InvestmentPositionView,
-): LegalEntityInventory {
+): Promise<LegalEntityState> {
   const entities = entityRows.map(recordFromRow);
   const entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
   const sourceCandidates = legalEntitySourceCandidates(positionView);
@@ -276,19 +428,26 @@ function inventoryFromRows(
     );
   });
 
-  return LegalEntityInventorySchema.parse({
-    version: 1,
+  const candidates = sourceCandidates.filter(
+    (candidate) => !decidedSourceKeys.has(sourceKey(candidate.source)),
+  );
+  const exactBatchPlan = await buildLegalEntityExactBatchPlan(
+    entities,
+    candidates,
+  );
+  const inventory = LegalEntityInventorySchema.parse({
+    version: 2,
     asOf: positionView.asOf,
     entities,
-    candidates: sourceCandidates.filter(
-      (candidate) => !decidedSourceKeys.has(sourceKey(candidate.source)),
-    ),
+    candidates,
     excludedCandidates: excludedCandidates.sort(
       (left, right) =>
         left.suggestedName.localeCompare(right.suggestedName) ||
         sourceKey(left.source).localeCompare(sourceKey(right.source)),
     ),
+    exactBatch: exactBatchPlan.preview,
   });
+  return { inventory, exactBatchPlan };
 }
 
 function candidateFor(
@@ -331,6 +490,11 @@ export interface LegalEntityRepository {
     input: ReviewLegalEntitySourceInput,
     positionView: InvestmentPositionView,
   ): Promise<LegalEntitySourceReviewResult>;
+  applyExactBatch(
+    accessSubject: string,
+    input: LegalEntityExactBatchInput,
+    positionView: InvestmentPositionView,
+  ): Promise<LegalEntityExactBatchResult>;
 }
 
 export class D1LegalEntityRepository implements LegalEntityRepository {
@@ -340,70 +504,8 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
     accessSubject: string,
     positionView: InvestmentPositionView,
   ): Promise<LegalEntityInventory> {
-    const identity = await findIdentity(this.db, accessSubject);
-    const [entityRows, decisionRows] = await Promise.all([
-      all<LegalEntityVersionRow>(
-        this.db
-          .prepare(
-            `SELECT
-               entity.id AS entity_id,
-               version.id AS version_id,
-               version.version,
-               version.legal_name,
-               version.entity_type,
-               version.relationship,
-               version.current_owner,
-               version.jurisdiction,
-               version.formed_on,
-               version.ein_last_four,
-               version.ownership_interest_ppm,
-               version.interest_status,
-               version.tax_classification,
-               version.notes,
-               version.recorded_at
-             FROM legal_entities entity
-             JOIN legal_entity_versions version
-               ON version.legal_entity_id = entity.id
-              AND NOT EXISTS (
-                SELECT 1
-                FROM legal_entity_versions later
-                WHERE later.supersedes_version_id = version.id
-              )
-             WHERE entity.household_id = ?
-             ORDER BY lower(version.legal_name), entity.id`,
-          )
-          .bind(identity.household_id),
-      ),
-      all<SourceDecisionRow>(
-        this.db
-          .prepare(
-            `SELECT
-               decision.id AS decision_id,
-               decision.source_kind,
-               decision.source_reference,
-               decision.source_name,
-               decision.source_label,
-               decision.source_as_of,
-               decision.relationship,
-               decision.current_owner,
-               decision.interest_status,
-               decision.opened_on,
-               decision.decision,
-               decision.legal_entity_id,
-               decision.version
-             FROM legal_entity_source_decisions decision
-             WHERE decision.household_id = ?
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM legal_entity_source_decisions later
-                 WHERE later.supersedes_decision_id = decision.id
-               )
-             ORDER BY decision.source_kind, decision.source_reference`,
-          )
-          .bind(identity.household_id),
-      ),
-    ]);
-    return inventoryFromRows(entityRows, decisionRows, positionView);
+    const { state } = await this.loadState(accessSubject, positionView);
+    return state.inventory;
   }
 
   public async create(
@@ -590,6 +692,277 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
       version: 1,
       decisionId,
     });
+  }
+
+  public async applyExactBatch(
+    accessSubject: string,
+    rawInput: LegalEntityExactBatchInput,
+    positionView: InvestmentPositionView,
+  ): Promise<LegalEntityExactBatchResult> {
+    const input = LegalEntityExactBatchInputSchema.parse(rawInput);
+    const { identity, state } = await this.loadState(
+      accessSubject,
+      positionView,
+    );
+    const plan = state.exactBatchPlan;
+    if (plan.preview.revision !== input.expectedRevision) {
+      throw new LegalEntityRepositoryError(
+        "stale",
+        "The exact legal entity review changed before it was saved.",
+      );
+    }
+    if (plan.preview.sourceCount === 0) {
+      throw new LegalEntityRepositoryError(
+        "no_matches",
+        "No exact LLC or LP names are ready for batch review.",
+      );
+    }
+
+    const recordedAt = new Date().toISOString();
+    const entityRows: Array<Record<string, unknown>> = [];
+    const versionRows: Array<Record<string, unknown>> = [];
+    const decisionRows: Array<Record<string, unknown>> = [];
+    for (const group of plan.groups) {
+      const entityId = group.entity?.id ?? crypto.randomUUID();
+      if (group.entity === null) {
+        const primarySource = group.sources[0];
+        if (primarySource === undefined) {
+          throw new Error("An exact legal entity group has no source.");
+        }
+        const sharedRelationship = group.sources.every(
+          (source) => source.relationship === primarySource.relationship,
+        )
+          ? primarySource.relationship
+          : "other";
+        const sharedCurrentOwner = group.sources.every(
+          (source) => source.currentOwner === primarySource.currentOwner,
+        )
+          ? primarySource.currentOwner
+          : null;
+        const sharedInterestStatus = group.sources.every(
+          (source) => source.interestStatus === primarySource.interestStatus,
+        )
+          ? primarySource.interestStatus
+          : "unknown";
+        entityRows.push({
+          id: entityId,
+          householdId: identity.household_id,
+          createdByUserId: identity.user_id,
+          createdAt: recordedAt,
+        });
+        versionRows.push({
+          id: crypto.randomUUID(),
+          householdId: identity.household_id,
+          legalEntityId: entityId,
+          legalName: group.entityName,
+          entityType: group.entityType,
+          relationship: sharedRelationship,
+          currentOwner: sharedCurrentOwner,
+          interestStatus: sharedInterestStatus,
+          recordedByUserId: identity.user_id,
+          recordedAt,
+        });
+      }
+      for (const source of group.sources) {
+        decisionRows.push({
+          id: crypto.randomUUID(),
+          householdId: identity.household_id,
+          sourceKind: source.source.kind,
+          sourceReference: source.source.id,
+          sourceName: source.suggestedName,
+          sourceLabel: source.sourceLabel,
+          sourceAsOf: source.sourceAsOf,
+          relationship: source.relationship,
+          currentOwner: source.currentOwner,
+          interestStatus: source.interestStatus,
+          openedOn: source.openedOn,
+          legalEntityId: entityId,
+          decidedByUserId: identity.user_id,
+          decidedAt: recordedAt,
+        });
+      }
+    }
+
+    const statements: D1PreparedStatement[] = [];
+    if (entityRows.length > 0) {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO legal_entities (
+               id, household_id, created_by_user_id, created_at, immutable
+             )
+             SELECT
+               json_extract(value, '$.id'),
+               json_extract(value, '$.householdId'),
+               json_extract(value, '$.createdByUserId'),
+               json_extract(value, '$.createdAt'),
+               1
+             FROM json_each(?)`,
+          )
+          .bind(JSON.stringify(entityRows)),
+      );
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO legal_entity_versions (
+               id, household_id, legal_entity_id, version, legal_name,
+               entity_type, relationship, current_owner, jurisdiction,
+               formed_on, ein_last_four, ownership_interest_ppm,
+               interest_status, tax_classification, notes,
+               supersedes_version_id, recorded_by_user_id, recorded_at,
+               immutable
+             )
+             SELECT
+               json_extract(value, '$.id'),
+               json_extract(value, '$.householdId'),
+               json_extract(value, '$.legalEntityId'),
+               1,
+               json_extract(value, '$.legalName'),
+               json_extract(value, '$.entityType'),
+               json_extract(value, '$.relationship'),
+               json_extract(value, '$.currentOwner'),
+               NULL,
+               NULL,
+               NULL,
+               NULL,
+               json_extract(value, '$.interestStatus'),
+               NULL,
+               NULL,
+               NULL,
+               json_extract(value, '$.recordedByUserId'),
+               json_extract(value, '$.recordedAt'),
+               1
+             FROM json_each(?)`,
+          )
+          .bind(JSON.stringify(versionRows)),
+      );
+    }
+    statements.push(
+      this.db
+        .prepare(
+          `INSERT INTO legal_entity_source_decisions (
+             id, household_id, source_kind, source_reference, source_name,
+             source_label, source_as_of, relationship, current_owner,
+             interest_status, opened_on, decision, legal_entity_id, version,
+             supersedes_decision_id, decided_by_user_id, decided_at, immutable
+           )
+           SELECT
+             json_extract(value, '$.id'),
+             json_extract(value, '$.householdId'),
+             json_extract(value, '$.sourceKind'),
+             json_extract(value, '$.sourceReference'),
+             json_extract(value, '$.sourceName'),
+             json_extract(value, '$.sourceLabel'),
+             json_extract(value, '$.sourceAsOf'),
+             json_extract(value, '$.relationship'),
+             json_extract(value, '$.currentOwner'),
+             json_extract(value, '$.interestStatus'),
+             json_extract(value, '$.openedOn'),
+             'linked',
+             json_extract(value, '$.legalEntityId'),
+             1,
+             NULL,
+             json_extract(value, '$.decidedByUserId'),
+             json_extract(value, '$.decidedAt'),
+             1
+           FROM json_each(?)`,
+        )
+        .bind(JSON.stringify(decisionRows)),
+    );
+
+    try {
+      await this.db.batch(statements);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("UNIQUE")) {
+        throw new LegalEntityRepositoryError(
+          "stale",
+          "The exact legal entity review is no longer current.",
+        );
+      }
+      throw error;
+    }
+
+    return LegalEntityExactBatchResultSchema.parse({
+      version: 1,
+      reviewedSourceCount: plan.preview.sourceCount,
+      entityCount: plan.preview.entityCount,
+      existingEntityCount: plan.preview.existingEntityCount,
+      createdEntityCount: plan.preview.newEntityCount,
+      remainingCandidateCount: plan.preview.remainingCandidateCount,
+    });
+  }
+
+  private async loadState(
+    accessSubject: string,
+    positionView: InvestmentPositionView,
+  ): Promise<{ identity: HouseholdIdentity; state: LegalEntityState }> {
+    const identity = await findIdentity(this.db, accessSubject);
+    const [entityRows, decisionRows] = await Promise.all([
+      all<LegalEntityVersionRow>(
+        this.db
+          .prepare(
+            `SELECT
+               entity.id AS entity_id,
+               version.id AS version_id,
+               version.version,
+               version.legal_name,
+               version.entity_type,
+               version.relationship,
+               version.current_owner,
+               version.jurisdiction,
+               version.formed_on,
+               version.ein_last_four,
+               version.ownership_interest_ppm,
+               version.interest_status,
+               version.tax_classification,
+               version.notes,
+               version.recorded_at
+             FROM legal_entities entity
+             JOIN legal_entity_versions version
+               ON version.legal_entity_id = entity.id
+              AND NOT EXISTS (
+                SELECT 1
+                FROM legal_entity_versions later
+                WHERE later.supersedes_version_id = version.id
+              )
+             WHERE entity.household_id = ?
+             ORDER BY lower(version.legal_name), entity.id`,
+          )
+          .bind(identity.household_id),
+      ),
+      all<SourceDecisionRow>(
+        this.db
+          .prepare(
+            `SELECT
+               decision.id AS decision_id,
+               decision.source_kind,
+               decision.source_reference,
+               decision.source_name,
+               decision.source_label,
+               decision.source_as_of,
+               decision.relationship,
+               decision.current_owner,
+               decision.interest_status,
+               decision.opened_on,
+               decision.decision,
+               decision.legal_entity_id,
+               decision.version
+             FROM legal_entity_source_decisions decision
+             WHERE decision.household_id = ?
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM legal_entity_source_decisions later
+                 WHERE later.supersedes_decision_id = decision.id
+               )
+             ORDER BY decision.source_kind, decision.source_reference`,
+          )
+          .bind(identity.household_id),
+      ),
+    ]);
+    return {
+      identity,
+      state: await stateFromRows(entityRows, decisionRows, positionView),
+    };
   }
 
   private async currentDecision(

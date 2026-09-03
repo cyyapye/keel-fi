@@ -13,6 +13,7 @@ import {
 const source = {
   source: { kind: "holding_position", id: "position-synthetic" },
   suggestedName: "Synthetic SPV, LLC",
+  suggestedEntityType: "llc",
   sourceLabel: 'Reviewed export "Alpha"',
   sourceAsOf: "2026-08-31",
   relationship: "investment_vehicle",
@@ -29,7 +30,7 @@ const source = {
 } satisfies LegalEntitySourceSummary;
 
 const inventory = {
-  version: 1,
+  version: 2,
   asOf: "2026-09-01T12:00:00.000Z",
   entities: [
     {
@@ -96,6 +97,16 @@ const inventory = {
     },
   ],
   excludedCandidates: [],
+  exactBatch: {
+    revision: "a".repeat(64),
+    sourceCount: 1,
+    entityCount: 1,
+    existingEntityCount: 0,
+    newEntityCount: 1,
+    llcEntityCount: 1,
+    limitedPartnershipEntityCount: 0,
+    remainingCandidateCount: 0,
+  },
 } satisfies LegalEntityInventory;
 
 describe("legal entity CSV export", () => {

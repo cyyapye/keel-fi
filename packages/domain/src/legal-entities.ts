@@ -14,6 +14,13 @@ export const LegalEntityTypeSchema = z.enum([
   "other",
 ]);
 
+export const ExactLegalEntityTypeSchema = z.enum([
+  "llc",
+  "limited_partnership",
+]);
+
+export const MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES = 50;
+
 export const LegalEntityRelationshipSchema = z.enum([
   "direct_interest",
   "ownership_entity",
@@ -67,6 +74,7 @@ export const LegalEntitySourceSummarySchema = z
   .object({
     source: LegalEntitySourceReferenceSchema,
     suggestedName: z.string().trim().min(1).max(1_000),
+    suggestedEntityType: ExactLegalEntityTypeSchema.nullable(),
     sourceLabel: z.string().trim().min(1).max(1_000),
     sourceAsOf: IsoDateSchema,
     relationship: LegalEntityRelationshipSchema,
@@ -77,6 +85,72 @@ export const LegalEntitySourceSummarySchema = z
     currentDecisionId: z.string().min(1).nullable(),
   })
   .strict();
+
+export const LegalEntityExactBatchPreviewSchema = z
+  .object({
+    revision: z.string().regex(/^[a-f0-9]{64}$/u),
+    sourceCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    entityCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    existingEntityCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    newEntityCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    llcEntityCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    limitedPartnershipEntityCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    remainingCandidateCount: z.number().int().nonnegative(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.existingEntityCount + value.newEntityCount !==
+      value.entityCount
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Exact legal entity counts must reconcile.",
+        path: ["entityCount"],
+      });
+    }
+    if (
+      value.llcEntityCount + value.limitedPartnershipEntityCount !==
+      value.entityCount
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Exact legal entity type counts must reconcile.",
+        path: ["entityCount"],
+      });
+    }
+    if (value.sourceCount < value.entityCount) {
+      context.addIssue({
+        code: "custom",
+        message: "Each exact legal entity must have a source.",
+        path: ["sourceCount"],
+      });
+    }
+  });
 
 export const LegalEntityProfileInputSchema = z
   .object({
@@ -107,11 +181,12 @@ export const LegalEntityRecordSchema = LegalEntityProfileInputSchema.extend({
 
 export const LegalEntityInventorySchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     asOf: IsoTimestampSchema,
     entities: z.array(LegalEntityRecordSchema),
     candidates: z.array(LegalEntitySourceSummarySchema),
     excludedCandidates: z.array(LegalEntitySourceSummarySchema),
+    exactBatch: LegalEntityExactBatchPreviewSchema,
   })
   .strict();
 
@@ -157,6 +232,58 @@ export const LegalEntitySourceReviewResultSchema = z
     decisionId: z.string().min(1),
   })
   .strict();
+
+export const LegalEntityExactBatchInputSchema = z
+  .object({
+    expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
+
+export const LegalEntityExactBatchResultSchema = z
+  .object({
+    version: z.literal(1),
+    reviewedSourceCount: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    entityCount: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    existingEntityCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    createdEntityCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES),
+    remainingCandidateCount: z.number().int().nonnegative(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.existingEntityCount + value.createdEntityCount !==
+      value.entityCount
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Applied legal entity counts must reconcile.",
+        path: ["entityCount"],
+      });
+    }
+    if (value.reviewedSourceCount < value.entityCount) {
+      context.addIssue({
+        code: "custom",
+        message: "Each applied legal entity must have a source.",
+        path: ["reviewedSourceCount"],
+      });
+    }
+  });
 
 export const LEGAL_ENTITY_EXPORT_FIELDS = [
   "legal_name",
@@ -240,6 +367,23 @@ export const LegalEntityExportInputSchema = z
   })
   .strict();
 
+export function exactLegalEntityTypeFromName(
+  rawValue: string,
+): ExactLegalEntityType | null {
+  const value = rawValue.normalize("NFKC").trim().replace(/\s+/gu, " ");
+  if (
+    /(?:^|[\s,])(?:P\.?\s*L\.?\s*L\.?\s*C\.?|L\.?\s*L\.?\s*C\.?|LIMITED LIABILITY COMPANY)\.?$/iu.test(
+      value,
+    )
+  ) {
+    return "llc";
+  }
+  if (/(?:^|[\s,])(?:L\.?\s*P\.?|LIMITED PARTNERSHIP)\.?$/iu.test(value)) {
+    return "limited_partnership";
+  }
+  return null;
+}
+
 export function ownershipPercentTextToPpm(rawValue: string): number | null {
   const value = rawValue.trim();
   if (value.length === 0) {
@@ -269,6 +413,7 @@ export function formatOwnershipInterestPpm(ppm: number): string {
 }
 
 export type LegalEntityType = z.infer<typeof LegalEntityTypeSchema>;
+export type ExactLegalEntityType = z.infer<typeof ExactLegalEntityTypeSchema>;
 export type LegalEntityRelationship = z.infer<
   typeof LegalEntityRelationshipSchema
 >;
@@ -297,6 +442,15 @@ export type ReviewLegalEntitySourceInput = z.infer<
 >;
 export type LegalEntitySourceReviewResult = z.infer<
   typeof LegalEntitySourceReviewResultSchema
+>;
+export type LegalEntityExactBatchPreview = z.infer<
+  typeof LegalEntityExactBatchPreviewSchema
+>;
+export type LegalEntityExactBatchInput = z.infer<
+  typeof LegalEntityExactBatchInputSchema
+>;
+export type LegalEntityExactBatchResult = z.infer<
+  typeof LegalEntityExactBatchResultSchema
 >;
 export type LegalEntityExportField = z.infer<
   typeof LegalEntityExportFieldSchema

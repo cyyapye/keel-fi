@@ -48,6 +48,7 @@ import {
 } from "react";
 
 import {
+  applyLegalEntityExactBatch,
   createLegalEntity,
   downloadLegalEntityExport,
   loadLegalEntities,
@@ -135,6 +136,7 @@ function editorForCandidate(candidate: LegalEntitySourceSummary): EditorState {
     profile: {
       ...emptyProfile(),
       legalName: candidate.suggestedName,
+      entityType: candidate.suggestedEntityType ?? "llc",
       relationship: candidate.relationship,
       currentOwner: candidate.currentOwner,
       interestStatus: candidate.interestStatus,
@@ -592,7 +594,7 @@ function CandidateRow({
         mobileLayout="stack"
       >
         <Button disabled={working} onClick={onAdd} tone="secondary">
-          {excluded ? "Add as entity" : "Add as LLC"}
+          {excluded ? "Review and add" : "Review details"}
         </Button>
         {entities.length > 0 && (
           <div className="legal-entity-candidate__link">
@@ -631,12 +633,85 @@ function CandidateRow({
         )}
         {!excluded && (
           <TextLink disabled={working} onClick={() => void decide("not_llc")}>
-            Not an LLC
+            Exclude source
           </TextLink>
         )}
       </ActionGroup>
       {error !== null && <FormMessage tone="error">{error}</FormMessage>}
     </article>
+  );
+}
+
+function ExactBatchReview({
+  batch,
+  error,
+  onApply,
+  working,
+}: {
+  batch: LegalEntityInventory["exactBatch"];
+  error: string | null;
+  onApply: () => Promise<void>;
+  working: boolean;
+}) {
+  const typeSummary = [
+    batch.llcEntityCount > 0
+      ? `${batch.llcEntityCount} ${batch.llcEntityCount === 1 ? "LLC" : "LLCs"}`
+      : null,
+    batch.limitedPartnershipEntityCount > 0
+      ? `${batch.limitedPartnershipEntityCount} limited ${
+          batch.limitedPartnershipEntityCount === 1
+            ? "partnership"
+            : "partnerships"
+        }`
+      : null,
+  ]
+    .filter((value): value is string => value !== null)
+    .join(" and ");
+  const existingCopy =
+    batch.existingEntityCount === 0
+      ? ""
+      : ` ${batch.existingEntityCount} exact ${
+          batch.existingEntityCount === 1
+            ? "match will receive its source"
+            : "matches will receive their sources"
+        }.`;
+  const remainingCopy =
+    batch.remainingCandidateCount === 0
+      ? ""
+      : ` ${batch.remainingCandidateCount} ${
+          batch.remainingCandidateCount === 1 ? "source will" : "sources will"
+        } remain in the review queue.`;
+
+  return (
+    <div className="legal-entity-exact-batch">
+      <div>
+        <p className="eyebrow">LLC and LP endings</p>
+        <h3>
+          {batch.sourceCount}{" "}
+          {batch.sourceCount === 1 ? "source can" : "sources can"} be reviewed
+          together
+        </h3>
+        <p>
+          {typeSummary} {batch.entityCount === 1 ? "resolves" : "resolve"} to{" "}
+          {batch.entityCount} exact legal{" "}
+          {batch.entityCount === 1 ? "name" : "names"}. Duplicate source rows
+          will share one record.{existingCopy}
+          {remainingCopy}
+        </p>
+        {error !== null && (
+          <FormMessage className="legal-entity-exact-batch__error" tone="error">
+            {error}
+          </FormMessage>
+        )}
+      </div>
+      <Button disabled={working} onClick={() => void onApply()} tone="primary">
+        {working
+          ? "Reviewing…"
+          : `Add or link ${batch.sourceCount} ${
+              batch.sourceCount === 1 ? "source" : "sources"
+            }`}
+      </Button>
+    </div>
   );
 }
 
@@ -810,6 +885,8 @@ export function LegalEntities() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [batchWorking, setBatchWorking] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const next = await loadLegalEntities();
@@ -871,6 +948,45 @@ export function LegalEntities() {
   const reviewed = async () => {
     await refresh();
     setNotice("The source review was saved.");
+  };
+
+  const applyExactBatch = async (expectedRevision: string) => {
+    setBatchWorking(true);
+    setBatchError(null);
+    try {
+      const result = await applyLegalEntityExactBatch({
+        expectedRevision,
+      });
+      await refresh();
+      setNotice(
+        `${result.reviewedSourceCount} ${
+          result.reviewedSourceCount === 1 ? "source was" : "sources were"
+        } reviewed into ${result.entityCount} legal ${
+          result.entityCount === 1 ? "entity" : "entities"
+        }.${
+          result.remainingCandidateCount === 0
+            ? ""
+            : ` ${result.remainingCandidateCount} ${
+                result.remainingCandidateCount === 1
+                  ? "source remains"
+                  : "sources remain"
+              } in the review queue.`
+        }`,
+      );
+    } catch (caught) {
+      const message =
+        caught instanceof Error
+          ? caught.message
+          : "The exact legal entity review could not be saved.";
+      try {
+        await refresh();
+      } catch {
+        // Keep the original action error visible if the refresh also fails.
+      }
+      setBatchError(message);
+    } finally {
+      setBatchWorking(false);
+    }
   };
 
   if (loading) {
@@ -997,11 +1113,19 @@ export function LegalEntities() {
           className="legal-entities__candidates"
         >
           <SectionHeader
-            description="Keel found ownership or investment records that could represent an LLC. Confirm each source; names are never matched automatically."
+            description="Keel found ownership or investment records that may be legal entities. Clear LLC and LP endings can be reviewed together; uncertain records stay individual."
             eyebrow="Review queue"
             headingProps={{ id: "legal-entity-candidates-title" }}
             title="Possible legal entities"
           />
+          {inventory.exactBatch.sourceCount > 0 && (
+            <ExactBatchReview
+              batch={inventory.exactBatch}
+              error={batchError}
+              onApply={() => applyExactBatch(inventory.exactBatch.revision)}
+              working={batchWorking}
+            />
+          )}
           <div className="legal-entities__candidate-list">
             {inventory.candidates.map((candidate) => (
               <CandidateRow
@@ -1020,7 +1144,8 @@ export function LegalEntities() {
         <Collapsible className="legal-entities__excluded">
           <CollapsibleTrigger>
             <span>
-              Sources marked not an LLC · {inventory.excludedCandidates.length}
+              Sources excluded from inventory ·{" "}
+              {inventory.excludedCandidates.length}
             </span>
             <DisclosureIndicator />
           </CollapsibleTrigger>

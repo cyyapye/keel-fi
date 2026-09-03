@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type {
   LegalEntityInventory,
   LegalEntityRecord,
+  LegalEntitySourceSummary,
 } from "../packages/domain/src/legal-entities";
 
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
@@ -10,6 +11,7 @@ import { routeHoldingsPage } from "./holdings-page-fixtures";
 const positionSource = {
   source: { kind: "holding_position" as const, id: "position_demo_venture" },
   suggestedName: "Demo Venture SPV LLC",
+  suggestedEntityType: "llc" as const,
   sourceLabel: "Reviewed venture export",
   sourceAsOf: "2026-08-31",
   relationship: "investment_vehicle" as const,
@@ -25,8 +27,43 @@ const positionSource = {
   currentDecisionId: null,
 };
 
+const limitedPartnershipSources = [
+  {
+    source: {
+      kind: "holding_position",
+      id: "position_demo_seed_fund_a",
+    },
+    suggestedName: "Demo Seed Fund I, LP",
+    suggestedEntityType: "limited_partnership",
+    sourceLabel: "Reviewed venture export",
+    sourceAsOf: "2026-08-30",
+    relationship: "investment_vehicle",
+    currentOwner: "Demo Family Holdings LLC",
+    interestStatus: "current",
+    openedOn: "2023-04-10",
+    financials: null,
+    currentDecisionId: null,
+  },
+  {
+    source: {
+      kind: "holding_position",
+      id: "position_demo_seed_fund_b",
+    },
+    suggestedName: "Demo Seed Fund I, LP",
+    suggestedEntityType: "limited_partnership",
+    sourceLabel: "Reviewed tax export",
+    sourceAsOf: "2026-08-29",
+    relationship: "investment_vehicle",
+    currentOwner: "Demo Family Holdings LLC",
+    interestStatus: "current",
+    openedOn: "2023-04-10",
+    financials: null,
+    currentDecisionId: null,
+  },
+] satisfies LegalEntitySourceSummary[];
+
 const initialInventory = {
-  version: 1,
+  version: 2,
   asOf: "2026-09-01T12:00:00.000Z",
   entities: [
     {
@@ -68,12 +105,14 @@ const initialInventory = {
   ],
   candidates: [
     positionSource,
+    ...limitedPartnershipSources,
     {
       source: {
         kind: "ownership_container",
         id: "container_demo_operating",
       },
       suggestedName: "Demo Operating Account",
+      suggestedEntityType: null,
       sourceLabel: "Reviewed banking records",
       sourceAsOf: "2026-08-29",
       relationship: "ownership_entity",
@@ -91,6 +130,7 @@ const initialInventory = {
         id: "container_demo_brokerage",
       },
       suggestedName: "Demo Brokerage",
+      suggestedEntityType: null,
       sourceLabel: "Reviewed brokerage records",
       sourceAsOf: "2026-08-28",
       relationship: "ownership_entity",
@@ -101,6 +141,16 @@ const initialInventory = {
       currentDecisionId: "decision_demo_brokerage_not_llc",
     },
   ],
+  exactBatch: {
+    revision: "a".repeat(64),
+    sourceCount: 3,
+    entityCount: 2,
+    existingEntityCount: 0,
+    newEntityCount: 2,
+    llcEntityCount: 1,
+    limitedPartnershipEntityCount: 1,
+    remainingCandidateCount: 1,
+  },
 } satisfies LegalEntityInventory;
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -118,6 +168,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   page.on("pageerror", (error) => pageErrors.push(error.message));
   let inventory: LegalEntityInventory = structuredClone(initialInventory);
   let createBody: Record<string, unknown> | null = null;
+  let exactBatchBody: Record<string, unknown> | null = null;
   let exportBody: Record<string, unknown> | null = null;
 
   await page.clock.setFixedTime(new Date("2026-09-01T12:00:00.000Z"));
@@ -185,8 +236,76 @@ test("reviews legal entities and exports selected counsel fields", async ({
       candidates: inventory.candidates.filter(
         (candidate) => candidate.source.id !== input.source?.reference.id,
       ),
+      exactBatch: {
+        revision: "b".repeat(64),
+        sourceCount: 2,
+        entityCount: 1,
+        existingEntityCount: 0,
+        newEntityCount: 1,
+        llcEntityCount: 0,
+        limitedPartnershipEntityCount: 1,
+        remainingCandidateCount: 1,
+      },
     };
     await route.fulfill({ json: created, status: 201 });
+  });
+  await page.route("**/api/legal-entity-sources/exact-batch", async (route) => {
+    exactBatchBody = (await route.request().postDataJSON()) as Record<
+      string,
+      unknown
+    >;
+    const created: LegalEntityRecord = {
+      id: "legal_entity_demo_seed_fund",
+      versionId: "legal_entity_version_demo_seed_fund_v1",
+      version: 1,
+      recordedAt: "2026-09-01T12:00:00.000Z",
+      legalName: "Demo Seed Fund I, LP",
+      entityType: "limited_partnership",
+      relationship: "investment_vehicle",
+      currentOwner: "Demo Family Holdings LLC",
+      jurisdiction: null,
+      formedOn: null,
+      einLastFour: null,
+      ownershipInterestPpm: null,
+      interestStatus: "current",
+      taxClassification: null,
+      notes: null,
+      sources: limitedPartnershipSources.map((source, index) => ({
+        ...source,
+        currentDecisionId: `decision_demo_seed_fund_${index + 1}`,
+      })),
+    };
+    const reviewedSourceIds = new Set(
+      limitedPartnershipSources.map((source) => source.source.id),
+    );
+    inventory = {
+      ...inventory,
+      entities: [...inventory.entities, created],
+      candidates: inventory.candidates.filter(
+        (candidate) => !reviewedSourceIds.has(candidate.source.id),
+      ),
+      exactBatch: {
+        revision: "c".repeat(64),
+        sourceCount: 0,
+        entityCount: 0,
+        existingEntityCount: 0,
+        newEntityCount: 0,
+        llcEntityCount: 0,
+        limitedPartnershipEntityCount: 0,
+        remainingCandidateCount: 1,
+      },
+    };
+    await route.fulfill({
+      json: {
+        version: 1,
+        reviewedSourceCount: 2,
+        entityCount: 1,
+        existingEntityCount: 0,
+        createdEntityCount: 1,
+        remainingCandidateCount: 1,
+      },
+      status: 201,
+    });
   });
   await page.route("**/api/legal-entity-export", async (route) => {
     exportBody = (await route.request().postDataJSON()) as Record<
@@ -223,7 +342,10 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page.getByLabel("Include sources that need review"),
   ).toBeChecked();
   await expect(
-    page.getByText("2 reviewed LLCs · 2 awaiting review"),
+    page.getByText("2 reviewed LLCs · 4 awaiting review"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Add or link 3 sources" }),
   ).toBeVisible();
   await expect(page.locator(".legal-entities")).toContainText("Not recorded");
   await expect(
@@ -247,7 +369,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   const candidate = page
     .locator(".legal-entity-candidate")
     .filter({ hasText: "Demo Venture SPV LLC" });
-  await candidate.getByRole("button", { name: "Add as LLC" }).click();
+  await candidate.getByRole("button", { name: "Review details" }).click();
   const editor = page.locator(".legal-entity-editor");
   await expect(
     editor.getByRole("heading", { name: "Add legal entity" }),
@@ -286,6 +408,22 @@ test("reviews legal entities and exports selected counsel fields", async ({
       expectedDecisionId: null,
     },
   });
+
+  await page.getByRole("button", { name: "Add or link 2 sources" }).click();
+  await expect(
+    page.getByText(
+      "2 sources were reviewed into 1 legal entity. 1 source remains in the review queue.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 3, name: "Demo Seed Fund I, LP" }),
+  ).toBeVisible();
+  expect(exactBatchBody).toEqual({ expectedRevision: "b".repeat(64) });
+  await expect(
+    page
+      .locator(".legal-entity-candidate")
+      .filter({ hasText: "Demo Operating Account" }),
+  ).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: /Download CSV/u }).click();

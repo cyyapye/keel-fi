@@ -43,11 +43,21 @@ const entity = {
 } satisfies LegalEntityRecord;
 
 const inventory = {
-  version: 1,
+  version: 2,
   asOf: positionView.asOf,
   entities: [entity],
   candidates: [],
   excludedCandidates: [],
+  exactBatch: {
+    revision: "a".repeat(64),
+    sourceCount: 0,
+    entityCount: 0,
+    existingEntityCount: 0,
+    newEntityCount: 0,
+    llcEntityCount: 0,
+    limitedPartnershipEntityCount: 0,
+    remainingCandidateCount: 0,
+  },
 } satisfies LegalEntityInventory;
 
 function env(): Env {
@@ -71,6 +81,14 @@ function repositories(overrides: Partial<LegalEntityRepository> = {}) {
     reviewSource: vi
       .fn()
       .mockResolvedValue({ version: 1, decisionId: "decision-synthetic" }),
+    applyExactBatch: vi.fn().mockResolvedValue({
+      version: 1,
+      reviewedSourceCount: 2,
+      entityCount: 1,
+      existingEntityCount: 0,
+      createdEntityCount: 1,
+      remainingCandidateCount: 0,
+    }),
     ...overrides,
   } satisfies LegalEntityRepository;
   return {
@@ -189,6 +207,26 @@ describe("legal entity API", () => {
     expect(options.legalEntityRepository.reviewSource).toHaveBeenCalledWith(
       "synthetic-access-subject",
       reviewInput,
+      positionView,
+    );
+
+    const exactBatchInput = { expectedRevision: "a".repeat(64) };
+    const exactBatchResponse = await app.request(
+      "/api/legal-entity-sources/exact-batch",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(exactBatchInput),
+      },
+      env(),
+    );
+    expect(exactBatchResponse.status).toBe(201);
+    expect(exactBatchResponse.headers.get("Cache-Control")).toBe(
+      "private, no-store",
+    );
+    expect(options.legalEntityRepository.applyExactBatch).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      exactBatchInput,
       positionView,
     );
 
