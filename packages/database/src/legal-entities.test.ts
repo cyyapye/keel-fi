@@ -421,6 +421,292 @@ describe("legal entity repository", () => {
     ).rejects.toThrow("source container mismatch");
   });
 
+  it("reviews explicit LLC and LP endings together without fuzzy matching", async () => {
+    const sources = [
+      {
+        connectionId: "connection_exact_existing",
+        containerId: "container_exact_existing",
+        digit: "a",
+        label: "Synthetic Existing LLC",
+      },
+      {
+        connectionId: "connection_exact_lp_a",
+        containerId: "container_exact_lp_a",
+        digit: "b",
+        label: "Synthetic Seed Fund I, LP",
+      },
+      {
+        connectionId: "connection_exact_lp_b",
+        containerId: "container_exact_lp_b",
+        digit: "c",
+        label: "Synthetic Seed Fund I, LP",
+      },
+      {
+        connectionId: "connection_ambiguous",
+        containerId: "container_ambiguous",
+        digit: "d",
+        label: "Synthetic Operating Account",
+      },
+    ] as const;
+    sources.forEach((source) =>
+      addSourceContainer(sqlite, {
+        householdId: "hh_demo",
+        userId: "usr_demo",
+        connectionId: source.connectionId,
+        containerId: source.containerId,
+        digit: source.digit,
+      }),
+    );
+    const positionView = positionViewForContainers(
+      sources.map((source) => ({
+        id: source.containerId,
+        label: source.label,
+      })),
+    );
+    const existing = await repository.create(
+      "synthetic-access-subject",
+      {
+        profile: { ...profile, legalName: "synthetic existing llc" },
+        source: null,
+      },
+      positionView,
+    );
+
+    const pending = await repository.getState(
+      "synthetic-access-subject",
+      positionView,
+    );
+    expect(pending).toMatchObject({
+      version: 2,
+      exactBatch: {
+        sourceCount: 3,
+        entityCount: 2,
+        existingEntityCount: 1,
+        newEntityCount: 1,
+        llcEntityCount: 1,
+        limitedPartnershipEntityCount: 1,
+        remainingCandidateCount: 1,
+      },
+    });
+
+    const result = await repository.applyExactBatch(
+      "synthetic-access-subject",
+      { expectedRevision: pending.exactBatch.revision },
+      positionView,
+    );
+    expect(result).toEqual({
+      version: 1,
+      reviewedSourceCount: 3,
+      entityCount: 2,
+      existingEntityCount: 1,
+      createdEntityCount: 1,
+      remainingCandidateCount: 1,
+    });
+
+    const state = await repository.getState(
+      "synthetic-access-subject",
+      positionView,
+    );
+    expect(
+      state.candidates.map((candidate) => candidate.suggestedName),
+    ).toEqual(["Synthetic Operating Account"]);
+    expect(
+      state.entities.find((entity) => entity.id === existing.id)?.sources,
+    ).toHaveLength(1);
+    const limitedPartnership = state.entities.find(
+      (entity) => entity.legalName === "Synthetic Seed Fund I, LP",
+    );
+    expect(limitedPartnership).toMatchObject({
+      entityType: "limited_partnership",
+      jurisdiction: null,
+      formedOn: null,
+      einLastFour: null,
+      ownershipInterestPpm: null,
+      taxClassification: null,
+      notes: null,
+    });
+    expect(limitedPartnership?.sources).toHaveLength(2);
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM legal_entities entity
+           JOIN legal_entity_versions version
+             ON version.legal_entity_id = entity.id
+           WHERE entity.household_id = 'hh_demo'
+             AND lower(version.legal_name) = 'synthetic existing llc'`,
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+
+    const decisionCount = sqlite
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM legal_entity_source_decisions
+         WHERE source_reference IN (
+           'container_exact_existing',
+           'container_exact_lp_a',
+           'container_exact_lp_b'
+         )`,
+      )
+      .get();
+    await expect(
+      repository.applyExactBatch(
+        "synthetic-access-subject",
+        { expectedRevision: pending.exactBatch.revision },
+        positionView,
+      ),
+    ).rejects.toMatchObject({ code: "stale" });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM legal_entity_source_decisions
+           WHERE source_reference IN (
+             'container_exact_existing',
+             'container_exact_lp_a',
+             'container_exact_lp_b'
+           )`,
+        )
+        .get(),
+    ).toEqual(decisionCount);
+  });
+
+  it("reviews a 125-source queue in fixed-size, fixed-round-trip batches", async () => {
+    sqlite
+      .prepare(
+        `INSERT INTO investment_connections (
+           id, household_id, adapter_type, protected_source_key,
+           created_by_user_id, created_at, immutable
+         ) VALUES (
+           'connection_exact_scale', 'hh_demo', 'manual', ?,
+           'usr_demo', '2026-09-01T10:00:00.000Z', 1
+         )`,
+      )
+      .run("e".repeat(64));
+    const containerInsert = sqlite.prepare(
+      `INSERT INTO ownership_containers (
+         id, household_id, connection_id, protected_account_key,
+         created_by_user_id, created_at, immutable
+       ) VALUES (?, 'hh_demo', 'connection_exact_scale', ?,
+         'usr_demo', '2026-09-01T10:00:00.000Z', 1)`,
+    );
+    const containers: Array<{ id: string; label: string }> = [];
+    sqlite.exec("BEGIN");
+    try {
+      for (let index = 0; index < 125; index += 1) {
+        const suffix = String(index).padStart(3, "0");
+        const id = `container_exact_scale_${suffix}`;
+        containerInsert.run(id, (index + 1).toString(16).padStart(64, "0"));
+        containers.push({
+          id,
+          label:
+            index < 55
+              ? "A Synthetic Shared Fund, LP"
+              : `Synthetic Batch ${suffix} LLC`,
+        });
+      }
+      sqlite.exec("COMMIT");
+    } catch (error) {
+      sqlite.exec("ROLLBACK");
+      throw error;
+    }
+    const positionView = positionViewForContainers(containers);
+
+    d1.roundTrips = 0;
+    const pending = await repository.getState(
+      "synthetic-access-subject",
+      positionView,
+    );
+    expect(pending.candidates).toHaveLength(125);
+    expect(pending.exactBatch).toMatchObject({
+      sourceCount: 50,
+      entityCount: 1,
+      newEntityCount: 1,
+      remainingCandidateCount: 75,
+    });
+    expect(d1.roundTrips).toBe(3);
+
+    d1.roundTrips = 0;
+    const result = await repository.applyExactBatch(
+      "synthetic-access-subject",
+      { expectedRevision: pending.exactBatch.revision },
+      positionView,
+    );
+    expect(result).toMatchObject({
+      reviewedSourceCount: 50,
+      entityCount: 1,
+      createdEntityCount: 1,
+      remainingCandidateCount: 75,
+    });
+    expect(d1.roundTrips).toBe(4);
+
+    const remaining = await repository.getState(
+      "synthetic-access-subject",
+      positionView,
+    );
+    expect(remaining.candidates).toHaveLength(75);
+    expect(remaining.exactBatch).toMatchObject({
+      sourceCount: 50,
+      entityCount: 46,
+      existingEntityCount: 1,
+      newEntityCount: 45,
+      remainingCandidateCount: 25,
+    });
+    expect(
+      remaining.entities.find(
+        (entity) => entity.legalName === "A Synthetic Shared Fund, LP",
+      )?.sources,
+    ).toHaveLength(50);
+
+    d1.roundTrips = 0;
+    await repository.applyExactBatch(
+      "synthetic-access-subject",
+      { expectedRevision: remaining.exactBatch.revision },
+      positionView,
+    );
+    expect(d1.roundTrips).toBe(4);
+    const afterSecondBatch = await repository.getState(
+      "synthetic-access-subject",
+      positionView,
+    );
+    expect(afterSecondBatch.candidates).toHaveLength(25);
+    expect(
+      afterSecondBatch.entities.find(
+        (entity) => entity.legalName === "A Synthetic Shared Fund, LP",
+      )?.sources,
+    ).toHaveLength(55);
+    expect(afterSecondBatch.exactBatch).toMatchObject({
+      sourceCount: 25,
+      entityCount: 25,
+      remainingCandidateCount: 0,
+    });
+
+    const decisionPlan = sqlite
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT decision.id
+         FROM legal_entity_source_decisions decision
+         WHERE decision.household_id = ?
+           AND NOT EXISTS (
+             SELECT 1
+             FROM legal_entity_source_decisions later
+             WHERE later.supersedes_decision_id = decision.id
+           )`,
+      )
+      .all("hh_demo") as Array<{ detail: string }>;
+    expect(decisionPlan.some((row) => /SCAN later/u.test(row.detail))).toBe(
+      false,
+    );
+    expect(
+      decisionPlan.some(
+        (row) =>
+          /SEARCH later/u.test(row.detail) &&
+          /supersedes_decision_id/u.test(row.detail),
+      ),
+    ).toBe(true);
+  });
+
   it("reads more than 120 entities with a fixed round-trip budget and indexed supersession checks", async () => {
     const entityInsert = sqlite.prepare(
       `INSERT INTO legal_entities (

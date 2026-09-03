@@ -125,6 +125,8 @@ import {
 } from "@keel/domain/holdings-page";
 import {
   CreateLegalEntityInputSchema,
+  LegalEntityExactBatchInputSchema,
+  LegalEntityExactBatchResultSchema,
   LegalEntityExportInputSchema,
   LegalEntityInventorySchema,
   LegalEntityRecordSchema,
@@ -132,6 +134,8 @@ import {
   ReviewLegalEntitySourceInputSchema,
   UpdateLegalEntityInputSchema,
   type CreateLegalEntityInput,
+  type LegalEntityExactBatchInput,
+  type LegalEntityExactBatchResult,
   type LegalEntityExportInput,
   type LegalEntityInventory,
   type LegalEntityRecord,
@@ -277,6 +281,27 @@ export async function reviewLegalEntitySource(
     );
   }
   LegalEntitySourceReviewResultSchema.parse(await response.json());
+}
+
+export async function applyLegalEntityExactBatch(
+  input: LegalEntityExactBatchInput,
+): Promise<LegalEntityExactBatchResult> {
+  const response = await fetch("/api/legal-entity-sources/exact-batch", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(LegalEntityExactBatchInputSchema.parse(input)),
+  });
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Exact legal entity review returned ${response.status}.`,
+    );
+  }
+  return LegalEntityExactBatchResultSchema.parse(await response.json());
 }
 
 export async function downloadLegalEntityExport(

@@ -100,6 +100,8 @@ import { InvestmentHoldingsViewSchema } from "@keel/domain/investment-holdings-v
 import { HoldingsPageSchema } from "@keel/domain/holdings-page";
 import {
   CreateLegalEntityInputSchema,
+  LegalEntityExactBatchInputSchema,
+  LegalEntityExactBatchResultSchema,
   LegalEntityExportInputSchema,
   LegalEntityInventorySchema,
   LegalEntityRecordSchema,
@@ -495,6 +497,10 @@ function legalEntityErrorResponse(
     invalid_source: {
       message: "This legal entity source is unavailable.",
       status: 400 as const,
+    },
+    no_matches: {
+      message: "No exact LLC or LP names are ready for batch review.",
+      status: 409 as const,
     },
     not_found: {
       message: "This legal entity is unavailable.",
@@ -2053,6 +2059,40 @@ export function createApp(options: AppOptions = {}) {
       );
       return context.json(
         LegalEntitySourceReviewResultSchema.parse(result),
+        201,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return legalEntityErrorResponse(context, error);
+    }
+  });
+
+  app.post("/api/legal-entity-sources/exact-batch", async (context) => {
+    let rawInput: unknown;
+    try {
+      rawInput = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400);
+    }
+    const input = LegalEntityExactBatchInputSchema.safeParse(rawInput);
+    if (!input.success) {
+      return context.json(
+        { error: "The exact legal entity review is invalid." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+    const accessSubject = context.get("identity").subject;
+    const asOf = new Date().toISOString();
+    try {
+      const positionView = await investmentPositionViewRepositoryFor(
+        context.env,
+      ).list(accessSubject, asOf);
+      const result = await legalEntityRepositoryFor(
+        context.env,
+      ).applyExactBatch(accessSubject, input.data, positionView);
+      return context.json(
+        LegalEntityExactBatchResultSchema.parse(result),
         201,
         { "Cache-Control": "private, no-store" },
       );
