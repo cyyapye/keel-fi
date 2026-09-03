@@ -203,6 +203,117 @@ function positionViewForContainers(
   };
 }
 
+function positionViewForReportedNames(
+  sources: ReadonlyArray<{
+    id: string;
+    legalName: string | null;
+    displayName?: string;
+  }>,
+): InvestmentPositionView {
+  return {
+    asOf: "2026-09-01T12:00:00.000Z",
+    connections: [
+      {
+        id: "connection-view-reported-names",
+        purpose: "source",
+        adapterType: "angellist-import",
+        institutionKey: "angellist-synthetic",
+        institutionLabel: "AngelList export",
+        lifecycleState: "active",
+        containers: [
+          {
+            id: "container-view-reported-names",
+            label: "Reviewed synthetic investments",
+            kind: "unresolved",
+            taxTreatment: "unknown",
+            coverage: {
+              completeness: "complete",
+              observedAt: "2026-09-01T11:00:00.000Z",
+              freshness: "current",
+            },
+            positions: sources.map((source) => ({
+              id: source.id,
+              legalVehicleName:
+                source.legalName ?? `Provider display for ${source.id}`,
+              legalEntityNameEvidence:
+                source.legalName === null
+                  ? {
+                      state: "unavailable" as const,
+                      legalName: null,
+                      sourceField: null,
+                    }
+                  : {
+                      state: "provider_reported" as const,
+                      legalName: source.legalName,
+                      sourceField: "Fund Name",
+                    },
+              ownerLabel: "Synthetic Household",
+              reportedExposureName: source.displayName ?? null,
+              kind: "spv_interest",
+              openedOn: null,
+              reviewStatus: "accepted",
+              acceptedAt: "2026-09-01T11:30:00.000Z",
+              ownershipVersion: 1,
+              ownershipBasis: "reviewed_import",
+              source: {
+                label: "AngelList export",
+                effectiveDate: "2026-08-31",
+                retrievedAt: "2026-09-01T11:00:00.000Z",
+                freshness: "current",
+              },
+              snapshot: {
+                id: `snapshot_${source.id}`,
+                fingerprint: "a".repeat(64),
+                observedAt: "2026-09-01T11:00:00.000Z",
+                providerStatus: "live",
+                investedMinor: 100_000,
+                allocationMinor: 100_000,
+                unrealizedValue: { state: "locked", minor: null },
+                realizedValueMinor: 0,
+                netValue: { state: "locked", minor: null },
+                instrumentType: "SPV interest",
+                currency: "USD",
+                quantityMicros: null,
+                ticker: null,
+                costBasisMinor: null,
+              },
+            })),
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function addPositionSources(
+  database: DatabaseSync,
+  sources: ReadonlyArray<{ id: string; legalName: string | null }>,
+) {
+  const insert = database.prepare(
+    `INSERT INTO holding_positions (
+       id, household_id, provider, position_fingerprint, legal_vehicle_name,
+       owner_label, position_kind, instrument_type, opened_on, currency,
+       created_by, created_at
+     ) VALUES (?, 'hh_demo', 'angellist', ?, ?, 'Synthetic Household',
+       'spv_interest', 'SPV interest', NULL, 'USD', 'usr_demo',
+       '2026-09-01T11:00:00.000Z')`,
+  );
+  database.exec("BEGIN");
+  try {
+    sources.forEach((source, index) => {
+      insert.run(
+        source.id,
+        (index + 1).toString(16).padStart(64, "0"),
+        source.legalName ?? `Provider display ${index + 1}`,
+      );
+    });
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 async function repositoryError(
   promise: Promise<unknown>,
 ): Promise<LegalEntityRepositoryError> {
@@ -421,48 +532,51 @@ describe("legal entity repository", () => {
     ).rejects.toThrow("source container mismatch");
   });
 
-  it("reviews explicit LLC and LP endings together without fuzzy matching", async () => {
+  it("reviews only source-reported LLC and LP names together", async () => {
     const sources = [
       {
-        connectionId: "connection_exact_existing",
-        containerId: "container_exact_existing",
-        digit: "a",
+        id: "position_exact_existing",
         label: "Synthetic Existing LLC",
       },
       {
-        connectionId: "connection_exact_lp_a",
-        containerId: "container_exact_lp_a",
-        digit: "b",
+        id: "position_exact_lp_a",
         label: "Synthetic Seed Fund I, LP",
       },
       {
-        connectionId: "connection_exact_lp_b",
-        containerId: "container_exact_lp_b",
-        digit: "c",
+        id: "position_exact_lp_b",
         label: "Synthetic Seed Fund I, LP",
       },
       {
-        connectionId: "connection_ambiguous",
-        containerId: "container_ambiguous",
-        digit: "d",
+        id: "position_name_unavailable",
         label: "Synthetic Operating Account",
       },
     ] as const;
-    sources.forEach((source) =>
-      addSourceContainer(sqlite, {
-        householdId: "hh_demo",
-        userId: "usr_demo",
-        connectionId: source.connectionId,
-        containerId: source.containerId,
-        digit: source.digit,
-      }),
-    );
-    const positionView = positionViewForContainers(
+    const reportedPositionView = positionViewForReportedNames(
       sources.map((source) => ({
-        id: source.containerId,
-        label: source.label,
+        id: source.id,
+        legalName:
+          source.id === "position_name_unavailable" ? null : source.label,
+        displayName: `${source.label} investment`,
       })),
     );
+    addPositionSources(
+      sqlite,
+      sources.map((source) => ({
+        id: source.id,
+        legalName:
+          source.id === "position_name_unavailable" ? null : source.label,
+      })),
+    );
+    const ownershipLabelView = positionViewForContainers([
+      { id: "container_label_only", label: "Synthetic Label Only LLC" },
+    ]);
+    const positionView: InvestmentPositionView = {
+      ...reportedPositionView,
+      connections: [
+        ...reportedPositionView.connections,
+        ...ownershipLabelView.connections,
+      ],
+    };
     const existing = await repository.create(
       "synthetic-access-subject",
       {
@@ -477,7 +591,7 @@ describe("legal entity repository", () => {
       positionView,
     );
     expect(pending).toMatchObject({
-      version: 2,
+      version: 3,
       exactBatch: {
         sourceCount: 3,
         entityCount: 2,
@@ -485,7 +599,7 @@ describe("legal entity repository", () => {
         newEntityCount: 1,
         llcEntityCount: 1,
         limitedPartnershipEntityCount: 1,
-        remainingCandidateCount: 1,
+        remainingCandidateCount: 2,
       },
     });
 
@@ -500,7 +614,7 @@ describe("legal entity repository", () => {
       entityCount: 2,
       existingEntityCount: 1,
       createdEntityCount: 1,
-      remainingCandidateCount: 1,
+      remainingCandidateCount: 2,
     });
 
     const state = await repository.getState(
@@ -508,8 +622,17 @@ describe("legal entity repository", () => {
       positionView,
     );
     expect(
-      state.candidates.map((candidate) => candidate.suggestedName),
-    ).toEqual(["Synthetic Operating Account"]);
+      state.candidates.map((candidate) => candidate.sourceDisplayName),
+    ).toEqual([
+      "Synthetic Label Only LLC",
+      "Synthetic Operating Account investment",
+    ]);
+    expect(
+      state.candidates.every(
+        (candidate) =>
+          candidate.legalEntityNameEvidence.state === "unavailable",
+      ),
+    ).toBe(true);
     expect(
       state.entities.find((entity) => entity.id === existing.id)?.sources,
     ).toHaveLength(1);
@@ -544,9 +667,9 @@ describe("legal entity repository", () => {
         `SELECT COUNT(*) AS count
          FROM legal_entity_source_decisions
          WHERE source_reference IN (
-           'container_exact_existing',
-           'container_exact_lp_a',
-           'container_exact_lp_b'
+           'position_exact_existing',
+           'position_exact_lp_a',
+           'position_exact_lp_b'
          )`,
       )
       .get();
@@ -563,55 +686,28 @@ describe("legal entity repository", () => {
           `SELECT COUNT(*) AS count
            FROM legal_entity_source_decisions
            WHERE source_reference IN (
-             'container_exact_existing',
-             'container_exact_lp_a',
-             'container_exact_lp_b'
+             'position_exact_existing',
+             'position_exact_lp_a',
+             'position_exact_lp_b'
            )`,
         )
         .get(),
     ).toEqual(decisionCount);
   });
 
-  it("reviews a 125-source queue in fixed-size, fixed-round-trip batches", async () => {
-    sqlite
-      .prepare(
-        `INSERT INTO investment_connections (
-           id, household_id, adapter_type, protected_source_key,
-           created_by_user_id, created_at, immutable
-         ) VALUES (
-           'connection_exact_scale', 'hh_demo', 'manual', ?,
-           'usr_demo', '2026-09-01T10:00:00.000Z', 1
-         )`,
-      )
-      .run("e".repeat(64));
-    const containerInsert = sqlite.prepare(
-      `INSERT INTO ownership_containers (
-         id, household_id, connection_id, protected_account_key,
-         created_by_user_id, created_at, immutable
-       ) VALUES (?, 'hh_demo', 'connection_exact_scale', ?,
-         'usr_demo', '2026-09-01T10:00:00.000Z', 1)`,
-    );
-    const containers: Array<{ id: string; label: string }> = [];
-    sqlite.exec("BEGIN");
-    try {
-      for (let index = 0; index < 125; index += 1) {
-        const suffix = String(index).padStart(3, "0");
-        const id = `container_exact_scale_${suffix}`;
-        containerInsert.run(id, (index + 1).toString(16).padStart(64, "0"));
-        containers.push({
-          id,
-          label:
-            index < 55
-              ? "A Synthetic Shared Fund, LP"
-              : `Synthetic Batch ${suffix} LLC`,
-        });
-      }
-      sqlite.exec("COMMIT");
-    } catch (error) {
-      sqlite.exec("ROLLBACK");
-      throw error;
-    }
-    const positionView = positionViewForContainers(containers);
+  it("reviews a 125-source queue in one fixed-round-trip batch", async () => {
+    const sources = Array.from({ length: 125 }, (_, index) => {
+      const suffix = String(index).padStart(3, "0");
+      return {
+        id: `position_exact_scale_${suffix}`,
+        legalName:
+          index < 55
+            ? "A Synthetic Shared Fund, LP"
+            : `Synthetic Batch ${suffix} LLC`,
+      };
+    });
+    addPositionSources(sqlite, sources);
+    const positionView = positionViewForReportedNames(sources);
 
     d1.roundTrips = 0;
     const pending = await repository.getState(
@@ -620,10 +716,10 @@ describe("legal entity repository", () => {
     );
     expect(pending.candidates).toHaveLength(125);
     expect(pending.exactBatch).toMatchObject({
-      sourceCount: 50,
-      entityCount: 1,
-      newEntityCount: 1,
-      remainingCandidateCount: 75,
+      sourceCount: 125,
+      entityCount: 71,
+      newEntityCount: 71,
+      remainingCandidateCount: 0,
     });
     expect(d1.roundTrips).toBe(3);
 
@@ -634,10 +730,10 @@ describe("legal entity repository", () => {
       positionView,
     );
     expect(result).toMatchObject({
-      reviewedSourceCount: 50,
-      entityCount: 1,
-      createdEntityCount: 1,
-      remainingCandidateCount: 75,
+      reviewedSourceCount: 125,
+      entityCount: 71,
+      createdEntityCount: 71,
+      remainingCandidateCount: 0,
     });
     expect(d1.roundTrips).toBe(4);
 
@@ -645,42 +741,19 @@ describe("legal entity repository", () => {
       "synthetic-access-subject",
       positionView,
     );
-    expect(remaining.candidates).toHaveLength(75);
+    expect(remaining.candidates).toHaveLength(0);
     expect(remaining.exactBatch).toMatchObject({
-      sourceCount: 50,
-      entityCount: 46,
-      existingEntityCount: 1,
-      newEntityCount: 45,
-      remainingCandidateCount: 25,
+      sourceCount: 0,
+      entityCount: 0,
+      existingEntityCount: 0,
+      newEntityCount: 0,
+      remainingCandidateCount: 0,
     });
     expect(
       remaining.entities.find(
         (entity) => entity.legalName === "A Synthetic Shared Fund, LP",
       )?.sources,
-    ).toHaveLength(50);
-
-    d1.roundTrips = 0;
-    await repository.applyExactBatch(
-      "synthetic-access-subject",
-      { expectedRevision: remaining.exactBatch.revision },
-      positionView,
-    );
-    expect(d1.roundTrips).toBe(4);
-    const afterSecondBatch = await repository.getState(
-      "synthetic-access-subject",
-      positionView,
-    );
-    expect(afterSecondBatch.candidates).toHaveLength(25);
-    expect(
-      afterSecondBatch.entities.find(
-        (entity) => entity.legalName === "A Synthetic Shared Fund, LP",
-      )?.sources,
     ).toHaveLength(55);
-    expect(afterSecondBatch.exactBatch).toMatchObject({
-      sourceCount: 25,
-      entityCount: 25,
-      remainingCandidateCount: 0,
-    });
 
     const decisionPlan = sqlite
       .prepare(

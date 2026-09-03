@@ -77,6 +77,7 @@ type InvestmentPositionRow = {
   source_label: string;
   effective_date: string;
   retrieved_at: string;
+  import_provider: string;
   adjustment_id: string | null;
   adjustment_supersedes_proposal_id: string | null;
   adjustment_snapshot_id: string | null;
@@ -185,6 +186,18 @@ function positionFromRow(
   return {
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
+    legalEntityNameEvidence:
+      row.import_provider === "angellist"
+        ? {
+            state: "provider_reported",
+            legalName: row.legal_vehicle_name,
+            sourceField: "Fund Name",
+          }
+        : {
+            state: "unavailable",
+            legalName: null,
+            sourceField: null,
+          },
     ownerLabel: row.owner_label,
     reportedExposureName: row.reported_exposure_name,
     kind: row.position_kind,
@@ -421,6 +434,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                substr(document.retrieved_at, 1, 10)
              ) AS effective_date,
              document.retrieved_at,
+             accepted_import.provider AS import_provider,
              adjustment.id AS adjustment_id,
              adjustment.supersedes_proposal_id
                AS adjustment_supersedes_proposal_id,

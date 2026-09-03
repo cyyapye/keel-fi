@@ -42,6 +42,27 @@ export const InvestmentCoverageCompletenessSchema = z.enum([
 
 export const InvestmentSourceFreshnessSchema = z.enum(["current", "stale"]);
 
+const ReportedLegalEntityNameSchema = z
+  .object({
+    state: z.enum(["provider_reported", "document_reported"]),
+    legalName: z.string().trim().min(1).max(1_000),
+    sourceField: z.string().trim().min(1).max(240),
+  })
+  .strict();
+
+const UnavailableLegalEntityNameSchema = z
+  .object({
+    state: z.literal("unavailable"),
+    legalName: z.null(),
+    sourceField: z.null(),
+  })
+  .strict();
+
+export const LegalEntityNameEvidenceSchema = z.discriminatedUnion("state", [
+  ReportedLegalEntityNameSchema,
+  UnavailableLegalEntityNameSchema,
+]);
+
 export const InvestmentPositionSnapshotSchema = z.object({
   id: z.string().min(1),
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -62,6 +83,7 @@ export const InvestmentPositionSnapshotSchema = z.object({
 export const InvestmentPositionRecordSchema = z.object({
   id: z.string().min(1),
   legalVehicleName: z.string().trim().min(1).max(1_000),
+  legalEntityNameEvidence: LegalEntityNameEvidenceSchema,
   ownerLabel: z.string().trim().min(1).max(1_000).optional(),
   reportedExposureName: z.string().trim().min(1).max(1_000).nullable(),
   kind: z.enum(["direct", "spv_interest", "fund_interest"]),
@@ -133,6 +155,9 @@ export type InvestmentPositionContainer = z.infer<
 >;
 export type InvestmentPositionRecord = z.infer<
   typeof InvestmentPositionRecordSchema
+>;
+export type LegalEntityNameEvidence = z.infer<
+  typeof LegalEntityNameEvidenceSchema
 >;
 export type InvestmentPositionView = z.infer<
   typeof InvestmentPositionViewSchema

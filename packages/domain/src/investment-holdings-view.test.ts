@@ -36,6 +36,11 @@ describe("investment holdings view contract", () => {
     const position = {
       id: "position-synthetic",
       legalVehicleName: "Synthetic common stock",
+      legalEntityNameEvidence: {
+        state: "unavailable" as const,
+        legalName: null,
+        sourceField: null,
+      },
       reportedExposureName: null,
       kind: "direct" as const,
       openedOn: null,

@@ -132,12 +132,14 @@ function currentPositionValue(position: InvestmentPositionRecord) {
 function positionSourceSummary(
   position: InvestmentPositionRecord,
 ): LegalEntitySourceSummary {
+  const legalName = position.legalEntityNameEvidence.legalName;
   return {
     source: { kind: "holding_position", id: position.id },
-    suggestedName: position.legalVehicleName,
-    suggestedEntityType: exactLegalEntityTypeFromName(
-      position.legalVehicleName,
-    ),
+    sourceDisplayName:
+      position.reportedExposureName ?? position.legalVehicleName,
+    legalEntityNameEvidence: position.legalEntityNameEvidence,
+    suggestedEntityType:
+      legalName === null ? null : exactLegalEntityTypeFromName(legalName),
     sourceLabel: position.source.label,
     sourceAsOf: position.source.effectiveDate,
     relationship: "investment_vehicle",
@@ -172,8 +174,13 @@ export function legalEntitySourceCandidates(
         );
         candidates.push({
           source: { kind: "ownership_container", id: container.id },
-          suggestedName: container.label,
-          suggestedEntityType: exactLegalEntityTypeFromName(container.label),
+          sourceDisplayName: container.label,
+          legalEntityNameEvidence: {
+            state: "unavailable",
+            legalName: null,
+            sourceField: null,
+          },
+          suggestedEntityType: null,
           sourceLabel: connection.institutionLabel,
           sourceAsOf: (
             container.coverage?.observedAt ?? positionView.asOf
@@ -199,7 +206,7 @@ export function legalEntitySourceCandidates(
   }
   return candidates.sort(
     (left, right) =>
-      left.suggestedName.localeCompare(right.suggestedName) ||
+      sourceDisplayName(left).localeCompare(sourceDisplayName(right)) ||
       sourceKey(left.source).localeCompare(sourceKey(right.source)),
   );
 }
@@ -207,8 +214,13 @@ export function legalEntitySourceCandidates(
 function sourceFromDecision(row: SourceDecisionRow): LegalEntitySourceSummary {
   return {
     source: { kind: row.source_kind, id: row.source_reference },
-    suggestedName: row.source_name,
-    suggestedEntityType: exactLegalEntityTypeFromName(row.source_name),
+    sourceDisplayName: row.source_name,
+    legalEntityNameEvidence: {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+    },
+    suggestedEntityType: null,
     sourceLabel: row.source_label,
     sourceAsOf: row.source_as_of,
     relationship: row.relationship,
@@ -267,6 +279,10 @@ function exactEntityNameKey(value: string): string {
   return exactEntityName(value).toLocaleLowerCase("en-US");
 }
 
+function sourceDisplayName(source: LegalEntitySourceSummary): string {
+  return source.legalEntityNameEvidence.legalName ?? source.sourceDisplayName;
+}
+
 async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -291,10 +307,11 @@ async function buildLegalEntityExactBatchPlan(
 
   const groupsByKey = new Map<string, LegalEntityExactBatchGroup>();
   for (const candidate of candidates) {
-    if (candidate.suggestedEntityType === null) {
+    const legalName = candidate.legalEntityNameEvidence.legalName;
+    if (legalName === null || candidate.suggestedEntityType === null) {
       continue;
     }
-    const entityName = exactEntityName(candidate.suggestedName);
+    const entityName = exactEntityName(legalName);
     const nameKey = exactEntityNameKey(entityName);
     const entityMatches = entitiesByName.get(nameKey) ?? [];
     if (
@@ -349,7 +366,10 @@ async function buildLegalEntityExactBatchPlan(
       candidates: candidates.map((candidate) => [
         candidate.source.kind,
         candidate.source.id,
-        candidate.suggestedName,
+        candidate.sourceDisplayName,
+        candidate.legalEntityNameEvidence.state,
+        candidate.legalEntityNameEvidence.legalName,
+        candidate.legalEntityNameEvidence.sourceField,
         candidate.suggestedEntityType,
         candidate.sourceLabel,
         candidate.sourceAsOf,
@@ -423,7 +443,7 @@ async function stateFromRows(
   entities.forEach((entity) => {
     entity.sources.sort(
       (left, right) =>
-        left.suggestedName.localeCompare(right.suggestedName) ||
+        sourceDisplayName(left).localeCompare(sourceDisplayName(right)) ||
         sourceKey(left.source).localeCompare(sourceKey(right.source)),
     );
   });
@@ -436,13 +456,13 @@ async function stateFromRows(
     candidates,
   );
   const inventory = LegalEntityInventorySchema.parse({
-    version: 2,
+    version: 3,
     asOf: positionView.asOf,
     entities,
     candidates,
     excludedCandidates: excludedCandidates.sort(
       (left, right) =>
-        left.suggestedName.localeCompare(right.suggestedName) ||
+        sourceDisplayName(left).localeCompare(sourceDisplayName(right)) ||
         sourceKey(left.source).localeCompare(sourceKey(right.source)),
     ),
     exactBatch: exactBatchPlan.preview,
@@ -714,7 +734,7 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
     if (plan.preview.sourceCount === 0) {
       throw new LegalEntityRepositoryError(
         "no_matches",
-        "No exact LLC or LP names are ready for batch review.",
+        "No source-reported LLC or LP names are ready for batch review.",
       );
     }
 
@@ -769,7 +789,7 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
           householdId: identity.household_id,
           sourceKind: source.source.kind,
           sourceReference: source.source.id,
-          sourceName: source.suggestedName,
+          sourceName: source.sourceDisplayName,
           sourceLabel: source.sourceLabel,
           sourceAsOf: source.sourceAsOf,
           relationship: source.relationship,
@@ -1080,7 +1100,7 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
         identity.household_id,
         source.source.kind,
         source.source.id,
-        source.suggestedName,
+        source.sourceDisplayName,
         source.sourceLabel,
         source.sourceAsOf,
         source.relationship,

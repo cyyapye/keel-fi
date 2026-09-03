@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS,
+  LegalEntitySourceSummarySchema,
   LegalEntityExportInputSchema,
   LegalEntityProfileInputSchema,
   exactLegalEntityTypeFromName,
@@ -74,6 +75,42 @@ describe("legal entity contracts", () => {
     ).toBeNull();
     expect(exactLegalEntityTypeFromName("Synthetic SELLC Account")).toBeNull();
     expect(exactLegalEntityTypeFromName("LP Fund Holdings")).toBeNull();
+  });
+
+  it("requires legal names to carry provider or document evidence", () => {
+    const base = {
+      source: { kind: "holding_position" as const, id: "position-synthetic" },
+      sourceDisplayName: "Synthetic investment",
+      suggestedEntityType: "llc" as const,
+      sourceLabel: "Synthetic export",
+      sourceAsOf: "2026-08-31",
+      relationship: "investment_vehicle" as const,
+      currentOwner: null,
+      interestStatus: "current" as const,
+      openedOn: null,
+      financials: null,
+      currentDecisionId: null,
+    };
+    expect(
+      LegalEntitySourceSummarySchema.parse({
+        ...base,
+        legalEntityNameEvidence: {
+          state: "document_reported",
+          legalName: "Synthetic Vehicle LLC",
+          sourceField: "Schedule K-1",
+        },
+      }).legalEntityNameEvidence,
+    ).toMatchObject({ state: "document_reported" });
+    expect(
+      LegalEntitySourceSummarySchema.safeParse({
+        ...base,
+        legalEntityNameEvidence: {
+          state: "unavailable",
+          legalName: "Synthetic Vehicle LLC",
+          sourceField: null,
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it("validates a unique, non-empty export field selection", () => {

@@ -39,6 +39,11 @@ function recordFromHolding(
   return {
     id: holding.id,
     legalVehicleName: holding.positionName,
+    legalEntityNameEvidence: {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+    },
     reportedExposureName: holding.exposureName,
     kind: holding.positionKind,
     openedOn: null,
@@ -247,6 +252,11 @@ function syntheticPublicPosition(input: {
   return {
     id: input.id,
     legalVehicleName: "NVDA common stock",
+    legalEntityNameEvidence: {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+    },
     reportedExposureName: "NVIDIA common stock",
     kind: "direct",
     openedOn: null,

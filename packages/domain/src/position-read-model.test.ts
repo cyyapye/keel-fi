@@ -8,6 +8,11 @@ import {
 const basePosition = {
   id: "position_synthetic",
   legalVehicleName: "Synthetic Public Security",
+  legalEntityNameEvidence: {
+    state: "unavailable" as const,
+    legalName: null,
+    sourceField: null,
+  },
   reportedExposureName: "Synthetic Public Security",
   kind: "direct" as const,
   openedOn: "2026-01-15",

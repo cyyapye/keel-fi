@@ -82,6 +82,9 @@ type AcceptedPositionInput = {
   readonly investedMinor?: number;
   readonly allocationMinor?: number;
   readonly costBasisMinor?: number | null;
+  readonly provider?:
+    "angellist" | "plaid_investments" | "sydecar" | "tokenfolio";
+  readonly legalVehicleName?: string;
   readonly createPosition: boolean;
   readonly acceptObservation: boolean;
 };
@@ -287,6 +290,8 @@ function addPositionObservation(
   const investedMinor = input.investedMinor ?? 100_000;
   const allocationMinor = input.allocationMinor ?? 100_000;
   const costBasisMinor = input.costBasisMinor ?? 100_000;
+  const provider = input.provider ?? "plaid_investments";
+  const legalVehicleName = input.legalVehicleName ?? "Synthetic Security";
 
   database
     .prepare(
@@ -313,12 +318,13 @@ function addPositionObservation(
       `INSERT INTO holding_imports (
          id, household_id, source_document_id, provider, parser_schema,
          normalized_fingerprint, row_count, created_by, created_at
-       ) VALUES (?, ?, ?, 'plaid_investments', 'synthetic-position-view-v1', ?, 1, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, 'synthetic-position-view-v1', ?, 1, ?, ?)`,
     )
     .run(
       importId,
       input.household.id,
       documentId,
+      provider,
       input.observationDigest,
       input.household.userId,
       input.retrievedAt,
@@ -335,7 +341,7 @@ function addPositionObservation(
          issue_codes_json, position_kind, quantity_micros, ticker,
          cost_basis_minor, created_at
        ) VALUES (
-         ?, ?, ?, 1, ?, ?, 'Synthetic Security', 'Synthetic Account',
+         ?, ?, ?, 1, ?, ?, ?, 'Synthetic Account',
          'Synthetic Security', 'live', ?, ?, ?, ?, ?, 0, ?, ?,
          ?, 'USD', 'ready', '[]', ?, 1000000, 'SYN', ?, ?
        )`,
@@ -346,6 +352,7 @@ function addPositionObservation(
       importId,
       input.positionFingerprint,
       snapshotFingerprint,
+      legalVehicleName,
       effectiveDate,
       investedMinor,
       allocationMinor,
@@ -410,14 +417,16 @@ function addPositionObservation(
            legal_vehicle_name, owner_label, position_kind, instrument_type,
            opened_on, currency, created_by, created_at
          ) VALUES (
-           ?, ?, 'plaid_investments', ?, 'Synthetic Security', 'Synthetic Account',
+           ?, ?, ?, ?, ?, 'Synthetic Account',
            ?, ?, '2026-01-15', 'USD', ?, ?
          )`,
       )
       .run(
         input.positionId,
         input.household.id,
+        provider,
         input.positionFingerprint,
+        legalVehicleName,
         positionKind,
         instrumentType,
         input.household.userId,
@@ -653,6 +662,94 @@ describe("canonical investment position view", () => {
     await expect(
       repository.list("missing-subject", "2026-08-16T12:00:00.000Z"),
     ).rejects.toThrow(/Household not found/u);
+  });
+
+  it("uses only the AngelList Fund Name as provider-reported legal-name evidence", async () => {
+    addConnection(sqlite, demoHousehold, {
+      id: "connection_legal_name_evidence",
+      adapterType: "manual",
+      protectedSourceKey: digest("1"),
+      institutionKey: "synthetic-legal-name-evidence",
+      institutionLabel: "Synthetic private investments",
+    });
+    addContainer(sqlite, demoHousehold, {
+      id: "container_legal_name_evidence",
+      connectionId: "connection_legal_name_evidence",
+      protectedAccountKey: digest("2"),
+      label: "Synthetic private investments",
+      kind: "brokerage",
+      taxTreatment: "unknown",
+    });
+    const inputs = [
+      {
+        provider: "angellist" as const,
+        positionId: "position_angellist_name",
+        legalVehicleName: "Synthetic AngelList Vehicle LLC",
+        digit: "3",
+      },
+      {
+        provider: "sydecar" as const,
+        positionId: "position_sydecar_name",
+        legalVehicleName: "Generated Sydecar display",
+        digit: "4",
+      },
+      {
+        provider: "tokenfolio" as const,
+        positionId: "position_tokenfolio_name",
+        legalVehicleName: "Generated Tokenfolio display",
+        digit: "5",
+      },
+    ];
+    inputs.forEach((input) =>
+      addPositionObservation(sqlite, {
+        household: demoHousehold,
+        connectionId: "connection_legal_name_evidence",
+        containerId: "container_legal_name_evidence",
+        positionId: input.positionId,
+        positionFingerprint: digest(input.digit),
+        observationId: `legal_name_${input.provider}`,
+        observationDigest: digest(String(Number(input.digit) + 3)),
+        observedAt: "2026-08-15T12:00:00.000Z",
+        retrievedAt: "2026-08-15T12:05:00.000Z",
+        acceptedAt: "2026-08-15T12:10:00.000Z",
+        completeness: "complete",
+        unrealizedValueMinor: null,
+        unrealizedValueState: "locked",
+        netValueMinor: null,
+        netValueState: "locked",
+        positionKind: "spv_interest",
+        instrumentType: "SPV interest",
+        provider: input.provider,
+        legalVehicleName: input.legalVehicleName,
+        createPosition: true,
+        acceptObservation: true,
+      }),
+    );
+
+    const view = await repository.list(
+      "synthetic-access-subject",
+      "2026-08-16T12:00:00.000Z",
+    );
+    const positions = view.connections.flatMap((connection) =>
+      connection.containers.flatMap((container) => container.positions),
+    );
+    expect(
+      positions.find((position) => position.id === "position_angellist_name")
+        ?.legalEntityNameEvidence,
+    ).toEqual({
+      state: "provider_reported",
+      legalName: "Synthetic AngelList Vehicle LLC",
+      sourceField: "Fund Name",
+    });
+    for (const positionId of [
+      "position_sydecar_name",
+      "position_tokenfolio_name",
+    ]) {
+      expect(
+        positions.find((position) => position.id === positionId)
+          ?.legalEntityNameEvidence,
+      ).toEqual({ state: "unavailable", legalName: null, sourceField: null });
+    }
   });
 
   it("uses indexed current and prior application lookups for 120 positions", async () => {
