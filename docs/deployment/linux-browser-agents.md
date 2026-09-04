@@ -44,6 +44,8 @@ user.
 Install:
 
 - Node.js 22.13 or newer and pnpm 11.9;
+- the [rootless PDF sandbox](pdf-sandbox.md) for agreement-name extraction;
+  native `poppler-utils` on the host is neither used nor a supported fallback;
 - Google Chrome Stable (preferred) or a supported Chromium package; and
 - `xvfb`, `x11vnc`, `xauth`, `novnc`, and `websockify` from the Linux
   distribution; and

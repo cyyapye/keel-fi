@@ -53,6 +53,7 @@ export * from "./holding-imports";
 export * from "./holdings-page";
 export * from "./angellist-mac-agent";
 export * from "./provider-portfolio-agent";
+export * from "./provider-legal-documents";
 export * from "./portfolio-baseline";
 export * from "./plan-inputs";
 export * from "./investment-connections";

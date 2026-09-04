@@ -304,6 +304,25 @@ export async function applyLegalEntityExactBatch(
   return LegalEntityExactBatchResultSchema.parse(await response.json());
 }
 
+export async function downloadLegalEntityDocument(id: string): Promise<Blob> {
+  const response = await fetch(
+    `/api/legal-entity-documents/${encodeURIComponent(id)}`,
+    {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { Accept: "application/pdf" },
+    },
+  );
+  if (
+    !response.ok ||
+    response.headers.get("Content-Type")?.split(";")[0] !== "application/pdf"
+  )
+    throw new Error(
+      "The agreement could not be downloaded. Try again or check source access.",
+    );
+  return response.blob();
+}
+
 export async function downloadLegalEntityExport(
   input: LegalEntityExportInput,
 ): Promise<{ blob: Blob; filename: string }> {

@@ -121,6 +121,56 @@ const inventory = {
 } satisfies LegalEntityInventory;
 
 describe("legal entity CSV export", () => {
+  it("includes exact document/page evidence and explicit unresolved structure without a guessed name", () => {
+    const documentSource: LegalEntitySourceSummary = {
+      ...source,
+      legalEntityNameEvidence: {
+        state: "document_reported",
+        legalName: "Synthetic SPV, LLC",
+        sourceField: "Agreement, page 2",
+        documents: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            fileName: "synthetic-agreement.pdf",
+            sha256: "a".repeat(64),
+            page: 2,
+            quote: "Issuer: Synthetic SPV, LLC",
+          },
+        ],
+      },
+    };
+    const unresolved: LegalEntitySourceSummary = {
+      ...source,
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "other_structure",
+      },
+      suggestedEntityType: null,
+    };
+    const rows = legalEntityExportRows(
+      { ...inventory, entities: [], candidates: [documentSource, unresolved] },
+      {
+        fields: ["legal_name", "name_evidence"],
+        includeNeedsReview: true,
+        includeHistorical: false,
+        includeOtherEntityTypes: false,
+      },
+    );
+    expect(
+      rows.find((row) => row.legal_name === "Synthetic SPV, LLC")
+        ?.name_evidence,
+    ).toContain("synthetic-agreement.pdf, page 2");
+    expect(
+      rows.find((row) => row.legal_name === "Synthetic SPV, LLC")
+        ?.name_evidence,
+    ).toContain("Issuer: Synthetic SPV, LLC");
+    expect(rows.find((row) => row.legal_name === "")?.name_evidence).toContain(
+      "compartment or certificate structure",
+    );
+    expect(JSON.stringify(rows)).not.toContain("https:");
+  });
   it("uses selected field order, quotes cells, and neutralizes formulas", () => {
     const csv = legalEntityExportCsv(inventory, {
       fields: ["legal_name", "source", "notes"],

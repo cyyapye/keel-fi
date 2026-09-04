@@ -303,6 +303,7 @@ export const LegalEntityExactBatchResultSchema = z
 export const LEGAL_ENTITY_EXPORT_FIELDS = [
   "legal_name",
   "source_record",
+  "name_evidence",
   "entity_type",
   "relationship",
   "current_owner",
@@ -328,6 +329,7 @@ export const LegalEntityExportFieldSchema = z.enum(LEGAL_ENTITY_EXPORT_FIELDS);
 export const DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS = [
   "legal_name",
   "source_record",
+  "name_evidence",
   "entity_type",
   "relationship",
   "current_owner",
@@ -345,6 +347,7 @@ export const LEGAL_ENTITY_EXPORT_FIELD_LABELS: Readonly<
 > = {
   legal_name: "Legal name",
   source_record: "Source record",
+  name_evidence: "Legal-name evidence",
   entity_type: "Entity type",
   relationship: "Relationship",
   current_owner: "Current titled owner",

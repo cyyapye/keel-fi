@@ -13,6 +13,7 @@ import {
   type LegalEntitySourceSummary,
   type LegalEntityType,
 } from "@keel/domain/legal-entities";
+import { LEGAL_DOCUMENT_PROBLEM_COPY } from "@keel/domain/provider-legal-documents";
 import {
   ActionGroup,
   Badge,
@@ -50,6 +51,7 @@ import {
 import {
   applyLegalEntityExactBatch,
   createLegalEntity,
+  downloadLegalEntityDocument,
   downloadLegalEntityExport,
   loadLegalEntities,
   reviewLegalEntitySource,
@@ -193,6 +195,73 @@ function sourceSummary(source: LegalEntitySourceSummary): string {
       ? ""
       : `${source.sourceDisplayName} · `;
   return `${sourceRecord}${source.sourceLabel} · ${formatDate(source.sourceAsOf)}`;
+}
+
+function AgreementEvidence({
+  sources,
+}: {
+  sources: readonly LegalEntitySourceSummary[];
+}) {
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const download = async (id: string, fileName: string) => {
+    setWorking(true);
+    setError(null);
+    try {
+      const blob = await downloadLegalEntityDocument(id);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError(
+        "The agreement could not be downloaded. Try again or check source access.",
+      );
+    } finally {
+      setWorking(false);
+    }
+  };
+  const documents = [
+    ...new Map(
+      sources.flatMap((source) =>
+        (source.legalEntityNameEvidence.documents ?? []).map(
+          (document) => [document.id, document] as const,
+        ),
+      ),
+    ).values(),
+  ];
+  if (documents.length === 0) return null;
+  return (
+    <Collapsible className="legal-entity-documents">
+      <CollapsibleTrigger>
+        <span>Agreement evidence · {documents.length}</span>
+        <DisclosureIndicator />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <ul>
+          {documents.map((document) => (
+            <li key={document.id}>
+              <TextLink
+                disabled={working}
+                onClick={() => void download(document.id, document.fileName)}
+              >
+                {document.fileName}
+                {document.page === null
+                  ? ""
+                  : ` · page ${document.page.toString()}`}
+              </TextLink>
+              {document.quote !== null && <p>{document.quote}</p>}
+            </li>
+          ))}
+        </ul>
+        {error !== null && <FormMessage tone="error">{error}</FormMessage>}
+      </CollapsibleContent>
+    </Collapsible>
+  );
 }
 
 function LegalEntityEditor({
@@ -526,11 +595,14 @@ function EntityRow({
         />
       </DataList>
       <footer>
-        <p>
-          {entity.sources.length === 0
-            ? "Manual record"
-            : entity.sources.map(sourceSummary).join("; ")}
-        </p>
+        <div>
+          <p>
+            {entity.sources.length === 0
+              ? "Manual record"
+              : entity.sources.map(sourceSummary).join("; ")}
+          </p>
+          <AgreementEvidence sources={entity.sources} />
+        </div>
         <TextLink onClick={onEdit}>Edit</TextLink>
       </footer>
     </article>
@@ -603,9 +675,15 @@ function CandidateRow({
           {nameUnavailable
             ? candidate.source.kind === "ownership_container"
               ? "This ownership label is a reference, not legal-name evidence."
-              : "No exact legal name was reported by this source. Use a governing document, K-1, or provider legal-vehicle report to resolve it."
+              : candidate.legalEntityNameEvidence.state === "unavailable" &&
+                  candidate.legalEntityNameEvidence.problem !== undefined
+                ? LEGAL_DOCUMENT_PROBLEM_COPY[
+                    candidate.legalEntityNameEvidence.problem
+                  ]
+                : "No exact legal name was reported by this source. Use a governing document, K-1, or provider legal-vehicle report to resolve it."
             : `Legal name reported in ${candidate.legalEntityNameEvidence.sourceField}.`}
         </p>
+        <AgreementEvidence sources={[candidate]} />
         <p>
           Recorded as {relationshipLabels[candidate.relationship].toLowerCase()}
           {candidate.currentOwner === null

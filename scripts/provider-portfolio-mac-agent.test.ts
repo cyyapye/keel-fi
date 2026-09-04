@@ -221,7 +221,9 @@ describe("provider portfolio Mac agent", () => {
     );
     expect(plist).toContain("<string>sydecar</string>");
     expect(plist).toContain("<integer>86400</integer>");
-    expect(plist).toContain("/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+    expect(plist).toContain(
+      "/opt/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    );
   });
 
   it("keeps local and preview schedules and Chrome profiles separate", () => {

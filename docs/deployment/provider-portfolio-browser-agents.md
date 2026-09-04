@@ -150,11 +150,60 @@ claiming the exact legal vehicle name.
 - Tokenfolio and Sydecar position labels remain useful source references, but
   they are not legal-name evidence and never prefill or enter the reviewed
   legal-entity inventory as legal names.
-- A Tokenfolio or Sydecar position stays in the counsel export with a blank
-  legal-name cell and an explicit unavailable status until a governing document,
-  Schedule K-1, or provider legal-vehicle report supplies the exact name.
+- The existing Sydecar and Tokenfolio agents follow the investment's agreement
+  controls and download subscription and operating/series agreements. Tax forms,
+  wire instructions, and unrelated documents are excluded. A generic external
+  platform login is not a position identity and is never matched by company
+  name.
+- Extraction uses Poppler only inside the [isolated PDF reader](pdf-sandbox.md).
+  Provision and verify its rootless runtime before updating the agent checkout.
+  No external AI, source text in logs, documents in Git, or unrestricted
+  fallback.
+- Explicit issuer/fund definitions supply the exact name, with document SHA,
+  original filename, page, and quote. A cover title is used only when no
+  explicit definition or parent/master definition is present. Investor,
+  administrator, parent, underlying-company, and filename labels never supply a
+  guessed legal name. Compartment/certificate structures are flagged for
+  provider or counsel clarification, not called LLCs.
+- Originals are deduplicated by household and SHA in private R2. Names are
+  evidence for the existing exact-batch add, never automatic acceptance.
+  Missing, unreadable, inaccessible, conflicting, changed-page, and safety-limit
+  states remain explicit in the inventory and counsel export.
 - Ownership-container labels are also references only. An LLC or LP suffix in a
   label does not make that label legal-name evidence.
+
+### Agreement backfill and recovery
+
+Deploy migration `0047` and the API before updating existing provider agent
+services. No new connector, account, credential, schedule, or second worker is
+required. Queue a normal source update to backfill accepted positions. Reconnect
+the existing agent only if its provider session has expired.
+
+The agent scans the document controls on every normal capture. A new identity is
+read first; existing originals become eligible for recheck after seven days.
+Remaining download capacity rechecks the oldest originals first, so expired
+caches cannot starve a larger first-time backfill. Deferred rechecks preserve
+the original check date. No signed download URL or query is persisted. New
+sources beyond the run budget resume on the next normal update.
+
+Budgets: 500 positions, six PDFs / 16 MiB per position, 8 MiB / 150 pages / 1
+MiB extracted text per PDF, 24 downloads / 64 MiB per run, serial provider
+navigation, and a hard 30-minute run lease. The server reserves upload bytes
+before R2 writes, atomically across retries. Source-content failures do not
+block holding capture; API/lease/storage failures fail the run explicitly.
+Document observations are submitted only after complete-snapshot identity checks
+pass.
+
+An interrupted storage save retries the same run, capture digest, and content
+hash; expired or terminal leases cannot be revived. A new run can safely retry
+the deterministic private key. Older observations cannot replace newer evidence.
+No document fetch, repair, or backfill occurs on inventory/holdings GET paths.
+
+Recovery: queue an update after restoring access or verifying the PDF sandbox;
+request a searchable, size-limited PDF for unreadable/oversized documents; ask
+the provider for the precise legal vehicle and governing agreement when absent
+or conflicting. The bounded backfill does not assert that every provider-held
+document has been found, or that a reported vehicle establishes trust ownership.
 
 ## Operational state
 
@@ -185,6 +234,7 @@ Provider authentication failures expose a managed reconnect. Worker and agent
 failures expose the manual command only under troubleshooting. Any failure
 leaves accepted holdings unchanged.
 
-The device token can only queue, lease, fail, or complete a run for its exact
-provider. It cannot read holdings, configure the schedule, authorize another
-device, review an import, or apply a change.
+The device token can only queue, lease, fail, complete, or record agreement
+evidence for a run for its exact provider. It cannot download originals, read
+holdings, configure the schedule, authorize another device, review an import, or
+apply a change.

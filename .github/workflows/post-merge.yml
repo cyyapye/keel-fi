@@ -19,6 +19,7 @@ jobs:
           ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-node-pnpm
       - run: pnpm exec playwright install chromium
+      - run: make pdf-sandbox-build
       - run: make verify
       - name: Upload browser failure artifacts
         if: failure()

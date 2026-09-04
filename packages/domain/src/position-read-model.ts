@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  LegalDocumentProblemSchema,
+  LegalNameDocumentReferenceSchema,
+} from "./provider-legal-documents";
 
 import { PositionValueAdjustmentSchema } from "./position-value";
 import {
@@ -47,6 +51,7 @@ const ReportedLegalEntityNameSchema = z
     state: z.enum(["provider_reported", "document_reported"]),
     legalName: z.string().trim().min(1).max(1_000),
     sourceField: z.string().trim().min(1).max(240),
+    documents: z.array(LegalNameDocumentReferenceSchema).max(6).optional(),
   })
   .strict();
 
@@ -55,6 +60,8 @@ const UnavailableLegalEntityNameSchema = z
     state: z.literal("unavailable"),
     legalName: z.null(),
     sourceField: z.null(),
+    problem: LegalDocumentProblemSchema.optional(),
+    documents: z.array(LegalNameDocumentReferenceSchema).max(6).optional(),
   })
   .strict();
 

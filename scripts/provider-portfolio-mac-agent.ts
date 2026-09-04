@@ -63,6 +63,10 @@ import {
   type Page,
 } from "@playwright/test";
 import { z } from "zod";
+import {
+  createProviderAgreementCollector,
+  type AgreementCollector,
+} from "./provider-legal-document-capture";
 
 const SETUP_SESSION_CHECK_TIMEOUT_MS = 30_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
@@ -873,6 +877,7 @@ type TokenfolioCaptureStage =
   | "current_value"
   | "csv"
   | "detail_reconcile"
+  | "documents"
   | "drawer_close"
   | "drawer_open"
   | "entity"
@@ -963,6 +968,7 @@ async function captureTokenfolio(
   page: Page,
   asOfDate: string,
   onStage: TokenfolioCaptureStageObserver = () => undefined,
+  agreements?: AgreementCollector,
 ) {
   onStage("stale_drawer");
   const staleClose = page.getByRole("button", { name: "Close drawer" });
@@ -1057,7 +1063,7 @@ async function captureTokenfolio(
     const heldThrough = requiredText(detail.entity);
     onStage("investment_date");
     const investmentDate = parseProviderDate(detail.committedOn);
-    captured.push({
+    const capturedRow: CaptureRow = {
       investment: company,
       legalPosition: requiredText(`Tokenfolio position in ${company}`),
       positionType: "SPV",
@@ -1075,7 +1081,12 @@ async function captureTokenfolio(
       identityKey: [company, heldThrough, investmentDate]
         .map((part) => normalizedText(part).toLowerCase())
         .join("\u0000"),
-    });
+    };
+    captured.push(capturedRow);
+    if (agreements !== undefined) {
+      onStage("documents");
+      await agreements.collect(page, capturedRow);
+    }
     onStage("drawer_close");
     await activateHtmlElement(close);
     await close.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
@@ -1112,6 +1123,7 @@ type SydecarCaptureStage =
   | "detail_funded"
   | "detail_read"
   | "detail_reconcile"
+  | "documents"
   | "final_list"
   | "initial_list"
   | "return_list"
@@ -1276,6 +1288,7 @@ async function captureSydecar(
   page: Page,
   asOfDate: string,
   onStage: SydecarCaptureStageObserver = () => undefined,
+  agreements?: AgreementCollector,
 ) {
   onStage("table");
   const tableReady = await page
@@ -1362,7 +1375,7 @@ async function captureSydecar(
       initialActivity === undefined
         ? null
         : parseProviderDate(initialActivity.date);
-    captured.push({
+    const capturedRow: CaptureRow = {
       investment: listRow.investment,
       legalPosition: requiredText(`Sydecar SPV in ${listRow.investment}`),
       positionType: "SPV",
@@ -1378,7 +1391,12 @@ async function captureSydecar(
       managementFeePpm,
       carryPpm,
       identityKey: providerId,
-    });
+    };
+    captured.push(capturedRow);
+    if (agreements !== undefined) {
+      onStage("documents");
+      await agreements.collect(page, capturedRow);
+    }
     onStage("return_list");
     await page.goto(PROVIDERS.sydecar.portfolioUrl, {
       timeout: PAGE_TIMEOUT_MS,
@@ -1492,15 +1510,31 @@ async function executeRun(
   try {
     const page = await portfolioPage(context, provider);
     const asOfDate = new Date().toISOString().slice(0, 10);
+    const agreements = await createProviderAgreementCollector(
+      authorization,
+      provider,
+      run,
+    );
     const bytes =
       provider === "tokenfolio"
-        ? await captureTokenfolio(page, asOfDate, (stage) => {
-            captureStage = stage;
-          })
-        : await captureSydecar(page, asOfDate, (stage) => {
-            captureStage = stage;
-          });
+        ? await captureTokenfolio(
+            page,
+            asOfDate,
+            (stage) => {
+              captureStage = stage;
+            },
+            agreements,
+          )
+        : await captureSydecar(
+            page,
+            asOfDate,
+            (stage) => {
+              captureStage = stage;
+            },
+            agreements,
+          );
     captureComplete = true;
+    await agreements.flush();
     await uploadCompletion(authorization, provider, run, asOfDate, bytes);
   } catch (error) {
     if (error instanceof MacAgentAccessError) {
@@ -1574,6 +1608,8 @@ function buildLaunchAgentPlist(options: LaunchAgentPlistOptions): string {
     .join("\n");
   const environmentPath = [
     path.dirname(options.nodeExecutable),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
     "/usr/bin",
     "/bin",
     "/usr/sbin",

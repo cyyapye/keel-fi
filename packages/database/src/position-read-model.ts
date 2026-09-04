@@ -1,6 +1,7 @@
 import {
   investmentSourceFreshness,
   InvestmentPositionViewSchema,
+  LegalEntityNameEvidenceSchema,
   type InvestmentCoverageCompleteness,
   type InvestmentPositionConnection,
   type InvestmentPositionContainer,
@@ -78,6 +79,7 @@ type InvestmentPositionRow = {
   effective_date: string;
   retrieved_at: string;
   import_provider: string;
+  legal_name_evidence_json: string | null;
   adjustment_id: string | null;
   adjustment_supersedes_proposal_id: string | null;
   adjustment_snapshot_id: string | null;
@@ -193,11 +195,18 @@ function positionFromRow(
             legalName: row.legal_vehicle_name,
             sourceField: "Fund Name",
           }
-        : {
-            state: "unavailable",
-            legalName: null,
-            sourceField: null,
-          },
+        : row.legal_name_evidence_json != null
+          ? LegalEntityNameEvidenceSchema.parse(
+              JSON.parse(row.legal_name_evidence_json),
+            )
+          : {
+              state: "unavailable",
+              legalName: null,
+              sourceField: null,
+              ...(["sydecar", "tokenfolio"].includes(row.import_provider)
+                ? { problem: "not_checked" as const }
+                : {}),
+            },
     ownerLabel: row.owner_label,
     reportedExposureName: row.reported_exposure_name,
     kind: row.position_kind,
@@ -435,6 +444,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ) AS effective_date,
              document.retrieved_at,
              accepted_import.provider AS import_provider,
+             legal_observation.evidence_json AS legal_name_evidence_json,
              adjustment.id AS adjustment_id,
              adjustment.supersedes_proposal_id
                AS adjustment_supersedes_proposal_id,
@@ -510,6 +520,12 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ON economics_evidence.import_row_id = accepted_row.id
            JOIN holding_imports accepted_import
              ON accepted_import.id = accepted_row.import_id
+           LEFT JOIN provider_legal_document_latest legal_latest
+             ON legal_latest.household_id = position.household_id
+            AND legal_latest.provider = accepted_import.provider
+            AND legal_latest.position_fingerprint = accepted_row.position_fingerprint
+           LEFT JOIN provider_legal_document_observations legal_observation
+             ON legal_observation.id = legal_latest.observation_id
            JOIN source_documents document
              ON document.id = accepted_import.source_document_id
            LEFT JOIN holding_position_value_proposals adjustment
