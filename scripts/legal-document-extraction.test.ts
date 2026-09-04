@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   extractLegalNameFromPages,
   extractLegalNameFromPdf,
@@ -101,7 +101,23 @@ describe("local legal document extraction", () => {
       await extractLegalNameFromPdf(new Uint8Array(8 * 1024 * 1024 + 1)),
     ).toMatchObject({ problem: "limit_reached" });
   });
-  it("extracts a synthetic PDF with the real local reader", async () => {
+  it("fails closed when sandbox configuration is missing, even if host Poppler exists", async () => {
+    vi.stubEnv(
+      "KEEL_PDF_SANDBOX_CONFIG",
+      "/nonexistent/synthetic-pdf-sandbox.json",
+    );
+    try {
+      expect(
+        await extractLegalNameFromPdf(syntheticAgreementPdf()),
+      ).toMatchObject({
+        problem: "extractor_unavailable",
+        citations: [],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it("extracts a synthetic PDF with the real isolated reader", async () => {
     expect(
       await extractLegalNameFromPdf(syntheticAgreementPdf()),
     ).toMatchObject({

@@ -31,8 +31,9 @@ requests.
 The private repository uses two isolated Linux x64 runner services on the
 existing OVH host:
 
-- `keel-ci` runs read-only PR and post-merge verification without repository
-  secrets, cloud credentials, `sudo`, or Docker-socket access.
+- `keel-ci` runs PR and post-merge verification without repository secrets,
+  cloud credentials, `sudo`, or a rootful Docker socket. It owns a separate
+  rootless Docker daemon for the isolated, synthetic PDF-reader tests.
 - `keel-deploy` runs only the protected `preview` environment deployment after
   verification and secret scan pass. It has a separate service user, home,
   runner root, and work directory, and it also has no Docker-socket access.
@@ -44,6 +45,14 @@ offline, its required job must queue and fail closed. Do not route public or
 untrusted-fork pull requests to these persistent runners. Return PR jobs to
 GitHub-hosted or ephemeral runners before changing repository visibility or
 accepting untrusted contributors.
+
+The CI account needs the rootless prerequisites and delegated cgroup-v2 CPU,
+memory and process controllers described in the
+[PDF sandbox runbook](../../docs/deployment/pdf-sandbox.md). Quality and browser
+jobs build the sandbox images explicitly. Quality and post-merge verification
+run the real isolation probes; missing infrastructure fails the checks. Package
+installation happens inside the sandbox image build, not with `sudo` in the
+runner job. The deployment lane does not build or run PDFs.
 
 `post-merge.yml` runs `make verify`, the exact pinned Tugling project contract,
 and a full-history secret scan on the exact commit pushed to `main`. After all

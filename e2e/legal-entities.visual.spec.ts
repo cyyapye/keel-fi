@@ -464,6 +464,13 @@ test("reviews legal entities and exports selected counsel fields", async ({
     "The agreement could not be downloaded. Try again or check source access.",
   );
   expect(downloadedNames).toEqual([]);
+  // Capture the settled error, not a hover left behind by the async button's
+  // disable/re-enable cycle (mobile emulation can retain it after a click).
+  await expect(agreement).toBeEnabled();
+  await page.mouse.move(0, 0);
+  await expect
+    .poll(() => agreement.evaluate((element) => element.matches(":hover")))
+    .toBe(false);
   await expect(evidence).toHaveScreenshot(
     "legal-agreement-download-error.png",
     {

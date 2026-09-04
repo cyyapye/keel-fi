@@ -155,10 +155,10 @@ claiming the exact legal vehicle name.
   wire instructions, and unrelated documents are excluded. A generic external
   platform login is not a position identity and is never matched by company
   name.
-- Extraction uses local Poppler (`brew install poppler` on macOS,
-  `poppler-utils` on Linux). Install it on the agent service PATH before
-  updating the agent checkout. No external AI, source text in logs, or documents
-  in Git.
+- Extraction uses Poppler only inside the [isolated PDF reader](pdf-sandbox.md).
+  Provision and verify its rootless runtime before updating the agent checkout.
+  No external AI, source text in logs, documents in Git, or unrestricted
+  fallback.
 - Explicit issuer/fund definitions supply the exact name, with document SHA,
   original filename, page, and quote. A cover title is used only when no
   explicit definition or parent/master definition is present. Investor,
@@ -199,10 +199,10 @@ hash; expired or terminal leases cannot be revived. A new run can safely retry
 the deterministic private key. Older observations cannot replace newer evidence.
 No document fetch, repair, or backfill occurs on inventory/holdings GET paths.
 
-Recovery: queue an update after restoring access or installing Poppler; request
-a searchable, size-limited PDF for unreadable/oversized documents; ask the
-provider for the precise legal vehicle and governing agreement when absent or
-conflicting. The bounded backfill does not assert that every provider-held
+Recovery: queue an update after restoring access or verifying the PDF sandbox;
+request a searchable, size-limited PDF for unreadable/oversized documents; ask
+the provider for the precise legal vehicle and governing agreement when absent
+or conflicting. The bounded backfill does not assert that every provider-held
 document has been found, or that a reported vehicle establishes trust ownership.
 
 ## Operational state

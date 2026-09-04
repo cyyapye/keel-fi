@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-
 import {
   LEGAL_DOCUMENT_EXTRACTOR_VERSION,
   LegalDocumentExtractionSchema,
@@ -10,6 +8,7 @@ import {
   type LegalDocumentExtraction,
   type LegalDocumentProblem,
 } from "../packages/domain/src/provider-legal-documents";
+import { PdfSandboxError, readPdfInSandbox } from "./pdf-sandbox";
 
 const compact = (value: string) => value.replace(/\s+/gu, " ").trim();
 const entitySuffix =
@@ -118,44 +117,6 @@ export function extractLegalNameFromPages(
   });
 }
 
-async function poppler(
-  command: "pdfinfo" | "pdftotext",
-  args: string[],
-  bytes: Uint8Array,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ["pipe", "pipe", "ignore"],
-      timeout: 15_000,
-      killSignal: "SIGKILL",
-      env: { ...process.env, LC_ALL: "C" },
-    });
-    const chunks: Buffer[] = [];
-    let length = 0;
-    child.stdout.on("data", (chunk: Buffer) => {
-      length += chunk.length;
-      if (length > MAX_LEGAL_DOCUMENT_TEXT_BYTES) {
-        child.kill("SIGKILL");
-        reject(new Error("limit_reached"));
-      } else chunks.push(chunk);
-    });
-    child.once("error", (error: NodeJS.ErrnoException) =>
-      reject(
-        new Error(
-          error.code === "ENOENT" ? "extractor_unavailable" : "unreadable",
-        ),
-      ),
-    );
-    child.stdin.on("error", () => undefined);
-    child.once("close", (code) =>
-      code === 0
-        ? resolve(Buffer.concat(chunks).toString("utf8"))
-        : reject(new Error("unreadable")),
-    );
-    child.stdin.end(bytes);
-  });
-}
-
 export async function extractLegalNameFromPdf(
   bytes: Uint8Array,
 ): Promise<LegalDocumentExtraction> {
@@ -164,28 +125,15 @@ export async function extractLegalNameFromPdf(
   if (new TextDecoder().decode(bytes.slice(0, 5)) !== "%PDF-")
     return failed("unreadable");
   try {
-    const info = await poppler("pdfinfo", ["-"], bytes);
-    const pageCount = Number(/^Pages:\s+(\d+)\s*$/mu.exec(info)?.[1] ?? "0");
-    if (!Number.isInteger(pageCount) || pageCount < 1)
-      return failed("unreadable");
-    if (pageCount > MAX_LEGAL_DOCUMENT_PAGES) return failed("limit_reached");
-    if (/^Encrypted:\s+yes\b/mu.test(info)) return failed("unreadable");
-    const text = await poppler(
-      "pdftotext",
-      ["-layout", "-enc", "UTF-8", "-", "-"],
-      bytes,
-    );
+    const { pageCount, text, problem } = await readPdfInSandbox(bytes);
+    if (problem !== null) return failed(problem);
     const pages = text.split("\f");
     if (pages.at(-1)?.trim() === "") pages.pop();
     if (pages.length !== pageCount) return failed("unreadable");
     return extractLegalNameFromPages(pages);
   } catch (error) {
     return failed(
-      error instanceof Error && error.message === "extractor_unavailable"
-        ? "extractor_unavailable"
-        : error instanceof Error && error.message === "limit_reached"
-          ? "limit_reached"
-          : "unreadable",
+      error instanceof PdfSandboxError ? error.problem : "unreadable",
     );
   }
 }
