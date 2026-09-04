@@ -94,6 +94,67 @@ afterEach(() => {
 });
 
 describe("provider browser session repository", () => {
+  it.each(["cancelled", "expired", "connected"] as const)(
+    "rejects delayed completion after a session is %s",
+    async (terminal) => {
+      database = createTestDatabase();
+      const d1 = new TestD1Database(database) as unknown as D1Database;
+      let now = new Date("2026-09-04T12:00:00.000Z");
+      await new D1ProviderPortfolioAgentRepository(d1, () => now).register(
+        "synthetic-access-subject",
+        "tokenfolio",
+      );
+      const repository = new D1ProviderBrowserSessionRepository(d1, () => now);
+      const session = await repository.create(
+        "synthetic-access-subject",
+        "tokenfolio",
+      );
+      const lease = await repository.lease(
+        "synthetic-access-subject",
+        "tokenfolio",
+      );
+      const input = { leaseToken: lease.session!.leaseToken };
+      await repository.ready(
+        "synthetic-access-subject",
+        "tokenfolio",
+        session.id,
+        {
+          ...input,
+          liveUrl: `https://synthetic-verification.trycloudflare.com/${"c".repeat(43)}.html`,
+        },
+      );
+      await repository.consume("synthetic-access-subject", session.id);
+      if (terminal === "cancelled") {
+        await repository.cancel("synthetic-access-subject", session.id);
+      } else if (terminal === "expired") {
+        now = new Date("2026-09-04T12:16:00.000Z");
+      } else {
+        await repository.complete(
+          "synthetic-access-subject",
+          "tokenfolio",
+          session.id,
+          input,
+        );
+      }
+      await expect(
+        repository.complete(
+          "synthetic-access-subject",
+          "tokenfolio",
+          session.id,
+          input,
+        ),
+      ).rejects.toMatchObject({ code: "lease_invalid" });
+      await expect(
+        repository.get("synthetic-access-subject", session.id),
+      ).resolves.toMatchObject({ status: terminal });
+      expect(
+        database
+          .prepare("SELECT COUNT(*) AS count FROM holding_positions")
+          .get(),
+      ).toEqual({ count: 0 });
+    },
+  );
+
   it("consumes one provider-scoped HTTPS session and retains review boundaries", async () => {
     database = createTestDatabase();
     const d1 = new TestD1Database(database) as unknown as D1Database;

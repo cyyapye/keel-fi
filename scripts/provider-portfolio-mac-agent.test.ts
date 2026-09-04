@@ -189,17 +189,31 @@ describe("provider portfolio Mac agent", () => {
     expect(click).toHaveBeenCalledWith({ force: true, noWaitAfter: true });
   });
 
-  it("accepts the authenticated Sydecar table in compact layouts", async () => {
+  it("requires the visible Sydecar table used by the background capture", async () => {
     const waitFor = vi.fn().mockResolvedValue(undefined);
-    const locator = vi.fn().mockReturnValue({ waitFor });
+    const element = {
+      waitFor,
+      isVisible: () => Promise.resolve(false),
+      first: () => element,
+    };
+    const locator = vi.fn().mockReturnValue(element);
 
     await expect(
-      providerPageReady({ locator } as never, "sydecar"),
+      providerPageReady(
+        {
+          locator,
+          getByRole: locator,
+          url: () => "https://app.sydecar.io/investments",
+        } as never,
+        "sydecar",
+      ),
     ).resolves.toBe(true);
 
-    expect(locator).toHaveBeenCalledWith('[data-testid="investments-table"]');
+    expect(locator).toHaveBeenCalledWith(
+      '[data-testid="investments-table"]:visible',
+    );
     expect(waitFor).toHaveBeenCalledWith({
-      state: "attached",
+      state: "visible",
       timeout: 1_000,
     });
   });

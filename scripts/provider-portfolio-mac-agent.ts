@@ -543,20 +543,97 @@ async function waitForKeelSession(
 async function providerPageReady(
   page: Page,
   provider: ProviderPortfolioAgentProvider,
+  timeout = 1_000,
 ): Promise<boolean> {
-  if (provider === "tokenfolio") {
-    return page
-      .locator('div[role="button"].relative.cursor-pointer')
-      .first()
-      .waitFor({ state: "visible", timeout: 1_000 })
-      .then(() => true)
-      .catch(() => false);
+  if (new URL(page.url()).origin !== PROVIDERS[provider].origin) {
+    return false;
   }
   return page
-    .locator('[data-testid="investments-table"]')
-    .waitFor({ state: "attached", timeout: 1_000 })
-    .then(() => true)
+    .locator(
+      provider === "tokenfolio"
+        ? 'button#portfolio-tab-active[role="tab"]'
+        : '[data-testid="investments-table"]:visible',
+    )
+    .waitFor({ state: "visible", timeout })
+    .then(async () => !(await providerSignInVisible(page, provider)))
     .catch(() => false);
+}
+
+async function providerSignInVisible(
+  page: Page,
+  provider: ProviderPortfolioAgentProvider,
+): Promise<boolean> {
+  // A missing portfolio control is not evidence of an expired sign-in. Only
+  // recognize an actual authentication form on the provider's own origin.
+  if (new URL(page.url()).origin !== PROVIDERS[provider].origin) {
+    return false;
+  }
+  const credentials = page.locator(
+    'input[type="password"]:visible, input[autocomplete="one-time-code"]:visible',
+  );
+  if (await credentials.first().isVisible()) {
+    return true;
+  }
+  const email = page.locator('input[type="email"]:visible');
+  const signIn = page.getByRole("button", {
+    name: /^(?:sign in|log in|send (?:me )?(?:a )?(?:login |sign.in )?(?:code|link))(?: with email)?$/iu,
+  });
+  return (
+    (await email.first().isVisible()) && (await signIn.first().isVisible())
+  );
+}
+
+async function requireProviderPageReady(
+  page: Page,
+  provider: ProviderPortfolioAgentProvider,
+  timeout = PAGE_TIMEOUT_MS,
+): Promise<void> {
+  if (await providerPageReady(page, provider, timeout)) {
+    return;
+  }
+  throw new AgentFailure(
+    (await providerSignInVisible(page, provider))
+      ? "provider_sign_in_required"
+      : "page_not_supported",
+  );
+}
+
+async function verifySavedProviderSession(
+  keelOrigin: URL,
+  provider: ProviderPortfolioAgentProvider,
+): Promise<void> {
+  // runProviderBrowserSession has gracefully closed the interactive browser.
+  // Use the ordinary background launch path and leave that browser running so
+  // the immediate update reuses the exact session we have just verified.
+  const context = await connectContext(provider, keelOrigin);
+  try {
+    await requireProviderPageReady(
+      await portfolioPage(context, provider),
+      provider,
+    );
+  } catch (error) {
+    const code =
+      error instanceof AgentFailure ? error.code : "page_not_supported";
+    console.error(
+      JSON.stringify({
+        event: "provider_saved_session_verification_failed",
+        provider,
+        code,
+      }),
+    );
+    throw new ProviderBrowserRuntimeError(
+      code === "provider_sign_in_required"
+        ? "provider_sign_in_incomplete"
+        : "browser_unavailable",
+      "Keel could not verify the saved provider session.",
+    );
+  } finally {
+    // On a CDP connection, close disconnects the client, not the owned browser.
+    await context
+      .browser()
+      ?.close()
+      .catch(() => undefined);
+  }
 }
 
 async function validateSetupSessions(
@@ -977,15 +1054,8 @@ async function captureTokenfolio(
     await staleClose.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
   }
   onStage("active_tab");
+  await requireProviderPageReady(page, "tokenfolio");
   const activeTab = page.locator('button#portfolio-tab-active[role="tab"]');
-  const tabReady = await activeTab
-    .waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS })
-    .then(() => true)
-    .catch(() => false);
-  if (!tabReady) {
-    await page.bringToFront();
-    throw new AgentFailure("provider_sign_in_required");
-  }
   onStage("tab_selection");
   if ((await activeTab.getAttribute("aria-selected")) !== "true") {
     await activeTab.click();
@@ -1291,15 +1361,7 @@ async function captureSydecar(
   agreements?: AgreementCollector,
 ) {
   onStage("table");
-  const tableReady = await page
-    .locator('[data-testid="investments-table"]:visible')
-    .waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS })
-    .then(() => true)
-    .catch(() => false);
-  if (!tableReady) {
-    await page.bringToFront();
-    throw new AgentFailure("provider_sign_in_required");
-  }
+  await requireProviderPageReady(page, "sydecar");
   onStage("initial_list");
   const initial = await stableSydecarList(page);
   const captured: CaptureRow[] = [];
@@ -1853,6 +1915,7 @@ async function handleManagedReconnect(
     profileDirectory: paths.profileDirectory,
     provider,
     startUrl: config.portfolioUrl,
+    verifySavedSession: () => verifySavedProviderSession(keelOrigin, provider),
   });
   if (result === "connected") {
     let updateAuthorization = authorization;
@@ -1977,6 +2040,8 @@ export const __providerPortfolioMacAgentTest = {
   parsePercentagePpm,
   parseUsdMinor,
   providerPageReady,
+  providerSignInVisible,
+  requireProviderPageReady,
   providerPaths,
   rowsToCsv,
   tokenfolioActiveHoldingStatus,
