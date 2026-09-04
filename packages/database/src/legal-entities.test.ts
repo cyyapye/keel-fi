@@ -695,6 +695,55 @@ describe("legal entity repository", () => {
     ).toEqual(decisionCount);
   });
 
+  it("invalidates an exact-name batch when only its document evidence changes", async () => {
+    const sources = [
+      { id: "position_document_revision", legalName: "Synthetic Evidence LLC" },
+    ];
+    addPositionSources(sqlite, sources);
+    const view = positionViewForReportedNames(sources);
+    const position = view.connections[0]?.containers[0]?.positions[0];
+    if (position === undefined) throw new Error("Synthetic position missing");
+    const document = {
+      id: "11111111-1111-4111-8111-111111111111",
+      fileName: "synthetic-subscription.pdf",
+      sha256: "b".repeat(64),
+      page: 1,
+      quote: "Issuer: Synthetic Evidence LLC",
+    };
+    position.legalEntityNameEvidence = {
+      state: "document_reported",
+      legalName: "Synthetic Evidence LLC",
+      sourceField: "Agreement, page 1",
+      documents: [document],
+    };
+    const initial = await repository.getState("synthetic-access-subject", view);
+    position.legalEntityNameEvidence.documents = [
+      {
+        ...document,
+        sha256: "c".repeat(64),
+        quote: "Fund: Synthetic Evidence LLC",
+      },
+    ];
+    const changed = await repository.getState("synthetic-access-subject", view);
+    expect(changed.exactBatch.revision).not.toBe(initial.exactBatch.revision);
+    await expect(
+      repository.applyExactBatch(
+        "synthetic-access-subject",
+        {
+          expectedRevision: initial.exactBatch.revision,
+        },
+        view,
+      ),
+    ).rejects.toMatchObject({ code: "stale" });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM legal_entity_source_decisions WHERE source_reference = ?",
+        )
+        .get(sources[0]?.id ?? ""),
+    ).toEqual({ count: 0 });
+  });
+
   it("reviews a 125-source queue in one fixed-round-trip batch", async () => {
     const sources = Array.from({ length: 125 }, (_, index) => {
       const suffix = String(index).padStart(3, "0");

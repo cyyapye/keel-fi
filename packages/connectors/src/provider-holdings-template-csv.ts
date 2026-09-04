@@ -427,7 +427,7 @@ function canonicalNaturalKeyPart(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 }
 
-async function createNaturalKeySha256(input: {
+export async function createProviderPositionNaturalKeySha256(input: {
   readonly provider: ProviderHoldingsTemplateProvider;
   readonly legalPosition: string;
   readonly heldThrough: string;
@@ -614,7 +614,7 @@ async function parseTemplateRow(
     effectiveDate: raw.asOfDate,
     row: PrivateInvestmentImportRowSchema.parse({
       rowNumber: record.rowNumber,
-      naturalKeySha256: await createNaturalKeySha256({
+      naturalKeySha256: await createProviderPositionNaturalKeySha256({
         heldThrough: raw.heldThrough,
         investment: raw.investment,
         investmentDate,

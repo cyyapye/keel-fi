@@ -179,6 +179,7 @@ import {
   type RetainedPublicExposureReconciler,
 } from "./retained-public-exposure";
 import type { AccessIdentity, Env } from "./types";
+import { registerProviderLegalDocumentRoutes } from "./provider-legal-documents";
 
 type Variables = {
   identity: AccessIdentity;
@@ -186,7 +187,7 @@ type Variables = {
   requestId: string;
 };
 
-type AppEnvironment = {
+export type AppEnvironment = {
   Bindings: Env;
   Variables: Variables;
 };
@@ -760,7 +761,7 @@ function machineRouteTarget(
     return providerLease[1] as ProviderPortfolioAgentProvider;
   }
   const providerRun =
-    /^\/api\/automation\/provider-holdings\/(tokenfolio|sydecar)\/mac-agent\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:fail|complete)$/iu.exec(
+    /^\/api\/automation\/provider-holdings\/(tokenfolio|sydecar)\/mac-agent\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:fail|complete|document-manifest|documents)$/iu.exec(
       pathname,
     );
   return providerRun === null
@@ -4306,5 +4307,6 @@ export function createApp(options: AppOptions = {}) {
 
   app.notFound((context) => context.json({ error: "Not found." }, 404));
 
+  registerProviderLegalDocumentRoutes(app);
   return app;
 }

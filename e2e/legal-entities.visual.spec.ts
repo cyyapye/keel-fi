@@ -12,9 +12,18 @@ const positionSource = {
   source: { kind: "holding_position" as const, id: "position_demo_venture" },
   sourceDisplayName: "Demo Robotics",
   legalEntityNameEvidence: {
-    state: "provider_reported" as const,
+    state: "document_reported" as const,
     legalName: "Demo Venture SPV LLC",
-    sourceField: "Fund Name",
+    sourceField: "Agreement, page 2",
+    documents: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        fileName: "demo-subscription-agreement.pdf",
+        sha256: "a".repeat(64),
+        page: 2,
+        quote: "Issuer: Demo Venture SPV LLC",
+      },
+    ],
   },
   suggestedEntityType: "llc" as const,
   sourceLabel: "Reviewed venture export",
@@ -128,6 +137,7 @@ const initialInventory = {
         state: "unavailable",
         legalName: null,
         sourceField: null,
+        problem: "missing",
       },
       suggestedEntityType: null,
       sourceLabel: "Sydecar template",
@@ -146,6 +156,16 @@ const initialInventory = {
         state: "unavailable",
         legalName: null,
         sourceField: null,
+        problem: "other_structure",
+        documents: [
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            fileName: "demo-certificate-subscription-agreement.pdf",
+            sha256: "b".repeat(64),
+            page: null,
+            quote: null,
+          },
+        ],
       },
       suggestedEntityType: null,
       sourceLabel: "Tokenfolio template",
@@ -377,7 +397,10 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page.locator(
       '.legal-entity-export__field-grid input[type="checkbox"]:checked',
     ),
-  ).toHaveCount(12);
+  ).toHaveCount(13);
+  await expect(
+    page.getByLabel("Legal-name evidence", { exact: true }),
+  ).toBeChecked();
   await expect(
     page.getByLabel("Include unresolved source records"),
   ).toBeChecked();
@@ -400,11 +423,62 @@ test("reviews legal entities and exports selected counsel fields", async ({
     .locator(".legal-entity-candidate")
     .filter({ hasText: "Demo Climate" });
   await expect(unresolvedSydecar).toContainText(
-    "No exact legal name was reported by this source.",
+    "No agreement was available for this investment.",
   );
   await expect(
     unresolvedSydecar.getByRole("button", { name: "Review details" }),
   ).toHaveCount(0);
+  await expect(
+    page
+      .locator(".legal-entity-candidate")
+      .filter({ hasText: "Demo Pharmacy" }),
+  ).toContainText("compartment or certificate structure");
+  const evidence = page
+    .locator(".legal-entity-candidate")
+    .filter({ hasText: "Demo Venture SPV LLC" });
+  await evidence
+    .getByRole("button", { name: "Agreement evidence · 1" })
+    .click();
+  await expect(evidence).toContainText("Issuer: Demo Venture SPV LLC");
+  const agreement = evidence.getByRole("button", {
+    name: "demo-subscription-agreement.pdf · page 2",
+  });
+  let agreementAvailable = false;
+  const downloadedNames: string[] = [];
+  page.on("download", (download) => {
+    downloadedNames.push(download.suggestedFilename());
+  });
+  await page.route("**/api/legal-entity-documents/*", (route) =>
+    agreementAvailable
+      ? route.fulfill({
+          contentType: "application/pdf",
+          headers: {
+            "Content-Disposition": 'attachment; filename="agreement.pdf"',
+          },
+          body: "%PDF-1.4 synthetic test download",
+        })
+      : route.fulfill({ status: 404, json: { error: "not_found" } }),
+  );
+  await agreement.click();
+  await expect(evidence).toContainText(
+    "The agreement could not be downloaded. Try again or check source access.",
+  );
+  expect(downloadedNames).toEqual([]);
+  await expect(evidence).toHaveScreenshot(
+    "legal-agreement-download-error.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+    },
+  );
+  await expectNoHorizontalOverflow(page);
+  agreementAvailable = true;
+  const agreementDownload = page.waitForEvent("download");
+  await agreement.click();
+  expect((await agreementDownload).suggestedFilename()).toBe(
+    "demo-subscription-agreement.pdf",
+  );
+  await expect(evidence.locator(".form-message")).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 
   await page.addStyleTag({
@@ -489,7 +563,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     includeOtherEntityTypes: false,
   });
   expect((exportBody as unknown as { fields: unknown[] }).fields).toHaveLength(
-    12,
+    13,
   );
   await expect(page).toHaveURL(/\/holdings\/entities$/u);
 });

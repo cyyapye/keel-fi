@@ -1,0 +1,191 @@
+import { spawn } from "node:child_process";
+
+import {
+  LEGAL_DOCUMENT_EXTRACTOR_VERSION,
+  LegalDocumentExtractionSchema,
+  MAX_LEGAL_DOCUMENT_BYTES,
+  MAX_LEGAL_DOCUMENT_PAGES,
+  MAX_LEGAL_DOCUMENT_TEXT_BYTES,
+  type LegalDocumentCitation,
+  type LegalDocumentExtraction,
+  type LegalDocumentProblem,
+} from "../packages/domain/src/provider-legal-documents";
+
+const compact = (value: string) => value.replace(/\s+/gu, " ").trim();
+const entitySuffix =
+  /\b(?:L\.?L\.?C\.?|L\.?P\.?|limited liability company|limited partnership)\.?$/iu;
+
+function failed(
+  problem: LegalDocumentProblem,
+  pageCount = 0,
+): LegalDocumentExtraction {
+  return {
+    version: LEGAL_DOCUMENT_EXTRACTOR_VERSION,
+    pageCount,
+    problem,
+    citations: [],
+  };
+}
+
+// Deliberately recognize explicit vehicle roles, not arbitrary LLC-shaped text.
+// A manager, subscriber, investor, filename or portfolio company is not a name
+// source. New templates need a synthetic positive AND role-confusion regression.
+export function extractLegalNameFromPages(
+  pages: readonly string[],
+): LegalDocumentExtraction {
+  if (pages.length === 0 || pages.every((page) => compact(page).length === 0))
+    return failed("unreadable");
+  if (
+    pages.length > MAX_LEGAL_DOCUMENT_PAGES ||
+    Buffer.byteLength(pages.join("")) > MAX_LEGAL_DOCUMENT_TEXT_BYTES
+  )
+    return failed("limit_reached");
+  const citations: LegalDocumentCitation[] = [];
+  const titles: LegalDocumentCitation[] = [];
+  pages.forEach((text, index) => {
+    const lines = text.split(/\r?\n/u);
+    lines.forEach((line, lineIndex) => {
+      const label =
+        /^\s*["“]?(?:Legal\s+)?(Issuer|Fund|Series)(?:\s+(?:Legal\s+)?Name)?["”]?\s*:\s*(.+?)\s*$/iu.exec(
+          line,
+        );
+      if (label !== null) {
+        // A provider's definitions may explicitly qualify a named series. The
+        // qualification is not part of the name; no other prose is stripped.
+        const name = compact(label[2] ?? "").replace(
+          /, established as a Series under the Parent LLC(?: Agreement\.)?$/u,
+          "",
+        );
+        if (entitySuffix.test(name))
+          citations.push({
+            legalName: name,
+            page: index + 1,
+            quote: compact(line),
+            role: (label[1]?.toLowerCase() ?? "issuer") as
+              "issuer" | "fund" | "series",
+          });
+      }
+      if (
+        /^\s*(?:AMENDED AND RESTATED\s+)?(?:LIMITED LIABILITY COMPANY|LIMITED PARTNERSHIP|OPERATING)\s+AGREEMENT\s*$/iu.test(
+          line,
+        )
+      ) {
+        // A standalone title + OF + complete vehicle line. Do not reconstruct
+        // a split or truncated legal name, or take the first LLC in prose.
+        const following = lines
+          .slice(lineIndex + 1)
+          .filter((part) => compact(part) !== "")
+          .slice(0, 2);
+        const name = compact(following[1] ?? "");
+        if (
+          /^of$/iu.test(compact(following[0] ?? "")) &&
+          entitySuffix.test(name)
+        ) {
+          titles.push({
+            legalName: name,
+            page: index + 1,
+            quote: compact([line, ...following].join(" ")),
+            role: "company_agreement",
+          });
+        }
+      }
+    });
+  });
+  // A compartment represented by another company is not evidence that the
+  // investor owns that representative's LLC interests. Never substitute it.
+  if (
+    pages.some((page) =>
+      /as (?:a )?compartment of and duly represented by/iu.test(compact(page)),
+    )
+  )
+    return failed("other_structure", pages.length);
+  // Explicit definitions control over capitalized cover headings. A title of
+  // an attached parent agreement must not replace the defined invested fund.
+  const definesParent = pages.some((page) =>
+    /["“]?(?:Parent|Master)\s+(?:LLC|LP|Agreement)["”]?\s*:/iu.test(page),
+  );
+  if (citations.length === 0 && !definesParent) citations.push(...titles);
+  if (citations.length === 0) return failed("name_not_found", pages.length);
+  // Preserve spelling, punctuation and case exactly. Even seemingly equivalent
+  // variants must be resolved, not silently merged by a name heuristic.
+  if (new Set(citations.map((citation) => citation.legalName)).size !== 1)
+    return failed("conflicting", pages.length);
+  return LegalDocumentExtractionSchema.parse({
+    version: LEGAL_DOCUMENT_EXTRACTOR_VERSION,
+    pageCount: pages.length,
+    problem: null,
+    citations: citations.slice(0, 1),
+  });
+}
+
+async function poppler(
+  command: "pdfinfo" | "pdftotext",
+  args: string[],
+  bytes: Uint8Array,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ["pipe", "pipe", "ignore"],
+      timeout: 15_000,
+      killSignal: "SIGKILL",
+      env: { ...process.env, LC_ALL: "C" },
+    });
+    const chunks: Buffer[] = [];
+    let length = 0;
+    child.stdout.on("data", (chunk: Buffer) => {
+      length += chunk.length;
+      if (length > MAX_LEGAL_DOCUMENT_TEXT_BYTES) {
+        child.kill("SIGKILL");
+        reject(new Error("limit_reached"));
+      } else chunks.push(chunk);
+    });
+    child.once("error", (error: NodeJS.ErrnoException) =>
+      reject(
+        new Error(
+          error.code === "ENOENT" ? "extractor_unavailable" : "unreadable",
+        ),
+      ),
+    );
+    child.stdin.on("error", () => undefined);
+    child.once("close", (code) =>
+      code === 0
+        ? resolve(Buffer.concat(chunks).toString("utf8"))
+        : reject(new Error("unreadable")),
+    );
+    child.stdin.end(bytes);
+  });
+}
+
+export async function extractLegalNameFromPdf(
+  bytes: Uint8Array,
+): Promise<LegalDocumentExtraction> {
+  if (bytes.byteLength > MAX_LEGAL_DOCUMENT_BYTES)
+    return failed("limit_reached");
+  if (new TextDecoder().decode(bytes.slice(0, 5)) !== "%PDF-")
+    return failed("unreadable");
+  try {
+    const info = await poppler("pdfinfo", ["-"], bytes);
+    const pageCount = Number(/^Pages:\s+(\d+)\s*$/mu.exec(info)?.[1] ?? "0");
+    if (!Number.isInteger(pageCount) || pageCount < 1)
+      return failed("unreadable");
+    if (pageCount > MAX_LEGAL_DOCUMENT_PAGES) return failed("limit_reached");
+    if (/^Encrypted:\s+yes\b/mu.test(info)) return failed("unreadable");
+    const text = await poppler(
+      "pdftotext",
+      ["-layout", "-enc", "UTF-8", "-", "-"],
+      bytes,
+    );
+    const pages = text.split("\f");
+    if (pages.at(-1)?.trim() === "") pages.pop();
+    if (pages.length !== pageCount) return failed("unreadable");
+    return extractLegalNameFromPages(pages);
+  } catch (error) {
+    return failed(
+      error instanceof Error && error.message === "extractor_unavailable"
+        ? "extractor_unavailable"
+        : error instanceof Error && error.message === "limit_reached"
+          ? "limit_reached"
+          : "unreadable",
+    );
+  }
+}

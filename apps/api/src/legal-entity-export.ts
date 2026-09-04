@@ -8,6 +8,7 @@ import {
   type LegalEntityRecord,
   type LegalEntitySourceSummary,
 } from "@keel/domain/legal-entities";
+import { LEGAL_DOCUMENT_PROBLEM_COPY } from "@keel/domain/provider-legal-documents";
 
 type ExportRow = Record<LegalEntityExportField, string>;
 
@@ -69,6 +70,26 @@ function sourceRecords(sources: readonly LegalEntitySourceSummary[]): string {
     sources.map((source) => source.sourceDisplayName),
   );
   return records.length === 0 ? NOT_RECORDED : records.join("; ");
+}
+
+function nameEvidence(sources: readonly LegalEntitySourceSummary[]): string {
+  const values = sources.map((source) => {
+    const evidence = source.legalEntityNameEvidence;
+    const documents = (evidence.documents ?? [])
+      .map(
+        (document) =>
+          `${document.fileName}${document.page === null ? "" : `, page ${document.page.toString()}`}; SHA-256 ${document.sha256}${document.quote === null ? "" : `; ${document.quote}`}`,
+      )
+      .join(" | ");
+    const status =
+      evidence.state === "unavailable"
+        ? evidence.problem === undefined
+          ? "Legal name unavailable"
+          : LEGAL_DOCUMENT_PROBLEM_COPY[evidence.problem]
+        : evidence.sourceField;
+    return `${source.sourceLabel}: ${status}${documents === "" ? "" : ` | ${documents}`}`;
+  });
+  return uniqueValues(values).join("; ") || "Manual record";
 }
 
 function sourceDates(
@@ -157,6 +178,7 @@ function confirmedRow(entity: LegalEntityRecord): ExportRow {
   return {
     legal_name: entity.legalName,
     source_record: sourceRecords(entity.sources),
+    name_evidence: nameEvidence(entity.sources),
     entity_type: entityTypeLabel(entity.entityType),
     relationship: relationshipLabel(entity.relationship),
     current_owner: entity.currentOwner ?? NOT_RECORDED,
@@ -196,6 +218,7 @@ function candidateRow(candidate: LegalEntitySourceSummary): ExportRow {
   return {
     legal_name: legalName ?? "",
     source_record: candidate.sourceDisplayName,
+    name_evidence: nameEvidence([candidate]),
     entity_type: nameUnavailable ? "Not reported" : "Needs review",
     relationship: relationshipLabel(candidate.relationship),
     current_owner: candidate.currentOwner ?? NOT_RECORDED,

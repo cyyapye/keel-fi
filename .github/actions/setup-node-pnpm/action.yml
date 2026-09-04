@@ -15,3 +15,13 @@ runs:
     - name: Install dependencies
       shell: bash
       run: pnpm install --frozen-lockfile
+    - name: Install local PDF reader
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        if ! command -v pdfinfo >/dev/null || ! command -v pdftotext >/dev/null; then
+          sudo apt-get -o DPkg::Lock::Timeout=120 update
+          sudo apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends poppler-utils
+        fi
+        pdfinfo -v
+        pdftotext -v

@@ -44,6 +44,8 @@ user.
 Install:
 
 - Node.js 22.13 or newer and pnpm 11.9;
+- `poppler-utils` (`pdfinfo` and `pdftotext`) on the service `PATH` for local
+  agreement-name extraction; documents are never sent to an external AI service;
 - Google Chrome Stable (preferred) or a supported Chromium package; and
 - `xvfb`, `x11vnc`, `xauth`, `novnc`, and `websockify` from the Linux
   distribution; and

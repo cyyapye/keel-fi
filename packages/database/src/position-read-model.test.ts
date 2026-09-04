@@ -7,6 +7,12 @@ import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1HoldingsPageRepository } from "./holdings-page";
 import { D1PositionEconomicsRepository } from "./position-economics";
 import { D1PositionValueAdjustmentRepository } from "./position-value-adjustments";
+import { D1ProviderPortfolioAgentRepository } from "./provider-portfolio-agent";
+import { D1ProviderLegalDocumentRepository } from "./provider-legal-documents";
+import {
+  LegalDocumentTestD1,
+  syntheticDocumentCapture,
+} from "../../../scripts/test-support/legal-documents";
 
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
@@ -45,6 +51,8 @@ const migrationFiles = [
   "packages/database/migrations/0040_holdings_read_performance.sql",
   "packages/database/migrations/0041_reported_position_economics.sql",
   "packages/database/migrations/0046_reviewed_legal_entity_inventory.sql",
+  "packages/database/migrations/0033_provider_portfolio_agents.sql",
+  "packages/database/migrations/0047_provider_legal_document_evidence.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -748,11 +756,33 @@ describe("canonical investment position view", () => {
       expect(
         positions.find((position) => position.id === positionId)
           ?.legalEntityNameEvidence,
-      ).toEqual({ state: "unavailable", legalName: null, sourceField: null });
+      ).toEqual({
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "not_checked",
+      });
     }
   });
 
   it("uses indexed current and prior application lookups for 120 positions", async () => {
+    const documentD1 = new LegalDocumentTestD1(sqlite).asD1();
+    const now = new Date("2026-08-16T12:00:00.000Z");
+    const agent = new D1ProviderPortfolioAgentRepository(documentD1, () => now);
+    await agent.register("synthetic-access-subject", "sydecar");
+    await agent.requestRun("synthetic-access-subject", "sydecar");
+    const run = (await agent.lease("synthetic-access-subject", "sydecar")).run;
+    if (run === null) throw new Error("Synthetic lease missing");
+    const agreements = new D1ProviderLegalDocumentRepository(
+      documentD1,
+      () => now,
+    );
+    const lease = await agreements.lease(
+      "synthetic-access-subject",
+      "sydecar",
+      run.id,
+      run.leaseToken,
+    );
     addConnection(sqlite, demoHousehold, {
       id: "connection_scale",
       protectedSourceKey: digest("1"),
@@ -774,6 +804,7 @@ describe("canonical investment position view", () => {
         connectionId: "connection_scale",
         containerId: "container_scale",
         positionId: `position_scale_${suffix}`,
+        provider: "sydecar",
         positionFingerprint: (index + 1_000).toString(16).padStart(64, "0"),
         observationId: `scale_${suffix}`,
         observationDigest: (index + 2_000).toString(16).padStart(64, "0"),
@@ -788,6 +819,20 @@ describe("canonical investment position view", () => {
         createPosition: true,
         acceptObservation: true,
       });
+      const fingerprint = (index + 1_000).toString(16).padStart(64, "0");
+      const capture = {
+        ...syntheticDocumentCapture(),
+        naturalKeySha256: fingerprint,
+      };
+      await agreements.record(
+        lease,
+        fingerprint,
+        capture,
+        capture.documents.map((document) => ({
+          sha256: document.sha256,
+          objectKey: `legal-entity-documents/hh_demo/${document.sha256}.pdf`,
+        })),
+      );
     }
 
     const view = await repository.list(
@@ -799,6 +844,15 @@ describe("canonical investment position view", () => {
         .flatMap((connection) => connection.containers)
         .flatMap((container) => container.positions),
     ).toHaveLength(120);
+    expect(
+      view.connections
+        .flatMap((connection) => connection.containers)
+        .flatMap((container) => container.positions)
+        .every(
+          (position) =>
+            position.legalEntityNameEvidence.state === "document_reported",
+        ),
+    ).toBe(true);
 
     const positionSql = database.preparedSql.find(
       (sql) =>
@@ -810,6 +864,12 @@ describe("canonical investment position view", () => {
       .prepare(`EXPLAIN QUERY PLAN ${positionSql ?? "SELECT 1"}`)
       .all(demoHousehold.id) as Array<{ detail: string }>;
     expect(plan.map((row) => row.detail)).not.toContain("SCAN candidate");
+    expect(plan.map((row) => row.detail).join("\n")).toMatch(
+      /SEARCH legal_latest USING INDEX.*household_id=\? AND provider=\? AND position_fingerprint=\?/u,
+    );
+    expect(plan.map((row) => row.detail).join("\n")).toMatch(
+      /SEARCH legal_observation USING INDEX/u,
+    );
     expect(
       plan.filter((row) =>
         row.detail.includes("holding_import_applications_position_applied_idx"),

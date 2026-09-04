@@ -6005,7 +6005,38 @@ h1,
   border-top: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
 
-.legal-entity-candidate__copy > div {
+.legal-entity-documents {
+  margin-top: 8px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.legal-entity-documents > [data-slot="collapsible-trigger"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legal-entity-documents ul {
+  display: grid;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legal-entity-documents .keel-link,
+.legal-entity-documents p {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.legal-entity-row footer > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.legal-entity-candidate__copy > div:first-child {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
