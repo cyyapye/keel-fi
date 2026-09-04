@@ -7,9 +7,114 @@ import { describe, expect, it, vi } from "vitest";
 import {
   __providerBrowserReconnectTest,
   cloudflaredQuickTunnelUrl,
+  type ProviderBrowserRuntimeOptions,
 } from "./provider-browser-reconnect";
 
+function reconnectOptions(
+  verifySavedSession: () => Promise<void>,
+): ProviderBrowserRuntimeOptions {
+  return {
+    appDirectory: "/srv/keel/synthetic",
+    profileDirectory: "/srv/keel/synthetic/Chrome",
+    chromePath: "/usr/bin/chromium",
+    startUrl: "https://app.tokenfolio.co/portfolio?tab=active",
+    label: "Tokenfolio",
+    provider: "tokenfolio",
+    isProviderReady: () => Promise.resolve(true),
+    verifySavedSession,
+    authorization: {
+      version: 1,
+      target: "tokenfolio",
+      apiOrigin: "https://keel.example.com",
+      token: "a".repeat(43),
+    },
+    lease: {
+      id: "11111111-1111-4111-8111-111111111111",
+      leaseToken: "b".repeat(43),
+      expiresAt: "2026-09-04T12:15:00.000Z",
+    },
+  };
+}
+
 describe("managed provider browser reconnect", () => {
+  it("reports connected only after closing and verifying the saved profile", async () => {
+    const order: string[] = [];
+    let finishVerification: () => void = () => undefined;
+    const verified = new Promise<void>((resolve) => {
+      finishVerification = resolve;
+    });
+    const complete = vi.fn(() => {
+      order.push("complete");
+      return Promise.resolve("connected" as const);
+    });
+    const pending = __providerBrowserReconnectTest.completeBrowserSession(
+      reconnectOptions(async () => {
+        order.push("verify");
+        await verified;
+      }),
+      () => {
+        order.push("close");
+        return Promise.resolve();
+      },
+      complete,
+    );
+    await vi.waitFor(() => expect(order).toEqual(["close", "verify"]));
+    expect(complete).not.toHaveBeenCalled();
+    finishVerification();
+    await expect(pending).resolves.toBe("connected");
+    expect(order).toEqual(["close", "verify", "complete"]);
+  });
+
+  it.each(["close", "verify"])(
+    "never reports success when %s fails",
+    async (step) => {
+      const complete = vi.fn();
+      const verify = vi.fn(() => {
+        if (step === "verify")
+          return Promise.reject(new Error("synthetic session was not saved"));
+        return Promise.resolve();
+      });
+      await expect(
+        __providerBrowserReconnectTest.completeBrowserSession(
+          reconnectOptions(verify),
+          () => {
+            if (step === "close")
+              return Promise.reject(new Error("synthetic close failed"));
+            return Promise.resolve();
+          },
+          complete,
+        ),
+      ).rejects.toThrow("synthetic");
+      expect(complete).not.toHaveBeenCalled();
+      expect(verify).toHaveBeenCalledTimes(step === "close" ? 0 : 1);
+    },
+  );
+
+  it.each(["cancelled", "expired", "failed"] as const)(
+    "honors a server %s outcome after verification",
+    async (status) => {
+      await expect(
+        __providerBrowserReconnectTest.completeBrowserSession(
+          reconnectOptions(() => Promise.resolve()),
+          () => Promise.resolve(),
+          () => Promise.resolve(status),
+        ),
+      ).resolves.toBe("terminated");
+    },
+  );
+
+  it("does not re-complete a rejected or expired server lease", async () => {
+    const complete = vi.fn().mockRejectedValue(new Error("lease expired"));
+    await expect(
+      __providerBrowserReconnectTest.completeBrowserSession(
+        reconnectOptions(() => Promise.resolve()),
+        () => Promise.resolve(),
+        complete,
+      ),
+    ).rejects.toThrow("lease expired");
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
   it("accepts only the temporary HTTPS tunnel URL from bounded output", () => {
     expect(
       cloudflaredQuickTunnelUrl(

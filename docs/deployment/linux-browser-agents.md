@@ -224,6 +224,24 @@ credential and requests an update immediately. The old credential stays valid
 until the replacement has been stored and successfully used. Any imported
 changes still enter the normal review queue.
 
+For Tokenfolio and Sydecar, an interactive portfolio alone is not success. The
+worker closes Chrome gracefully, reopens the same profile through its ordinary
+background launch path, and requires the same visible portfolio controls used by
+capture before completing the reconnect. The verified background browser stays
+available for the immediate update. A failed saved-session check does not
+complete the reconnect or trigger credential rotation. Cancellation and the
+15-minute lease still apply during verification.
+
+Only a visible provider-owned authentication form is classified as requiring
+sign-in. Missing, hidden, delayed, or changed portfolio controls are reported as
+page-reading failures with a retry action, not as proof of login expiry.
+Reconnect failures log only provider, stage and bounded error codes; do not add
+cookies, page text, credentials, account identifiers, or source URLs to logs.
+Deploy the API/web first and update the existing provider service code only
+after its exact revision passes verification. Preserve its Linux identity and
+Chrome profile. Synthetic restart tests do not establish real-provider session
+durability: a live reconnect and following capture remain the activation check.
+
 ## Verify and operate it
 
 Setup prints the exact unit name. Check it with:

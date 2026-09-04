@@ -1617,8 +1617,11 @@ test("shows clear health and repair actions for portfolio agents", async ({
   ).toContainText("Paused — totals did not reconcile");
   await expect(
     page.getByRole("button", { name: /Reconnect (AngelList|Sydecar)/u }),
-  ).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "Try update" })).toBeVisible();
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Reconnect Sydecar" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Try update" })).toHaveCount(2);
   await expect(
     page.getByText("Copy repair command", { exact: true }),
   ).toHaveCount(0);
@@ -1646,7 +1649,11 @@ test("shows clear health and repair actions for portfolio agents", async ({
     },
   );
 
-  await page.getByRole("button", { name: "Try update" }).click();
+  await page
+    .locator(".provider-agent-row")
+    .filter({ hasText: "Tokenfolio" })
+    .getByRole("button", { name: "Try update" })
+    .click();
   await expect(
     page
       .locator(".provider-agent-row")
@@ -1654,6 +1661,109 @@ test("shows clear health and repair actions for portfolio agents", async ({
       .getByRole("heading", { name: "Update queued" }),
   ).toBeVisible();
   expect(tokenfolioUpdateRequested).toBe(true);
+});
+
+test("keeps unverified sign-ins and page-reading failures separate", async ({
+  page,
+}) => {
+  const sessionId = "33333333-3333-4333-8333-333333333333";
+  let sessionStatus: "opened" | "failed" = "opened";
+  await page.addInitScript(() => {
+    window.open = () => null;
+  });
+  await page.route("**/api/alpha", (route) =>
+    route.fulfill({ json: alphaFixture }),
+  );
+  await page.route(
+    "**/api/automation/provider-holdings/*/status",
+    async (route) => {
+      const provider = new URL(route.request().url()).pathname
+        .split("/")
+        .at(-2);
+      await route.fulfill({
+        json: {
+          version: 1,
+          provider,
+          status: "needs_attention",
+          interval: "daily",
+          runStatus: null,
+          lastSeenAt: "2026-09-04T12:00:00.000Z",
+          lastCompletedAt: "2026-09-03T12:00:00.000Z",
+          nextRunAt: "2026-09-05T12:00:00.000Z",
+          latestImportId: null,
+          errorCode:
+            provider === "tokenfolio"
+              ? "provider_sign_in_required"
+              : "page_not_supported",
+        },
+      });
+    },
+  );
+  const session = () => ({
+    version: 1,
+    id: sessionId,
+    provider: "tokenfolio",
+    status: sessionStatus,
+    requestedAt: "2026-09-04T12:00:00.000Z",
+    expiresAt: "2026-09-04T12:15:00.000Z",
+    openedAt: sessionStatus === "opened" ? "2026-09-04T12:01:00.000Z" : null,
+    connectedAt: null,
+    errorCode:
+      sessionStatus === "failed" ? "provider_sign_in_incomplete" : null,
+  });
+  await page.route(
+    "**/api/automation/provider-browser/tokenfolio/reconnect",
+    (route) => route.fulfill({ status: 202, json: session() }),
+  );
+  await page.route(
+    `**/api/automation/provider-browser/sessions/${sessionId}`,
+    (route) => route.fulfill({ json: session() }),
+  );
+  await page.goto("/holdings/sources");
+  const sources = page.locator(".provider-agents");
+  const sydecar = sources
+    .locator(".provider-agent-row")
+    .filter({ hasText: "Sydecar" });
+  await expect(
+    sydecar.getByRole("heading", { name: "Could not read Sydecar" }),
+  ).toBeVisible();
+  await expect(
+    sydecar.getByRole("button", { name: "Try update" }),
+  ).toBeVisible();
+  await expect(
+    sydecar.getByRole("button", { name: "Reconnect Sydecar" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Reconnect Tokenfolio" }).click();
+  await expect(
+    sources.getByText(
+      "Finish signing in to Tokenfolio. Keel will check the saved sign-in before confirming.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(sources.getByText(/Tokenfolio reconnected/u)).toHaveCount(0);
+  sessionStatus = "failed";
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(
+    sources.getByText(
+      "The sign-in did not stay available for automatic updates. Keel has not marked it connected.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(sources.getByText(/Tokenfolio reconnected/u)).toHaveCount(0);
+  await expect(
+    sources.getByText("Your saved provider session was not changed."),
+  ).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  await expect(sources).toHaveScreenshot(
+    "holdings-provider-session-unverified.png",
+    { animations: "disabled", caret: "hide" },
+  );
 });
 
 test("starts a provider-scoped browser reconnect without terminal handoff", async ({

@@ -4270,13 +4270,17 @@ function ProviderReconnectControl({
       : session?.status === "ready"
         ? `The ${label} browser is ready for 15 minutes.`
         : session?.status === "opened"
-          ? `Finish signing in to ${label}. When the private screen closes, return to Keel.`
+          ? provider === "angellist"
+            ? `Finish signing in to ${label}. When the private screen closes, return to Keel.`
+            : `Finish signing in to ${label}. Keel will check the saved sign-in before confirming.`
           : session?.status === "connected"
             ? null
             : session?.status === "expired"
               ? "The private browser expired. Start again when you are ready."
               : session?.status === "failed"
-                ? "The private browser could not start. Your saved provider session was not changed."
+                ? session.errorCode === "provider_sign_in_incomplete"
+                  ? "The sign-in did not stay available for automatic updates. Keel has not marked it connected."
+                  : "Keel could not complete the reconnect. Your prior holdings are unchanged."
                 : null;
 
   return (
@@ -4675,20 +4679,22 @@ function providerPortfolioAgentMessage(
     if (overview.errorCode === "incomplete_snapshot") {
       return {
         title: "Paused — totals did not reconcile",
-        description: `Reconnect ${label} and confirm the portfolio finished loading. Your prior holdings are unchanged.`,
+        description:
+          "Try the update again once the portfolio has finished loading. Your prior holdings are unchanged.",
       };
     }
     if (overview.errorCode === "identity_ambiguous") {
       return {
         title: "Paused — position match is unclear",
-        description: `Reconnect ${label} to inspect the portfolio. Keel stopped instead of guessing.`,
+        description:
+          "Keel could not match the positions safely. Your prior holdings are unchanged.",
       };
     }
     if (overview.errorCode === "page_not_supported") {
       return {
-        title: `Paused — ${label} page changed`,
+        title: `Could not read ${label}`,
         description:
-          "The update stopped before upload. Check troubleshooting after Keel is updated.",
+          "The portfolio may still be loading or its page may have changed. Try the update again; no sign-in failure was confirmed.",
       };
     }
     if (overview.errorCode === "upload_failed") {
@@ -4725,7 +4731,11 @@ function ProviderPortfolioAgentRow({
 
   const reload = useCallback(async () => {
     try {
-      setOverview(await loadProviderPortfolioAgentOverview(provider));
+      const next = await loadProviderPortfolioAgentOverview(provider);
+      setOverview(next);
+      if (next.status === "needs_attention") {
+        setNotice(null);
+      }
       setError(null);
     } catch {
       setError(`Keel could not check ${label} updates. Try again shortly.`);
@@ -4752,12 +4762,12 @@ function ProviderPortfolioAgentRow({
     overview?.status === "offline" || overview?.status === "needs_attention";
   const managedReconnectAvailable =
     overview?.status === "needs_attention" &&
-    (overview.errorCode === "provider_sign_in_required" ||
-      overview.errorCode === "incomplete_snapshot" ||
-      overview.errorCode === "identity_ambiguous");
+    overview.errorCode === "provider_sign_in_required";
   const retryAvailable =
     overview?.status === "needs_attention" &&
     (overview.errorCode === "upload_failed" ||
+      overview.errorCode === "page_not_supported" ||
+      overview.errorCode === "incomplete_snapshot" ||
       overview.errorCode === "unexpected_failure");
   const running = overview?.status === "running";
 

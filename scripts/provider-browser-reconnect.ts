@@ -18,6 +18,7 @@ import {
   type Socket,
 } from "node:net";
 import path from "node:path";
+import { chromium } from "@playwright/test";
 
 import {
   MacAgentAuthorizationSchema,
@@ -65,9 +66,14 @@ export type ProviderBrowserRuntimeOptions = {
   label: string;
   lease: ReconnectLease;
   profileDirectory: string;
-  provider: MacAgentTarget;
   startUrl: string;
-};
+} & (
+  | { provider: "angellist"; verifySavedSession?: never }
+  | {
+      provider: "tokenfolio" | "sydecar";
+      verifySavedSession: () => Promise<void>;
+    }
+);
 
 type ProviderBrowserRuntimeStage =
   | "private_storage"
@@ -78,7 +84,8 @@ type ProviderBrowserRuntimeStage =
   | "public_tunnel"
   | "provider_browser"
   | "session_ready"
-  | "provider_sign_in";
+  | "provider_sign_in"
+  | "session_verification";
 
 export class ProviderBrowserRuntimeError extends Error {
   public constructor(
@@ -311,39 +318,96 @@ async function waitForDevTools(
   throw new Error("Provider Chrome did not start.");
 }
 
+function childExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode != null;
+}
+
+function waitForChildExit(child: ChildProcess): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (exited: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(
+      () => finish(childExited(child)),
+      PROCESS_STOP_TIMEOUT_MS,
+    );
+    child.once("exit", onExit);
+    if (childExited(child)) {
+      finish(true);
+    }
+  });
+}
+
 async function stopChild(child: ChildProcess | null): Promise<void> {
-  if (child === null || child.exitCode !== null) {
+  if (child === null || childExited(child)) {
     return;
   }
-  const waitForExit = () =>
-    new Promise<boolean>((resolve) => {
-      let settled = false;
-      const finish = (exited: boolean) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
-        child.off("exit", onExit);
-        resolve(exited);
-      };
-      const onExit = () => finish(true);
-      const timer = setTimeout(
-        () => finish(child.exitCode !== null),
-        PROCESS_STOP_TIMEOUT_MS,
-      );
-      child.once("exit", onExit);
-      if (child.exitCode !== null) {
-        finish(true);
-      }
-    });
-  const terminated = waitForExit();
+  const terminated = waitForChildExit(child);
   child.kill("SIGTERM");
-  if (!(await terminated) && child.exitCode === null) {
-    const killed = waitForExit();
+  if (!(await terminated) && !childExited(child)) {
+    const killed = waitForChildExit(child);
     child.kill("SIGKILL");
     await killed;
   }
+}
+
+async function closeChromeGracefully(
+  child: ChildProcess,
+  endpointUrl: string,
+): Promise<void> {
+  const browser = await chromium.connectOverCDP(endpointUrl, {
+    noDefaults: true,
+    timeout: PROCESS_STOP_TIMEOUT_MS,
+  });
+  try {
+    const session = await browser.newBrowserCDPSession();
+    const exited = waitForChildExit(child);
+    // Browser.close lets Chrome flush its profile. A signal/timeout is cleanup,
+    // not proof that a sign-in was saved, so it must never lead to success.
+    await Promise.race([
+      session.send("Browser.close").catch(() => undefined),
+      exited,
+    ]);
+    if (!(await exited) || child.exitCode !== 0) {
+      throw new ProviderBrowserRuntimeError(
+        "browser_unavailable",
+        "The provider browser could not finish saving its session.",
+      );
+    }
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
+
+async function completeBrowserSession(
+  options: ProviderBrowserRuntimeOptions,
+  closeBrowser: () => Promise<void>,
+  complete: () => Promise<ProviderBrowserSession["status"]> = async () =>
+    (
+      await sessionApi(
+        options.authorization,
+        options.provider,
+        options.lease.id,
+        "complete",
+        { leaseToken: options.lease.leaseToken },
+      )
+    ).status,
+): Promise<"connected" | "terminated"> {
+  if (options.verifySavedSession !== undefined) {
+    await closeBrowser();
+    await options.verifySavedSession();
+  }
+  // The server still owns cancellation, expiry and the scoped lease. A stale
+  // completion must not rotate credentials or queue an update locally.
+  return (await complete()) === "connected" ? "connected" : "terminated";
 }
 
 function x11VncArguments(
@@ -830,14 +894,13 @@ export async function runProviderBrowserSession(
             `http://127.0.0.1:${debuggingPort.toString()}`,
           )
         ) {
-          await sessionApi(
-            options.authorization,
-            options.provider,
-            options.lease.id,
-            "complete",
-            { leaseToken: options.lease.leaseToken },
+          stage = "session_verification";
+          return await completeBrowserSession(options, () =>
+            closeChromeGracefully(
+              chrome!,
+              `http://127.0.0.1:${debuggingPort.toString()}`,
+            ),
           );
-          return "connected";
         }
       }
       await sleep(SESSION_POLL_INTERVAL_MS);
@@ -877,6 +940,8 @@ export async function runProviderBrowserSession(
 }
 
 export const __providerBrowserReconnectTest = {
+  closeChromeGracefully,
+  completeBrowserSession,
   publicTunnelResponds,
   remoteBrowserHtml,
   remoteChromeArguments,

@@ -3,7 +3,80 @@ import { expect, test } from "@playwright/test";
 import { parseProviderHoldingsTemplateCsv } from "../packages/connectors/src/index";
 import { __providerPortfolioMacAgentTest } from "../scripts/provider-portfolio-mac-agent";
 
-const { captureSydecar, captureTokenfolio } = __providerPortfolioMacAgentTest;
+const {
+  captureSydecar,
+  captureTokenfolio,
+  providerPageReady,
+  requireProviderPageReady,
+} = __providerPortfolioMacAgentTest;
+
+for (const [provider, origin, control] of [
+  [
+    "tokenfolio",
+    "https://app.tokenfolio.co",
+    '<button id="portfolio-tab-active" role="tab">Active Holdings0</button>',
+  ],
+  [
+    "sydecar",
+    "https://app.sydecar.io",
+    '<table data-testid="investments-table"><thead><tr><th>Investment</th></tr></thead><tbody></tbody></table>',
+  ],
+] as const) {
+  test(`${provider} distinguishes sign-in from missing or delayed portfolio controls`, async ({
+    page,
+  }) => {
+    let html =
+      '<div role="button" class="relative cursor-pointer">Not a portfolio</div>';
+    await page.route(`${origin}/**`, (route) =>
+      route.fulfill({ body: html, contentType: "text/html" }),
+    );
+    await page.goto(`${origin}/portfolio`);
+    await expect(providerPageReady(page, provider, 100)).resolves.toBe(false);
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "page_not_supported",
+    );
+
+    // A login link in a signed-in page must not count as a login form.
+    html = '<a href="/login">Sign in</a><p>Temporarily unavailable</p>';
+    await page.reload();
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "page_not_supported",
+    );
+
+    for (const form of [
+      '<input type="password"><button>Sign in</button>',
+      '<input autocomplete="one-time-code"><button>Verify</button>',
+      '<input type="email"><button>Sign in</button>',
+      `${control}<input type="password"><button>Sign in</button>`,
+    ]) {
+      html = form;
+      await page.reload();
+      await expect(
+        requireProviderPageReady(page, provider, 100),
+      ).rejects.toThrow("provider_sign_in_required");
+    }
+
+    await page.route("https://unrelated.example/**", (route) =>
+      route.fulfill({
+        body: '<input type="password"><button>Sign in</button>',
+        contentType: "text/html",
+      }),
+    );
+    await page.goto("https://unrelated.example/login");
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "page_not_supported",
+    );
+
+    html = `<div hidden>${control}</div>`;
+    await page.goto(`${origin}/portfolio`);
+    await expect(providerPageReady(page, provider, 100)).resolves.toBe(false);
+    html = `<div id="loading">Loading</div><script>setTimeout(() => { document.body.innerHTML = ${JSON.stringify(control)}; }, 200)</script>`;
+    await page.reload();
+    await expect(
+      requireProviderPageReady(page, provider, 2_000),
+    ).resolves.toBeUndefined();
+  });
+}
 
 function tokenfolioPage(
   activeCount = 2,
