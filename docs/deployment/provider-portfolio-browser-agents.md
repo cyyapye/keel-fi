@@ -179,12 +179,16 @@ services. No new connector, account, credential, schedule, or second worker is
 required. Queue a normal source update to backfill accepted positions. Reconnect
 the existing agent only if its provider session has expired.
 
-The agent scans the document controls on every normal capture. A new identity is
-read first; existing originals become eligible for recheck after seven days.
-Remaining download capacity rechecks the oldest originals first, so expired
-caches cannot starve a larger first-time backfill. Deferred rechecks preserve
-the original check date. No signed download URL or query is persisted. New
-sources beyond the run budget resume on the next normal update.
+The agent scans the document controls on every normal capture. Sydecar's current
+layout is read from one centralized Documents page after the full position list
+reconciles; only exact, unique Investment-label matches may be associated, and
+the page is rejected above 5,000 document rows. The older per-investment Sydecar
+controls remain supported. A new identity is read first; existing originals
+become eligible for recheck after seven days. Remaining download capacity
+rechecks the oldest originals first, so expired caches cannot starve a larger
+first-time backfill. Deferred rechecks preserve the original check date. No
+signed download URL or query is persisted. New sources beyond the run budget
+resume on the next normal update.
 
 Budgets: 500 positions, six PDFs / 16 MiB per position, 8 MiB / 150 pages / 1
 MiB extracted text per PDF, 24 downloads / 64 MiB per run, serial provider

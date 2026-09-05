@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { parseProviderHoldingsTemplateCsv } from "../packages/connectors/src/index";
+import type { AgreementCollector } from "../scripts/provider-legal-document-capture";
 import { __providerPortfolioMacAgentTest } from "../scripts/provider-portfolio-mac-agent";
 
 const {
@@ -424,6 +425,49 @@ test("captures the visible funded Sydecar position and leaves value unreported",
       investDate: "2025-04-14",
     },
   ]);
+});
+
+test("defers Sydecar agreement capture to one central Documents pass after snapshot reconciliation", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  await page.route("https://app.sydecar.io/investments", (route) =>
+    route.fulfill({ body: sydecarListPage(), contentType: "text/html" }),
+  );
+  await page.route(
+    "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111",
+    (route) =>
+      route.fulfill({
+        body: sydecarDetailPage(),
+        contentType: "text/html",
+      }),
+  );
+  await page.goto("https://app.sydecar.io/investments");
+  let inlineCollections = 0;
+  const centralBatches: Array<{
+    count: number;
+    unique: boolean | undefined;
+  }> = [];
+  const agreements: AgreementCollector = {
+    collect: () => {
+      inlineCollections += 1;
+      return Promise.resolve();
+    },
+    collectSydecarDocuments: (_page, positions) => {
+      centralBatches.push({
+        count: positions.length,
+        unique: positions[0]?.sourceDisplayNameUnique,
+      });
+      return Promise.resolve();
+    },
+    flush: () => Promise.resolve(),
+  };
+
+  await captureSydecar(page, "2026-08-21", () => undefined, agreements);
+
+  expect(inlineCollections).toBe(0);
+  expect(centralBatches).toEqual([{ count: 1, unique: true }]);
 });
 
 test("keeps equal-amount Sydecar rows distinct by row and destination", async ({
