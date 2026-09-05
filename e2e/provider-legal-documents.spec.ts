@@ -133,6 +133,10 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     page,
     context,
   }) => {
+    // Two real antivirus processes load their databases across these four
+    // capture phases. CI takes about 30 seconds; match the other multi-capture
+    // tests without changing either sandbox's per-operation safety limits.
+    test.setTimeout(90_000);
     await documentPage(page, provider);
     let downloads = 0;
     const saved: ProviderLegalDocumentCapture[] = [];
@@ -212,6 +216,10 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     await refresh.collect(page, position);
     await refresh.flush();
     expect(downloads).toBe(3); // Same path may be replaced: bounded weekly recheck.
+    expect(saved.at(-1)?.documents[0]).toMatchObject({
+      scan: { outcome: "clean" },
+      extraction: { problem: null },
+    });
   });
 }
 
