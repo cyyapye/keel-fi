@@ -107,6 +107,8 @@ describe("web Worker routing", () => {
       "/api/automation/provider-browser/tokenfolio/mac-agent/sessions/55555555-5555-4555-8555-555555555555/complete",
       "/api/automation/provider-browser/sydecar/mac-agent/sessions/66666666-6666-4666-8666-666666666666/fail",
       "/api/automation/provider-holdings/tokenfolio/mac-agent/lease",
+      "/api/automation/provider-holdings/tokenfolio/mac-agent/runs/11111111-1111-4111-8111-111111111111/document-manifest",
+      "/api/automation/provider-holdings/sydecar/mac-agent/runs/22222222-2222-4222-8222-222222222222/documents",
       "/api/automation/provider-holdings/sydecar/mac-agent/runs/22222222-2222-4222-8222-222222222222/fail",
     ];
 

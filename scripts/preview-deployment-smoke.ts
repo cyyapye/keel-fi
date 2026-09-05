@@ -168,6 +168,8 @@ export async function runPreviewDeploymentSmoke(
     for (const pathname of [
       "/api/automation/angellist/mac-agent/lease",
       "/api/automation/provider-browser/angellist/mac-agent/lease",
+      "/api/automation/provider-holdings/tokenfolio/mac-agent/runs/11111111-1111-4111-8111-111111111111/document-manifest",
+      "/api/automation/provider-holdings/sydecar/mac-agent/runs/22222222-2222-4222-8222-222222222222/documents",
     ]) {
       const unauthenticatedAgentResponse = await request(
         fetchImplementation,

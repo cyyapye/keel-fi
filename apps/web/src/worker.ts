@@ -33,7 +33,7 @@ function isMacAgentRequest(method: string, pathname: string): boolean {
     /^\/api\/automation\/provider-holdings\/(?:tokenfolio|sydecar)\/mac-agent\/(?:lease|run)$/u.test(
       pathname,
     ) ||
-    /^\/api\/automation\/provider-holdings\/(?:tokenfolio|sydecar)\/mac-agent\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:fail|complete)$/iu.test(
+    /^\/api\/automation\/provider-holdings\/(?:tokenfolio|sydecar)\/mac-agent\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:fail|complete|document-manifest|documents)$/iu.test(
       pathname,
     )
   );
