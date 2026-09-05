@@ -38,6 +38,7 @@ type Position = {
   heldThrough: string;
   investmentDate: string | null;
   sourceDisplayNameUnique?: boolean;
+  sydecarLegacyDocumentUrl?: string;
 };
 type DocumentControls = {
   items: Locator[];
@@ -369,18 +370,22 @@ async function sydecarCentralDocumentControls(
       await rows.evaluateAll((elements) =>
         elements.map((row) => {
           const cells = [...row.querySelectorAll(":scope > td")];
-          const read = (index: number) =>
-            (cells[index]?.textContent ?? "")
+          // Keep this browser callback self-contained after tsx compilation.
+          // A named local function gains a Node-side __name helper that does
+          // not exist in the browser when Playwright serializes the callback.
+          const values = cells.map((cell) =>
+            (cell.textContent ?? "")
               .replace(/\s+/gu, " ")
               .trim()
-              .slice(0, 1_001);
+              .slice(0, 1_001),
+          );
           return {
             cellCount: cells.length,
             controlCount:
               cells[0]?.querySelectorAll(":scope > div").length ?? 0,
-            documentName: read(0),
-            documentType: read(1),
-            investment: read(2),
+            documentName: values[0] ?? "",
+            documentType: values[1] ?? "",
+            investment: values[2] ?? "",
           };
         }),
       ),
@@ -644,13 +649,40 @@ export function providerAgreementCollector(options: {
         return;
       }
       const found = await sydecarCentralDocumentControls(page, positions);
+      const legacy: Position[] = [];
       for (let index = 0; index < positions.length; index += 1) {
         const position = positions[index];
         const positionControls = found[index];
         if (position === undefined || positionControls === undefined) continue;
+        if (
+          positionControls.items.length === 0 &&
+          position.sydecarLegacyDocumentUrl !== undefined
+        ) {
+          legacy.push(position);
+          continue;
+        }
         await collectWithControls(page, position, () =>
           Promise.resolve(positionControls),
         );
+      }
+      // Finish all central-page locators before any fallback navigates away.
+      // At most one already-reconciled detail page per unmatched position; no
+      // guessed URLs or additional discovery loop, and one capture per key.
+      for (const position of legacy) {
+        await collectWithControls(page, position, async () => {
+          const url = z
+            .string()
+            .regex(
+              /^https:\/\/app\.sydecar\.io\/investments\/[A-Za-z0-9_-]{8,128}$/u,
+            )
+            .safeParse(position.sydecarLegacyDocumentUrl);
+          if (!url.success) throw new CaptureProblem("page_changed");
+          await page.goto(url.data, {
+            waitUntil: "domcontentloaded",
+            timeout: 30_000,
+          });
+          return controls(page, "sydecar");
+        });
       }
     },
     async flush() {

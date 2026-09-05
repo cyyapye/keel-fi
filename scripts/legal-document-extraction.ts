@@ -13,6 +13,8 @@ import { PdfSandboxError, readPdfInSandbox } from "./pdf-sandbox";
 const compact = (value: string) => value.replace(/\s+/gu, " ").trim();
 const entitySuffix =
   /\b(?:L\.?L\.?C\.?|L\.?P\.?|limited liability company|limited partnership)\.?$/iu;
+const seriesQualification =
+  /, established as a Series under the Parent LLC(?: Agreement\.)?$/u;
 
 function failed(
   problem: LegalDocumentProblem,
@@ -51,15 +53,28 @@ export function extractLegalNameFromPages(
       if (label !== null) {
         // A provider's definitions may explicitly qualify a named series. The
         // qualification is not part of the name; no other prose is stripped.
-        const name = compact(label[2] ?? "").replace(
-          /, established as a Series under the Parent LLC(?: Agreement\.)?$/u,
-          "",
-        );
+        let value = compact(label[2] ?? "");
+        let quote = compact(line);
+        // The complete name is already on this line. Only the fixed parent-
+        // agreement qualification may wrap; never reconstruct a split name or
+        // absorb a following investor/manager definition into the vehicle.
+        if (
+          !seriesQualification.test(value) &&
+          value.includes(", established as a Series under")
+        ) {
+          const nextLine = compact(lines[lineIndex + 1] ?? "");
+          const continued = `${value} ${nextLine}`;
+          if (seriesQualification.test(continued)) {
+            value = continued;
+            quote = `${quote} ${nextLine}`;
+          }
+        }
+        const name = value.replace(seriesQualification, "");
         if (entitySuffix.test(name))
           citations.push({
             legalName: name,
             page: index + 1,
-            quote: compact(line),
+            quote,
             role: (label[1]?.toLowerCase() ?? "issuer") as
               "issuer" | "fund" | "series",
           });

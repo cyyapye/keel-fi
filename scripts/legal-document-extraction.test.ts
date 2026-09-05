@@ -85,6 +85,41 @@ describe("local legal document extraction", () => {
       ]),
     ).toMatchObject({ problem: "other_structure", citations: [] });
   });
+  it.each([
+    ["Parent", "LLC Agreement."],
+    ["the", "Parent LLC Agreement."],
+  ])(
+    "reads a complete source name when only its parent qualification wraps after %s",
+    (ending, nextLine) => {
+      const name = "Synthetic Atlas, a Series of Synthetic Parent LLC";
+      const prefix = ending === "Parent" ? "under the Parent" : "under the";
+      const definition = `“Fund”: ${name}, established as a Series ${prefix}\n${nextLine}`;
+      expect(extractLegalNameFromPages([definition])).toMatchObject({
+        version: 2,
+        problem: null,
+        citations: [
+          {
+            legalName: name,
+            page: 1,
+            role: "fund",
+            quote: definition.replace("\n", " "),
+          },
+        ],
+      });
+    },
+  );
+  it.each([
+    "“Fund”: Synthetic Atlas, a Series of\nSynthetic Parent LLC, established as a Series under the Parent LLC Agreement.",
+    "“Fund”: Synthetic Atlas LLC, established as a Series under the\n“Manager”: Synthetic Manager LLC",
+  ])(
+    "does not join a split name or another role to complete a qualification",
+    (text) => {
+      expect(extractLegalNameFromPages([text])).toMatchObject({
+        problem: "name_not_found",
+        citations: [],
+      });
+    },
+  );
   it("keeps scans and safety limits explicit", async () => {
     expect(extractLegalNameFromPages([" "])).toMatchObject({
       problem: "unreadable",

@@ -1,3 +1,6 @@
+import { execFile } from "node:child_process";
+import { resolve } from "node:path";
+import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
 import { providerAgreementCollector } from "../scripts/provider-legal-document-capture";
 import { syntheticAgreementPdf } from "../scripts/test-support/legal-documents";
@@ -45,6 +48,35 @@ function sydecarCentralDocumentsPage(rows: readonly string[]): string {
 
 test.beforeEach(({ isMobile }) => {
   test.skip(isMobile, "Existing capture agents use desktop provider sessions.");
+});
+
+test("Sydecar central documents work through the production tsx runner", async () => {
+  test.setTimeout(60_000);
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [
+      resolve("node_modules/tsx/dist/cli.mjs"),
+      resolve("scripts/test-support/provider-documents-runtime-smoke.ts"),
+    ],
+    { timeout: 50_000, maxBuffer: 128 * 1024 },
+  );
+  expect(JSON.parse(stdout)).toMatchObject({
+    requests: 1,
+    downloads: 1,
+    captures: [
+      {
+        problem: null,
+        documents: [
+          {
+            extraction: {
+              problem: null,
+              citations: [{ legalName: "Synthetic Atlas SPV LLC", page: 1 }],
+            },
+          },
+        ],
+      },
+    ],
+  });
 });
 
 for (const provider of ["sydecar", "tokenfolio"] as const) {
@@ -103,10 +135,33 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     await cached.collect(page, position);
     await cached.flush();
     expect(downloads).toBe(1);
+    const previousVersion = run({
+      version: 1,
+      captures: captures.map((capture) => ({
+        ...capture,
+        documents: capture.documents.map((document) => ({
+          ...document,
+          extraction: {
+            ...document.extraction,
+            version: 1,
+            problem: "name_not_found",
+            citations: [],
+          },
+        })),
+      })),
+    });
+    await previousVersion.collect(page, position);
+    await previousVersion.flush();
+    expect(downloads).toBe(2);
+    expect(saved.at(-1)?.documents[0]?.extraction).toMatchObject({
+      version: 2,
+      problem: null,
+      citations: [{ legalName: "Synthetic Atlas SPV LLC" }],
+    });
     const refresh = run({ version: 1, captures }, "2026-09-09T12:00:00.000Z");
     await refresh.collect(page, position);
     await refresh.flush();
-    expect(downloads).toBe(2); // Same path may be replaced: bounded weekly recheck.
+    expect(downloads).toBe(3); // Same path may be replaced: bounded weekly recheck.
   });
 }
 
@@ -135,6 +190,13 @@ test("Sydecar indexes one central Documents page across 120 rows and opens only 
     url: "https://unexpected.example/must-not-open.pdf",
   });
   let documentPageRequests = 0;
+  let legacyPageRequests = 0;
+  const legacyUrl =
+    "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111";
+  await page.route(legacyUrl, (route) => {
+    legacyPageRequests += 1;
+    return route.fulfill({ body: "Incomplete older document list" });
+  });
   await page.route("https://app.sydecar.io/documents", (route) => {
     documentPageRequests += 1;
     return route.fulfill({
@@ -159,12 +221,17 @@ test("Sydecar indexes one central Documents page across 120 rows and opens only 
   });
 
   await collector.collectSydecarDocuments(page, [
-    { ...position, sourceDisplayNameUnique: true },
+    {
+      ...position,
+      sourceDisplayNameUnique: true,
+      sydecarLegacyDocumentUrl: legacyUrl,
+    },
   ]);
   expect(saved).toHaveLength(0);
   await collector.flush();
 
   expect(documentPageRequests).toBe(1);
+  expect(legacyPageRequests).toBe(0);
   expect(downloads).toBe(1);
   expect(saved).toHaveLength(1);
   expect(saved[0]).toMatchObject({
@@ -179,6 +246,80 @@ test("Sydecar indexes one central Documents page across 120 rows and opens only 
     ],
   });
   expect(context.pages()).toHaveLength(1);
+});
+
+test("Sydecar uses an exact reconciled legacy page only after central controls finish", async ({
+  page,
+}) => {
+  const legacyUrl =
+    "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111";
+  const visits: string[] = [];
+  await page.route("https://app.sydecar.io/documents", (route) => {
+    visits.push("central");
+    return route.fulfill({
+      contentType: "text/html",
+      body: sydecarCentralDocumentsPage([
+        sydecarCentralDocumentRow({
+          documentName: "Synthetic subscription agreement",
+          documentType: "Subscription Agreement",
+          investment: "Synthetic Central",
+          url: urls.sydecar,
+        }),
+      ]),
+    });
+  });
+  await page.route(legacyUrl, (route) => {
+    visits.push("legacy");
+    return route.fulfill({
+      contentType: "text/html",
+      body: `<h2 data-testid="investment-docs-heading">Investment Docs</h2><a data-testid="data-room-doc-download" onclick="window.open('${urls.sydecar}')">Subscription Agreement</a>`,
+    });
+  });
+  let downloads = 0;
+  const captures: ProviderLegalDocumentCapture[] = [];
+  const collector = providerAgreementCollector({
+    provider: "sydecar",
+    manifest: { version: 1, captures: [] },
+    renew: () => Promise.resolve(),
+    download: () => {
+      downloads += 1;
+      return Promise.resolve(new Response(syntheticAgreementPdf()));
+    },
+    save: ({ capture }) => {
+      captures.push(capture);
+      return Promise.resolve();
+    },
+  });
+  await collector.collectSydecarDocuments(page, [
+    {
+      ...position,
+      sourceDisplayNameUnique: true,
+      sydecarLegacyDocumentUrl: legacyUrl,
+    },
+    {
+      ...position,
+      investment: "Synthetic Central",
+      sourceDisplayNameUnique: true,
+    },
+    {
+      ...position,
+      investment: "Synthetic Invalid",
+      sourceDisplayNameUnique: true,
+      sydecarLegacyDocumentUrl: "https://unexpected.example/private",
+    },
+  ]);
+  await collector.flush();
+  expect(visits).toEqual(["central", "legacy"]);
+  expect(downloads).toBe(2);
+  expect(captures).toHaveLength(3);
+  expect(
+    new Set(captures.map((capture) => capture.naturalKeySha256)).size,
+  ).toBe(3);
+  expect(captures.map((capture) => capture.problem)).toEqual([
+    null,
+    null,
+    "page_changed",
+  ]);
 });
 
 test("Sydecar central Documents association fails closed for duplicate position labels", async ({

@@ -155,6 +155,9 @@ claiming the exact legal vehicle name.
   wire instructions, and unrelated documents are excluded. A generic external
   platform login is not a position identity and is never matched by company
   name.
+- Tokenfolio waits for the preceding drawer URL to clear and the current
+  drawer's investment ID to appear before following its Deal Snapshot. Detail
+  text can render before these route transitions; it is not URL readiness.
 - Extraction uses Poppler only inside the [isolated PDF reader](pdf-sandbox.md).
   Provision and verify its rootless runtime before updating the agent checkout.
   No external AI, source text in logs, documents in Git, or unrestricted
@@ -165,6 +168,10 @@ claiming the exact legal vehicle name.
   administrator, parent, underlying-company, and filename labels never supply a
   guessed legal name. Compartment/certificate structures are flagged for
   provider or counsel clarification, not called LLCs.
+- Extraction version 2 recognizes a wrapped parent-agreement qualification after
+  a complete fund name. It does not join a split name or normalize differing
+  source names. Version 1 observations remain readable and are rechecked within
+  the existing download budget after upgrade.
 - Originals are deduplicated by household and SHA in private R2. Names are
   evidence for the existing exact-batch add, never automatic acceptance.
   Missing, unreadable, inaccessible, conflicting, changed-page, and safety-limit
@@ -179,11 +186,20 @@ services. No new connector, account, credential, schedule, or second worker is
 required. Queue a normal source update to backfill accepted positions. Reconnect
 the existing agent only if its provider session has expired.
 
+The Linux service checks for queued work every minute; D1 still determines when
+daily or weekly portfolio captures are due. A queued update does not need a
+service restart. This adds at most 1,440 bounded lease checks per provider per
+day, not 1,440 provider captures; reconnect polling remains unchanged.
+
 The agent scans the document controls on every normal capture. Sydecar's current
-layout is read from one centralized Documents page after the full position list
-reconciles; only exact, unique Investment-label matches may be associated, and
-the page is rejected above 5,000 document rows. The older per-investment Sydecar
-controls remain supported. A new identity is read first; existing originals
+layout is read from one centralized Documents page for every position after the
+full position list reconciles; only exact, unique Investment-label matches may
+be associated, and the page is rejected above 5,000 document rows. This includes
+positions whose older detail page omits a governing agreement. The older
+per-investment controls are a fallback only when no central controls match and
+the exact detail URL was already reconciled. Central controls finish first;
+there is at most one legacy navigation per unmatched position and exactly one
+evidence capture per position. A new identity is read first; existing originals
 become eligible for recheck after seven days. Remaining download capacity
 rechecks the oldest originals first, so expired caches cannot starve a larger
 first-time backfill. Deferred rechecks preserve the original check date. No
