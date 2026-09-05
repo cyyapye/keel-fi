@@ -98,14 +98,19 @@ the reader with a mock to make CI green. Browser capture tests also use the real
 isolated reader on synthetic provider pages.
 
 The image pins the official Ubuntu base manifest, installs signed distribution
-updates, and enforces a Poppler package floor covering USN-8400-1. The build's
-daily cache key refreshes package installation at most once per day per builder;
-capture itself never updates software. This floor is not a complete CVE audit.
-Rebuild, test and activate a new image ID at least weekly and promptly after a
-relevant security advisory. Patch the host kernel, Docker, containerd and runc
-too; restart the rootless daemon after package updates when its jobs are idle.
-Retire superseded reader/probe images and build caches through the operator's
-scoped retention procedure, without deleting an image in use by another run.
+updates over HTTPS, and enforces a Poppler package floor covering USN-8400-1.
+Because the minimal Ubuntu root filesystem has no CA bundle, the build copies
+only that bundle from a separately pinned Docker Official Alpine manifest;
+Ubuntu's signed `ca-certificates` package replaces it during the verified
+install. The final reader remains Ubuntu and contains no Alpine executables or
+libraries. The build's daily cache key refreshes package installation at most
+once per day per builder; capture itself never updates software. This floor is
+not a complete CVE audit. Rebuild, test and activate a new image ID at least
+weekly and promptly after a relevant security advisory. Patch the host kernel,
+Docker, containerd and runc too; restart the rootless daemon after package
+updates when its jobs are idle. Retire superseded reader/probe images and build
+caches through the operator's scoped retention procedure, without deleting an
+image in use by another run.
 
 For a live update, build and verify using a candidate configuration path, not
 the active service configuration. Switch the service to that candidate only
