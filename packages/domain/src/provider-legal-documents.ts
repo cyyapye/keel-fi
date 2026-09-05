@@ -13,13 +13,18 @@ export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 2;
 export const LEGAL_DOCUMENT_RECHECK_MS = 7 * 24 * 60 * 60 * 1_000;
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+// SQLite orders the latest scan lexically. Canonicalize equivalent ISO forms
+// (including the scanner's microseconds) before hashing or persisting a capture.
+const ScanTimeSchema = z.iso
+  .datetime()
+  .transform((value) => new Date(value).toISOString());
 export const LegalDocumentScanSchema = z
   .object({
     version: z.literal(1),
     engineVersion: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+$/u),
     databaseVersion: z.number().int().positive(),
-    databaseUpdatedAt: z.iso.datetime(),
-    scannedAt: z.iso.datetime(),
+    databaseUpdatedAt: ScanTimeSchema,
+    scannedAt: ScanTimeSchema,
     sha256: DigestSchema,
     outcome: z.enum(["clean", "blocked"]),
   })

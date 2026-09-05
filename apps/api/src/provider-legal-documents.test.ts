@@ -35,7 +35,11 @@ beforeEach(async () => {
         return Promise.resolve();
       }),
       get: vi.fn((key: string) =>
-        Promise.resolve(objects.has(key) ? { body: objects.get(key) } : null),
+        Promise.resolve(
+          objects.has(key)
+            ? { body: new Response(Uint8Array.from(objects.get(key)!)).body }
+            : null,
+        ),
       ),
     } as unknown as R2Bucket,
   };
@@ -248,6 +252,59 @@ describe("private provider agreement API", () => {
     );
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain("%PDF-");
+  });
+  it("denies release if a newer blocked scan arrives during the object read", async () => {
+    const app = createApp();
+    await app.request(`${path}/documents`, post(), env);
+    const document = d1.sqlite
+      .prepare("SELECT id FROM source_documents WHERE sha256 = ?")
+      .get(syntheticDocumentCapture().documents[0]!.sha256)!;
+    vi.spyOn(env.DOCUMENTS, "get").mockImplementationOnce(async () => {
+      const blocked = syntheticDocumentCapture();
+      blocked.naturalKeySha256 = "c".repeat(64);
+      blocked.documents[0]!.checkedAt = "2026-09-01T12:01:00.000Z";
+      blocked.documents[0]!.scan!.scannedAt = "2026-09-01T12:01:00.000Z";
+      blocked.documents[0]!.scan!.outcome = "blocked";
+      blocked.documents[0]!.extraction = {
+        version: 2,
+        pageCount: 0,
+        problem: "security_blocked",
+        citations: [],
+      };
+      expect(
+        (
+          await app.request(
+            `${path}/documents`,
+            post(form(false, blocked)),
+            env,
+          )
+        ).status,
+      ).toBe(200);
+      return {
+        body: new Response(syntheticAgreementPdf()).body,
+      } as unknown as R2ObjectBody;
+    });
+    const response = await app.request(
+      `/api/legal-entity-documents/${String(document.id)}`,
+      { method: "POST" },
+      env,
+    );
+    expect(response.status).toBe(423);
+    expect(await response.text()).not.toContain("%PDF-");
+    expect(
+      d1.sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM private_document_access_events WHERE outcome = 'released'",
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(
+      d1.sqlite
+        .prepare(
+          "SELECT outcome FROM private_document_access_events WHERE action = 'download'",
+        )
+        .all(),
+    ).toEqual([{ outcome: "denied" }]);
   });
   it("rolls back original metadata if its upload audit fails, then recovers the same bytes", async () => {
     const app = createApp();

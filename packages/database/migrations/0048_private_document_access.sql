@@ -49,5 +49,7 @@ WHEN NOT EXISTS (SELECT 1 FROM source_documents WHERE id = NEW.document_id AND h
 BEGIN SELECT RAISE(ABORT, 'scan document ownership mismatch'); END;
 CREATE TRIGGER private_document_scans_owner_update
 BEFORE UPDATE ON private_document_scans
-WHEN NEW.document_id <> OLD.document_id OR NEW.household_id <> OLD.household_id OR NEW.sha256 <> OLD.sha256 OR NEW.scanned_at <= OLD.scanned_at
+WHEN NEW.document_id <> OLD.document_id OR NEW.household_id <> OLD.household_id OR NEW.sha256 <> OLD.sha256
+  OR NEW.scanned_at < OLD.scanned_at
+  OR (NEW.scanned_at = OLD.scanned_at AND NOT (OLD.outcome = 'clean' AND NEW.outcome = 'blocked'))
 BEGIN SELECT RAISE(ABORT, 'scan identity or ordering mismatch'); END;

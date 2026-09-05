@@ -17,6 +17,13 @@ export const BACKUP_MAX_DOCUMENTS = 4096;
 export const BACKUP_MAX_BYTES = 1024 * 1024 * 1024;
 const MAX_SQL_BYTES = 64 * 1024 * 1024;
 const MAX_OBJECT_BYTES = 20 * 1024 * 1024;
+// GPG reads only the first line of a passphrase file. Reject line breaks so a
+// long configured value cannot silently encrypt with a short first line.
+export const BackupPassphraseSchema = z
+  .string()
+  .min(32)
+  .max(1024)
+  .regex(/^[^\r\n\0]+$/u);
 const sha = (value: Uint8Array | string) =>
   createHash("sha256").update(value).digest("hex");
 const Hash = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -70,9 +77,16 @@ export function backupInventory(sql: string): Document[] {
     throw new Error("Unexpected filesystem SQL in database export");
   // Restore into an isolated in-memory database, never a live binding. Extension
   // loading is disabled. The SQL comes only from our authenticated D1 export.
-  const database = new DatabaseSync(":memory:", { allowExtension: false });
+  const database = new DatabaseSync(":memory:", {
+    allowExtension: false,
+    // D1 emits table data before all referenced tables exist. Its defer pragma
+    // alone does not defer SQLite's missing-table check. Disable enforcement
+    // only in this disposable restore, then validate the COMPLETE database.
+    enableForeignKeyConstraints: false,
+  });
   try {
     database.exec(sql);
+    database.exec("PRAGMA foreign_keys = ON");
     const rows = z
       .array(Document)
       .max(BACKUP_MAX_DOCUMENTS)
@@ -341,6 +355,9 @@ async function main() {
     .parse(process.env.KEEL_DOCUMENT_BACKUP_PASSPHRASE_FILE);
   if ((await stat(passphrase)).mode & 0o077)
     throw new Error("Backup key file must be owner-only");
+  if ((await stat(passphrase)).size > 4096)
+    throw new Error("Backup key file exceeds its envelope");
+  BackupPassphraseSchema.parse(await readFile(passphrase, "utf8"));
   const output = resolve(
     z.string().min(1).parse(process.env.KEEL_DOCUMENT_BACKUP_PATH),
   );

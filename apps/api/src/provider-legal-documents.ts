@@ -240,18 +240,20 @@ export function registerProviderLegalDocumentRoutes(
     const repository = new D1ProviderLegalDocumentRepository(context.env.DB);
     const subject = context.get("identity").subject;
     const documentId = context.req.param("documentId");
+    const locked = () =>
+      context.json(
+        {
+          error:
+            "This agreement has not passed its security check. Queue a source update to check it again.",
+        },
+        423,
+        { "Cache-Control": "private, no-store" },
+      );
     try {
       const document = await repository.document(subject, documentId);
       if (document.scan_outcome !== "clean") {
         await repository.auditDownload(subject, documentId, "denied");
-        return context.json(
-          {
-            error:
-              "This agreement has not passed its security check. Queue a source update to check it again.",
-          },
-          423,
-          { "Cache-Control": "private, no-store" },
-        );
+        return locked();
       }
       const object = await context.env.DOCUMENTS.get(document.object_key);
       if (object === null) {
@@ -262,7 +264,18 @@ export function registerProviderLegalDocumentRoutes(
         );
       }
       // Fail closed if the audit write fails: never release unaudited bytes.
-      await repository.auditDownload(subject, documentId, "released");
+      try {
+        if (
+          (await repository.auditDownload(subject, documentId, "released")) !==
+          "released"
+        ) {
+          await object.body.cancel();
+          return locked();
+        }
+      } catch (error) {
+        await object.body.cancel().catch(() => undefined);
+        throw error;
+      }
       return new Response(object.body, {
         headers: {
           "Content-Type": "application/pdf",

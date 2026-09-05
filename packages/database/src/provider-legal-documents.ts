@@ -345,8 +345,10 @@ export class D1ProviderLegalDocumentRepository {
             .prepare(
               `INSERT INTO private_document_scans (document_id, household_id, sha256, outcome, scan_json, scanned_at)
         SELECT ?, ?, ?, ?, ?, ? WHERE ${LIVE_LEASE}
+          AND EXISTS (SELECT 1 FROM provider_legal_document_observations WHERE id = ?)
         ON CONFLICT (document_id) DO UPDATE SET outcome = excluded.outcome, scan_json = excluded.scan_json, scanned_at = excluded.scanned_at
-        WHERE excluded.scanned_at > private_document_scans.scanned_at`,
+        WHERE excluded.scanned_at > private_document_scans.scanned_at
+          OR (excluded.scanned_at = private_document_scans.scanned_at AND excluded.outcome = 'blocked' AND private_document_scans.outcome = 'clean')`,
             )
             .bind(
               document.id,
@@ -356,6 +358,7 @@ export class D1ProviderLegalDocumentRepository {
               JSON.stringify(document.scan),
               document.scan!.scannedAt,
               ...guard,
+              id,
             ),
         ),
     ]);
@@ -444,24 +447,34 @@ export class D1ProviderLegalDocumentRepository {
     accessSubject: string,
     documentId: string,
     outcome: "released" | "denied" | "unavailable",
-  ): Promise<void> {
+  ): Promise<"released" | "denied" | "unavailable"> {
+    // Authorize against the current exact-hash scan in the SAME statement as
+    // the access event. A block arriving during R2.get must revoke release.
     const result = await this.db
       .prepare(
         `INSERT INTO private_document_access_events
       (id, household_id, actor_user_id, actor_kind, document_id, action, outcome, occurred_at)
-      SELECT ?, household.id, user.id, 'owner', ?, 'download', ?, ?
+      SELECT ?, household.id, user.id, 'owner', ?, 'download',
+        CASE WHEN ? = 'released' AND NOT EXISTS (
+          SELECT 1 FROM source_documents document
+          JOIN private_document_scans scan ON scan.document_id = document.id
+            AND scan.household_id = document.household_id AND scan.sha256 = document.sha256
+          WHERE document.id = ? AND document.household_id = household.id AND scan.outcome = 'clean'
+        ) THEN 'denied' ELSE ? END, ?
       FROM users user JOIN households household ON household.owner_user_id = user.id
-      WHERE user.access_subject = ?`,
+      WHERE user.access_subject = ? RETURNING outcome`,
       )
       .bind(
         crypto.randomUUID(),
         documentId,
         outcome,
+        documentId,
+        outcome,
         this.now().toISOString(),
         accessSubject,
       )
-      .run();
-    if (result.meta.changes !== 1)
-      throw new ProviderLegalDocumentError("not_found");
+      .first<{ outcome: "released" | "denied" | "unavailable" }>();
+    if (result === null) throw new ProviderLegalDocumentError("not_found");
+    return result.outcome;
   }
 }

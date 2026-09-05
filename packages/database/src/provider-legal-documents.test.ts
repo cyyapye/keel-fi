@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   legalDocumentTestDatabase,
   syntheticDocumentCapture,
@@ -43,6 +43,87 @@ function captureObjects() {
 }
 
 describe("provider agreement evidence repository", () => {
+  it("does not change scan state when a conflicting concurrent capture wins the observation", async () => {
+    const clean = syntheticDocumentCapture();
+    await repository.record(lease, digest(1), clean, captureObjects());
+    const blocked = structuredClone(clean);
+    blocked.naturalKeySha256 = digest(2);
+    blocked.documents[0]!.checkedAt = "2026-09-01T12:01:00.000Z";
+    blocked.documents[0]!.scan!.scannedAt = "2026-09-01T12:01:00.000Z";
+    blocked.documents[0]!.scan!.outcome = "blocked";
+    blocked.documents[0]!.extraction = {
+      version: 2,
+      pageCount: 0,
+      problem: "security_blocked",
+      citations: [],
+    };
+    const conflict = structuredClone(clean);
+    conflict.naturalKeySha256 = digest(2);
+    conflict.documents[0]!.checkedAt = "2026-09-01T12:02:00.000Z";
+    conflict.documents[0]!.scan!.scannedAt = "2026-09-01T12:02:00.000Z";
+    const lookup = repository.knownDocuments.bind(repository);
+    // Interleave a real winning commit after the loser's dedupe read and
+    // before its transaction. Neither request may rewrite the other's result.
+    const barrier = vi
+      .spyOn(repository, "knownDocuments")
+      .mockImplementationOnce(async (...args) => {
+        const rows = await lookup(...args);
+        await repository.record(lease, digest(2), blocked, []);
+        return rows;
+      });
+    try {
+      await expect(
+        repository.record(lease, digest(2), conflict, []),
+      ).rejects.toThrow("capture_conflict");
+      expect(
+        d1.sqlite.prepare("SELECT outcome FROM private_document_scans").all(),
+      ).toEqual([{ outcome: "blocked" }]);
+      expect(
+        d1.sqlite
+          .prepare(
+            "SELECT COUNT(*) AS count FROM provider_legal_document_observations",
+          )
+          .get(),
+      ).toEqual({ count: 2 });
+    } finally {
+      barrier.mockRestore();
+    }
+  });
+  it("normalizes scan timestamps and makes a blocked verdict win an equal-time tie", async () => {
+    const clean = syntheticDocumentCapture();
+    clean.documents[0]!.scan!.scannedAt = "2026-09-01T12:00:00Z";
+    await repository.record(
+      lease,
+      digest(1),
+      { ...clean, naturalKeySha256: digest(1) },
+      captureObjects(),
+    );
+    const blocked = syntheticDocumentCapture();
+    blocked.documents[0]!.scan!.outcome = "blocked";
+    blocked.documents[0]!.extraction = {
+      version: 2,
+      pageCount: 0,
+      problem: "security_blocked",
+      citations: [],
+    };
+    await repository.record(
+      lease,
+      digest(2),
+      { ...blocked, naturalKeySha256: digest(2) },
+      [],
+    );
+    await repository.record(
+      lease,
+      digest(3),
+      { ...clean, naturalKeySha256: digest(3) },
+      [],
+    );
+    expect(
+      d1.sqlite
+        .prepare("SELECT outcome, scanned_at FROM private_document_scans")
+        .all(),
+    ).toEqual([{ outcome: "blocked", scanned_at: "2026-09-01T12:00:00.000Z" }]);
+  });
   it("recovers quarantine and never lets an older clean scan undo a newer block", async () => {
     const clean = syntheticDocumentCapture();
     const unscanned = structuredClone(clean);

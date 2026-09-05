@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { privateR2, PrivateR2ConfigSchema } from "./private-document-r2";
+import { BackupPassphraseSchema } from "./private-document-backup";
 
 export async function publishEncryptedBackup(
   archive: string,
@@ -90,10 +91,9 @@ export async function runPrivateDocumentBackupJob() {
     throw new Error(
       "Originals and backups require separate buckets and credentials.",
     );
-  const secret = z
-    .string()
-    .min(32)
-    .parse(process.env.KEEL_DOCUMENT_BACKUP_PASSPHRASE);
+  const secret = BackupPassphraseSchema.parse(
+    process.env.KEEL_DOCUMENT_BACKUP_PASSPHRASE,
+  );
   const directory = await mkdtemp(join(tmpdir(), "keel-private-backup-"));
   const baseEnv = { PATH: process.env.PATH, LANG: "C.UTF-8" };
   const invoke = async (args: string[], env: NodeJS.ProcessEnv) => {

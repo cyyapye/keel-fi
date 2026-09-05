@@ -50,9 +50,10 @@ this archive.
 `scripts/private-document-backup.ts` streams a versioned JSONL archive into GPG
 AES-256. It then authenticates the complete ciphertext before interpreting any
 recovered SQL, rebuilds an isolated in-memory SQLite database with extensions
-disabled, runs foreign-key checks, and checks every recovered PDF's length and
-SHA-256 against that metadata. It rejects duplicates, truncation, extra records,
-and oversized/decompression output. No PDF is opened during restore checking.
+disabled, loads child-before-parent D1 exports before running complete
+foreign-key checks, and checks every recovered PDF's length and SHA-256 against
+that metadata. It rejects duplicates, truncation, extra records, and
+oversized/decompression output. No PDF is opened during restore checking.
 Temporary plaintext/key files live only in an owner-only directory and are
 removed on success or ordinary failure. A host crash or hard process kill still
 requires the restricted runner's temporary-file cleanup procedure; do not claim
@@ -79,7 +80,8 @@ Activation requires owner approval and these operator steps:
 3. Configure the protected GitHub `private-backup` environment's secrets listed
    by `.github/workflows/private-document-backup.yml`. Protect its main-branch
    access. Keep an offline recovery copy of its at-least-32-character random
-   encryption passphrase separate from the storage account.
+   single-line encryption passphrase separate from the storage account. The file
+   must contain exactly that passphrase, without a trailing newline.
 4. Set repository variable `KEEL_PRIVATE_DOCUMENT_BACKUPS_ENABLED=true` only
    after the approved bucket, lifecycle, credentials, MFA, and recovery owner
    are ready. Dispatch the workflow on main; inspect its terminal result and

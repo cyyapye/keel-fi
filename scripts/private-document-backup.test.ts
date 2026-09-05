@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   backupInventory,
   backupRecords,
+  BackupPassphraseSchema,
   verifyBackupRecords,
 } from "./private-document-backup";
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
@@ -32,6 +33,32 @@ async function records(count = 1) {
   return result;
 }
 describe("private document backup and recovery", () => {
+  it("restores D1's child-before-parent export ordering and rejects actual foreign-key corruption", () => {
+    const childFirst = `PRAGMA defer_foreign_keys=TRUE;
+      CREATE TABLE source_documents(id TEXT PRIMARY KEY, household_id TEXT REFERENCES households(id), object_key TEXT, byte_size INTEGER, sha256 TEXT, content_type TEXT);
+      INSERT INTO source_documents VALUES ('document-1', 'hh_synthetic', 'synthetic/${digest}.pdf', ${pdf.length}, '${digest}', 'application/pdf');
+      CREATE TABLE households(id TEXT PRIMARY KEY);
+      INSERT INTO households VALUES ('hh_synthetic');`;
+    expect(backupInventory(childFirst)).toHaveLength(1);
+    expect(() =>
+      backupInventory(
+        childFirst.replace("VALUES ('hh_synthetic')", "VALUES ('hh_other')"),
+      ),
+    ).toThrow("foreign-key");
+  });
+  it("rejects short or multiline passphrases that GPG would truncate", () => {
+    for (const key of [
+      "short",
+      "short\n" + "long".repeat(20),
+      "long".repeat(20) + "\r",
+      "long".repeat(20) + "\0",
+    ])
+      expect(BackupPassphraseSchema.safeParse(key).success).toBe(false);
+    expect(
+      BackupPassphraseSchema.safeParse("synthetic-only-backup-test-passphrase")
+        .success,
+    ).toBe(true);
+  });
   it("restores all 120 documents and metadata, including split Unicode", async () => {
     const content = Buffer.from(await records(120));
     let restored = 0;

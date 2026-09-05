@@ -21,7 +21,9 @@ are not included in the PDF recovery archive.
   The next bounded source update re-downloads and scans them. It preserves prior
   accepted records and does not infer a legal name.
 - An authorized `POST /api/legal-entity-documents/:id` records the access before
-  streaming bytes. Failed audit writes fail closed. Attachment, no-store,
+  streaming bytes. The final authorization and audit use the current exact-hash
+  scan in one database statement, so a block arriving during storage retrieval
+  denies release. Failed audit writes fail closed. Attachment, no-store,
   nosniff, and sandbox headers remain in place. The former GET does not download
   or write anything; older open browser tabs may need one reload after
   deployment.
@@ -44,6 +46,11 @@ include names, signed links, content, or credentials in ordinary application
 logs. The history is append-only. There is no new public audit-list endpoint.
 Provider attribution identifies the authorized owner/provider class, not a
 cryptographic proof against a compromised agent host.
+
+Scan projections advance only with a successfully recorded observation, never
+from a conflicting retry. Timestamps are normalized before persistence; a
+blocked verdict wins an equal-time tie. A later successful rescan can recover
+the exact same original without modifying accepted financial records.
 
 ## Credentials and operator prerequisites
 
