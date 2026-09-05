@@ -40,6 +40,8 @@ function successfulFetch(): ReturnType<typeof vi.fn> {
       const agentPathnames = new Set([
         "/api/automation/angellist/mac-agent/lease",
         "/api/automation/provider-browser/angellist/mac-agent/lease",
+        "/api/automation/provider-holdings/tokenfolio/mac-agent/runs/11111111-1111-4111-8111-111111111111/document-manifest",
+        "/api/automation/provider-holdings/sydecar/mac-agent/runs/22222222-2222-4222-8222-222222222222/documents",
       ]);
       return Promise.resolve(
         new Response(null, {
@@ -118,7 +120,7 @@ describe("preview deployment runtime verification", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(fetchImplementation).toHaveBeenCalledTimes(11);
+    expect(fetchImplementation).toHaveBeenCalledTimes(13);
   });
 
   it("waits for a new Mac agent hostname to resolve", async () => {
