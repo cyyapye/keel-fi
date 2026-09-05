@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,6 +32,40 @@ async function records(count = 1) {
     result += row;
   return result;
 }
+
+// Decode only the framing of this small GPG-generated symmetric test fixture.
+// A raw offset from EOF can hit a partial-body length header, leaving the
+// authenticated ciphertext unchanged (RFC 4880, sections 4.2.2 and 5.13).
+function encryptedBodyOffsets(archive: Buffer): number[] {
+  expect([0x8c, 0xc3]).toContain(archive[0]); // Small tag-3 key packet.
+  expect(archive[1]).toBeLessThan(192);
+  let cursor = 2 + archive[1]!;
+  expect(archive[cursor++]).toBe(0xd2); // Tag-18 integrity-protected data.
+  const offsets: number[] = [];
+  while (cursor < archive.length) {
+    const first = archive[cursor++]!;
+    const partial = first >= 224 && first < 255;
+    let length: number;
+    if (first < 192) length = first;
+    else if (first < 224)
+      length = (first - 192) * 256 + archive[cursor++]! + 192;
+    else if (partial) length = 2 ** (first & 0x1f);
+    else {
+      length = archive.readUInt32BE(cursor);
+      cursor += 4;
+    }
+    expect(cursor + length).toBeLessThanOrEqual(archive.length);
+    for (let index = 0; index < length; index += 1)
+      offsets.push(cursor + index);
+    cursor += length;
+    if (!partial) break;
+  }
+  expect(cursor).toBe(archive.length);
+  expect(offsets.length).toBeGreaterThan(32);
+  expect(archive[offsets[0]!]).toBe(1); // Version 1 ends with the encrypted MDC.
+  return offsets;
+}
+
 describe("private document backup and recovery", () => {
   it("restores D1's child-before-parent export ordering and rejects actual foreign-key corruption", () => {
     const childFirst = `PRAGMA defer_foreign_keys=TRUE;
@@ -109,17 +143,18 @@ describe("private document backup and recovery", () => {
     expect(() => backupInventory(sql(4097))).toThrow();
     expect(backupInventory(sql())).toHaveLength(1);
   });
-  it("authenticates and restores a real encrypted archive, rejecting a damaged copy", async () => {
-    const temporary = await mkdtemp(join(tmpdir(), "keel-synthetic-backup-"));
-    const key = join(temporary, "key");
-    const archive = join(temporary, "documents.gpg");
-    try {
-      await writeFile(key, "synthetic-only-backup-test-passphrase", {
-        mode: 0o600,
-      });
-      execFileSync(
-        "gpg",
-        [
+  it.each(["20260905T223729!", "20260905T224010!"])(
+    "authenticates a streamed archive and rejects ciphertext tampering (%s)",
+    async (timestamp) => {
+      const temporary = await mkdtemp(join(tmpdir(), "keel-synthetic-backup-"));
+      const key = join(temporary, "key");
+      const archive = join(temporary, "documents.gpg");
+      try {
+        await writeFile(key, "synthetic-only-backup-test-passphrase", {
+          mode: 0o600,
+        });
+        const plaintext = await records();
+        const gpgArgs = [
           "--no-options",
           "--homedir",
           temporary,
@@ -130,35 +165,66 @@ describe("private document backup and recovery", () => {
           "loopback",
           "--passphrase-file",
           key,
-          "--symmetric",
-          "--cipher-algo",
-          "AES256",
-          "--output",
-          archive,
-        ],
-        { input: await records(), stdio: ["pipe", "pipe", "pipe"] },
-      );
-      const env = {
-        ...process.env,
-        KEEL_DOCUMENT_BACKUP_PASSPHRASE_FILE: key,
-        KEEL_DOCUMENT_BACKUP_PATH: archive,
-      };
-      const invoke = () =>
+        ];
         execFileSync(
-          process.execPath,
-          ["--import", "tsx", "scripts/private-document-backup.ts", "verify"],
-          { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+          "gpg",
+          [
+            ...gpgArgs,
+            // Freeze both the formerly failing layout and another packet shape.
+            "--faked-system-time",
+            timestamp,
+            "--symmetric",
+            "--cipher-algo",
+            "AES256",
+            "--output",
+            archive,
+          ],
+          { input: plaintext, stdio: ["pipe", "pipe", "pipe"] },
         );
-      expect(invoke()).toContain('"documents":1');
-      const damaged = await readFile(archive);
-      damaged[damaged.length - 10] = damaged[damaged.length - 10]! ^ 1;
-      await writeFile(archive, damaged);
-      expect(invoke).toThrow();
-    } finally {
-      execFileSync("gpgconf", ["--homedir", temporary, "--kill", "gpg-agent"], {
-        stdio: "ignore",
-      });
-      await rm(temporary, { recursive: true, force: true });
-    }
-  });
+        const env = {
+          ...process.env,
+          KEEL_DOCUMENT_BACKUP_PASSPHRASE_FILE: key,
+          KEEL_DOCUMENT_BACKUP_PATH: archive,
+        };
+        const invoke = () =>
+          spawnSync(
+            process.execPath,
+            ["--import", "tsx", "scripts/private-document-backup.ts", "verify"],
+            { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+          );
+        const valid = invoke();
+        expect(valid.status).toBe(0);
+        expect(valid.stdout).toContain('"documents":1');
+        const damaged = await readFile(archive);
+        const bodyOffsets = encryptedBodyOffsets(damaged);
+        const digestOffset = bodyOffsets.at(-10)!;
+        damaged[digestOffset] = damaged[digestOffset]! ^ 1;
+        await writeFile(archive, damaged);
+
+        // Independent proof: GPG emits the original plaintext but rejects its
+        // modified integrity check. Keel must not treat plaintext alone as proof.
+        const decrypted = spawnSync(
+          "gpg",
+          [...gpgArgs, "--status-fd", "2", "--decrypt", archive],
+          { encoding: "utf8" },
+        );
+        expect(decrypted.status).toBe(2);
+        expect(decrypted.stderr).toContain("[GNUPG:] BADMDC");
+        expect(decrypted.stdout).toBe(plaintext);
+        const rejected = invoke();
+        expect(rejected.status).toBe(1);
+        expect(rejected.stdout).toBe("");
+        expect(rejected.stderr).toContain("Private document backup failed");
+      } finally {
+        execFileSync(
+          "gpgconf",
+          ["--homedir", temporary, "--kill", "gpg-agent"],
+          {
+            stdio: "ignore",
+          },
+        );
+        await rm(temporary, { recursive: true, force: true });
+      }
+    },
+  );
 });
