@@ -573,8 +573,9 @@ async function providerSignInVisible(
   provider: ProviderPortfolioAgentProvider,
 ): Promise<boolean> {
   // A missing portfolio control is not evidence of an expired sign-in. Only
-  // recognize an actual authentication form on the provider's own origin.
-  if (new URL(page.url()).origin !== PROVIDERS[provider].origin) {
+  // recognize authentication evidence on the provider's own origin.
+  const url = new URL(page.url());
+  if (url.origin !== PROVIDERS[provider].origin) {
     return false;
   }
   const credentials = page.locator(
@@ -587,8 +588,21 @@ async function providerSignInVisible(
   const signIn = page.getByRole("button", {
     name: /^(?:sign in|log in|send (?:me )?(?:a )?(?:login |sign.in )?(?:code|link))(?: with email)?$/iu,
   });
+  if ((await email.first().isVisible()) && (await signIn.first().isVisible())) {
+    return true;
+  }
+  // A provider may render its dedicated sign-in page before mounting the form.
+  // Require both its auth route and visible sign-in copy, never a generic login
+  // link, a redirect query, or an unrelated page's heading alone.
   return (
-    (await email.first().isVisible()) && (await signIn.first().isVisible())
+    /^\/(?:auth\/)?(?:log-?in|sign-?in)\/?$/iu.test(url.pathname) &&
+    (await page
+      .getByText(
+        /^(?:(?:log in|sign in)(?: to (?:your account|sydecar|tokenfolio))?|welcome back)[.!]?$/iu,
+      )
+      .filter({ visible: true })
+      .first()
+      .isVisible())
   );
 }
 

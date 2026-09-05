@@ -1667,7 +1667,10 @@ test("keeps unverified sign-ins and page-reading failures separate", async ({
   page,
 }) => {
   const sessionId = "33333333-3333-4333-8333-333333333333";
+  const sydecarSessionId = "44444444-4444-4444-8444-444444444444";
   let sessionStatus: "opened" | "failed" = "opened";
+  let sydecarSessionStatus: "requested" | "cancelled" = "requested";
+  let sydecarReconnectRequested = false;
   await page.addInitScript(() => {
     window.open = () => null;
   });
@@ -1719,6 +1722,30 @@ test("keeps unverified sign-ins and page-reading failures separate", async ({
     `**/api/automation/provider-browser/sessions/${sessionId}`,
     (route) => route.fulfill({ json: session() }),
   );
+  const sydecarSession = () => ({
+    ...session(),
+    id: sydecarSessionId,
+    provider: "sydecar",
+    status: sydecarSessionStatus,
+    openedAt: null,
+    errorCode: null,
+  });
+  await page.route(
+    "**/api/automation/provider-browser/sydecar/reconnect",
+    (route) => {
+      sydecarReconnectRequested = true;
+      return route.fulfill({ status: 202, json: sydecarSession() });
+    },
+  );
+  await page.route(
+    `**/api/automation/provider-browser/sessions/${sydecarSessionId}`,
+    (route) => {
+      if (route.request().method() === "DELETE") {
+        sydecarSessionStatus = "cancelled";
+      }
+      return route.fulfill({ json: sydecarSession() });
+    },
+  );
   await page.goto("/holdings/sources");
   const sources = page.locator(".provider-agents");
   const sydecar = sources
@@ -1732,7 +1759,14 @@ test("keeps unverified sign-ins and page-reading failures separate", async ({
   ).toBeVisible();
   await expect(
     sydecar.getByRole("button", { name: "Reconnect Sydecar" }),
-  ).toHaveCount(0);
+  ).toBeVisible();
+  await expect(
+    sydecar.getByRole("button", { name: "Reconnect Sydecar" }),
+  ).toHaveClass(/button--secondary/u);
+  await expect(sydecar.getByRole("button", { name: "Try update" })).toHaveClass(
+    /button--primary/u,
+  );
+  expect(sydecarReconnectRequested).toBe(false);
   await page.getByRole("button", { name: "Reconnect Tokenfolio" }).click();
   await expect(
     sources.getByText(
@@ -1760,11 +1794,105 @@ test("keeps unverified sign-ins and page-reading failures separate", async ({
         document.documentElement.clientWidth,
     ),
   ).toBe(true);
+  await page.mouse.move(0, 0);
   await expect(sources).toHaveScreenshot(
     "holdings-provider-session-unverified.png",
     { animations: "disabled", caret: "hide" },
   );
+  await sydecar.getByRole("button", { name: "Reconnect Sydecar" }).click();
+  await expect(sydecar.getByText("Preparing a private browser…")).toBeVisible();
+  expect(sydecarReconnectRequested).toBe(true);
+  await expect(
+    sydecar.getByRole("button", { name: "Try update" }),
+  ).toBeDisabled();
+  await sydecar.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    sydecar.getByRole("button", { name: "Reconnect Sydecar" }),
+  ).toBeVisible();
+  await expect(
+    sydecar.getByRole("button", { name: "Try update" }),
+  ).toBeEnabled();
 });
+
+for (const provider of ["tokenfolio", "sydecar"] as const) {
+  test(`${provider} disables reconnect while a page-failure retry is being queued`, async ({
+    page,
+  }) => {
+    const label = provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+    let queued = false;
+    let reconnectRequests = 0;
+    let finishUpdate = () => {};
+    const responseReady = new Promise<void>((resolve) => {
+      finishUpdate = resolve;
+    });
+    await page.route("**/api/alpha", (route) =>
+      route.fulfill({ json: alphaFixture }),
+    );
+    await page.route("**/api/automation/provider-holdings/*/status", (route) =>
+      route.fulfill({
+        json: {
+          version: 1,
+          provider: new URL(route.request().url()).pathname.split("/").at(-2),
+          status: queued ? "running" : "needs_attention",
+          interval: "daily",
+          runStatus: queued ? "queued" : null,
+          lastSeenAt: "2026-09-04T12:00:00.000Z",
+          lastCompletedAt: "2026-09-03T12:00:00.000Z",
+          nextRunAt: "2026-09-05T12:00:00.000Z",
+          latestImportId: null,
+          errorCode: "page_not_supported",
+        },
+      }),
+    );
+    await page.route(
+      `**/api/automation/provider-holdings/${provider}/run`,
+      async (route) => {
+        await responseReady;
+        queued = true;
+        await route.fulfill({
+          status: 202,
+          json: {
+            version: 1,
+            provider,
+            runId: "55555555-5555-4555-8555-555555555555",
+            status: "queued",
+          },
+        });
+      },
+    );
+    await page.route(
+      "**/api/automation/provider-browser/*/reconnect",
+      (route) => {
+        reconnectRequests += 1;
+        return route.fulfill({
+          status: 503,
+          json: { error: "Unexpected reconnect" },
+        });
+      },
+    );
+    await page.goto("/holdings/sources");
+    const source = page
+      .locator(".provider-agent-row")
+      .filter({ hasText: label });
+    const reconnect = source.getByRole("button", {
+      name: `Reconnect ${label}`,
+    });
+    await expect(reconnect).toBeEnabled();
+    try {
+      await source.getByRole("button", { name: "Try update" }).click();
+      await expect(
+        source.getByRole("button", { name: "Requesting…" }),
+      ).toBeDisabled();
+      await expect(reconnect).toBeDisabled();
+      expect(reconnectRequests).toBe(0);
+    } finally {
+      finishUpdate();
+    }
+    await expect(
+      source.getByRole("heading", { name: "Update queued" }),
+    ).toBeVisible();
+  });
+}
 
 test("starts a provider-scoped browser reconnect without terminal handoff", async ({
   page,

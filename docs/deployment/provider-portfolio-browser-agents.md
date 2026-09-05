@@ -91,6 +91,12 @@ review.
 The manual repair command remains under **Troubleshooting** for worker or agent
 failures. Provider sign-in expiry should not require it.
 
+If a page could not be read, **Try update** and **Reconnect [provider]** remain
+available as separate recovery actions. A page-reading failure alone does not
+prove the sign-in expired. Keel recognizes a dedicated sign-in route together
+with visible sign-in copy even when its form has not loaded. Reconnecting and
+queuing an update are mutually exclusive while either request is in progress.
+
 ## Capture contracts
 
 The agent fails closed if a provider page changes, a visible count changes
