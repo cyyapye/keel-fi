@@ -4080,13 +4080,19 @@ function rememberProviderReconnect(
 }
 
 function ProviderReconnectControl({
+  disabled = false,
   label,
+  onActiveChange,
   onConnected,
   provider,
+  tone = "primary",
 }: {
+  disabled?: boolean;
   label: string;
+  onActiveChange?: (active: boolean) => void;
   onConnected: () => void;
   provider: "angellist" | ProviderPortfolioAgentProvider;
+  tone?: "primary" | "secondary";
 }) {
   const [session, setSession] = useState<ProviderBrowserSession | null>(null);
   const [busy, setBusy] = useState<"cancel" | "start" | null>(null);
@@ -4098,7 +4104,11 @@ function ProviderReconnectControl({
     (next: ProviderBrowserSession) => {
       setSession(next);
       setError(null);
-      if (["requested", "starting", "ready", "opened"].includes(next.status)) {
+      const active = ["requested", "starting", "ready", "opened"].includes(
+        next.status,
+      );
+      onActiveChange?.(active);
+      if (active) {
         rememberProviderReconnect(provider, next.id);
       } else {
         rememberProviderReconnect(provider, null);
@@ -4113,7 +4123,7 @@ function ProviderReconnectControl({
         popupRef.current = null;
       }
     },
-    [onConnected, provider],
+    [onActiveChange, onConnected, provider],
   );
 
   const openReadySession = useCallback((ready: ProviderBrowserSession) => {
@@ -4220,6 +4230,7 @@ function ProviderReconnectControl({
 
   const startReconnect = async () => {
     setBusy("start");
+    onActiveChange?.(true);
     setError(null);
     openedSessionRef.current = null;
     const popup = window.open("", `keel-${provider}-reconnect`);
@@ -4236,6 +4247,7 @@ function ProviderReconnectControl({
     } catch {
       popup?.close();
       popupRef.current = null;
+      onActiveChange?.(false);
       setError(`Keel could not start the ${label} reconnect. Try again.`);
     } finally {
       setBusy(null);
@@ -4317,9 +4329,9 @@ function ProviderReconnectControl({
         </ActionGroup>
       ) : (
         <Button
-          disabled={busy !== null}
+          disabled={disabled || busy !== null}
           onClick={() => void startReconnect()}
-          tone="primary"
+          tone={tone}
         >
           {busy === "start" ? "Starting…" : `Reconnect ${label}`}
         </Button>
@@ -4694,7 +4706,7 @@ function providerPortfolioAgentMessage(
       return {
         title: `Could not read ${label}`,
         description:
-          "The portfolio may still be loading or its page may have changed. Try the update again; no sign-in failure was confirmed.",
+          "Try the update again, or reconnect to check your sign-in.",
       };
     }
     if (overview.errorCode === "upload_failed") {
@@ -4725,6 +4737,7 @@ function ProviderPortfolioAgentRow({
     useState<ProviderPortfolioAgentOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [reconnectActive, setReconnectActive] = useState(false);
   const [busyAction, setBusyAction] = useState<
     "copy" | "interval" | "run" | null
   >(null);
@@ -4762,7 +4775,8 @@ function ProviderPortfolioAgentRow({
     overview?.status === "offline" || overview?.status === "needs_attention";
   const managedReconnectAvailable =
     overview?.status === "needs_attention" &&
-    overview.errorCode === "provider_sign_in_required";
+    (overview.errorCode === "provider_sign_in_required" ||
+      overview.errorCode === "page_not_supported");
   const retryAvailable =
     overview?.status === "needs_attention" &&
     (overview.errorCode === "upload_failed" ||
@@ -4879,21 +4893,24 @@ function ProviderPortfolioAgentRow({
           </div>
         ) : repairRequired ? (
           <div className="provider-agent-row__setup">
-            {managedReconnectAvailable && (
-              <ProviderReconnectControl
-                label={label}
-                onConnected={reconnectCompleted}
-                provider={provider}
-              />
-            )}
             {retryAvailable && (
               <Button
-                disabled={busyAction !== null}
+                disabled={busyAction !== null || reconnectActive}
                 onClick={() => void runNow()}
                 tone="primary"
               >
                 {busyAction === "run" ? "Requesting…" : "Try update"}
               </Button>
+            )}
+            {managedReconnectAvailable && (
+              <ProviderReconnectControl
+                disabled={busyAction !== null}
+                label={label}
+                onActiveChange={setReconnectActive}
+                onConnected={reconnectCompleted}
+                provider={provider}
+                tone={retryAvailable ? "secondary" : "primary"}
+              />
             )}
             <AgentTroubleshooting
               copyCommand={() => void copySetupCommand()}

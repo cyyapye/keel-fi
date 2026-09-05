@@ -79,6 +79,46 @@ for (const [provider, origin, control] of [
       requireProviderPageReady(page, provider, 2_000),
     ).resolves.toBeUndefined();
   });
+
+  test(`${provider} recognizes a dedicated sign-in page before its form loads`, async ({
+    page,
+  }) => {
+    let html = "<h1>Log in to your account</h1><div>Loading…</div>";
+    await page.route(`${origin}/**`, (route) =>
+      route.fulfill({ body: html, contentType: "text/html" }),
+    );
+    await page.goto(`${origin}/login`);
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "provider_sign_in_required",
+    );
+
+    // A heading without the dedicated route is not proof of an expired session.
+    await page.goto(`${origin}/portfolio?redirect=/login`);
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "page_not_supported",
+    );
+    // Neither an auth route alone nor hidden authentication copy is sufficient.
+    for (const content of [
+      "<h1>Temporarily unavailable</h1>",
+      "<h1 hidden>Log in to your account</h1><div>Loading…</div>",
+    ]) {
+      html = content;
+      await page.goto(`${origin}/login`);
+      await expect(
+        requireProviderPageReady(page, provider, 100),
+      ).rejects.toThrow("page_not_supported");
+    }
+    await page.route("https://unrelated.example/**", (route) =>
+      route.fulfill({
+        body: "<h1>Log in to your account</h1>",
+        contentType: "text/html",
+      }),
+    );
+    await page.goto("https://unrelated.example/login");
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "page_not_supported",
+    );
+  });
 }
 
 function tokenfolioPage(
