@@ -1372,6 +1372,17 @@ async function captureSydecar(
   onStage("initial_list");
   const initial = await stableSydecarList(page);
   const captured: CaptureRow[] = [];
+  const centralDocumentPositions: Array<
+    CaptureRow & { sourceDisplayNameUnique: boolean }
+  > = [];
+  const sourceDisplayNameCounts = new Map<string, number>();
+  for (const row of initial) {
+    const key = normalizedText(row.investment).toLowerCase();
+    sourceDisplayNameCounts.set(
+      key,
+      (sourceDisplayNameCounts.get(key) ?? 0) + 1,
+    );
+  }
   const providerIds = new Set<string>();
 
   for (let index = 0; index < initial.length; index += 1) {
@@ -1464,7 +1475,22 @@ async function captureSydecar(
     captured.push(capturedRow);
     if (agreements !== undefined) {
       onStage("documents");
-      await agreements.collect(page, capturedRow);
+      if (
+        await page
+          .getByTestId("investment-docs-heading")
+          .isVisible()
+          .catch(() => false)
+      ) {
+        await agreements.collect(page, capturedRow);
+      } else {
+        centralDocumentPositions.push({
+          ...capturedRow,
+          sourceDisplayNameUnique:
+            sourceDisplayNameCounts.get(
+              normalizedText(capturedRow.investment).toLowerCase(),
+            ) === 1,
+        });
+      }
     }
     onStage("return_list");
     await page.goto(PROVIDERS.sydecar.portfolioUrl, {
@@ -1487,6 +1513,10 @@ async function captureSydecar(
     )
   ) {
     throw new AgentFailure("incomplete_snapshot");
+  }
+  if (agreements !== undefined && centralDocumentPositions.length > 0) {
+    onStage("documents");
+    await agreements.collectSydecarDocuments(page, centralDocumentPositions);
   }
   onStage("csv");
   return rowsToCsv("sydecar", captured);

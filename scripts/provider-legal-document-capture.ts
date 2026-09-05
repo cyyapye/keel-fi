@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import type { Locator, Page, Route } from "@playwright/test";
+import { z } from "zod";
 
-import { createProviderPositionNaturalKeySha256 } from "../packages/connectors/src/provider-holdings-template-csv";
+import {
+  createProviderPositionNaturalKeySha256,
+  MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_ROWS,
+} from "../packages/connectors/src/provider-holdings-template-csv";
 import type {
   MacAgentAuthorization,
   ProviderPortfolioAgentLease,
@@ -33,6 +37,12 @@ type Position = {
   legalPosition: string;
   heldThrough: string;
   investmentDate: string | null;
+  sourceDisplayNameUnique?: boolean;
+};
+type DocumentControls = {
+  items: Locator[];
+  problem: LegalDocumentProblem | null;
+  restore: () => Promise<void>;
 };
 type PendingCapture = {
   capture: ProviderLegalDocumentCapture;
@@ -40,6 +50,10 @@ type PendingCapture = {
 };
 export type AgreementCollector = {
   collect(page: Page, position: Position): Promise<void>;
+  collectSydecarDocuments(
+    page: Page,
+    positions: readonly Position[],
+  ): Promise<void>;
   flush(): Promise<void>;
 };
 class CaptureProblem extends Error {
@@ -52,6 +66,24 @@ const hash = (value: string | Uint8Array) =>
 const agreementLabel =
   /\b(?:subscription|series|operating|limited liability company|limited partnership)\s+(?:agreement|pack)\b|\bLLCA\b/iu;
 const excludedLabel = /\b(?:tax|K[- ]?1|W[- ]?[89]|wire|invoice)\b/iu;
+const MAX_SYDECAR_DOCUMENT_ROWS = MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_ROWS * 10;
+const SYDECAR_DOCUMENTS_URL = "https://app.sydecar.io/documents";
+const SydecarDocumentRowsSchema = z
+  .array(
+    z
+      .object({
+        cellCount: z.literal(6),
+        controlCount: z.number().int().min(0).max(20),
+        documentName: z.string().max(1_000),
+        documentType: z.string().max(1_000),
+        investment: z.string().max(1_000),
+      })
+      .strict(),
+  )
+  .max(MAX_SYDECAR_DOCUMENT_ROWS);
+
+const normalizedLabel = (value: string) =>
+  value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
 
 // Only the two storage locations observed through provider-owned download
 // controls. Never fetch arbitrary page-supplied URLs, redirects or localhost.
@@ -187,11 +219,7 @@ export async function readAgreementResponse(
 async function controls(
   page: Page,
   provider: Provider,
-): Promise<{
-  items: Locator[];
-  problem: LegalDocumentProblem | null;
-  restore: () => Promise<void>;
-}> {
+): Promise<DocumentControls> {
   if (provider === "sydecar") {
     const heading = page.getByTestId("investment-docs-heading");
     if (!(await heading.isVisible().catch(() => false)))
@@ -284,6 +312,120 @@ async function controls(
   }
 }
 
+function controlsWithProblem(problem: LegalDocumentProblem): DocumentControls {
+  return { items: [], problem, restore: () => Promise.resolve() };
+}
+
+async function stableSydecarDocumentRows(page: Page): Promise<Locator> {
+  const table = page.locator("table:visible");
+  await table.first().waitFor({ state: "visible", timeout: 30_000 });
+  if ((await table.count()) !== 1) throw new CaptureProblem("page_changed");
+  const headers = (
+    await table.locator(":scope > thead th").allInnerTexts()
+  ).map(normalizedLabel);
+  if (
+    headers.length !== 6 ||
+    headers[0] !== "document name" ||
+    headers[1] !== "type" ||
+    headers[2] !== "investment"
+  )
+    throw new CaptureProblem("page_changed");
+
+  const rows = table.locator(":scope > tbody > tr");
+  let previousCount = -1;
+  let stablePasses = 0;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(250);
+    const count = await rows.count();
+    if (count > MAX_SYDECAR_DOCUMENT_ROWS)
+      throw new CaptureProblem("limit_reached");
+    if (count === previousCount) {
+      stablePasses += 1;
+      // Do not accept an initially empty async table before its first fetch has
+      // had a bounded opportunity to render.
+      if (stablePasses >= 2 && attempt >= 5) return rows;
+    } else {
+      previousCount = count;
+      stablePasses = 0;
+    }
+  }
+  throw new CaptureProblem("page_changed");
+}
+
+async function sydecarCentralDocumentControls(
+  page: Page,
+  positions: readonly Position[],
+): Promise<DocumentControls[]> {
+  try {
+    await page.goto(SYDECAR_DOCUMENTS_URL, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    });
+    if (page.url() !== SYDECAR_DOCUMENTS_URL)
+      throw new CaptureProblem("page_changed");
+    const rows = await stableSydecarDocumentRows(page);
+    const parsed = SydecarDocumentRowsSchema.safeParse(
+      await rows.evaluateAll((elements) =>
+        elements.map((row) => {
+          const cells = [...row.querySelectorAll(":scope > td")];
+          const read = (index: number) =>
+            (cells[index]?.textContent ?? "")
+              .replace(/\s+/gu, " ")
+              .trim()
+              .slice(0, 1_001);
+          return {
+            cellCount: cells.length,
+            controlCount:
+              cells[0]?.querySelectorAll(":scope > div").length ?? 0,
+            documentName: read(0),
+            documentType: read(1),
+            investment: read(2),
+          };
+        }),
+      ),
+    );
+    if (!parsed.success) throw new CaptureProblem("page_changed");
+
+    const positionOccurrences = new Map<string, number>();
+    for (const position of positions) {
+      const key = normalizedLabel(position.investment);
+      positionOccurrences.set(key, (positionOccurrences.get(key) ?? 0) + 1);
+    }
+
+    return positions.map((position) => {
+      const key = normalizedLabel(position.investment);
+      if (
+        position.sourceDisplayNameUnique !== true ||
+        positionOccurrences.get(key) !== 1
+      )
+        return controlsWithProblem("page_changed");
+      const indexes = parsed.data.flatMap((row, index) => {
+        const label = `${row.documentName} ${row.documentType}`;
+        return normalizedLabel(row.investment) === key &&
+          agreementLabel.test(label) &&
+          !excludedLabel.test(label)
+          ? [index]
+          : [];
+      });
+      if (indexes.some((index) => parsed.data[index]?.controlCount !== 1))
+        return controlsWithProblem("page_changed");
+      const items = indexes.map((index) =>
+        rows.nth(index).locator(":scope > td").nth(0).locator(":scope > div"),
+      );
+      return {
+        items,
+        problem: items.length === 0 ? "missing" : null,
+        restore: () => Promise.resolve(),
+      };
+    });
+  } catch (error) {
+    const problem =
+      error instanceof CaptureProblem ? error.problem : "page_changed";
+    return positions.map(() => controlsWithProblem(problem));
+  }
+}
+
 export function providerAgreementCollector(options: {
   provider: Provider;
   manifest: ProviderLegalDocumentManifest;
@@ -369,119 +511,147 @@ export function providerAgreementCollector(options: {
     if (sameBytes === undefined) files.set(sha256, bytes);
     return document;
   };
-  return {
-    async collect(page, position) {
-      await renew();
-      const naturalKeySha256 = await createProviderPositionNaturalKeySha256({
-        provider: options.provider,
-        ...position,
-      });
-      const documents: CapturedLegalDocument[] = [];
-      const files = new Map<string, Uint8Array>();
-      const capture: ProviderLegalDocumentCapture = {
-        version: 1,
-        naturalKeySha256,
-        ownershipLabel: position.heldThrough,
-        problem: null,
-        documents,
-      };
-      let restore: () => Promise<void> = () => Promise.resolve();
-      try {
-        // Leave time to finish the existing snapshot and upload within its
-        // renewable 30-minute lease, even when provider controls stop responding.
-        if (now().getTime() - startedAt >= 20 * 60_000)
-          throw new CaptureProblem("limit_reached");
-        const found = await controls(page, options.provider);
-        restore = found.restore;
-        capture.problem = found.problem;
-        if (found.items.length > MAX_LEGAL_DOCUMENTS_PER_POSITION)
-          capture.problem = "limit_reached";
-        for (const control of found.items.slice(
+  const collectWithControls = async (
+    page: Page,
+    position: Position,
+    getControls: () => Promise<DocumentControls>,
+  ) => {
+    await renew();
+    const naturalKeySha256 = await createProviderPositionNaturalKeySha256({
+      provider: options.provider,
+      ...position,
+    });
+    const documents: CapturedLegalDocument[] = [];
+    const files = new Map<string, Uint8Array>();
+    const capture: ProviderLegalDocumentCapture = {
+      version: 1,
+      naturalKeySha256,
+      ownershipLabel: position.heldThrough,
+      problem: null,
+      documents,
+    };
+    let restore: () => Promise<void> = () => Promise.resolve();
+    try {
+      // Leave time to finish the existing snapshot and upload within its
+      // renewable 30-minute lease, even when provider controls stop responding.
+      if (now().getTime() - startedAt >= 20 * 60_000)
+        throw new CaptureProblem("limit_reached");
+      const found = await getControls();
+      restore = found.restore;
+      capture.problem = found.problem;
+      if (found.items.length > MAX_LEGAL_DOCUMENTS_PER_POSITION)
+        capture.problem = "limit_reached";
+      for (const control of found.items.slice(
+        0,
+        MAX_LEGAL_DOCUMENTS_PER_POSITION,
+      )) {
+        const positionBytes = documents.reduce(
+          (total, document) => total + document.byteSize,
           0,
-          MAX_LEGAL_DOCUMENTS_PER_POSITION,
-        )) {
-          const positionBytes = documents.reduce(
-            (total, document) => total + document.byteSize,
-            0,
-          );
-          await renew();
-          const url = await agreementPopupUrl(page, control, options.provider);
-          const documentKey = hash(
-            JSON.stringify([
-              options.provider,
-              naturalKeySha256,
-              url.origin,
-              url.pathname,
-            ]),
-          );
-          const cached = known.get(documentKey);
-          const cacheAge =
-            cached === undefined
-              ? Infinity
-              : now().getTime() - Date.parse(cached.checkedAt);
-          if (cached !== undefined) {
-            if (
-              positionBytes + cached.byteSize >
-              MAX_LEGAL_DOCUMENT_POSITION_BYTES
-            )
-              throw new CaptureProblem("limit_reached");
-            const document = CapturedLegalDocumentSchema.parse({
-              documentKey: cached.documentKey,
-              sha256: cached.sha256,
-              fileName: cached.fileName,
-              byteSize: cached.byteSize,
+        );
+        await renew();
+        const url = await agreementPopupUrl(page, control, options.provider);
+        const documentKey = hash(
+          JSON.stringify([
+            options.provider,
+            naturalKeySha256,
+            url.origin,
+            url.pathname,
+          ]),
+        );
+        const cached = known.get(documentKey);
+        const cacheAge =
+          cached === undefined
+            ? Infinity
+            : now().getTime() - Date.parse(cached.checkedAt);
+        if (cached !== undefined) {
+          if (
+            positionBytes + cached.byteSize >
+            MAX_LEGAL_DOCUMENT_POSITION_BYTES
+          )
+            throw new CaptureProblem("limit_reached");
+          const document = CapturedLegalDocumentSchema.parse({
+            documentKey: cached.documentKey,
+            sha256: cached.sha256,
+            fileName: cached.fileName,
+            byteSize: cached.byteSize,
+            checkedAt: cached.checkedAt,
+            extraction: cached.extraction,
+          });
+          const index = documents.push(document) - 1;
+          if (
+            cacheAge < 0 ||
+            cacheAge >= LEGAL_DOCUMENT_RECHECK_MS ||
+            cached.extraction.version !== LEGAL_DOCUMENT_EXTRACTOR_VERSION ||
+            cached.extraction.problem === "extractor_unavailable"
+          ) {
+            // First-time downloads get the run budget before routine rechecks.
+            // The signed URL exists only in this run's memory; it is never
+            // stored or logged. Keep the original's actual check date until
+            // its oldest-first recheck succeeds.
+            rechecks.push({
               checkedAt: cached.checkedAt,
-              extraction: cached.extraction,
+              run: async () => {
+                await renew();
+                try {
+                  const otherBytes = documents.reduce(
+                    (total, item, itemIndex) =>
+                      total + (itemIndex === index ? 0 : item.byteSize),
+                    0,
+                  );
+                  documents[index] = await downloadDocument(
+                    url,
+                    documentKey,
+                    otherBytes,
+                    files,
+                  );
+                } catch (error) {
+                  capture.problem =
+                    error instanceof CaptureProblem
+                      ? error.problem
+                      : "inaccessible";
+                }
+              },
             });
-            const index = documents.push(document) - 1;
-            if (
-              cacheAge < 0 ||
-              cacheAge >= LEGAL_DOCUMENT_RECHECK_MS ||
-              cached.extraction.version !== LEGAL_DOCUMENT_EXTRACTOR_VERSION ||
-              cached.extraction.problem === "extractor_unavailable"
-            ) {
-              // First-time downloads get the run budget before routine rechecks.
-              // The signed URL exists only in this run's memory; it is never
-              // stored or logged. Keep the original's actual check date until
-              // its oldest-first recheck succeeds.
-              rechecks.push({
-                checkedAt: cached.checkedAt,
-                run: async () => {
-                  await renew();
-                  try {
-                    const otherBytes = documents.reduce(
-                      (total, item, itemIndex) =>
-                        total + (itemIndex === index ? 0 : item.byteSize),
-                      0,
-                    );
-                    documents[index] = await downloadDocument(
-                      url,
-                      documentKey,
-                      otherBytes,
-                      files,
-                    );
-                  } catch (error) {
-                    capture.problem =
-                      error instanceof CaptureProblem
-                        ? error.problem
-                        : "inaccessible";
-                  }
-                },
-              });
-            }
-            continue;
           }
-          documents.push(
-            await downloadDocument(url, documentKey, positionBytes, files),
+          continue;
+        }
+        documents.push(
+          await downloadDocument(url, documentKey, positionBytes, files),
+        );
+      }
+    } catch (error) {
+      capture.problem =
+        error instanceof CaptureProblem ? error.problem : "inaccessible";
+    } finally {
+      await restore();
+    }
+    pending.push({ capture, files });
+  };
+  return {
+    collect(page, position) {
+      return collectWithControls(page, position, () =>
+        controls(page, options.provider),
+      );
+    },
+    async collectSydecarDocuments(page, positions) {
+      if (options.provider !== "sydecar") {
+        for (const position of positions) {
+          await collectWithControls(page, position, () =>
+            Promise.reject(new CaptureProblem("page_changed")),
           );
         }
-      } catch (error) {
-        capture.problem =
-          error instanceof CaptureProblem ? error.problem : "inaccessible";
-      } finally {
-        await restore();
+        return;
       }
-      pending.push({ capture, files });
+      const found = await sydecarCentralDocumentControls(page, positions);
+      for (let index = 0; index < positions.length; index += 1) {
+        const position = positions[index];
+        const positionControls = found[index];
+        if (position === undefined || positionControls === undefined) continue;
+        await collectWithControls(page, position, () =>
+          Promise.resolve(positionControls),
+        );
+      }
     },
     async flush() {
       // Only invoked after the existing full snapshot and identity checks pass.

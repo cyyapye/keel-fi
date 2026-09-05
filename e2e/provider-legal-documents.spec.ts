@@ -30,6 +30,19 @@ async function documentPage(
   );
 }
 
+function sydecarCentralDocumentRow(input: {
+  documentName: string;
+  documentType: string;
+  investment: string;
+  url: string;
+}): string {
+  return `<tr><td><div onclick="window.open('${input.url}')">${input.documentName}</div></td><td>${input.documentType}</td><td><div>${input.investment}</div></td><td><span>Investor</span></td><td>-</td><td>Sep 1, 2026</td></tr>`;
+}
+
+function sydecarCentralDocumentsPage(rows: readonly string[]): string {
+  return `<!doctype html><html><body><table><thead><tr><th>Document Name</th><th>Type</th><th>Investment</th><th>Owner</th><th>Status</th><th>Date</th></tr></thead><tbody>${rows.join("")}</tbody></table></body></html>`;
+}
+
 test.beforeEach(({ isMobile }) => {
   test.skip(isMobile, "Existing capture agents use desktop provider sessions.");
 });
@@ -96,6 +109,201 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     expect(downloads).toBe(2); // Same path may be replaced: bounded weekly recheck.
   });
 }
+
+test("Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements", async ({
+  context,
+  page,
+}) => {
+  const rows = Array.from({ length: 120 }, (_, index) =>
+    sydecarCentralDocumentRow({
+      documentName: `Synthetic quarterly update ${index.toString()}`,
+      documentType: "Update",
+      investment: `Synthetic Other ${index.toString()}`,
+      url: "https://unexpected.example/must-not-open.pdf",
+    }),
+  );
+  rows[17] = sydecarCentralDocumentRow({
+    documentName: "Synthetic Atlas Subscription Agreement.pdf",
+    documentType: "Subscription Agreement",
+    investment: position.investment,
+    url: urls.sydecar,
+  });
+  rows[119] = sydecarCentralDocumentRow({
+    documentName: "Synthetic Other Operating Agreement.pdf",
+    documentType: "Operating Agreement",
+    investment: "Synthetic Unrelated",
+    url: "https://unexpected.example/must-not-open.pdf",
+  });
+  let documentPageRequests = 0;
+  await page.route("https://app.sydecar.io/documents", (route) => {
+    documentPageRequests += 1;
+    return route.fulfill({
+      body: sydecarCentralDocumentsPage(rows),
+      contentType: "text/html",
+    });
+  });
+  let downloads = 0;
+  const saved: ProviderLegalDocumentCapture[] = [];
+  const collector = providerAgreementCollector({
+    provider: "sydecar",
+    manifest: { version: 1, captures: [] },
+    renew: () => Promise.resolve(),
+    download: () => {
+      downloads += 1;
+      return Promise.resolve(new Response(syntheticAgreementPdf()));
+    },
+    save: ({ capture }) => {
+      saved.push(capture);
+      return Promise.resolve();
+    },
+  });
+
+  await collector.collectSydecarDocuments(page, [
+    { ...position, sourceDisplayNameUnique: true },
+  ]);
+  expect(saved).toHaveLength(0);
+  await collector.flush();
+
+  expect(documentPageRequests).toBe(1);
+  expect(downloads).toBe(1);
+  expect(saved).toHaveLength(1);
+  expect(saved[0]).toMatchObject({
+    problem: null,
+    documents: [
+      {
+        extraction: {
+          problem: null,
+          citations: [{ legalName: "Synthetic Atlas SPV LLC", page: 1 }],
+        },
+      },
+    ],
+  });
+  expect(context.pages()).toHaveLength(1);
+});
+
+test("Sydecar central Documents association fails closed for duplicate position labels", async ({
+  page,
+}) => {
+  await page.route("https://app.sydecar.io/documents", (route) =>
+    route.fulfill({
+      body: sydecarCentralDocumentsPage([
+        sydecarCentralDocumentRow({
+          documentName: "Synthetic Atlas Subscription Agreement.pdf",
+          documentType: "Subscription Agreement",
+          investment: position.investment,
+          url: urls.sydecar,
+        }),
+      ]),
+      contentType: "text/html",
+    }),
+  );
+  let downloads = 0;
+  const saved: ProviderLegalDocumentCapture[] = [];
+  const collector = providerAgreementCollector({
+    provider: "sydecar",
+    manifest: { version: 1, captures: [] },
+    renew: () => Promise.resolve(),
+    download: () => {
+      downloads += 1;
+      return Promise.resolve(new Response(syntheticAgreementPdf()));
+    },
+    save: ({ capture }) => {
+      saved.push(capture);
+      return Promise.resolve();
+    },
+  });
+
+  await collector.collectSydecarDocuments(page, [
+    { ...position, sourceDisplayNameUnique: false },
+    {
+      ...position,
+      legalPosition: "Synthetic second source reference",
+      sourceDisplayNameUnique: false,
+    },
+  ]);
+  await collector.flush();
+
+  expect(downloads).toBe(0);
+  expect(saved.map((capture) => capture.problem)).toEqual([
+    "page_changed",
+    "page_changed",
+  ]);
+});
+
+test("Sydecar central agreement backfill resumes after the 24-download run budget", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const positions = Array.from({ length: 13 }, (_, index) => ({
+    ...position,
+    investment: `Synthetic Position ${index.toString()}`,
+    legalPosition: `Synthetic source ${index.toString()}`,
+    sourceDisplayNameUnique: true,
+  }));
+  const rows = positions.flatMap((item, positionIndex) =>
+    Array.from({ length: 2 }, (_, documentIndex) =>
+      sydecarCentralDocumentRow({
+        documentName: `${item.investment} Subscription Agreement ${documentIndex.toString()}.pdf`,
+        documentType: "Subscription Agreement",
+        investment: item.investment,
+        url: `https://storage.googleapis.com/sydecar-prod-documents/synthetic/${positionIndex.toString()}-${documentIndex.toString()}-agreement.pdf?synthetic=one`,
+      }),
+    ),
+  );
+  await page.route("https://app.sydecar.io/documents", (route) =>
+    route.fulfill({
+      body: sydecarCentralDocumentsPage(rows),
+      contentType: "text/html",
+    }),
+  );
+  let downloads = 0;
+  const saved: ProviderLegalDocumentCapture[] = [];
+  const build = (manifest: ProviderLegalDocumentManifest) =>
+    providerAgreementCollector({
+      provider: "sydecar",
+      manifest,
+      now: () => new Date("2026-09-01T12:00:00.000Z"),
+      renew: () => Promise.resolve(),
+      download: () => {
+        downloads += 1;
+        return Promise.resolve(new Response(syntheticAgreementPdf()));
+      },
+      save: ({ capture }) => {
+        saved.push(capture);
+        return Promise.resolve();
+      },
+    });
+
+  const first = build({ version: 1, captures: [] });
+  await first.collectSydecarDocuments(page, positions);
+  await first.flush();
+  expect(downloads).toBe(24);
+  expect(saved).toHaveLength(13);
+  expect(saved[12]).toMatchObject({
+    problem: "limit_reached",
+    documents: [],
+  });
+
+  const second = build({
+    version: 1,
+    captures: saved.map((capture) => ({
+      ...capture,
+      documents: capture.documents.map((document) => ({
+        ...document,
+        id: crypto.randomUUID(),
+      })),
+    })),
+  });
+  await second.collectSydecarDocuments(page, positions);
+  await second.flush();
+
+  expect(downloads).toBe(26);
+  expect(saved).toHaveLength(26);
+  expect(saved.slice(13).every((capture) => capture.problem === null)).toBe(
+    true,
+  );
+  expect(saved[25]?.documents).toHaveLength(2);
+});
 
 test("backfill reaches later positions before rechecking expired cached agreements", async ({
   page,
