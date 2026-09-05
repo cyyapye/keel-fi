@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -104,6 +105,28 @@ afterEach(() => {
 });
 
 describe("PDF sandbox policy", () => {
+  it("requires HTTPS package mirrors before updating the reader image", async () => {
+    const dockerfile = await readFile(
+      new URL("./pdf-sandbox/Dockerfile", import.meta.url),
+      "utf8",
+    );
+    const rewrite = dockerfile.indexOf("s|URIs: http://|URIs: https://|g");
+    const rejection = dockerfile.indexOf("! grep -q '^URIs: http://'");
+    const certificate = dockerfile.indexOf(
+      "COPY --from=certificates /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt",
+    );
+    expect(dockerfile).toContain(
+      "FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce AS certificates",
+    );
+    expect(certificate).toBeGreaterThan(-1);
+    expect(rewrite).toBeGreaterThan(-1);
+    expect(rewrite).toBeGreaterThan(certificate);
+    expect(rejection).toBeGreaterThan(rewrite);
+    expect(dockerfile.indexOf("apt-get update")).toBeGreaterThan(rejection);
+    expect(dockerfile).toContain(
+      "apt-get install -y --no-install-recommends ca-certificates poppler-utils python3",
+    );
+  });
   it("allows only a local socket and immutable image identity", () => {
     expect(PdfSandboxConfigSchema.parse(config)).toEqual(config);
     for (const image of ["ubuntu:latest", "--privileged", "sha256:bad"])
