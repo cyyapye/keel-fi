@@ -22,7 +22,7 @@ for (const [provider, origin, control] of [
     '<table data-testid="investments-table"><thead><tr><th>Investment</th></tr></thead><tbody></tbody></table>',
   ],
 ] as const) {
-  test(`${provider} distinguishes sign-in from missing or delayed portfolio controls`, async ({
+  test(`${provider} distinguishes sign-in from missing, responsive, or delayed portfolio controls`, async ({
     page,
   }) => {
     let html =
@@ -69,7 +69,9 @@ for (const [provider, origin, control] of [
 
     html = `<div hidden>${control}</div>`;
     await page.goto(`${origin}/portfolio`);
-    await expect(providerPageReady(page, provider, 100)).resolves.toBe(false);
+    await expect(providerPageReady(page, provider, 100)).resolves.toBe(
+      provider === "sydecar",
+    );
     html = `<div id="loading">Loading</div><script>setTimeout(() => { document.body.innerHTML = ${JSON.stringify(control)}; }, 200)</script>`;
     await page.reload();
     await expect(

@@ -446,6 +446,7 @@ function remoteChromeArguments(
     "--no-first-run",
     "--no-default-browser-check",
     "--new-window",
+    "--window-size=1440,1000",
     "--remote-debugging-address=127.0.0.1",
     `--remote-debugging-port=${debuggingPort.toString()}`,
     startUrl,

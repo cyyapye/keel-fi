@@ -138,6 +138,7 @@ describe("managed provider browser reconnect", () => {
     );
     expect(arguments_).toContain("--remote-debugging-address=127.0.0.1");
     expect(arguments_).toContain("--remote-debugging-port=41337");
+    expect(arguments_).toContain("--window-size=1440,1000");
     expect(arguments_).toContain("https://venture.angellist.com");
     expect(arguments_).not.toContain("--headless=new");
     expect(arguments_.join(" ")).not.toContain("keel-preview");

@@ -189,7 +189,7 @@ describe("provider portfolio Mac agent", () => {
     expect(click).toHaveBeenCalledWith({ force: true, noWaitAfter: true });
   });
 
-  it("requires the visible Sydecar table used by the background capture", async () => {
+  it("accepts Sydecar's attached data model at responsive reconnect widths", async () => {
     const waitFor = vi.fn().mockResolvedValue(undefined);
     const element = {
       waitFor,
@@ -209,11 +209,9 @@ describe("provider portfolio Mac agent", () => {
       ),
     ).resolves.toBe(true);
 
-    expect(locator).toHaveBeenCalledWith(
-      '[data-testid="investments-table"]:visible',
-    );
+    expect(locator).toHaveBeenCalledWith('[data-testid="investments-table"]');
     expect(waitFor).toHaveBeenCalledWith({
-      state: "visible",
+      state: "attached",
       timeout: 1_000,
     });
   });
