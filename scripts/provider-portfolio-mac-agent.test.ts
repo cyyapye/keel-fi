@@ -22,6 +22,11 @@ const {
 } = __providerPortfolioMacAgentTest;
 
 describe("provider portfolio Mac agent", () => {
+  it("checks queued updates each minute independently of the daily schedule", () => {
+    expect(__providerPortfolioMacAgentTest.queuedUpdatePollIntervalMs).toBe(
+      60_000,
+    );
+  });
   it.each([
     ["tokenfolio", "https://app.tokenfolio.co/portfolio?tab=active"],
     ["sydecar", "https://app.sydecar.io/investments"],

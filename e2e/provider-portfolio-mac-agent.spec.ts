@@ -87,6 +87,7 @@ function tokenfolioPage(
   drawerInitiallyOpen = false,
   detailDelayMs = 0,
   tabCountDelayMs = 0,
+  drawerUrlDelayMs = 0,
 ): string {
   const rows = [
     {
@@ -110,8 +111,9 @@ function tokenfolioPage(
   ];
   const rowMarkup = rows
     .map(
-      (row) => `
+      (row, index) => `
         <div role="button" class="relative cursor-pointer" tabindex="0"
+          data-investment-id="${index === 0 ? "11111111-1111-4111-8111-111111111111" : "22222222-2222-4222-8222-222222222222"}"
           data-company="${row.company}" data-committed="${row.committed}"
           data-current="${row.current}" data-entity="${row.entity}"
           data-date="${row.date}">
@@ -161,6 +163,11 @@ function tokenfolioPage(
           row.addEventListener('click', () => {
             dialog.hidden = false;
             setTimeout(() => {
+              const url = new URL(location.href);
+              url.searchParams.set('investmentId', row.dataset.investmentId);
+              history.replaceState(null, '', url.href);
+            }, ${drawerUrlDelayMs.toString()});
+            setTimeout(() => {
               dialog.querySelector('h2').textContent = row.dataset.company.toUpperCase();
               dialog.querySelector('[data-summary="committed"]').textContent = row.dataset.committed;
               dialog.querySelector('[data-summary="current"]').textContent = row.dataset.current;
@@ -171,6 +178,11 @@ function tokenfolioPage(
         });
         dialog.querySelector('[aria-label="Close drawer"]').addEventListener('click', () => {
           dialog.hidden = true;
+          setTimeout(() => {
+            const url = new URL(location.href);
+            url.searchParams.delete('investmentId');
+            history.replaceState(null, '', url.href);
+          }, ${drawerUrlDelayMs.toString()});
         });
       </script>
     </body></html>`;
@@ -292,6 +304,38 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
       investDate: "2026-01-03",
     },
   ]);
+});
+
+test("Tokenfolio waits for each drawer URL to open and clear before associating agreements", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  await page.route("https://app.tokenfolio.co/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: tokenfolioPage(2, ["Funds Received", "Completed"], true, 0, 0, 300),
+    }),
+  );
+  await page.goto(
+    "https://app.tokenfolio.co/portfolio?tab=active&investmentId=33333333-3333-4333-8333-333333333333",
+  );
+  const ids: Array<string | null> = [];
+  const agreements: AgreementCollector = {
+    collect: (sourcePage) => {
+      ids.push(new URL(sourcePage.url()).searchParams.get("investmentId"));
+      return Promise.resolve();
+    },
+    collectSydecarDocuments: () =>
+      Promise.reject(new Error("Unexpected provider")),
+    flush: () => Promise.resolve(),
+  };
+  await captureTokenfolio(page, "2026-08-21", () => undefined, agreements);
+  expect(ids).toEqual([
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+  ]);
+  expect(new URL(page.url()).searchParams.has("investmentId")).toBe(false);
 });
 
 test("fails closed when the Tokenfolio visible count does not reconcile", async ({
@@ -439,7 +483,7 @@ test("defers Sydecar agreement capture to one central Documents pass after snaps
     "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111",
     (route) =>
       route.fulfill({
-        body: sydecarDetailPage(),
+        body: `${sydecarDetailPage()}<h2 data-testid="investment-docs-heading">Investment Docs</h2>`,
         contentType: "text/html",
       }),
   );
@@ -448,6 +492,7 @@ test("defers Sydecar agreement capture to one central Documents pass after snaps
   const centralBatches: Array<{
     count: number;
     unique: boolean | undefined;
+    legacyUrl: string | undefined;
   }> = [];
   const agreements: AgreementCollector = {
     collect: () => {
@@ -458,6 +503,7 @@ test("defers Sydecar agreement capture to one central Documents pass after snaps
       centralBatches.push({
         count: positions.length,
         unique: positions[0]?.sourceDisplayNameUnique,
+        legacyUrl: positions[0]?.sydecarLegacyDocumentUrl,
       });
       return Promise.resolve();
     },
@@ -467,7 +513,14 @@ test("defers Sydecar agreement capture to one central Documents pass after snaps
   await captureSydecar(page, "2026-08-21", () => undefined, agreements);
 
   expect(inlineCollections).toBe(0);
-  expect(centralBatches).toEqual([{ count: 1, unique: true }]);
+  expect(centralBatches).toEqual([
+    {
+      count: 1,
+      unique: true,
+      legacyUrl:
+        "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111",
+    },
+  ]);
 });
 
 test("keeps equal-amount Sydecar rows distinct by row and destination", async ({

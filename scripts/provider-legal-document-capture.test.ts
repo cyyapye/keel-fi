@@ -4,8 +4,28 @@ import {
   readAgreementResponse,
 } from "./provider-legal-document-capture";
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
+import { LegalDocumentExtractionSchema } from "../packages/domain/src/provider-legal-documents";
 
 describe("agreement download boundary", () => {
+  it("reads previous extraction observations but rejects unknown future versions", () => {
+    const extraction = {
+      pageCount: 0,
+      problem: "name_not_found",
+      citations: [],
+    };
+    expect(
+      LegalDocumentExtractionSchema.safeParse({ ...extraction, version: 1 })
+        .success,
+    ).toBe(true);
+    expect(
+      LegalDocumentExtractionSchema.safeParse({ ...extraction, version: 2 })
+        .success,
+    ).toBe(true);
+    expect(
+      LegalDocumentExtractionSchema.safeParse({ ...extraction, version: 3 })
+        .success,
+    ).toBe(false);
+  });
   it.each([
     [
       "sydecar",

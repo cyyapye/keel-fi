@@ -70,7 +70,9 @@ import {
 
 const SETUP_SESSION_CHECK_TIMEOUT_MS = 30_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
-const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
+// D1 owns the daily/weekly schedule. The service must also notice an explicit
+// queued update promptly, without a restart or an extra daily provider scrape.
+const POLL_INTERVAL_MS = 60_000;
 const RECONNECT_POLL_INTERVAL_MS = 5_000;
 const FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000;
 const PAGE_TIMEOUT_MS = 45_000;
@@ -1048,6 +1050,22 @@ async function activateHtmlElement(element: Locator): Promise<void> {
   await element.dispatchEvent("click");
 }
 
+async function waitForTokenfolioDrawerUrl(page: Page, open: boolean) {
+  await page.waitForURL(
+    (url) => {
+      const investmentId = url.searchParams.get("investmentId");
+      return (
+        url.origin === PROVIDERS.tokenfolio.origin &&
+        url.pathname === "/portfolio" &&
+        (open
+          ? /^[a-f0-9-]{36}$/u.test(investmentId ?? "")
+          : investmentId === null)
+      );
+    },
+    { timeout: PAGE_TIMEOUT_MS },
+  );
+}
+
 async function captureTokenfolio(
   page: Page,
   asOfDate: string,
@@ -1117,6 +1135,7 @@ async function captureTokenfolio(
     }
 
     onStage("drawer_open");
+    if (agreements !== undefined) await waitForTokenfolioDrawerUrl(page, false);
     await activateHtmlElement(row);
     const close = page.getByRole("button", { name: "Close drawer" });
     await close.waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
@@ -1162,11 +1181,16 @@ async function captureTokenfolio(
     captured.push(capturedRow);
     if (agreements !== undefined) {
       onStage("documents");
+      // Tokenfolio paints drawer details before updating its URL. Clear the
+      // preceding drawer URL before opening a row, then wait for this one;
+      // otherwise a Deal Snapshot can be paired with a stale investment ID.
+      await waitForTokenfolioDrawerUrl(page, true);
       await agreements.collect(page, capturedRow);
     }
     onStage("drawer_close");
     await activateHtmlElement(close);
     await close.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
+    if (agreements !== undefined) await waitForTokenfolioDrawerUrl(page, false);
   }
 
   onStage("final_reconcile");
@@ -1373,7 +1397,10 @@ async function captureSydecar(
   const initial = await stableSydecarList(page);
   const captured: CaptureRow[] = [];
   const centralDocumentPositions: Array<
-    CaptureRow & { sourceDisplayNameUnique: boolean }
+    CaptureRow & {
+      sourceDisplayNameUnique: boolean;
+      sydecarLegacyDocumentUrl?: string;
+    }
   > = [];
   const sourceDisplayNameCounts = new Map<string, number>();
   for (const row of initial) {
@@ -1475,22 +1502,21 @@ async function captureSydecar(
     captured.push(capturedRow);
     if (agreements !== undefined) {
       onStage("documents");
-      if (
-        await page
-          .getByTestId("investment-docs-heading")
-          .isVisible()
-          .catch(() => false)
-      ) {
-        await agreements.collect(page, capturedRow);
-      } else {
-        centralDocumentPositions.push({
-          ...capturedRow,
-          sourceDisplayNameUnique:
-            sourceDisplayNameCounts.get(
-              normalizedText(capturedRow.investment).toLowerCase(),
-            ) === 1,
-        });
-      }
+      const hasLegacyDocuments = await page
+        .getByTestId("investment-docs-heading")
+        .isVisible()
+        .catch(() => false);
+      // The central list may include a governing agreement absent from an
+      // older detail page. Read it for every position, retaining the exact
+      // already-reconciled detail URL only as a bounded legacy fallback.
+      centralDocumentPositions.push({
+        ...capturedRow,
+        sourceDisplayNameUnique:
+          sourceDisplayNameCounts.get(
+            normalizedText(capturedRow.investment).toLowerCase(),
+          ) === 1,
+        ...(hasLegacyDocuments ? { sydecarLegacyDocumentUrl: page.url() } : {}),
+      });
     }
     onStage("return_list");
     await page.goto(PROVIDERS.sydecar.portfolioUrl, {
@@ -2064,6 +2090,7 @@ async function main(): Promise<void> {
 }
 
 export const __providerPortfolioMacAgentTest = {
+  queuedUpdatePollIntervalMs: POLL_INTERVAL_MS,
   buildLaunchAgentPlist,
   captureSydecar,
   captureTokenfolio,

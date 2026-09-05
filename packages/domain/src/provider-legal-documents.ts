@@ -9,7 +9,7 @@ export const MAX_LEGAL_DOCUMENTS_PER_POSITION = 6;
 export const MAX_LEGAL_DOCUMENTS_PER_RUN = 24;
 export const MAX_LEGAL_DOCUMENT_RUN_BYTES = 64 * 1024 * 1024;
 export const MAX_LEGAL_DOCUMENT_POSITION_BYTES = 16 * 1024 * 1024;
-export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 1;
+export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 2;
 export const LEGAL_DOCUMENT_RECHECK_MS = 7 * 24 * 60 * 60 * 1_000;
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -47,7 +47,12 @@ export const LegalDocumentCitationSchema = z
 
 export const LegalDocumentExtractionSchema = z
   .object({
-    version: z.literal(LEGAL_DOCUMENT_EXTRACTOR_VERSION),
+    // Existing immutable observations remain readable during rollout. The
+    // collector rechecks older extractions under its ordinary run budget.
+    version: z.union([
+      z.literal(1),
+      z.literal(LEGAL_DOCUMENT_EXTRACTOR_VERSION),
+    ]),
     pageCount: z.number().int().min(0).max(MAX_LEGAL_DOCUMENT_PAGES),
     problem: LegalDocumentProblemSchema.nullable(),
     citations: z.array(LegalDocumentCitationSchema).max(1),
