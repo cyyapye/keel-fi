@@ -548,15 +548,22 @@ async function providerPageReady(
   if (new URL(page.url()).origin !== PROVIDERS[provider].origin) {
     return false;
   }
-  return page
-    .locator(
-      provider === "tokenfolio"
-        ? 'button#portfolio-tab-active[role="tab"]'
-        : '[data-testid="investments-table"]:visible',
-    )
-    .waitFor({ state: "visible", timeout })
-    .then(async () => !(await providerSignInVisible(page, provider)))
-    .catch(() => false);
+  const isSydecar = provider === "sydecar";
+  return (
+    page
+      .locator(
+        isSydecar
+          ? '[data-testid="investments-table"]'
+          : 'button#portfolio-tab-active[role="tab"]',
+      )
+      // Sydecar keeps its populated desktop table mounted but hidden while the
+      // interactive reconnect window uses its responsive card layout. The
+      // subsequent saved-session verification restores the capture viewport and
+      // still requires the table to be visible before any provider data is read.
+      .waitFor({ state: isSydecar ? "attached" : "visible", timeout })
+      .then(async () => !(await providerSignInVisible(page, provider)))
+      .catch(() => false)
+  );
 }
 
 async function providerSignInVisible(
