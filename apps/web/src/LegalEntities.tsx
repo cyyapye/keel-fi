@@ -49,6 +49,7 @@ import {
 } from "react";
 
 import {
+  AgreementSecurityCheckError,
   applyLegalEntityExactBatch,
   createLegalEntity,
   downloadLegalEntityDocument,
@@ -217,9 +218,11 @@ function AgreementEvidence({
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-    } catch {
+    } catch (failure) {
       setError(
-        "The agreement could not be downloaded. Try again or check source access.",
+        failure instanceof AgreementSecurityCheckError
+          ? failure.message
+          : "The agreement could not be downloaded. Try again or check source access.",
       );
     } finally {
       setWorking(false);

@@ -1,0 +1,49 @@
+name: Private document backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 10 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keel-private-document-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if:
+      github.ref == 'refs/heads/main' &&
+      vars.KEEL_PRIVATE_DOCUMENT_BACKUPS_ENABLED == 'true'
+    runs-on: [self-hosted, Linux, X64, keel-deploy]
+    timeout-minutes: 90
+    environment: private-backup
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Encrypt, restore-check, store privately, and verify read-back
+        env:
+          KEEL_PRIVATE_DOCUMENT_BACKUPS_ENABLED: "true"
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          KEEL_PREVIEW_D1_ID: ${{ secrets.KEEL_PREVIEW_D1_ID }}
+          KEEL_DOCUMENT_D1_READ_TOKEN:
+            ${{ secrets.KEEL_DOCUMENT_D1_READ_TOKEN }}
+          KEEL_PREVIEW_R2_BUCKET: ${{ secrets.KEEL_PREVIEW_R2_BUCKET }}
+          KEEL_DOCUMENT_SOURCE_ACCESS_KEY_ID:
+            ${{ secrets.KEEL_DOCUMENT_SOURCE_ACCESS_KEY_ID }}
+          KEEL_DOCUMENT_SOURCE_SECRET_ACCESS_KEY:
+            ${{ secrets.KEEL_DOCUMENT_SOURCE_SECRET_ACCESS_KEY }}
+          KEEL_DOCUMENT_BACKUP_BUCKET:
+            ${{ secrets.KEEL_DOCUMENT_BACKUP_BUCKET }}
+          KEEL_DOCUMENT_BACKUP_ACCESS_KEY_ID:
+            ${{ secrets.KEEL_DOCUMENT_BACKUP_ACCESS_KEY_ID }}
+          KEEL_DOCUMENT_BACKUP_SECRET_ACCESS_KEY:
+            ${{ secrets.KEEL_DOCUMENT_BACKUP_SECRET_ACCESS_KEY }}
+          KEEL_DOCUMENT_BACKUP_PASSPHRASE:
+            ${{ secrets.KEEL_DOCUMENT_BACKUP_PASSPHRASE }}
+        run: pnpm exec tsx scripts/private-document-backup-job.ts

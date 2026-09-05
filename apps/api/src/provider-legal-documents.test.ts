@@ -48,8 +48,7 @@ beforeEach(async () => {
   token = run.leaseToken;
 });
 afterEach(() => d1.sqlite.close());
-function form(includeBytes = true) {
-  const capture = syntheticDocumentCapture();
+function form(includeBytes = true, capture = syntheticDocumentCapture()) {
   const body = new FormData();
   body.append("capture", JSON.stringify(capture));
   if (includeBytes)
@@ -67,6 +66,76 @@ function post(body = form()) {
 }
 
 describe("private provider agreement API", () => {
+  it.each(["unscanned", "blocked"])(
+    "keeps %s originals private and never reads object storage on download",
+    async (state) => {
+      const capture = syntheticDocumentCapture();
+      const document = capture.documents[0]!;
+      if (state === "unscanned") delete document.scan;
+      else {
+        document.scan!.outcome = "blocked";
+        document.extraction = {
+          version: 2,
+          pageCount: 0,
+          problem: "security_blocked",
+          citations: [],
+        };
+      }
+      const app = createApp();
+      expect(
+        (await app.request(`${path}/documents`, post(form(true, capture)), env))
+          .status,
+      ).toBe(200);
+      const row = d1.sqlite
+        .prepare("SELECT id, object_key FROM source_documents WHERE sha256 = ?")
+        .get(document.sha256)!;
+      expect(String(row.object_key)).toMatch(
+        /^quarantine\/legal-entity-documents\//u,
+      );
+      expect(objects.get(String(row.object_key))).toEqual(
+        syntheticAgreementPdf(),
+      );
+      const download = await app.request(
+        `/api/legal-entity-documents/${String(row.id)}`,
+        { method: "POST" },
+        env,
+      );
+      expect(download.status).toBe(423);
+      expect(await download.text()).toContain("security check");
+      expect(vi.spyOn(env.DOCUMENTS, "get")).not.toHaveBeenCalled();
+      expect(
+        d1.sqlite
+          .prepare(
+            "SELECT outcome FROM private_document_access_events WHERE action = 'download'",
+          )
+          .all(),
+      ).toEqual([{ outcome: "denied" }]);
+      const evidence = d1.sqlite
+        .prepare(
+          "SELECT evidence_json FROM provider_legal_document_observations",
+        )
+        .get()!;
+      expect(JSON.parse(String(evidence.evidence_json))).toMatchObject({
+        state: "unavailable",
+        problem:
+          state === "unscanned" ? "scanner_unavailable" : "security_blocked",
+      });
+    },
+  );
+  it("rejects a clean scan for different bytes before storage", async () => {
+    const capture = syntheticDocumentCapture();
+    capture.documents[0]!.scan!.sha256 = "f".repeat(64);
+    expect(
+      (
+        await createApp().request(
+          `${path}/documents`,
+          post(form(true, capture)),
+          env,
+        )
+      ).status,
+    ).toBe(400);
+    expect(vi.spyOn(env.DOCUMENTS, "put")).not.toHaveBeenCalled();
+  });
   it("saves verified bytes once and returns downloadable document/page evidence", async () => {
     const put = vi.spyOn(env.DOCUMENTS, "put");
     const app = createApp();
@@ -91,7 +160,7 @@ describe("private provider agreement API", () => {
     const id = data.captures[0]?.documents[0]?.id ?? "";
     const download = await app.request(
       `/api/legal-entity-documents/${id}`,
-      {},
+      { method: "POST" },
       env,
     );
     expect(download.status).toBe(200);
@@ -100,6 +169,110 @@ describe("private provider agreement API", () => {
     expect(new Uint8Array(await download.arrayBuffer())).toEqual(
       syntheticAgreementPdf(),
     );
+    expect(
+      d1.sqlite
+        .prepare(
+          "SELECT action, outcome FROM private_document_access_events ORDER BY rowid",
+        )
+        .all(),
+    ).toEqual([
+      { action: "upload", outcome: "stored" },
+      { action: "download", outcome: "released" },
+    ]);
+    expect(
+      (await app.request(`/api/legal-entity-documents/${id}`, {}, env)).status,
+    ).toBe(404);
+  });
+  it("denies a real second household and never reads storage for unauthorized downloads", async () => {
+    await createApp().request(`${path}/documents`, post(), env);
+    const document = d1.sqlite
+      .prepare("SELECT id FROM source_documents WHERE sha256 = ?")
+      .get(syntheticDocumentCapture().documents[0]!.sha256)!;
+    d1.sqlite.exec(
+      "INSERT INTO users VALUES ('user_other', 'other-subject', 'other@example.test', 'Synthetic Other', '2026-09-01'); INSERT INTO households VALUES ('hh_other', 'user_other', 'Synthetic Other', 'USD', '2026-09-01');",
+    );
+    const app = createApp({
+      verifyAccess: () =>
+        Promise.resolve({
+          kind: "user",
+          subject: "other-subject",
+          email: null,
+        }),
+    });
+    const storage = vi.spyOn(env.DOCUMENTS, "get");
+    const secured = { ...env, ENVIRONMENT: "preview" as const };
+    const url = `/api/legal-entity-documents/${String(document.id)}`;
+    expect((await app.request(url, { method: "POST" }, secured)).status).toBe(
+      401,
+    );
+    expect(
+      (
+        await app.request(
+          url,
+          {
+            method: "POST",
+            headers: { "Cf-Access-Jwt-Assertion": "synthetic-jwt" },
+          },
+          secured,
+        )
+      ).status,
+    ).toBe(404);
+    expect(storage).not.toHaveBeenCalled();
+    expect(
+      d1.sqlite
+        .prepare(
+          "SELECT household_id, actor_user_id, outcome FROM private_document_access_events WHERE action = 'download'",
+        )
+        .all(),
+    ).toEqual([
+      {
+        household_id: "hh_other",
+        actor_user_id: "user_other",
+        outcome: "denied",
+      },
+    ]);
+  });
+  it("does not release bytes when the private audit cannot be recorded", async () => {
+    const app = createApp();
+    await app.request(`${path}/documents`, post(), env);
+    const document = d1.sqlite
+      .prepare("SELECT id FROM source_documents WHERE sha256 = ?")
+      .get(syntheticDocumentCapture().documents[0]!.sha256)!;
+    d1.sqlite.exec(
+      "CREATE TRIGGER synthetic_audit_failure BEFORE INSERT ON private_document_access_events BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;",
+    );
+    const response = await app.request(
+      `/api/legal-entity-documents/${String(document.id)}`,
+      { method: "POST" },
+      env,
+    );
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain("%PDF-");
+  });
+  it("rolls back original metadata if its upload audit fails, then recovers the same bytes", async () => {
+    const app = createApp();
+    d1.sqlite.exec(
+      "CREATE TRIGGER synthetic_audit_failure BEFORE INSERT ON private_document_access_events BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;",
+    );
+    expect((await app.request(`${path}/documents`, post(), env)).status).toBe(
+      503,
+    );
+    expect(
+      d1.sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM source_documents WHERE sha256 = ?",
+        )
+        .get(syntheticDocumentCapture().documents[0]!.sha256),
+    ).toEqual({ count: 0 });
+    d1.sqlite.exec("DROP TRIGGER synthetic_audit_failure;");
+    expect((await app.request(`${path}/documents`, post(), env)).status).toBe(
+      200,
+    );
+    expect(
+      d1.sqlite
+        .prepare("SELECT COUNT(*) AS count FROM private_document_access_events")
+        .get(),
+    ).toEqual({ count: 1 });
   });
   it("rejects missing, duplicate, mismatched and oversized bytes before storage", async () => {
     const put = vi.spyOn(env.DOCUMENTS, "put");
@@ -205,7 +378,7 @@ describe("private provider agreement API", () => {
       (
         await app.request(
           `${origin}/api/legal-entity-documents/${crypto.randomUUID()}`,
-          { headers },
+          { method: "POST", headers },
           agentEnv,
         )
       ).status,

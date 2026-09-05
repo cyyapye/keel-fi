@@ -24,11 +24,13 @@ import {
   ProviderLegalDocumentManifestSchema,
   type CapturedLegalDocument,
   type LegalDocumentProblem,
+  type LegalDocumentScan,
   type ProviderLegalDocumentCapture,
   type ProviderLegalDocumentManifest,
 } from "../packages/domain/src/provider-legal-documents";
 import { extractLegalNameFromPdf } from "./legal-document-extraction";
 import { MacAgentAccessError, macAgentApi } from "./mac-agent-auth";
+import { scanDocumentInSandbox } from "./pdf-sandbox";
 
 type Provider = ProviderPortfolioAgentProvider;
 type Run = NonNullable<ProviderPortfolioAgentLease["run"]>;
@@ -438,6 +440,7 @@ export function providerAgreementCollector(options: {
   renew: () => Promise<void>;
   now?: () => Date;
   download?: (url: URL) => Promise<Response>;
+  scan?: (bytes: Uint8Array) => Promise<LegalDocumentScan>;
 }): AgreementCollector {
   const now = options.now ?? (() => new Date());
   const pending: PendingCapture[] = [];
@@ -452,6 +455,7 @@ export function providerAgreementCollector(options: {
   const knownHashes = new Map(
     [...known.values()].map((document) => [document.sha256, document]),
   );
+  const processedHashes = new Map<string, CapturedLegalDocument>();
   let bytesDownloaded = 0;
   let downloads = 0;
   let renewedAt = now().getTime();
@@ -496,13 +500,41 @@ export function providerAgreementCollector(options: {
       },
     );
     const sha256 = hash(bytes);
-    const sameBytes = knownHashes.get(sha256);
+    const processed = processedHashes.get(sha256);
+    const sameBytes = processed ?? knownHashes.get(sha256);
+    let scan: LegalDocumentScan | undefined;
+    const scanAge =
+      sameBytes?.scan === undefined
+        ? Infinity
+        : now().getTime() - Date.parse(sameBytes.scan.scannedAt);
+    try {
+      scan =
+        processed !== undefined
+          ? processed.scan
+          : sameBytes?.scan?.outcome === "clean" &&
+              scanAge >= 0 &&
+              scanAge < LEGAL_DOCUMENT_RECHECK_MS
+            ? sameBytes.scan
+            : await (options.scan ?? scanDocumentInSandbox)(bytes);
+    } catch {
+      // Preserve the original in private quarantine, without passing it to the
+      // PDF parser or turning a scanner outage into a missing-source claim.
+    }
     const extraction =
-      sameBytes !== undefined &&
-      sameBytes.extraction.version === LEGAL_DOCUMENT_EXTRACTOR_VERSION &&
-      sameBytes.extraction.problem !== "extractor_unavailable"
-        ? sameBytes.extraction
-        : await extractLegalNameFromPdf(bytes);
+      scan?.outcome !== "clean"
+        ? {
+            version: LEGAL_DOCUMENT_EXTRACTOR_VERSION,
+            pageCount: 0,
+            problem:
+              scan === undefined ? "scanner_unavailable" : "security_blocked",
+            citations: [],
+          }
+        : sameBytes !== undefined &&
+            sameBytes.scan?.outcome === "clean" &&
+            sameBytes.extraction.version === LEGAL_DOCUMENT_EXTRACTOR_VERSION &&
+            sameBytes.extraction.problem !== "extractor_unavailable"
+          ? sameBytes.extraction
+          : await extractLegalNameFromPdf(bytes);
     const decodedPath = decodeURIComponent(url.pathname);
     const fileName = decodedPath.split("/").at(-1) ?? "agreement.pdf";
     const document = CapturedLegalDocumentSchema.parse({
@@ -512,8 +544,12 @@ export function providerAgreementCollector(options: {
       byteSize: bytes.length,
       checkedAt: now().toISOString(),
       extraction,
+      ...(scan === undefined ? {} : { scan }),
     });
-    if (sameBytes === undefined) files.set(sha256, bytes);
+    // Cache expensive processing per exact hash within this bounded run, but
+    // each not-yet-stored capture carries its bytes independently of save order.
+    processedHashes.set(sha256, document);
+    if (!knownHashes.has(sha256)) files.set(sha256, bytes);
     return document;
   };
   const collectWithControls = async (
@@ -582,12 +618,17 @@ export function providerAgreementCollector(options: {
             byteSize: cached.byteSize,
             checkedAt: cached.checkedAt,
             extraction: cached.extraction,
+            ...(cached.scan === undefined ? {} : { scan: cached.scan }),
           });
           const index = documents.push(document) - 1;
           if (
             cacheAge < 0 ||
             cacheAge >= LEGAL_DOCUMENT_RECHECK_MS ||
             cached.extraction.version !== LEGAL_DOCUMENT_EXTRACTOR_VERSION ||
+            cached.scan === undefined ||
+            cached.scan.outcome === "blocked" ||
+            now().getTime() - Date.parse(cached.scan.scannedAt) >=
+              LEGAL_DOCUMENT_RECHECK_MS ||
             cached.extraction.problem === "extractor_unavailable"
           ) {
             // First-time downloads get the run budget before routine rechecks.

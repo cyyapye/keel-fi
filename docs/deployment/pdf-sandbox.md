@@ -1,13 +1,13 @@
 # Isolated agreement PDF reader
 
 The existing Sydecar and Tokenfolio agents download provider-owned agreements.
-Only PDF parsing moves into a fresh, rootless Linux container for each uncached
-PDF. The container receives bytes on stdin and returns bounded, untrusted text
-on stdout. It never receives provider URLs, credentials, browser profiles, host
-mounts, a Docker socket, or storage access. Exact-name extraction and the
-existing review boundary remain in Keel. This is containment, not a guarantee
-against kernel/runtime vulnerabilities or proof that a document is legally
-correct.
+Each uncached PDF is first malware-scanned, then parsed in a separate fresh,
+rootless Linux container. The reader receives bytes on stdin and returns
+bounded, untrusted text on stdout. It never receives provider URLs, credentials,
+browser profiles, host mounts, a Docker socket, or storage access. Exact-name
+extraction and the existing review boundary remain in Keel. This is containment,
+not a guarantee against kernel/runtime vulnerabilities or proof that a document
+is legally correct.
 
 ## Required boundary
 
@@ -55,12 +55,13 @@ make pdf-sandbox-build
 make pdf-sandbox-verify
 ```
 
-The build writes `.keel-local/pdf-sandbox.json` and its `.probe` companion
-(ignored, mode 0600), recording the local socket and content-addressed image
-IDs. The probe image is separate and is never used by capture. For a service
-whose checkout is read-only, set `KEEL_PDF_SANDBOX_CONFIG` to a private writable
-path beneath that account's own home for both the build and service environment.
-Do not copy credentials or source PDFs into the checkout or image context.
+The build writes `.keel-local/pdf-sandbox.json`, its `.probe` companion, and its
+`.scanner` companion (ignored, mode 0600), recording the local socket and
+content-addressed image IDs. The probe image is separate and is never used by
+capture. For a service whose checkout is read-only, set
+`KEEL_PDF_SANDBOX_CONFIG` to a private writable path beneath that account's own
+home for both the build and service environment. Do not copy credentials or
+source PDFs into the checkout or image context.
 
 Run verification under the actual service identity and confinement before
 enabling agreement extraction. Do not assume a rootless daemon visible in an
@@ -73,7 +74,7 @@ Use a separate rootless Linux VM, not native Homebrew Poppler or the default
 rootful Docker daemon. With Lima's rootless `docker` template:
 
 ```sh
-limactl start --yes --name=keel-pdf-sandbox --mount-none --cpus=2 --memory=2 --disk=12 template://docker
+limactl start --yes --name=keel-pdf-sandbox --mount-none --cpus=2 --memory=5 --disk=16 template://docker
 ```
 
 Use the local forwarded `sock/docker.sock` path printed by Lima as
@@ -121,6 +122,69 @@ need Docker or Poppler: parsing happens only in the existing provider agents.
 Updating an agent's runtime/configuration is a separate operational step after
 the API/migration has deployed. Roll back to a previously verified sandbox image
 or leave extraction unavailable; never roll back to unrestricted PDF parsing.
+
+## Malware scanner and daily refresh
+
+The scanner uses signed Ubuntu ClamAV packages and FreshClam-verified official
+signature databases. It receives only bounded stdin, has no network or host
+mounts, and uses the same inspect-then-kernel-handshake gate as the reader. Its
+fixed profile allows 3 GiB RAM for the signature database, no swap, one CPU, 32
+processes, 16 MiB scratch, 8 MiB input, and 4 KiB result JSON. Its parent
+deadline is 90 seconds and its independent watchdog is 95 seconds. These
+settings do not increase the reader's 256 MiB / 30-second allowance.
+
+The scanner limits decompressed data, recursion, files, and scan time. ClamAV
+alerts for encrypted/broken documents and exceeded limits are blocked, not
+misreported as clean. A non-completed scan is unavailable. Neither path reaches
+Poppler. Original bytes may still be stored in private quarantine, with an
+explicit security-check problem. A clean verdict is tied to the exact SHA-256,
+engine/database versions, and times. The vendor signature timestamp must be no
+more than 72 hours old at scan time; the collector rechecks known bytes under
+its existing weekly/24-document/64-MiB/20-minute run budgets. Hash-identical
+documents share processing only within that bounded run or its verified cache.
+
+`make pdf-sandbox-verify` additionally runs a real clean synthetic PDF and the
+standard inert antivirus test string. Both must produce the expected result. The
+test string never reaches a provider or R2. Production capture has no
+network-enabled signature updater and cannot build an image itself.
+
+On OVH, install `scripts/keel-document-scanner-refresh@.service` and `.timer`
+for the two exact instances `sydecar` and `tokenfolio`. Do not install them for
+other identities. For each, an administrator must:
+
+1. Create `/etc/keel-document-scanner/<provider>.conf`, root-owned and mode
+   0644, containing only `KEEL_PDF_SANDBOX_CONFIG` (its exact existing active
+   config path) and `KEEL_PDF_SANDBOX_SOCKET` (its existing rootless socket).
+2. Create its mode-0700, provider-owned directory
+   `/var/lib/keel-agents/<provider>/.local/state/keel/document-scanner-maintenance`.
+3. Add a root-owned instance drop-in granting `ReadWritePaths` to only the exact
+   parent of the active PDF config. Mask sibling provider homes and the
+   provider's Chrome-profile directory. Never grant the whole provider home or
+   copy any source credential into the maintenance config.
+4. Reload systemd, run the service once, inspect its exit status, and prove the
+   new `.scanner` config under the actual provider service confinement. Only
+   then enable the matching timer. It runs daily at a randomized time and
+   catches up once after downtime. A non-blocking per-provider lock prevents
+   overlapping refreshes. Record timer failure in the operator's alert channel.
+
+The refresh builds only the scanner from the installed, reviewed checkout,
+preflights a real clean synthetic PDF, and atomically replaces only the scanner
+image ID. It never pulls application code, restarts the provider service,
+changes accepted data, or expands network access for document processing. A
+failed refresh preserves the prior configuration; its freshness guard still
+fails closed after 72 hours. Check disk use weekly and retire only verified
+superseded scanner images/build cache using the scoped operator procedure. No
+automatic broad Docker pruning is installed.
+
+Two simultaneous provider scans need up to 6 GiB plus the browser/host budget.
+Provision at least 8 GiB available to those workloads or serialize source
+updates. CI/browser tests run one worker; a developer VM needs at least 5 GiB.
+These are current private-alpha bounds, not multi-tenant capacity assumptions.
+
+References:
+[ClamAV scanning](https://docs.clamav.net/manual/Usage/Scanning.html),
+[signed databases](https://docs.clamav.net/manual/Signatures.html),
+[scanner memory](https://docs.clamav.net/manual/Installing/Docker.html).
 
 References:
 [Docker rootless prerequisites](https://docs.docker.com/engine/security/rootless/),

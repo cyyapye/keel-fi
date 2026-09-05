@@ -7,7 +7,7 @@ import sys
 MEMORY = 256 * 1024 * 1024
 
 
-def ready():
+def ready(memory=MEMORY):
     def read(path):
         with open(path, encoding="ascii") as source:
             return source.read().strip()
@@ -17,7 +17,7 @@ def ready():
     assert status["NoNewPrivs"].strip() == "1"
     assert status["Seccomp"].strip() == "2"
     assert int(status["CapEff"].strip(), 16) == 0
-    assert int(read("/sys/fs/cgroup/memory.max")) == MEMORY
+    assert int(read("/sys/fs/cgroup/memory.max")) == memory
     assert read("/sys/fs/cgroup/memory.swap.max") == "0"
     assert int(read("/sys/fs/cgroup/pids.max")) == 32
     quota, period = read("/sys/fs/cgroup/cpu.max").split()

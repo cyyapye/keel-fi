@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Keel %i document-scanner signature refresh
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 UTC
+RandomizedDelaySec=2h
+Persistent=true
+Unit=keel-document-scanner-refresh@%i.service
+
+[Install]
+WantedBy=timers.target
