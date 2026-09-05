@@ -304,15 +304,25 @@ export async function applyLegalEntityExactBatch(
   return LegalEntityExactBatchResultSchema.parse(await response.json());
 }
 
+export class AgreementSecurityCheckError extends Error {
+  constructor() {
+    super(
+      "This agreement has not passed its security check. Queue a source update to check it again.",
+    );
+  }
+}
+
 export async function downloadLegalEntityDocument(id: string): Promise<Blob> {
   const response = await fetch(
     `/api/legal-entity-documents/${encodeURIComponent(id)}`,
     {
+      method: "POST",
       credentials: "same-origin",
       cache: "no-store",
       headers: { Accept: "application/pdf" },
     },
   );
+  if (response.status === 423) throw new AgreementSecurityCheckError();
   if (
     !response.ok ||
     response.headers.get("Content-Type")?.split(";")[0] !== "application/pdf"

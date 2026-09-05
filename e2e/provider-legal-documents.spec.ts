@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
 import { providerAgreementCollector } from "../scripts/provider-legal-document-capture";
-import { syntheticAgreementPdf } from "../scripts/test-support/legal-documents";
+import {
+  syntheticAgreementPdf,
+  syntheticDocumentScan,
+} from "../scripts/test-support/legal-documents";
 import type {
   ProviderLegalDocumentCapture,
   ProviderLegalDocumentManifest,
@@ -15,6 +18,12 @@ const position = {
   heldThrough: "Synthetic Family LLC",
   investmentDate: "2026-01-01",
 };
+// Real scanner timestamps must agree with the real clock. Cache-age tests
+// advance their injected observation clock relative to this run.
+const currentCheck = new Date().toISOString();
+const nextWeek = new Date(
+  Date.parse(currentCheck) + 8 * 24 * 60 * 60_000,
+).toISOString();
 const urls = {
   sydecar:
     "https://storage.googleapis.com/sydecar-prod-documents/synthetic/agreement.pdf?synthetic=one",
@@ -49,6 +58,46 @@ function sydecarCentralDocumentsPage(rows: readonly string[]): string {
 test.beforeEach(({ isMobile }) => {
   test.skip(isMobile, "Existing capture agents use desktop provider sessions.");
 });
+
+for (const problem of ["scanner_unavailable", "security_blocked"] as const) {
+  test(`preserves original bytes without PDF extraction when ${problem}`, async ({
+    page,
+  }) => {
+    await documentPage(page, "sydecar");
+    const saved: ProviderLegalDocumentCapture[] = [];
+    let storedBytes = 0;
+    const collector = providerAgreementCollector({
+      provider: "sydecar",
+      manifest: { version: 1, captures: [] },
+      renew: () => Promise.resolve(),
+      download: () => Promise.resolve(new Response(syntheticAgreementPdf())),
+      scan: (bytes) => {
+        if (problem === "scanner_unavailable")
+          return Promise.reject(new Error("synthetic unavailable"));
+        return Promise.resolve({
+          ...syntheticDocumentScan(bytes, new Date().toISOString()),
+          outcome: "blocked",
+        });
+      },
+      save: ({ capture, files }) => {
+        saved.push(capture);
+        for (const bytes of files.values()) {
+          expect(bytes).toEqual(Buffer.from(syntheticAgreementPdf()));
+          storedBytes += bytes.length;
+        }
+        return Promise.resolve();
+      },
+    });
+    await collector.collect(page, position);
+    await collector.flush();
+    expect(storedBytes).toBe(syntheticAgreementPdf().length);
+    expect(saved[0]?.documents[0]?.extraction).toMatchObject({
+      problem,
+      pageCount: 0,
+      citations: [],
+    });
+  });
+}
 
 test("Sydecar central documents work through the production tsx runner", async () => {
   test.setTimeout(60_000);
@@ -89,12 +138,13 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     const saved: ProviderLegalDocumentCapture[] = [];
     const run = (
       manifest: ProviderLegalDocumentManifest,
-      date = "2026-09-01T12:00:00.000Z",
+      date = currentCheck,
     ) =>
       providerAgreementCollector({
         provider,
         manifest,
-        now: () => new Date(date),
+        now: () =>
+          new Date(Date.now() + Date.parse(date) - Date.parse(currentCheck)),
         renew: () => Promise.resolve(),
         download: () => {
           downloads += 1;
@@ -158,7 +208,7 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
       problem: null,
       citations: [{ legalName: "Synthetic Atlas SPV LLC" }],
     });
-    const refresh = run({ version: 1, captures }, "2026-09-09T12:00:00.000Z");
+    const refresh = run({ version: 1, captures }, nextWeek);
     await refresh.collect(page, position);
     await refresh.flush();
     expect(downloads).toBe(3); // Same path may be replaced: bounded weekly recheck.
@@ -403,7 +453,7 @@ test("Sydecar central agreement backfill resumes after the 24-download run budge
     providerAgreementCollector({
       provider: "sydecar",
       manifest,
-      now: () => new Date("2026-09-01T12:00:00.000Z"),
+      now: () => new Date(),
       renew: () => Promise.resolve(),
       download: () => {
         downloads += 1;
@@ -455,12 +505,13 @@ test("backfill reaches later positions before rechecking expired cached agreemen
   let downloads = 0;
   const build = (
     manifest: ProviderLegalDocumentManifest,
-    date = "2026-09-01T12:00:00.000Z",
+    date = currentCheck,
   ) =>
     providerAgreementCollector({
       provider: "sydecar",
       manifest,
-      now: () => new Date(date),
+      now: () =>
+        new Date(Date.now() + Date.parse(date) - Date.parse(currentCheck)),
       renew: () => Promise.resolve(),
       download: () => {
         downloads += 1;
@@ -491,7 +542,7 @@ test("backfill reaches later positions before rechecking expired cached agreemen
         })),
       })),
     },
-    "2026-09-09T12:00:00.000Z",
+    nextWeek,
   );
   for (let index = 0; index < 25; index += 1)
     await second.collect(page, {

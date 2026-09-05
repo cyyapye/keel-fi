@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   legalDocumentTestDatabase,
   syntheticDocumentCapture,
@@ -43,6 +43,149 @@ function captureObjects() {
 }
 
 describe("provider agreement evidence repository", () => {
+  it("does not change scan state when a conflicting concurrent capture wins the observation", async () => {
+    const clean = syntheticDocumentCapture();
+    await repository.record(lease, digest(1), clean, captureObjects());
+    const blocked = structuredClone(clean);
+    blocked.naturalKeySha256 = digest(2);
+    blocked.documents[0]!.checkedAt = "2026-09-01T12:01:00.000Z";
+    blocked.documents[0]!.scan!.scannedAt = "2026-09-01T12:01:00.000Z";
+    blocked.documents[0]!.scan!.outcome = "blocked";
+    blocked.documents[0]!.extraction = {
+      version: 2,
+      pageCount: 0,
+      problem: "security_blocked",
+      citations: [],
+    };
+    const conflict = structuredClone(clean);
+    conflict.naturalKeySha256 = digest(2);
+    conflict.documents[0]!.checkedAt = "2026-09-01T12:02:00.000Z";
+    conflict.documents[0]!.scan!.scannedAt = "2026-09-01T12:02:00.000Z";
+    const lookup = repository.knownDocuments.bind(repository);
+    // Interleave a real winning commit after the loser's dedupe read and
+    // before its transaction. Neither request may rewrite the other's result.
+    const barrier = vi
+      .spyOn(repository, "knownDocuments")
+      .mockImplementationOnce(async (...args) => {
+        const rows = await lookup(...args);
+        await repository.record(lease, digest(2), blocked, []);
+        return rows;
+      });
+    try {
+      await expect(
+        repository.record(lease, digest(2), conflict, []),
+      ).rejects.toThrow("capture_conflict");
+      expect(
+        d1.sqlite.prepare("SELECT outcome FROM private_document_scans").all(),
+      ).toEqual([{ outcome: "blocked" }]);
+      expect(
+        d1.sqlite
+          .prepare(
+            "SELECT COUNT(*) AS count FROM provider_legal_document_observations",
+          )
+          .get(),
+      ).toEqual({ count: 2 });
+    } finally {
+      barrier.mockRestore();
+    }
+  });
+  it("normalizes scan timestamps and makes a blocked verdict win an equal-time tie", async () => {
+    const clean = syntheticDocumentCapture();
+    clean.documents[0]!.scan!.scannedAt = "2026-09-01T12:00:00Z";
+    await repository.record(
+      lease,
+      digest(1),
+      { ...clean, naturalKeySha256: digest(1) },
+      captureObjects(),
+    );
+    const blocked = syntheticDocumentCapture();
+    blocked.documents[0]!.scan!.outcome = "blocked";
+    blocked.documents[0]!.extraction = {
+      version: 2,
+      pageCount: 0,
+      problem: "security_blocked",
+      citations: [],
+    };
+    await repository.record(
+      lease,
+      digest(2),
+      { ...blocked, naturalKeySha256: digest(2) },
+      [],
+    );
+    await repository.record(
+      lease,
+      digest(3),
+      { ...clean, naturalKeySha256: digest(3) },
+      [],
+    );
+    expect(
+      d1.sqlite
+        .prepare("SELECT outcome, scanned_at FROM private_document_scans")
+        .all(),
+    ).toEqual([{ outcome: "blocked", scanned_at: "2026-09-01T12:00:00.000Z" }]);
+  });
+  it("recovers quarantine and never lets an older clean scan undo a newer block", async () => {
+    const clean = syntheticDocumentCapture();
+    const unscanned = structuredClone(clean);
+    delete unscanned.documents[0]!.scan;
+    await repository.record(
+      lease,
+      digest(1),
+      { ...unscanned, naturalKeySha256: digest(1) },
+      captureObjects(),
+    );
+    const id = (await repository.manifest(lease)).captures[0]!.documents[0]!.id;
+    expect(
+      (await repository.document("synthetic-access-subject", id)).scan_outcome,
+    ).toBeNull();
+    await repository.record(
+      lease,
+      digest(2),
+      { ...clean, naturalKeySha256: digest(2) },
+      [],
+    );
+    expect(
+      (await repository.document("synthetic-access-subject", id)).scan_outcome,
+    ).toBe("clean");
+    const blocked = structuredClone(clean);
+    blocked.documents[0]!.checkedAt = "2026-09-01T12:01:00.000Z";
+    blocked.documents[0]!.scan!.scannedAt = "2026-09-01T12:01:00.000Z";
+    blocked.documents[0]!.scan!.outcome = "blocked";
+    blocked.documents[0]!.extraction = {
+      version: 2,
+      pageCount: 0,
+      problem: "security_blocked",
+      citations: [],
+    };
+    await repository.record(
+      lease,
+      digest(3),
+      { ...blocked, naturalKeySha256: digest(3) },
+      [],
+    );
+    await repository.record(
+      lease,
+      digest(4),
+      { ...clean, naturalKeySha256: digest(4) },
+      [],
+    );
+    expect(
+      (await repository.document("synthetic-access-subject", id)).scan_outcome,
+    ).toBe("blocked");
+    expect(() =>
+      d1.sqlite.exec(
+        "UPDATE private_document_access_events SET outcome = 'deleted'",
+      ),
+    ).toThrow("append only");
+    expect(() =>
+      d1.sqlite.exec("DELETE FROM private_document_access_events"),
+    ).toThrow("append only");
+    expect(
+      d1.sqlite
+        .prepare("SELECT COUNT(*) AS count FROM source_documents WHERE id = ?")
+        .get(id),
+    ).toEqual({ count: 1 });
+  });
   it("saves private evidence idempotently without accepting an entity or holding", async () => {
     const entitiesBefore = d1.sqlite
       .prepare("SELECT * FROM legal_entities")
@@ -286,9 +429,21 @@ describe("provider agreement evidence repository", () => {
       /SCAN (?:latest|observation)/u,
     );
     const id = manifest.captures[0]?.documents[0]?.id ?? "";
+    d1.queries.length = 0;
     await expect(
       repository.document("synthetic-access-subject", id),
-    ).resolves.toMatchObject({ content_type: "application/pdf" });
+    ).resolves.toMatchObject({
+      content_type: "application/pdf",
+      scan_outcome: "clean",
+    });
+    expect(d1.queries).toHaveLength(1);
+    const downloadPlan = d1.sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${d1.queries[0]}`)
+      .all("synthetic-access-subject", id)
+      .map((row) => row.detail)
+      .join("\n");
+    expect(downloadPlan).toContain("SEARCH scan USING INDEX");
+    expect(downloadPlan).not.toMatch(/SCAN (?:document|scan)/u);
     await expect(repository.document("other-subject", id)).rejects.toThrow(
       "not_found",
     );

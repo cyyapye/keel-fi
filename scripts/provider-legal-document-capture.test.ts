@@ -4,9 +4,29 @@ import {
   readAgreementResponse,
 } from "./provider-legal-document-capture";
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
-import { LegalDocumentExtractionSchema } from "../packages/domain/src/provider-legal-documents";
+import {
+  LegalDocumentExtractionSchema,
+  LegalDocumentScanSchema,
+} from "../packages/domain/src/provider-legal-documents";
+import { syntheticDocumentScan } from "./test-support/legal-documents";
 
 describe("agreement download boundary", () => {
+  it("rejects stale and future-dated signature databases, not just a claimed clean verdict", () => {
+    const scan = syntheticDocumentScan();
+    expect(LegalDocumentScanSchema.safeParse(scan).success).toBe(true);
+    expect(
+      LegalDocumentScanSchema.safeParse({
+        ...scan,
+        databaseUpdatedAt: "2026-08-28T12:00:00.000Z",
+      }).success,
+    ).toBe(false);
+    expect(
+      LegalDocumentScanSchema.safeParse({
+        ...scan,
+        databaseUpdatedAt: "2026-09-02T12:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
   it("reads previous extraction observations but rejects unknown future versions", () => {
     const extraction = {
       pageCount: 0,

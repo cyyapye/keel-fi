@@ -24,6 +24,7 @@ export type PrivateLegalDocument = {
   object_key: string;
   byte_size: number;
   content_type: string;
+  scan_outcome?: "clean" | "blocked" | null;
 };
 
 export class ProviderLegalDocumentError extends Error {
@@ -67,6 +68,12 @@ export function legalNameEvidenceFromDocuments(
       document.extraction.problem !== "name_not_found",
   );
   const problem =
+    (documents.some((document) => document.scan?.outcome === "blocked")
+      ? "security_blocked"
+      : null) ??
+    (documents.some((document) => document.scan === undefined)
+      ? "scanner_unavailable"
+      : null) ??
     capture.problem ??
     (names.size > 1 ? "conflicting" : blocking?.extraction.problem) ??
     (names.size === 0 ? "name_not_found" : null);
@@ -263,6 +270,27 @@ export class D1ProviderLegalDocumentRepository {
       );
       return { ...document, id };
     });
+    // Commit the original's metadata and its upload event together. Otherwise
+    // a failed audit could be skipped on retry once the hash became known.
+    inserts.push(
+      ...objects.map((object) =>
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO private_document_access_events
+      (id, household_id, actor_user_id, actor_kind, document_id, action, outcome, occurred_at)
+      SELECT ?, household.id, household.owner_user_id, 'provider_agent', document.id, 'upload', 'stored', ?
+      FROM households household JOIN source_documents document ON document.household_id = household.id
+      WHERE household.id = ? AND document.sha256 = ? AND ${LIVE_LEASE}`,
+          )
+          .bind(
+            `upload:${lease.runId}:${object.sha256}`,
+            timestamp,
+            lease.householdId,
+            object.sha256,
+            ...guard,
+          ),
+      ),
+    );
     if (inserts.length > 0) {
       await this.db.batch(inserts);
       const resolved = await this.knownDocuments(
@@ -310,6 +338,29 @@ export class D1ProviderLegalDocumentRepository {
           (SELECT observed_at FROM provider_legal_document_observations WHERE id = provider_legal_document_latest.observation_id)`,
         )
         .bind(id),
+      ...stored
+        .filter((document) => document.scan !== undefined)
+        .map((document) =>
+          this.db
+            .prepare(
+              `INSERT INTO private_document_scans (document_id, household_id, sha256, outcome, scan_json, scanned_at)
+        SELECT ?, ?, ?, ?, ?, ? WHERE ${LIVE_LEASE}
+          AND EXISTS (SELECT 1 FROM provider_legal_document_observations WHERE id = ?)
+        ON CONFLICT (document_id) DO UPDATE SET outcome = excluded.outcome, scan_json = excluded.scan_json, scanned_at = excluded.scanned_at
+        WHERE excluded.scanned_at > private_document_scans.scanned_at
+          OR (excluded.scanned_at = private_document_scans.scanned_at AND excluded.outcome = 'blocked' AND private_document_scans.outcome = 'clean')`,
+            )
+            .bind(
+              document.id,
+              lease.householdId,
+              document.sha256,
+              document.scan!.outcome,
+              JSON.stringify(document.scan),
+              document.scan!.scannedAt,
+              ...guard,
+              id,
+            ),
+        ),
     ]);
     const saved = await this.db
       .prepare(
@@ -380,14 +431,50 @@ export class D1ProviderLegalDocumentRepository {
   ): Promise<PrivateLegalDocument> {
     const row = await this.db
       .prepare(
-        `SELECT document.id, document.sha256, document.object_key, document.byte_size, document.content_type
+        `SELECT document.id, document.sha256, document.object_key, document.byte_size, document.content_type, scan.outcome AS scan_outcome
       FROM users user JOIN households household ON household.owner_user_id = user.id
       JOIN source_documents document ON document.household_id = household.id
+      LEFT JOIN private_document_scans scan ON scan.document_id = document.id AND scan.household_id = household.id AND scan.sha256 = document.sha256
       WHERE user.access_subject = ? AND document.id = ? AND document.content_type = 'application/pdf'`,
       )
       .bind(accessSubject, documentId)
       .first<PrivateLegalDocument>();
     if (row === null) throw new ProviderLegalDocumentError("not_found");
     return row;
+  }
+
+  public async auditDownload(
+    accessSubject: string,
+    documentId: string,
+    outcome: "released" | "denied" | "unavailable",
+  ): Promise<"released" | "denied" | "unavailable"> {
+    // Authorize against the current exact-hash scan in the SAME statement as
+    // the access event. A block arriving during R2.get must revoke release.
+    const result = await this.db
+      .prepare(
+        `INSERT INTO private_document_access_events
+      (id, household_id, actor_user_id, actor_kind, document_id, action, outcome, occurred_at)
+      SELECT ?, household.id, user.id, 'owner', ?, 'download',
+        CASE WHEN ? = 'released' AND NOT EXISTS (
+          SELECT 1 FROM source_documents document
+          JOIN private_document_scans scan ON scan.document_id = document.id
+            AND scan.household_id = document.household_id AND scan.sha256 = document.sha256
+          WHERE document.id = ? AND document.household_id = household.id AND scan.outcome = 'clean'
+        ) THEN 'denied' ELSE ? END, ?
+      FROM users user JOIN households household ON household.owner_user_id = user.id
+      WHERE user.access_subject = ? RETURNING outcome`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        documentId,
+        outcome,
+        documentId,
+        outcome,
+        this.now().toISOString(),
+        accessSubject,
+      )
+      .first<{ outcome: "released" | "denied" | "unavailable" }>();
+    if (result === null) throw new ProviderLegalDocumentError("not_found");
+    return result.outcome;
   }
 }

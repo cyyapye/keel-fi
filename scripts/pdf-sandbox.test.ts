@@ -10,6 +10,7 @@ import {
   PdfSandboxConfigSchema,
   PdfSandboxError,
   runSandbox,
+  runDocumentScan,
   sandboxCreateArgs,
   SandboxTextSchema,
   type SandboxCommand,
@@ -105,6 +106,51 @@ afterEach(() => {
 });
 
 describe("PDF sandbox policy", () => {
+  it("keeps scanner limits separate and refuses a reader or weakened container as a scanner", () => {
+    const value = inspection();
+    expect(sandboxCreateArgs(config, name, "scanner")).toContain(
+      "--memory=3221225472",
+    );
+    expect(sandboxCreateArgs(config, name)).toContain("--memory=268435456");
+    expect(() =>
+      assertSandboxContainer(value, config.image, "scanner"),
+    ).toThrow();
+    value.HostConfig.Memory = 3 * 1024 ** 3;
+    value.HostConfig.MemorySwap = 3 * 1024 ** 3;
+    value.Config.Entrypoint[2] = "95";
+    value.Config.Entrypoint[6] = "/opt/keel/scanner.py";
+    expect(() =>
+      assertSandboxContainer(value, config.image, "scanner"),
+    ).not.toThrow();
+    expect(() => assertSandboxContainer(value, config.image)).toThrow();
+    expect(() =>
+      assertSandboxContainer(
+        {
+          ...value,
+          HostConfig: { ...value.HostConfig, NetworkMode: "bridge" },
+        },
+        config.image,
+        "scanner",
+      ),
+    ).toThrow();
+  });
+  it("refuses malformed scanner output after cleanup", async () => {
+    const base = fakeCommand();
+    const command: SandboxCommand = async (args, options) => {
+      if (args[0] === "inspect") {
+        const value = inspection();
+        value.HostConfig.Memory = value.HostConfig.MemorySwap = 3 * 1024 ** 3;
+        value.Config.Entrypoint[2] = "95";
+        value.Config.Entrypoint[6] = "/opt/keel/scanner.py";
+        return { code: 0, ready: true, output: JSON.stringify([value]) };
+      }
+      return base(args, options);
+    };
+    await expect(
+      runDocumentScan(config, Buffer.from("synthetic"), command),
+    ).rejects.toThrow();
+    expect(vi.mocked(base).mock.calls.at(-1)?.[0][0]).toBe("rm");
+  });
   it("requires HTTPS package mirrors before updating the reader image", async () => {
     const dockerfile = await readFile(
       new URL("./pdf-sandbox/Dockerfile", import.meta.url),

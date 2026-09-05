@@ -14,6 +14,7 @@ import {
   sandboxCreateArgs,
   type SandboxCommand,
   sandboxConfigPath,
+  scanDocumentInSandbox,
 } from "./pdf-sandbox";
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
 
@@ -39,6 +40,17 @@ async function main() {
   const invoke = (mode: string) =>
     runSandbox(probe, Buffer.from(JSON.stringify({ mode, canary })), command);
   try {
+    const clean = await scanDocumentInSandbox(syntheticAgreementPdf());
+    assert.equal(clean.outcome, "clean");
+    // Standard inert antivirus test string, never a live malware sample. It
+    // exists only in memory in this synthetic proof and never reaches R2.
+    const eicar = Buffer.from(
+      "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",
+    );
+    assert.equal((await scanDocumentInSandbox(eicar)).outcome, "blocked");
+    console.log(
+      "PASS: isolated scanner accepts a synthetic PDF and blocks the inert antivirus test sample",
+    );
     const result = await extractLegalNameFromPdf(syntheticAgreementPdf());
     assert.equal(result.problem, null);
     assert.equal(result.citations[0]?.legalName, "Synthetic Atlas SPV LLC");

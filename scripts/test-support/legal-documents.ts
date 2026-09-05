@@ -2,7 +2,25 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import type { ProviderLegalDocumentCapture } from "../../packages/domain/src/provider-legal-documents";
+import type {
+  LegalDocumentScan,
+  ProviderLegalDocumentCapture,
+} from "../../packages/domain/src/provider-legal-documents";
+
+export function syntheticDocumentScan(
+  bytes: Uint8Array = syntheticAgreementPdf(),
+  scannedAt = "2026-09-01T12:00:00.000Z",
+): LegalDocumentScan {
+  return {
+    version: 1,
+    engineVersion: "1.5.3",
+    databaseVersion: 28000,
+    databaseUpdatedAt: scannedAt,
+    scannedAt,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    outcome: "clean",
+  };
+}
 
 export function syntheticAgreementPdf(
   lines: readonly string[] = [
@@ -48,6 +66,7 @@ export function syntheticDocumentCapture(): ProviderLegalDocumentCapture {
         fileName: "synthetic-agreement.pdf",
         byteSize: bytes.length,
         checkedAt: "2026-09-01T12:00:00.000Z",
+        scan: syntheticDocumentScan(bytes),
         extraction: {
           version: 1,
           pageCount: 1,

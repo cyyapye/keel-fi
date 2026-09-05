@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -6,7 +13,9 @@ import {
   dockerCommand,
   PdfSandboxConfigSchema,
   sandboxConfigPath,
+  runDocumentScan,
 } from "./pdf-sandbox";
+import { syntheticAgreementPdf } from "./test-support/legal-documents";
 
 // An explicit operator/build step. Capture never builds/pulls an image, starts a
 // daemon, installs packages, or falls back to the host PDF reader.
@@ -30,7 +39,15 @@ async function main() {
         "Rootless Docker is unavailable; provision it before building the reader.",
       );
     assertSandboxEngine(JSON.parse(info.output));
-    for (const target of ["reader", "probe"] as const) {
+    const targets = process.argv.slice(2);
+    if (
+      targets.length > 1 ||
+      (targets.length === 1 && targets[0] !== "--scanner-only")
+    )
+      throw new Error("Use no arguments or --scanner-only.");
+    for (const target of targets.length === 1
+      ? (["scanner"] as const)
+      : (["reader", "probe", "scanner"] as const)) {
       const iidfile = join(temporary, `${target}.id`);
       const result = await command(
         [
@@ -57,11 +74,22 @@ async function main() {
       const file =
         target === "reader"
           ? sandboxConfigPath()
-          : `${sandboxConfigPath()}.probe`;
+          : `${sandboxConfigPath()}.${target}`;
+      // Prove clean scanning before atomically replacing the active digest.
+      // A failed refresh leaves the last working image configured; its own
+      // freshness gate still prevents stale signatures from releasing bytes.
+      if (
+        target === "scanner" &&
+        (await runDocumentScan(config, syntheticAgreementPdf(), command))
+          .outcome !== "clean"
+      )
+        throw new Error("Scanner preflight failed.");
       await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, `${JSON.stringify(config, null, 2)}\n`, {
+      const staged = `${file}.pending`;
+      await writeFile(staged, `${JSON.stringify(config, null, 2)}\n`, {
         mode: 0o600,
       });
+      await rename(staged, file);
       console.log(`PDF sandbox ${target}: ${config.image}`);
     }
   } finally {

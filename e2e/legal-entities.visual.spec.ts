@@ -444,21 +444,26 @@ test("reviews legal entities and exports selected counsel fields", async ({
     name: "demo-subscription-agreement.pdf · page 2",
   });
   let agreementAvailable = false;
+  let agreementBlocked = false;
+  const downloadMethods: string[] = [];
   const downloadedNames: string[] = [];
   page.on("download", (download) => {
     downloadedNames.push(download.suggestedFilename());
   });
-  await page.route("**/api/legal-entity-documents/*", (route) =>
-    agreementAvailable
-      ? route.fulfill({
-          contentType: "application/pdf",
-          headers: {
-            "Content-Disposition": 'attachment; filename="agreement.pdf"',
-          },
-          body: "%PDF-1.4 synthetic test download",
-        })
-      : route.fulfill({ status: 404, json: { error: "not_found" } }),
-  );
+  await page.route("**/api/legal-entity-documents/*", (route) => {
+    downloadMethods.push(route.request().method());
+    return agreementBlocked
+      ? route.fulfill({ status: 423, json: { error: "security check" } })
+      : agreementAvailable
+        ? route.fulfill({
+            contentType: "application/pdf",
+            headers: {
+              "Content-Disposition": 'attachment; filename="agreement.pdf"',
+            },
+            body: "%PDF-1.4 synthetic test download",
+          })
+        : route.fulfill({ status: 404, json: { error: "not_found" } });
+  });
   await agreement.click();
   await expect(evidence).toContainText(
     "The agreement could not be downloaded. Try again or check source access.",
@@ -479,6 +484,23 @@ test("reviews legal entities and exports selected counsel fields", async ({
     },
   );
   await expectNoHorizontalOverflow(page);
+  agreementBlocked = true;
+  await agreement.click();
+  await expect(evidence).toContainText(
+    "This agreement has not passed its security check. Queue a source update to check it again.",
+  );
+  expect(downloadedNames).toEqual([]);
+  await expect(agreement).toBeEnabled();
+  await page.mouse.move(0, 0);
+  await expect
+    .poll(() => agreement.evaluate((element) => element.matches(":hover")))
+    .toBe(false);
+  await expect(evidence).toHaveScreenshot(
+    "legal-agreement-security-check.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await expectNoHorizontalOverflow(page);
+  agreementBlocked = false;
   agreementAvailable = true;
   const agreementDownload = page.waitForEvent("download");
   await agreement.click();
@@ -486,6 +508,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     "demo-subscription-agreement.pdf",
   );
   await expect(evidence.locator(".form-message")).toHaveCount(0);
+  expect(downloadMethods).toEqual(["POST", "POST", "POST"]);
   await expectNoHorizontalOverflow(page);
 
   await page.addStyleTag({

@@ -22,6 +22,18 @@ FROM base AS probe
 COPY probe.py /opt/keel/reader.py
 ENTRYPOINT ["/usr/bin/timeout", "--signal=KILL", "35", "/usr/bin/python3", "-I", "-B", "/opt/keel/reader.py"]
 
+# Signature refresh is an explicit maintenance/build step. The runtime scanner
+# has no network and refuses vendor databases older than 72 hours.
+FROM base AS scanner
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends clamav clamav-freshclam \
+    && rm -rf /var/lib/apt/lists/*
+COPY freshclam.conf /opt/keel/freshclam.conf
+RUN freshclam --config-file=/opt/keel/freshclam.conf --stdout
+COPY scanner.py /opt/keel/scanner.py
+USER 65532:65532
+ENTRYPOINT ["/usr/bin/timeout", "--signal=KILL", "95", "/usr/bin/python3", "-I", "-B", "/opt/keel/scanner.py"]
+
 FROM base AS reader
 COPY reader.py /opt/keel/reader.py
 ENTRYPOINT ["/usr/bin/timeout", "--signal=KILL", "35", "/usr/bin/python3", "-I", "-B", "/opt/keel/reader.py"]

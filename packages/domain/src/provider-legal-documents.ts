@@ -13,6 +13,27 @@ export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 2;
 export const LEGAL_DOCUMENT_RECHECK_MS = 7 * 24 * 60 * 60 * 1_000;
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+// SQLite orders the latest scan lexically. Canonicalize equivalent ISO forms
+// (including the scanner's microseconds) before hashing or persisting a capture.
+const ScanTimeSchema = z.iso
+  .datetime()
+  .transform((value) => new Date(value).toISOString());
+export const LegalDocumentScanSchema = z
+  .object({
+    version: z.literal(1),
+    engineVersion: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+$/u),
+    databaseVersion: z.number().int().positive(),
+    databaseUpdatedAt: ScanTimeSchema,
+    scannedAt: ScanTimeSchema,
+    sha256: DigestSchema,
+    outcome: z.enum(["clean", "blocked"]),
+  })
+  .strict()
+  .refine((scan) => {
+    const age = Date.parse(scan.scannedAt) - Date.parse(scan.databaseUpdatedAt);
+    return age >= 0 && age <= 72 * 60 * 60 * 1_000;
+  }, "The signature database must be fresh when the scan runs.");
+export type LegalDocumentScan = z.infer<typeof LegalDocumentScanSchema>;
 export const LegalDocumentProblemSchema = z.enum([
   "not_checked",
   "missing",
@@ -24,6 +45,8 @@ export const LegalDocumentProblemSchema = z.enum([
   "extractor_unavailable",
   "page_changed",
   "other_structure",
+  "security_blocked",
+  "scanner_unavailable",
 ]);
 
 export const LegalDocumentCitationSchema = z
@@ -89,8 +112,22 @@ export const CapturedLegalDocumentSchema = z
     byteSize: z.number().int().positive().max(MAX_LEGAL_DOCUMENT_BYTES),
     checkedAt: z.iso.datetime(),
     extraction: LegalDocumentExtractionSchema,
+    // Optional only to keep historical immutable captures readable. Absence
+    // never grants download permission or permits new PDF extraction.
+    scan: LegalDocumentScanSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (document) =>
+      document.scan === undefined ||
+      (document.scan.sha256 === document.sha256 &&
+        Date.parse(document.scan.scannedAt) <=
+          Date.parse(document.checkedAt) + 60_000 &&
+        (document.scan.outcome === "clean" ||
+          (document.extraction.problem === "security_blocked" &&
+            document.extraction.citations.length === 0))),
+    "The scan must describe these exact bytes and block extraction when unsafe.",
+  );
 
 export const ProviderLegalDocumentCaptureSchema = z
   .object({
@@ -121,9 +158,11 @@ export const ProviderLegalDocumentCaptureSchema = z
     }
   });
 
-export const StoredLegalDocumentSchema = CapturedLegalDocumentSchema.extend({
-  id: z.string().uuid(),
-}).strict();
+export const StoredLegalDocumentSchema = CapturedLegalDocumentSchema.safeExtend(
+  {
+    id: z.string().uuid(),
+  },
+).strict();
 
 export const ProviderLegalDocumentManifestSchema = z
   .object({
@@ -164,6 +203,10 @@ export const LEGAL_DOCUMENT_PROBLEM_COPY: Record<
     "The provider's document page could not be read. Its capture support needs an update.",
   other_structure:
     "The agreement describes a compartment or certificate structure. Ask the provider or your lawyer which legal entity and interest belong in this inventory.",
+  security_blocked:
+    "The agreement did not pass its security check. It is kept private and cannot be downloaded or read. Request a new copy from the provider.",
+  scanner_unavailable:
+    "The agreement's security check could not finish. It is kept private until a source update can check it again.",
 };
 
 export type LegalDocumentProblem = z.infer<typeof LegalDocumentProblemSchema>;

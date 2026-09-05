@@ -82,6 +82,14 @@ export async function readLegalDocumentUpload(request: Request): Promise<{
   let capture: ProviderLegalDocumentCapture;
   try {
     capture = ProviderLegalDocumentCaptureSchema.parse(JSON.parse(metadata[0]));
+    if (
+      capture.documents.some(
+        (document) =>
+          document.scan !== undefined &&
+          Date.parse(document.scan.scannedAt) > Date.now() + 60_000,
+      )
+    )
+      throw new Error("scan time");
   } catch {
     throw new LegalDocumentUploadError(400);
   }
@@ -191,7 +199,7 @@ export function registerProviderLegalDocumentRoutes(
           if (known.some((document) => document.sha256 === hash)) continue;
           // No original filename, provider URL, or bearer query in the key. A
           // failed D1 commit leaves an inert private object safe for retry.
-          const objectKey = `legal-entity-documents/${lease.householdId}/${hash}.pdf`;
+          const objectKey = `quarantine/legal-entity-documents/${lease.householdId}/${hash}.pdf`;
           await context.env.DOCUMENTS.put(objectKey, bytes, {
             httpMetadata: { contentType: "application/pdf" },
           });
@@ -224,21 +232,50 @@ export function registerProviderLegalDocumentRoutes(
     });
   }
 
-  app.get("/api/legal-entity-documents/:documentId", async (context) => {
+  // Downloads create private access history. Keep that explicit write off GET
+  // and the inventory's projection-only read path.
+  app.post("/api/legal-entity-documents/:documentId", async (context) => {
     if (!z.string().uuid().safeParse(context.req.param("documentId")).success)
       return context.notFound();
-    try {
-      const repository = new D1ProviderLegalDocumentRepository(context.env.DB);
-      const document = await repository.document(
-        context.get("identity").subject,
-        context.req.param("documentId"),
+    const repository = new D1ProviderLegalDocumentRepository(context.env.DB);
+    const subject = context.get("identity").subject;
+    const documentId = context.req.param("documentId");
+    const locked = () =>
+      context.json(
+        {
+          error:
+            "This agreement has not passed its security check. Queue a source update to check it again.",
+        },
+        423,
+        { "Cache-Control": "private, no-store" },
       );
+    try {
+      const document = await repository.document(subject, documentId);
+      if (document.scan_outcome !== "clean") {
+        await repository.auditDownload(subject, documentId, "denied");
+        return locked();
+      }
       const object = await context.env.DOCUMENTS.get(document.object_key);
-      if (object === null)
+      if (object === null) {
+        await repository.auditDownload(subject, documentId, "unavailable");
         return context.json(
           { error: "This private agreement is unavailable." },
           404,
         );
+      }
+      // Fail closed if the audit write fails: never release unaudited bytes.
+      try {
+        if (
+          (await repository.auditDownload(subject, documentId, "released")) !==
+          "released"
+        ) {
+          await object.body.cancel();
+          return locked();
+        }
+      } catch (error) {
+        await object.body.cancel().catch(() => undefined);
+        throw error;
+      }
       return new Response(object.body, {
         headers: {
           "Content-Type": "application/pdf",
@@ -249,6 +286,11 @@ export function registerProviderLegalDocumentRoutes(
         },
       });
     } catch (error) {
+      if (error instanceof ProviderLegalDocumentError) {
+        await repository
+          .auditDownload(subject, documentId, "denied")
+          .catch(() => undefined);
+      }
       return error instanceof ProviderLegalDocumentError
         ? context.notFound()
         : context.json(

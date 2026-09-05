@@ -1,0 +1,28 @@
+[Unit]
+Description=Refresh Keel %i document-scanner signatures
+
+[Service]
+Type=oneshot
+User=keel-%i
+Group=keel-%i
+WorkingDirectory=/opt/keel-fi
+# This root-owned, non-secret file names ONLY the already-approved socket and
+# exact active PDF config path for this provider. No portfolio credentials.
+EnvironmentFile=/etc/keel-document-scanner/%i.conf
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/flock --nonblock /var/lib/keel-agents/%i/.local/state/keel/document-scanner-maintenance/refresh.lock /usr/bin/env node --import tsx scripts/pdf-sandbox-build.ts --scanner-only
+UMask=0077
+TimeoutStartSec=10min
+Nice=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/keel-agents/%i/.local/state/keel/document-scanner-maintenance
+# A root-owned instance drop-in must add only the exact active PDF-config
+# directory. Never grant this maintenance unit the browser-profile directory.
+InaccessiblePaths=-/var/lib/keel-agents/%i/.config/keel/agent-credentials
+# The rootless daemon independently controls its build/scan cgroups. This limit
+# bounds the orchestration process; it is not a substitute for scanner limits.
+MemoryMax=512M
+TasksMax=64

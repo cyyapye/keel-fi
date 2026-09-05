@@ -67,6 +67,7 @@ const migrationFiles = [
   "packages/database/migrations/0044_public_equity_sync_schedule.sql",
   "packages/database/migrations/0046_reviewed_legal_entity_inventory.sql",
   "packages/database/migrations/0047_provider_legal_document_evidence.sql",
+  "packages/database/migrations/0048_private_document_access.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
