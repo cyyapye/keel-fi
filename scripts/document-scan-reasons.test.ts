@@ -39,6 +39,7 @@ describe("the actual isolated scanner's reason decoder", () => {
   it.each([
     ["Heuristics.Encrypted.PDF", "encrypted"],
     ["Heuristics.Limits.Exceeded.MaxScanSize", "scan_limit"],
+    ["Heuristics.Limits.Exceeded.MaxFiles", "scan_limit"],
     ["Heuristics.Broken.Executable", "broken_executable"],
     ["Heuristics.Synthetic.Alert", "heuristic"],
     ["Win.Test.EICAR_HDB-1", "malware_signature"],

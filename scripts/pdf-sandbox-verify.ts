@@ -18,6 +18,10 @@ import {
   scanDocumentInSandbox,
 } from "./pdf-sandbox";
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
+import {
+  syntheticManyFileZip,
+  syntheticManyStreamPdf,
+} from "./test-support/scanner-documents";
 
 // Mandatory real-runtime proof, separate from mocked unit tests. Never skip or
 // substitute a host Poppler when the runtime has not been provisioned.
@@ -66,6 +70,51 @@ async function main() {
     assert.equal(limited.findings[0]?.reason, "scan_limit");
     console.log(
       "PASS: a real scan-limit alert is blocked and distinguished from a threat match",
+    );
+    // Reproduce the old 100-item false block with actual compressed PDF
+    // streams, not a mocked verdict or a renamed archive. Measure the same
+    // fixture under the fixed container CPU/memory/deadline budget.
+    const manyStreams = syntheticManyStreamPdf(512);
+    const started = Date.now();
+    const complex = await scanDocumentInSandbox(manyStreams);
+    assert.equal(complex.outcome, "clean");
+    assert.deepEqual(complex.findings, []);
+    const complexName = await extractLegalNameFromPdf(manyStreams);
+    assert.equal(complexName.problem, null);
+    assert.equal(complexName.pageCount, 1);
+    assert.equal(
+      complexName.citations[0]?.legalName,
+      "Synthetic Atlas SPV LLC",
+    );
+    console.log(
+      `PASS: 512-stream synthetic PDF scanned and exact name extracted (${(Date.now() - started).toString()} ms, ${manyStreams.length.toString()} input bytes)`,
+    );
+    // The inert marker is compressed in the final stream, beyond the old
+    // boundary. A scanner that only checks the outer bytes or stops after
+    // 100 streams cannot satisfy this assertion.
+    const embeddedThreat = await scanDocumentInSandbox(
+      syntheticManyStreamPdf(512, eicar),
+    );
+    assert.equal(embeddedThreat.outcome, "blocked");
+    assert.equal(embeddedThreat.findings[0]?.reason, "malware_signature");
+    assert.match(embeddedThreat.findings[0]?.signature ?? "", /EICAR/iu);
+    console.log("PASS: inert antivirus marker in stream 512 is detected");
+    // A huge PDF may correctly hit the unchanged scan-time budget before its
+    // item budget. Use small ZIP entries to prove the exact MaxFiles boundary
+    // independently; do not increase scan time to make a negative test pass.
+    const overBudget = syntheticManyFileZip(10_001);
+    assert.ok(overBudget.length < 8 * 1024 * 1024);
+    const exhausted = await scanDocumentInSandbox(overBudget);
+    assert.equal(exhausted.outcome, "blocked");
+    assert.ok(
+      exhausted.findings.some(
+        (finding) =>
+          finding.reason === "scan_limit" &&
+          finding.signature === "Heuristics.Limits.Exceeded.MaxFiles",
+      ),
+    );
+    console.log(
+      "PASS: container exceeding 10000 items is still blocked by MaxFiles",
     );
     const result = await extractLegalNameFromPdf(syntheticAgreementPdf());
     assert.equal(result.problem, null);
