@@ -110,7 +110,23 @@ describe("local legal document extraction", () => {
       extractLegalNameFromPages([
         "Synthetic Series VII, as a compartment of and duly represented by Synthetic Representative LLC, as Issuer.\nEQUITY CERTIFICATES SUBSCRIPTION AGREEMENT",
       ]),
-    ).toMatchObject({ problem: "other_structure", citations: [] });
+    ).toMatchObject({
+      problem: "other_structure",
+      citations: [],
+      structure: {
+        kind: "compartment",
+        page: 1,
+        parties: [
+          { legalName: "Synthetic Series VII", role: "compartment", page: 1 },
+          {
+            legalName: "Synthetic Representative LLC",
+            role: "representative",
+            page: 1,
+          },
+        ],
+        instrument: { label: "Equity certificates", page: 1 },
+      },
+    });
   });
   it.each([
     ["Parent", "LLC Agreement."],
@@ -122,7 +138,7 @@ describe("local legal document extraction", () => {
       const prefix = ending === "Parent" ? "under the Parent" : "under the";
       const definition = `“Fund”: ${name}, established as a Series ${prefix}\n${nextLine}`;
       expect(extractLegalNameFromPages([definition])).toMatchObject({
-        version: 3,
+        version: 4,
         problem: null,
         citations: [
           {
@@ -135,6 +151,29 @@ describe("local legal document extraction", () => {
       });
     },
   );
+
+  it("keeps an unrecognized compartment clause reviewable without substituting another LLC", () => {
+    const result = extractLegalNameFromPages([
+      "Issuer: Synthetic Unrelated LLC\nThe arrangement operates as a compartment of and duly represented by an administrator.\nInvestor: Synthetic Investor LLC",
+    ]);
+    expect(result).toMatchObject({
+      problem: "other_structure",
+      citations: [],
+      structure: { page: 1, parties: [], instrument: null },
+    });
+    expect(result.structure?.quote).toContain("compartment");
+  });
+  it("keeps oversized party clauses bounded without returning a truncated name", () => {
+    const result = extractLegalNameFromPages([
+      `${"Synthetic ".repeat(98)}Series I, as a compartment of and duly represented by ${"Synthetic ".repeat(98)}Holdings LLC, as Issuer.`,
+    ]);
+    expect(result).toMatchObject({
+      problem: "other_structure",
+      citations: [],
+      structure: { parties: [] },
+    });
+    expect(result.structure?.quote.length).toBeLessThanOrEqual(2_000);
+  });
   it.each([
     "“Fund”: Synthetic Atlas, a Series of\nSynthetic Parent LLC, established as a Series under the Parent LLC Agreement.",
     "“Fund”: Synthetic Atlas LLC, established as a Series under the\n“Manager”: Synthetic Manager LLC",

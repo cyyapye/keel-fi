@@ -8,6 +8,7 @@ import {
   LegalEntityRecordSchema,
   LegalNameResolutionSchema,
   legalNameEvidenceRevision,
+  legalEntityReviewKind,
   LegalEntitySourceReviewResultSchema,
   MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES,
   ReviewLegalEntitySourceInputSchema,
@@ -251,22 +252,24 @@ async function resolveSourceName(
   source: LegalEntitySourceSummary,
   input: LegalNameResolutionInput | undefined,
   legalName: string,
+  entityType?: LegalEntityType,
 ): Promise<LegalEntitySourceSummary> {
   const evidence = source.legalEntityNameEvidence;
   const conflicting =
     evidence.state === "unavailable" && evidence.problem === "conflicting";
+  const reviewKind = legalEntityReviewKind(source);
   if (input === undefined) {
-    if (conflicting)
+    if (evidence.state === "unavailable" && evidence.problem !== undefined)
       throw new LegalEntityRepositoryError(
         "invalid_source",
-        "Resolve the conflicting document names before adding or linking this source.",
+        "Review the document evidence before adding or linking this source.",
       );
     return source;
   }
-  if (!conflicting)
+  if (!["conflict", "structure", "document"].includes(reviewKind))
     throw new LegalEntityRepositoryError(
       "invalid_source",
-      "This source is not an available name conflict. Reload its current evidence.",
+      "This source has no available document review. Reload its current evidence.",
     );
   const { expectedEvidenceRevision, ...details } = input;
   if (
@@ -280,12 +283,42 @@ async function resolveSourceName(
   const document = evidence.documents?.find(
     (item) => item.id === input.documentId,
   );
-  if (document === undefined || legalName !== input.legalName) {
+  if (
+    document === undefined ||
+    legalName !== input.legalName ||
+    document.scan?.outcome === "blocked" ||
+    (!conflicting && document.scan?.outcome !== "clean")
+  ) {
     throw new LegalEntityRepositoryError(
       "invalid_source",
       "The selected document and legal name must match this source review.",
     );
   }
+  if (reviewKind === "structure" && entityType !== "other")
+    throw new LegalEntityRepositoryError(
+      "invalid_source",
+      "Record this structure as Other; its party names do not establish direct LLC ownership.",
+    );
+  if (
+    input.kind === "document_structure" &&
+    (reviewKind !== "structure" ||
+      !document.structure?.parties.some(
+        (party) =>
+          party.role !== "representative" &&
+          party.legalName === input.legalName &&
+          party.page === input.page &&
+          party.quote === input.quote,
+      ))
+  )
+    throw new LegalEntityRepositoryError(
+      "invalid_source",
+      "Choose the named compartment or issuer, not its representative.",
+    );
+  if (reviewKind === "structure" && input.kind === "document_choice")
+    throw new LegalEntityRepositoryError(
+      "invalid_source",
+      "Review the parties in their stated roles.",
+    );
   if (
     input.kind === "document_choice" &&
     !document.citations?.some(
@@ -571,7 +604,7 @@ function candidateFor(
 export interface LegalEntityRepository {
   getState(
     accessSubject: string,
-    positionView: InvestmentPositionView,
+    positionView: InvestmentPositionView | Promise<InvestmentPositionView>,
   ): Promise<LegalEntityInventory>;
   create(
     accessSubject: string,
@@ -600,7 +633,7 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
 
   public async getState(
     accessSubject: string,
-    positionView: InvestmentPositionView,
+    positionView: InvestmentPositionView | Promise<InvestmentPositionView>,
   ): Promise<LegalEntityInventory> {
     const { state } = await this.loadState(accessSubject, positionView);
     return state.inventory;
@@ -636,6 +669,7 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
             candidateFor(positionView, input.source.reference, currentDecision),
             input.source.nameResolution,
             input.profile.legalName,
+            input.profile.entityType,
           );
     const entityId = crypto.randomUUID();
     const versionId = crypto.randomUUID();
@@ -782,19 +816,22 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
           ? ""
           : await this.db
               .prepare(
-                `SELECT version.legal_name FROM legal_entities entity
+                `SELECT version.legal_name, version.entity_type FROM legal_entities entity
          JOIN legal_entity_versions version ON version.legal_entity_id = entity.id
          WHERE entity.id = ? AND entity.household_id = ?
            AND NOT EXISTS (SELECT 1 FROM legal_entity_versions later WHERE later.supersedes_version_id = version.id)`,
               )
               .bind(input.decision.legalEntityId, identity.household_id)
-              .first<{ legal_name: string }>();
+              .first<{ legal_name: string; entity_type: LegalEntityType }>();
       source = await resolveSourceName(
         source,
         input.nameResolution,
         typeof selectedName === "string"
           ? selectedName
           : (selectedName?.legal_name ?? ""),
+        typeof selectedName === "string"
+          ? undefined
+          : selectedName?.entity_type,
       );
     } else if (input.nameResolution !== undefined) {
       throw new LegalEntityRepositoryError(
@@ -1043,8 +1080,19 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
 
   private async loadState(
     accessSubject: string,
-    positionView: InvestmentPositionView,
+    positionView: InvestmentPositionView | Promise<InvestmentPositionView>,
   ): Promise<{ identity: HouseholdIdentity; state: LegalEntityState }> {
+    const [rows, view] = await Promise.all([
+      this.loadRows(accessSubject),
+      positionView,
+    ]);
+    return {
+      identity: rows.identity,
+      state: await stateFromRows(rows.entityRows, rows.decisionRows, view),
+    };
+  }
+
+  private async loadRows(accessSubject: string) {
     const identity = await findIdentity(this.db, accessSubject);
     const [entityRows, decisionRows] = await Promise.all([
       all<LegalEntityVersionRow>(
@@ -1109,10 +1157,7 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
           .bind(identity.household_id),
       ),
     ]);
-    return {
-      identity,
-      state: await stateFromRows(entityRows, decisionRows, positionView),
-    };
+    return { identity, entityRows, decisionRows };
   }
 
   private async currentDecision(

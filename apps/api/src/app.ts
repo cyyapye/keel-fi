@@ -1958,7 +1958,7 @@ export function createApp(options: AppOptions = {}) {
     const accessSubject = context.get("identity").subject;
     const asOf = new Date().toISOString();
     try {
-      const positionView = await investmentPositionViewRepositoryFor(
+      const positionView = investmentPositionViewRepositoryFor(
         context.env,
       ).list(accessSubject, asOf);
       const inventory = await legalEntityRepositoryFor(context.env).getState(

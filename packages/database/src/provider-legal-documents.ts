@@ -58,6 +58,9 @@ export function legalNameEvidenceFromDocuments(
     page: document.extraction.citations[0]?.page ?? null,
     quote: document.extraction.citations[0]?.quote ?? null,
     citations: document.extraction.citations,
+    ...(document.extraction.structure === undefined
+      ? {}
+      : { structure: document.extraction.structure }),
     ...(document.scan === undefined ? {} : { scan: document.scan }),
     ...(provider === undefined ? {} : { provider }),
   }));
@@ -77,6 +80,11 @@ export function legalNameEvidenceFromDocuments(
       : null) ??
     (documents.some((document) => document.scan === undefined)
       ? "scanner_unavailable"
+      : null) ??
+    (documents.some(
+      (document) => document.extraction.problem === "other_structure",
+    )
+      ? "other_structure"
       : null) ??
     capture.problem ??
     (names.size > 1 ? "conflicting" : blocking?.extraction.problem) ??

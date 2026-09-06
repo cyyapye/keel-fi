@@ -4,6 +4,8 @@ import {
   LEGAL_ENTITY_EXPORT_FIELDS,
   formatOwnershipInterestPpm,
   exactLegalEntityTypeFromName,
+  legalEntityReviewKind,
+  compareLegalEntityAttention,
   ownershipPercentTextToPpm,
   type LegalEntityExportField,
   type LegalEntityInterestStatus,
@@ -48,11 +50,13 @@ import {
 } from "@keel/ui";
 import {
   type FormEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useId,
 } from "react";
 
 import {
@@ -110,6 +114,7 @@ const interestStatusLabels = Object.fromEntries(
 ) as Readonly<Record<LegalEntityInterestStatus, string>>;
 
 type EditorState = {
+  structureReview?: boolean;
   entityId: string | null;
   expectedVersionId: string | null;
   source: {
@@ -148,6 +153,7 @@ function editorForCandidate(
   }
   return {
     entityId: null,
+    structureReview: legalEntityReviewKind(candidate) === "structure",
     expectedVersionId: null,
     source: {
       reference: candidate.source,
@@ -157,7 +163,10 @@ function editorForCandidate(
     profile: {
       ...emptyProfile(),
       legalName,
-      entityType: exactLegalEntityTypeFromName(legalName) ?? "other",
+      entityType:
+        legalEntityReviewKind(candidate) === "structure"
+          ? "other"
+          : (exactLegalEntityTypeFromName(legalName) ?? "other"),
       relationship: candidate.relationship,
       currentOwner: candidate.currentOwner,
       interestStatus: candidate.interestStatus,
@@ -334,6 +343,11 @@ function AgreementEvidence({
                   </TextLink>
                 )}
                 {document.quote !== null && <p>{document.quote}</p>}
+                {document.structure !== undefined && !blocked && (
+                  <p>
+                    {document.structure.quote} · page {document.structure.page}
+                  </p>
+                )}
                 {incompleteIds.has(document.id) && (
                   <div className="legal-entity-documents__finding">
                     <p className="legal-entity-documents__name">
@@ -365,7 +379,14 @@ function AgreementEvidence({
                 {blocked && document.scan !== undefined && (
                   <p>Checked {formatDate(document.scan.scannedAt)}</p>
                 )}
-                {blocked && (
+                {(blocked ||
+                  sources.some(
+                    (source) =>
+                      source.legalEntityNameEvidence.state === "unavailable" &&
+                      source.legalEntityNameEvidence.problem ===
+                        "other_structure" &&
+                      document.structure === undefined,
+                  )) && (
                   <ActionGroup>
                     <Button
                       tone="secondary"
@@ -382,8 +403,10 @@ function AgreementEvidence({
                 )}
                 {queued.has(document.id) && (
                   <FormMessage tone="success">
-                    Recheck requested. The agreement stays blocked until it
-                    passes. Check progress in Sources, then reload this page.
+                    {blocked
+                      ? "Recheck requested. The agreement stays blocked until it passes."
+                      : "A fresh reading of this agreement was requested."}{" "}
+                    Check progress in Sources, then reload this page.
                   </FormMessage>
                 )}
                 {queued.has(document.id) && (
@@ -417,6 +440,7 @@ function LegalEntityEditor({
   const [error, setError] = useState<string | null>(null);
   const editing = draft.entityId !== null;
   const sectionRef = useRef<HTMLElement>(null);
+  const headingId = useId();
   useEffect(() => {
     if (editor.source?.nameResolution !== undefined) {
       sectionRef.current?.scrollIntoView({ block: "start" });
@@ -495,7 +519,7 @@ function LegalEntityEditor({
 
   return (
     <section
-      aria-labelledby="legal-entity-editor-title"
+      aria-labelledby={headingId}
       className="legal-entity-editor"
       ref={sectionRef}
     >
@@ -506,7 +530,7 @@ function LegalEntityEditor({
             : `Confirm the legal record suggested by ${sourceKindLabel(draft.source.reference.kind).toLowerCase()}.`
         }
         eyebrow={editing ? "Reviewed record" : "Review before adding"}
-        headingProps={{ id: "legal-entity-editor-title" }}
+        headingProps={{ id: headingId }}
         title={editing ? "Edit legal entity" : "Add legal entity"}
       />
       <form onSubmit={(event) => void submit(event)}>
@@ -524,6 +548,7 @@ function LegalEntityEditor({
           </Field>
           <Field label="Entity type" variant="filled">
             <Select
+              disabled={draft.structureReview === true}
               items={entityTypeOptions}
               onValueChange={(value) => {
                 if (
@@ -721,11 +746,14 @@ function LegalEntityEditor({
 
 function EntityRow({
   entity,
-  onEdit,
+  onSaved,
+  onReload,
 }: {
   entity: LegalEntityRecord;
-  onEdit: () => void;
+  onSaved: () => Promise<void>;
+  onReload: () => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
   return (
     <article className="legal-entity-row">
       <div className="legal-entity-row__heading">
@@ -776,15 +804,33 @@ function EntityRow({
                 <p key={candidateKey(source)}>
                   {resolution.kind === "document_choice"
                     ? "Reviewed name"
-                    : "Your document-backed correction"}
+                    : resolution.kind === "document_structure"
+                      ? "Reviewed structure"
+                      : "Your document-backed correction"}
                   : {resolution.legalName} · {resolution.fileName} · page{" "}
                   {resolution.page}
                 </p>
               );
             })}
         </div>
-        <TextLink onClick={onEdit}>Edit</TextLink>
+        <TextLink aria-expanded={editing} onClick={() => setEditing(!editing)}>
+          {editing ? "Close review" : "Edit"}
+        </TextLink>
       </footer>
+      {editing && (
+        <LegalEntityEditor
+          editor={editorForEntity(entity)}
+          onCancel={() => setEditing(false)}
+          onSaved={async () => {
+            await onSaved();
+            setEditing(false);
+          }}
+          onReload={async () => {
+            await onReload();
+            setEditing(false);
+          }}
+        />
+      )}
     </article>
   );
 }
@@ -793,14 +839,12 @@ function CandidateRow({
   candidate,
   entities,
   excluded,
-  onAdd,
   onReviewed,
   onReload,
 }: {
   candidate: LegalEntitySourceSummary;
   entities: readonly LegalEntityRecord[];
   excluded?: boolean;
-  onAdd: (resolution?: LegalNameResolutionInput) => void;
   onReviewed: () => Promise<void>;
   onReload: () => Promise<void>;
 }) {
@@ -810,6 +854,16 @@ function CandidateRow({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
+  const [inlineEditor, setInlineEditor] = useState<EditorState | null>(null);
+  const reviewKind = legalEntityReviewKind(candidate);
+  const reviewable = reviewKind !== "waiting" && reviewKind !== "found";
+  const reviewOpen = resolving || inlineEditor !== null;
+  const closeReview = () => {
+    setResolving(false);
+    setInlineEditor(null);
+  };
+  const add = (resolution?: LegalNameResolutionInput) =>
+    setInlineEditor(editorForCandidate(candidate, resolution));
   const legalName = candidate.legalEntityNameEvidence.legalName;
   const nameUnavailable = legalName === null;
   const conflicting =
@@ -844,7 +898,7 @@ function CandidateRow({
   return (
     <article
       className={`legal-entity-candidate${
-        nameUnavailable && !conflicting
+        nameUnavailable && !reviewable
           ? " legal-entity-candidate--unresolved"
           : ""
       }`}
@@ -854,7 +908,13 @@ function CandidateRow({
           <h3>{displayName}</h3>
           {nameUnavailable ? (
             <Badge tone="warning">
-              {conflicting ? "Names disagree" : "Name unavailable"}
+              {conflicting
+                ? "Names disagree"
+                : reviewKind === "structure"
+                  ? "Review structure"
+                  : reviewKind === "document"
+                    ? "Review PDF"
+                    : "Name unavailable"}
             </Badge>
           ) : (
             !excluded && <Badge tone="warning">Needs review</Badge>
@@ -887,10 +947,19 @@ function CandidateRow({
           layout="stack"
           mobileLayout="stack"
         >
-          <Button disabled={working} onClick={() => onAdd()} tone="secondary">
-            {excluded ? "Review and add" : "Review details"}
+          <Button
+            disabled={working}
+            aria-expanded={reviewOpen}
+            onClick={() => (reviewOpen ? closeReview() : add())}
+            tone="secondary"
+          >
+            {reviewOpen
+              ? "Close review"
+              : excluded
+                ? "Review and add"
+                : "Review details"}
           </Button>
-          {entities.length > 0 && (
+          {entities.length > 0 && inlineEditor !== null && (
             <div className="legal-entity-candidate__link">
               <Select
                 items={entities.map((entity) => ({
@@ -932,26 +1001,53 @@ function CandidateRow({
           )}
         </ActionGroup>
       )}
-      {conflicting && !resolving && (
+      {reviewable && (
         <ActionGroup
           className="legal-entity-candidate__actions"
           layout="stack"
           mobileLayout="stack"
         >
-          <Button tone="secondary" onClick={() => setResolving(true)}>
-            Resolve name
+          <Button
+            tone="secondary"
+            aria-expanded={reviewOpen}
+            onClick={() => (reviewOpen ? closeReview() : setResolving(true))}
+          >
+            {reviewOpen
+              ? "Close review"
+              : reviewKind === "structure"
+                ? "Review structure"
+                : reviewKind === "document"
+                  ? "Review PDF"
+                  : "Resolve name"}
           </Button>
         </ActionGroup>
       )}
-      {conflicting && resolving && (
+      {reviewable && resolving && inlineEditor === null && (
         <LegalNameResolver
           source={candidate}
           entities={entities}
-          onAdd={onAdd}
+          onAdd={add}
           onClose={() => setResolving(false)}
           onSaved={onReviewed}
           onReload={onReload}
         />
+      )}
+      {inlineEditor !== null && (
+        <LegalEntityEditor
+          editor={inlineEditor}
+          onCancel={closeReview}
+          onSaved={async () => {
+            await onReviewed();
+            closeReview();
+          }}
+          onReload={async () => {
+            await onReload();
+            closeReview();
+          }}
+        />
+      )}
+      {reviewKind === "waiting" && (
+        <TextLink href="/holdings/sources">View source options</TextLink>
       )}
       {error !== null && <FormMessage tone="error">{error}</FormMessage>}
     </article>
@@ -1039,7 +1135,7 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
   );
   const [includeNeedsReview, setIncludeNeedsReview] = useState(true);
   const [includeHistorical, setIncludeHistorical] = useState(false);
-  const [includeOtherEntityTypes, setIncludeOtherEntityTypes] = useState(false);
+  const [includeOtherEntityTypes, setIncludeOtherEntityTypes] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1213,6 +1309,57 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
   );
 }
 
+const LEGAL_ENTITY_PAGE_SIZE = 25;
+
+function ProgressiveRows<T>({
+  items,
+  render,
+  label,
+}: {
+  items: readonly T[];
+  render: (item: T) => ReactNode;
+  label: string;
+}) {
+  const [visible, setVisible] = useState(LEGAL_ENTITY_PAGE_SIZE);
+  const sentinel = useRef<HTMLDivElement>(null);
+  const more = visible < items.length;
+  const loadMore = useCallback(
+    () => setVisible((count) => count + LEGAL_ENTITY_PAGE_SIZE),
+    [],
+  );
+  useEffect(() => {
+    const target = sentinel.current;
+    if (!more || target === null || typeof IntersectionObserver === "undefined")
+      return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadMore();
+      },
+      { rootMargin: "240px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [more, visible, loadMore]);
+  return (
+    <>
+      {items.slice(0, visible).map(render)}
+      {more && (
+        <div
+          className="exposure-pagination legal-entities__pagination"
+          ref={sentinel}
+        >
+          <span>
+            Showing {Math.min(visible, items.length)} of {items.length} {label}
+          </span>
+          <Button onClick={loadMore} tone="secondary">
+            Load more {label}
+          </Button>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function LegalEntities() {
   const [inventory, setInventory] = useState<LegalEntityInventory | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1231,28 +1378,31 @@ export function LegalEntities() {
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    void loadLegalEntities(controller.signal)
-      .then((next) => {
-        if (!cancelled) {
-          setInventory(next);
-          setLoadError(null);
-        }
-      })
-      .catch((caught) => {
-        if (!cancelled && !controller.signal.aborted) {
-          setLoadError(
-            caught instanceof Error
-              ? caught.message
-              : "Legal entities could not be loaded.",
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
+    const timer = window.setTimeout(() => {
+      void loadLegalEntities(controller.signal)
+        .then((next) => {
+          if (!cancelled) {
+            setInventory(next);
+            setLoadError(null);
+          }
+        })
+        .catch((caught) => {
+          if (!cancelled && !controller.signal.aborted) {
+            setLoadError(
+              caught instanceof Error
+                ? caught.message
+                : "Legal entities could not be loaded.",
+            );
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLoading(false);
+          }
+        });
+    }, 0);
     return () => {
+      window.clearTimeout(timer);
       cancelled = true;
       controller.abort();
     };
@@ -1263,6 +1413,10 @@ export function LegalEntities() {
       inventory?.entities.filter(
         (entity) => entity.interestStatus !== "historical",
       ) ?? [],
+    [inventory],
+  );
+  const candidates = useMemo(
+    () => [...(inventory?.candidates ?? [])].sort(compareLegalEntityAttention),
     [inventory],
   );
   const historicalEntities = useMemo(
@@ -1365,6 +1519,43 @@ export function LegalEntities() {
       )}
       {loadError !== null && <Notice tone="error">{loadError}</Notice>}
 
+      {editor === null && candidates.length > 0 && (
+        <section
+          aria-labelledby="legal-entity-candidates-title"
+          className="legal-entities__candidates"
+        >
+          <SectionHeader
+            description="Attention first: review PDFs and structures, resolve name conflicts, then confirm names found. Sources awaiting a document or recheck follow."
+            eyebrow="Review queue"
+            headingProps={{ id: "legal-entity-candidates-title" }}
+            title="Possible legal entities"
+          />
+          {inventory.exactBatch.sourceCount > 0 && (
+            <ExactBatchReview
+              batch={inventory.exactBatch}
+              error={batchError}
+              onApply={() => applyExactBatch(inventory.exactBatch.revision)}
+              working={batchWorking}
+            />
+          )}
+          <div className="legal-entities__candidate-list">
+            <ProgressiveRows
+              items={candidates}
+              label="sources"
+              render={(candidate) => (
+                <CandidateRow
+                  candidate={candidate}
+                  entities={inventory.entities}
+                  key={candidateKey(candidate)}
+                  onReviewed={reviewed}
+                  onReload={refresh}
+                />
+              )}
+            />
+          </div>
+        </section>
+      )}
+
       {editor !== null ? (
         <LegalEntityEditor
           editor={editor}
@@ -1410,17 +1601,22 @@ export function LegalEntities() {
           />
           {activeEntities.length === 0 ? (
             <EmptyState compact title="No reviewed legal entities yet">
-              Add an entity or review a source below.
+              Add an entity or review a source.
             </EmptyState>
           ) : (
             <div className="legal-entities__list">
-              {activeEntities.map((entity) => (
-                <EntityRow
-                  entity={entity}
-                  key={entity.id}
-                  onEdit={() => setEditor(editorForEntity(entity))}
-                />
-              ))}
+              <ProgressiveRows
+                items={activeEntities}
+                label="entities"
+                render={(entity) => (
+                  <EntityRow
+                    entity={entity}
+                    key={entity.id}
+                    onSaved={saved}
+                    onReload={refresh}
+                  />
+                )}
+              />
             </div>
           )}
           {historicalEntities.length > 0 && (
@@ -1431,53 +1627,22 @@ export function LegalEntities() {
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <div className="legal-entities__list">
-                  {historicalEntities.map((entity) => (
-                    <EntityRow
-                      entity={entity}
-                      key={entity.id}
-                      onEdit={() => setEditor(editorForEntity(entity))}
-                    />
-                  ))}
+                  <ProgressiveRows
+                    items={historicalEntities}
+                    label="historical entities"
+                    render={(entity) => (
+                      <EntityRow
+                        entity={entity}
+                        key={entity.id}
+                        onSaved={saved}
+                        onReload={refresh}
+                      />
+                    )}
+                  />
                 </div>
               </CollapsibleContent>
             </Collapsible>
           )}
-        </section>
-      )}
-
-      {editor === null && inventory.candidates.length > 0 && (
-        <section
-          aria-labelledby="legal-entity-candidates-title"
-          className="legal-entities__candidates"
-        >
-          <SectionHeader
-            description="Source-reported legal names can be reviewed together. Records without an exact legal name stay visible for counsel."
-            eyebrow="Review queue"
-            headingProps={{ id: "legal-entity-candidates-title" }}
-            title="Possible legal entities"
-          />
-          {inventory.exactBatch.sourceCount > 0 && (
-            <ExactBatchReview
-              batch={inventory.exactBatch}
-              error={batchError}
-              onApply={() => applyExactBatch(inventory.exactBatch.revision)}
-              working={batchWorking}
-            />
-          )}
-          <div className="legal-entities__candidate-list">
-            {inventory.candidates.map((candidate) => (
-              <CandidateRow
-                candidate={candidate}
-                entities={inventory.entities}
-                key={candidateKey(candidate)}
-                onAdd={(resolution) =>
-                  setEditor(editorForCandidate(candidate, resolution))
-                }
-                onReviewed={reviewed}
-                onReload={refresh}
-              />
-            ))}
-          </div>
         </section>
       )}
 
@@ -1492,19 +1657,20 @@ export function LegalEntities() {
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="legal-entities__candidate-list">
-              {inventory.excludedCandidates.map((candidate) => (
-                <CandidateRow
-                  candidate={candidate}
-                  entities={inventory.entities}
-                  excluded
-                  key={candidateKey(candidate)}
-                  onAdd={(resolution) =>
-                    setEditor(editorForCandidate(candidate, resolution))
-                  }
-                  onReviewed={reviewed}
-                  onReload={refresh}
-                />
-              ))}
+              <ProgressiveRows
+                items={inventory.excludedCandidates}
+                label="excluded sources"
+                render={(candidate) => (
+                  <CandidateRow
+                    candidate={candidate}
+                    entities={inventory.entities}
+                    excluded
+                    key={candidateKey(candidate)}
+                    onReviewed={reviewed}
+                    onReload={refresh}
+                  />
+                )}
+              />
             </div>
           </CollapsibleContent>
         </Collapsible>

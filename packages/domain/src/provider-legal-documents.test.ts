@@ -128,3 +128,70 @@ describe("conflicting legal-document evidence", () => {
     ).toBe(false);
   });
 });
+
+describe("source-reported compartment structures", () => {
+  const quote =
+    "Synthetic Series I, as a compartment of and duly represented by Synthetic Representative LLC, as Issuer.";
+  const extraction = {
+    version: 4,
+    pageCount: 2,
+    problem: "other_structure",
+    citations: [],
+    structure: {
+      kind: "compartment",
+      page: 1,
+      quote,
+      parties: [
+        {
+          legalName: "Synthetic Series I",
+          role: "compartment",
+          page: 1,
+          quote,
+        },
+        {
+          legalName: "Synthetic Representative LLC",
+          role: "representative",
+          page: 1,
+          quote,
+        },
+      ],
+      instrument: {
+        label: "Equity certificates",
+        page: 2,
+        quote: "EQUITY CERTIFICATES SUBSCRIPTION AGREEMENT",
+      },
+    },
+  };
+  it("preserves exact names, roles and interest evidence, not an LLC conclusion", () => {
+    expect(LegalDocumentExtractionSchema.parse(extraction)).toEqual(extraction);
+  });
+  it("rejects forged excerpts, invalid pages, unsafe states and unsupported versions", () => {
+    for (const candidate of [
+      { ...extraction, version: 3 },
+      { ...extraction, version: 5 },
+      { ...extraction, problem: null },
+      { ...extraction, problem: "security_blocked" },
+      { ...extraction, pageCount: 1 },
+      { ...extraction, structure: { ...extraction.structure, page: 3 } },
+      {
+        ...extraction,
+        structure: {
+          ...extraction.structure,
+          parties: [{ ...extraction.structure.parties[0], page: 3 }],
+        },
+      },
+      {
+        ...extraction,
+        structure: {
+          ...extraction.structure,
+          parties: [
+            { ...extraction.structure.parties[0], quote: "Unrelated text" },
+          ],
+        },
+      },
+    ])
+      expect(LegalDocumentExtractionSchema.safeParse(candidate).success).toBe(
+        false,
+      );
+  });
+});

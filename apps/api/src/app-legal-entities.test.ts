@@ -75,7 +75,15 @@ function repositories(overrides: Partial<LegalEntityRepository> = {}) {
     list: positionList,
   } satisfies InvestmentPositionViewRepository;
   const legalEntityRepository = {
-    getState: vi.fn().mockResolvedValue(inventory),
+    getState: vi.fn(
+      async (
+        _subject: string,
+        view: InvestmentPositionView | Promise<InvestmentPositionView>,
+      ) => {
+        await view;
+        return inventory;
+      },
+    ),
     create: vi.fn().mockResolvedValue(entity),
     update: vi.fn().mockResolvedValue(entity),
     reviewSource: vi
@@ -185,8 +193,11 @@ describe("legal entity API", () => {
     );
     expect(options.legalEntityRepository.getState).toHaveBeenCalledWith(
       "synthetic-access-subject",
-      positionView,
+      expect.any(Promise),
     );
+    await expect(
+      vi.mocked(options.legalEntityRepository.getState).mock.calls[0]?.[1],
+    ).resolves.toEqual(positionView);
   });
 
   it("validates and creates a reviewed entity against the current source view", async () => {

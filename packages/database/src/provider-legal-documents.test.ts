@@ -5,6 +5,7 @@ import {
   type LegalDocumentTestD1,
 } from "../../../scripts/test-support/legal-documents";
 import { D1ProviderPortfolioAgentRepository } from "./provider-portfolio-agent";
+import { extractLegalNameFromPages } from "../../../scripts/legal-document-extraction";
 import {
   D1ProviderLegalDocumentRepository,
   legalNameEvidenceFromDocuments,
@@ -43,6 +44,43 @@ function captureObjects() {
 }
 
 describe("provider agreement evidence repository", () => {
+  it("keeps a compartment structure and its roles across mixed agreement projections", () => {
+    const capture = syntheticDocumentCapture();
+    const first = capture.documents[0]!;
+    const structured = {
+      ...first,
+      id: crypto.randomUUID(),
+      extraction: extractLegalNameFromPages([
+        "Synthetic Series I, as a compartment of and duly represented by Synthetic Representative LLC, as Issuer.\nEQUITY CERTIFICATES SUBSCRIPTION AGREEMENT",
+      ]),
+    };
+    const named = { ...first, id: crypto.randomUUID() };
+    const conflicting = {
+      ...first,
+      id: crypto.randomUUID(),
+      extraction: extractLegalNameFromPages(["Issuer: Synthetic Other LLC"]),
+    };
+    const evidence = legalNameEvidenceFromDocuments(
+      capture,
+      [named, conflicting, structured],
+      "tokenfolio",
+    );
+    expect(evidence).toMatchObject({
+      state: "unavailable",
+      legalName: null,
+      problem: "other_structure",
+    });
+    expect(evidence.documents?.[2]).toMatchObject({
+      provider: "tokenfolio",
+      citations: [],
+      structure: structured.extraction.structure,
+    });
+    expect(
+      legalNameEvidenceFromDocuments(capture, [
+        { ...structured, scan: { ...first.scan!, outcome: "blocked" } },
+      ]),
+    ).toMatchObject({ problem: "security_blocked" });
+  });
   it("does not change scan state when a conflicting concurrent capture wins the observation", async () => {
     const clean = syntheticDocumentCapture();
     await repository.record(lease, digest(1), clean, captureObjects());

@@ -447,6 +447,76 @@ describe("legal entity repository", () => {
     ).toEqual({ count: 0 });
   });
 
+  it("fences a structure target reclassified between review validation and commit", async () => {
+    const { view, first } = conflictView(sqlite);
+    const document = first.legalEntityNameEvidence.documents![0]!;
+    document.scan = {
+      version: 2,
+      sha256: document.sha256,
+      outcome: "clean",
+      findings: [],
+      engineVersion: "1.4.3",
+      databaseVersion: 100,
+      databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
+      scannedAt: "2026-09-01T11:00:00.000Z",
+    };
+    first.legalEntityNameEvidence = {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+      problem: "other_structure",
+      documents: [document],
+    };
+    const resolution: LegalNameResolutionInput = {
+      ...(await nameChoice(view)),
+      kind: "document_correction",
+      reason: "Reviewed the structure in the executed agreement.",
+    };
+    const existing = await repository.create(
+      "synthetic-access-subject",
+      {
+        profile: {
+          ...profile,
+          legalName: resolution.legalName,
+          entityType: "other",
+        },
+        source: null,
+      },
+      view,
+    );
+    const originalBatch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => {
+      await repository.update("synthetic-access-subject", existing.id, {
+        expectedVersionId: existing.versionId,
+        profile: {
+          ...profile,
+          legalName: resolution.legalName,
+          entityType: "llc",
+        },
+      });
+      await originalBatch(statements);
+    });
+    await expect(
+      repository.reviewSource(
+        "synthetic-access-subject",
+        {
+          source: { kind: "holding_position", id: first.id },
+          expectedDecisionId: null,
+          decision: { kind: "linked", legalEntityId: existing.id },
+          nameResolution: resolution,
+        },
+        view,
+      ),
+    ).rejects.toMatchObject({ code: "stale" });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM legal_entity_source_decisions WHERE source_reference = ?",
+        )
+        .get(first.id),
+    ).toEqual({ count: 0 });
+  });
+
   it("rolls back the losing entity when two name resolutions arrive together", async () => {
     const { view, first } = conflictView(sqlite);
     const resolution = await nameChoice(view);
@@ -614,6 +684,123 @@ describe("legal entity repository", () => {
       sqlite.prepare("SELECT COUNT(*) AS count FROM legal_entities").get(),
     ).toEqual(countBefore);
   });
+
+  it.each(["name_not_found", "other_structure"] as const)(
+    "resolves %s from a clean agreement while rejecting an unscanned document or wrong structure type",
+    async (problem) => {
+      const { view, first } = conflictView(sqlite);
+      const document = first.legalEntityNameEvidence.documents![0]!;
+      first.legalEntityNameEvidence = {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem,
+        documents: [document],
+      };
+      document.citations = [];
+      const legalName =
+        problem === "other_structure"
+          ? "Synthetic Series VII"
+          : "Synthetic Exact LLC";
+      const quote =
+        problem === "other_structure"
+          ? "Synthetic Series VII, as a compartment of and duly represented by Synthetic Representative LLC, as Issuer."
+          : "Issuer: Synthetic Exact LLC";
+      if (problem === "other_structure")
+        document.structure = {
+          kind: "compartment",
+          page: 1,
+          quote,
+          instrument: null,
+          parties: [
+            { legalName, role: "compartment", page: 1, quote },
+            {
+              legalName: "Synthetic Representative LLC",
+              role: "representative",
+              page: 1,
+              quote,
+            },
+          ],
+        };
+      const resolution = async (): Promise<LegalNameResolutionInput> => ({
+        kind:
+          problem === "other_structure"
+            ? "document_structure"
+            : "document_correction",
+        documentId: document.id,
+        legalName,
+        page: 1,
+        quote,
+        reason:
+          problem === "other_structure"
+            ? null
+            : "The signed agreement names this issuer.",
+        expectedEvidenceRevision: await legalNameEvidenceRevision(
+          first.legalEntityNameEvidence,
+        ),
+      });
+      const save = async (
+        override: Partial<LegalNameResolutionInput> = {},
+        entityType: "other" | "llc" = problem === "other_structure"
+          ? "other"
+          : "llc",
+      ) => {
+        const nameResolution = { ...(await resolution()), ...override };
+        return repository.create(
+          "synthetic-access-subject",
+          {
+            profile: {
+              ...profile,
+              legalName: nameResolution.legalName,
+              entityType,
+            },
+            source: {
+              reference: { kind: "holding_position", id: first.id },
+              expectedDecisionId: null,
+              nameResolution,
+            },
+          },
+          view,
+        );
+      };
+      await expect(save()).rejects.toMatchObject({ code: "invalid_source" });
+      document.scan = {
+        version: 2,
+        sha256: document.sha256,
+        outcome: "clean",
+        findings: [],
+        engineVersion: "1.4.3",
+        databaseVersion: 100,
+        databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
+        scannedAt: "2026-09-01T11:00:00.000Z",
+      };
+      await expect(
+        save({ expectedEvidenceRevision: "f".repeat(64) }),
+      ).rejects.toMatchObject({ code: "stale" });
+      if (problem === "other_structure") {
+        await expect(save({}, "llc")).rejects.toMatchObject({
+          code: "invalid_source",
+        });
+        await expect(
+          save({ legalName: "Synthetic Representative LLC" }),
+        ).rejects.toMatchObject({ code: "invalid_source" });
+      }
+      const result = await save();
+      expect(result.sources[0]?.nameResolution).toMatchObject({
+        legalName,
+        quote,
+        documentId: document.id,
+      });
+      const reloaded = await repository.getState(
+        "synthetic-access-subject",
+        view,
+      );
+      expect(
+        reloaded.entities.find((entity) => entity.id === result.id)?.sources[0]
+          ?.nameResolution?.evidence,
+      ).toEqual(first.legalEntityNameEvidence);
+    },
+  );
 
   it("records an explicitly document-backed correction when legacy extraction has no choices", async () => {
     const { view, first } = conflictView(sqlite);
@@ -1233,6 +1420,19 @@ describe("legal entity repository", () => {
           /supersedes_decision_id/u.test(row.detail),
       ),
     ).toBe(true);
+  });
+
+  it("starts the three projection reads without waiting for the position view", async () => {
+    let resolveView!: (view: InvestmentPositionView) => void;
+    const pendingView = new Promise<InvestmentPositionView>((resolve) => {
+      resolveView = resolve;
+    });
+    d1.roundTrips = 0;
+    const result = repository.getState("synthetic-access-subject", pendingView);
+    await vi.waitFor(() => expect(d1.roundTrips).toBe(3));
+    resolveView(emptyPositionView);
+    await expect(result).resolves.toMatchObject({ candidates: [] });
+    expect(d1.roundTrips).toBe(3);
   });
 
   it("reads more than 120 entities with a fixed round-trip budget and indexed supersession checks", async () => {

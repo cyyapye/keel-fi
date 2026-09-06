@@ -2,8 +2,13 @@ import { isHoldingsPath } from "./app-navigation";
 
 let alphaPreload: Promise<Response | null> | null = null;
 let holdingsPagePreload: Promise<Response | null> | null = null;
+let legalEntitiesPreload: Promise<Response | null> | null = null;
 
 export function startInitialDataPreload(): void {
+  if (window.location.pathname === "/holdings/entities") {
+    legalEntitiesPreload = preload("/api/legal-entities");
+    return;
+  }
   if (isHoldingsPath(window.location.pathname)) {
     holdingsPagePreload = preload("/api/holdings-page");
     return;
@@ -27,5 +32,11 @@ export function takeAlphaPreload(): Promise<Response | null> | null {
 export function takeHoldingsPagePreload(): Promise<Response | null> | null {
   const request = holdingsPagePreload;
   holdingsPagePreload = null;
+  return request;
+}
+
+export function takeLegalEntitiesPreload(): Promise<Response | null> | null {
+  const request = legalEntitiesPreload;
+  legalEntitiesPreload = null;
   return request;
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   LegalNameResolutionInputSchema,
   legalNameEvidenceRevision,
+  legalEntityReviewKind,
   type LegalEntityRecord,
   type LegalEntitySourceSummary,
   type LegalNameResolutionInput,
@@ -37,17 +38,30 @@ export function LegalNameResolver({
   onSaved: () => Promise<void>;
   onReload: () => Promise<void>;
 }) {
-  const documents = source.legalEntityNameEvidence.documents ?? [];
+  const reviewKind = legalEntityReviewKind(source);
+  const structure = reviewKind === "structure";
+  const documents = (source.legalEntityNameEvidence.documents ?? []).filter(
+    (document) =>
+      document.scan?.outcome === "clean" ||
+      (reviewKind === "conflict" && document.scan === undefined),
+  );
   const choices = [
     ...new Map(
       documents.flatMap((document) =>
-        (document.citations ?? []).map(
+        (structure
+          ? (document.structure?.parties ?? []).filter(
+              (party) => party.role !== "representative",
+            )
+          : (document.citations ?? [])
+        ).map(
           (citation) => [citation.legalName, { document, citation }] as const,
         ),
       ),
     ).values(),
   ];
-  const [choice, setChoice] = useState("");
+  const [choice, setChoice] = useState(
+    reviewKind === "document" ? "correction" : "",
+  );
   const [documentId, setDocumentId] = useState("");
   const [legalName, setLegalName] = useState("");
   const [page, setPage] = useState("");
@@ -62,7 +76,9 @@ export function LegalNameResolver({
     ? legalName.trim()
     : selected?.citation.legalName;
   const matches = entities.filter(
-    (entity) => entity.legalName === selectedName,
+    (entity) =>
+      entity.legalName === selectedName &&
+      (!structure || entity.entityType === "other"),
   );
   const submit = async () => {
     setWorking(true);
@@ -72,7 +88,11 @@ export function LegalNameResolver({
         expectedEvidenceRevision: await legalNameEvidenceRevision(
           source.legalEntityNameEvidence,
         ),
-        kind: correcting ? "document_correction" : "document_choice",
+        kind: correcting
+          ? "document_correction"
+          : structure
+            ? "document_structure"
+            : "document_choice",
         documentId: correcting ? documentId : selected?.document.id,
         legalName: selectedName,
         page: correcting ? Number(page) : selected?.citation.page,
@@ -123,10 +143,53 @@ export function LegalNameResolver({
         void submit();
       }}
     >
-      <h4>Resolve name</h4>
+      <h4>
+        {structure
+          ? "Review structure"
+          : reviewKind === "document"
+            ? "Enter the name from the agreement"
+            : "Resolve name"}
+      </h4>
       <p>
-        Choose the name for this investment. Nothing is selected automatically.
+        {structure
+          ? "Keep the compartment and its representative separate. This record will be classified as Other, not a confirmed LLC interest."
+          : reviewKind === "document"
+            ? "Open Agreement evidence above to read the PDF. Enter its exact name, page, and an excerpt containing the name."
+            : "Choose the name for this investment. Nothing is selected automatically."}
       </p>
+      {structure &&
+        documents.map((document) =>
+          document.structure === undefined ? null : (
+            <div key={document.id} className="legal-name-resolver__structure">
+              {document.structure.parties
+                .filter((party) => party.role === "representative")
+                .map((party) => (
+                  <p key={party.legalName}>
+                    <strong>Representative: {party.legalName}</strong>
+                    <br />
+                    {document.fileName} · page {party.page}
+                    <br />
+                    <q>{party.quote}</q>
+                  </p>
+                ))}
+              {document.structure.instrument !== null && (
+                <p>
+                  Reported interest: {document.structure.instrument.label} ·
+                  page {document.structure.instrument.page}
+                  <br />
+                  <q>{document.structure.instrument.quote}</q>
+                </p>
+              )}
+              {document.structure.parties.length === 0 && (
+                <p>
+                  {document.fileName} · page {document.structure.page}
+                  <br />
+                  <q>{document.structure.quote}</q>
+                </p>
+              )}
+            </div>
+          ),
+        )}
       <fieldset disabled={working}>
         <legend>Names reported in the agreements</legend>
         {choices.map(({ document, citation }) => (
@@ -145,6 +208,11 @@ export function LegalNameResolver({
             />
             <span>
               <strong>{citation.legalName}</strong>
+              {structure && (
+                <span>
+                  {citation.role === "compartment" ? "Compartment" : "Issuer"}
+                </span>
+              )}
               <span>
                 {source.sourceLabel} · {document.fileName} · page{" "}
                 {citation.page}
@@ -155,9 +223,8 @@ export function LegalNameResolver({
         ))}
         {choices.length === 0 && (
           <p>
-            No alternatives were saved by the earlier document check. Queue a
-            source update to extract them, or enter the name from an agreement
-            below.
+            No alternatives were saved by the earlier document check. Enter the
+            exact name from a supporting agreement below.
           </p>
         )}
         <label className="legal-name-resolver__choice">

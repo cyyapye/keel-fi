@@ -139,9 +139,15 @@ test("explains scan limits, encrypted content and threat matches without offerin
       signature: "Win.Test.EICAR_HDB-1",
     }),
   ]);
-  await expect(rows.nth(0)).toContainText("This does not establish malware");
-  await expect(rows.nth(1)).toContainText("Request an unencrypted copy");
-  await expect(rows.nth(2)).toContainText("Keep this agreement blocked");
+  await expect(rows.filter({ hasText: "Demo Climate" })).toContainText(
+    "This does not establish malware",
+  );
+  await expect(rows.filter({ hasText: "Demo Robotics" })).toContainText(
+    "Request an unencrypted copy",
+  );
+  await expect(rows.filter({ hasText: "Demo Energy" })).toContainText(
+    "Keep this agreement blocked",
+  );
   await expect(
     rows.getByRole("button", { name: /demo-\d-agreement\.pdf/u }),
   ).toHaveCount(0);
