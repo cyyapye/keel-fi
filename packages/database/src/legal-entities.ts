@@ -299,11 +299,6 @@ async function resolveSourceName(
       "The selected document and legal name must match this source review.",
     );
   }
-  if (reviewKind === "structure" && entityType !== "other")
-    throw new LegalEntityRepositoryError(
-      "invalid_source",
-      "Record this structure as Other; its party names do not establish direct LLC ownership.",
-    );
   if (
     input.kind === "document_structure" &&
     (reviewKind !== "structure" ||
@@ -342,6 +337,7 @@ async function resolveSourceName(
     ...source,
     nameResolution: LegalNameResolutionSchema.parse({
       ...details,
+      ...(reviewKind === "structure" ? { reviewedEntityType: entityType } : {}),
       fileName: document.fileName,
       sha256: document.sha256,
       evidence,

@@ -6,6 +6,7 @@ import {
   LegalEntityExportInputSchema,
   LegalEntityProfileInputSchema,
   LegalNameResolutionInputSchema,
+  LegalNameResolutionSchema,
   exactLegalEntityTypeFromName,
   legalEntityReviewKind,
   compareLegalEntityAttention,
@@ -148,6 +149,7 @@ describe("legal entity contracts", () => {
       { kind: "document_choice" },
       { kind: "document_structure" },
       { kind: "document_correction" },
+      { reviewedEntityType: "llc" }, // Only the server records the reviewed type.
     ])
       expect(
         LegalNameResolutionInputSchema.safeParse({ ...input, ...mutation })
@@ -159,6 +161,37 @@ describe("legal entity contracts", () => {
         quote: "Issuer: Synthetic Exact LLC",
       }).success,
     ).toBe(true);
+  });
+  it("reads legacy name receipts and validates a recorded reviewer classification", () => {
+    const receipt = {
+      kind: "document_entry",
+      documentId: "11111111-1111-4111-8111-111111111111",
+      legalName: "Synthetic Series IX",
+      page: 1,
+      quote: null,
+      reason: null,
+      fileName: "synthetic-agreement.pdf",
+      sha256: "a".repeat(64),
+      evidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "other_structure",
+      },
+    };
+    expect(LegalNameResolutionSchema.parse(receipt)).toEqual(receipt);
+    expect(
+      LegalNameResolutionSchema.parse({
+        ...receipt,
+        reviewedEntityType: "corporation",
+      }).reviewedEntityType,
+    ).toBe("corporation");
+    expect(
+      LegalNameResolutionSchema.safeParse({
+        ...receipt,
+        reviewedEntityType: "guessed",
+      }).success,
+    ).toBe(false);
   });
   it("parses ownership percentages without floating-point arithmetic", () => {
     expect(ownershipPercentTextToPpm("")).toBeNull();

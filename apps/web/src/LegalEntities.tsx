@@ -179,6 +179,13 @@ function editorForCandidate(
 function editorForEntity(entity: LegalEntityRecord): EditorState {
   return {
     entityId: entity.id,
+    structureReview: entity.sources.some(
+      (source) =>
+        (source.nameResolution?.evidence.state === "unavailable" &&
+          source.nameResolution.evidence.problem === "other_structure") ||
+        (source.legalEntityNameEvidence.state === "unavailable" &&
+          source.legalEntityNameEvidence.problem === "other_structure"),
+    ),
     expectedVersionId: entity.versionId,
     source: null,
     profile: {
@@ -556,9 +563,16 @@ function LegalEntityEditor({
     >
       <SectionHeader
         description={
-          draft.source === null
-            ? "Blank fields stay explicitly unrecorded in the export."
-            : `Confirm the legal record suggested by ${sourceKindLabel(draft.source.reference.kind).toLowerCase()}.`
+          draft.structureReview ? (
+            <span id={`${headingId}-entity-type`}>
+              Choose the type stated in the agreement. Your classification does
+              not confirm direct ownership.
+            </span>
+          ) : draft.source === null ? (
+            "Blank fields stay explicitly unrecorded in the export."
+          ) : (
+            `Confirm the legal record suggested by ${sourceKindLabel(draft.source.reference.kind).toLowerCase()}.`
+          )
         }
         eyebrow={editing ? "Reviewed record" : "Review before adding"}
         headingProps={{ id: headingId }}
@@ -583,7 +597,6 @@ function LegalEntityEditor({
           </Field>
           <Field label="Entity type" variant="filled">
             <Select
-              disabled={draft.structureReview === true}
               items={entityTypeOptions}
               onValueChange={(value) => {
                 if (
@@ -594,7 +607,12 @@ function LegalEntityEditor({
               }}
               value={draft.profile.entityType}
             >
-              <SelectTrigger aria-label="Entity type">
+              <SelectTrigger
+                aria-label="Entity type"
+                aria-describedby={
+                  draft.structureReview ? `${headingId}-entity-type` : undefined
+                }
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -853,6 +871,22 @@ function EntityRow({
                         : "Your document-backed correction"}
                   : {resolution.legalName} · {resolution.fileName} · page{" "}
                   {resolution.page}
+                  {resolution.reviewedEntityType !== undefined && (
+                    <>
+                      <br />
+                      Type at review:{" "}
+                      {entityTypeLabels[resolution.reviewedEntityType]} (your
+                      classification).
+                    </>
+                  )}
+                  {resolution.evidence.state === "unavailable" &&
+                    resolution.evidence.problem === "other_structure" && (
+                      <>
+                        <br />
+                        Compartment structure; direct ownership is not
+                        confirmed.
+                      </>
+                    )}
                 </p>
               );
             })}

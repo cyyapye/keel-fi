@@ -66,6 +66,7 @@ const migrationFiles = [
   "packages/database/migrations/0049_legal_name_resolutions.sql",
   "packages/database/migrations/0050_agreement_rechecks.sql",
   "packages/database/migrations/0051_legal_structure_review_guard.sql",
+  "packages/database/migrations/0052_reviewed_structure_entity_type.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

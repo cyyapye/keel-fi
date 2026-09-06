@@ -86,7 +86,16 @@ function nameEvidence(sources: readonly LegalEntitySourceSummary[]): string {
           ),
         ),
       ];
-      return `${source.sourceLabel}: ${resolution.kind === "document_choice" ? "Reviewed name choice" : resolution.kind === "document_structure" ? "Reviewed structure, not confirmed direct LLC ownership" : resolution.kind === "document_entry" ? "User-entered name from agreement" : "User document-backed correction"}: ${resolution.legalName} | ${resolution.fileName}, page ${resolution.page.toString()}; SHA-256 ${resolution.sha256}${resolution.quote === null ? "" : `; ${resolution.quote}`}${resolution.reason === null ? "" : `; ${resolution.reason}`} | Original reported alternatives: ${alternatives.join("; ") || "Not saved by earlier document check"}${structureEvidence(resolution.evidence.documents ?? [])}`;
+      const reviewedType =
+        resolution.reviewedEntityType === undefined
+          ? ""
+          : ` | Entity type at review: ${entityTypeLabel(resolution.reviewedEntityType)} (user classification)`;
+      const ownershipWarning =
+        resolution.evidence.state === "unavailable" &&
+        resolution.evidence.problem === "other_structure"
+          ? " | Compartment structure; direct ownership is not confirmed"
+          : "";
+      return `${source.sourceLabel}: ${resolution.kind === "document_choice" ? "Reviewed name choice" : resolution.kind === "document_structure" ? "Reviewed structure, not confirmed direct LLC ownership" : resolution.kind === "document_entry" ? "User-entered name from agreement" : "User document-backed correction"}: ${resolution.legalName} | ${resolution.fileName}, page ${resolution.page.toString()}; SHA-256 ${resolution.sha256}${resolution.quote === null ? "" : `; ${resolution.quote}`}${resolution.reason === null ? "" : `; ${resolution.reason}`}${reviewedType}${ownershipWarning} | Original reported alternatives: ${alternatives.join("; ") || "Not saved by earlier document check"}${structureEvidence(resolution.evidence.documents ?? [])}`;
     }
     const evidence = source.legalEntityNameEvidence;
     const documents = (evidence.documents ?? [])

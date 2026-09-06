@@ -6,6 +6,7 @@ import {
   type LegalEntityInventory,
   type LegalEntityRecord,
   type LegalEntitySourceSummary,
+  type LegalEntityType,
   type LegalNameResolutionInput,
 } from "../packages/domain/src/legal-entities";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
@@ -184,6 +185,7 @@ async function setup(
   let rejectWrite = false;
   const reviewedSource = (
     resolution: LegalNameResolutionInput | undefined,
+    entityType: LegalEntityType,
   ): LegalEntitySourceSummary => {
     if (resolution === undefined) throw new Error("Missing review receipt");
     const document = candidate.legalEntityNameEvidence.documents?.find(
@@ -203,6 +205,9 @@ async function setup(
         fileName: document.fileName,
         sha256: document.sha256,
         evidence: candidate.legalEntityNameEvidence,
+        ...(problem === "other_structure"
+          ? { reviewedEntityType: entityType }
+          : {}),
       },
     };
   };
@@ -233,7 +238,9 @@ async function setup(
       ...existing,
       ...input.profile,
       id: "new_demo_entity",
-      sources: [reviewedSource(input.source?.nameResolution)],
+      sources: [
+        reviewedSource(input.source?.nameResolution, input.profile.entityType),
+      ],
     };
     inventory.entities.push(entity);
     inventory.candidates = inventory.candidates.filter(
@@ -254,7 +261,15 @@ async function setup(
             "The agreement evidence changed. Reload and compare the current names before saving.",
         },
       });
-    inventory.entities[0]?.sources.push(reviewedSource(input.nameResolution));
+    const target = inventory.entities.find(
+      (entity) =>
+        input.decision.kind === "linked" &&
+        entity.id === input.decision.legalEntityId,
+    );
+    if (target === undefined) throw new Error("Missing review target");
+    target.sources.push(
+      reviewedSource(input.nameResolution, target.entityType),
+    );
     inventory.candidates = inventory.candidates.filter(
       (item) => item.source.id !== candidate.source.id,
     );
@@ -395,21 +410,70 @@ test("reviews source parties inline without offering the representative as the i
   await expect(editor).toBeVisible();
   await expect(
     editor.getByRole("combobox", { name: "Entity type" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await expect(
     editor.getByRole("combobox", { name: "Entity type" }),
   ).toContainText("Other");
+  await editor.getByRole("combobox", { name: "Entity type" }).click();
+  await expect(page.getByRole("option")).toHaveText([
+    "LLC",
+    "Limited partnership",
+    "Corporation",
+    "Partnership",
+    "Trust",
+    "Other",
+  ]);
+  await page.getByRole("option", { name: "Corporation", exact: true }).click();
+  for (const label of [
+    "LLC",
+    "Limited partnership",
+    "Partnership",
+    "Trust",
+    "Other",
+    "Corporation",
+  ]) {
+    await editor.getByRole("combobox", { name: "Entity type" }).click();
+    await page.getByRole("option", { name: label, exact: true }).click();
+    await expect(
+      editor.getByRole("combobox", { name: "Entity type" }),
+    ).toContainText(label);
+  }
+  await expect(editor).toHaveScreenshot("legal-structure-entity-type.png", {
+    animations: "disabled",
+    caret: "hide",
+  });
+  await noOverflow(page);
   await expect(
     page.locator(".legal-entity-candidate").filter({ hasText: "Demo Blocked" }),
   ).toBeVisible();
   await editor.getByRole("button", { name: "Add entity", exact: true }).click();
   expect(writes[0]).toMatchObject({
-    profile: { legalName: "Demo Series VII", entityType: "other" },
+    profile: {
+      legalName: "Demo Series VII",
+      entityType: "corporation",
+      relationship: "investment_vehicle",
+    },
     source: { nameResolution: { kind: "document_structure", page: 1 } },
   });
   await expect(
     page.getByText(/Reviewed structure: Demo Series VII/),
   ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByText(/Type at review: Corporation \(your classification\)/),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Compartment structure; direct ownership is not confirmed/),
+  ).toBeVisible();
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await expect(
+    page.locator(".legal-entity-row").filter({ hasText: "Demo Series VII" }),
+  ).toHaveScreenshot("legal-structure-reviewed-type.png", {
+    animations: "disabled",
+    caret: "hide",
+  });
   await expect(
     page.getByRole("checkbox", { name: "Include non-LLC entities" }),
   ).toBeChecked();
@@ -497,6 +561,14 @@ for (const problem of ["name_not_found", "other_structure"] as const)
     await submit.click();
     const editor = row.locator(".legal-entity-editor");
     await expect(editor).toBeVisible();
+    const entityType = editor.getByRole("combobox", { name: "Entity type" });
+    await expect(entityType).toBeEnabled();
+    if (problem === "other_structure") {
+      // Even an explicit LLC suffix does not auto-classify a structure.
+      await expect(entityType).toContainText("Other");
+      await entityType.click();
+      await page.getByRole("option", { name: "LLC", exact: true }).click();
+    }
     const add = editor.getByRole("button", { name: "Add entity", exact: true });
     await expect(editor.locator("form")).toHaveAttribute("novalidate", "");
     await expect(add).toBeEnabled();
@@ -519,6 +591,7 @@ for (const problem of ["name_not_found", "other_structure"] as const)
     await expect(add).toBeEnabled();
     await add.click();
     expect(writes[0]).toMatchObject({
+      profile: { entityType: "llc", relationship: "investment_vehicle" },
       source: {
         nameResolution: {
           kind: "document_entry",
@@ -533,8 +606,51 @@ for (const problem of ["name_not_found", "other_structure"] as const)
     await expect(
       page.getByText(/Name entered by you: Demo Recognized LLC/),
     ).toBeVisible();
+    if (problem === "other_structure") {
+      await expect(
+        page.getByText(/Type at review: LLC \(your classification\)/),
+      ).toBeVisible();
+      await expect(
+        page.getByText(
+          /Compartment structure; direct ownership is not confirmed/,
+        ),
+      ).toBeVisible();
+    }
     await noOverflow(page);
   });
+
+test("links a reviewed structure to an exact existing non-Other entity", async ({
+  page,
+}) => {
+  const { inventory, writes, row } = await setup(
+    page,
+    false,
+    "other_structure",
+  );
+  inventory.entities[0]!.legalName = "Demo Series VII";
+  await page.reload();
+  await row
+    .getByRole("button", { name: "Review structure", exact: true })
+    .click();
+  const resolver = row.getByRole("form");
+  await resolver.getByRole("radio", { name: /^Demo Series VII/ }).check();
+  await resolver.getByRole("combobox", { name: "Save to" }).click();
+  await page
+    .getByRole("option", { name: "Link existing: Demo Series VII" })
+    .click();
+  await resolver
+    .getByRole("button", { name: "Link entity", exact: true })
+    .click();
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatchObject({
+    decision: { kind: "linked", legalEntityId: existing.id },
+  });
+  await page.reload();
+  await expect(
+    page.getByText(/Type at review: LLC \(your classification\)/),
+  ).toBeVisible();
+  await noOverflow(page);
+});
 
 test("gates manual creation and editing on all profile fields without browser validation pop-ups", async ({
   page,

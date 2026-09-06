@@ -79,9 +79,7 @@ export function LegalNameResolver({
     ? legalName.trim()
     : selected?.citation.legalName;
   const matches = entities.filter(
-    (entity) =>
-      entity.legalName === selectedName &&
-      (!structure || entity.entityType === "other"),
+    (entity) => entity.legalName === selectedName,
   );
   const details = LegalNameResolutionDetailsSchema.safeParse({
     kind: correcting
@@ -178,7 +176,7 @@ export function LegalNameResolver({
       </h4>
       <p>
         {structure
-          ? "Keep the compartment and its representative separate. This record will be classified as Other, not a confirmed LLC interest."
+          ? "Keep the compartment and its representative separate. Confirm the entity type from the agreement when adding the record."
           : reviewKind === "document"
             ? "Read the PDF in Agreement evidence, then enter the exact name and page."
             : "Choose the name for this investment. Nothing is selected automatically."}
