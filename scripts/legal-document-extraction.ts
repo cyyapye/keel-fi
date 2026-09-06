@@ -108,12 +108,61 @@ export function extractLegalNameFromPages(
   });
   // A compartment represented by another company is not evidence that the
   // investor owns that representative's LLC interests. Never substitute it.
-  if (
-    pages.some((page) =>
-      /as (?:a )?compartment of and duly represented by/iu.test(compact(page)),
-    )
-  )
-    return failed("other_structure", pages.length);
+  const structurePage = pages.findIndex((page) =>
+    /as (?:a )?compartment of and duly represented by/iu.test(compact(page)),
+  );
+  if (structurePage >= 0) {
+    const text = pages[structurePage] ?? "";
+    // Recognize the explicit party clause only. Never promote an arbitrary
+    // LLC elsewhere on the page or the representative to the invested vehicle.
+    const clause =
+      /(?:^|\n)\s*([^\n]{1,1000}?),\s*as (?:a )?compartment of and duly represented by\s+([^\n]{1,1000}?),\s*as [Ii]ssuer\b\.?/u.exec(
+        text,
+      );
+    const line =
+      text.split(/\r?\n/u).find((value) => /compartment/iu.test(value)) ?? text;
+    const quote = compact(clause?.[0] ?? line).slice(0, 2_000);
+    const instrumentPage = pages.findIndex((page) =>
+      /EQUITY CERTIFICATES SUBSCRIPTION AGREEMENT/iu.test(compact(page)),
+    );
+    return LegalDocumentExtractionSchema.parse({
+      ...failed("other_structure", pages.length),
+      structure: {
+        kind: "compartment",
+        page: structurePage + 1,
+        quote,
+        parties:
+          clause === null ||
+          compact(clause[0]).length > 2_000 ||
+          !entitySuffix.test(compact(clause[2] ?? ""))
+            ? []
+            : [
+                {
+                  legalName: compact(clause[1] ?? ""),
+                  role: "compartment",
+                  page: structurePage + 1,
+                  quote,
+                },
+                {
+                  legalName: compact(clause[2] ?? ""),
+                  role: "representative",
+                  page: structurePage + 1,
+                  quote,
+                },
+              ],
+        instrument:
+          instrumentPage < 0
+            ? null
+            : {
+                label: "Equity certificates",
+                page: instrumentPage + 1,
+                quote: /EQUITY CERTIFICATES SUBSCRIPTION AGREEMENT/iu.exec(
+                  compact(pages[instrumentPage] ?? ""),
+                )?.[0],
+              },
+      },
+    });
+  }
   // Explicit definitions control over capitalized cover headings. A title of
   // an attached parent agreement must not replace the defined invested fund.
   const definesParent = pages.some((page) =>

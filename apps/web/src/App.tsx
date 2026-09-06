@@ -9160,11 +9160,13 @@ export function App() {
     return () => window.removeEventListener("popstate", updateRoute);
   }, []);
 
+  const needsHoldingsData =
+    activeScreen === "holdings" && holdingsView !== "entities";
   useEffect(() => {
-    if (activeScreen === "holdings") {
+    if (needsHoldingsData) {
       void refreshHoldingsPage().catch(() => undefined);
     }
-  }, [activeScreen, refreshHoldingsPage]);
+  }, [needsHoldingsData, refreshHoldingsPage]);
 
   useEffect(() => {
     if (activeScreen !== "holdings" && data === null) {
@@ -9174,7 +9176,10 @@ export function App() {
 
   useEffect(() => {
     const shouldPrefetchAlpha =
-      activeScreen === "holdings" && holdingsPageData !== null && data === null;
+      activeScreen === "holdings" &&
+      holdingsView !== "entities" &&
+      holdingsPageData !== null &&
+      data === null;
     const shouldPrefetchHoldings =
       activeScreen !== "holdings" && data !== null && holdingsPageData === null;
     if (!shouldPrefetchAlpha && !shouldPrefetchHoldings) {
@@ -9197,6 +9202,7 @@ export function App() {
     activeScreen,
     data,
     holdingsPageData,
+    holdingsView,
     refreshAlphaData,
     refreshHoldingsPage,
   ]);
@@ -9207,6 +9213,24 @@ export function App() {
 
   const content = useMemo(() => {
     if (activeScreen === "holdings") {
+      // Entity review owns its data. Do not waterfall through unrelated
+      // holdings, valuations, exposure reconciliation or planning requests.
+      if (holdingsView === "entities")
+        return (
+          <ScreenLayout className="holdings-screen">
+            <PageHeader
+              title="Legal entities"
+              eyebrow="Holdings"
+              description="Prepare an entity and interest list for counsel. This inventory does not transfer anything to a trust."
+              actions={
+                <TextLink onClick={() => navigateToHoldingsView("overview")}>
+                  Back to holdings
+                </TextLink>
+              }
+            />
+            <LegalEntities />
+          </ScreenLayout>
+        );
       if (holdingsPageData === null) {
         return (
           <HoldingsRouteStatus

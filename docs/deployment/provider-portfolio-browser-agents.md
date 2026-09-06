@@ -172,8 +172,8 @@ claiming the exact legal vehicle name.
   original filename, page, and quote. A cover title is used only when no
   explicit definition or parent/master definition is present. Investor,
   administrator, parent, underlying-company, and filename labels never supply a
-  guessed legal name. Compartment/certificate structures are flagged for
-  provider or counsel clarification, not called LLCs.
+  guessed legal name. Compartment/certificate structures remain distinct from
+  direct LLC interests.
 - Extraction version 2 recognizes a wrapped parent-agreement qualification after
   a complete fund name. It does not join a split name or normalize differing
   source names. Version 1 observations remain readable and are rechecked within
@@ -187,9 +187,9 @@ claiming the exact legal vehicle name.
 - Conflicting names have an explicit **Resolve name** action. Nothing is
   preselected. A user may choose a reported name, supply a document-backed
   correction with an excerpt and reason, link an exact existing entity, or leave
-  the source unresolved. Security-blocked and other unavailable states do not
-  gain this action. Old conflicts without saved alternatives can be corrected
-  from a document or refreshed through a normal source update.
+  the source unresolved. Security-blocked documents never become review choices.
+  Old conflicts without saved alternatives can be corrected from a document or
+  refreshed through a normal source update.
 - Migration `0049` stores the chosen name and the exact original evidence with
   the immutable source-review decision. Deploy it before the API/web changes,
   then update the existing agents for version 3 extraction. Evidence revisions
@@ -200,6 +200,34 @@ claiming the exact legal vehicle name.
   Inventory reads remain projection-only with no PDF/R2 reads or row-by-row
   queries; 120-source receipt coverage retains the three-query repository
   budget.
+- Version 4 preserves an explicit compartment clause with exact party names,
+  roles, pages, quotes, and an explicit equity-certificate title when present.
+  The representative is not a selectable invested name. Review creates an
+  `Other` record, not a confirmed LLC interest. The original role evidence and
+  reviewed choice remain in the default counsel export. Unrecognized clauses
+  preserve their excerpt and permit a reason-backed manual name review. Deploy
+  migration `0051` before the new API/web: it fences a target changed from
+  `Other` during review at the source-decision commit. Update the existing
+  agents only after the API accepts version 4 observations.
+- A clean agreement with an unrecognized name or reader limit now permits
+  **Review PDF**: download the existing private original, then supply its exact
+  name, page, excerpt, and reason. No guessed legal name is prefilled. A stale
+  evidence revision or a blocked selected document fails closed. Existing
+  version 1–3 observations remain readable; ordinary bounded source updates
+  re-extract older versions after the agent upgrade. These updates still use the
+  existing provider download flow; they do not parse R2 objects on a GET.
+- All source review actions open in the source row. The attention queue precedes
+  reviewed records: manual PDF/structure review, conflicting names, found names,
+  then sources waiting on documents. These are explicit evidence categories, not
+  calibrated confidence percentages. Stable name/source-key ordering breaks
+  ties. Lists render 25 rows at a time with scroll loading and a button
+  fallback; loading more preserves open drafts. The API still returns one
+  complete inventory projection, so exports never depend on rendered rows.
+- Direct entity navigation preloads only `/api/legal-entities`; it does not wait
+  for Holdings or planning. Independent entity and position reads start
+  together. The combined read retains seven row-count-independent D1 round
+  trips, with indexed 120+ item regressions and a 500-source browser case. There
+  are no provider requests, object reads, backfills, or writes on this GET path.
 - Originals are deduplicated by household and SHA in private R2. Names are
   evidence for the existing exact-batch add, never automatic acceptance.
   Missing, unreadable, inaccessible, conflicting, changed-page, and safety-limit

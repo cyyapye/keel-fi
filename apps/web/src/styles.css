@@ -5861,6 +5861,23 @@ h1,
   border-top: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
 
+.legal-entity-row > .legal-entity-editor,
+.legal-entity-candidate > .legal-entity-editor {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: 24px;
+  border-top: 0;
+}
+
+.legal-entities__candidates:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.legal-name-resolver__structure {
+  overflow-wrap: anywhere;
+}
+
 .legal-entity-row__heading {
   display: flex;
   min-width: 0;

@@ -78,7 +78,11 @@ export const LegalEntitySourceFinancialsSchema = z
 
 const LegalNameResolutionDetailsSchema = z
   .object({
-    kind: z.enum(["document_choice", "document_correction"]),
+    kind: z.enum([
+      "document_choice",
+      "document_correction",
+      "document_structure",
+    ]),
     documentId: z.string().uuid(),
     legalName: z.string().trim().min(1).max(1_000),
     page: z.number().int().min(1).max(MAX_LEGAL_DOCUMENT_PAGES),
@@ -543,3 +547,44 @@ export type LegalEntityExportField = z.infer<
 export type LegalEntityExportInput = z.infer<
   typeof LegalEntityExportInputSchema
 >;
+
+export function legalEntityReviewKind(source: LegalEntitySourceSummary) {
+  const evidence = source.legalEntityNameEvidence;
+  if (evidence.state !== "unavailable") return "found" as const;
+  // Historical conflicts remain reviewable; new document-backed paths require
+  // an explicit clean verdict. A blocked agreement is never a review choice.
+  if (evidence.problem === "conflicting") return "conflict" as const;
+  const readable = evidence.documents?.some(
+    (document) => document.scan?.outcome === "clean",
+  );
+  if (readable && evidence.problem === "other_structure")
+    return "structure" as const;
+  if (
+    readable &&
+    [
+      "name_not_found",
+      "unreadable",
+      "limit_reached",
+      "extractor_unavailable",
+    ].includes(evidence.problem ?? "")
+  )
+    return "document" as const;
+  return "waiting" as const;
+}
+
+export function compareLegalEntityAttention(
+  left: LegalEntitySourceSummary,
+  right: LegalEntitySourceSummary,
+): number {
+  const rank = { document: 0, structure: 0, conflict: 1, found: 2, waiting: 3 };
+  return (
+    rank[legalEntityReviewKind(left)] - rank[legalEntityReviewKind(right)] ||
+    (
+      left.legalEntityNameEvidence.legalName ?? left.sourceDisplayName
+    ).localeCompare(
+      right.legalEntityNameEvidence.legalName ?? right.sourceDisplayName,
+    ) ||
+    left.source.kind.localeCompare(right.source.kind) ||
+    left.source.id.localeCompare(right.source.id)
+  );
+}

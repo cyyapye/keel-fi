@@ -9,7 +9,7 @@ export const MAX_LEGAL_DOCUMENTS_PER_POSITION = 6;
 export const MAX_LEGAL_DOCUMENTS_PER_RUN = 24;
 export const MAX_LEGAL_DOCUMENT_RUN_BYTES = 64 * 1024 * 1024;
 export const MAX_LEGAL_DOCUMENT_POSITION_BYTES = 16 * 1024 * 1024;
-export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 3;
+export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 4;
 export const MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT = 8;
 export const LEGAL_DOCUMENT_RECHECK_MS = 7 * 24 * 60 * 60 * 1_000;
 export const LEGAL_DOCUMENT_SCANNER_VERSION = 2;
@@ -110,12 +110,11 @@ export const LegalDocumentProblemSchema = z.enum([
   "scanner_unavailable",
 ]);
 
-export const LegalDocumentCitationSchema = z
+const LegalDocumentNamedExcerptSchema = z
   .object({
     legalName: z.string().trim().min(1).max(1_000),
     page: z.number().int().min(1).max(MAX_LEGAL_DOCUMENT_PAGES),
     quote: z.string().trim().min(1).max(2_000),
-    role: z.enum(["issuer", "fund", "company_agreement", "series"]),
   })
   .strict()
   .superRefine((citation, context) => {
@@ -129,6 +128,35 @@ export const LegalDocumentCitationSchema = z
     }
   });
 
+export const LegalDocumentCitationSchema =
+  LegalDocumentNamedExcerptSchema.safeExtend({
+    role: z.enum(["issuer", "fund", "company_agreement", "series"]),
+  });
+
+// Party names describe the agreement, not an assertion of direct ownership.
+export const LegalDocumentStructureSchema = z
+  .object({
+    kind: z.literal("compartment"),
+    page: z.number().int().min(1).max(MAX_LEGAL_DOCUMENT_PAGES),
+    quote: z.string().trim().min(1).max(2_000),
+    parties: z
+      .array(
+        LegalDocumentNamedExcerptSchema.safeExtend({
+          role: z.enum(["compartment", "issuer", "representative"]),
+        }),
+      )
+      .max(MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT),
+    instrument: z
+      .object({
+        label: z.literal("Equity certificates"),
+        page: z.number().int().min(1).max(MAX_LEGAL_DOCUMENT_PAGES),
+        quote: z.string().trim().min(1).max(2_000),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
 export const LegalDocumentExtractionSchema = z
   .object({
     // Existing immutable observations remain readable during rollout. The
@@ -136,6 +164,7 @@ export const LegalDocumentExtractionSchema = z
     version: z.union([
       z.literal(1),
       z.literal(2),
+      z.literal(3),
       z.literal(LEGAL_DOCUMENT_EXTRACTOR_VERSION),
     ]),
     pageCount: z.number().int().min(0).max(MAX_LEGAL_DOCUMENT_PAGES),
@@ -143,6 +172,7 @@ export const LegalDocumentExtractionSchema = z
     citations: z
       .array(LegalDocumentCitationSchema)
       .max(MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT),
+    structure: LegalDocumentStructureSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -158,7 +188,16 @@ export const LegalDocumentExtractionSchema = z
           : value.citations.length === 0;
     if (
       !validState ||
-      value.citations.some((citation) => citation.page > value.pageCount)
+      value.citations.some((citation) => citation.page > value.pageCount) ||
+      (value.structure !== undefined &&
+        (value.version < 4 ||
+          value.problem !== "other_structure" ||
+          value.structure.page > value.pageCount ||
+          value.structure.parties.some(
+            (party) => party.page > value.pageCount,
+          ) ||
+          (value.structure.instrument !== null &&
+            value.structure.instrument.page > value.pageCount)))
     ) {
       context.addIssue({
         code: "custom",
@@ -266,7 +305,7 @@ export const LEGAL_DOCUMENT_PROBLEM_COPY: Record<
   unreadable:
     "The agreement could not be read. Request a searchable PDF from the provider.",
   name_not_found:
-    "The agreement did not explicitly identify the investment vehicle. Request its exact legal name from the provider.",
+    "Keel did not extract an exact vehicle name. Review the agreement and enter its name with a page and excerpt.",
   conflicting:
     "Compare the names reported in the agreements and choose the one for this investment.",
   limit_reached:
@@ -276,7 +315,7 @@ export const LEGAL_DOCUMENT_PROBLEM_COPY: Record<
   page_changed:
     "The provider's document page could not be read. Its capture support needs an update.",
   other_structure:
-    "The agreement describes a compartment or certificate structure. Ask the provider or your lawyer which legal entity and interest belong in this inventory.",
+    "The agreement describes a compartment structure. Review the named parties and the interest; a representative is not automatically the entity you invested in.",
   security_blocked:
     "The agreement is blocked by its security check. See the agreement details for the reason and next step.",
   scanner_unavailable:
@@ -309,6 +348,7 @@ export const LegalNameDocumentReferenceSchema = z
       .array(LegalDocumentCitationSchema)
       .max(MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT)
       .optional(),
+    structure: LegalDocumentStructureSchema.optional(),
     scan: LegalDocumentScanSchema.optional(),
     provider: z.enum(["sydecar", "tokenfolio"]).optional(),
   })

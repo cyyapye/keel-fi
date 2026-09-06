@@ -7,11 +7,95 @@ import {
   LegalEntityProfileInputSchema,
   LegalNameResolutionInputSchema,
   exactLegalEntityTypeFromName,
+  legalEntityReviewKind,
+  compareLegalEntityAttention,
+  type LegalEntitySourceSummary,
   formatOwnershipInterestPpm,
   ownershipPercentTextToPpm,
 } from "./legal-entities";
 
 describe("legal entity contracts", () => {
+  it("prioritizes actionable document review, conflicts, found names, then waiting sources", () => {
+    const base: LegalEntitySourceSummary = {
+      source: { kind: "holding_position", id: "synthetic" },
+      sourceDisplayName: "Synthetic investment",
+      sourceLabel: "Synthetic agreement",
+      sourceAsOf: "2026-09-01",
+      suggestedEntityType: null,
+      relationship: "investment_vehicle",
+      currentOwner: null,
+      currentDecisionId: null,
+      interestStatus: "current",
+      openedOn: null,
+      financials: null,
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "extractor_unavailable",
+        documents: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            fileName: "synthetic.pdf",
+            sha256: "a".repeat(64),
+            page: null,
+            quote: null,
+            scan: {
+              version: 2,
+              sha256: "a".repeat(64),
+              outcome: "clean",
+              findings: [],
+              engineVersion: "1.4.3",
+              databaseVersion: 100,
+              databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
+              scannedAt: "2026-09-01T11:00:00.000Z",
+            },
+          },
+        ],
+      },
+    };
+    const manual = { ...base, source: { ...base.source, id: "manual" } };
+    const conflict: LegalEntitySourceSummary = {
+      ...base,
+      source: { ...base.source, id: "conflict" },
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        documents: base.legalEntityNameEvidence.documents,
+        problem: "conflicting",
+      },
+    };
+    const found: LegalEntitySourceSummary = {
+      ...base,
+      source: { ...base.source, id: "found" },
+      legalEntityNameEvidence: {
+        state: "provider_reported",
+        legalName: "Synthetic LLC",
+        sourceField: "Fund Name",
+      },
+    };
+    const waiting: LegalEntitySourceSummary = {
+      ...base,
+      source: { ...base.source, id: "waiting" },
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "security_blocked",
+      },
+    };
+    expect(legalEntityReviewKind(manual)).toBe("document");
+    expect(legalEntityReviewKind(waiting)).toBe("waiting");
+    expect(
+      [waiting, found, conflict, manual]
+        .sort(compareLegalEntityAttention)
+        .map((item) => item.source.id),
+    ).toEqual(["manual", "conflict", "found", "waiting"]);
+    const unscanned = structuredClone(manual);
+    delete unscanned.legalEntityNameEvidence.documents![0]!.scan;
+    expect(legalEntityReviewKind(unscanned)).toBe("waiting");
+  });
   it("requires a correction to cite a document, page, exact-name excerpt and reason", () => {
     const input = {
       kind: "document_correction",

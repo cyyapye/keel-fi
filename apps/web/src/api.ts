@@ -150,7 +150,11 @@ import {
   type PlanActualSnoozeInput,
 } from "@keel/domain/plan-actual-monitoring";
 
-import { takeAlphaPreload, takeHoldingsPagePreload } from "./initial-data";
+import {
+  takeAlphaPreload,
+  takeHoldingsPagePreload,
+  takeLegalEntitiesPreload,
+} from "./initial-data";
 
 async function responseError(
   response: Response,
@@ -202,11 +206,14 @@ export async function loadHoldingsPage(
 export async function loadLegalEntities(
   signal?: AbortSignal,
 ): Promise<LegalEntityInventory> {
-  const response = await fetch("/api/legal-entities", {
-    credentials: "same-origin",
-    headers: { Accept: "application/json" },
-    signal: signal ?? null,
-  });
+  const preloaded = takeLegalEntitiesPreload();
+  const response =
+    (preloaded === null ? null : await preloaded) ??
+    (await fetch("/api/legal-entities", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal: signal ?? null,
+    }));
   if (!response.ok) {
     throw await responseError(
       response,

@@ -345,7 +345,7 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     await previousVersion.flush();
     expect(downloads).toBe(2);
     expect(saved.at(-1)?.documents[0]?.extraction).toMatchObject({
-      version: 3,
+      version: 4,
       problem: null,
       citations: [{ legalName: "Synthetic Atlas SPV LLC" }],
     });

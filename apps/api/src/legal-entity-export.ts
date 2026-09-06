@@ -86,7 +86,7 @@ function nameEvidence(sources: readonly LegalEntitySourceSummary[]): string {
           ),
         ),
       ];
-      return `${source.sourceLabel}: ${resolution.kind === "document_choice" ? "Reviewed name choice" : "User document-backed correction"}: ${resolution.legalName} | ${resolution.fileName}, page ${resolution.page.toString()}; SHA-256 ${resolution.sha256}; ${resolution.quote}${resolution.reason === null ? "" : `; ${resolution.reason}`} | Original reported alternatives: ${alternatives.join("; ") || "Not saved by earlier document check"}`;
+      return `${source.sourceLabel}: ${resolution.kind === "document_choice" ? "Reviewed name choice" : resolution.kind === "document_structure" ? "Reviewed structure, not confirmed direct LLC ownership" : "User document-backed correction"}: ${resolution.legalName} | ${resolution.fileName}, page ${resolution.page.toString()}; SHA-256 ${resolution.sha256}; ${resolution.quote}${resolution.reason === null ? "" : `; ${resolution.reason}`} | Original reported alternatives: ${alternatives.join("; ") || "Not saved by earlier document check"}${structureEvidence(resolution.evidence.documents ?? [])}`;
     }
     const evidence = source.legalEntityNameEvidence;
     const documents = (evidence.documents ?? [])
@@ -114,9 +114,34 @@ function nameEvidence(sources: readonly LegalEntitySourceSummary[]): string {
           ? "Legal name unavailable"
           : LEGAL_DOCUMENT_PROBLEM_COPY[evidence.problem]
         : evidence.sourceField;
-    return `${source.sourceLabel}: ${status}${documents === "" ? "" : ` | ${documents}`}`;
+    return `${source.sourceLabel}: ${status}${documents === "" ? "" : ` | ${documents}`}${structureEvidence(evidence.documents ?? [])}`;
   });
   return uniqueValues(values).join("; ") || "Manual record";
+}
+
+function structureEvidence(
+  documents: NonNullable<
+    LegalEntitySourceSummary["legalEntityNameEvidence"]["documents"]
+  >,
+): string {
+  return documents
+    .flatMap((document) => {
+      const structure = document.structure;
+      if (structure === undefined) return [];
+      return [
+        ` | Compartment structure: ${document.fileName}, page ${structure.page}; ${structure.quote}`,
+        ...structure.parties.map(
+          (party) =>
+            ` | ${party.role}: ${party.legalName}; page ${party.page}; ${party.quote}`,
+        ),
+        ...(structure.instrument === null
+          ? []
+          : [
+              ` | Reported interest: ${structure.instrument.label}; page ${structure.instrument.page}; ${structure.instrument.quote}`,
+            ]),
+      ];
+    })
+    .join("");
 }
 
 function sourceDates(

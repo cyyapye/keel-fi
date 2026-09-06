@@ -391,7 +391,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page.getByRole("heading", { level: 1, name: "Legal entities" }),
   ).toBeVisible();
   await expect(page.locator(".page-intro")).toContainText(
-    "This inventory does not transfer an entity to a trust.",
+    "This inventory does not transfer anything to a trust.",
   );
   await expect(
     page.locator(
@@ -432,7 +432,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page
       .locator(".legal-entity-candidate")
       .filter({ hasText: "Demo Pharmacy" }),
-  ).toContainText("compartment or certificate structure");
+  ).toContainText("compartment structure");
   const evidence = page
     .locator(".legal-entity-candidate")
     .filter({ hasText: "Demo Venture SPV LLC" });
@@ -538,11 +538,11 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expect(
     editor.getByRole("heading", { name: "Add legal entity" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Legal name")).toHaveValue(
+  await expect(editor.getByLabel("Legal name")).toHaveValue(
     "Demo Venture SPV LLC",
   );
-  await page.getByLabel("Formation jurisdiction").fill("Delaware, US");
-  await page.getByLabel("Ownership interest").fill("12.5");
+  await editor.getByLabel("Formation jurisdiction").fill("Delaware, US");
+  await editor.getByLabel("Ownership interest").fill("12.5");
   expect(pageErrors).toEqual([]);
   await editor.scrollIntoViewIfNeeded();
   await expect(editor).toHaveScreenshot("legal-entity-editor.png", {
@@ -554,9 +554,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expectNoHorizontalOverflow(page);
 
   await editor.getByRole("button", { name: "Add entity" }).click();
-  await expect(
-    page.getByText("The reviewed legal entity inventory was updated."),
-  ).toBeVisible();
+  await expect(page.getByText("The source review was saved.")).toBeVisible();
   await expect(
     page.getByRole("heading", { level: 3, name: "Demo Venture SPV LLC" }),
   ).toBeVisible();
@@ -596,7 +594,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   expect(exportBody).toMatchObject({
     includeNeedsReview: true,
     includeHistorical: false,
-    includeOtherEntityTypes: false,
+    includeOtherEntityTypes: true,
   });
   expect((exportBody as unknown as { fields: unknown[] }).fields).toHaveLength(
     13,

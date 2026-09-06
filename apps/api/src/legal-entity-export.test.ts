@@ -9,6 +9,7 @@ import {
   legalEntityExportCsv,
   legalEntityExportRows,
 } from "./legal-entity-export";
+import { extractLegalNameFromPages } from "../../../scripts/legal-document-extraction";
 
 const source = {
   source: { kind: "holding_position", id: "position-synthetic" },
@@ -121,6 +122,88 @@ const inventory = {
 } satisfies LegalEntityInventory;
 
 describe("legal entity CSV export", () => {
+  it("exports source roles and certificate evidence without relabeling a compartment as an LLC", () => {
+    const quote =
+      "Synthetic Series I, as a compartment of and duly represented by Synthetic Representative LLC, as Issuer.";
+    const structure = extractLegalNameFromPages([
+      `${quote}\nEQUITY CERTIFICATES SUBSCRIPTION AGREEMENT`,
+    ]).structure;
+    if (structure === undefined) throw new Error("Missing synthetic structure");
+    const document = {
+      id: "11111111-1111-4111-8111-111111111111",
+      fileName: "synthetic-compartment.pdf",
+      sha256: "a".repeat(64),
+      page: null,
+      quote: null,
+      structure,
+    };
+    const candidate: LegalEntitySourceSummary = {
+      ...source,
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "other_structure",
+        documents: [document],
+      },
+    };
+    const original = inventory.entities[0]!;
+    const rows = legalEntityExportRows(
+      {
+        ...inventory,
+        candidates: [candidate],
+        entities: [
+          {
+            ...original,
+            legalName: "Synthetic Series I",
+            entityType: "other",
+            sources: [
+              {
+                ...candidate,
+                nameResolution: {
+                  kind: "document_structure",
+                  documentId: document.id,
+                  fileName: document.fileName,
+                  sha256: document.sha256,
+                  legalName: "Synthetic Series I",
+                  page: 1,
+                  quote,
+                  reason: null,
+                  evidence: candidate.legalEntityNameEvidence,
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        fields: ["legal_name", "entity_type", "name_evidence"],
+        includeNeedsReview: true,
+        includeOtherEntityTypes: true,
+        includeHistorical: false,
+      },
+    );
+    expect(rows).toHaveLength(2);
+    const reviewed = rows.find(
+      (row) => row.legal_name === "Synthetic Series I",
+    )!;
+    expect(reviewed.entity_type).toBe("Other");
+    expect(reviewed.name_evidence).toContain(
+      "not confirmed direct LLC ownership",
+    );
+    for (const row of rows) {
+      expect(row.legal_name).not.toBe("Synthetic Representative LLC");
+      expect(row.name_evidence).toContain("compartment: Synthetic Series I");
+      expect(row.name_evidence).toContain(
+        "representative: Synthetic Representative LLC",
+      );
+      expect(row.name_evidence).toContain(
+        "Reported interest: Equity certificates",
+      );
+      expect(row.name_evidence).toContain(quote);
+      expect(row.name_evidence).toContain("page 1");
+    }
+  });
   it("exports the specific security reason without guessing a legal name or calling a scan limit malware", () => {
     const blocked: LegalEntitySourceSummary = {
       ...source,
@@ -318,7 +401,7 @@ describe("legal entity CSV export", () => {
         ?.name_evidence,
     ).toContain("Issuer: Synthetic SPV, LLC");
     expect(rows.find((row) => row.legal_name === "")?.name_evidence).toContain(
-      "compartment or certificate structure",
+      "compartment structure",
     );
     expect(JSON.stringify(rows)).not.toContain("https:");
   });
