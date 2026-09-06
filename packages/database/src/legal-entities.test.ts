@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   legalNameEvidenceRevision,
+  LegalEntityTypeSchema,
   type LegalEntityProfileInput,
   type LegalNameResolutionInput,
 } from "@keel/domain/legal-entities";
@@ -96,14 +97,18 @@ const profile = {
   notes: null,
 } satisfies LegalEntityProfileInput;
 
-function createDatabase(): DatabaseSync {
+function createDatabase(lastMigration = Number.MAX_SAFE_INTEGER): DatabaseSync {
   const database = new DatabaseSync(":memory:");
   const migrationDirectory = resolve(
     process.cwd(),
     "packages/database/migrations",
   );
   readdirSync(migrationDirectory)
-    .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+    .filter(
+      (file) =>
+        /^\d{4}_.+\.sql$/u.test(file) &&
+        Number(file.slice(0, 4)) <= lastMigration,
+    )
     .sort((left, right) => left.localeCompare(right))
     .forEach((file) => {
       database.exec(readFileSync(resolve(migrationDirectory, file), "utf8"));
@@ -403,6 +408,109 @@ async function repositoryError(
 }
 
 describe("legal entity repository", () => {
+  it("upgrades legacy structure receipts without rewriting decisions or weakening the rollout type fence", async () => {
+    const prior = createDatabase(51);
+    try {
+      const priorRepository = new D1LegalEntityRepository(
+        new TestD1Database(prior) as unknown as D1Database,
+      );
+      const { view, first } = conflictView(prior);
+      const entity = await priorRepository.create(
+        "synthetic-access-subject",
+        {
+          profile: { ...profile, entityType: "other" },
+          source: null,
+        },
+        view,
+      );
+      const receipt = {
+        kind: "document_entry",
+        documentId: "11111111-1111-4111-8111-111111111111",
+        legalName: profile.legalName,
+        page: 1,
+        quote: null,
+        reason: null,
+        fileName: "synthetic-compartment.pdf",
+        sha256: "a".repeat(64),
+        evidence: {
+          state: "unavailable",
+          legalName: null,
+          sourceField: null,
+          problem: "other_structure",
+        },
+      };
+      const insert = (version: number, reviewedEntityType?: string) =>
+        prior
+          .prepare(
+            `INSERT INTO legal_entity_source_decisions (
+        id, household_id, source_kind, source_reference, source_name, source_label,
+        source_as_of, relationship, interest_status, decision, legal_entity_id,
+        version, supersedes_decision_id, decided_by_user_id, decided_at, immutable, name_resolution_json
+      ) VALUES (?, 'hh_demo', 'holding_position', ?, 'Synthetic investment', 'Synthetic agreement',
+        '2026-09-01', 'investment_vehicle', 'current', 'linked', ?, ?, ?, 'usr_demo',
+        '2026-09-01T12:00:00.000Z', 1, ?)`,
+          )
+          .run(
+            `legacy_structure_${version}`,
+            first.id,
+            entity.id,
+            version,
+            version === 1 ? null : `legacy_structure_${version - 1}`,
+            JSON.stringify({
+              ...receipt,
+              ...(reviewedEntityType === undefined
+                ? {}
+                : { reviewedEntityType }),
+            }),
+          );
+      insert(1);
+      const before = prior
+        .prepare("SELECT * FROM legal_entity_source_decisions ORDER BY id")
+        .all();
+      prior.exec(
+        readFileSync(
+          resolve(
+            process.cwd(),
+            "packages/database/migrations/0052_reviewed_structure_entity_type.sql",
+          ),
+          "utf8",
+        ),
+      );
+      expect(
+        prior
+          .prepare("SELECT * FROM legal_entity_source_decisions ORDER BY id")
+          .all(),
+      ).toEqual(before);
+      const state = await priorRepository.getState(
+        "synthetic-access-subject",
+        view,
+      );
+      expect(
+        state.entities.find((item) => item.id === entity.id)?.sources[0]
+          ?.nameResolution,
+      ).toEqual(receipt);
+      insert(2); // An old API can still write an Other receipt after migration.
+      await priorRepository.update("synthetic-access-subject", entity.id, {
+        expectedVersionId: entity.versionId,
+        profile: { ...profile, entityType: "llc" },
+      });
+      expect(() => insert(3)).toThrow("legal name resolution entity changed");
+      expect(() => insert(3, "corporation")).toThrow(
+        "legal name resolution entity changed",
+      );
+      insert(3, "llc"); // The new API must explicitly record the reviewed type.
+      expect(
+        prior
+          .prepare(
+            "SELECT name_resolution_json FROM legal_entity_source_decisions WHERE version = 1",
+          )
+          .get(),
+      ).toEqual({ name_resolution_json: JSON.stringify(receipt) });
+    } finally {
+      prior.close();
+    }
+  });
+
   let sqlite: DatabaseSync;
   let d1: TestD1Database;
   let repository: D1LegalEntityRepository;
@@ -447,57 +555,77 @@ describe("legal entity repository", () => {
     ).toEqual({ count: 0 });
   });
 
-  it("fences a structure target reclassified between review validation and commit", async () => {
-    const { view, first } = conflictView(sqlite);
-    const document = first.legalEntityNameEvidence.documents![0]!;
-    document.scan = {
-      version: 2,
-      sha256: document.sha256,
-      outcome: "clean",
-      findings: [],
-      engineVersion: "1.4.3",
-      databaseVersion: 100,
-      databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
-      scannedAt: "2026-09-01T11:00:00.000Z",
-    };
-    first.legalEntityNameEvidence = {
-      state: "unavailable",
-      legalName: null,
-      sourceField: null,
-      problem: "other_structure",
-      documents: [document],
-    };
-    const resolution: LegalNameResolutionInput = {
-      ...(await nameChoice(view)),
-      kind: "document_correction",
-      reason: "Reviewed the structure in the executed agreement.",
-    };
-    const existing = await repository.create(
-      "synthetic-access-subject",
-      {
-        profile: {
-          ...profile,
-          legalName: resolution.legalName,
-          entityType: "other",
+  it.each(["other", "llc"] as const)(
+    "fences a structure target reclassified from %s between review validation and commit",
+    async (entityType) => {
+      const { view, first } = conflictView(sqlite);
+      const document = first.legalEntityNameEvidence.documents![0]!;
+      document.scan = {
+        version: 2,
+        sha256: document.sha256,
+        outcome: "clean",
+        findings: [],
+        engineVersion: "1.4.3",
+        databaseVersion: 100,
+        databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
+        scannedAt: "2026-09-01T11:00:00.000Z",
+      };
+      first.legalEntityNameEvidence = {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "other_structure",
+        documents: [document],
+      };
+      const resolution: LegalNameResolutionInput = {
+        ...(await nameChoice(view)),
+        kind: "document_correction",
+        reason: "Reviewed the structure in the executed agreement.",
+      };
+      const existing = await repository.create(
+        "synthetic-access-subject",
+        {
+          profile: {
+            ...profile,
+            legalName: resolution.legalName,
+            entityType,
+          },
+          source: null,
         },
-        source: null,
-      },
-      view,
-    );
-    const originalBatch = d1.batch.bind(d1);
-    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => {
-      await repository.update("synthetic-access-subject", existing.id, {
-        expectedVersionId: existing.versionId,
-        profile: {
-          ...profile,
-          legalName: resolution.legalName,
-          entityType: "llc",
-        },
+        view,
+      );
+      const originalBatch = d1.batch.bind(d1);
+      vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => {
+        await repository.update("synthetic-access-subject", existing.id, {
+          expectedVersionId: existing.versionId,
+          profile: {
+            ...profile,
+            legalName: resolution.legalName,
+            entityType: "corporation",
+          },
+        });
+        await originalBatch(statements);
       });
-      await originalBatch(statements);
-    });
-    await expect(
-      repository.reviewSource(
+      await expect(
+        repository.reviewSource(
+          "synthetic-access-subject",
+          {
+            source: { kind: "holding_position", id: first.id },
+            expectedDecisionId: null,
+            decision: { kind: "linked", legalEntityId: existing.id },
+            nameResolution: resolution,
+          },
+          view,
+        ),
+      ).rejects.toMatchObject({ code: "stale" });
+      expect(
+        sqlite
+          .prepare(
+            "SELECT COUNT(*) AS count FROM legal_entity_source_decisions WHERE source_reference = ?",
+          )
+          .get(first.id),
+      ).toEqual({ count: 0 });
+      await repository.reviewSource(
         "synthetic-access-subject",
         {
           source: { kind: "holding_position", id: first.id },
@@ -506,16 +634,17 @@ describe("legal entity repository", () => {
           nameResolution: resolution,
         },
         view,
-      ),
-    ).rejects.toMatchObject({ code: "stale" });
-    expect(
-      sqlite
-        .prepare(
-          "SELECT COUNT(*) AS count FROM legal_entity_source_decisions WHERE source_reference = ?",
-        )
-        .get(first.id),
-    ).toEqual({ count: 0 });
-  });
+      );
+      const reloaded = await repository.getState(
+        "synthetic-access-subject",
+        view,
+      );
+      expect(
+        reloaded.entities.find((entity) => entity.id === existing.id)
+          ?.sources[0]?.nameResolution?.reviewedEntityType,
+      ).toBe("corporation");
+    },
+  );
 
   it("rolls back the losing entity when two name resolutions arrive together", async () => {
     const { view, first } = conflictView(sqlite);
@@ -694,7 +823,7 @@ describe("legal entity repository", () => {
   });
 
   it.each(["name_not_found", "other_structure"] as const)(
-    "resolves %s from a clean agreement while rejecting an unscanned document or wrong structure type",
+    "resolves %s from a clean agreement while rejecting unscanned documents and representative choices",
     async (problem) => {
       const { view, first } = conflictView(sqlite);
       const document = first.legalEntityNameEvidence.documents![0]!;
@@ -783,9 +912,6 @@ describe("legal entity repository", () => {
         save({ expectedEvidenceRevision: "f".repeat(64) }),
       ).rejects.toMatchObject({ code: "stale" });
       if (problem === "other_structure") {
-        await expect(save({}, "llc")).rejects.toMatchObject({
-          code: "invalid_source",
-        });
         await expect(
           save({ legalName: "Synthetic Representative LLC" }),
         ).rejects.toMatchObject({ code: "invalid_source" });
@@ -840,47 +966,48 @@ describe("legal entity repository", () => {
     });
   });
 
-  it("stores a manual compartment entry without an excerpt while preserving its structure and source receipt", async () => {
-    const { view, first } = conflictView(sqlite);
-    const document = first.legalEntityNameEvidence.documents![0]!;
-    document.citations = [];
-    document.scan = {
-      version: 2,
-      sha256: document.sha256,
-      outcome: "clean",
-      findings: [],
-      engineVersion: "1.4.3",
-      databaseVersion: 100,
-      databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
-      scannedAt: "2026-09-01T11:00:00.000Z",
-    };
-    document.structure = {
-      kind: "compartment",
-      page: 1,
-      quote: "as a compartment of Synthetic Representative LLC",
-      parties: [],
-      instrument: null,
-    };
-    first.legalEntityNameEvidence = {
-      state: "unavailable",
-      legalName: null,
-      sourceField: null,
-      problem: "other_structure",
-      documents: [document],
-    };
-    const resolution: LegalNameResolutionInput = {
-      kind: "document_entry",
-      documentId: document.id,
-      legalName: "Synthetic Series IX",
-      page: 2,
-      quote: null,
-      reason: null,
-      expectedEvidenceRevision: await legalNameEvidenceRevision(
-        first.legalEntityNameEvidence,
-      ),
-    };
-    const create = (entityType: "llc" | "other") =>
-      repository.create(
+  it.each(LegalEntityTypeSchema.options)(
+    "stores a manually reviewed compartment type %s without changing its structure evidence",
+    async (entityType) => {
+      const { view, first } = conflictView(sqlite);
+      const document = first.legalEntityNameEvidence.documents![0]!;
+      document.citations = [];
+      document.scan = {
+        version: 2,
+        sha256: document.sha256,
+        outcome: "clean",
+        findings: [],
+        engineVersion: "1.4.3",
+        databaseVersion: 100,
+        databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
+        scannedAt: "2026-09-01T11:00:00.000Z",
+      };
+      document.structure = {
+        kind: "compartment",
+        page: 1,
+        quote: "as a compartment of Synthetic Representative LLC",
+        parties: [],
+        instrument: null,
+      };
+      first.legalEntityNameEvidence = {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "other_structure",
+        documents: [document],
+      };
+      const resolution: LegalNameResolutionInput = {
+        kind: "document_entry",
+        documentId: document.id,
+        legalName: "Synthetic Series IX",
+        page: 2,
+        quote: null,
+        reason: null,
+        expectedEvidenceRevision: await legalNameEvidenceRevision(
+          first.legalEntityNameEvidence,
+        ),
+      };
+      const entity = await repository.create(
         "synthetic-access-subject",
         {
           profile: { ...profile, legalName: resolution.legalName, entityType },
@@ -892,28 +1019,49 @@ describe("legal entity repository", () => {
         },
         view,
       );
-    await expect(create("llc")).rejects.toMatchObject({
-      code: "invalid_source",
-    });
-    const entity = await create("other");
-    const reloaded = await repository.getState(
-      "synthetic-access-subject",
-      view,
-    );
-    expect(
-      reloaded.entities.find((item) => item.id === entity.id)?.sources[0]
-        ?.nameResolution,
-    ).toMatchObject({
-      kind: "document_entry",
-      legalName: resolution.legalName,
-      page: 2,
-      quote: null,
-      reason: null,
-      fileName: document.fileName,
-      sha256: document.sha256,
-      evidence: first.legalEntityNameEvidence,
-    });
-  });
+      const reloaded = await repository.getState(
+        "synthetic-access-subject",
+        view,
+      );
+      expect(
+        reloaded.entities.find((item) => item.id === entity.id)?.sources[0]
+          ?.nameResolution,
+      ).toMatchObject({
+        kind: "document_entry",
+        legalName: resolution.legalName,
+        page: 2,
+        quote: null,
+        reason: null,
+        fileName: document.fileName,
+        sha256: document.sha256,
+        reviewedEntityType: entityType,
+        evidence: first.legalEntityNameEvidence,
+      });
+      expect(
+        reloaded.entities.find((item) => item.id === entity.id)?.entityType,
+      ).toBe(entityType);
+      expect(
+        reloaded.entities.find((item) => item.id === entity.id)?.sources[0]
+          ?.legalEntityNameEvidence,
+      ).toEqual(first.legalEntityNameEvidence);
+      await repository.update("synthetic-access-subject", entity.id, {
+        expectedVersionId: entity.versionId,
+        profile: {
+          ...profile,
+          legalName: resolution.legalName,
+          entityType: entityType === "llc" ? "other" : "llc",
+        },
+      });
+      const edited = await repository.getState(
+        "synthetic-access-subject",
+        view,
+      );
+      expect(
+        edited.entities.find((item) => item.id === entity.id)?.sources[0]
+          ?.nameResolution?.reviewedEntityType,
+      ).toBe(entityType);
+    },
+  );
 
   it("links a resolved name only to the exact household entity and protects its current name", async () => {
     const { view, first } = conflictView(sqlite);

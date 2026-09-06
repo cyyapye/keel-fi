@@ -202,13 +202,17 @@ claiming the exact legal vehicle name.
   budget.
 - Version 4 preserves an explicit compartment clause with exact party names,
   roles, pages, quotes, and an explicit equity-certificate title when present.
-  The representative is not a selectable invested name. Review creates an
-  `Other` record, not a confirmed LLC interest. The original role evidence and
-  reviewed choice remain in the default counsel export. Unrecognized clauses
-  preserve their excerpt and permit a reason-backed manual name review. Deploy
-  migration `0051` before the new API/web: it fences a target changed from
-  `Other` during review at the source-decision commit. Update the existing
-  agents only after the API accepts version 4 observations.
+  The representative is not a selectable invested name. Entity type defaults to
+  `Other`, but the reviewer can select the legal form stated in the agreement.
+  This is a user classification, not inferred direct ownership. Original roles,
+  the reported interest, and the reviewed type remain in the source receipt and
+  default counsel export. Unrecognized clauses permit an exact manual name and
+  page with an optional excerpt. Migration `0052` replaces the `0051` Other-only
+  restriction with a commit-time check against the type recorded at review;
+  concurrent renames and type changes still reject the source link. Deploy the
+  migration before the API/web. Earlier receipts remain unchanged and readable;
+  old API writes still require `Other` during rollout. No agent upgrade or
+  provider reconnect is needed for this review-form change.
 - A clean agreement with an unrecognized name or reader limit now permits
   **Review PDF**: download the existing private original, then supply its exact
   name, page, excerpt, and reason. No guessed legal name is prefilled. A stale

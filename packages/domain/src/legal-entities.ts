@@ -139,6 +139,8 @@ export const LegalNameResolutionSchema =
     fileName: z.string().trim().min(1).max(240),
     sha256: z.string().regex(/^[a-f0-9]{64}$/u),
     evidence: LegalEntityNameEvidenceSchema,
+    // Older receipts did not capture the profile type at review time.
+    reviewedEntityType: LegalEntityTypeSchema.optional(),
   });
 
 // Called only for a single explicit review, never once per row on a GET path.

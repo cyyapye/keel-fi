@@ -107,7 +107,7 @@ function repositories(overrides: Partial<LegalEntityRepository> = {}) {
 }
 
 describe("legal entity API", () => {
-  it.each(["document_choice", "document_entry"] as const)(
+  it.each(["document_choice", "document_entry", "document_structure"] as const)(
     "validates a source-bound %s and carries it across both write routes",
     async (kind) => {
       const options = repositories();
