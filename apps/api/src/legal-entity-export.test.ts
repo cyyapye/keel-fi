@@ -256,7 +256,11 @@ describe("legal entity CSV export", () => {
     expect(rows[0]?.name_evidence).toContain(`checked ${inventory.asOf}`);
     expect(rows[0]?.name_evidence).not.toContain("malware");
   });
-  it.each(["document_choice", "document_correction"] as const)(
+  it.each([
+    "document_choice",
+    "document_correction",
+    "document_entry",
+  ] as const)(
     "exports a %s distinctly from unresolved alternatives",
     (kind) => {
       const candidate: LegalEntitySourceSummary = {
@@ -303,7 +307,8 @@ describe("legal entity CSV export", () => {
           sha256: document.sha256,
           legalName: "Synthetic Choice LLC",
           page: 1,
-          quote: "Issuer: Synthetic Choice LLC",
+          quote:
+            kind === "document_entry" ? null : "Issuer: Synthetic Choice LLC",
           reason:
             kind === "document_correction"
               ? "Checked the executed agreement."
@@ -339,7 +344,13 @@ describe("legal entity CSV export", () => {
       expect(confirmed?.name_evidence).toContain(
         kind === "document_choice"
           ? "Reviewed name choice"
-          : "User document-backed correction",
+          : kind === "document_entry"
+            ? "User-entered name from agreement"
+            : "User document-backed correction",
+      );
+      expect(confirmed?.name_evidence).not.toContain("; null");
+      expect(confirmed?.name_evidence).toContain(
+        "synthetic-agreement.pdf, page 1; SHA-256",
       );
       expect(confirmed?.name_evidence).toContain(
         "Original reported alternatives: Synthetic Choice LLC; Synthetic Choice, LLC",

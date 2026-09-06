@@ -2,6 +2,7 @@ import {
   DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS,
   LEGAL_ENTITY_EXPORT_FIELD_LABELS,
   LEGAL_ENTITY_EXPORT_FIELDS,
+  LegalEntityProfileInputSchema,
   formatOwnershipInterestPpm,
   exactLegalEntityTypeFromName,
   legalEntityReviewKind,
@@ -460,38 +461,68 @@ function LegalEntityEditor({
     }));
   };
 
+  const validation = useMemo(() => {
+    let ownershipInterestPpm: number | null = null;
+    let ownershipError: string | null = null;
+    try {
+      ownershipInterestPpm = ownershipPercentTextToPpm(
+        draft.ownershipPercentText,
+      );
+    } catch {
+      ownershipError =
+        "Enter an ownership percentage from 0 to 100, with up to four decimal places.";
+    }
+    const profile = LegalEntityProfileInputSchema.safeParse({
+      ...draft.profile,
+      legalName: draft.profile.legalName.trim(),
+      currentOwner:
+        draft.profile.currentOwner === null
+          ? null
+          : nullableText(draft.profile.currentOwner),
+      jurisdiction:
+        draft.profile.jurisdiction === null
+          ? null
+          : nullableText(draft.profile.jurisdiction),
+      einLastFour:
+        draft.profile.einLastFour === null
+          ? null
+          : nullableText(draft.profile.einLastFour),
+      ownershipInterestPpm,
+      taxClassification:
+        draft.profile.taxClassification === null
+          ? null
+          : nullableText(draft.profile.taxClassification),
+      notes:
+        draft.profile.notes === null ? null : nullableText(draft.profile.notes),
+    });
+    return { profile, ownershipError };
+  }, [draft]);
+  const valid =
+    validation.profile.success &&
+    validation.ownershipError === null &&
+    (!editing || draft.expectedVersionId !== null);
+  const fieldIssue = (field: keyof LegalEntityProfileInput) =>
+    validation.profile.error?.issues.find((issue) => issue.path[0] === field)
+      ?.message;
+  const einIssue =
+    fieldIssue("einLastFour") === undefined
+      ? undefined
+      : "Enter exactly four digits, or leave this blank.";
+  const validationMessage =
+    validation.ownershipError ??
+    einIssue ??
+    (fieldIssue("legalName") !== undefined &&
+    draft.profile.legalName.trim() === ""
+      ? "Enter the legal name to continue."
+      : validation.profile.error?.issues[0]?.message);
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (working || !valid || !validation.profile.success) return;
     setWorking(true);
     setError(null);
     try {
-      const profile: LegalEntityProfileInput = {
-        ...draft.profile,
-        legalName: draft.profile.legalName.trim(),
-        currentOwner:
-          draft.profile.currentOwner === null
-            ? null
-            : nullableText(draft.profile.currentOwner),
-        jurisdiction:
-          draft.profile.jurisdiction === null
-            ? null
-            : nullableText(draft.profile.jurisdiction),
-        einLastFour:
-          draft.profile.einLastFour === null
-            ? null
-            : nullableText(draft.profile.einLastFour),
-        ownershipInterestPpm: ownershipPercentTextToPpm(
-          draft.ownershipPercentText,
-        ),
-        taxClassification:
-          draft.profile.taxClassification === null
-            ? null
-            : nullableText(draft.profile.taxClassification),
-        notes:
-          draft.profile.notes === null
-            ? null
-            : nullableText(draft.profile.notes),
-      };
+      const profile = validation.profile.data;
       if (draft.entityId === null) {
         await createLegalEntity({ profile, source: draft.source });
       } else {
@@ -533,7 +564,7 @@ function LegalEntityEditor({
         headingProps={{ id: headingId }}
         title={editing ? "Edit legal entity" : "Add legal entity"}
       />
-      <form onSubmit={(event) => void submit(event)}>
+      <form noValidate onSubmit={(event) => void submit(event)}>
         <div className="legal-entity-editor__fields">
           <Field label="Legal name" variant="filled" wide>
             <Input
@@ -542,6 +573,10 @@ function LegalEntityEditor({
                 setProfile("legalName", event.currentTarget.value)
               }
               required
+              aria-invalid={
+                draft.profile.legalName !== "" &&
+                fieldIssue("legalName") !== undefined
+              }
               readOnly={draft.source?.nameResolution !== undefined}
               value={draft.profile.legalName}
             />
@@ -634,6 +669,7 @@ function LegalEntityEditor({
                 setProfile("einLastFour", event.currentTarget.value)
               }
               pattern="[0-9]{4}"
+              aria-invalid={einIssue !== undefined}
               placeholder="Not recorded"
               value={draft.profile.einLastFour ?? ""}
             />
@@ -642,6 +678,7 @@ function LegalEntityEditor({
             <InputGroup suffix="%">
               <Input
                 inputMode="decimal"
+                aria-invalid={validation.ownershipError !== null}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
                   setDraft((current) => ({
@@ -704,6 +741,11 @@ function LegalEntityEditor({
           </Field>
         </div>
         {error !== null && <FormMessage tone="error">{error}</FormMessage>}
+        {error === null && !valid && (
+          <FormMessage tone="neutral">
+            {validationMessage ?? "Reload this entity before saving."}
+          </FormMessage>
+        )}
         <ActionGroup
           as="footer"
           className="legal-entity-editor__actions"
@@ -718,7 +760,7 @@ function LegalEntityEditor({
             <Button disabled={working} onClick={onCancel} tone="quiet">
               Cancel
             </Button>
-            <Button disabled={working} tone="primary" type="submit">
+            <Button disabled={working || !valid} tone="primary" type="submit">
               {working ? "Saving…" : editing ? "Save version" : "Add entity"}
             </Button>
           </ActionGroup>
@@ -806,7 +848,9 @@ function EntityRow({
                     ? "Reviewed name"
                     : resolution.kind === "document_structure"
                       ? "Reviewed structure"
-                      : "Your document-backed correction"}
+                      : resolution.kind === "document_entry"
+                        ? "Name entered by you"
+                        : "Your document-backed correction"}
                   : {resolution.legalName} · {resolution.fileName} · page{" "}
                   {resolution.page}
                 </p>

@@ -107,77 +107,81 @@ function repositories(overrides: Partial<LegalEntityRepository> = {}) {
 }
 
 describe("legal entity API", () => {
-  it("validates a source-bound resolution and carries it across both write routes", async () => {
-    const options = repositories();
-    const app = createApp(options);
-    const nameResolution = {
-      kind: "document_choice",
-      documentId: "11111111-1111-4111-8111-111111111111",
-      legalName: profile.legalName,
-      page: 1,
-      quote: `Issuer: ${profile.legalName}`,
-      reason: null,
-      expectedEvidenceRevision: "a".repeat(64),
-    };
-    const source = { kind: "holding_position", id: "position_synthetic" };
-    const create = {
-      profile,
-      source: { reference: source, expectedDecisionId: null, nameResolution },
-    };
-    const response = await app.request(
-      "/api/legal-entities",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(create),
-      },
-      env(),
-    );
-    expect(response.status).toBe(201);
-    expect(options.legalEntityRepository.create).toHaveBeenCalledWith(
-      "synthetic-access-subject",
-      create,
-      positionView,
-    );
-    const review = {
-      source,
-      expectedDecisionId: null,
-      decision: { kind: "linked", legalEntityId: entity.id },
-      nameResolution,
-    };
-    const linked = await app.request(
-      "/api/legal-entity-sources/review",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(review),
-      },
-      env(),
-    );
-    expect(linked.status).toBe(201);
-    expect(options.legalEntityRepository.reviewSource).toHaveBeenCalledWith(
-      "synthetic-access-subject",
-      review,
-      positionView,
-    );
-    const invalid = await app.request(
-      "/api/legal-entities",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...create,
-          source: {
-            ...create.source,
-            nameResolution: { ...nameResolution, quote: "Unrelated text" },
-          },
-        }),
-      },
-      env(),
-    );
-    expect(invalid.status).toBe(400);
-    expect(options.legalEntityRepository.create).toHaveBeenCalledTimes(1);
-  });
+  it.each(["document_choice", "document_entry"] as const)(
+    "validates a source-bound %s and carries it across both write routes",
+    async (kind) => {
+      const options = repositories();
+      const app = createApp(options);
+      const nameResolution = {
+        kind,
+        documentId: "11111111-1111-4111-8111-111111111111",
+        legalName: profile.legalName,
+        page: 1,
+        quote:
+          kind === "document_entry" ? null : `Issuer: ${profile.legalName}`,
+        reason: null,
+        expectedEvidenceRevision: "a".repeat(64),
+      };
+      const source = { kind: "holding_position", id: "position_synthetic" };
+      const create = {
+        profile,
+        source: { reference: source, expectedDecisionId: null, nameResolution },
+      };
+      const response = await app.request(
+        "/api/legal-entities",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(create),
+        },
+        env(),
+      );
+      expect(response.status).toBe(201);
+      expect(options.legalEntityRepository.create).toHaveBeenCalledWith(
+        "synthetic-access-subject",
+        create,
+        positionView,
+      );
+      const review = {
+        source,
+        expectedDecisionId: null,
+        decision: { kind: "linked", legalEntityId: entity.id },
+        nameResolution,
+      };
+      const linked = await app.request(
+        "/api/legal-entity-sources/review",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(review),
+        },
+        env(),
+      );
+      expect(linked.status).toBe(201);
+      expect(options.legalEntityRepository.reviewSource).toHaveBeenCalledWith(
+        "synthetic-access-subject",
+        review,
+        positionView,
+      );
+      const invalid = await app.request(
+        "/api/legal-entities",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...create,
+            source: {
+              ...create.source,
+              nameResolution: { ...nameResolution, quote: "Unrelated text" },
+            },
+          }),
+        },
+        env(),
+      );
+      expect(invalid.status).toBe(400);
+      expect(options.legalEntityRepository.create).toHaveBeenCalledTimes(1);
+    },
+  );
   it("returns a private, projection-backed inventory", async () => {
     const options = repositories();
     const app = createApp(options);

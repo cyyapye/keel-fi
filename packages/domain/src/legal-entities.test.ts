@@ -96,7 +96,7 @@ describe("legal entity contracts", () => {
     delete unscanned.legalEntityNameEvidence.documents![0]!.scan;
     expect(legalEntityReviewKind(unscanned)).toBe("waiting");
   });
-  it("requires a correction to cite a document, page, exact-name excerpt and reason", () => {
+  it("requires a correction reason and validates an optional exact-name excerpt", () => {
     const input = {
       kind: "document_correction",
       documentId: "11111111-1111-4111-8111-111111111111",
@@ -107,6 +107,10 @@ describe("legal entity contracts", () => {
       expectedEvidenceRevision: "a".repeat(64),
     };
     expect(LegalNameResolutionInputSchema.safeParse(input).success).toBe(true);
+    expect(
+      LegalNameResolutionInputSchema.safeParse({ ...input, quote: null })
+        .success,
+    ).toBe(true);
     for (const mutation of [
       { reason: null },
       { quote: "An unrelated reference" },
@@ -120,6 +124,41 @@ describe("legal entity contracts", () => {
           .success,
       ).toBe(false);
     }
+  });
+  it("accepts a user-entered name with only a document and page, without weakening extracted choices", () => {
+    const input = {
+      kind: "document_entry",
+      documentId: "11111111-1111-4111-8111-111111111111",
+      legalName: "Synthetic Exact LLC",
+      page: 1,
+      quote: null,
+      reason: null,
+      expectedEvidenceRevision: "a".repeat(64),
+    };
+    expect(LegalNameResolutionInputSchema.parse(input)).toEqual(input);
+    for (const mutation of [
+      { legalName: "   " },
+      { page: 0 },
+      { page: 1.5 },
+      { page: 151 },
+      { documentId: "" },
+      { expectedEvidenceRevision: "" },
+      { quote: "Unrelated text" },
+      { quote: "Synthetic Exact LLC".repeat(200) },
+      { kind: "document_choice" },
+      { kind: "document_structure" },
+      { kind: "document_correction" },
+    ])
+      expect(
+        LegalNameResolutionInputSchema.safeParse({ ...input, ...mutation })
+          .success,
+      ).toBe(false);
+    expect(
+      LegalNameResolutionInputSchema.safeParse({
+        ...input,
+        quote: "Issuer: Synthetic Exact LLC",
+      }).success,
+    ).toBe(true);
   });
   it("parses ownership percentages without floating-point arithmetic", () => {
     expect(ownershipPercentTextToPpm("")).toBeNull();

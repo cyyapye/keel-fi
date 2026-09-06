@@ -76,23 +76,44 @@ export const LegalEntitySourceFinancialsSchema = z
   })
   .strict();
 
-const LegalNameResolutionDetailsSchema = z
+export const LegalNameResolutionDetailsSchema = z
   .object({
     kind: z.enum([
       "document_choice",
+      "document_entry",
       "document_correction",
       "document_structure",
     ]),
     documentId: z.string().uuid(),
-    legalName: z.string().trim().min(1).max(1_000),
-    page: z.number().int().min(1).max(MAX_LEGAL_DOCUMENT_PAGES),
-    quote: z.string().trim().min(1).max(2_000),
+    legalName: z
+      .string()
+      .trim()
+      .min(1, "Enter the exact legal name.")
+      .max(1_000),
+    page: z
+      .number()
+      .int("Enter a whole page number.")
+      .min(1, "Enter a page number from 1 to 150.")
+      .max(MAX_LEGAL_DOCUMENT_PAGES, "Enter a page number from 1 to 150."),
+    quote: NullableTextSchema(2_000),
     reason: NullableTextSchema(1_000),
   })
   .strict()
   .superRefine((value, context) => {
     const whitespace = (text: string) => text.replace(/\s+/gu, " ").trim();
-    if (!whitespace(value.quote).includes(whitespace(value.legalName))) {
+    if (
+      value.quote === null &&
+      (value.kind === "document_choice" || value.kind === "document_structure")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "The selected name must include its document excerpt.",
+        path: ["quote"],
+      });
+    } else if (
+      value.quote !== null &&
+      !whitespace(value.quote).includes(whitespace(value.legalName))
+    ) {
       context.addIssue({
         code: "custom",
         message: "Include the exact legal name in the document excerpt.",

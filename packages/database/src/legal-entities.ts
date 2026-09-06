@@ -271,6 +271,11 @@ async function resolveSourceName(
       "invalid_source",
       "This source has no available document review. Reload its current evidence.",
     );
+  if (conflicting && input.kind === "document_entry")
+    throw new LegalEntityRepositoryError(
+      "invalid_source",
+      "Explain the correction when the agreements report conflicting names.",
+    );
   const { expectedEvidenceRevision, ...details } = input;
   if (
     expectedEvidenceRevision !== (await legalNameEvidenceRevision(evidence))
