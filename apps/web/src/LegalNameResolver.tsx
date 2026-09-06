@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
+  LegalNameResolutionDetailsSchema,
   LegalNameResolutionInputSchema,
   legalNameEvidenceRevision,
   legalEntityReviewKind,
@@ -38,6 +39,7 @@ export function LegalNameResolver({
   onSaved: () => Promise<void>;
   onReload: () => Promise<void>;
 }) {
+  const descriptionId = useId();
   const reviewKind = legalEntityReviewKind(source);
   const structure = reviewKind === "structure";
   const documents = (source.legalEntityNameEvidence.documents ?? []).filter(
@@ -72,6 +74,7 @@ export function LegalNameResolver({
   const [error, setError] = useState<string | null>(null);
   const selected = choices.find((item) => item.citation.legalName === choice);
   const correcting = choice === "correction";
+  const requiresReason = reviewKind === "conflict";
   const selectedName = correcting
     ? legalName.trim()
     : selected?.citation.legalName;
@@ -80,31 +83,53 @@ export function LegalNameResolver({
       entity.legalName === selectedName &&
       (!structure || entity.entityType === "other"),
   );
+  const details = LegalNameResolutionDetailsSchema.safeParse({
+    kind: correcting
+      ? requiresReason
+        ? "document_correction"
+        : "document_entry"
+      : structure
+        ? "document_structure"
+        : "document_choice",
+    documentId: correcting ? documentId : selected?.document.id,
+    legalName: selectedName,
+    page: correcting ? Number(page) : selected?.citation.page,
+    quote: correcting ? quote.trim() || null : selected?.citation.quote,
+    reason: correcting && requiresReason ? reason.trim() || null : null,
+  });
+  const valid =
+    details.success &&
+    documents.some((document) => document.id === details.data.documentId) &&
+    (destination === "new" ||
+      matches.some((entity) => entity.id === destination));
+  const fieldIssue = (field: string) =>
+    details.error?.issues.find((issue) => issue.path[0] === field)?.message;
+  const pageIssue = correcting && page !== "" ? fieldIssue("page") : undefined;
+  const quoteIssue =
+    correcting && quote.trim() !== "" ? fieldIssue("quote") : undefined;
+  const nameIssue =
+    correcting && legalName !== "" ? fieldIssue("legalName") : undefined;
+  const reasonIssue =
+    correcting && requiresReason && reason !== ""
+      ? fieldIssue("reason")
+      : undefined;
+  const describe = (field: string, message: string | undefined) =>
+    message === undefined ? undefined : (
+      <span id={`${descriptionId}-${field}`}>{message}</span>
+    );
   const submit = async () => {
+    if (working || !valid || !details.success) return;
     setWorking(true);
     setError(null);
     try {
       const parsed = LegalNameResolutionInputSchema.safeParse({
+        ...details.data,
         expectedEvidenceRevision: await legalNameEvidenceRevision(
           source.legalEntityNameEvidence,
         ),
-        kind: correcting
-          ? "document_correction"
-          : structure
-            ? "document_structure"
-            : "document_choice",
-        documentId: correcting ? documentId : selected?.document.id,
-        legalName: selectedName,
-        page: correcting ? Number(page) : selected?.citation.page,
-        quote: correcting ? quote : selected?.citation.quote,
-        reason: correcting ? reason.trim() || null : null,
       });
       if (!parsed.success) {
-        setError(
-          correcting
-            ? "Choose the document, enter its page and exact name, and include an excerpt containing that name and the reason for your correction."
-            : "Choose a name from the agreements.",
-        );
+        setError("Check the name and agreement details before continuing.");
         return;
       }
       if (destination === "new") {
@@ -136,6 +161,7 @@ export function LegalNameResolver({
   };
   return (
     <form
+      noValidate
       className="legal-name-resolver"
       aria-label={`Resolve name for ${source.sourceDisplayName}`}
       onSubmit={(event) => {
@@ -154,7 +180,7 @@ export function LegalNameResolver({
         {structure
           ? "Keep the compartment and its representative separate. This record will be classified as Other, not a confirmed LLC interest."
           : reviewKind === "document"
-            ? "Open Agreement evidence above to read the PDF. Enter its exact name, page, and an excerpt containing the name."
+            ? "Read the PDF in Agreement evidence, then enter the exact name and page."
             : "Choose the name for this investment. Nothing is selected automatically."}
       </p>
       {structure &&
@@ -223,8 +249,8 @@ export function LegalNameResolver({
         ))}
         {choices.length === 0 && (
           <p>
-            No alternatives were saved by the earlier document check. Enter the
-            exact name from a supporting agreement below.
+            No name options are available. Enter the exact name from a
+            supporting agreement.
           </p>
         )}
         <label className="legal-name-resolver__choice">
@@ -238,9 +264,15 @@ export function LegalNameResolver({
             }}
           />
           <span>
-            <strong>Enter a document-backed correction</strong>
+            <strong>
+              {requiresReason
+                ? "Enter a document-backed correction"
+                : "Enter the name from an agreement"}
+            </strong>
             <span>
-              Recorded as your correction, not a provider-reported name.
+              {requiresReason
+                ? "Recorded as your correction, not a provider-reported name."
+                : "Recorded as entered by you, with the agreement reference."}
             </span>
           </span>
         </label>
@@ -271,47 +303,91 @@ export function LegalNameResolver({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Exact legal name" variant="filled" wide>
+          <Field
+            label="Exact legal name"
+            variant="filled"
+            wide
+            description={describe("name", nameIssue)}
+          >
             <Input
               value={legalName}
+              aria-label="Exact legal name"
               onChange={(event) => {
                 setLegalName(event.currentTarget.value);
                 setDestination("new");
               }}
               required
+              aria-invalid={nameIssue !== undefined}
+              aria-describedby={
+                nameIssue === undefined ? undefined : `${descriptionId}-name`
+              }
               maxLength={1_000}
               disabled={working}
             />
           </Field>
-          <Field label="Agreement page" variant="filled">
+          <Field
+            label="Agreement page"
+            variant="filled"
+            description={describe("page", pageIssue)}
+          >
             <Input
               value={page}
+              aria-label="Agreement page"
               onChange={(event) => setPage(event.currentTarget.value)}
               type="number"
               min={1}
               max={MAX_LEGAL_DOCUMENT_PAGES}
               required
+              aria-invalid={pageIssue !== undefined}
+              aria-describedby={
+                pageIssue === undefined ? undefined : `${descriptionId}-page`
+              }
               disabled={working}
             />
           </Field>
-          <Field label="Document excerpt" variant="filled" wide>
+          <Field
+            label="Document excerpt (optional)"
+            variant="filled"
+            wide
+            description={describe(
+              "quote",
+              quoteIssue ??
+                "If included, quote the passage containing the exact name.",
+            )}
+          >
             <Textarea
               value={quote}
+              aria-label="Document excerpt (optional)"
               onChange={(event) => setQuote(event.currentTarget.value)}
               maxLength={2_000}
-              required
+              aria-invalid={quoteIssue !== undefined}
+              aria-describedby={`${descriptionId}-quote`}
               disabled={working}
             />
           </Field>
-          <Field label="Reason for correction" variant="filled" wide>
-            <Textarea
-              value={reason}
-              onChange={(event) => setReason(event.currentTarget.value)}
-              maxLength={1_000}
-              required
-              disabled={working}
-            />
-          </Field>
+          {requiresReason && (
+            <Field
+              label="Reason for correction"
+              variant="filled"
+              wide
+              description={describe("reason", reasonIssue)}
+            >
+              <Textarea
+                value={reason}
+                aria-label="Reason for correction"
+                onChange={(event) => setReason(event.currentTarget.value)}
+                maxLength={1_000}
+                required
+                aria-invalid={reasonIssue !== undefined}
+                aria-describedby={
+                  reasonIssue === undefined
+                    ? undefined
+                    : `${descriptionId}-reason`
+                }
+                disabled={working}
+              />
+            </Field>
+          )}
         </div>
       )}
       {matches.length > 0 && (
@@ -345,6 +421,19 @@ export function LegalNameResolver({
         </Field>
       )}
       {error !== null && <FormMessage tone="error">{error}</FormMessage>}
+      {correcting &&
+        !valid &&
+        error === null &&
+        !pageIssue &&
+        !quoteIssue &&
+        !nameIssue &&
+        !reasonIssue && (
+          <FormMessage tone="neutral">
+            {requiresReason
+              ? "Choose an agreement and enter its exact name, page, and the reason for the correction."
+              : "Choose an agreement and enter its exact name and page."}
+          </FormMessage>
+        )}
       {error !== null && (
         <Button
           tone="quiet"
@@ -366,11 +455,7 @@ export function LegalNameResolver({
         <Button onClick={onClose} disabled={working} tone="quiet">
           Keep unresolved
         </Button>
-        <Button
-          type="submit"
-          disabled={working || choice === ""}
-          tone="primary"
-        >
+        <Button type="submit" disabled={working || !valid} tone="primary">
           {working
             ? "Saving…"
             : destination === "new"

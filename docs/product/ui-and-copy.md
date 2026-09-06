@@ -38,6 +38,9 @@ finite maintenance queue lives in
 - Keep the primary action in the current section. Do not add a separate step,
   modal, or confirmation unless it protects an irreversible or trust-sensitive
   action.
+- Enable a form's submit action only when required fields are complete and all
+  entered values are valid. Show actionable inline feedback instead of native
+  browser validation pop-ups, and keep server-side validation authoritative.
 
 ## Copy filter
 

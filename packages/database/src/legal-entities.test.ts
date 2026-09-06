@@ -652,6 +652,14 @@ describe("legal entity repository", () => {
     await expect(
       save({
         ...resolution,
+        kind: "document_entry",
+        quote: null,
+        reason: null,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_source" });
+    await expect(
+      save({
+        ...resolution,
         legalName: "Invented LLC",
         quote: "Issuer: Invented LLC",
       }),
@@ -726,15 +734,12 @@ describe("legal entity repository", () => {
         kind:
           problem === "other_structure"
             ? "document_structure"
-            : "document_correction",
+            : "document_entry",
         documentId: document.id,
         legalName,
         page: 1,
-        quote,
-        reason:
-          problem === "other_structure"
-            ? null
-            : "The signed agreement names this issuer.",
+        quote: problem === "other_structure" ? quote : null,
+        reason: null,
         expectedEvidenceRevision: await legalNameEvidenceRevision(
           first.legalEntityNameEvidence,
         ),
@@ -788,8 +793,11 @@ describe("legal entity repository", () => {
       const result = await save();
       expect(result.sources[0]?.nameResolution).toMatchObject({
         legalName,
-        quote,
+        quote: problem === "other_structure" ? quote : null,
+        reason: null,
         documentId: document.id,
+        fileName: document.fileName,
+        sha256: document.sha256,
       });
       const reloaded = await repository.getState(
         "synthetic-access-subject",
@@ -829,6 +837,81 @@ describe("legal entity repository", () => {
       kind: "document_correction",
       reason: resolution.reason,
       legalName: resolution.legalName,
+    });
+  });
+
+  it("stores a manual compartment entry without an excerpt while preserving its structure and source receipt", async () => {
+    const { view, first } = conflictView(sqlite);
+    const document = first.legalEntityNameEvidence.documents![0]!;
+    document.citations = [];
+    document.scan = {
+      version: 2,
+      sha256: document.sha256,
+      outcome: "clean",
+      findings: [],
+      engineVersion: "1.4.3",
+      databaseVersion: 100,
+      databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
+      scannedAt: "2026-09-01T11:00:00.000Z",
+    };
+    document.structure = {
+      kind: "compartment",
+      page: 1,
+      quote: "as a compartment of Synthetic Representative LLC",
+      parties: [],
+      instrument: null,
+    };
+    first.legalEntityNameEvidence = {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+      problem: "other_structure",
+      documents: [document],
+    };
+    const resolution: LegalNameResolutionInput = {
+      kind: "document_entry",
+      documentId: document.id,
+      legalName: "Synthetic Series IX",
+      page: 2,
+      quote: null,
+      reason: null,
+      expectedEvidenceRevision: await legalNameEvidenceRevision(
+        first.legalEntityNameEvidence,
+      ),
+    };
+    const create = (entityType: "llc" | "other") =>
+      repository.create(
+        "synthetic-access-subject",
+        {
+          profile: { ...profile, legalName: resolution.legalName, entityType },
+          source: {
+            reference: { kind: "holding_position", id: first.id },
+            expectedDecisionId: null,
+            nameResolution: resolution,
+          },
+        },
+        view,
+      );
+    await expect(create("llc")).rejects.toMatchObject({
+      code: "invalid_source",
+    });
+    const entity = await create("other");
+    const reloaded = await repository.getState(
+      "synthetic-access-subject",
+      view,
+    );
+    expect(
+      reloaded.entities.find((item) => item.id === entity.id)?.sources[0]
+        ?.nameResolution,
+    ).toMatchObject({
+      kind: "document_entry",
+      legalName: resolution.legalName,
+      page: 2,
+      quote: null,
+      reason: null,
+      fileName: document.fileName,
+      sha256: document.sha256,
+      evidence: first.legalEntityNameEvidence,
     });
   });
 
