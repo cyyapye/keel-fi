@@ -8,7 +8,10 @@ import {
   type LegalEntityRecord,
   type LegalEntitySourceSummary,
 } from "@keel/domain/legal-entities";
-import { LEGAL_DOCUMENT_PROBLEM_COPY } from "@keel/domain/provider-legal-documents";
+import {
+  LEGAL_DOCUMENT_PROBLEM_COPY,
+  LEGAL_DOCUMENT_SCAN_REASON_COPY,
+} from "@keel/domain/provider-legal-documents";
 
 type ExportRow = Record<LegalEntityExportField, string>;
 
@@ -74,12 +77,36 @@ function sourceRecords(sources: readonly LegalEntitySourceSummary[]): string {
 
 function nameEvidence(sources: readonly LegalEntitySourceSummary[]): string {
   const values = sources.map((source) => {
+    const resolution = source.nameResolution;
+    if (resolution !== undefined) {
+      const alternatives = [
+        ...new Set(
+          (resolution.evidence.documents ?? []).flatMap((document) =>
+            (document.citations ?? []).map((citation) => citation.legalName),
+          ),
+        ),
+      ];
+      return `${source.sourceLabel}: ${resolution.kind === "document_choice" ? "Reviewed name choice" : "User document-backed correction"}: ${resolution.legalName} | ${resolution.fileName}, page ${resolution.page.toString()}; SHA-256 ${resolution.sha256}; ${resolution.quote}${resolution.reason === null ? "" : `; ${resolution.reason}`} | Original reported alternatives: ${alternatives.join("; ") || "Not saved by earlier document check"}`;
+    }
     const evidence = source.legalEntityNameEvidence;
     const documents = (evidence.documents ?? [])
-      .map(
-        (document) =>
-          `${document.fileName}${document.page === null ? "" : `, page ${document.page.toString()}`}; SHA-256 ${document.sha256}${document.quote === null ? "" : `; ${document.quote}`}`,
-      )
+      .map((document) => {
+        const security =
+          document.scan?.outcome === "blocked"
+            ? `; Security check: ${document.scan.version === 2 ? document.scan.findings.map((finding) => `${LEGAL_DOCUMENT_SCAN_REASON_COPY[finding.reason].label}${finding.signature === null ? "" : ` (${finding.signature})`}`).join("; ") : "Blocked, alert reason unavailable"}; checked ${document.scan.scannedAt}`
+            : "";
+        return (
+          (document.citations !== undefined && document.citations.length > 0
+            ? document.citations
+                .map(
+                  (citation) =>
+                    `${document.fileName}, page ${citation.page.toString()}; SHA-256 ${document.sha256}; ${citation.quote}`,
+                )
+                .join(" | ")
+            : `${document.fileName}${document.page === null ? "" : `, page ${document.page.toString()}`}; SHA-256 ${document.sha256}${document.quote === null ? "" : `; ${document.quote}`}`) +
+          security
+        );
+      })
       .join(" | ");
     const status =
       evidence.state === "unavailable"
@@ -215,6 +242,9 @@ function confirmedRow(entity: LegalEntityRecord): ExportRow {
 function candidateRow(candidate: LegalEntitySourceSummary): ExportRow {
   const legalName = candidate.legalEntityNameEvidence.legalName;
   const nameUnavailable = legalName === null;
+  const conflicting =
+    candidate.legalEntityNameEvidence.state === "unavailable" &&
+    candidate.legalEntityNameEvidence.problem === "conflicting";
   return {
     legal_name: legalName ?? "",
     source_record: candidate.sourceDisplayName,
@@ -225,7 +255,11 @@ function candidateRow(candidate: LegalEntitySourceSummary): ExportRow {
     jurisdiction: NOT_RECORDED,
     ownership_interest: NOT_RECORDED,
     interest_status: interestStatusLabel(candidate.interestStatus),
-    record_status: nameUnavailable ? "Legal name unavailable" : "Needs review",
+    record_status: conflicting
+      ? "Names disagree"
+      : nameUnavailable
+        ? "Legal name unavailable"
+        : "Needs review",
     source: candidate.sourceLabel,
     source_as_of: candidate.sourceAsOf,
     missing_information: missingInformation({

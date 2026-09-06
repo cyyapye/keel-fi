@@ -38,13 +38,18 @@ type ActiveRunRow = {
   id: string;
   status: "queued" | "leased";
   lease_expires_at: string | null;
+  recheck_document_id: string | null;
 };
 
 type LatestCompletedRunRow = { import_id: string };
-type LeasedRunRow = { id: string; lease_expires_at: string };
+type LeasedRunRow = {
+  id: string;
+  lease_expires_at: string;
+  recheck_document_id: string | null;
+};
 
 export type ProviderPortfolioAgentRepositoryErrorCode =
-  "agent_not_registered" | "lease_invalid";
+  "agent_not_registered" | "lease_invalid" | "run_in_progress";
 
 export class ProviderPortfolioAgentRepositoryError extends Error {
   public constructor(
@@ -72,6 +77,7 @@ export interface ProviderPortfolioAgentRepository {
   requestRun(
     accessSubject: string,
     provider: ProviderPortfolioAgentProvider,
+    recheckDocumentId?: string,
   ): Promise<ProviderPortfolioAgentRunRequest>;
   lease(
     accessSubject: string,
@@ -243,12 +249,18 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
   public async requestRun(
     accessSubject: string,
     rawProvider: ProviderPortfolioAgentProvider,
+    recheckDocumentId?: string,
   ): Promise<ProviderPortfolioAgentRunRequest> {
     const provider = ProviderPortfolioAgentProviderSchema.parse(rawProvider);
     const identity = await this.findIdentity(accessSubject);
     const agent = await this.requireAgent(identity.household_id, provider);
     const active = await this.findActiveRun(agent.id);
     if (active !== null) {
+      if (
+        recheckDocumentId !== undefined &&
+        active.recheck_document_id !== recheckDocumentId
+      )
+        throw new ProviderPortfolioAgentRepositoryError("run_in_progress");
       return ProviderPortfolioAgentRunRequestSchema.parse({
         version: 1,
         provider,
@@ -266,9 +278,9 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
             `INSERT INTO provider_portfolio_runs (
                id, household_id, agent_id, requested_by_user_id, request_kind,
                status, lease_token_sha256, lease_expires_at, import_id,
-               error_code, requested_at, started_at, finished_at
+               error_code, requested_at, started_at, finished_at, recheck_document_id
              ) VALUES (?, ?, ?, ?, 'manual', 'queued', NULL, NULL, NULL, NULL,
-               ?, NULL, NULL)`,
+               ?, NULL, NULL, ?)`,
           )
           .bind(
             id,
@@ -276,6 +288,7 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
             agent.id,
             identity.user_id,
             timestamp,
+            recheckDocumentId ?? null,
           ),
       ]);
     } catch {
@@ -283,6 +296,11 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
       if (concurrent === null) {
         throw new Error("Provider portfolio run could not be queued.");
       }
+      if (
+        recheckDocumentId !== undefined &&
+        concurrent.recheck_document_id !== recheckDocumentId
+      )
+        throw new ProviderPortfolioAgentRepositoryError("run_in_progress");
       return ProviderPortfolioAgentRunRequestSchema.parse({
         version: 1,
         provider,
@@ -396,7 +414,7 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
     ]);
     const leased = await this.db
       .prepare(
-        `SELECT id, lease_expires_at
+        `SELECT id, lease_expires_at, recheck_document_id
          FROM provider_portfolio_runs
          WHERE id = ? AND household_id = ? AND agent_id = ?
            AND status = 'leased' AND lease_token_sha256 = ?`,
@@ -415,6 +433,9 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
               id: leased.id,
               leaseToken,
               expiresAt: leased.lease_expires_at,
+              ...(leased.recheck_document_id === null
+                ? {}
+                : { recheckDocumentId: leased.recheck_document_id }),
             },
     });
   }
@@ -691,7 +712,7 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
   private findActiveRun(agentId: string): Promise<ActiveRunRow | null> {
     return this.db
       .prepare(
-        `SELECT id, status, lease_expires_at
+        `SELECT id, status, lease_expires_at, recheck_document_id
          FROM provider_portfolio_runs
          WHERE agent_id = ? AND status IN ('queued', 'leased')
          ORDER BY requested_at

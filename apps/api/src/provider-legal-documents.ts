@@ -1,6 +1,8 @@
 import {
   D1ProviderLegalDocumentRepository,
+  D1ProviderPortfolioAgentRepository,
   ProviderLegalDocumentError,
+  ProviderPortfolioAgentRepositoryError,
 } from "@keel/database";
 import {
   MAX_LEGAL_DOCUMENT_BYTES,
@@ -121,6 +123,54 @@ export async function readLegalDocumentUpload(request: Request): Promise<{
 export function registerProviderLegalDocumentRoutes(
   app: Hono<AppEnvironment>,
 ): void {
+  app.post(
+    "/api/legal-entity-documents/:documentId/recheck",
+    async (context) => {
+      const id = z.uuid().safeParse(context.req.param("documentId"));
+      const input = z
+        .object({ provider: z.enum(["sydecar", "tokenfolio"]).optional() })
+        .strict()
+        .safeParse(await context.req.json().catch(() => null));
+      if (!id.success) return context.notFound();
+      if (!input.success)
+        return context.json(
+          { error: "Choose a saved agreement to recheck." },
+          400,
+        );
+      const subject = context.get("identity").subject;
+      try {
+        const documents = new D1ProviderLegalDocumentRepository(context.env.DB);
+        const provider = await documents.recheckProvider(
+          subject,
+          id.data,
+          input.data.provider,
+        );
+        const agents = new D1ProviderPortfolioAgentRepository(context.env.DB);
+        return context.json(
+          await agents.requestRun(subject, provider, id.data),
+          202,
+          {
+            "Cache-Control": "private, no-store",
+          },
+        );
+      } catch (error) {
+        if (error instanceof ProviderLegalDocumentError)
+          return context.notFound();
+        const busy =
+          error instanceof ProviderPortfolioAgentRepositoryError &&
+          error.code === "run_in_progress";
+        return context.json(
+          {
+            error: busy
+              ? "A source update is already queued or running. Wait for it to finish, then recheck this agreement."
+              : "The agreement check could not be queued. Check the source's update setup, then try again.",
+          },
+          busy ? 409 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
   const runPath =
     "/api/automation/provider-holdings/:provider/mac-agent/runs/:runId";
   for (const operation of ["document-manifest", "documents"] as const) {
@@ -244,7 +294,7 @@ export function registerProviderLegalDocumentRoutes(
       context.json(
         {
           error:
-            "This agreement has not passed its security check. Queue a source update to check it again.",
+            "This agreement has not passed its security check. Recheck the agreement before downloading.",
         },
         423,
         { "Cache-Control": "private, no-store" },

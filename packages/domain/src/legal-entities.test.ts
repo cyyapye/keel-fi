@@ -5,12 +5,38 @@ import {
   LegalEntitySourceSummarySchema,
   LegalEntityExportInputSchema,
   LegalEntityProfileInputSchema,
+  LegalNameResolutionInputSchema,
   exactLegalEntityTypeFromName,
   formatOwnershipInterestPpm,
   ownershipPercentTextToPpm,
 } from "./legal-entities";
 
 describe("legal entity contracts", () => {
+  it("requires a correction to cite a document, page, exact-name excerpt and reason", () => {
+    const input = {
+      kind: "document_correction",
+      documentId: "11111111-1111-4111-8111-111111111111",
+      legalName: "Synthetic Exact LLC",
+      page: 1,
+      quote: "Issuer: Synthetic Exact LLC",
+      reason: "The executed agreement identifies the vehicle.",
+      expectedEvidenceRevision: "a".repeat(64),
+    };
+    expect(LegalNameResolutionInputSchema.safeParse(input).success).toBe(true);
+    for (const mutation of [
+      { reason: null },
+      { quote: "An unrelated reference" },
+      { page: 0 },
+      { page: 151 },
+      { documentId: "other-source" },
+      { expectedEvidenceRevision: "missing" },
+    ]) {
+      expect(
+        LegalNameResolutionInputSchema.safeParse({ ...input, ...mutation })
+          .success,
+      ).toBe(false);
+    }
+  });
   it("parses ownership percentages without floating-point arithmetic", () => {
     expect(ownershipPercentTextToPpm("")).toBeNull();
     expect(ownershipPercentTextToPpm("0")).toBe(0);

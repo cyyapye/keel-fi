@@ -121,6 +121,157 @@ const inventory = {
 } satisfies LegalEntityInventory;
 
 describe("legal entity CSV export", () => {
+  it("exports the specific security reason without guessing a legal name or calling a scan limit malware", () => {
+    const blocked: LegalEntitySourceSummary = {
+      ...source,
+      suggestedEntityType: null,
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "security_blocked",
+        documents: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            fileName: "synthetic-agreement.pdf",
+            sha256: "a".repeat(64),
+            page: null,
+            quote: null,
+            scan: {
+              version: 2,
+              engineVersion: "1.5.3",
+              databaseVersion: 28000,
+              databaseUpdatedAt: inventory.asOf,
+              scannedAt: inventory.asOf,
+              sha256: "a".repeat(64),
+              outcome: "blocked",
+              findings: [
+                {
+                  reason: "scan_limit",
+                  signature: "Heuristics.Limits.Exceeded.MaxFileSize",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+    const rows = legalEntityExportRows(
+      { ...inventory, entities: [], candidates: [blocked] },
+      {
+        fields: ["legal_name", "name_evidence"],
+        includeNeedsReview: true,
+        includeHistorical: false,
+        includeOtherEntityTypes: false,
+      },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.legal_name).toBe("");
+    expect(rows[0]?.name_evidence).toContain(
+      "Scan limit reached (Heuristics.Limits.Exceeded.MaxFileSize)",
+    );
+    expect(rows[0]?.name_evidence).toContain(`checked ${inventory.asOf}`);
+    expect(rows[0]?.name_evidence).not.toContain("malware");
+  });
+  it.each(["document_choice", "document_correction"] as const)(
+    "exports a %s distinctly from unresolved alternatives",
+    (kind) => {
+      const candidate: LegalEntitySourceSummary = {
+        ...source,
+        suggestedEntityType: null,
+        legalEntityNameEvidence: {
+          state: "unavailable",
+          legalName: null,
+          sourceField: null,
+          problem: "conflicting",
+          documents: [
+            {
+              id: "11111111-1111-4111-8111-111111111111",
+              fileName: "synthetic-agreement.pdf",
+              sha256: "a".repeat(64),
+              page: 1,
+              quote: "Issuer: Synthetic Choice LLC",
+              citations: [
+                {
+                  legalName: "Synthetic Choice LLC",
+                  page: 1,
+                  quote: "Issuer: Synthetic Choice LLC",
+                  role: "issuer",
+                },
+                {
+                  legalName: "Synthetic Choice, LLC",
+                  page: 2,
+                  quote: "Fund: Synthetic Choice, LLC",
+                  role: "fund",
+                },
+              ],
+            },
+          ],
+        },
+      };
+      const document = candidate.legalEntityNameEvidence.documents?.[0];
+      if (document === undefined) throw new Error("Missing synthetic document");
+      const reviewedSource: LegalEntitySourceSummary = {
+        ...candidate,
+        nameResolution: {
+          kind,
+          documentId: document.id,
+          fileName: document.fileName,
+          sha256: document.sha256,
+          legalName: "Synthetic Choice LLC",
+          page: 1,
+          quote: "Issuer: Synthetic Choice LLC",
+          reason:
+            kind === "document_correction"
+              ? "Checked the executed agreement."
+              : null,
+          evidence: candidate.legalEntityNameEvidence,
+        },
+      };
+      const originalEntity = inventory.entities[0];
+      if (originalEntity === undefined)
+        throw new Error("Missing synthetic entity");
+      const rows = legalEntityExportRows(
+        {
+          ...inventory,
+          entities: [
+            {
+              ...originalEntity,
+              legalName: "Synthetic Choice LLC",
+              sources: [reviewedSource],
+            },
+          ],
+          candidates: [candidate],
+        },
+        {
+          fields: ["legal_name", "name_evidence"],
+          includeNeedsReview: true,
+          includeHistorical: false,
+          includeOtherEntityTypes: false,
+        },
+      );
+      const confirmed = rows.find(
+        (row) => row.legal_name === "Synthetic Choice LLC",
+      );
+      expect(confirmed?.name_evidence).toContain(
+        kind === "document_choice"
+          ? "Reviewed name choice"
+          : "User document-backed correction",
+      );
+      expect(confirmed?.name_evidence).toContain(
+        "Original reported alternatives: Synthetic Choice LLC; Synthetic Choice, LLC",
+      );
+      expect(confirmed?.name_evidence).toContain(
+        "synthetic-agreement.pdf, page 1; SHA-256",
+      );
+      const unresolved = rows.find((row) => row.legal_name === "");
+      expect(unresolved?.record_status).toBe("Names disagree");
+      expect(unresolved?.name_evidence).toContain(
+        "Fund: Synthetic Choice, LLC",
+      );
+      expect(unresolved?.name_evidence).toContain("page 2");
+    },
+  );
   it("includes exact document/page evidence and explicit unresolved structure without a guessed name", () => {
     const documentSource: LegalEntitySourceSummary = {
       ...source,

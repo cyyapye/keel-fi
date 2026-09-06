@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { extractLegalNameFromPdf } from "./legal-document-extraction";
@@ -42,14 +43,29 @@ async function main() {
   try {
     const clean = await scanDocumentInSandbox(syntheticAgreementPdf());
     assert.equal(clean.outcome, "clean");
+    assert.equal(clean.version, 2);
+    assert.deepEqual(clean.findings, []);
     // Standard inert antivirus test string, never a live malware sample. It
     // exists only in memory in this synthetic proof and never reaches R2.
     const eicar = Buffer.from(
       "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",
     );
-    assert.equal((await scanDocumentInSandbox(eicar)).outcome, "blocked");
+    const threat = await scanDocumentInSandbox(eicar);
+    assert.equal(threat.outcome, "blocked");
+    assert.equal(threat.findings[0]?.reason, "malware_signature");
+    assert.match(threat.findings[0]?.signature ?? "", /EICAR/iu);
     console.log(
       "PASS: isolated scanner accepts a synthetic PDF and blocks the inert antivirus test sample",
+    );
+    // Benign compressed data crosses the scanner's fixed expanded-file limit,
+    // while remaining well below the input cap. No real documents or malware.
+    const limited = await scanDocumentInSandbox(
+      gzipSync(Buffer.alloc(9 * 1024 * 1024, 0x61)),
+    );
+    assert.equal(limited.outcome, "blocked");
+    assert.equal(limited.findings[0]?.reason, "scan_limit");
+    console.log(
+      "PASS: a real scan-limit alert is blocked and distinguished from a threat match",
     );
     const result = await extractLegalNameFromPdf(syntheticAgreementPdf());
     assert.equal(result.problem, null);

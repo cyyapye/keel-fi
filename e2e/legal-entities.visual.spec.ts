@@ -487,14 +487,14 @@ test("reviews legal entities and exports selected counsel fields", async ({
   agreementBlocked = true;
   await agreement.click();
   await expect(evidence).toContainText(
-    "This agreement has not passed its security check. Queue a source update to check it again.",
+    "Download blocked. Recheck this agreement for the current security result.",
   );
   expect(downloadedNames).toEqual([]);
-  await expect(agreement).toBeEnabled();
+  await expect(agreement).toHaveCount(0);
+  await expect(
+    evidence.getByRole("button", { name: "Recheck agreement" }),
+  ).toBeEnabled();
   await page.mouse.move(0, 0);
-  await expect
-    .poll(() => agreement.evaluate((element) => element.matches(":hover")))
-    .toBe(false);
   await expect(evidence).toHaveScreenshot(
     "legal-agreement-security-check.png",
     { animations: "disabled", caret: "hide" },
@@ -502,6 +502,12 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expectNoHorizontalOverflow(page);
   agreementBlocked = false;
   agreementAvailable = true;
+  // Refresh after a successful later check; a 423 must not leave a clickable
+  // download action that suggests the original can be opened while blocked.
+  await page.reload();
+  await evidence
+    .getByRole("button", { name: "Agreement evidence · 1" })
+    .click();
   const agreementDownload = page.waitForEvent("download");
   await agreement.click();
   expect((await agreementDownload).suggestedFilename()).toBe(

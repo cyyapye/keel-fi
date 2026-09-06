@@ -178,6 +178,28 @@ claiming the exact legal vehicle name.
   a complete fund name. It does not join a split name or normalize differing
   source names. Version 1 observations remain readable and are rechecked within
   the existing download budget after upgrade.
+- Version 3 retains up to eight exact-name alternatives per agreement, including
+  their roles, pages, and quotes. More alternatives leave an explicit limit
+  result; they are never silently truncated into a resolved name. The existing
+  six-document position limit and download/scan budgets are unchanged. Version 1
+  and 2 observations remain readable and are rechecked by ordinary source
+  updates; no provider reconnect is needed solely for this upgrade.
+- Conflicting names have an explicit **Resolve name** action. Nothing is
+  preselected. A user may choose a reported name, supply a document-backed
+  correction with an excerpt and reason, link an exact existing entity, or leave
+  the source unresolved. Security-blocked and other unavailable states do not
+  gain this action. Old conflicts without saved alternatives can be corrected
+  from a document or refreshed through a normal source update.
+- Migration `0049` stores the chosen name and the exact original evidence with
+  the immutable source-review decision. Deploy it before the API/web changes,
+  then update the existing agents for version 3 extraction. Evidence revisions
+  reject stale submissions; the source identity/version prevents duplicate
+  decisions, and a commit-time check rejects a concurrently renamed target.
+  Future observations do not rewrite the reviewed name or its receipt. CSV
+  distinguishes reviewed choices, user corrections, and unresolved alternatives.
+  Inventory reads remain projection-only with no PDF/R2 reads or row-by-row
+  queries; 120-source receipt coverage retains the three-query repository
+  budget.
 - Originals are deduplicated by household and SHA in private R2. Names are
   evidence for the existing exact-batch add, never automatic acceptance.
   Missing, unreadable, inaccessible, conflicting, changed-page, and safety-limit

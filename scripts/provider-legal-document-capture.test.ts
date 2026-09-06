@@ -44,6 +44,10 @@ describe("agreement download boundary", () => {
     expect(
       LegalDocumentExtractionSchema.safeParse({ ...extraction, version: 3 })
         .success,
+    ).toBe(true);
+    expect(
+      LegalDocumentExtractionSchema.safeParse({ ...extraction, version: 4 })
+        .success,
     ).toBe(false);
   });
   it.each([

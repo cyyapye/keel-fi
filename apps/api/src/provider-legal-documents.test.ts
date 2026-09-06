@@ -70,6 +70,87 @@ function post(body = form()) {
 }
 
 describe("private provider agreement API", () => {
+  it("queues only the owned provider agreement, deduplicates retries and keeps bytes locked", async () => {
+    const beforeEntities = d1.sqlite
+      .prepare("SELECT * FROM legal_entities ORDER BY id")
+      .all();
+    const beforeHoldings = d1.sqlite
+      .prepare("SELECT * FROM holding_positions ORDER BY id")
+      .all();
+    const app = createApp();
+    const capture = syntheticDocumentCapture();
+    capture.documents[0]!.scan!.outcome = "blocked";
+    capture.documents[0]!.extraction = {
+      version: 3,
+      pageCount: 0,
+      problem: "security_blocked",
+      citations: [],
+    };
+    expect(
+      (await app.request(`${path}/documents`, post(form(true, capture)), env))
+        .status,
+    ).toBe(200);
+    const id = String(
+      d1.sqlite
+        .prepare("SELECT id FROM source_documents WHERE sha256 = ?")
+        .get(capture.documents[0]!.sha256)!.id,
+    );
+    const request = (target = id, provider = "sydecar") =>
+      app.request(
+        `/api/legal-entity-documents/${target}/recheck`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider }),
+        },
+        env,
+      );
+    expect((await request()).status).toBe(409); // A normal source run cannot silently satisfy a targeted request.
+    const agents = new D1ProviderPortfolioAgentRepository(d1.asD1());
+    await agents.fail(
+      "synthetic-access-subject",
+      "sydecar",
+      path.split("/").at(-1)!,
+      token,
+      { errorCode: "unexpected_failure" },
+    );
+    expect((await request(crypto.randomUUID())).status).toBe(404);
+    expect((await request(id, "tokenfolio")).status).toBe(404);
+    expect((await request(id, "other")).status).toBe(400);
+    const first = await request();
+    expect(first.status).toBe(202);
+    const queued = await first.json();
+    expect(await (await request()).json()).toEqual(queued);
+    const leased = await agents.lease("synthetic-access-subject", "sydecar");
+    expect(leased.run).toMatchObject({ recheckDocumentId: id });
+    expect(await (await request()).json()).toMatchObject({
+      status: "running",
+      runId: leased.run!.id,
+    });
+    expect(
+      (
+        await app.request(
+          `/api/legal-entity-documents/${id}`,
+          { method: "POST" },
+          env,
+        )
+      ).status,
+    ).toBe(423);
+    expect(vi.spyOn(env.DOCUMENTS, "get")).not.toHaveBeenCalled();
+    expect(
+      d1.sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM provider_portfolio_runs WHERE status IN ('queued', 'leased')",
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      d1.sqlite.prepare("SELECT * FROM legal_entities ORDER BY id").all(),
+    ).toEqual(beforeEntities);
+    expect(
+      d1.sqlite.prepare("SELECT * FROM holding_positions ORDER BY id").all(),
+    ).toEqual(beforeHoldings);
+  });
   it.each(["unscanned", "blocked"])(
     "keeps %s originals private and never reads object storage on download",
     async (state) => {
@@ -427,6 +508,15 @@ describe("private provider agreement API", () => {
         await app.request(
           `${origin}${path.replace("sydecar", "tokenfolio")}/document-manifest`,
           { method: "POST", headers },
+          agentEnv,
+        )
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await app.request(
+          `${origin}/api/legal-entity-documents/${crypto.randomUUID()}/recheck`,
+          { method: "POST", headers, body: "{}" },
           agentEnv,
         )
       ).status,
