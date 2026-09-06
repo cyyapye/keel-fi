@@ -3,6 +3,7 @@ import {
   LEGAL_ENTITY_EXPORT_FIELD_LABELS,
   LEGAL_ENTITY_EXPORT_FIELDS,
   formatOwnershipInterestPpm,
+  exactLegalEntityTypeFromName,
   ownershipPercentTextToPpm,
   type LegalEntityExportField,
   type LegalEntityInterestStatus,
@@ -12,8 +13,10 @@ import {
   type LegalEntityRelationship,
   type LegalEntitySourceSummary,
   type LegalEntityType,
+  type LegalNameResolutionInput,
 } from "@keel/domain/legal-entities";
 import { LEGAL_DOCUMENT_PROBLEM_COPY } from "@keel/domain/provider-legal-documents";
+import { LegalNameResolver } from "./LegalNameResolver";
 import {
   ActionGroup,
   Badge,
@@ -45,6 +48,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -107,6 +111,7 @@ type EditorState = {
   source: {
     reference: LegalEntitySourceSummary["source"];
     expectedDecisionId: string | null;
+    nameResolution?: LegalNameResolutionInput;
   } | null;
   profile: LegalEntityProfileInput;
   ownershipPercentText: string;
@@ -128,8 +133,12 @@ function emptyProfile(): LegalEntityProfileInput {
   };
 }
 
-function editorForCandidate(candidate: LegalEntitySourceSummary): EditorState {
-  const legalName = candidate.legalEntityNameEvidence.legalName;
+function editorForCandidate(
+  candidate: LegalEntitySourceSummary,
+  nameResolution?: LegalNameResolutionInput,
+): EditorState {
+  const legalName =
+    nameResolution?.legalName ?? candidate.legalEntityNameEvidence.legalName;
   if (legalName === null) {
     throw new Error("A source-reported legal name is required for review.");
   }
@@ -139,11 +148,12 @@ function editorForCandidate(candidate: LegalEntitySourceSummary): EditorState {
     source: {
       reference: candidate.source,
       expectedDecisionId: candidate.currentDecisionId,
+      ...(nameResolution === undefined ? {} : { nameResolution }),
     },
     profile: {
       ...emptyProfile(),
       legalName,
-      entityType: candidate.suggestedEntityType ?? "llc",
+      entityType: exactLegalEntityTypeFromName(legalName) ?? "other",
       relationship: candidate.relationship,
       currentOwner: candidate.currentOwner,
       interestStatus: candidate.interestStatus,
@@ -271,15 +281,26 @@ function LegalEntityEditor({
   editor,
   onCancel,
   onSaved,
+  onReload,
 }: {
   editor: EditorState;
   onCancel: () => void;
   onSaved: () => Promise<void>;
+  onReload: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(editor);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editing = draft.entityId !== null;
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (editor.source?.nameResolution !== undefined) {
+      sectionRef.current?.scrollIntoView({ block: "start" });
+      sectionRef.current
+        ?.querySelector<HTMLInputElement>("input")
+        ?.focus({ preventScroll: true });
+    }
+  }, [editor.source?.nameResolution]);
 
   const setProfile = <Key extends keyof LegalEntityProfileInput>(
     key: Key,
@@ -352,6 +373,7 @@ function LegalEntityEditor({
     <section
       aria-labelledby="legal-entity-editor-title"
       className="legal-entity-editor"
+      ref={sectionRef}
     >
       <SectionHeader
         description={
@@ -372,6 +394,7 @@ function LegalEntityEditor({
                 setProfile("legalName", event.currentTarget.value)
               }
               required
+              readOnly={draft.source?.nameResolution !== undefined}
               value={draft.profile.legalName}
             />
           </Field>
@@ -552,6 +575,22 @@ function LegalEntityEditor({
           </ActionGroup>
         </ActionGroup>
       </form>
+      {error !== null && draft.source?.nameResolution !== undefined && (
+        <Button
+          tone="quiet"
+          disabled={working}
+          onClick={() => {
+            setWorking(true);
+            void onReload()
+              .catch(() =>
+                setError("The evidence could not be reloaded. Try again."),
+              )
+              .finally(() => setWorking(false));
+          }}
+        >
+          Reload evidence
+        </Button>
+      )}
     </section>
   );
 }
@@ -605,6 +644,20 @@ function EntityRow({
               : entity.sources.map(sourceSummary).join("; ")}
           </p>
           <AgreementEvidence sources={entity.sources} />
+          {entity.sources
+            .filter((source) => source.nameResolution !== undefined)
+            .map((source) => {
+              const resolution = source.nameResolution;
+              return resolution === undefined ? null : (
+                <p key={candidateKey(source)}>
+                  {resolution.kind === "document_choice"
+                    ? "Reviewed name"
+                    : "Your document-backed correction"}
+                  : {resolution.legalName} · {resolution.fileName} · page{" "}
+                  {resolution.page}
+                </p>
+              );
+            })}
         </div>
         <TextLink onClick={onEdit}>Edit</TextLink>
       </footer>
@@ -618,20 +671,26 @@ function CandidateRow({
   excluded,
   onAdd,
   onReviewed,
+  onReload,
 }: {
   candidate: LegalEntitySourceSummary;
   entities: readonly LegalEntityRecord[];
   excluded?: boolean;
-  onAdd: () => void;
+  onAdd: (resolution?: LegalNameResolutionInput) => void;
   onReviewed: () => Promise<void>;
+  onReload: () => Promise<void>;
 }) {
   const [selectedEntityId, setSelectedEntityId] = useState(
     entities[0]?.id ?? "",
   );
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
   const legalName = candidate.legalEntityNameEvidence.legalName;
   const nameUnavailable = legalName === null;
+  const conflicting =
+    candidate.legalEntityNameEvidence.state === "unavailable" &&
+    candidate.legalEntityNameEvidence.problem === "conflicting";
   const displayName = legalName ?? candidate.sourceDisplayName;
 
   const decide = async (decision: "linked" | "not_llc") => {
@@ -661,14 +720,18 @@ function CandidateRow({
   return (
     <article
       className={`legal-entity-candidate${
-        nameUnavailable ? " legal-entity-candidate--unresolved" : ""
+        nameUnavailable && !conflicting
+          ? " legal-entity-candidate--unresolved"
+          : ""
       }`}
     >
       <div className="legal-entity-candidate__copy">
         <div>
           <h3>{displayName}</h3>
           {nameUnavailable ? (
-            <Badge tone="warning">Name unavailable</Badge>
+            <Badge tone="warning">
+              {conflicting ? "Names disagree" : "Name unavailable"}
+            </Badge>
           ) : (
             !excluded && <Badge tone="warning">Needs review</Badge>
           )}
@@ -700,7 +763,7 @@ function CandidateRow({
           layout="stack"
           mobileLayout="stack"
         >
-          <Button disabled={working} onClick={onAdd} tone="secondary">
+          <Button disabled={working} onClick={() => onAdd()} tone="secondary">
             {excluded ? "Review and add" : "Review details"}
           </Button>
           {entities.length > 0 && (
@@ -744,6 +807,27 @@ function CandidateRow({
             </TextLink>
           )}
         </ActionGroup>
+      )}
+      {conflicting && !resolving && (
+        <ActionGroup
+          className="legal-entity-candidate__actions"
+          layout="stack"
+          mobileLayout="stack"
+        >
+          <Button tone="secondary" onClick={() => setResolving(true)}>
+            Resolve name
+          </Button>
+        </ActionGroup>
+      )}
+      {conflicting && resolving && (
+        <LegalNameResolver
+          source={candidate}
+          entities={entities}
+          onAdd={onAdd}
+          onClose={() => setResolving(false)}
+          onSaved={onReviewed}
+          onReload={onReload}
+        />
       )}
       {error !== null && <FormMessage tone="error">{error}</FormMessage>}
     </article>
@@ -845,8 +929,13 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
   const sourceNameReviewCount = inventory.candidates.filter(
     (candidate) => candidate.legalEntityNameEvidence.legalName !== null,
   ).length;
+  const conflictingNameCount = inventory.candidates.filter(
+    (candidate) =>
+      candidate.legalEntityNameEvidence.state === "unavailable" &&
+      candidate.legalEntityNameEvidence.problem === "conflicting",
+  ).length;
   const unavailableNameCount =
-    inventory.candidates.length - sourceNameReviewCount;
+    inventory.candidates.length - sourceNameReviewCount - conflictingNameCount;
 
   const toggleField = (field: LegalEntityExportField, checked: boolean) => {
     setFields((current) => {
@@ -912,6 +1001,8 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
             {" · "}
             {unavailableNameCount} missing legal{" "}
             {unavailableNameCount === 1 ? "name" : "names"}
+            {conflictingNameCount > 0 &&
+              ` · ${conflictingNameCount} ${conflictingNameCount === 1 ? "name conflict" : "name conflicts"}`}
           </p>
         </div>
         <label>
@@ -1161,6 +1252,10 @@ export function LegalEntities() {
           }
           onCancel={() => setEditor(null)}
           onSaved={saved}
+          onReload={async () => {
+            await refresh();
+            setEditor(null);
+          }}
         />
       ) : (
         <section
@@ -1251,8 +1346,11 @@ export function LegalEntities() {
                 candidate={candidate}
                 entities={inventory.entities}
                 key={candidateKey(candidate)}
-                onAdd={() => setEditor(editorForCandidate(candidate))}
+                onAdd={(resolution) =>
+                  setEditor(editorForCandidate(candidate, resolution))
+                }
                 onReviewed={reviewed}
+                onReload={refresh}
               />
             ))}
           </div>
@@ -1276,8 +1374,11 @@ export function LegalEntities() {
                   entities={inventory.entities}
                   excluded
                   key={candidateKey(candidate)}
-                  onAdd={() => setEditor(editorForCandidate(candidate))}
+                  onAdd={(resolution) =>
+                    setEditor(editorForCandidate(candidate, resolution))
+                  }
                   onReviewed={reviewed}
+                  onReload={refresh}
                 />
               ))}
             </div>

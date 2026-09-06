@@ -56,6 +56,7 @@ export function legalNameEvidenceFromDocuments(
     sha256: document.sha256,
     page: document.extraction.citations[0]?.page ?? null,
     quote: document.extraction.citations[0]?.quote ?? null,
+    citations: document.extraction.citations,
   }));
   const names = new Set(
     documents.flatMap((document) =>

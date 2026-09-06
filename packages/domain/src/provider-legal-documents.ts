@@ -9,7 +9,8 @@ export const MAX_LEGAL_DOCUMENTS_PER_POSITION = 6;
 export const MAX_LEGAL_DOCUMENTS_PER_RUN = 24;
 export const MAX_LEGAL_DOCUMENT_RUN_BYTES = 64 * 1024 * 1024;
 export const MAX_LEGAL_DOCUMENT_POSITION_BYTES = 16 * 1024 * 1024;
-export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 2;
+export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 3;
+export const MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT = 8;
 export const LEGAL_DOCUMENT_RECHECK_MS = 7 * 24 * 60 * 60 * 1_000;
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -74,16 +75,29 @@ export const LegalDocumentExtractionSchema = z
     // collector rechecks older extractions under its ordinary run budget.
     version: z.union([
       z.literal(1),
+      z.literal(2),
       z.literal(LEGAL_DOCUMENT_EXTRACTOR_VERSION),
     ]),
     pageCount: z.number().int().min(0).max(MAX_LEGAL_DOCUMENT_PAGES),
     problem: LegalDocumentProblemSchema.nullable(),
-    citations: z.array(LegalDocumentCitationSchema).max(1),
+    citations: z
+      .array(LegalDocumentCitationSchema)
+      .max(MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT),
   })
   .strict()
   .superRefine((value, context) => {
+    const names = new Set(
+      value.citations.map((citation) => citation.legalName),
+    );
+    const validState =
+      value.problem === null
+        ? names.size === 1
+        : value.problem === "conflicting"
+          ? names.size > 1 ||
+            (value.version < 3 && value.citations.length === 0)
+          : value.citations.length === 0;
     if (
-      (value.problem === null) !== value.citations.length > 0 ||
+      !validState ||
       value.citations.some((citation) => citation.page > value.pageCount)
     ) {
       context.addIssue({
@@ -194,7 +208,7 @@ export const LEGAL_DOCUMENT_PROBLEM_COPY: Record<
   name_not_found:
     "The agreement did not explicitly identify the investment vehicle. Request its exact legal name from the provider.",
   conflicting:
-    "The agreements report different vehicle names. Confirm the correct name with the provider or your lawyer.",
+    "Compare the names reported in the agreements and choose the one for this investment.",
   limit_reached:
     "The agreement check reached its safety limit. Another source update can continue; oversized documents need a smaller searchable copy.",
   extractor_unavailable:
@@ -230,5 +244,10 @@ export const LegalNameDocumentReferenceSchema = z
     sha256: DigestSchema,
     page: z.number().int().min(1).max(MAX_LEGAL_DOCUMENT_PAGES).nullable(),
     quote: z.string().trim().min(1).max(2_000).nullable(),
+    // Optional for previously saved references; never infer names from quotes.
+    citations: z
+      .array(LegalDocumentCitationSchema)
+      .max(MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT)
+      .optional(),
   })
   .strict();

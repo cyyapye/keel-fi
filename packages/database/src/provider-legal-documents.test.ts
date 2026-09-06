@@ -484,6 +484,13 @@ describe("provider agreement evidence repository", () => {
     };
     expect(
       legalNameEvidenceFromDocuments(capture, [document, other]),
-    ).toMatchObject({ state: "unavailable", problem: "conflicting" });
+    ).toMatchObject({
+      state: "unavailable",
+      problem: "conflicting",
+      documents: [
+        { citations: [{ legalName: "Synthetic Atlas SPV LLC", page: 1 }] },
+        { citations: [{ legalName: "Synthetic Different LLC", page: 1 }] },
+      ],
+    });
   });
 });

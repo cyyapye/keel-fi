@@ -6055,6 +6055,78 @@ h1,
   min-width: 0;
 }
 
+.legal-name-resolver {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 20px;
+  min-width: 0;
+  max-width: 780px;
+}
+
+.legal-name-resolver h4,
+.legal-name-resolver p {
+  margin: 0;
+}
+
+.legal-name-resolver h4 {
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.legal-name-resolver p,
+.legal-name-resolver__choice span > span,
+.legal-name-resolver__choice q {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.legal-name-resolver fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legal-name-resolver legend {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.legal-name-resolver__choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  padding: 14px 0;
+  cursor: pointer;
+}
+
+.legal-name-resolver__choice input {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--ink);
+}
+
+.legal-name-resolver__choice > span,
+.legal-name-resolver__fields {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.legal-name-resolver__choice strong {
+  font-size: 14px;
+}
+
+.legal-name-resolver__fields {
+  gap: 20px;
+}
+
 .legal-entity-candidate__link {
   display: grid;
   width: 100%;
@@ -6084,6 +6156,10 @@ h1,
 
 .legal-entity-editor form {
   margin-top: 28px;
+}
+
+.legal-entity-editor {
+  scroll-margin-top: 96px;
 }
 
 .legal-entity-editor__fields {

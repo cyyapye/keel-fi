@@ -6,6 +6,8 @@ import {
   LegalEntityInventorySchema,
   LegalEntityProfileInputSchema,
   LegalEntityRecordSchema,
+  LegalNameResolutionSchema,
+  legalNameEvidenceRevision,
   LegalEntitySourceReviewResultSchema,
   MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES,
   ReviewLegalEntitySourceInputSchema,
@@ -25,6 +27,7 @@ import {
   type LegalEntitySourceSummary,
   type LegalEntitySourceReviewResult,
   type LegalEntityType,
+  type LegalNameResolutionInput,
   type ReviewLegalEntitySourceInput,
   type UpdateLegalEntityInput,
 } from "@keel/domain/legal-entities";
@@ -70,6 +73,7 @@ type SourceDecisionRow = {
   decision: "linked" | "not_llc";
   legal_entity_id: string | null;
   version: number;
+  name_resolution_json?: string | null;
 };
 
 type CurrentVersionIdentityRow = {
@@ -229,6 +233,81 @@ function sourceFromDecision(row: SourceDecisionRow): LegalEntitySourceSummary {
     openedOn: row.opened_on,
     financials: null,
     currentDecisionId: row.decision_id,
+    ...resolutionFromDecision(row),
+  };
+}
+
+function resolutionFromDecision(row: SourceDecisionRow) {
+  return row.name_resolution_json == null
+    ? {}
+    : {
+        nameResolution: LegalNameResolutionSchema.parse(
+          JSON.parse(row.name_resolution_json),
+        ),
+      };
+}
+
+async function resolveSourceName(
+  source: LegalEntitySourceSummary,
+  input: LegalNameResolutionInput | undefined,
+  legalName: string,
+): Promise<LegalEntitySourceSummary> {
+  const evidence = source.legalEntityNameEvidence;
+  const conflicting =
+    evidence.state === "unavailable" && evidence.problem === "conflicting";
+  if (input === undefined) {
+    if (conflicting)
+      throw new LegalEntityRepositoryError(
+        "invalid_source",
+        "Resolve the conflicting document names before adding or linking this source.",
+      );
+    return source;
+  }
+  if (!conflicting)
+    throw new LegalEntityRepositoryError(
+      "invalid_source",
+      "This source is not an available name conflict. Reload its current evidence.",
+    );
+  const { expectedEvidenceRevision, ...details } = input;
+  if (
+    expectedEvidenceRevision !== (await legalNameEvidenceRevision(evidence))
+  ) {
+    throw new LegalEntityRepositoryError(
+      "stale",
+      "The agreement evidence changed. Reload and compare the current names before saving.",
+    );
+  }
+  const document = evidence.documents?.find(
+    (item) => item.id === input.documentId,
+  );
+  if (document === undefined || legalName !== input.legalName) {
+    throw new LegalEntityRepositoryError(
+      "invalid_source",
+      "The selected document and legal name must match this source review.",
+    );
+  }
+  if (
+    input.kind === "document_choice" &&
+    !document.citations?.some(
+      (citation) =>
+        citation.legalName === input.legalName &&
+        citation.page === input.page &&
+        citation.quote === input.quote,
+    )
+  ) {
+    throw new LegalEntityRepositoryError(
+      "invalid_source",
+      "Choose an exact name and citation reported by this agreement.",
+    );
+  }
+  return {
+    ...source,
+    nameResolution: LegalNameResolutionSchema.parse({
+      ...details,
+      fileName: document.fileName,
+      sha256: document.sha256,
+      evidence,
+    }),
   };
 }
 
@@ -423,6 +502,7 @@ async function stateFromRows(
     const summary = {
       ...(liveSource ?? sourceFromDecision(decision)),
       currentDecisionId: decision.decision_id,
+      ...resolutionFromDecision(decision),
     };
     if (decision.decision === "not_llc") {
       excludedCandidates.push(summary);
@@ -552,7 +632,11 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
     const sourceSummary =
       input.source === null
         ? null
-        : candidateFor(positionView, input.source.reference, currentDecision);
+        : await resolveSourceName(
+            candidateFor(positionView, input.source.reference, currentDecision),
+            input.source.nameResolution,
+            input.profile.legalName,
+          );
     const entityId = crypto.randomUUID();
     const versionId = crypto.randomUUID();
     const decisionId = sourceSummary === null ? null : crypto.randomUUID();
@@ -583,13 +667,13 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
           sourceSummary,
           "linked",
           entityId,
-          1,
-          null,
+          (currentDecision?.version ?? 0) + 1,
+          currentDecision?.decision_id ?? null,
           recordedAt,
         ),
       );
     }
-    await this.db.batch(statements);
+    await this.commitSourceReview(statements);
     return LegalEntityRecordSchema.parse({
       id: entityId,
       versionId,
@@ -691,10 +775,36 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
         "The selected legal entity is unavailable.",
       );
     }
-    const source = candidateFor(positionView, input.source, current);
+    let source = candidateFor(positionView, input.source, current);
+    if (input.decision.kind === "linked") {
+      const selectedName =
+        input.nameResolution === undefined
+          ? ""
+          : await this.db
+              .prepare(
+                `SELECT version.legal_name FROM legal_entities entity
+         JOIN legal_entity_versions version ON version.legal_entity_id = entity.id
+         WHERE entity.id = ? AND entity.household_id = ?
+           AND NOT EXISTS (SELECT 1 FROM legal_entity_versions later WHERE later.supersedes_version_id = version.id)`,
+              )
+              .bind(input.decision.legalEntityId, identity.household_id)
+              .first<{ legal_name: string }>();
+      source = await resolveSourceName(
+        source,
+        input.nameResolution,
+        typeof selectedName === "string"
+          ? selectedName
+          : (selectedName?.legal_name ?? ""),
+      );
+    } else if (input.nameResolution !== undefined) {
+      throw new LegalEntityRepositoryError(
+        "invalid_source",
+        "A name resolution must add or link a legal entity.",
+      );
+    }
     const decisionId = crypto.randomUUID();
     const decidedAt = new Date().toISOString();
-    await this.db.batch([
+    await this.commitSourceReview([
       this.sourceDecisionInsert(
         identity,
         decisionId,
@@ -910,6 +1020,27 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
     });
   }
 
+  private async commitSourceReview(
+    statements: D1PreparedStatement[],
+  ): Promise<void> {
+    try {
+      await this.db.batch(statements);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("legal name resolution entity changed") ||
+          error.message.includes(
+            "UNIQUE constraint failed: legal_entity_source_decisions.",
+          ))
+      )
+        throw new LegalEntityRepositoryError(
+          "stale",
+          "The entity or source review changed. Reload its current details before saving.",
+        );
+      throw error;
+    }
+  }
+
   private async loadState(
     accessSubject: string,
     positionView: InvestmentPositionView,
@@ -964,7 +1095,8 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
                decision.opened_on,
                decision.decision,
                decision.legal_entity_id,
-               decision.version
+               decision.version,
+               decision.name_resolution_json
              FROM legal_entity_source_decisions decision
              WHERE decision.household_id = ?
                AND NOT EXISTS (
@@ -1002,7 +1134,8 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
            decision.opened_on,
            decision.decision,
            decision.legal_entity_id,
-           decision.version
+           decision.version,
+           decision.name_resolution_json
          FROM legal_entity_source_decisions decision
          WHERE decision.household_id = ?
            AND decision.source_kind = ?
@@ -1090,8 +1223,9 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
            id, household_id, source_kind, source_reference, source_name,
            source_label, source_as_of, relationship, current_owner,
            interest_status, opened_on, decision, legal_entity_id, version,
-           supersedes_decision_id, decided_by_user_id, decided_at, immutable
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+           supersedes_decision_id, decided_by_user_id, decided_at, immutable,
+           name_resolution_json
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
       )
       .bind(
         decisionId,
@@ -1111,6 +1245,9 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
         supersedesDecisionId,
         identity.user_id,
         decidedAt,
+        decision === "linked" && source.nameResolution !== undefined
+          ? JSON.stringify(source.nameResolution)
+          : null,
       );
   }
 }

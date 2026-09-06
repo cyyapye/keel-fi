@@ -59,7 +59,34 @@ describe("local legal document extraction", () => {
         "Issuer: Synthetic Atlas, LLC",
         "Issuer: Synthetic Atlas LLC",
       ]),
-    ).toMatchObject({ problem: "conflicting", citations: [] });
+    ).toMatchObject({
+      problem: "conflicting",
+      citations: [
+        {
+          legalName: "Synthetic Atlas, LLC",
+          page: 1,
+          quote: "Issuer: Synthetic Atlas, LLC",
+          role: "issuer",
+        },
+        {
+          legalName: "Synthetic Atlas LLC",
+          page: 2,
+          quote: "Issuer: Synthetic Atlas LLC",
+          role: "issuer",
+        },
+      ],
+    });
+  });
+
+  it("reports a limit instead of dropping alternatives beyond the bounded choice list", () => {
+    expect(
+      extractLegalNameFromPages(
+        Array.from(
+          { length: 9 },
+          (_, index) => `Issuer: Synthetic Vehicle ${index} LLC`,
+        ),
+      ),
+    ).toMatchObject({ problem: "limit_reached", citations: [] });
   });
   it("uses the exact defined fund, not its uppercase cover, parent or administrator", () => {
     expect(
@@ -95,7 +122,7 @@ describe("local legal document extraction", () => {
       const prefix = ending === "Parent" ? "under the Parent" : "under the";
       const definition = `“Fund”: ${name}, established as a Series ${prefix}\n${nextLine}`;
       expect(extractLegalNameFromPages([definition])).toMatchObject({
-        version: 2,
+        version: 3,
         problem: null,
         citations: [
           {

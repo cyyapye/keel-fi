@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { LegalEntityNameEvidenceSchema } from "./position-read-model";
+import {
+  LegalEntityNameEvidenceSchema,
+  type LegalEntityNameEvidence,
+} from "./position-read-model";
+import { MAX_LEGAL_DOCUMENT_PAGES } from "./provider-legal-documents";
 
 const IsoDateSchema = z.iso.date();
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
@@ -72,6 +76,59 @@ export const LegalEntitySourceFinancialsSchema = z
   })
   .strict();
 
+const LegalNameResolutionDetailsSchema = z
+  .object({
+    kind: z.enum(["document_choice", "document_correction"]),
+    documentId: z.string().uuid(),
+    legalName: z.string().trim().min(1).max(1_000),
+    page: z.number().int().min(1).max(MAX_LEGAL_DOCUMENT_PAGES),
+    quote: z.string().trim().min(1).max(2_000),
+    reason: NullableTextSchema(1_000),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const whitespace = (text: string) => text.replace(/\s+/gu, " ").trim();
+    if (!whitespace(value.quote).includes(whitespace(value.legalName))) {
+      context.addIssue({
+        code: "custom",
+        message: "Include the exact legal name in the document excerpt.",
+        path: ["quote"],
+      });
+    }
+    if (value.kind === "document_correction" && value.reason === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Explain the document-backed correction.",
+        path: ["reason"],
+      });
+    }
+  });
+
+export const LegalNameResolutionInputSchema =
+  LegalNameResolutionDetailsSchema.safeExtend({
+    expectedEvidenceRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+  });
+
+export const LegalNameResolutionSchema =
+  LegalNameResolutionDetailsSchema.safeExtend({
+    fileName: z.string().trim().min(1).max(240),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    evidence: LegalEntityNameEvidenceSchema,
+  });
+
+// Called only for a single explicit review, never once per row on a GET path.
+export async function legalNameEvidenceRevision(
+  evidence: LegalEntityNameEvidence,
+): Promise<string> {
+  const bytes = new TextEncoder().encode(
+    JSON.stringify(LegalEntityNameEvidenceSchema.parse(evidence)),
+  );
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export const LegalEntitySourceSummarySchema = z
   .object({
     source: LegalEntitySourceReferenceSchema,
@@ -86,6 +143,7 @@ export const LegalEntitySourceSummarySchema = z
     openedOn: IsoDateSchema.nullable(),
     financials: LegalEntitySourceFinancialsSchema.nullable(),
     currentDecisionId: z.string().min(1).nullable(),
+    nameResolution: LegalNameResolutionSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -212,6 +270,7 @@ export const CreateLegalEntityInputSchema = z
       .object({
         reference: LegalEntitySourceReferenceSchema,
         expectedDecisionId: z.string().min(1).nullable(),
+        nameResolution: LegalNameResolutionInputSchema.optional(),
       })
       .strict()
       .nullable(),
@@ -229,6 +288,7 @@ export const ReviewLegalEntitySourceInputSchema = z
   .object({
     source: LegalEntitySourceReferenceSchema,
     expectedDecisionId: z.string().min(1).nullable(),
+    nameResolution: LegalNameResolutionInputSchema.optional(),
     decision: z.discriminatedUnion("kind", [
       z
         .object({
@@ -434,6 +494,10 @@ export function formatOwnershipInterestPpm(ppm: number): string {
 }
 
 export type LegalEntityType = z.infer<typeof LegalEntityTypeSchema>;
+export type LegalNameResolutionInput = z.infer<
+  typeof LegalNameResolutionInputSchema
+>;
+export type LegalNameResolution = z.infer<typeof LegalNameResolutionSchema>;
 export type ExactLegalEntityType = z.infer<typeof ExactLegalEntityTypeSchema>;
 export type LegalEntityRelationship = z.infer<
   typeof LegalEntityRelationshipSchema

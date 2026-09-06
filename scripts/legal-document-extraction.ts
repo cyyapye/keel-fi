@@ -4,6 +4,7 @@ import {
   MAX_LEGAL_DOCUMENT_BYTES,
   MAX_LEGAL_DOCUMENT_PAGES,
   MAX_LEGAL_DOCUMENT_TEXT_BYTES,
+  MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT,
   type LegalDocumentCitation,
   type LegalDocumentExtraction,
   type LegalDocumentProblem,
@@ -122,13 +123,18 @@ export function extractLegalNameFromPages(
   if (citations.length === 0) return failed("name_not_found", pages.length);
   // Preserve spelling, punctuation and case exactly. Even seemingly equivalent
   // variants must be resolved, not silently merged by a name heuristic.
-  if (new Set(citations.map((citation) => citation.legalName)).size !== 1)
-    return failed("conflicting", pages.length);
+  const alternatives = [
+    ...new Map(
+      citations.map((citation) => [citation.legalName, citation]),
+    ).values(),
+  ];
+  if (alternatives.length > MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT)
+    return failed("limit_reached", pages.length);
   return LegalDocumentExtractionSchema.parse({
     version: LEGAL_DOCUMENT_EXTRACTOR_VERSION,
     pageCount: pages.length,
-    problem: null,
-    citations: citations.slice(0, 1),
+    problem: alternatives.length > 1 ? "conflicting" : null,
+    citations: alternatives.length > 1 ? alternatives : citations.slice(0, 1),
   });
 }
 
