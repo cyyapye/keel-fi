@@ -12,6 +12,49 @@ export const MAX_LEGAL_DOCUMENT_POSITION_BYTES = 16 * 1024 * 1024;
 export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 3;
 export const MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT = 8;
 export const LEGAL_DOCUMENT_RECHECK_MS = 7 * 24 * 60 * 60 * 1_000;
+export const LEGAL_DOCUMENT_SCANNER_VERSION = 2;
+
+export const LegalDocumentScanReasonSchema = z.enum([
+  "malware_signature",
+  "encrypted",
+  "scan_limit",
+  "broken_executable",
+  "heuristic",
+  "unknown_alert",
+]);
+export type LegalDocumentScanReason = z.infer<
+  typeof LegalDocumentScanReasonSchema
+>;
+
+export function legalDocumentScanReason(
+  signature: string | null,
+): LegalDocumentScanReason {
+  if (signature === null) return "unknown_alert";
+  if (signature.startsWith("Heuristics.Encrypted.")) return "encrypted";
+  if (
+    signature === "Heuristics.Limits.Exceeded" ||
+    signature.startsWith("Heuristics.Limits.Exceeded.")
+  )
+    return "scan_limit";
+  if (signature.startsWith("Heuristics.Broken.")) return "broken_executable";
+  if (signature.startsWith("Heuristics.")) return "heuristic";
+  return "malware_signature";
+}
+
+export const LegalDocumentScanFindingSchema = z
+  .object({
+    reason: LegalDocumentScanReasonSchema,
+    // A scanner signature token, never a filename, URL, excerpt or raw output.
+    signature: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/u)
+      .nullable(),
+  })
+  .strict()
+  .refine(
+    (finding) => finding.reason === legalDocumentScanReason(finding.signature),
+    "The reason must match the scanner signature.",
+  );
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 // SQLite orders the latest scan lexically. Canonicalize equivalent ISO forms
@@ -19,9 +62,8 @@ const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const ScanTimeSchema = z.iso
   .datetime()
   .transform((value) => new Date(value).toISOString());
-export const LegalDocumentScanSchema = z
+const LegalDocumentScanBaseSchema = z
   .object({
-    version: z.literal(1),
     engineVersion: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+$/u),
     databaseVersion: z.number().int().positive(),
     databaseUpdatedAt: ScanTimeSchema,
@@ -29,7 +71,25 @@ export const LegalDocumentScanSchema = z
     sha256: DigestSchema,
     outcome: z.enum(["clean", "blocked"]),
   })
-  .strict()
+  .strict();
+export const LegalDocumentScanSchema = z
+  .discriminatedUnion("version", [
+    LegalDocumentScanBaseSchema.extend({ version: z.literal(1) }),
+    LegalDocumentScanBaseSchema.extend({
+      version: z.literal(LEGAL_DOCUMENT_SCANNER_VERSION),
+      findings: z.array(LegalDocumentScanFindingSchema).max(8),
+    }).superRefine((scan, context) => {
+      if (
+        (scan.outcome === "clean") !== (scan.findings.length === 0) ||
+        new Set(scan.findings.map((finding) => finding.signature)).size !==
+          scan.findings.length
+      )
+        context.addIssue({
+          code: "custom",
+          message: "Scan findings do not match the outcome.",
+        });
+    }),
+  ])
   .refine((scan) => {
     const age = Date.parse(scan.scannedAt) - Date.parse(scan.databaseUpdatedAt);
     return age >= 0 && age <= 72 * 60 * 60 * 1_000;
@@ -218,7 +278,7 @@ export const LEGAL_DOCUMENT_PROBLEM_COPY: Record<
   other_structure:
     "The agreement describes a compartment or certificate structure. Ask the provider or your lawyer which legal entity and interest belong in this inventory.",
   security_blocked:
-    "The agreement did not pass its security check. It is kept private and cannot be downloaded or read. Request a new copy from the provider.",
+    "The agreement is blocked by its security check. See the agreement details for the reason and next step.",
   scanner_unavailable:
     "The agreement's security check could not finish. It is kept private until a source update can check it again.",
 };
@@ -249,5 +309,48 @@ export const LegalNameDocumentReferenceSchema = z
       .array(LegalDocumentCitationSchema)
       .max(MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT)
       .optional(),
+    scan: LegalDocumentScanSchema.optional(),
+    provider: z.enum(["sydecar", "tokenfolio"]).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (document) =>
+      document.scan === undefined || document.scan.sha256 === document.sha256,
+    "The scan must describe this agreement's exact bytes.",
+  );
+
+export const LEGAL_DOCUMENT_SCAN_REASON_COPY: Record<
+  LegalDocumentScanReason,
+  { label: string; detail: string }
+> = {
+  encrypted: {
+    label: "Encrypted content",
+    detail:
+      "The scanner could not inspect encrypted content in this agreement. Request an unencrypted copy from the provider.",
+  },
+  scan_limit: {
+    label: "Scan limit reached",
+    detail:
+      "The security check exceeded a scanning limit. This does not establish malware. Keel needs to investigate the limit before releasing the agreement.",
+  },
+  malware_signature: {
+    label: "Scanner threat match",
+    detail:
+      "The scanner reported a threat match. Keep this agreement blocked while the match is investigated or request a replacement from the provider.",
+  },
+  broken_executable: {
+    label: "Suspicious embedded content",
+    detail:
+      "The scanner flagged broken executable content. Keep this agreement blocked and request a replacement or an investigation.",
+  },
+  heuristic: {
+    label: "Suspicious content",
+    detail:
+      "The scanner raised a heuristic alert. It needs investigation; this is not a confirmed malware diagnosis.",
+  },
+  unknown_alert: {
+    label: "Alert reason unavailable",
+    detail:
+      "The earlier check did not retain a usable alert reason. Recheck this agreement to get a specific result.",
+  },
+};

@@ -134,14 +134,46 @@ deadline is 90 seconds and its independent watchdog is 95 seconds. These
 settings do not increase the reader's 256 MiB / 30-second allowance.
 
 The scanner limits decompressed data, recursion, files, and scan time. ClamAV
-alerts for encrypted/broken documents and exceeded limits are blocked, not
-misreported as clean. A non-completed scan is unavailable. Neither path reaches
-Poppler. Original bytes may still be stored in private quarantine, with an
-explicit security-check problem. A clean verdict is tied to the exact SHA-256,
-engine/database versions, and times. The vendor signature timestamp must be no
-more than 72 hours old at scan time; the collector rechecks known bytes under
-its existing weekly/24-document/64-MiB/20-minute run budgets. Hash-identical
-documents share processing only within that bounded run or its verified cache.
+alerts for encrypted content, broken executables and exceeded limits are
+blocked, not misreported as clean. A non-completed scan is unavailable. Neither
+path reaches Poppler. Original bytes may still be stored in private quarantine,
+with an explicit security-check problem. A clean verdict is tied to the exact
+SHA-256, engine/database versions, and times. The vendor signature timestamp
+must be no more than 72 hours old at scan time; the collector rechecks known
+bytes under its existing weekly/24-document/64-MiB/20-minute run budgets.
+Hash-identical documents share processing only within that bounded run or its
+verified cache.
+
+Scanner protocol v2 preserves at most eight validated signature tokens and
+reason codes: encrypted content, a scan limit, broken executable content,
+another heuristic, a threat signature, or an unknown alert. It never returns raw
+scanner output, paths, provider URLs or document text. Output is captured only
+on the container's bounded temporary filesystem. Oversized, contradictory or
+incomplete results fail closed. These labels explain a block; they do not
+diagnose the PDF as malware or authorize an exception. Historical v1 verdicts
+remain readable, but their missing reasons can only be established by a fresh
+check.
+
+The owner can select **Recheck agreement** in the entity inventory. This queues
+the existing provider agent with an immutable, household/provider-scoped target.
+It uses the current provider session to re-download the selected agreement and
+forces a fresh scan ahead of routine agreement work. It is not an R2-download
+override or an independent storage scanner. Provider sign-in or page failures
+still require source recovery; a busy source returns an explicit retry message.
+Repeated requests for the same active target share one run. Different targets
+cannot silently piggyback on it. Missing targets or incomplete scans cannot be
+reported as completed rechecks. Existing lease expiry, bounded budgets and
+review-before-apply continue to apply.
+
+Deploy migration `0050` and the API/web before updating the provider agents.
+Rebuild and verify the scanner v2 image under each agent's actual service
+identity, then activate the matching agent code and scanner image together.
+Older images are rejected for new scans rather than fabricated into v2 results.
+An owner-visible queued job is not proof that a live agreement passed: verify
+the fresh scan, specific reason (if still blocked), exact hash and terminal run
+state after rollout. Do not raise limits or allow a flagged signature merely
+because a provider supplied the file; investigate privately or obtain a new
+copy.
 
 `make pdf-sandbox-verify` additionally runs a real clean synthetic PDF and the
 standard inert antivirus test string. Both must produce the expected result. The

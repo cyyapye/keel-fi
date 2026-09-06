@@ -6,13 +6,43 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 
-spec = importlib.util.spec_from_file_location("boundary", "/opt/keel/boundary.py")
-boundary = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(boundary)
+
+def findings_for(returncode, output):
+    """Only exact scanner signature tokens may leave the disposable worker."""
+    if returncode not in (0, 1) or len(output) > 4096:
+        raise ValueError("scanner did not finish")
+    signatures = list(dict.fromkeys(re.findall(
+        rb"^stdin: ([A-Za-z0-9][A-Za-z0-9_.-]{0,159}) FOUND\r?$", output, re.MULTILINE)))
+    if returncode == 0:
+        # Do not treat a contradictory result as a clean scan.
+        if signatures or b"FOUND" in output:
+            raise ValueError("inconsistent scanner result")
+        return []
+    if not signatures or len(signatures) > 8:
+        return [{"reason": "unknown_alert", "signature": None}]
+    findings = []
+    for value in signatures:
+        signature = value.decode("ascii")
+        if signature.startswith("Heuristics.Encrypted."):
+            reason = "encrypted"
+        elif signature == "Heuristics.Limits.Exceeded" or signature.startswith("Heuristics.Limits.Exceeded."):
+            reason = "scan_limit"
+        elif signature.startswith("Heuristics.Broken."):
+            reason = "broken_executable"
+        elif signature.startswith("Heuristics."):
+            reason = "heuristic"
+        else:
+            reason = "malware_signature"
+        findings.append({"reason": reason, "signature": signature})
+    return findings
 
 
 def main():
+    spec = importlib.util.spec_from_file_location("boundary", "/opt/keel/boundary.py")
+    boundary = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(boundary)
     boundary.ready(memory=3 * 1024 * 1024 * 1024)
     content = sys.stdin.buffer.read(8 * 1024 * 1024 + 1)
     if len(content) > 8 * 1024 * 1024:
@@ -28,26 +58,32 @@ def main():
     now = datetime.datetime.now(datetime.timezone.utc)
     if not 0 <= (now - database_time).total_seconds() <= 72 * 3600:
         raise ValueError("stale signature database")
-    result = subprocess.run([
+    # Output exists only on the container's bounded tmpfs, never in host logs.
+    # Read at most 4 KiB; excess output fails closed. All existing scan flags,
+    # deadlines and sandbox limits are unchanged.
+    with tempfile.TemporaryFile() as output:
+        result = subprocess.run([
         "/usr/bin/clamscan", "--stdout", "--no-summary", "--infected",
         "--max-filesize=8M", "--max-scansize=32M", "--max-files=100",
         "--max-recursion=8", "--max-scantime=30000", "--alert-exceeds-max=yes",
         "--alert-encrypted=yes", "--alert-broken=yes", "-",
-    ], input=content, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-       timeout=70, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "TZ": "UTC"})
-    if result.returncode not in (0, 1):
-        raise ValueError("scanner did not finish")
+        ], input=content, stdout=output, stderr=subprocess.DEVNULL,
+           timeout=70, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "TZ": "UTC"})
+        output.seek(0)
+        findings = findings_for(result.returncode, output.read(4097))
     sys.stdout.write(json.dumps({
-        "version": 1, "engineVersion": match[1], "databaseVersion": int(match[2]),
+        "version": 2, "engineVersion": match[1], "databaseVersion": int(match[2]),
         "databaseUpdatedAt": database_time.isoformat().replace("+00:00", "Z"),
         "scannedAt": now.isoformat().replace("+00:00", "Z"),
         "sha256": hashlib.sha256(content).hexdigest(),
         "outcome": "clean" if result.returncode == 0 else "blocked",
+        "findings": findings,
     }))
 
 
-try:
-    main()
-except Exception:
-    # No filenames, content, signatures, credentials or raw tool errors in logs.
-    sys.exit(2)
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        # No filenames, content, credentials or raw tool errors in logs.
+        sys.exit(2)

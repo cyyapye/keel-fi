@@ -8,7 +8,10 @@ import {
   type LegalEntityRecord,
   type LegalEntitySourceSummary,
 } from "@keel/domain/legal-entities";
-import { LEGAL_DOCUMENT_PROBLEM_COPY } from "@keel/domain/provider-legal-documents";
+import {
+  LEGAL_DOCUMENT_PROBLEM_COPY,
+  LEGAL_DOCUMENT_SCAN_REASON_COPY,
+} from "@keel/domain/provider-legal-documents";
 
 type ExportRow = Record<LegalEntityExportField, string>;
 
@@ -87,16 +90,23 @@ function nameEvidence(sources: readonly LegalEntitySourceSummary[]): string {
     }
     const evidence = source.legalEntityNameEvidence;
     const documents = (evidence.documents ?? [])
-      .map((document) =>
-        document.citations !== undefined && document.citations.length > 0
-          ? document.citations
-              .map(
-                (citation) =>
-                  `${document.fileName}, page ${citation.page.toString()}; SHA-256 ${document.sha256}; ${citation.quote}`,
-              )
-              .join(" | ")
-          : `${document.fileName}${document.page === null ? "" : `, page ${document.page.toString()}`}; SHA-256 ${document.sha256}${document.quote === null ? "" : `; ${document.quote}`}`,
-      )
+      .map((document) => {
+        const security =
+          document.scan?.outcome === "blocked"
+            ? `; Security check: ${document.scan.version === 2 ? document.scan.findings.map((finding) => `${LEGAL_DOCUMENT_SCAN_REASON_COPY[finding.reason].label}${finding.signature === null ? "" : ` (${finding.signature})`}`).join("; ") : "Blocked, alert reason unavailable"}; checked ${document.scan.scannedAt}`
+            : "";
+        return (
+          (document.citations !== undefined && document.citations.length > 0
+            ? document.citations
+                .map(
+                  (citation) =>
+                    `${document.fileName}, page ${citation.page.toString()}; SHA-256 ${document.sha256}; ${citation.quote}`,
+                )
+                .join(" | ")
+            : `${document.fileName}${document.page === null ? "" : `, page ${document.page.toString()}`}; SHA-256 ${document.sha256}${document.quote === null ? "" : `; ${document.quote}`}`) +
+          security
+        );
+      })
       .join(" | ");
     const status =
       evidence.state === "unavailable"

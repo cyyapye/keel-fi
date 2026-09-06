@@ -64,6 +64,7 @@ import {
 } from "@playwright/test";
 import { z } from "zod";
 import {
+  AgreementRecheckError,
   createProviderAgreementCollector,
   type AgreementCollector,
 } from "./provider-legal-document-capture";
@@ -1681,6 +1682,16 @@ async function executeRun(
     }
     const code =
       error instanceof AgentFailure ? error.code : "unexpected_failure";
+    if (error instanceof AgreementRecheckError) {
+      // Bounded operational reason only: no document IDs, names, links or text.
+      console.error(
+        JSON.stringify({
+          event: "agreement_recheck_failed",
+          provider,
+          reason: error.reason,
+        }),
+      );
+    }
     if (captureStage !== null && !captureComplete) {
       console.error(
         JSON.stringify({

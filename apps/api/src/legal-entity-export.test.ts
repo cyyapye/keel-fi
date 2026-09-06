@@ -121,6 +121,58 @@ const inventory = {
 } satisfies LegalEntityInventory;
 
 describe("legal entity CSV export", () => {
+  it("exports the specific security reason without guessing a legal name or calling a scan limit malware", () => {
+    const blocked: LegalEntitySourceSummary = {
+      ...source,
+      suggestedEntityType: null,
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem: "security_blocked",
+        documents: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            fileName: "synthetic-agreement.pdf",
+            sha256: "a".repeat(64),
+            page: null,
+            quote: null,
+            scan: {
+              version: 2,
+              engineVersion: "1.5.3",
+              databaseVersion: 28000,
+              databaseUpdatedAt: inventory.asOf,
+              scannedAt: inventory.asOf,
+              sha256: "a".repeat(64),
+              outcome: "blocked",
+              findings: [
+                {
+                  reason: "scan_limit",
+                  signature: "Heuristics.Limits.Exceeded.MaxFileSize",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+    const rows = legalEntityExportRows(
+      { ...inventory, entities: [], candidates: [blocked] },
+      {
+        fields: ["legal_name", "name_evidence"],
+        includeNeedsReview: true,
+        includeHistorical: false,
+        includeOtherEntityTypes: false,
+      },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.legal_name).toBe("");
+    expect(rows[0]?.name_evidence).toContain(
+      "Scan limit reached (Heuristics.Limits.Exceeded.MaxFileSize)",
+    );
+    expect(rows[0]?.name_evidence).toContain(`checked ${inventory.asOf}`);
+    expect(rows[0]?.name_evidence).not.toContain("malware");
+  });
   it.each(["document_choice", "document_correction"] as const)(
     "exports a %s distinctly from unresolved alternatives",
     (kind) => {

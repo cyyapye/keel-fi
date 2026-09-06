@@ -49,6 +49,7 @@ async function sha256(value: string) {
 export function legalNameEvidenceFromDocuments(
   capture: ProviderLegalDocumentCapture,
   documents: readonly StoredLegalDocument[],
+  provider?: Provider,
 ): LegalEntityNameEvidence {
   const references = documents.map((document) => ({
     id: document.id,
@@ -57,6 +58,8 @@ export function legalNameEvidenceFromDocuments(
     page: document.extraction.citations[0]?.page ?? null,
     quote: document.extraction.citations[0]?.quote ?? null,
     citations: document.extraction.citations,
+    ...(document.scan === undefined ? {} : { scan: document.scan }),
+    ...(provider === undefined ? {} : { provider }),
   }));
   const names = new Set(
     documents.flatMap((document) =>
@@ -196,6 +199,31 @@ export class D1ProviderLegalDocumentRepository {
     return result.results;
   }
 
+  public async recheckProvider(
+    accessSubject: string,
+    documentId: string,
+    provider?: Provider,
+  ): Promise<Provider> {
+    // Exact owned document plus current provider observations. No object reads,
+    // caller-provided URLs, inferred provider labels, or per-row round trips.
+    const result = await this.db
+      .prepare(
+        `SELECT DISTINCT latest.provider
+      FROM users user JOIN households household ON household.owner_user_id = user.id
+      JOIN source_documents document ON document.household_id = household.id AND document.id = ?
+      JOIN provider_legal_document_latest latest ON latest.household_id = household.id
+      JOIN provider_legal_document_observations observation ON observation.id = latest.observation_id
+      JOIN json_each(observation.capture_json, '$.documents') entry
+      WHERE user.access_subject = ? AND json_extract(entry.value, '$.id') = document.id
+        AND (? IS NULL OR latest.provider = ?) LIMIT 2`,
+      )
+      .bind(documentId, accessSubject, provider ?? null, provider ?? null)
+      .all<{ provider: Provider }>();
+    if (result.results.length !== 1)
+      throw new ProviderLegalDocumentError("not_found");
+    return result.results[0]!.provider;
+  }
+
   public async record(
     lease: LegalDocumentLease,
     positionFingerprint: string,
@@ -307,7 +335,11 @@ export class D1ProviderLegalDocumentRepository {
         document.id = original.id;
       });
     }
-    const evidence = legalNameEvidenceFromDocuments(capture, stored);
+    const evidence = legalNameEvidenceFromDocuments(
+      capture,
+      stored,
+      lease.provider,
+    );
     const id = crypto.randomUUID();
     await this.db.batch([
       this.db

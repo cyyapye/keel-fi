@@ -8,6 +8,7 @@ import { z } from "zod";
 import { MAX_LEGAL_DOCUMENT_TEXT_BYTES } from "../packages/domain/src/provider-legal-documents";
 import {
   LegalDocumentScanSchema,
+  LEGAL_DOCUMENT_SCANNER_VERSION,
   MAX_LEGAL_DOCUMENT_BYTES,
 } from "../packages/domain/src/provider-legal-documents";
 
@@ -437,6 +438,8 @@ export async function runDocumentScan(
   const result = LegalDocumentScanSchema.parse(
     JSON.parse(await runIsolated(config, input, command, "scanner")),
   );
+  if (result.version !== LEGAL_DOCUMENT_SCANNER_VERSION)
+    throw new Error("scanner_update_required");
   const { createHash } = await import("node:crypto");
   if (result.sha256 !== createHash("sha256").update(input).digest("hex"))
     throw new Error("scan_digest_mismatch");

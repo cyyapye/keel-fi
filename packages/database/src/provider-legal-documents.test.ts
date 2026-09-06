@@ -430,6 +430,25 @@ describe("provider agreement evidence repository", () => {
     );
     const id = manifest.captures[0]?.documents[0]?.id ?? "";
     d1.queries.length = 0;
+    expect(
+      await repository.recheckProvider("synthetic-access-subject", id),
+    ).toBe("sydecar");
+    expect(d1.queries).toHaveLength(1);
+    const recheckPlan = d1.sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${d1.queries[0]}`)
+      .all(id, "synthetic-access-subject", null, null)
+      .map((row) => row.detail)
+      .join("\n");
+    expect(recheckPlan).toContain("SEARCH latest USING");
+    expect(recheckPlan).toContain("SEARCH observation USING");
+    expect(recheckPlan).not.toMatch(/SCAN (?:latest|observation|document)/u);
+    await expect(
+      repository.recheckProvider("other-subject", id),
+    ).rejects.toThrow("not_found");
+    await expect(
+      repository.recheckProvider("synthetic-access-subject", id, "tokenfolio"),
+    ).rejects.toThrow("not_found");
+    d1.queries.length = 0;
     await expect(
       repository.document("synthetic-access-subject", id),
     ).resolves.toMatchObject({

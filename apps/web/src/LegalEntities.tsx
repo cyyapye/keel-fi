@@ -15,7 +15,10 @@ import {
   type LegalEntityType,
   type LegalNameResolutionInput,
 } from "@keel/domain/legal-entities";
-import { LEGAL_DOCUMENT_PROBLEM_COPY } from "@keel/domain/provider-legal-documents";
+import {
+  LEGAL_DOCUMENT_PROBLEM_COPY,
+  LEGAL_DOCUMENT_SCAN_REASON_COPY,
+} from "@keel/domain/provider-legal-documents";
 import { LegalNameResolver } from "./LegalNameResolver";
 import {
   ActionGroup,
@@ -60,6 +63,7 @@ import {
   downloadLegalEntityExport,
   loadLegalEntities,
   reviewLegalEntitySource,
+  recheckLegalEntityDocument,
   updateLegalEntity,
 } from "./api";
 import { formatDate } from "./format";
@@ -215,6 +219,24 @@ function AgreementEvidence({
 }) {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [queued, setQueued] = useState<ReadonlySet<string>>(new Set());
+  const [denied, setDenied] = useState<ReadonlySet<string>>(new Set());
+  const recheck = async (id: string, provider?: "sydecar" | "tokenfolio") => {
+    setWorking(true);
+    setError(null);
+    try {
+      await recheckLegalEntityDocument(id, provider);
+      setQueued((prior) => new Set([...prior, id]));
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "The agreement check could not be queued. Try again.",
+      );
+    } finally {
+      setWorking(false);
+    }
+  };
   const download = async (id: string, fileName: string) => {
     setWorking(true);
     setError(null);
@@ -229,6 +251,8 @@ function AgreementEvidence({
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (failure) {
+      if (failure instanceof AgreementSecurityCheckError)
+        setDenied((prior) => new Set([...prior, id]));
       setError(
         failure instanceof AgreementSecurityCheckError
           ? failure.message
@@ -247,6 +271,28 @@ function AgreementEvidence({
       ),
     ).values(),
   ];
+  const unavailableIds = new Set(
+    sources.flatMap((source) =>
+      source.legalEntityNameEvidence.state === "unavailable" &&
+      ["security_blocked", "scanner_unavailable"].includes(
+        source.legalEntityNameEvidence.problem ?? "",
+      )
+        ? (source.legalEntityNameEvidence.documents ?? [])
+            .filter((document) => document.scan === undefined)
+            .map((document) => document.id)
+        : [],
+    ),
+  );
+  const incompleteIds = new Set(
+    sources.flatMap((source) =>
+      source.legalEntityNameEvidence.state === "unavailable" &&
+      source.legalEntityNameEvidence.problem === "scanner_unavailable"
+        ? (source.legalEntityNameEvidence.documents ?? [])
+            .filter((document) => document.scan === undefined)
+            .map((document) => document.id)
+        : [],
+    ),
+  );
   if (documents.length === 0) return null;
   return (
     <Collapsible className="legal-entity-documents">
@@ -256,20 +302,98 @@ function AgreementEvidence({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <ul>
-          {documents.map((document) => (
-            <li key={document.id}>
-              <TextLink
-                disabled={working}
-                onClick={() => void download(document.id, document.fileName)}
-              >
-                {document.fileName}
-                {document.page === null
-                  ? ""
-                  : ` · page ${document.page.toString()}`}
-              </TextLink>
-              {document.quote !== null && <p>{document.quote}</p>}
-            </li>
-          ))}
+          {documents.map((document) => {
+            const blocked =
+              document.scan?.outcome === "blocked" ||
+              unavailableIds.has(document.id) ||
+              denied.has(document.id);
+            const findings =
+              document.scan?.version === 2 &&
+              document.scan.outcome === "blocked"
+                ? document.scan.findings
+                : blocked && !incompleteIds.has(document.id)
+                  ? [{ reason: "unknown_alert" as const, signature: null }]
+                  : [];
+            return (
+              <li key={document.id}>
+                {blocked ? (
+                  <p className="legal-entity-documents__name">
+                    {document.fileName}
+                  </p>
+                ) : (
+                  <TextLink
+                    disabled={working}
+                    onClick={() =>
+                      void download(document.id, document.fileName)
+                    }
+                  >
+                    {document.fileName}
+                    {document.page === null
+                      ? ""
+                      : ` · page ${document.page.toString()}`}
+                  </TextLink>
+                )}
+                {document.quote !== null && <p>{document.quote}</p>}
+                {incompleteIds.has(document.id) && (
+                  <div className="legal-entity-documents__finding">
+                    <p className="legal-entity-documents__name">
+                      Security check incomplete
+                    </p>
+                    <p>
+                      The scanner did not complete this check. Recheck the
+                      agreement; if it fails again, Keel's scanner setup needs
+                      attention.
+                    </p>
+                  </div>
+                )}
+                {findings.map((finding) => (
+                  <div
+                    key={finding.signature ?? finding.reason}
+                    className="legal-entity-documents__finding"
+                  >
+                    <p className="legal-entity-documents__name">
+                      {LEGAL_DOCUMENT_SCAN_REASON_COPY[finding.reason].label}
+                    </p>
+                    <p>
+                      {LEGAL_DOCUMENT_SCAN_REASON_COPY[finding.reason].detail}
+                    </p>
+                    {finding.signature !== null && (
+                      <p>Scanner code: {finding.signature}</p>
+                    )}
+                  </div>
+                ))}
+                {blocked && document.scan !== undefined && (
+                  <p>Checked {formatDate(document.scan.scannedAt)}</p>
+                )}
+                {blocked && (
+                  <ActionGroup>
+                    <Button
+                      tone="secondary"
+                      disabled={working || queued.has(document.id)}
+                      onClick={() =>
+                        void recheck(document.id, document.provider)
+                      }
+                    >
+                      {queued.has(document.id)
+                        ? "Check queued"
+                        : "Recheck agreement"}
+                    </Button>
+                  </ActionGroup>
+                )}
+                {queued.has(document.id) && (
+                  <FormMessage tone="success">
+                    Recheck requested. The agreement stays blocked until it
+                    passes. Check progress in Sources, then reload this page.
+                  </FormMessage>
+                )}
+                {queued.has(document.id) && (
+                  <TextLink href="/holdings/sources">
+                    View source progress
+                  </TextLink>
+                )}
+              </li>
+            );
+          })}
         </ul>
         {error !== null && <FormMessage tone="error">{error}</FormMessage>}
       </CollapsibleContent>

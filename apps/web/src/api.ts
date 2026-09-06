@@ -307,7 +307,7 @@ export async function applyLegalEntityExactBatch(
 export class AgreementSecurityCheckError extends Error {
   constructor() {
     super(
-      "This agreement has not passed its security check. Queue a source update to check it again.",
+      "Download blocked. Recheck this agreement for the current security result.",
     );
   }
 }
@@ -331,6 +331,31 @@ export async function downloadLegalEntityDocument(id: string): Promise<Blob> {
       "The agreement could not be downloaded. Try again or check source access.",
     );
   return response.blob();
+}
+
+export async function recheckLegalEntityDocument(
+  id: string,
+  provider?: "sydecar" | "tokenfolio",
+) {
+  const response = await fetch(
+    `/api/legal-entity-documents/${encodeURIComponent(id)}/recheck`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(provider === undefined ? {} : { provider }),
+    },
+  );
+  if (!response.ok)
+    throw await responseError(
+      response,
+      "The agreement check could not be queued.",
+    );
+  return ProviderPortfolioAgentRunRequestSchema.parse(await response.json());
 }
 
 export async function downloadLegalEntityExport(

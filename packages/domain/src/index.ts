@@ -1411,6 +1411,7 @@ export const ProviderPortfolioAgentLeaseSchema = z
         id: z.uuid(),
         leaseToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
         expiresAt: IsoTimestampSchema,
+        recheckDocumentId: z.uuid().optional(),
       })
       .strict()
       .nullable(),

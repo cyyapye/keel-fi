@@ -6031,6 +6031,18 @@ h1,
   white-space: normal;
 }
 
+.legal-entity-documents__name {
+  font-weight: 600;
+}
+
+.legal-entity-documents__finding {
+  margin: 12px 0;
+}
+
+.legal-entity-documents__finding p {
+  margin: 4px 0;
+}
+
 .legal-entity-row footer > div {
   flex: 1;
   min-width: 0;

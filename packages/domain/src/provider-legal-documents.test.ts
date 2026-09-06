@@ -1,5 +1,66 @@
 import { describe, expect, it } from "vitest";
-import { LegalDocumentExtractionSchema } from "./provider-legal-documents";
+import {
+  LegalDocumentExtractionSchema,
+  LegalDocumentScanSchema,
+} from "./provider-legal-documents";
+
+describe("document security reasons", () => {
+  const scan = {
+    version: 2,
+    engineVersion: "1.5.3",
+    databaseVersion: 28000,
+    databaseUpdatedAt: "2026-09-01T12:00:00.000Z",
+    scannedAt: "2026-09-01T12:00:00.000Z",
+    sha256: "a".repeat(64),
+    outcome: "blocked",
+    findings: [{ reason: "encrypted", signature: "Heuristics.Encrypted.PDF" }],
+  };
+  it("retains the specific alert while accepting historical binary verdicts", () => {
+    expect(LegalDocumentScanSchema.safeParse(scan).success).toBe(true);
+    const { findings, ...legacy } = scan;
+    expect(findings).toHaveLength(1);
+    expect(
+      LegalDocumentScanSchema.safeParse({ ...legacy, version: 1 }).success,
+    ).toBe(true);
+  });
+  it("rejects inconsistent, unbounded, or content-bearing scanner details", () => {
+    for (const candidate of [
+      { ...scan, outcome: "clean" },
+      { ...scan, findings: [] },
+      { ...scan, findings: Array.from({ length: 9 }, () => scan.findings[0]) },
+      {
+        ...scan,
+        findings: [
+          {
+            reason: "malware_signature",
+            signature: "Heuristics.Encrypted.PDF",
+          },
+        ],
+      },
+      {
+        ...scan,
+        findings: [
+          { reason: "unknown_alert", signature: "private agreement text\n" },
+        ],
+      },
+      { ...scan, version: 3 },
+    ])
+      expect(LegalDocumentScanSchema.safeParse(candidate).success).toBe(false);
+    expect(
+      LegalDocumentScanSchema.safeParse({
+        ...scan,
+        findings: [{ reason: "unknown_alert", signature: null }],
+      }).success,
+    ).toBe(true);
+    expect(
+      LegalDocumentScanSchema.safeParse({
+        ...scan,
+        outcome: "clean",
+        findings: [],
+      }).success,
+    ).toBe(true);
+  });
+});
 
 describe("conflicting legal-document evidence", () => {
   const first = {
