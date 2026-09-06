@@ -59,12 +59,15 @@ def main():
     if not 0 <= (now - database_time).total_seconds() <= 72 * 3600:
         raise ValueError("stale signature database")
     # Output exists only on the container's bounded tmpfs, never in host logs.
-    # Read at most 4 KiB; excess output fails closed. All existing scan flags,
-    # deadlines and sandbox limits are unchanged.
+    # Read at most 4 KiB; excess output fails closed. PDF streams count toward
+    # MaxFiles: 100 incorrectly blocks ordinary multi-stream agreements. Use
+    # ClamAV's documented 10000-item default, still bounded by our stricter
+    # byte/time/depth budgets and unchanged OS-enforced sandbox limits. Never
+    # retry with relaxed flags or treat an exceeded limit as a clean scan.
     with tempfile.TemporaryFile() as output:
         result = subprocess.run([
         "/usr/bin/clamscan", "--stdout", "--no-summary", "--infected",
-        "--max-filesize=8M", "--max-scansize=32M", "--max-files=100",
+        "--max-filesize=8M", "--max-scansize=32M", "--max-files=10000",
         "--max-recursion=8", "--max-scantime=30000", "--alert-exceeds-max=yes",
         "--alert-encrypted=yes", "--alert-broken=yes", "-",
         ], input=content, stdout=output, stderr=subprocess.DEVNULL,

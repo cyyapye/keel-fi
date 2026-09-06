@@ -133,8 +133,17 @@ processes, 16 MiB scratch, 8 MiB input, and 4 KiB result JSON. Its parent
 deadline is 90 seconds and its independent watchdog is 95 seconds. These
 settings do not increase the reader's 256 MiB / 30-second allowance.
 
-The scanner limits decompressed data, recursion, files, and scan time. ClamAV
-alerts for encrypted content, broken executables and exceeded limits are
+The scanner permits at most 10,000 extracted items per input, matching
+[ClamAV's documented MaxFiles default](https://github.com/Cisco-Talos/clamav/blob/main/docs/man/clamscan.1.in).
+This counts internal PDF streams and embedded files, not the number of portfolio
+agreements. The former 100-item cap could block an ordinary multi-stream PDF
+even when it was small. Keep the independent 8 MiB per-file, 32 MiB total
+expanded-data, recursion-depth 8 and 30-second scan-work budgets; the container,
+parent and watchdog limits above remain unchanged. The fixed item cap is not
+caller-configurable and a limit failure never triggers an automatically looser
+retry. The existing per-run document and download budgets also remain unchanged.
+
+ClamAV alerts for encrypted content, broken executables and exceeded limits are
 blocked, not misreported as clean. A non-completed scan is unavailable. Neither
 path reaches Poppler. Original bytes may still be stored in private quarantine,
 with an explicit security-check problem. A clean verdict is tied to the exact
@@ -176,8 +185,14 @@ because a provider supplied the file; investigate privately or obtain a new
 copy.
 
 `make pdf-sandbox-verify` additionally runs a real clean synthetic PDF and the
-standard inert antivirus test string. Both must produce the expected result. The
-test string never reaches a provider or R2. Production capture has no
+standard inert antivirus test string. It requires a 512-stream compressed PDF to
+scan clean and yield its exact synthetic issuer name, detects the inert test
+marker compressed in stream 512, and blocks a 10,001-entry synthetic ZIP
+specifically with `Heuristics.Limits.Exceeded.MaxFiles`. The expanded-file-size
+negative control must still block. This proves both useful coverage beyond the
+old cap and fail-closed enforcement of the new one. Small ZIP entries isolate
+the item budget; a large PDF can correctly hit the unchanged scan-time budget
+first. The test string never reaches a provider or R2. Production capture has no
 network-enabled signature updater and cannot build an image itself.
 
 On OVH, install `scripts/keel-document-scanner-refresh@.service` and `.timer`
