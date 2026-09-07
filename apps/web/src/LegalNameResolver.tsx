@@ -179,7 +179,7 @@ export function LegalNameResolver({
           ? "Keep the compartment and its representative separate. Confirm the entity type from the agreement when adding the record."
           : reviewKind === "document"
             ? "Read the PDF in Agreement evidence, then enter the exact name and page."
-            : "Choose the name for this investment. Nothing is selected automatically."}
+            : "Different vehicles may be separate investments. Use Assign agreements below for those; choose a name here only for this investment."}
       </p>
       {structure &&
         documents.map((document) =>

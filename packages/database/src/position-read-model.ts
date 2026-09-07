@@ -2,6 +2,7 @@ import {
   investmentSourceFreshness,
   InvestmentPositionViewSchema,
   LegalEntityNameEvidenceSchema,
+  reviewedInvestmentNameEvidence,
   type InvestmentCoverageCompleteness,
   type InvestmentPositionConnection,
   type InvestmentPositionContainer,
@@ -13,6 +14,12 @@ import {
   ReportedPositionEconomicsTermsSchema,
 } from "@keel/domain/position-economics";
 import { PositionValueAdjustmentSchema } from "@keel/domain/position-value";
+import {
+  InvestmentCompanyReceiptSchema,
+  InvestmentReviewStateSchema,
+} from "@keel/domain/investment-review";
+import { LegalNameDocumentReferenceSchema } from "@keel/domain/provider-legal-documents";
+import { z } from "zod";
 
 type HouseholdIdentity = {
   household_id: string;
@@ -80,6 +87,9 @@ type InvestmentPositionRow = {
   retrieved_at: string;
   import_provider: string;
   legal_name_evidence_json: string | null;
+  investment_review_json?: string | null;
+  company_review_json?: string | null;
+  incoming_document_json?: string | null;
   adjustment_id: string | null;
   adjustment_supersedes_proposal_id: string | null;
   adjustment_snapshot_id: string | null;
@@ -188,7 +198,21 @@ function positionFromRow(
   return {
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
-    legalEntityNameEvidence:
+    ...(row.investment_review_json == null
+      ? {}
+      : {
+          investmentReview: InvestmentReviewStateSchema.parse(
+            JSON.parse(row.investment_review_json),
+          ),
+        }),
+    ...(row.company_review_json == null
+      ? {}
+      : {
+          companyReview: InvestmentCompanyReceiptSchema.parse(
+            JSON.parse(row.company_review_json),
+          ),
+        }),
+    legalEntityNameEvidence: reviewedInvestmentNameEvidence(
       row.import_provider === "angellist"
         ? {
             state: "provider_reported",
@@ -207,6 +231,16 @@ function positionFromRow(
                 ? { problem: "not_checked" as const }
                 : {}),
             },
+      row.investment_review_json == null
+        ? null
+        : InvestmentReviewStateSchema.parse(
+            JSON.parse(row.investment_review_json),
+          ),
+      z
+        .array(LegalNameDocumentReferenceSchema)
+        .max(6)
+        .parse(JSON.parse(row.incoming_document_json ?? "[]")),
+    ),
     ownerLabel: row.owner_label,
     reportedExposureName: row.reported_exposure_name,
     kind: row.position_kind,
@@ -445,6 +479,10 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              document.retrieved_at,
              accepted_import.provider AS import_provider,
              legal_observation.evidence_json AS legal_name_evidence_json,
+             investment_review.state_json AS investment_review_json,
+             company_review.receipt_json AS company_review_json,
+             (SELECT json_group_array(json(assignment.document_json)) FROM investment_document_assignments assignment
+               WHERE assignment.household_id = position.household_id AND assignment.target_position_id = position.id) AS incoming_document_json,
              adjustment.id AS adjustment_id,
              adjustment.supersedes_proposal_id
                AS adjustment_supersedes_proposal_id,
@@ -515,6 +553,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ON prior_snapshot.id = prior_application.snapshot_id
            JOIN holding_import_rows accepted_row
              ON accepted_row.id = application.import_row_id
+           LEFT JOIN holding_import_row_provider_investments provider_identity ON provider_identity.import_row_id = accepted_row.id
            LEFT JOIN holding_import_row_reported_economics_evidence
              economics_evidence
              ON economics_evidence.import_row_id = accepted_row.id
@@ -526,6 +565,13 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
             AND legal_latest.position_fingerprint = accepted_row.position_fingerprint
            LEFT JOIN provider_legal_document_observations legal_observation
              ON legal_observation.id = legal_latest.observation_id
+             AND (provider_identity.provider_investment_id IS NULL OR json_extract(legal_observation.capture_json, '$.sourceInvestment.id') = provider_identity.provider_investment_id)
+           LEFT JOIN holding_investment_reviews investment_review ON investment_review.id = (
+             SELECT id FROM holding_investment_reviews WHERE household_id = position.household_id AND position_id = position.id ORDER BY version DESC LIMIT 1
+           )
+           LEFT JOIN investment_company_reviews company_review ON company_review.id = (
+             SELECT id FROM investment_company_reviews WHERE household_id = position.household_id AND position_id = position.id ORDER BY version DESC LIMIT 1
+           )
            JOIN source_documents document
              ON document.id = accepted_import.source_document_id
            LEFT JOIN holding_position_value_proposals adjustment

@@ -1,4 +1,16 @@
 import {
+  CreateDocumentInvestmentInputSchema,
+  CreateDocumentInvestmentResultSchema,
+  InvestmentCompanyReceiptSchema,
+  InvestmentCompanyReviewInputSchema,
+  InvestmentReviewContextSchema,
+  InvestmentReviewStateSchema,
+  ReviewInvestmentInputSchema,
+  type CreateDocumentInvestmentInput,
+  type InvestmentCompanyReviewInput,
+  type ReviewInvestmentInput,
+} from "@keel/domain/investment-review";
+import {
   AlphaDataSchema,
   AngelListAutomationOverviewSchema,
   AngelListMacAgentConfigInputSchema,
@@ -221,6 +233,74 @@ export async function loadLegalEntities(
     );
   }
   return LegalEntityInventorySchema.parse(await response.json());
+}
+
+async function investmentReviewRequest(
+  positionId: string,
+  suffix: string,
+  input?: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const response = await fetch(
+    `/api/investment-positions/${encodeURIComponent(positionId)}/${suffix}`,
+    {
+      method: input === undefined ? "GET" : "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        ...(input === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      ...(input === undefined ? {} : { body: JSON.stringify(input) }),
+      signal: signal ?? null,
+    },
+  );
+  if (!response.ok)
+    throw await responseError(response, "Investment review is unavailable.");
+  return response.json();
+}
+export async function loadInvestmentReview(
+  positionId: string,
+  signal?: AbortSignal,
+) {
+  return InvestmentReviewContextSchema.parse(
+    await investmentReviewRequest(positionId, "review", undefined, signal),
+  );
+}
+export async function saveInvestmentReview(
+  positionId: string,
+  input: ReviewInvestmentInput,
+) {
+  return InvestmentReviewStateSchema.parse(
+    await investmentReviewRequest(
+      positionId,
+      "review",
+      ReviewInvestmentInputSchema.parse(input),
+    ),
+  );
+}
+export async function saveInvestmentCompany(
+  positionId: string,
+  input: InvestmentCompanyReviewInput,
+) {
+  return InvestmentCompanyReceiptSchema.parse(
+    await investmentReviewRequest(
+      positionId,
+      "company-review",
+      InvestmentCompanyReviewInputSchema.parse(input),
+    ),
+  );
+}
+export async function createDocumentInvestment(
+  positionId: string,
+  input: CreateDocumentInvestmentInput,
+) {
+  return CreateDocumentInvestmentResultSchema.parse(
+    await investmentReviewRequest(
+      positionId,
+      "related-investments",
+      CreateDocumentInvestmentInputSchema.parse(input),
+    ),
+  );
 }
 
 export async function createLegalEntity(

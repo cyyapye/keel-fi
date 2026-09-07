@@ -58,6 +58,15 @@ export function legalNameEvidenceFromDocuments(
     page: document.extraction.citations[0]?.page ?? null,
     quote: document.extraction.citations[0]?.quote ?? null,
     citations: document.extraction.citations,
+    ...(document.extraction.companyCitations === undefined
+      ? {}
+      : { companyCitations: document.extraction.companyCitations }),
+    extractorVersion: document.extraction.version,
+    extractionProblem: document.extraction.problem,
+    observedAt: document.checkedAt,
+    ...(capture.sourceInvestment === undefined
+      ? {}
+      : { sourceInvestment: capture.sourceInvestment }),
     ...(document.extraction.structure === undefined
       ? {}
       : { structure: document.extraction.structure }),

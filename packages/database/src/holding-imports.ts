@@ -79,7 +79,9 @@ const PRIVATE_HOLDING_IMPORT_METADATA = {
 const HoldingImportStageInputSchema = z
   .object({
     provider: PrivateHoldingImportProviderSchema.default(ANGELLIST_PROVIDER),
-    formatVersion: z.union([z.literal(1), z.literal(2)]).default(1),
+    formatVersion: z
+      .union([z.literal(1), z.literal(2), z.literal(3)])
+      .default(1),
     objectKey: z.string().min(1).max(1_024),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     byteSize: z.number().int().positive().max(MAX_IMPORT_BYTES),
@@ -129,7 +131,10 @@ const HoldingImportStageInputSchema = z
         message: "Provider templates cannot claim provider-locked values.",
       });
     }
-    if (value.provider !== SYDECAR_PROVIDER && value.formatVersion !== 1) {
+    if (
+      (value.provider === ANGELLIST_PROVIDER && value.formatVersion !== 1) ||
+      (value.provider === TOKENFOLIO_PROVIDER && value.formatVersion === 2)
+    ) {
       context.addIssue({
         code: "custom",
         path: ["formatVersion"],
@@ -138,7 +143,7 @@ const HoldingImportStageInputSchema = z
     }
     if (
       value.provider === SYDECAR_PROVIDER &&
-      value.formatVersion === 2 &&
+      value.formatVersion >= 2 &&
       value.rows.some(
         (row) =>
           row.dealMetadata.managementFeePpm === null ||
@@ -151,6 +156,15 @@ const HoldingImportStageInputSchema = z
         message: "Sydecar version 2 rows require management fee and carry.",
       });
     }
+    if (
+      value.formatVersion === 3 &&
+      value.rows.some((row) => row.providerInvestmentId === undefined)
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["rows"],
+        message: "Captured investments require their provider investment ID.",
+      });
     if (
       value.provider === SYDECAR_PROVIDER &&
       value.formatVersion === 1 &&
@@ -720,9 +734,11 @@ export class D1HoldingImportRepository {
     const input = HoldingImportStageInputSchema.parse(rawInput);
     const importMetadata = PRIVATE_HOLDING_IMPORT_METADATA[input.provider];
     const parserSchema =
-      input.provider === SYDECAR_PROVIDER && input.formatVersion === 2
-        ? SYDECAR_PARSER_SCHEMA_V2
-        : importMetadata.parserSchema;
+      input.formatVersion === 3
+        ? `${input.provider}_keel_template_v3`
+        : input.provider === SYDECAR_PROVIDER && input.formatVersion === 2
+          ? SYDECAR_PARSER_SCHEMA_V2
+          : importMetadata.parserSchema;
     const identity = await this.findIdentity(accessSubject);
     const createdAt = new Date().toISOString();
     const canonical = await this.prepareCanonicalScope(
@@ -933,6 +949,14 @@ export class D1HoldingImportRepository {
               createdAt,
             ),
         );
+        if (row.providerInvestmentId !== undefined)
+          statements.push(
+            this.db
+              .prepare(
+                `INSERT INTO holding_import_row_provider_investments (import_row_id, household_id, provider_investment_id) VALUES (?, ?, ?)`,
+              )
+              .bind(rowId, identity.household_id, row.providerInvestmentId),
+          );
         if (economicsEvidence !== null) {
           statements.push(
             this.reportedEconomicsEvidenceInsert(

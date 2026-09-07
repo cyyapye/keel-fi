@@ -1,5 +1,10 @@
 import { z } from "zod";
 import {
+  InvestmentCompanyReceiptSchema,
+  InvestmentReviewStateSchema,
+  type InvestmentReviewState,
+} from "./investment-review";
+import {
   LegalDocumentProblemSchema,
   LegalNameDocumentReferenceSchema,
 } from "./provider-legal-documents";
@@ -51,7 +56,7 @@ const ReportedLegalEntityNameSchema = z
     state: z.enum(["provider_reported", "document_reported"]),
     legalName: z.string().trim().min(1).max(1_000),
     sourceField: z.string().trim().min(1).max(240),
-    documents: z.array(LegalNameDocumentReferenceSchema).max(6).optional(),
+    documents: z.array(LegalNameDocumentReferenceSchema).max(100).optional(),
   })
   .strict();
 
@@ -61,7 +66,7 @@ const UnavailableLegalEntityNameSchema = z
     legalName: z.null(),
     sourceField: z.null(),
     problem: LegalDocumentProblemSchema.optional(),
-    documents: z.array(LegalNameDocumentReferenceSchema).max(6).optional(),
+    documents: z.array(LegalNameDocumentReferenceSchema).max(100).optional(),
   })
   .strict();
 
@@ -110,6 +115,8 @@ export const InvestmentPositionRecordSchema = z.object({
   acceptedEconomicsTerms: PositionEconomicsTermsSchema.nullable().optional(),
   reportedEconomicsTerms:
     ReportedPositionEconomicsTermsSchema.nullable().optional(),
+  investmentReview: InvestmentReviewStateSchema.nullable().optional(),
+  companyReview: InvestmentCompanyReceiptSchema.nullable().optional(),
   priorValue: PriorPositionValueSchema.nullable().optional(),
 });
 
@@ -166,6 +173,79 @@ export type InvestmentPositionRecord = z.infer<
 export type LegalEntityNameEvidence = z.infer<
   typeof LegalEntityNameEvidenceSchema
 >;
+
+// Pure projection of an explicit per-position document decision. Keep original
+// provider captures untouched; unrelated/parent agreements do not identify this
+// position. Incoming documents are already scoped by the indexed repository join.
+export function reviewedInvestmentNameEvidence(
+  evidence: LegalEntityNameEvidence,
+  review: InvestmentReviewState | null,
+  incoming: z.infer<typeof LegalNameDocumentReferenceSchema>[] = [],
+): LegalEntityNameEvidence {
+  if ((review?.documentAssignments.length ?? 0) === 0 && incoming.length === 0)
+    return evidence;
+  const excluded = new Set(
+    review?.documentAssignments
+      .filter((item) => item.relationship !== "supports")
+      .map((item) => `${item.documentId}:${item.sha256}`),
+  );
+  const documents = [
+    ...new Map(
+      [...(evidence.documents ?? []), ...incoming]
+        .filter((doc) => !excluded.has(`${doc.id}:${doc.sha256}`))
+        .map((doc) => [doc.id, doc]),
+    ).values(),
+  ];
+  const names = [
+    ...new Set(
+      documents.flatMap(
+        (doc) => doc.citations?.map((citation) => citation.legalName) ?? [],
+      ),
+    ),
+  ];
+  const problem = documents.some((doc) => doc.scan?.outcome === "blocked")
+    ? "security_blocked"
+    : documents.some((doc) => doc.scan === undefined)
+      ? "scanner_unavailable"
+      : documents.some((doc) => doc.structure !== undefined)
+        ? "other_structure"
+        : (documents.find(
+            (doc) =>
+              doc.extractionProblem != null &&
+              doc.extractionProblem !== "name_not_found" &&
+              doc.extractionProblem !== "conflicting",
+          )?.extractionProblem ??
+          (evidence.state === "unavailable" &&
+          evidence.problem !== undefined &&
+          [
+            "limit_reached",
+            "page_changed",
+            "inaccessible",
+            "extractor_unavailable",
+          ].includes(evidence.problem)
+            ? evidence.problem
+            : names.length > 1
+              ? "conflicting"
+              : names.length === 0
+                ? "name_not_found"
+                : null));
+  return LegalEntityNameEvidenceSchema.parse(
+    problem === null
+      ? {
+          state: "document_reported",
+          legalName: names[0],
+          sourceField: "Assigned agreement",
+          documents,
+        }
+      : {
+          state: "unavailable",
+          legalName: null,
+          sourceField: null,
+          problem,
+          documents,
+        },
+  );
+}
 export type InvestmentPositionView = z.infer<
   typeof InvestmentPositionViewSchema
 >;

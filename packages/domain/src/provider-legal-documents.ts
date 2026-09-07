@@ -9,7 +9,7 @@ export const MAX_LEGAL_DOCUMENTS_PER_POSITION = 6;
 export const MAX_LEGAL_DOCUMENTS_PER_RUN = 24;
 export const MAX_LEGAL_DOCUMENT_RUN_BYTES = 64 * 1024 * 1024;
 export const MAX_LEGAL_DOCUMENT_POSITION_BYTES = 16 * 1024 * 1024;
-export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 4;
+export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 5;
 export const MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT = 8;
 export const LEGAL_DOCUMENT_RECHECK_MS = 7 * 24 * 60 * 60 * 1_000;
 export const LEGAL_DOCUMENT_SCANNER_VERSION = 2;
@@ -133,6 +133,24 @@ export const LegalDocumentCitationSchema =
     role: z.enum(["issuer", "fund", "company_agreement", "series"]),
   });
 
+// A target-company claim is distinct from the fund/issuer legal name. Merely
+// mentioning a company in a risk factor or comparable-company table is not one.
+export const UnderlyingCompanyCitationSchema = z
+  .object({
+    companyName: z.string().trim().min(1).max(1_000),
+    role: z.enum(["underlying_company", "target_company", "portfolio_company"]),
+    page: z.number().int().min(1).max(MAX_LEGAL_DOCUMENT_PAGES),
+    quote: z.string().trim().min(1).max(2_000),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.quote
+        .replace(/\s+/gu, " ")
+        .includes(value.companyName.replace(/\s+/gu, " ")),
+    "The citation must contain the exact reported company name.",
+  );
+
 // Party names describe the agreement, not an assertion of direct ownership.
 export const LegalDocumentStructureSchema = z
   .object({
@@ -165,6 +183,7 @@ export const LegalDocumentExtractionSchema = z
       z.literal(1),
       z.literal(2),
       z.literal(3),
+      z.literal(4),
       z.literal(LEGAL_DOCUMENT_EXTRACTOR_VERSION),
     ]),
     pageCount: z.number().int().min(0).max(MAX_LEGAL_DOCUMENT_PAGES),
@@ -173,6 +192,10 @@ export const LegalDocumentExtractionSchema = z
       .array(LegalDocumentCitationSchema)
       .max(MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT),
     structure: LegalDocumentStructureSchema.optional(),
+    companyCitations: z
+      .array(UnderlyingCompanyCitationSchema)
+      .max(8)
+      .optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -188,6 +211,13 @@ export const LegalDocumentExtractionSchema = z
           : value.citations.length === 0;
     if (
       !validState ||
+      ((value.companyCitations?.length ?? 0) > 0 &&
+        (value.version < 5 ||
+          value.problem === "security_blocked" ||
+          value.problem === "scanner_unavailable" ||
+          value.companyCitations?.some(
+            (citation) => citation.page > value.pageCount,
+          ))) ||
       value.citations.some((citation) => citation.page > value.pageCount) ||
       (value.structure !== undefined &&
         (value.version < 4 ||
@@ -242,11 +272,23 @@ export const CapturedLegalDocumentSchema = z
     "The scan must describe these exact bytes and block extraction when unsafe.",
   );
 
+export const SourceInvestmentReferenceSchema = z
+  .object({
+    id: z.string().regex(/^[A-Za-z0-9_-]{8,128}$/u),
+    association: z.enum([
+      "investment_page",
+      "document_investment_id",
+      "display_label",
+    ]),
+  })
+  .strict();
+
 export const ProviderLegalDocumentCaptureSchema = z
   .object({
     version: z.literal(1),
     naturalKeySha256: DigestSchema,
     ownershipLabel: z.string().trim().min(1).max(1_000),
+    sourceInvestment: SourceInvestmentReferenceSchema.optional(),
     problem: LegalDocumentProblemSchema.nullable(),
     documents: z
       .array(CapturedLegalDocumentSchema)
@@ -349,8 +391,21 @@ export const LegalNameDocumentReferenceSchema = z
       .max(MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT)
       .optional(),
     structure: LegalDocumentStructureSchema.optional(),
+    companyCitations: z
+      .array(UnderlyingCompanyCitationSchema)
+      .max(8)
+      .optional(),
+    extractorVersion: z
+      .number()
+      .int()
+      .min(1)
+      .max(LEGAL_DOCUMENT_EXTRACTOR_VERSION)
+      .optional(),
+    extractionProblem: LegalDocumentProblemSchema.nullable().optional(),
     scan: LegalDocumentScanSchema.optional(),
     provider: z.enum(["sydecar", "tokenfolio"]).optional(),
+    sourceInvestment: SourceInvestmentReferenceSchema.optional(),
+    observedAt: z.iso.datetime().optional(),
   })
   .strict()
   .refine(

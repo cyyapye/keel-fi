@@ -23,6 +23,7 @@ import {
   LEGAL_DOCUMENT_SCAN_REASON_COPY,
 } from "@keel/domain/provider-legal-documents";
 import { LegalNameResolver } from "./LegalNameResolver";
+import { InvestmentReview } from "./InvestmentReview";
 import {
   ActionGroup,
   Badge,
@@ -116,6 +117,7 @@ const interestStatusLabels = Object.fromEntries(
 
 type EditorState = {
   structureReview?: boolean;
+  connectedInvestment?: boolean;
   entityId: string | null;
   expectedVersionId: string | null;
   source: {
@@ -154,6 +156,7 @@ function editorForCandidate(
   }
   return {
     entityId: null,
+    connectedInvestment: candidate.source.kind === "holding_position",
     structureReview: legalEntityReviewKind(candidate) === "structure",
     expectedVersionId: null,
     source: {
@@ -169,8 +172,14 @@ function editorForCandidate(
           ? "other"
           : (exactLegalEntityTypeFromName(legalName) ?? "other"),
       relationship: candidate.relationship,
-      currentOwner: candidate.currentOwner,
-      interestStatus: candidate.interestStatus,
+      currentOwner:
+        candidate.source.kind === "holding_position"
+          ? null
+          : candidate.currentOwner,
+      interestStatus:
+        candidate.source.kind === "holding_position"
+          ? "unknown"
+          : candidate.interestStatus,
     },
     ownershipPercentText: "",
   };
@@ -179,6 +188,9 @@ function editorForCandidate(
 function editorForEntity(entity: LegalEntityRecord): EditorState {
   return {
     entityId: entity.id,
+    connectedInvestment: entity.sources.some(
+      (source) => source.source.kind === "holding_position",
+    ),
     structureReview: entity.sources.some(
       (source) =>
         (source.nameResolution?.evidence.state === "unavailable" &&
@@ -648,16 +660,18 @@ function LegalEntityEditor({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Current titled owner" variant="filled">
-            <Input
-              maxLength={1_000}
-              onChange={(event) =>
-                setProfile("currentOwner", event.currentTarget.value)
-              }
-              placeholder="Not recorded"
-              value={draft.profile.currentOwner ?? ""}
-            />
-          </Field>
+          {!draft.connectedInvestment && (
+            <Field label="Current titled owner" variant="filled">
+              <Input
+                maxLength={1_000}
+                onChange={(event) =>
+                  setProfile("currentOwner", event.currentTarget.value)
+                }
+                placeholder="Not recorded"
+                value={draft.profile.currentOwner ?? ""}
+              />
+            </Field>
+          )}
           <Field label="Formation jurisdiction" variant="filled">
             <Input
               maxLength={240}
@@ -692,50 +706,56 @@ function LegalEntityEditor({
               value={draft.profile.einLastFour ?? ""}
             />
           </Field>
-          <Field label="Ownership interest" variant="filled">
-            <InputGroup suffix="%">
-              <Input
-                inputMode="decimal"
-                aria-invalid={validation.ownershipError !== null}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setDraft((current) => ({
-                    ...current,
-                    ownershipPercentText: value,
-                  }));
+          {!draft.connectedInvestment && (
+            <Field label="Ownership interest" variant="filled">
+              <InputGroup suffix="%">
+                <Input
+                  inputMode="decimal"
+                  aria-invalid={validation.ownershipError !== null}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setDraft((current) => ({
+                      ...current,
+                      ownershipPercentText: value,
+                    }));
+                  }}
+                  placeholder="Not recorded"
+                  value={draft.ownershipPercentText}
+                />
+              </InputGroup>
+            </Field>
+          )}
+          {!draft.connectedInvestment && (
+            <Field label="Interest status" variant="filled">
+              <Select
+                items={interestStatusOptions}
+                onValueChange={(value) => {
+                  if (
+                    interestStatusOptions.some(
+                      (option) => option.value === value,
+                    )
+                  ) {
+                    setProfile(
+                      "interestStatus",
+                      value as LegalEntityInterestStatus,
+                    );
+                  }
                 }}
-                placeholder="Not recorded"
-                value={draft.ownershipPercentText}
-              />
-            </InputGroup>
-          </Field>
-          <Field label="Interest status" variant="filled">
-            <Select
-              items={interestStatusOptions}
-              onValueChange={(value) => {
-                if (
-                  interestStatusOptions.some((option) => option.value === value)
-                ) {
-                  setProfile(
-                    "interestStatus",
-                    value as LegalEntityInterestStatus,
-                  );
-                }
-              }}
-              value={draft.profile.interestStatus}
-            >
-              <SelectTrigger aria-label="Interest status">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {interestStatusOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+                value={draft.profile.interestStatus}
+              >
+                <SelectTrigger aria-label="Interest status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {interestStatusOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           <Field label="Tax classification" variant="filled">
             <Input
               maxLength={240}
@@ -814,6 +834,38 @@ function EntityRow({
   onReload: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const positions = entity.sources.filter(
+    (source) => source.source.kind === "holding_position",
+  );
+  const owners = [
+    ...new Set(
+      positions.flatMap((source) =>
+        source.currentOwner === null ? [] : [source.currentOwner],
+      ),
+    ),
+  ];
+  const statuses = [
+    ...new Set(
+      positions.map(
+        (source) =>
+          source.investmentReview?.participationStatus ?? source.interestStatus,
+      ),
+    ),
+  ];
+  const ownership = positions.flatMap((source) => {
+    const observations = source.investmentReview?.ownershipObservations ?? [];
+    return observations
+      .filter(
+        (item) =>
+          !observations.some(
+            (later) => later.supersedesObservationId === item.id,
+          ),
+      )
+      .map(
+        (item) =>
+          `${source.sourceDisplayName}: ${item.sourceKind === "k1" ? `K-1 ${item.taxYear} shares recorded` : `${formatOwnershipInterestPpm(item.ownershipPpm ?? 0)} · ${item.effectiveDate}`}`,
+      );
+  });
   return (
     <article className="legal-entity-row">
       <div className="legal-entity-row__heading">
@@ -824,16 +876,26 @@ function EntityRow({
             {relationshipLabels[entity.relationship]}
           </p>
         </div>
-        {entity.interestStatus !== "current" && (
+        {(positions.length > 0
+          ? statuses.some((status) => status !== "current")
+          : entity.interestStatus !== "current") && (
           <Badge tone="warning">
-            {interestStatusLabels[entity.interestStatus]}
+            {positions.length > 0
+              ? statuses
+                  .map((status) =>
+                    status === "unknown"
+                      ? "Not confirmed"
+                      : `${status[0]?.toUpperCase()}${status.slice(1)}`,
+                  )
+                  .join(" · ")
+              : interestStatusLabels[entity.interestStatus]}
           </Badge>
         )}
       </div>
       <DataList className="legal-entity-row__facts">
         <DataItem
           label="Current titled owner"
-          value={entity.currentOwner ?? "Not recorded"}
+          value={owners.join("; ") || entity.currentOwner || "Not recorded"}
         />
         <DataItem
           label="Jurisdiction"
@@ -842,12 +904,37 @@ function EntityRow({
         <DataItem
           label="Ownership interest"
           value={
-            entity.ownershipInterestPpm === null
-              ? "Not recorded"
-              : formatOwnershipInterestPpm(entity.ownershipInterestPpm)
+            ownership.length > 0
+              ? ownership.join("; ")
+              : entity.ownershipInterestPpm === null
+                ? "Not recorded"
+                : `${formatOwnershipInterestPpm(entity.ownershipInterestPpm)}${positions.length === 0 ? "" : " · earlier entity-level entry"}`
           }
         />
       </DataList>
+      {positions.length > 0 &&
+        entity.ownershipInterestPpm !== null &&
+        ownership.length > 0 && (
+          <p>
+            Earlier entity-level entry:{" "}
+            {formatOwnershipInterestPpm(entity.ownershipInterestPpm)}. This has
+            not been assigned to a particular investment.
+          </p>
+        )}
+      {positions.length > 0 &&
+        entity.currentOwner !== null &&
+        owners.length > 0 &&
+        !owners.includes(entity.currentOwner) && (
+          <p>Earlier entity-level owner: {entity.currentOwner}.</p>
+        )}
+      {positions.length > 0 &&
+        entity.interestStatus === "historical" &&
+        !statuses.every((status) => status === "historical") && (
+          <p>
+            Earlier entity-level status: Historical. Confirm participation for
+            each investment.
+          </p>
+        )}
       <footer>
         <div>
           <p>
@@ -909,6 +996,17 @@ function EntityRow({
           }}
         />
       )}
+      {editing &&
+        entity.sources
+          .filter((source) => source.source.kind === "holding_position")
+          .map((source) => (
+            <InvestmentReview
+              key={source.source.id}
+              positionId={source.source.id}
+              sourceLabel={source.sourceLabel}
+              onSaved={onSaved}
+            />
+          ))}
     </article>
   );
 }
@@ -919,12 +1017,14 @@ function CandidateRow({
   excluded,
   onReviewed,
   onReload,
+  onReviewOpenChange,
 }: {
   candidate: LegalEntitySourceSummary;
   entities: readonly LegalEntityRecord[];
   excluded?: boolean;
   onReviewed: () => Promise<void>;
   onReload: () => Promise<void>;
+  onReviewOpenChange?: (key: string, open: boolean) => void;
 }) {
   const [selectedEntityId, setSelectedEntityId] = useState(
     entities[0]?.id ?? "",
@@ -936,6 +1036,11 @@ function CandidateRow({
   const reviewKind = legalEntityReviewKind(candidate);
   const reviewable = reviewKind !== "waiting" && reviewKind !== "found";
   const reviewOpen = resolving || inlineEditor !== null;
+  const rowKey = candidateKey(candidate);
+  useEffect(() => {
+    onReviewOpenChange?.(rowKey, reviewOpen);
+    return () => onReviewOpenChange?.(rowKey, false);
+  }, [rowKey, reviewOpen, onReviewOpenChange]);
   const closeReview = () => {
     setResolving(false);
     setInlineEditor(null);
@@ -944,6 +1049,11 @@ function CandidateRow({
     setInlineEditor(editorForCandidate(candidate, resolution));
   const legalName = candidate.legalEntityNameEvidence.legalName;
   const nameUnavailable = legalName === null;
+  // A document reassignment can resolve the conflict while this review stays
+  // open. Show the now-supported name without remounting investment drafts.
+  const activeEditor =
+    inlineEditor ??
+    (resolving && !nameUnavailable ? editorForCandidate(candidate) : null);
   const conflicting =
     candidate.legalEntityNameEvidence.state === "unavailable" &&
     candidate.legalEntityNameEvidence.problem === "conflicting";
@@ -1037,7 +1147,7 @@ function CandidateRow({
                 ? "Review and add"
                 : "Review details"}
           </Button>
-          {entities.length > 0 && inlineEditor !== null && (
+          {entities.length > 0 && activeEditor !== null && (
             <div className="legal-entity-candidate__link">
               <Select
                 items={entities.map((entity) => ({
@@ -1110,9 +1220,9 @@ function CandidateRow({
           onReload={onReload}
         />
       )}
-      {inlineEditor !== null && (
+      {activeEditor !== null && (
         <LegalEntityEditor
-          editor={inlineEditor}
+          editor={activeEditor}
           onCancel={closeReview}
           onSaved={async () => {
             await onReviewed();
@@ -1122,6 +1232,13 @@ function CandidateRow({
             await onReload();
             closeReview();
           }}
+        />
+      )}
+      {reviewOpen && candidate.source.kind === "holding_position" && (
+        <InvestmentReview
+          positionId={candidate.source.id}
+          sourceLabel={candidate.sourceLabel}
+          onSaved={onReload}
         />
       )}
       {reviewKind === "waiting" && (
@@ -1321,7 +1438,7 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
             }
             type="checkbox"
           />
-          <span>Include historical interests</span>
+          <span>Include historical and cancelled investments</span>
         </label>
         <label>
           <Input
@@ -1393,14 +1510,19 @@ function ProgressiveRows<T>({
   items,
   render,
   label,
+  keepVisible,
 }: {
   items: readonly T[];
   render: (item: T) => ReactNode;
   label: string;
+  keepVisible?: (item: T) => boolean;
 }) {
   const [visible, setVisible] = useState(LEGAL_ENTITY_PAGE_SIZE);
   const sentinel = useRef<HTMLDivElement>(null);
-  const more = visible < items.length;
+  const visibleItems = items.filter(
+    (item, index) => index < visible || keepVisible?.(item),
+  );
+  const more = visibleItems.length < items.length;
   const loadMore = useCallback(
     () => setVisible((count) => count + LEGAL_ENTITY_PAGE_SIZE),
     [],
@@ -1420,14 +1542,14 @@ function ProgressiveRows<T>({
   }, [more, visible, loadMore]);
   return (
     <>
-      {items.slice(0, visible).map(render)}
+      {visibleItems.map(render)}
       {more && (
         <div
           className="exposure-pagination legal-entities__pagination"
           ref={sentinel}
         >
           <span>
-            Showing {Math.min(visible, items.length)} of {items.length} {label}
+            Showing {visibleItems.length} of {items.length} {label}
           </span>
           <Button onClick={loadMore} tone="secondary">
             Load more {label}
@@ -1446,6 +1568,21 @@ export function LegalEntities() {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [batchWorking, setBatchWorking] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
+  const [openCandidateKeys, setOpenCandidateKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const candidateReviewOpenChanged = useCallback(
+    (key: string, open: boolean) => {
+      setOpenCandidateKeys((current) => {
+        if (current.has(key) === open) return current;
+        const next = new Set(current);
+        if (open) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    },
+    [],
+  );
 
   const refresh = useCallback(async () => {
     const next = await loadLegalEntities();
@@ -1620,6 +1757,9 @@ export function LegalEntities() {
             <ProgressiveRows
               items={candidates}
               label="sources"
+              keepVisible={(candidate) =>
+                openCandidateKeys.has(candidateKey(candidate))
+              }
               render={(candidate) => (
                 <CandidateRow
                   candidate={candidate}
@@ -1627,6 +1767,7 @@ export function LegalEntities() {
                   key={candidateKey(candidate)}
                   onReviewed={reviewed}
                   onReload={refresh}
+                  onReviewOpenChange={candidateReviewOpenChanged}
                 />
               )}
             />

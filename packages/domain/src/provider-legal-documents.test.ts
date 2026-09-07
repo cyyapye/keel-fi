@@ -168,7 +168,7 @@ describe("source-reported compartment structures", () => {
   it("rejects forged excerpts, invalid pages, unsafe states and unsupported versions", () => {
     for (const candidate of [
       { ...extraction, version: 3 },
-      { ...extraction, version: 5 },
+      { ...extraction, version: 6 },
       { ...extraction, problem: null },
       { ...extraction, problem: "security_blocked" },
       { ...extraction, pageCount: 1 },

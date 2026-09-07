@@ -136,15 +136,18 @@ describe("provider portfolio Mac agent", () => {
         carryPpm: null,
         identityKey:
           "synthetic robotics\u0000synthetic family llc\u00002025-06-10",
+        providerInvestmentId: "synthetic-tokenfolio-investment",
       },
     ]);
     const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
     expect(parsed).toMatchObject({
       provider: "tokenfolio",
+      formatVersion: 3,
       effectiveDate: "2026-08-21",
       rows: [
         {
           companyOrFund: "Synthetic Robotics",
+          providerInvestmentId: "synthetic-tokenfolio-investment",
           investedMinor: 1_250_050,
           unrealizedValueMinor: 1_640_099,
           positionKind: "spv_interest",
@@ -171,6 +174,7 @@ describe("provider portfolio Mac agent", () => {
         managementFeePpm: 20_000,
         carryPpm: 200_000,
         identityKey: "11111111-1111-4111-8111-111111111111",
+        providerInvestmentId: "11111111-1111-4111-8111-111111111111",
       },
     ]);
     const parsed = await parseProviderHoldingsTemplateCsv("sydecar", bytes);

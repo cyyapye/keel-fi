@@ -7,6 +7,7 @@ import type {
 
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
+import { routeInvestmentReview } from "./investment-review-fixtures";
 
 const positionSource = {
   source: { kind: "holding_position" as const, id: "position_demo_venture" },
@@ -232,6 +233,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   let exportBody: Record<string, unknown> | null = null;
 
   await page.clock.setFixedTime(new Date("2026-09-01T12:00:00.000Z"));
+  await routeInvestmentReview(page, positionSource);
   await routeHoldingsPage(page, {
     householdName: "Demo Household",
     holdings: [],
@@ -397,7 +399,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page.locator(
       '.legal-entity-export__field-grid input[type="checkbox"]:checked',
     ),
-  ).toHaveCount(13);
+  ).toHaveCount(15);
   await expect(
     page.getByLabel("Legal-name evidence", { exact: true }),
   ).toBeChecked();
@@ -542,7 +544,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     "Demo Venture SPV LLC",
   );
   await editor.getByLabel("Formation jurisdiction").fill("Delaware, US");
-  await editor.getByLabel("Ownership interest").fill("12.5");
+  await expect(editor.getByLabel("Ownership interest")).toHaveCount(0);
   expect(pageErrors).toEqual([]);
   await editor.scrollIntoViewIfNeeded();
   await expect(editor).toHaveScreenshot("legal-entity-editor.png", {
@@ -563,7 +565,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
       legalName: "Demo Venture SPV LLC",
       entityType: "llc",
       jurisdiction: "Delaware, US",
-      ownershipInterestPpm: 125_000,
+      ownershipInterestPpm: null,
     },
     source: {
       reference: positionSource.source,
@@ -597,7 +599,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     includeOtherEntityTypes: true,
   });
   expect((exportBody as unknown as { fields: unknown[] }).fields).toHaveLength(
-    13,
+    15,
   );
   await expect(page).toHaveURL(/\/holdings\/entities$/u);
 });

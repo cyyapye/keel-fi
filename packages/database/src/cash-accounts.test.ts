@@ -27,6 +27,7 @@ const migrationFiles = [
   "packages/database/migrations/0017_reviewed_cash_flow.sql",
   "packages/database/migrations/0018_reviewed_cash_account_identities.sql",
   "packages/database/migrations/0025_retired_asset_lots.sql",
+  "packages/database/migrations/0041_reported_position_economics.sql",
   "packages/database/migrations/0046_reviewed_legal_entity_inventory.sql",
   "packages/database/migrations/0033_provider_portfolio_agents.sql",
   "packages/database/migrations/0047_provider_legal_document_evidence.sql",
@@ -35,6 +36,7 @@ const migrationFiles = [
   "packages/database/migrations/0050_agreement_rechecks.sql",
   "packages/database/migrations/0051_legal_structure_review_guard.sql",
   "packages/database/migrations/0052_reviewed_structure_entity_type.sql",
+  "packages/database/migrations/0053_connected_investment_reviews.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

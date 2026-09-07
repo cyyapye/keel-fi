@@ -10,6 +10,7 @@ import {
   legalNameEvidenceRevision,
   legalEntityReviewKind,
   LegalEntitySourceReviewResultSchema,
+  LegalEntitySourceSummarySchema,
   MAX_LEGAL_ENTITY_EXACT_BATCH_SOURCES,
   ReviewLegalEntitySourceInputSchema,
   UpdateLegalEntityInputSchema,
@@ -32,6 +33,12 @@ import {
   type ReviewLegalEntitySourceInput,
   type UpdateLegalEntityInput,
 } from "@keel/domain/legal-entities";
+import {
+  InvestmentCompanyReceiptSchema,
+  InvestmentReviewStateSchema,
+} from "@keel/domain/investment-review";
+import { LegalNameDocumentReferenceSchema } from "@keel/domain/provider-legal-documents";
+import { reviewedInvestmentNameEvidence } from "@keel/domain/position-read-model";
 import type {
   InvestmentPositionRecord,
   InvestmentPositionView,
@@ -138,6 +145,11 @@ function positionSourceSummary(
   position: InvestmentPositionRecord,
 ): LegalEntitySourceSummary {
   const legalName = position.legalEntityNameEvidence.legalName;
+  const terms =
+    position.acceptedEconomicsTerms?.acceptedAgainstSnapshotId ===
+    position.snapshot.id
+      ? position.acceptedEconomicsTerms
+      : null;
   return {
     source: { kind: "holding_position", id: position.id },
     sourceDisplayName:
@@ -154,13 +166,20 @@ function positionSourceSummary(
     openedOn: position.openedOn,
     financials: {
       currency: position.snapshot.currency,
-      commitmentMinor:
-        position.acceptedEconomicsTerms?.commitmentMinorAtAcceptance ?? null,
-      fundedMinor:
-        position.acceptedEconomicsTerms?.fundedMinorAtAcceptance ?? null,
+      commitmentMinor: position.snapshot.allocationMinor,
+      fundedMinor: position.snapshot.investedMinor,
+      annualAdminFeePpm: terms?.annualAdminFeePpm ?? null,
+      adminFeeYears: terms?.adminFeeYears ?? null,
+      carryPpm: terms?.carryPpm ?? null,
       currentValue: currentPositionValue(position),
     },
     currentDecisionId: null,
+    ...(position.investmentReview == null
+      ? {}
+      : { investmentReview: position.investmentReview }),
+    ...(position.companyReview == null
+      ? {}
+      : { companyReview: position.companyReview }),
   };
 }
 
@@ -513,10 +532,14 @@ async function stateFromRows(
   entityRows: readonly LegalEntityVersionRow[],
   decisionRows: readonly SourceDecisionRow[],
   positionView: InvestmentPositionView,
+  documentSources: readonly LegalEntitySourceSummary[] = [],
 ): Promise<LegalEntityState> {
   const entities = entityRows.map(recordFromRow);
   const entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
-  const sourceCandidates = legalEntitySourceCandidates(positionView);
+  const sourceCandidates = [
+    ...legalEntitySourceCandidates(positionView),
+    ...documentSources,
+  ];
   const candidateByKey = new Map(
     sourceCandidates.map((candidate) => [
       sourceKey(candidate.source),
@@ -582,16 +605,27 @@ async function stateFromRows(
   return { inventory, exactBatchPlan };
 }
 
-function candidateFor(
+async function candidateFor(
+  db: D1Database,
+  householdId: string,
   positionView: InvestmentPositionView,
   source: LegalEntitySourceReference,
   fallback: SourceDecisionRow | null,
-): LegalEntitySourceSummary {
+): Promise<LegalEntitySourceSummary> {
   const candidate = legalEntitySourceCandidates(positionView).find(
     (item) => sourceKey(item.source) === sourceKey(source),
   );
   if (candidate !== undefined) {
     return candidate;
+  }
+  if (source.kind === "holding_position") {
+    const row = await db
+      .prepare(
+        `${documentSourcesSql} WHERE origin.household_id = ? AND origin.position_id = ?`,
+      )
+      .bind(householdId, source.id)
+      .first<DocumentSourceRow>();
+    if (row !== null) return documentSourceFromRow(row);
   }
   if (fallback !== null) {
     return sourceFromDecision(fallback);
@@ -600,6 +634,52 @@ function candidateFor(
     "invalid_source",
     "This legal entity source is unavailable.",
   );
+}
+
+type DocumentSourceRow = {
+  source_json: string;
+  state_json: string | null;
+  receipt_json: string | null;
+  incoming_json: string;
+};
+const documentSourcesSql = `SELECT origin.source_json, review.state_json, company_review.receipt_json,
+  (SELECT json_group_array(json(assignment.document_json)) FROM investment_document_assignments assignment WHERE assignment.household_id = origin.household_id AND assignment.target_position_id = origin.position_id) incoming_json
+  FROM document_investment_origins origin
+  LEFT JOIN holding_investment_reviews review ON review.id = (SELECT id FROM holding_investment_reviews WHERE household_id = origin.household_id AND position_id = origin.position_id ORDER BY version DESC LIMIT 1)
+  LEFT JOIN investment_company_reviews company_review ON company_review.id = (SELECT id FROM investment_company_reviews WHERE household_id = origin.household_id AND position_id = origin.position_id ORDER BY version DESC LIMIT 1)`;
+function documentSourceFromRow(
+  row: DocumentSourceRow,
+): LegalEntitySourceSummary {
+  const source = LegalEntitySourceSummarySchema.parse(
+    JSON.parse(row.source_json),
+  );
+  const review =
+    row.state_json === null
+      ? null
+      : InvestmentReviewStateSchema.parse(JSON.parse(row.state_json));
+  const evidence = reviewedInvestmentNameEvidence(
+    source.legalEntityNameEvidence,
+    review,
+    LegalNameDocumentReferenceSchema.array()
+      .max(100)
+      .parse(JSON.parse(row.incoming_json)),
+  );
+  return {
+    ...source,
+    legalEntityNameEvidence: evidence,
+    suggestedEntityType:
+      evidence.legalName === null
+        ? null
+        : exactLegalEntityTypeFromName(evidence.legalName),
+    investmentReview: review,
+    ...(row.receipt_json === null
+      ? {}
+      : {
+          companyReview: InvestmentCompanyReceiptSchema.parse(
+            JSON.parse(row.receipt_json),
+          ),
+        }),
+  };
 }
 
 export interface LegalEntityRepository {
@@ -667,7 +747,13 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
       input.source === null
         ? null
         : await resolveSourceName(
-            candidateFor(positionView, input.source.reference, currentDecision),
+            await candidateFor(
+              this.db,
+              identity.household_id,
+              positionView,
+              input.source.reference,
+              currentDecision,
+            ),
             input.source.nameResolution,
             input.profile.legalName,
             input.profile.entityType,
@@ -810,7 +896,13 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
         "The selected legal entity is unavailable.",
       );
     }
-    let source = candidateFor(positionView, input.source, current);
+    let source = await candidateFor(
+      this.db,
+      identity.household_id,
+      positionView,
+      input.source,
+      current,
+    );
     if (input.decision.kind === "linked") {
       const selectedName =
         input.nameResolution === undefined
@@ -1089,13 +1181,18 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
     ]);
     return {
       identity: rows.identity,
-      state: await stateFromRows(rows.entityRows, rows.decisionRows, view),
+      state: await stateFromRows(
+        rows.entityRows,
+        rows.decisionRows,
+        view,
+        rows.documentRows.map(documentSourceFromRow),
+      ),
     };
   }
 
   private async loadRows(accessSubject: string) {
     const identity = await findIdentity(this.db, accessSubject);
-    const [entityRows, decisionRows] = await Promise.all([
+    const [entityRows, decisionRows, documentRows] = await Promise.all([
       all<LegalEntityVersionRow>(
         this.db
           .prepare(
@@ -1157,8 +1254,15 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
           )
           .bind(identity.household_id),
       ),
+      all<DocumentSourceRow>(
+        this.db
+          .prepare(
+            `${documentSourcesSql} WHERE origin.household_id = ? ORDER BY origin.position_id`,
+          )
+          .bind(identity.household_id),
+      ),
     ]);
-    return { identity, entityRows, decisionRows };
+    return { identity, entityRows, decisionRows, documentRows };
   }
 
   private async currentDecision(

@@ -458,7 +458,8 @@ describe("legal entity CSV export", () => {
       current_owner: "Not recorded",
       current_value: "Synthetic Robotics: Locked",
       funded: "Synthetic Robotics: Not recorded",
-      ownership_interest: "50%",
+      ownership_interest:
+        "Synthetic Robotics (Owner not recorded): Not reported; Earlier entity-level entry: 50% (not assigned to an investment)",
     });
     expect(row?.missing_information).toBe(
       "Current titled owner; Formation date; EIN last four; Tax classification",

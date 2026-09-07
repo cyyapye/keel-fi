@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  InvestmentCompanyReceiptSchema,
+  InvestmentReviewStateSchema,
+} from "./investment-review";
 
 import {
   LegalEntityNameEvidenceSchema,
@@ -73,6 +77,15 @@ export const LegalEntitySourceFinancialsSchema = z
     commitmentMinor: z.number().int().safe().nonnegative().nullable(),
     fundedMinor: z.number().int().safe().nonnegative().nullable(),
     currentValue: ReportedValueSchema,
+    annualAdminFeePpm: z
+      .number()
+      .int()
+      .min(0)
+      .max(1_000_000)
+      .nullable()
+      .optional(),
+    adminFeeYears: z.number().int().min(1).max(100).nullable().optional(),
+    carryPpm: z.number().int().min(0).max(1_000_000).nullable().optional(),
   })
   .strict();
 
@@ -171,6 +184,8 @@ export const LegalEntitySourceSummarySchema = z
     financials: LegalEntitySourceFinancialsSchema.nullable(),
     currentDecisionId: z.string().min(1).nullable(),
     nameResolution: LegalNameResolutionSchema.optional(),
+    investmentReview: InvestmentReviewStateSchema.nullable().optional(),
+    companyReview: InvestmentCompanyReceiptSchema.nullable().optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -408,6 +423,10 @@ export const LEGAL_ENTITY_EXPORT_FIELDS = [
   "commitment",
   "funded",
   "current_value",
+  "underlying_company",
+  "company_evidence",
+  "ownership_evidence",
+  "fee_and_carry",
   "notes",
 ] as const;
 
@@ -427,6 +446,8 @@ export const DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS = [
   "source",
   "source_as_of",
   "missing_information",
+  "underlying_company",
+  "ownership_evidence",
 ] as const satisfies readonly LegalEntityExportField[];
 
 export const LEGAL_ENTITY_EXPORT_FIELD_LABELS: Readonly<
@@ -452,6 +473,10 @@ export const LEGAL_ENTITY_EXPORT_FIELD_LABELS: Readonly<
   commitment: "Commitment",
   funded: "Funded amount",
   current_value: "Current value",
+  underlying_company: "Underlying company",
+  company_evidence: "Company mapping evidence",
+  ownership_evidence: "Dated ownership evidence",
+  fee_and_carry: "Reviewed fee and carry",
   notes: "Notes",
 };
 

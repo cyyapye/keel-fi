@@ -481,6 +481,15 @@ describe("legal entity repository", () => {
           .prepare("SELECT * FROM legal_entity_source_decisions ORDER BY id")
           .all(),
       ).toEqual(before);
+      prior.exec(
+        readFileSync(
+          resolve(
+            process.cwd(),
+            "packages/database/migrations/0053_connected_investment_reviews.sql",
+          ),
+          "utf8",
+        ),
+      );
       const state = await priorRepository.getState(
         "synthetic-access-subject",
         view,
@@ -1110,7 +1119,7 @@ describe("legal entity repository", () => {
     ).toBe(resolution.legalName);
   });
 
-  it("keeps 120 resolved source receipts on the existing three-query indexed read budget", async () => {
+  it("keeps 120 resolved source receipts on the four-query indexed read budget", async () => {
     const { view } = conflictView(sqlite, 120);
     const positions = view.connections[0]?.containers[0]?.positions ?? [];
     const resolution = await nameChoice(view);
@@ -1146,7 +1155,7 @@ describe("legal entity repository", () => {
           (source) => source.nameResolution?.legalName === resolution.legalName,
         ),
     ).toBe(true);
-    expect(d1.roundTrips).toBe(3);
+    expect(d1.roundTrips).toBe(4);
     for (const sql of d1.preparedSql) {
       const plan = sqlite.prepare(`EXPLAIN QUERY PLAN ${sql}`).all("hh_demo");
       expect(plan.some((row) => /SCAN later/u.test(String(row.detail)))).toBe(
@@ -1594,7 +1603,7 @@ describe("legal entity repository", () => {
       newEntityCount: 71,
       remainingCandidateCount: 0,
     });
-    expect(d1.roundTrips).toBe(3);
+    expect(d1.roundTrips).toBe(4);
 
     d1.roundTrips = 0;
     const result = await repository.applyExactBatch(
@@ -1608,7 +1617,7 @@ describe("legal entity repository", () => {
       createdEntityCount: 71,
       remainingCandidateCount: 0,
     });
-    expect(d1.roundTrips).toBe(4);
+    expect(d1.roundTrips).toBe(5);
 
     const remaining = await repository.getState(
       "synthetic-access-subject",
@@ -1653,17 +1662,17 @@ describe("legal entity repository", () => {
     ).toBe(true);
   });
 
-  it("starts the three projection reads without waiting for the position view", async () => {
+  it("starts the four projection reads without waiting for the position view", async () => {
     let resolveView!: (view: InvestmentPositionView) => void;
     const pendingView = new Promise<InvestmentPositionView>((resolve) => {
       resolveView = resolve;
     });
     d1.roundTrips = 0;
     const result = repository.getState("synthetic-access-subject", pendingView);
-    await vi.waitFor(() => expect(d1.roundTrips).toBe(3));
+    await vi.waitFor(() => expect(d1.roundTrips).toBe(4));
     resolveView(emptyPositionView);
     await expect(result).resolves.toMatchObject({ candidates: [] });
-    expect(d1.roundTrips).toBe(3);
+    expect(d1.roundTrips).toBe(4);
   });
 
   it("reads more than 120 entities with a fixed round-trip budget and indexed supersession checks", async () => {
@@ -1707,7 +1716,7 @@ describe("legal entity repository", () => {
       emptyPositionView,
     );
     expect(state.entities.length).toBeGreaterThanOrEqual(125);
-    expect(d1.roundTrips).toBe(3);
+    expect(d1.roundTrips).toBe(4);
 
     const plan = sqlite
       .prepare(

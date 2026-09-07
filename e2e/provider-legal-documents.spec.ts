@@ -48,9 +48,10 @@ function sydecarCentralDocumentRow(input: {
   documentName: string;
   documentType: string;
   investment: string;
+  investmentId?: string;
   url: string;
 }): string {
-  return `<tr><td><div onclick="window.open('${input.url}')">${input.documentName}</div></td><td>${input.documentType}</td><td><div>${input.investment}</div></td><td><span>Investor</span></td><td>-</td><td>Sep 1, 2026</td></tr>`;
+  return `<tr><td><div onclick="window.open('${input.url}')">${input.documentName}</div></td><td>${input.documentType}</td><td>${input.investmentId === undefined ? `<div>${input.investment}</div>` : `<a href="/investments/${input.investmentId}">${input.investment}</a>`}</td><td><span>Investor</span></td><td>-</td><td>Sep 1, 2026</td></tr>`;
 }
 
 function sydecarCentralDocumentsPage(rows: readonly string[]): string {
@@ -59,6 +60,117 @@ function sydecarCentralDocumentsPage(rows: readonly string[]): string {
 
 test.beforeEach(({ isMobile }) => {
   test.skip(isMobile, "Existing capture agents use desktop provider sessions.");
+});
+
+test("Sydecar associates same-label investments by source IDs and reads their linked memos", async ({
+  page,
+}) => {
+  const ids = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+  ];
+  const saved: ProviderLegalDocumentCapture[] = [];
+  await page.route("https://app.sydecar.io/documents", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: sydecarCentralDocumentsPage(
+        ids.map((id, index) =>
+          sydecarCentralDocumentRow({
+            investment: position.investment,
+            investmentId: id,
+            documentName: `Synthetic investment memo ${index}.pdf`,
+            documentType: "Investment memo",
+            url: urls.sydecar.replace("agreement.pdf", `memo-${index}.pdf`),
+          }),
+        ),
+      ),
+    }),
+  );
+  const collector = providerAgreementCollector({
+    provider: "sydecar",
+    manifest: { version: 1, captures: [] },
+    renew: () => Promise.resolve(),
+    download: (url) =>
+      Promise.resolve(
+        new Response(
+          syntheticAgreementPdf([
+            `Underlying Company: ${String(url).includes("memo-0") ? "Synthetic Robotics Inc." : "Synthetic Tools Inc."}`,
+          ]),
+        ),
+      ),
+    scan: (bytes) =>
+      Promise.resolve(syntheticDocumentScan(bytes, new Date().toISOString())),
+    save: ({ capture }) => {
+      saved.push(capture);
+      return Promise.resolve();
+    },
+  });
+  await collector.collectSydecarDocuments(
+    page,
+    ids.map((id, index) => ({
+      ...position,
+      providerInvestmentId: id,
+      investmentDate: `2026-01-0${index + 1}`,
+      sourceDisplayNameUnique: false,
+    })),
+  );
+  await collector.flush();
+  expect(saved).toHaveLength(2);
+  for (const [index, capture] of saved.entries()) {
+    expect(capture.sourceInvestment).toEqual({
+      id: ids[index],
+      association: "document_investment_id",
+    });
+    expect(capture.documents).toHaveLength(1);
+    expect(capture.documents[0]?.extraction).toMatchObject({
+      problem: "name_not_found",
+      citations: [],
+      companyCitations: [
+        {
+          companyName:
+            index === 0 ? "Synthetic Robotics Inc." : "Synthetic Tools Inc.",
+        },
+      ],
+    });
+  }
+});
+
+test("does not read a document drawer belonging to a different source investment ID", async ({
+  page,
+}) => {
+  const observed = "11111111-1111-4111-8111-111111111111";
+  await page.route("https://app.tokenfolio.co/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<p>Synthetic investment</p>",
+    }),
+  );
+  await page.goto(
+    `https://app.tokenfolio.co/portfolio?investmentId=${observed}`,
+  );
+  await documentPage(page, "tokenfolio");
+  let downloads = 0;
+  const saved: ProviderLegalDocumentCapture[] = [];
+  const collector = providerAgreementCollector({
+    provider: "tokenfolio",
+    manifest: { version: 1, captures: [] },
+    renew: () => Promise.resolve(),
+    download: () => {
+      downloads += 1;
+      throw new Error("Must not download the wrong investment.");
+    },
+    save: ({ capture }) => {
+      saved.push(capture);
+      return Promise.resolve();
+    },
+  });
+  await collector.collect(page, {
+    ...position,
+    providerInvestmentId: "22222222-2222-4222-8222-222222222222",
+  });
+  await collector.flush();
+  expect(downloads).toBe(0);
+  expect(saved[0]).toMatchObject({ problem: "page_changed", documents: [] });
 });
 
 for (const problem of ["scanner_unavailable", "security_blocked"] as const) {
@@ -345,7 +457,7 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     await previousVersion.flush();
     expect(downloads).toBe(2);
     expect(saved.at(-1)?.documents[0]?.extraction).toMatchObject({
-      version: 4,
+      version: 5,
       problem: null,
       citations: [{ legalName: "Synthetic Atlas SPV LLC" }],
     });
