@@ -26,9 +26,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out Keel
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Check out accepted Tugling revision
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: cyyapye/tugling
           ref: e709bd77128e3d14ebc8ded37ccc2afe8f4b6eba
@@ -49,9 +49,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out Keel
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Check out Tugling stable
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: cyyapye/tugling
           ref: stable

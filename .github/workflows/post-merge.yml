@@ -14,7 +14,7 @@ jobs:
     name: Exact merged commit
     runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-node-pnpm
@@ -23,7 +23,7 @@ jobs:
       - run: make verify
       - name: Upload browser failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: post-merge-browser-results
           path: test-results/
@@ -34,11 +34,11 @@ jobs:
     name: Secret scan
     runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOME: ${{ runner.workspace }}
@@ -49,11 +49,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out the exact merged Keel commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - name: Check out the accepted Tugling revision
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: cyyapye/tugling
           ref: e709bd77128e3d14ebc8ded37ccc2afe8f4b6eba
@@ -89,7 +89,7 @@ jobs:
       KEEL_PREVIEW_URL: ${{ vars.KEEL_PREVIEW_URL }}
     steps:
       - name: Check out the exact verified SHA
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
           ref: ${{ github.sha }}
@@ -179,7 +179,7 @@ jobs:
           cleanup_plaintext
           trap - EXIT
       - name: Retain encrypted pre-migration D1 backup
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.KEEL_PREVIEW_BACKUP_ARTIFACT_NAME }}
           path: |
@@ -268,7 +268,7 @@ jobs:
           KEEL_PREVIEW_WEB_WORKER: ${{ secrets.KEEL_PREVIEW_WEB_WORKER }}
         run: pnpm tsx scripts/preview-deployment-evidence.ts release
       - name: Retain preview release evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name:
             preview-release-${{ github.sha }}-attempt-${{ github.run_attempt }}
