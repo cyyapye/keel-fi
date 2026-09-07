@@ -22,14 +22,14 @@ before the command exits, or pass `--keep` before `--` to retain a debug run for
 up to seven days. The printed directory is inside the guest. Snapshot changes
 inside it are not automatically copied back to the source checkout.
 
-Runs live under `/private/tmp/keel-test-runs/<uid>/run-*`. The versioned ownership
-marker and `.lease` advisory lock are the contract with the personal
+Runs live under `/private/tmp/keel-test-runs/<uid>/run-*`. The versioned
+ownership marker and `.lease` advisory lock are the contract with the personal
 `cleanup-codex-disk-space` utility. Children inherit the lease. An interrupted
 runner whose child survives remains protected; SIGKILL may leave an abandoned
 directory for the collector. The utility's aggressive mode expires unlocked
 ordinary runs after one day, retained debug runs after seven days, and trims
-guest disks to return free blocks to macOS. Unmarked legacy paths are left
-for manual review, not deleted by pattern.
+guest disks to return free blocks to macOS. Unmarked legacy paths are left for
+manual review, not deleted by pattern.
 
 Verification: `python3 scripts/test_linux_test_run.py`. This infrastructure-only
 runner does not alter product runtime or migrations.
