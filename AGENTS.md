@@ -52,6 +52,11 @@
 
 ## Codex and local workflow
 
+- For temporary Linux/Colima tests, use `scripts/linux-test-run.py`; see
+  `docs/deployment/linux-test-cleanup.md`. Do not create unmanaged test copies
+  or caches under guest `/private/tmp`. Export needed evidence before exit or
+  explicitly retain a debug run with `--keep` (seven-day expiry).
+
 - A fresh Codex worktree is prepared by `.codex/environments/environment.toml`.
   Run `make bootstrap` manually if setup needs to be repaired or repeated.
 - Start the frontend and backend together with `make dev`. Use the URLs it
