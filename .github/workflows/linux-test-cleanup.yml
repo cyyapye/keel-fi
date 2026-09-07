@@ -1,0 +1,21 @@
+name: Linux test cleanup
+on:
+  push:
+    paths:
+      - scripts/linux-test-run.py
+      - scripts/test_linux_test_run.py
+      - .github/workflows/linux-test-cleanup.yml
+  pull_request:
+    paths:
+      - scripts/linux-test-run.py
+      - scripts/test_linux_test_run.py
+      - .github/workflows/linux-test-cleanup.yml
+permissions:
+  contents: read
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - run: python3 scripts/test_linux_test_run.py
