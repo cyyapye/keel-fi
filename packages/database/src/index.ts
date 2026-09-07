@@ -70,6 +70,7 @@ export * from "./plan-actual-monitoring";
 export * from "./position-value-adjustments";
 export * from "./position-economics";
 export * from "./legal-entities";
+export * from "./investment-review";
 
 type DashboardRow = {
   as_of_date: string;

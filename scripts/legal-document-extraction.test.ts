@@ -6,6 +6,48 @@ import {
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
 
 describe("local legal document extraction", () => {
+  it("keeps an explicitly reported underlying company separate from its vehicle", () => {
+    expect(
+      extractLegalNameFromPages([
+        "Fund: Synthetic Growth IV LLC\nUnderlying Company: Synthetic Robotics Inc.",
+        "Comparable companies: Synthetic Search Inc.\nManager: Synthetic Manager LLC",
+      ]),
+    ).toMatchObject({
+      citations: [{ legalName: "Synthetic Growth IV LLC" }],
+      companyCitations: [
+        {
+          companyName: "Synthetic Robotics Inc.",
+          page: 1,
+          role: "underlying_company",
+          quote: "Underlying Company: Synthetic Robotics Inc.",
+        },
+      ],
+    });
+  });
+  it("can read a linked memo's target company without inventing a vehicle name", () => {
+    expect(
+      extractLegalNameFromPages([
+        "Investment memo\nTarget Company: Synthetic Robotics Inc.",
+      ]),
+    ).toMatchObject({
+      problem: "name_not_found",
+      citations: [],
+      companyCitations: [{ companyName: "Synthetic Robotics Inc.", page: 1 }],
+    });
+    expect(
+      extractLegalNameFromPages([
+        "Synthetic Growth IV LLC invests in technology. Risks include competition from Synthetic Search Inc.\nCompany: Synthetic Manager LLC",
+      ]),
+    ).toMatchObject({ companyCitations: [] });
+  });
+  it("keeps disagreeing company claims for review instead of choosing one", () => {
+    expect(
+      extractLegalNameFromPages([
+        "Target Company: Synthetic Robotics Inc.",
+        "Underlying Company: Synthetic Tools Inc.",
+      ]).companyCitations,
+    ).toHaveLength(2);
+  });
   it("preserves a complete exact vehicle name and page citation", () => {
     expect(
       extractLegalNameFromPages([
@@ -138,7 +180,7 @@ describe("local legal document extraction", () => {
       const prefix = ending === "Parent" ? "under the Parent" : "under the";
       const definition = `“Fund”: ${name}, established as a Series ${prefix}\n${nextLine}`;
       expect(extractLegalNameFromPages([definition])).toMatchObject({
-        version: 4,
+        version: 5,
         problem: null,
         citations: [
           {

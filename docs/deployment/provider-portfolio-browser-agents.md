@@ -198,8 +198,7 @@ claiming the exact legal vehicle name.
   Future observations do not rewrite the reviewed name or its receipt. CSV
   distinguishes reviewed choices, user corrections, and unresolved alternatives.
   Inventory reads remain projection-only with no PDF/R2 reads or row-by-row
-  queries; 120-source receipt coverage retains the three-query repository
-  budget.
+  queries; 120-source receipt coverage uses the four-query repository budget.
 - Version 4 preserves an explicit compartment clause with exact party names,
   roles, pages, quotes, and an explicit equity-certificate title when present.
   The representative is not a selectable invested name. Entity type defaults to
@@ -229,9 +228,9 @@ claiming the exact legal vehicle name.
   complete inventory projection, so exports never depend on rendered rows.
 - Direct entity navigation preloads only `/api/legal-entities`; it does not wait
   for Holdings or planning. Independent entity and position reads start
-  together. The combined read retains seven row-count-independent D1 round
-  trips, with indexed 120+ item regressions and a 500-source browser case. There
-  are no provider requests, object reads, backfills, or writes on this GET path.
+  together. The combined read uses eight row-count-independent D1 round trips,
+  with indexed 120+ item regressions and a 500-source browser case. There are no
+  provider requests, object reads, backfills, or writes on this GET path.
 - Originals are deduplicated by household and SHA in private R2. Names are
   evidence for the existing exact-batch add, never automatic acceptance.
   Missing, unreadable, inaccessible, conflicting, changed-page, and safety-limit

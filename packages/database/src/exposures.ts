@@ -469,6 +469,10 @@ async function buildPrivateExposureExactBatchPlan(
 
   const groupsByKey = new Map<string, PrivateExposureExactBatchGroup>();
   for (const position of positions) {
+    // These providers' investment labels can name a vehicle/deal rather than
+    // its target company. Their memo/agreement evidence is reviewed separately.
+    if (position.provider === "sydecar" || position.provider === "tokenfolio")
+      continue;
     if (
       position.reported_exposure_name === null ||
       position.reported_exposure_count !== 1

@@ -40,6 +40,7 @@ type Position = {
   legalPosition: string;
   heldThrough: string;
   investmentDate: string | null;
+  providerInvestmentId?: string;
   sourceDisplayNameUnique?: boolean;
   sydecarLegacyDocumentUrl?: string;
 };
@@ -47,6 +48,7 @@ type DocumentControls = {
   items: Locator[];
   problem: LegalDocumentProblem | null;
   restore: () => Promise<void>;
+  association?: "investment_page" | "document_investment_id" | "display_label";
 };
 type PendingCapture = {
   capture: ProviderLegalDocumentCapture;
@@ -76,7 +78,7 @@ export class AgreementRecheckError extends Error {
 const hash = (value: string | Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
 const agreementLabel =
-  /\b(?:subscription|series|operating|limited liability company|limited partnership)\s+(?:agreement|pack)\b|\bLLCA\b/iu;
+  /\b(?:subscription|series|operating|limited liability company|limited partnership)\s+(?:agreement|pack)\b|\bLLCA\b|\b(?:investment|deal)\s+(?:memo(?:randum)?|summary)\b/iu;
 const excludedLabel = /\b(?:tax|K[- ]?1|W[- ]?[89]|wire|invoice)\b/iu;
 const MAX_SYDECAR_DOCUMENT_ROWS = MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_ROWS * 10;
 const SYDECAR_DOCUMENTS_URL = "https://app.sydecar.io/documents";
@@ -89,6 +91,7 @@ const SydecarDocumentRowsSchema = z
         documentName: z.string().max(1_000),
         documentType: z.string().max(1_000),
         investment: z.string().max(1_000),
+        investmentHref: z.string().max(2_048).nullable(),
       })
       .strict(),
   )
@@ -249,6 +252,7 @@ async function controls(
       items,
       problem: items.length === 0 ? "missing" : null,
       restore: () => Promise.resolve(),
+      association: "investment_page",
     };
   }
   const dialog = page.getByRole("dialog");
@@ -275,7 +279,12 @@ async function controls(
     }
   }
   if (items.length > 0)
-    return { items, problem: null, restore: () => Promise.resolve() };
+    return {
+      items,
+      problem: null,
+      restore: () => Promise.resolve(),
+      association: "investment_page",
+    };
   // Older positions expose only their original deal page. Follow that page,
   // but never match a generic external-platform login to a company name.
   const sourceUrl = page.url();
@@ -314,10 +323,21 @@ async function controls(
     const content = card.getByTestId("card-content");
     await card.waitFor({ state: "visible", timeout: 15_000 });
     await content.waitFor({ state: "attached", timeout: 15_000 });
-    // Only the empty legacy layout is verified. An unfamiliar populated card
-    // stays explicit rather than clicking an unrelated action or guessing.
+    // Read explicitly labelled document controls only, on this same verified
+    // investment route. Downloads still pass the provider URL allowlist.
+    const links = content.getByRole("link").or(content.getByRole("button"));
+    for (const link of await links.all()) {
+      const label = await link.innerText();
+      if (agreementLabel.test(label) && !excludedLabel.test(label))
+        items.push(link);
+    }
     const empty = (await content.innerText()).trim() === "";
-    return { items, problem: empty ? "missing" : "page_changed", restore };
+    return {
+      items,
+      problem: items.length > 0 ? null : empty ? "missing" : "page_changed",
+      restore,
+      association: "investment_page",
+    };
   } catch (error) {
     await restore();
     throw error;
@@ -397,6 +417,11 @@ async function sydecarCentralDocumentControls(
             documentName: values[0] ?? "",
             documentType: values[1] ?? "",
             investment: values[2] ?? "",
+            investmentHref:
+              cells[2]
+                ?.querySelector("a[href]")
+                ?.getAttribute("href")
+                ?.slice(0, 2_049) ?? null,
           };
         }),
       ),
@@ -409,16 +434,35 @@ async function sydecarCentralDocumentControls(
       positionOccurrences.set(key, (positionOccurrences.get(key) ?? 0) + 1);
     }
 
+    const investmentIds = parsed.data.map((row) => {
+      if (row.investmentHref === null) return null;
+      try {
+        const url = new URL(row.investmentHref, SYDECAR_DOCUMENTS_URL);
+        return url.origin === "https://app.sydecar.io" &&
+          /^\/investments\/[A-Za-z0-9_-]{8,128}$/u.test(url.pathname)
+          ? (url.pathname.split("/").at(-1) ?? null)
+          : null;
+      } catch {
+        return null;
+      }
+    });
     return positions.map((position) => {
       const key = normalizedLabel(position.investment);
+      const hasDirectAssociation =
+        position.providerInvestmentId !== undefined &&
+        investmentIds.includes(position.providerInvestmentId);
       if (
-        position.sourceDisplayNameUnique !== true ||
-        positionOccurrences.get(key) !== 1
+        !hasDirectAssociation &&
+        (position.sourceDisplayNameUnique !== true ||
+          positionOccurrences.get(key) !== 1)
       )
         return controlsWithProblem("page_changed");
       const indexes = parsed.data.flatMap((row, index) => {
         const label = `${row.documentName} ${row.documentType}`;
-        return normalizedLabel(row.investment) === key &&
+        return (hasDirectAssociation
+          ? investmentIds[index] === position.providerInvestmentId
+          : investmentIds[index] === null &&
+            normalizedLabel(row.investment) === key) &&
           agreementLabel.test(label) &&
           !excludedLabel.test(label)
           ? [index]
@@ -433,6 +477,9 @@ async function sydecarCentralDocumentControls(
         items,
         problem: items.length === 0 ? "missing" : null,
         restore: () => Promise.resolve(),
+        association: hasDirectAssociation
+          ? "document_investment_id"
+          : "display_label",
       };
     });
   } catch (error) {
@@ -627,6 +674,10 @@ export function providerAgreementCollector(options: {
       ownershipLabel: position.heldThrough,
       problem: prior?.problem ?? null,
       documents,
+      ...(prior?.sourceInvestment !== undefined &&
+      prior.sourceInvestment.id === position.providerInvestmentId
+        ? { sourceInvestment: prior.sourceInvestment }
+        : {}),
     };
     let restore: () => Promise<void> = () => Promise.resolve();
     try {
@@ -635,6 +686,14 @@ export function providerAgreementCollector(options: {
       if (now().getTime() - startedAt >= 20 * 60_000)
         throw new CaptureProblem("limit_reached");
       const found = await getControls();
+      if (
+        position.providerInvestmentId !== undefined &&
+        found.association !== undefined
+      )
+        capture.sourceInvestment = {
+          id: position.providerInvestmentId,
+          association: found.association,
+        };
       restore = found.restore;
       if (options.recheckDocumentId === undefined || found.problem !== null)
         capture.problem = found.problem;
@@ -752,9 +811,27 @@ export function providerAgreementCollector(options: {
   };
   return {
     collect(page, position) {
-      return collectWithControls(page, position, () =>
-        controls(page, options.provider),
-      );
+      return collectWithControls(page, position, () => {
+        if (position.providerInvestmentId !== undefined) {
+          const url = new URL(page.url());
+          const observedId =
+            options.provider === "tokenfolio"
+              ? url.searchParams.get("investmentId")
+              : /^\/investments\/([A-Za-z0-9_-]{8,128})$/u.exec(
+                  url.pathname,
+                )?.[1];
+          const expectedOrigin =
+            options.provider === "tokenfolio"
+              ? "https://app.tokenfolio.co"
+              : "https://app.sydecar.io";
+          if (
+            url.origin !== expectedOrigin ||
+            observedId !== position.providerInvestmentId
+          )
+            throw new CaptureProblem("page_changed");
+        }
+        return controls(page, options.provider);
+      });
     },
     async collectSydecarDocuments(page, positions) {
       // Keep provider identity/uniqueness checks based on the full snapshot.
@@ -804,6 +881,12 @@ export function providerAgreementCollector(options: {
             )
             .safeParse(position.sydecarLegacyDocumentUrl);
           if (!url.success) throw new CaptureProblem("page_changed");
+          if (
+            position.providerInvestmentId !== undefined &&
+            new URL(url.data).pathname.split("/").at(-1) !==
+              position.providerInvestmentId
+          )
+            throw new CaptureProblem("page_changed");
           await page.goto(url.data, {
             waitUntil: "domcontentloaded",
             timeout: 30_000,

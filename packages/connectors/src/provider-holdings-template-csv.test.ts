@@ -6,9 +6,42 @@ import {
   ProviderHoldingsTemplateCsvParseError,
   parseProviderHoldingsTemplateCsv,
   providerHoldingsTemplateCsv,
+  providerHoldingsTemplateCsvHeaders,
+  PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES,
 } from "./provider-holdings-template-csv";
 
 const encoder = new TextEncoder();
+
+it.each(["sydecar", "tokenfolio"] as const)(
+  "retains %s capture IDs without re-keying legacy accepted positions",
+  async (provider) => {
+    const row = provider === "sydecar" ? sydecarRow : tokenfolioRow;
+    const old = await parseProviderHoldingsTemplateCsv(
+      provider,
+      documentBytes(provider, [row]),
+    );
+    const bytes = encoder.encode(
+      `${PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES[provider]}\n${providerHoldingsTemplateCsvHeaders(provider, 3).join(",")}\n${row},synthetic-investment-123\n`,
+    );
+    const captured = await parseProviderHoldingsTemplateCsv(provider, bytes);
+    expect(captured.formatVersion).toBe(3);
+    expect(captured.rows[0]).toMatchObject({
+      providerInvestmentId: "synthetic-investment-123",
+      naturalKeySha256: old.rows[0]?.naturalKeySha256,
+      investedMinor: old.rows[0]?.investedMinor,
+    });
+    await expect(
+      parseProviderHoldingsTemplateCsv(
+        provider,
+        encoder.encode(
+          new TextDecoder()
+            .decode(bytes)
+            .replace("synthetic-investment-123", ""),
+        ),
+      ),
+    ).rejects.toThrow();
+  },
+);
 
 function documentBytes(
   provider: "tokenfolio" | "sydecar",

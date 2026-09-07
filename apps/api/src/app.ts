@@ -18,6 +18,9 @@ import {
   D1HoldingsPageRepository,
   D1InvestmentExposureViewRepository,
   D1LegalEntityRepository,
+  D1InvestmentReviewRepository,
+  InvestmentReviewError,
+  type InvestmentReviewRepository,
   D1LiabilitiesRepository,
   D1MacAgentCredentialRepository,
   D1PlanActualMonitoringRepository,
@@ -136,6 +139,15 @@ import {
 } from "./holding-import-upload";
 import { legalEntityExportCsv } from "./legal-entity-export";
 import {
+  CreateDocumentInvestmentInputSchema,
+  CreateDocumentInvestmentResultSchema,
+  InvestmentCompanyReceiptSchema,
+  InvestmentCompanyReviewInputSchema,
+  InvestmentReviewContextSchema,
+  InvestmentReviewStateSchema,
+  ReviewInvestmentInputSchema,
+} from "@keel/domain/investment-review";
+import {
   buildAngelListCanonicalScope,
   buildProviderTemplateCanonicalScope,
 } from "./holding-import-scope";
@@ -216,6 +228,7 @@ type AppOptions = {
   investmentExposureViewRepository?: InvestmentExposureViewRepository;
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
   legalEntityRepository?: LegalEntityRepository;
+  investmentReviewRepository?: InvestmentReviewRepository;
   positionEconomicsRepository?: PositionEconomicsRepository;
   positionValueAdjustmentRepository?: PositionValueAdjustmentRepository;
   providerBrowserSessionRepository?: ProviderBrowserSessionRepository;
@@ -811,6 +824,9 @@ export function createApp(options: AppOptions = {}) {
     new D1InvestmentExposureViewRepository(env.DB);
   const legalEntityRepositoryFor = (env: Env) =>
     options.legalEntityRepository ?? new D1LegalEntityRepository(env.DB);
+  const investmentReviewRepositoryFor = (env: Env) =>
+    options.investmentReviewRepository ??
+    new D1InvestmentReviewRepository(env.DB);
   const positionValueAdjustmentRepositoryFor = (env: Env) =>
     options.positionValueAdjustmentRepository ??
     new D1PositionValueAdjustmentRepository(env.DB);
@@ -1953,6 +1969,120 @@ export function createApp(options: AppOptions = {}) {
       );
     }
   });
+
+  const investmentReviewErrorResponse = (
+    context: Context<AppEnvironment>,
+    error: unknown,
+  ) => {
+    const known = error instanceof InvestmentReviewError;
+    return context.json(
+      { error: known ? error.message : "Investment review is unavailable." },
+      known
+        ? error.code === "not_found"
+          ? 404
+          : error.code === "stale"
+            ? 409
+            : 400
+        : 503,
+      { "Cache-Control": "private, no-store" },
+    );
+  };
+  app.get("/api/investment-positions/:positionId/review", async (context) => {
+    try {
+      return context.json(
+        InvestmentReviewContextSchema.parse(
+          await investmentReviewRepositoryFor(context.env).getContext(
+            context.get("identity").subject,
+            context.req.param("positionId"),
+          ),
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return investmentReviewErrorResponse(context, error);
+    }
+  });
+  app.post("/api/investment-positions/:positionId/review", async (context) => {
+    const input = ReviewInvestmentInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!input.success)
+      return context.json({ error: "Enter valid investment details." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    try {
+      return context.json(
+        InvestmentReviewStateSchema.parse(
+          await investmentReviewRepositoryFor(context.env).review(
+            context.get("identity").subject,
+            context.req.param("positionId"),
+            input.data,
+          ),
+        ),
+        201,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return investmentReviewErrorResponse(context, error);
+    }
+  });
+  app.post(
+    "/api/investment-positions/:positionId/company-review",
+    async (context) => {
+      const input = InvestmentCompanyReviewInputSchema.safeParse(
+        await context.req.json().catch(() => null),
+      );
+      if (!input.success)
+        return context.json({ error: "Choose valid company evidence." }, 400, {
+          "Cache-Control": "private, no-store",
+        });
+      try {
+        return context.json(
+          InvestmentCompanyReceiptSchema.parse(
+            await investmentReviewRepositoryFor(context.env).reviewCompany(
+              context.get("identity").subject,
+              context.req.param("positionId"),
+              input.data,
+            ),
+          ),
+          201,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        return investmentReviewErrorResponse(context, error);
+      }
+    },
+  );
+  app.post(
+    "/api/investment-positions/:positionId/related-investments",
+    async (context) => {
+      const input = CreateDocumentInvestmentInputSchema.safeParse(
+        await context.req.json().catch(() => null),
+      );
+      if (!input.success)
+        return context.json(
+          { error: "Choose agreements for the separate investment." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      try {
+        return context.json(
+          CreateDocumentInvestmentResultSchema.parse(
+            await investmentReviewRepositoryFor(context.env).createRelated(
+              context.get("identity").subject,
+              context.req.param("positionId"),
+              input.data,
+            ),
+          ),
+          201,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        return investmentReviewErrorResponse(context, error);
+      }
+    },
+  );
 
   app.get("/api/legal-entities", async (context) => {
     const accessSubject = context.get("identity").subject;

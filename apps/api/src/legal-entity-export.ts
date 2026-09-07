@@ -235,29 +235,141 @@ function missingInformation(input: {
   return missing.length === 0 ? "None noted" : missing.join("; ");
 }
 
+function participationLabels(
+  sources: readonly LegalEntitySourceSummary[],
+): string {
+  return (
+    sources
+      .map(
+        (source) =>
+          `${source.sourceDisplayName}: ${source.investmentReview?.participationStatus ?? source.interestStatus}`,
+      )
+      .join("; ") || NOT_RECORDED
+  );
+}
+
+function positionOwnership(
+  sources: readonly LegalEntitySourceSummary[],
+): string {
+  return (
+    sources
+      .map((source) => {
+        const observations =
+          source.investmentReview?.ownershipObservations ?? [];
+        const current = observations.filter(
+          (item) =>
+            item.sourceKind !== "k1" &&
+            !observations.some(
+              (later) => later.supersedesObservationId === item.id,
+            ),
+        );
+        return `${source.sourceDisplayName} (${source.currentOwner ?? "Owner not recorded"}): ${current.length === 0 ? "Not reported" : current.map((item) => `${formatOwnershipInterestPpm(item.ownershipPpm ?? 0)} as of ${item.effectiveDate}; ${item.sourceLabel}`).join(" | ")}`;
+      })
+      .join("; ") || NOT_RECORDED
+  );
+}
+
+function investmentExportFields(
+  sources: readonly LegalEntitySourceSummary[],
+): Pick<
+  ExportRow,
+  | "underlying_company"
+  | "company_evidence"
+  | "ownership_evidence"
+  | "fee_and_carry"
+> {
+  const company = sources.map(
+    (source) =>
+      `${source.sourceDisplayName}: ${source.companyReview?.companyName ?? "Not confirmed"}`,
+  );
+  const companyEvidence = sources.flatMap((source) => {
+    const receipt = source.companyReview;
+    if (receipt == null) return [];
+    return [
+      `${source.sourceDisplayName}: ${receipt.basis === "user_confirmed" ? "User confirmation" : "Document review"}; ${receipt.recordedAt}${receipt.citation === null ? "" : `; ${receipt.sourceDocument?.fileName ?? receipt.citation.documentId}, page ${receipt.citation.page}; SHA-256 ${receipt.citation.sha256}; ${receipt.citation.quote}; extractor ${receipt.sourceDocument?.extractorVersion ?? "not recorded"}`}`,
+    ];
+  });
+  const ownership = sources.flatMap((source) => {
+    const observations = source.investmentReview?.ownershipObservations ?? [];
+    return observations.map(
+      (item) =>
+        `${source.sourceDisplayName} (${source.currentOwner ?? "Owner not recorded"}): ${item.sourceKind === "k1" ? `K-1 ${item.taxYear}; profit beginning ${share(item.profitBeginningPpm)}, ending ${share(item.profitEndingPpm)}; loss beginning ${share(item.lossBeginningPpm)}, ending ${share(item.lossEndingPpm)}; capital beginning ${share(item.capitalBeginningPpm)}, ending ${share(item.capitalEndingPpm)}` : `Ownership ${share(item.ownershipPpm)}; effective ${item.effectiveDate}`}; ${item.sourceLabel}; ${item.evidenceBasis === "user_reported" ? "User reported, document not attached" : `Document ${item.documentId}, page ${item.page}; SHA-256 ${item.documentSha256}`}; recorded ${item.recordedAt}${item.supersedesObservationId === null ? "" : `; amends ${item.supersedesObservationId}`}${observations.some((later) => later.supersedesObservationId === item.id) ? "; superseded" : ""}`,
+    );
+  });
+  const terms = sources.map(
+    (source) =>
+      `${source.sourceDisplayName}: ${source.financials?.annualAdminFeePpm == null ? "Fee not reviewed" : `${share(source.financials.annualAdminFeePpm)} annual admin fee for ${source.financials.adminFeeYears} years`}; carry ${share(source.financials?.carryPpm ?? null)}`,
+  );
+  return {
+    underlying_company: company.join("; ") || NOT_RECORDED,
+    company_evidence: companyEvidence.join("; ") || NOT_RECORDED,
+    ownership_evidence: ownership.join("; ") || "Not reported yet",
+    fee_and_carry: terms.join("; ") || NOT_RECORDED,
+  };
+}
+function share(value: number | null): string {
+  return value === null ? "Not reported" : formatOwnershipInterestPpm(value);
+}
+
 function confirmedRow(entity: LegalEntityRecord): ExportRow {
+  const positionSources = entity.sources.filter(
+    (source) => source.source.kind === "holding_position",
+  );
+  const owners = uniqueValues(
+    positionSources.map((source) => source.currentOwner),
+  );
+  const currentOwner = owners.join("; ") || entity.currentOwner;
+  const legacyOwner =
+    entity.currentOwner !== null &&
+    owners.length > 0 &&
+    !owners.includes(entity.currentOwner)
+      ? `; Earlier entity-level owner: ${entity.currentOwner}`
+      : "";
+  const legacyOwnership =
+    entity.ownershipInterestPpm === null
+      ? null
+      : formatOwnershipInterestPpm(entity.ownershipInterestPpm);
+  const ownershipEvidence = investmentExportFields(entity.sources);
+  if (positionSources.length > 0 && legacyOwnership !== null) {
+    ownershipEvidence.ownership_evidence += `; Earlier entity-level entry: ${legacyOwnership}; not assigned to a particular investment`;
+  }
+  const positionOwnershipKnown =
+    positionSources.length > 0 &&
+    positionSources.every(
+      (source) =>
+        source.investmentReview?.ownershipObservations.some(
+          (item) => item.sourceKind !== "k1",
+        ) === true,
+    );
   return {
     legal_name: entity.legalName,
     source_record: sourceRecords(entity.sources),
     name_evidence: nameEvidence(entity.sources),
     entity_type: entityTypeLabel(entity.entityType),
     relationship: relationshipLabel(entity.relationship),
-    current_owner: entity.currentOwner ?? NOT_RECORDED,
+    current_owner: `${currentOwner ?? NOT_RECORDED}${legacyOwner}`,
     jurisdiction: entity.jurisdiction ?? NOT_RECORDED,
     ownership_interest:
-      entity.ownershipInterestPpm === null
-        ? NOT_RECORDED
-        : formatOwnershipInterestPpm(entity.ownershipInterestPpm),
-    interest_status: interestStatusLabel(entity.interestStatus),
+      positionSources.length > 0
+        ? `${positionOwnership(positionSources)}${legacyOwnership === null ? "" : `; Earlier entity-level entry: ${legacyOwnership} (not assigned to an investment)`}`
+        : entity.ownershipInterestPpm === null
+          ? NOT_RECORDED
+          : formatOwnershipInterestPpm(entity.ownershipInterestPpm),
+    interest_status:
+      positionSources.length === 0
+        ? interestStatusLabel(entity.interestStatus)
+        : `${participationLabels(positionSources)}${entity.interestStatus === "unknown" ? "" : `; Earlier entity-level status: ${interestStatusLabel(entity.interestStatus)}`}`,
     record_status: "Confirmed",
     source: sourceLabels(entity.sources),
     source_as_of: sourceDates(entity.sources, entity.recordedAt),
     missing_information: missingInformation({
-      currentOwner: entity.currentOwner,
+      currentOwner,
       einLastFour: entity.einLastFour,
       formedOn: entity.formedOn,
       jurisdiction: entity.jurisdiction,
-      ownershipInterestPpm: entity.ownershipInterestPpm,
+      ownershipInterestPpm: positionOwnershipKnown
+        ? 0
+        : entity.ownershipInterestPpm,
       taxClassification: entity.taxClassification,
       needsLegalName: false,
       needsClassification: false,
@@ -270,6 +382,7 @@ function confirmedRow(entity: LegalEntityRecord): ExportRow {
     funded: financialValues(entity.sources, "funded"),
     current_value: financialValues(entity.sources, "current_value"),
     notes: entity.notes ?? NOT_RECORDED,
+    ...ownershipEvidence,
   };
 }
 
@@ -287,8 +400,8 @@ function candidateRow(candidate: LegalEntitySourceSummary): ExportRow {
     relationship: relationshipLabel(candidate.relationship),
     current_owner: candidate.currentOwner ?? NOT_RECORDED,
     jurisdiction: NOT_RECORDED,
-    ownership_interest: NOT_RECORDED,
-    interest_status: interestStatusLabel(candidate.interestStatus),
+    ownership_interest: positionOwnership([candidate]),
+    interest_status: participationLabels([candidate]),
     record_status: conflicting
       ? "Names disagree"
       : nameUnavailable
@@ -314,6 +427,7 @@ function candidateRow(candidate: LegalEntitySourceSummary): ExportRow {
     funded: financialValues([candidate], "funded"),
     current_value: financialValues([candidate], "current_value"),
     notes: NOT_RECORDED,
+    ...investmentExportFields([candidate]),
   };
 }
 
@@ -326,7 +440,20 @@ export function legalEntityExportRows(
     .filter(
       (entity) =>
         (input.includeOtherEntityTypes || entity.entityType === "llc") &&
-        (input.includeHistorical || entity.interestStatus !== "historical"),
+        (input.includeHistorical ||
+          (entity.sources.some(
+            (source) =>
+              source.source.kind === "holding_position" &&
+              source.investmentReview != null,
+          )
+            ? entity.sources.some(
+                (source) =>
+                  !["historical", "cancelled"].includes(
+                    source.investmentReview?.participationStatus ??
+                      source.interestStatus,
+                  ),
+              )
+            : entity.interestStatus !== "historical")),
     )
     .map(confirmedRow);
   const candidates = input.includeNeedsReview
@@ -334,7 +461,10 @@ export function legalEntityExportRows(
         .filter(
           (candidate) =>
             input.includeHistorical ||
-            candidate.interestStatus !== "historical",
+            !["historical", "cancelled"].includes(
+              candidate.investmentReview?.participationStatus ??
+                candidate.interestStatus,
+            ),
         )
         .map(candidateRow)
     : [];

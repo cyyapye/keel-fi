@@ -43,10 +43,27 @@ export function extractLegalNameFromPages(
   )
     return failed("limit_reached");
   const citations: LegalDocumentCitation[] = [];
+  const companyCitations: NonNullable<
+    LegalDocumentExtraction["companyCitations"]
+  > = [];
   const titles: LegalDocumentCitation[] = [];
   pages.forEach((text, index) => {
     const lines = text.split(/\r?\n/u);
     lines.forEach((line, lineIndex) => {
+      const company =
+        /^\s*["“]?(Underlying Company|Target Company|Portfolio Company)["”]?\s*:\s*([^\n]{1,1000}?)\s*$/iu.exec(
+          line,
+        );
+      if (company !== null && compact(line).length <= 2_000) {
+        companyCitations.push({
+          companyName: compact(company[2] ?? ""),
+          role: (company[1]?.toLowerCase().replace(" ", "_") ??
+            "underlying_company") as
+            "underlying_company" | "target_company" | "portfolio_company",
+          page: index + 1,
+          quote: compact(line),
+        });
+      }
       const label =
         /^\s*["“]?(?:Legal\s+)?(Issuer|Fund|Series)(?:\s+(?:Legal\s+)?Name)?["”]?\s*:\s*(.+?)\s*$/iu.exec(
           line,
@@ -106,6 +123,16 @@ export function extractLegalNameFromPages(
       }
     });
   });
+  // Bounded evidence, never an unbounded list or a guessed choice among names.
+  const companies = [
+    ...new Map(
+      companyCitations.map((citation) => [
+        `${citation.companyName}:${citation.page}`,
+        citation,
+      ]),
+    ).values(),
+  ];
+  if (companies.length > 8) return failed("limit_reached", pages.length);
   // A compartment represented by another company is not evidence that the
   // investor owns that representative's LLC interests. Never substitute it.
   const structurePage = pages.findIndex((page) =>
@@ -127,6 +154,7 @@ export function extractLegalNameFromPages(
     );
     return LegalDocumentExtractionSchema.parse({
       ...failed("other_structure", pages.length),
+      companyCitations: companies,
       structure: {
         kind: "compartment",
         page: structurePage + 1,
@@ -169,7 +197,11 @@ export function extractLegalNameFromPages(
     /["“]?(?:Parent|Master)\s+(?:LLC|LP|Agreement)["”]?\s*:/iu.test(page),
   );
   if (citations.length === 0 && !definesParent) citations.push(...titles);
-  if (citations.length === 0) return failed("name_not_found", pages.length);
+  if (citations.length === 0)
+    return {
+      ...failed("name_not_found", pages.length),
+      companyCitations: companies,
+    };
   // Preserve spelling, punctuation and case exactly. Even seemingly equivalent
   // variants must be resolved, not silently merged by a name heuristic.
   const alternatives = [
@@ -184,6 +216,7 @@ export function extractLegalNameFromPages(
     pageCount: pages.length,
     problem: alternatives.length > 1 ? "conflicting" : null,
     citations: alternatives.length > 1 ? alternatives : citations.slice(0, 1),
+    companyCitations: companies,
   });
 }
 

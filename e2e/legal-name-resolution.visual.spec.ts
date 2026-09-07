@@ -11,6 +11,7 @@ import {
 } from "../packages/domain/src/legal-entities";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
+import { routeInvestmentReview } from "./investment-review-fixtures";
 
 const source: LegalEntitySourceSummary = {
   source: { kind: "holding_position", id: "position_demo_conflict" },
@@ -219,6 +220,7 @@ async function setup(
     acceptedCashAccounts: [],
     pendingImports: [],
   });
+  await routeInvestmentReview(page, candidate);
   await page.route("**/api/legal-entities", async (route) => {
     if (route.request().method() === "GET")
       return route.fulfill({ json: inventory });
@@ -579,15 +581,9 @@ for (const problem of ["name_not_found", "other_structure"] as const)
     expect(writes).toHaveLength(0);
     await editor.getByLabel("EIN last four").fill("1234");
     await expect(add).toBeEnabled();
-    for (const percentage of ["101", "-1", "1.12345", "abc"]) {
-      await editor.getByLabel("Ownership interest").fill(percentage);
-      await expect(add).toBeDisabled();
-      await expect(editor.getByLabel("Ownership interest")).toHaveAttribute(
-        "aria-invalid",
-        "true",
-      );
-    }
-    await editor.getByLabel("Ownership interest").fill("12.5");
+    // Participation and percentages now belong to the specific investment.
+    // Their independent validation is covered in investment-review.visual.
+    await expect(editor.getByLabel("Ownership interest")).toHaveCount(0);
     await expect(add).toBeEnabled();
     await add.click();
     expect(writes[0]).toMatchObject({

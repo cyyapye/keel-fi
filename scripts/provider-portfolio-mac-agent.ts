@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_BYTES,
   MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_ROWS,
-  PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES,
+  PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES,
   providerHoldingsTemplateCsvHeaders,
 } from "../packages/connectors/src/index";
 import {
@@ -183,6 +183,7 @@ type CaptureRow = {
   managementFeePpm: number | null;
   carryPpm: number | null;
   identityKey: string;
+  providerInvestmentId: string;
 };
 
 function parseOptions(argv: readonly string[]) {
@@ -919,11 +920,12 @@ function rowsToCsv(
       formatUsdMinor(row.realizedValueMinor),
       row.instrument,
       ...providerTerms,
+      row.providerInvestmentId,
     ]
       .map(csvCell)
       .join(",");
   });
-  const document = `${PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES[provider]}\n${providerHoldingsTemplateCsvHeaders(provider).join(",")}\n${lines.join("\n")}\n`;
+  const document = `${PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES[provider]}\n${providerHoldingsTemplateCsvHeaders(provider, 3).join(",")}\n${lines.join("\n")}\n`;
   const bytes = new TextEncoder().encode(document);
   if (bytes.byteLength > MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_BYTES) {
     throw new AgentFailure("incomplete_snapshot");
@@ -1150,7 +1152,7 @@ async function captureTokenfolio(
     }
 
     onStage("drawer_open");
-    if (agreements !== undefined) await waitForTokenfolioDrawerUrl(page, false);
+    await waitForTokenfolioDrawerUrl(page, false);
     await activateHtmlElement(row);
     const close = page.getByRole("button", { name: "Close drawer" });
     await close.waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
@@ -1174,6 +1176,12 @@ async function captureTokenfolio(
     const heldThrough = requiredText(detail.entity);
     onStage("investment_date");
     const investmentDate = parseProviderDate(detail.committedOn);
+    await waitForTokenfolioDrawerUrl(page, true);
+    const providerInvestmentId = new URL(page.url()).searchParams.get(
+      "investmentId",
+    );
+    if (providerInvestmentId === null)
+      throw new AgentFailure("identity_ambiguous");
     const capturedRow: CaptureRow = {
       investment: company,
       legalPosition: requiredText(`Tokenfolio position in ${company}`),
@@ -1189,9 +1197,8 @@ async function captureTokenfolio(
       instrument: "Tokenfolio private position",
       managementFeePpm: null,
       carryPpm: null,
-      identityKey: [company, heldThrough, investmentDate]
-        .map((part) => normalizedText(part).toLowerCase())
-        .join("\u0000"),
+      identityKey: providerInvestmentId,
+      providerInvestmentId,
     };
     captured.push(capturedRow);
     if (agreements !== undefined) {
@@ -1205,7 +1212,7 @@ async function captureTokenfolio(
     onStage("drawer_close");
     await activateHtmlElement(close);
     await close.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
-    if (agreements !== undefined) await waitForTokenfolioDrawerUrl(page, false);
+    await waitForTokenfolioDrawerUrl(page, false);
   }
 
   onStage("final_reconcile");
@@ -1513,6 +1520,7 @@ async function captureSydecar(
       managementFeePpm,
       carryPpm,
       identityKey: providerId,
+      providerInvestmentId: providerId,
     };
     captured.push(capturedRow);
     if (agreements !== undefined) {
