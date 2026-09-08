@@ -267,6 +267,8 @@ export const InvestmentReviewContextSchema = z
             companyId: Id.nullable(),
             companyName: z.string().min(1).max(1_000),
             status: z.enum(["active", "withdrawn"]),
+            decisionSource: z.string().nullable().optional(),
+            acceptedAt: z.iso.datetime({ offset: true }).nullable().optional(),
           })
           .strict(),
       )

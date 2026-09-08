@@ -1536,6 +1536,7 @@ h1,
 
 .position-economics__fields {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 22px 28px;
 }
@@ -6188,6 +6189,89 @@ h1,
   min-width: 0;
   padding-block: 28px;
 }
+
+.legal-entities[hidden],
+.entity-review__panel[hidden] {
+  display: none;
+}
+.entity-review {
+  min-width: 0;
+}
+.entity-review__navigation {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+.entity-review .page-intro h1 {
+  font-size: clamp(28px, 4vw, 44px);
+  overflow-wrap: anywhere;
+}
+.entity-review__next {
+  margin-block: 16px 0;
+  font-size: 12px;
+}
+.entity-review__panel {
+  display: grid;
+  gap: 40px;
+  padding-block: 32px;
+}
+.entity-review__panel .legal-entity-editor {
+  padding: 0;
+  border: 0;
+}
+.entity-review__optional {
+  grid-column: 1 / -1;
+}
+.entity-review__optional > button {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.entity-review__optional .legal-entity-editor__fields {
+  padding-top: 24px;
+}
+.entity-review__destination {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.entity-review__destination legend {
+  margin-bottom: 12px;
+  font-weight: 700;
+}
+.entity-review__destination label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.entity-review__destination input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ink);
+}
+.entity-review__link {
+  display: grid;
+  gap: 20px;
+  max-width: 720px;
+}
+.entity-review__link > .button {
+  justify-self: start;
+}
+.entity-review__secondary {
+  margin-block: 24px;
+}
+.investment-review__company-basis p {
+  margin-block: 0 8px;
+}
+@media (max-width: 700px) {
+  .entity-review__navigation {
+    gap: 16px;
+  }
+}
 .investment-review > h3 {
   margin-bottom: 24px;
   font-size: 24px;
@@ -6201,8 +6285,7 @@ h1,
 .investment-review__sections,
 .investment-review__section,
 .investment-review__section form,
-.investment-review__documents,
-.investment-review__observations {
+.investment-review__documents {
   display: grid;
   gap: 20px;
   min-width: 0;
@@ -6219,8 +6302,13 @@ h1,
 }
 .investment-review__fields {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
+}
+.investment-review__field-note {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 .investment-review__amounts {
   display: grid;
@@ -6237,6 +6325,85 @@ h1,
   display: flex;
   gap: 12px;
   align-items: start;
+}
+.investment-review__document {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 20px;
+  align-items: center;
+  min-width: 0;
+}
+.investment-review__document label {
+  align-items: center;
+  min-height: 44px;
+  font-weight: 700;
+}
+.investment-review__document-details {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+  padding-left: 28px;
+}
+.investment-review__document-details p {
+  margin: 0;
+  color: var(--muted);
+}
+.investment-review__document-details .investment-review__assignment {
+  color: var(--ink);
+}
+.investment-review__assignment-count {
+  margin: 0;
+  color: var(--muted);
+}
+.ownership-evidence {
+  display: grid;
+  gap: 32px;
+  margin-bottom: 24px;
+}
+.ownership-evidence__entry {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(0, 2fr);
+  align-items: start;
+  gap: 24px 40px;
+}
+.ownership-evidence__values {
+  display: grid;
+  gap: 20px;
+  margin: 0;
+}
+.ownership-evidence__values--k1 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ownership-evidence__values .data-list__value {
+  margin-top: 6px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.ownership-evidence__values--k1 .data-list__value {
+  font-size: 20px;
+}
+.ownership-evidence__values .is-not-set {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+.ownership-evidence__source {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.ownership-evidence__source h4,
+.ownership-evidence__source p {
+  margin: 0;
+}
+.ownership-evidence__source h4 {
+  font-size: 16px;
+}
+.ownership-evidence__source small {
+  color: var(--muted);
+  font-size: 12px;
 }
 .investment-review__documents input[type="checkbox"] {
   flex: 0 0 auto;
@@ -6259,6 +6426,13 @@ h1,
   margin-inline: 0;
 }
 @media (max-width: 700px) {
+  .ownership-evidence__entry {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .investment-review__document {
+    gap: 4px 12px;
+  }
   .investment-review__fields {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -6277,15 +6451,14 @@ h1,
 
 .legal-entity-editor__fields {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 26px 30px;
 }
 
 .legal-entity-editor__actions,
 .legal-entity-export__actions {
   margin-top: 28px;
-  padding-top: 18px;
-  border-top: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
 }
 
 .legal-entity-editor__actions p,

@@ -61,6 +61,8 @@ type Mapping = {
   relationship_kind: string;
   version: number;
   effective_at: string;
+  decision_source: string;
+  accepted_at: string;
 };
 const documentsSchema = z.array(LegalNameDocumentReferenceSchema).max(100);
 function evidenceGuard(
@@ -189,7 +191,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     const [mappings, companies, otherPositions, incoming] = await Promise.all([
       this.db
         .prepare(
-          `SELECT m.id, m.exposure_id, e.company_id, e.canonical_name, m.status, m.relationship_kind, m.version, m.effective_at
+          `SELECT m.id, m.exposure_id, e.company_id, e.canonical_name, m.status, m.relationship_kind, m.version, m.effective_at, m.decision_source, m.accepted_at
         FROM holding_position_exposure_mappings m JOIN canonical_exposures e ON e.id = m.exposure_id
         WHERE m.household_id = ? AND m.position_id = ? AND NOT EXISTS (SELECT 1 FROM holding_position_exposure_mappings later WHERE later.supersedes_mapping_id = m.id)
         ORDER BY m.exposure_id LIMIT 101`,
@@ -360,6 +362,8 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         companyId: m.company_id,
         companyName: m.canonical_name,
         status: m.status,
+        decisionSource: m.decision_source,
+        acceptedAt: m.accepted_at,
       })),
       companyReceipt:
         position.receipt_json === null

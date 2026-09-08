@@ -903,28 +903,42 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
       input.source,
       current,
     );
+    let selectedVersionId: string | null = null;
     if (input.decision.kind === "linked") {
-      const selectedName =
-        input.nameResolution === undefined
-          ? ""
-          : await this.db
-              .prepare(
-                `SELECT version.legal_name, version.entity_type FROM legal_entities entity
+      const selected = await this.db
+        .prepare(
+          `SELECT version.id, version.legal_name, version.entity_type FROM legal_entities entity
          JOIN legal_entity_versions version ON version.legal_entity_id = entity.id
          WHERE entity.id = ? AND entity.household_id = ?
            AND NOT EXISTS (SELECT 1 FROM legal_entity_versions later WHERE later.supersedes_version_id = version.id)`,
-              )
-              .bind(input.decision.legalEntityId, identity.household_id)
-              .first<{ legal_name: string; entity_type: LegalEntityType }>();
+        )
+        .bind(input.decision.legalEntityId, identity.household_id)
+        .first<{
+          id: string;
+          legal_name: string;
+          entity_type: LegalEntityType;
+        }>();
+      if (selected === null)
+        throw new LegalEntityRepositoryError(
+          "not_found",
+          "The selected legal entity is unavailable.",
+        );
+      selectedVersionId = selected.id;
+      if (
+        input.nameResolution === undefined &&
+        source.legalEntityNameEvidence.legalName !== null &&
+        selected.legal_name !== source.legalEntityNameEvidence.legalName
+      ) {
+        throw new LegalEntityRepositoryError(
+          "invalid_source",
+          "The saved legal name does not match this source. Create a separate entity or review the legal-name evidence.",
+        );
+      }
       source = await resolveSourceName(
         source,
         input.nameResolution,
-        typeof selectedName === "string"
-          ? selectedName
-          : (selectedName?.legal_name ?? ""),
-        typeof selectedName === "string"
-          ? undefined
-          : selectedName?.entity_type,
+        selected.legal_name,
+        selected.entity_type,
       );
     } else if (input.nameResolution !== undefined) {
       throw new LegalEntityRepositoryError(
@@ -944,6 +958,7 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
         (current?.version ?? 0) + 1,
         current?.decision_id ?? null,
         decidedAt,
+        selectedVersionId,
       ),
     ]);
     return LegalEntitySourceReviewResultSchema.parse({
@@ -1366,6 +1381,7 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
     version: number,
     supersedesDecisionId: string | null,
     decidedAt: string,
+    expectedEntityVersionId: string | null = null,
   ): D1PreparedStatement {
     return this.db
       .prepare(
@@ -1374,8 +1390,8 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
            source_label, source_as_of, relationship, current_owner,
            interest_status, opened_on, decision, legal_entity_id, version,
            supersedes_decision_id, decided_by_user_id, decided_at, immutable,
-           name_resolution_json
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+           name_resolution_json, expected_entity_version_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       )
       .bind(
         decisionId,
@@ -1398,6 +1414,7 @@ export class D1LegalEntityRepository implements LegalEntityRepository {
         decision === "linked" && source.nameResolution !== undefined
           ? JSON.stringify(source.nameResolution)
           : null,
+        expectedEntityVersionId,
       );
   }
 }

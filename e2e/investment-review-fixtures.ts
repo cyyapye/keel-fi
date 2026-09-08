@@ -1,4 +1,23 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+
+export async function selectReviewSection(page: Page, name: string) {
+  await expect(page.locator(".section-navigation")).toBeVisible();
+  const dropdown = page.getByRole("combobox", {
+    name: "Review sections",
+    exact: true,
+  });
+  if (await dropdown.isVisible()) {
+    await dropdown.click();
+    await page
+      .getByRole("option", { name: new RegExp(`^${name}\\b`, "u") })
+      .click();
+  } else {
+    await page.getByRole("tab", { name, exact: true }).click();
+  }
+  await expect(page.locator(".entity-review__panel:not([hidden])")).toHaveCount(
+    1,
+  );
+}
 import type { LegalEntitySourceSummary } from "../packages/domain/src/legal-entities";
 import {
   InvestmentCompanyReceiptSchema,
@@ -72,15 +91,25 @@ export async function routeInvestmentReview(
                   ...ownership,
                   id: crypto.randomUUID(),
                   recordedAt: "2026-09-01T12:00:00.000Z",
-                  evidenceBasis: "user_reported",
-                  documentSha256: null,
+                  evidenceBasis:
+                    ownership.documentId === null
+                      ? "user_reported"
+                      : "document_review",
+                  documentSha256:
+                    context.documents.find(
+                      (doc) => doc.id === ownership.documentId,
+                    )?.sha256 ?? null,
                 }),
               ]),
         ],
-        documentAssignments:
-          input.documentAssignments ??
-          context.review?.documentAssignments ??
-          [],
+        documentAssignments: [
+          ...new Map(
+            [
+              ...(context.review?.documentAssignments ?? []),
+              ...(input.documentAssignments ?? []),
+            ].map((item) => [item.documentId, item]),
+          ).values(),
+        ],
         recordedAt: "2026-09-01T12:00:00.000Z",
       });
       source.investmentReview = context.review;
@@ -120,6 +149,12 @@ export async function routeInvestmentReview(
           status: "active",
         },
       ];
+      if (!context.companies.some((company) => company.id === "demo_company")) {
+        context.companies.push({
+          id: "demo_company",
+          legalName: context.companyReceipt.companyName,
+        });
+      }
       source.companyReview = context.companyReceipt;
       return route.fulfill({ status: 201, json: context.companyReceipt });
     },

@@ -168,6 +168,26 @@ scenario:
 make dev SCENARIO=empty-holdings
 ```
 
+For the legal-entity review walkthrough, use `make dev SCENARIO=entity-review`
+and open `/holdings/entities` on the printed web URL. This isolated scenario
+seeds native D1 records and downloadable, clearly marked synthetic PDFs into
+local R2; it never imports a real portfolio or uses browser-test API mocks.
+
+- Demo Orchard: read a PDF whose name was not extracted.
+- Demo Meridian: compare different vehicle names or assign agreements to
+  separate investments.
+- Demo Growth III / IV: compare a user-confirmed company without a supporting
+  citation against an agreement-backed mapping.
+- Demo Existing Vehicle: explicitly choose an exact saved entity to link.
+- Demo Cancelled Subscription: inspect a separate cancelled interest with no
+  copied investment amount, fee, or carry.
+- Demo Reviewed Vehicle: inspect optional K-1 ownership shares.
+
+Additional fabricated sources exercise progressive loading. Changes persist
+between starts. Stop the server before `make db-reset SCENARIO=entity-review` if
+you want to restore this demo; resetting discards only that scenario's local
+practice changes.
+
 The command prints both URLs. The primary checkout uses web port 4177 and API
 port 8789. Linked worktrees derive stable alternate ports from their paths so
 several Codex worktrees can run concurrently. Override either port when needed:

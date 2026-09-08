@@ -17,6 +17,7 @@ describe("local seed scenarios", () => {
 
   it("accepts only registered scenario names", () => {
     expect(parseLocalSeedScenario("empty-holdings")).toBe("empty-holdings");
+    expect(parseLocalSeedScenario("entity-review")).toBe("entity-review");
     expect(() => parseLocalSeedScenario("../../production")).toThrow(
       /Unknown local seed scenario/,
     );

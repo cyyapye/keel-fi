@@ -947,8 +947,11 @@ test("leads with the investment and opens a truthful holding detail", async ({
     },
   );
   await page.getByRole("button", { name: "Accept terms" }).click();
+  await expect(page.getByText("SPV fee and carry terms accepted.")).toHaveCount(
+    0,
+  );
   await expect(
-    page.getByText("SPV fee and carry terms accepted."),
+    page.getByRole("button", { name: "Update fee & carry" }),
   ).toBeVisible();
   await expect(
     page.locator(".position-economics__values").getByText("$98k"),

@@ -7,7 +7,10 @@ import type {
 
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
-import { routeInvestmentReview } from "./investment-review-fixtures";
+import {
+  routeInvestmentReview,
+  selectReviewSection,
+} from "./investment-review-fixtures";
 
 const positionSource = {
   source: { kind: "holding_position" as const, id: "position_demo_venture" },
@@ -425,7 +428,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     .locator(".legal-entity-candidate")
     .filter({ hasText: "Demo Climate" });
   await expect(unresolvedSydecar).toContainText(
-    "No agreement was available for this investment.",
+    "Open source options to see what is missing.",
   );
   await expect(
     unresolvedSydecar.getByRole("button", { name: "Review details" }),
@@ -434,10 +437,14 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page
       .locator(".legal-entity-candidate")
       .filter({ hasText: "Demo Pharmacy" }),
-  ).toContainText("compartment structure");
-  const evidence = page
+  ).toContainText("Open source options");
+  await page
     .locator(".legal-entity-candidate")
-    .filter({ hasText: "Demo Venture SPV LLC" });
+    .filter({ hasText: "Demo Venture SPV LLC" })
+    .getByRole("button", { name: "Review details", exact: true })
+    .click();
+  await selectReviewSection(page, "Documents");
+  const evidence = page.locator(".entity-review");
   await evidence
     .getByRole("button", { name: "Agreement evidence · 1" })
     .click();
@@ -515,13 +522,18 @@ test("reviews legal entities and exports selected counsel fields", async ({
   expect((await agreementDownload).suggestedFilename()).toBe(
     "demo-subscription-agreement.pdf",
   );
-  await expect(evidence.locator(".form-message")).toHaveCount(0);
+  await expect(
+    evidence.locator(".legal-entity-documents .form-message"),
+  ).toHaveCount(0);
   expect(downloadMethods).toEqual(["POST", "POST", "POST"]);
   await expectNoHorizontalOverflow(page);
 
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
+  await page
+    .getByRole("button", { name: "Back to legal entities", exact: true })
+    .click();
   await expect(page.locator(".holdings-screen")).toHaveScreenshot(
     "legal-entities.png",
     {
@@ -543,7 +555,15 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expect(editor.getByLabel("Legal name")).toHaveValue(
     "Demo Venture SPV LLC",
   );
+  await editor
+    .getByRole("button", { name: "Additional details (optional)" })
+    .click();
   await editor.getByLabel("Formation jurisdiction").fill("Delaware, US");
+  if (test.info().project.name === "chromium") {
+    const ein = await editor.getByLabel("EIN last four").boundingBox();
+    const tax = await editor.getByLabel("Tax classification").boundingBox();
+    expect(ein?.y).toBe(tax?.y);
+  }
   await expect(editor.getByLabel("Ownership interest")).toHaveCount(0);
   expect(pageErrors).toEqual([]);
   await editor.scrollIntoViewIfNeeded();
@@ -556,7 +576,16 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expectNoHorizontalOverflow(page);
 
   await editor.getByRole("button", { name: "Add entity" }).click();
-  await expect(page.getByText("The source review was saved.")).toBeVisible();
+  await expect(
+    editor.getByRole("heading", { name: "Edit legal entity" }),
+  ).toBeVisible();
+  await expect(
+    editor.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Back to legal entities", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { level: 3, name: "Demo Venture SPV LLC" }),
   ).toBeVisible();

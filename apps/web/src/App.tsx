@@ -8793,17 +8793,9 @@ export function App() {
       if (holdingsView === "entities")
         return (
           <ScreenLayout className="holdings-screen">
-            <PageHeader
-              title="Legal entities"
-              eyebrow="Holdings"
-              description="Prepare an entity and interest list for counsel. This inventory does not transfer anything to a trust."
-              actions={
-                <TextLink onClick={() => navigateToHoldingsView("overview")}>
-                  Back to holdings
-                </TextLink>
-              }
+            <LegalEntities
+              onBackToHoldings={() => navigateToHoldingsView("overview")}
             />
-            <LegalEntities />
           </ScreenLayout>
         );
       if (holdingsPageData === null) {

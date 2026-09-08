@@ -1072,6 +1072,54 @@ describe("legal entity repository", () => {
     },
   );
 
+  it("rejects an unrelated saved entity for a found name and guards a rename during linking", async () => {
+    const { view, first } = conflictView(sqlite);
+    first.legalEntityNameEvidence = {
+      state: "provider_reported",
+      legalName: "Synthetic Found Vehicle LLC",
+      sourceField: "Fund Name",
+    };
+    const existing = await repository.create(
+      "synthetic-access-subject",
+      { profile, source: null },
+      view,
+    );
+    const input = {
+      source: { kind: "holding_position" as const, id: first.id },
+      expectedDecisionId: null,
+      decision: { kind: "linked" as const, legalEntityId: existing.id },
+    };
+    await expect(
+      repository.reviewSource("synthetic-access-subject", input, view),
+    ).rejects.toMatchObject({ code: "invalid_source" });
+    const matching = await repository.update(
+      "synthetic-access-subject",
+      existing.id,
+      {
+        expectedVersionId: existing.versionId,
+        profile: { ...profile, legalName: "Synthetic Found Vehicle LLC" },
+      },
+    );
+    const commit = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => {
+      await repository.update("synthetic-access-subject", existing.id, {
+        expectedVersionId: matching.versionId,
+        profile: { ...profile, legalName: "Synthetic Renamed Vehicle LLC" },
+      });
+      return commit(statements);
+    });
+    await expect(
+      repository.reviewSource("synthetic-access-subject", input, view),
+    ).rejects.toMatchObject({ code: "stale" });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) count FROM legal_entity_source_decisions WHERE source_reference = ?",
+        )
+        .get(first.id),
+    ).toEqual({ count: 0 });
+  });
+
   it("links a resolved name only to the exact household entity and protects its current name", async () => {
     const { view, first } = conflictView(sqlite);
     const resolution = await nameChoice(view);

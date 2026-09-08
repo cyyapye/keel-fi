@@ -64,7 +64,9 @@ export function LegalNameResolver({
   const [choice, setChoice] = useState(
     reviewKind === "document" ? "correction" : "",
   );
-  const [documentId, setDocumentId] = useState("");
+  const [documentId, setDocumentId] = useState(
+    documents.length === 1 ? documents[0]!.id : "",
+  );
   const [legalName, setLegalName] = useState("");
   const [page, setPage] = useState("");
   const [quote, setQuote] = useState("");
@@ -132,7 +134,6 @@ export function LegalNameResolver({
       }
       if (destination === "new") {
         onAdd(parsed.data);
-        onClose();
       } else {
         if (!matches.some((entity) => entity.id === destination))
           throw new Error(
@@ -145,7 +146,6 @@ export function LegalNameResolver({
           nameResolution: parsed.data,
         });
         await onSaved();
-        onClose();
       }
     } catch (failure) {
       setError(
@@ -178,8 +178,8 @@ export function LegalNameResolver({
         {structure
           ? "Keep the compartment and its representative separate. Confirm the entity type from the agreement when adding the record."
           : reviewKind === "document"
-            ? "Read the PDF in Agreement evidence, then enter the exact name and page."
-            : "Different vehicles may be separate investments. Use Assign agreements below for those; choose a name here only for this investment."}
+            ? "Read the PDF in Documents, then enter the exact name and page."
+            : "Different vehicles may be separate investments. Assign their agreements in Documents; choose a name here only for this investment."}
       </p>
       {structure &&
         documents.map((document) =>
@@ -439,7 +439,6 @@ export function LegalNameResolver({
           onClick={() => {
             setWorking(true);
             void onReload()
-              .then(onClose)
               .catch(() =>
                 setError("The evidence could not be reloaded. Try again."),
               )
