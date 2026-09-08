@@ -19,6 +19,11 @@
 ## Validation
 
 <!-- List exact commands and outcomes. -->
+<!-- For review/source/UI changes, name applicable R1-R8 safeguards from
+docs/engineering/review-safeguards.md. Include the reproduced failure or existing
+regression, stored-value and visible-state proof, inspected desktop/mobile
+artifacts, and any still-unverified live boundary. Use N/A with a reason for
+unaffected layers; screenshots and local checks do not prove a live deployment. -->
 
 - [ ] `make verify`
 - [ ] Any narrower or additional checks are listed above

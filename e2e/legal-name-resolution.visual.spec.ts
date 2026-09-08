@@ -529,6 +529,19 @@ for (const problem of ["name_not_found", "other_structure"] as const)
         exact: true,
       })
       .click();
+    if (problem === "name_not_found") {
+      await selectReviewSection(page, "Documents");
+      await expect(row).toContainText(
+        "Review the agreement and enter its exact name and page.",
+      );
+      await expect(row).not.toContainText("page and excerpt");
+      await expect(row).toHaveScreenshot("legal-name-recovery-guidance.png", {
+        animations: "disabled",
+        caret: "hide",
+      });
+      await noOverflow(page);
+      await selectReviewSection(page, "Identity");
+    }
     const resolver = row.getByRole("form");
     if (problem === "other_structure")
       await resolver

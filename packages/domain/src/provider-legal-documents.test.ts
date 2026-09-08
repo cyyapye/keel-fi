@@ -1,8 +1,44 @@
 import { describe, expect, it } from "vitest";
 import {
+  LEGAL_DOCUMENT_PROBLEM_COPY,
   LegalDocumentExtractionSchema,
   LegalDocumentScanSchema,
 } from "./provider-legal-documents";
+
+describe("document recovery guidance", () => {
+  it("asks for the exact name and page without making an excerpt mandatory", () => {
+    expect(LEGAL_DOCUMENT_PROBLEM_COPY.name_not_found).toContain(
+      "Keel did not extract an exact vehicle name",
+    );
+    expect(LEGAL_DOCUMENT_PROBLEM_COPY.name_not_found).toContain("page");
+    expect(LEGAL_DOCUMENT_PROBLEM_COPY.name_not_found).not.toMatch(
+      /excerpt|reason for correction|name is absent|name is missing/iu,
+    );
+  });
+
+  it("distinguishes absent documents from failed reads and failed extraction", () => {
+    expect(LEGAL_DOCUMENT_PROBLEM_COPY.missing).toContain(
+      "No agreement was available",
+    );
+    for (const problem of [
+      "inaccessible",
+      "unreadable",
+      "name_not_found",
+      "limit_reached",
+      "extractor_unavailable",
+      "page_changed",
+      "security_blocked",
+      "scanner_unavailable",
+    ] as const) {
+      expect(LEGAL_DOCUMENT_PROBLEM_COPY[problem]).not.toMatch(
+        /no agreement|no legal name|name is absent|name is missing/iu,
+      );
+      expect(LEGAL_DOCUMENT_PROBLEM_COPY[problem]).not.toBe(
+        LEGAL_DOCUMENT_PROBLEM_COPY.missing,
+      );
+    }
+  });
+});
 
 describe("document security reasons", () => {
   const scan = {

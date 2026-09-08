@@ -41,6 +41,19 @@ finite maintenance queue lives in
 - Enable a form's submit action only when required fields are complete and all
   entered values are valid. Show actionable inline feedback instead of native
   browser validation pop-ups, and keep server-side validation authoritative.
+- Prefill identified source facts and safe workflow defaults. Do not ask users
+  to retype metadata already implied by a chosen source or document. A default
+  is not a reviewed decision, and unknown financial facts must remain unknown.
+- Show saving on the action being performed, then show the resulting state and
+  disable unchanged resubmission. Reuse the established feedback components;
+  avoid duplicate success banners. Failed saves preserve the user's draft.
+- Keep list triage separate from detailed multi-section review. Use shared
+  responsive section navigation and actionable progress; optional information
+  must not appear to block completion or export.
+- Explain the failure actually observed and offer the corresponding next step.
+  Missing source data, failed retrieval, failed extraction, conflicting
+  evidence, and security restrictions are different states. A retry must not
+  weaken a security boundary, and a read failure does not prove sign-in expired.
 
 ## Copy filter
 
@@ -74,6 +87,12 @@ Before handing off a material interface change:
   and labels that are already evident from hierarchy or context.
 - Confirm the primary action and trust boundary remain clear without reading
   secondary metadata.
+- Exercise the primary action, reload its saved state, repeat a changed save,
+  and reject a save while checking draft retention. Pair mocked browser flows
+  with repository/API readback tests; a success response alone is insufficient.
+- Check sibling uses of changed patterns and use the
+  [review safeguards](../engineering/review-safeguards.md) to select existing
+  regressions before adding new coverage.
 - Update the relevant Playwright screenshot baselines, inspect the generated
   images, and run `make verify`.
 
