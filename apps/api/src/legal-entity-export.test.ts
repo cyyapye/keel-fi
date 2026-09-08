@@ -122,6 +122,32 @@ const inventory = {
 } satisfies LegalEntityInventory;
 
 describe("legal entity CSV export", () => {
+  it("exports a missing extraction as reviewable evidence, without requiring an excerpt", () => {
+    const candidate = {
+      ...source,
+      legalEntityNameEvidence: {
+        state: "unavailable" as const,
+        legalName: null,
+        sourceField: null,
+        problem: "name_not_found" as const,
+        documents: [],
+      },
+    };
+    const csv = legalEntityExportCsv(
+      { ...inventory, entities: [], candidates: [candidate] },
+      {
+        fields: ["legal_name", "name_evidence"],
+        includeHistorical: false,
+        includeOtherEntityTypes: false,
+        includeNeedsReview: true,
+      },
+    );
+    expect(csv).toContain("Keel did not extract an exact vehicle name");
+    expect(csv).toContain("enter its exact name and page");
+    expect(csv).not.toMatch(/page and excerpt|No agreement was available/u);
+    expect(csv).not.toContain("Synthetic SPV, LLC");
+  });
+
   it.each([
     { kind: "document_structure", entityType: "other", label: "Other" },
     { kind: "document_structure", entityType: "llc", label: "LLC" },

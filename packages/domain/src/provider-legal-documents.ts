@@ -347,7 +347,7 @@ export const LEGAL_DOCUMENT_PROBLEM_COPY: Record<
   unreadable:
     "The agreement could not be read. Request a searchable PDF from the provider.",
   name_not_found:
-    "Keel did not extract an exact vehicle name. Review the agreement and enter its name with a page and excerpt.",
+    "Keel did not extract an exact vehicle name. Review the agreement and enter its exact name and page.",
   conflicting:
     "Compare the names reported in the agreements and choose the one for this investment.",
   limit_reached:

@@ -44,6 +44,57 @@ function captureObjects() {
 }
 
 describe("provider agreement evidence repository", () => {
+  it.each(["not_checked", "missing", "inaccessible", "page_changed"] as const)(
+    "preserves the capture-stage %s gap without inventing a name",
+    (problem) => {
+      const capture = syntheticDocumentCapture();
+      expect(
+        legalNameEvidenceFromDocuments(
+          { ...capture, documents: [], problem },
+          [],
+        ),
+      ).toMatchObject({
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+        problem,
+        documents: [],
+      });
+    },
+  );
+
+  it.each([
+    "name_not_found",
+    "unreadable",
+    "limit_reached",
+    "extractor_unavailable",
+  ] as const)(
+    "preserves the document-stage %s gap and the supporting original",
+    (problem) => {
+      const capture = syntheticDocumentCapture();
+      const document = {
+        ...capture.documents[0]!,
+        id: "11111111-1111-4111-8111-111111111111",
+      };
+      document.extraction = { ...document.extraction, problem, citations: [] };
+      expect(legalNameEvidenceFromDocuments(capture, [document])).toMatchObject(
+        {
+          state: "unavailable",
+          legalName: null,
+          sourceField: null,
+          problem,
+          documents: [
+            {
+              id: document.id,
+              sha256: document.sha256,
+              extractionProblem: problem,
+            },
+          ],
+        },
+      );
+    },
+  );
+
   it("keeps a compartment structure and its roles across mixed agreement projections", () => {
     const capture = syntheticDocumentCapture();
     const first = capture.documents[0]!;

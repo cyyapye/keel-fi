@@ -1,5 +1,9 @@
 # Connected investment review
 
+The [review safeguard audit](../engineering/review-safeguards.md) maps these
+invariants to synthetic regression cases and distinguishes automated proof from
+visual and live-provider checks.
+
 The existing holding position is the investor's participation in a vehicle. It
 connects the titled holder, exact legal-entity identity, reviewed financial
 snapshots, fee/carry terms, documents, and underlying company. It is not a
@@ -26,6 +30,15 @@ second store of investment amounts.
   existing investment when that investment already has financial records.
 
 ## Source association and company evidence
+
+Legal names come unchanged from an identified provider field or a cited
+agreement. Neither an investment label nor a plausible generated name is a
+substitute. Keep unavailable documents, unsuccessful extraction, conflicting
+names, and blocked reads distinct through the projection, review, and export.
+Document-based manual entry needs the exact name, supporting document, and page;
+an excerpt is optional and must match if supplied. Existing extracted choices
+still require their exact citation. Review only the decision being accepted; do
+not add redundant confirmation or silently accept unrelated financial facts.
 
 The browser agents keep provider investment IDs in v3 captured CSVs and document
 observations. Sydecar's central Documents page uses an observed investment link
