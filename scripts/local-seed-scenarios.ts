@@ -15,7 +15,11 @@ const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 export const LOCAL_SEED_SCENARIO_DIRECTORY = ".keel-local/scenarios";
 export const DEFAULT_LOCAL_SEED_SCENARIO = "default";
 
-const LocalSeedScenarioSchema = z.enum(["default", "empty-holdings"]);
+const LocalSeedScenarioSchema = z.enum([
+  "default",
+  "empty-holdings",
+  "entity-review",
+]);
 export type LocalSeedScenario = z.infer<typeof LocalSeedScenarioSchema>;
 
 type LocalSeedScenarioDefinition = {
@@ -29,6 +33,16 @@ type LocalSeedScenarioDefinition = {
 };
 
 export const LocalSeedScenarios = {
+  "entity-review": {
+    description:
+      "Tabbed investment review with synthetic agreements, conflicts, cancellation, company evidence and optional K-1 shares",
+    expectedCurrentPositionCount: 34,
+    minimumAcceptedValueDecreaseCount: 0,
+    minimumAcceptedValueIncreaseCount: 0,
+    minimumCanonicalExposureCount: 2,
+    seedFiles: ["packages/database/seed/synthetic.sql"],
+    version: 1,
+  },
   default: {
     description:
       "Planning data and fresh synthetic public-equity holdings with reviewed value history",
@@ -347,6 +361,65 @@ export function prepareLocalSeedScenario(options: {
     if (needsSeed) {
       for (const seedFile of LocalSeedScenarios[scenario].seedFiles) {
         applySeedFile(seedFile, persistRoot, rootDir);
+      }
+      if (scenario === "entity-review") {
+        const generated = spawnSync(
+          process.execPath,
+          ["--import", "tsx", "scripts/seed-entity-review.ts", persistRoot],
+          {
+            cwd: rootDir,
+            env: commandEnvironment(persistRoot),
+            stdio: "inherit",
+          },
+        );
+        if (generated.status !== 0)
+          throw new Error(
+            "Could not build the synthetic entity review scenario.",
+          );
+        applySeedFile(
+          join(persistRoot, "entity-review.sql"),
+          persistRoot,
+          rootDir,
+        );
+        const files = z
+          .array(
+            z
+              .object({
+                objectKey: z
+                  .string()
+                  .startsWith("legal-entity-documents/hh_demo/"),
+                path: z.string(),
+              })
+              .strict(),
+          )
+          .parse(
+            JSON.parse(
+              readFileSync(join(persistRoot, "agreements.json"), "utf8"),
+            ),
+          );
+        for (const file of files)
+          runWrangler(
+            [
+              "r2",
+              "object",
+              "put",
+              `keel-local-private-documents/${file.objectKey}`,
+              "--local",
+              "--config",
+              "apps/api/wrangler.jsonc",
+              "--env",
+              "local",
+              "--persist-to",
+              persistRoot,
+              "--file",
+              file.path,
+              "--content-type",
+              "application/pdf",
+            ],
+            persistRoot,
+            rootDir,
+            "Could not seed a synthetic local agreement.",
+          );
       }
       writeScenarioMarker(scenario, persistRoot);
       console.info(

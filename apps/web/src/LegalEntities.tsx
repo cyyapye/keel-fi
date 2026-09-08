@@ -41,6 +41,7 @@ import {
   Input,
   InputGroup,
   Notice,
+  PageHeader,
   SectionHeader,
   Select,
   SelectContent,
@@ -73,6 +74,12 @@ import {
   updateLegalEntity,
 } from "./api";
 import { formatDate } from "./format";
+import {
+  entityReviewLocation,
+  entityReviewUrl,
+  type EntityReviewTarget,
+  type EntityReviewTab,
+} from "./legal-entity-navigation";
 
 const entityTypeOptions = [
   { label: "LLC", value: "llc" },
@@ -227,10 +234,6 @@ function nullableText(value: string): string | null {
 
 function candidateKey(candidate: LegalEntitySourceSummary): string {
   return `${candidate.source.kind}:${candidate.source.id}`;
-}
-
-function sourceKindLabel(kind: LegalEntitySourceSummary["source"]["kind"]) {
-  return kind === "ownership_container" ? "Ownership record" : "Position";
 }
 
 function sourceSummary(source: LegalEntitySourceSummary): string {
@@ -459,16 +462,7 @@ function LegalEntityEditor({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editing = draft.entityId !== null;
-  const sectionRef = useRef<HTMLElement>(null);
   const headingId = useId();
-  useEffect(() => {
-    if (editor.source?.nameResolution !== undefined) {
-      sectionRef.current?.scrollIntoView({ block: "start" });
-      sectionRef.current
-        ?.querySelector<HTMLInputElement>("input")
-        ?.focus({ preventScroll: true });
-    }
-  }, [editor.source?.nameResolution]);
 
   const setProfile = <Key extends keyof LegalEntityProfileInput>(
     key: Key,
@@ -520,6 +514,11 @@ function LegalEntityEditor({
     validation.profile.success &&
     validation.ownershipError === null &&
     (!editing || draft.expectedVersionId !== null);
+  const changed =
+    !editing ||
+    (validation.profile.success &&
+      JSON.stringify(validation.profile.data) !==
+        JSON.stringify(editor.profile));
   const fieldIssue = (field: keyof LegalEntityProfileInput) =>
     validation.profile.error?.issues.find((issue) => issue.path[0] === field)
       ?.message;
@@ -537,7 +536,7 @@ function LegalEntityEditor({
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (working || !valid || !validation.profile.success) return;
+    if (working || !valid || !changed || !validation.profile.success) return;
     setWorking(true);
     setError(null);
     try {
@@ -568,11 +567,7 @@ function LegalEntityEditor({
   };
 
   return (
-    <section
-      aria-labelledby={headingId}
-      className="legal-entity-editor"
-      ref={sectionRef}
-    >
+    <section aria-labelledby={headingId} className="legal-entity-editor">
       <SectionHeader
         description={
           draft.structureReview ? (
@@ -580,10 +575,8 @@ function LegalEntityEditor({
               Choose the type stated in the agreement. Your classification does
               not confirm direct ownership.
             </span>
-          ) : draft.source === null ? (
-            "Blank fields stay explicitly unrecorded in the export."
-          ) : (
-            `Confirm the legal record suggested by ${sourceKindLabel(draft.source.reference.kind).toLowerCase()}.`
+          ) : draft.source === null ? undefined : (
+            "Confirm the source-reported name and entity type."
           )
         }
         eyebrow={editing ? "Reviewed record" : "Review before adding"}
@@ -660,123 +653,134 @@ function LegalEntityEditor({
               </SelectContent>
             </Select>
           </Field>
-          {!draft.connectedInvestment && (
-            <Field label="Current titled owner" variant="filled">
-              <Input
-                maxLength={1_000}
-                onChange={(event) =>
-                  setProfile("currentOwner", event.currentTarget.value)
-                }
-                placeholder="Not recorded"
-                value={draft.profile.currentOwner ?? ""}
-              />
-            </Field>
-          )}
-          <Field label="Formation jurisdiction" variant="filled">
-            <Input
-              maxLength={240}
-              onChange={(event) =>
-                setProfile("jurisdiction", event.currentTarget.value)
-              }
-              placeholder="Not recorded"
-              value={draft.profile.jurisdiction ?? ""}
-            />
-          </Field>
-          <Field label="Formation date" variant="filled">
-            <DatePicker
-              aria-label="Formation date"
-              onValueChange={(value) => setProfile("formedOn", value || null)}
-              value={draft.profile.formedOn ?? ""}
-            />
-          </Field>
-          <Field
-            description="Only the final four digits are stored."
-            label="EIN last four"
-            variant="filled"
-          >
-            <Input
-              inputMode="numeric"
-              maxLength={4}
-              onChange={(event) =>
-                setProfile("einLastFour", event.currentTarget.value)
-              }
-              pattern="[0-9]{4}"
-              aria-invalid={einIssue !== undefined}
-              placeholder="Not recorded"
-              value={draft.profile.einLastFour ?? ""}
-            />
-          </Field>
-          {!draft.connectedInvestment && (
-            <Field label="Ownership interest" variant="filled">
-              <InputGroup suffix="%">
-                <Input
-                  inputMode="decimal"
-                  aria-invalid={validation.ownershipError !== null}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setDraft((current) => ({
-                      ...current,
-                      ownershipPercentText: value,
-                    }));
-                  }}
-                  placeholder="Not recorded"
-                  value={draft.ownershipPercentText}
-                />
-              </InputGroup>
-            </Field>
-          )}
-          {!draft.connectedInvestment && (
-            <Field label="Interest status" variant="filled">
-              <Select
-                items={interestStatusOptions}
-                onValueChange={(value) => {
-                  if (
-                    interestStatusOptions.some(
-                      (option) => option.value === value,
-                    )
-                  ) {
-                    setProfile(
-                      "interestStatus",
-                      value as LegalEntityInterestStatus,
-                    );
-                  }
-                }}
-                value={draft.profile.interestStatus}
-              >
-                <SelectTrigger aria-label="Interest status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {interestStatusOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
-          <Field label="Tax classification" variant="filled">
-            <Input
-              maxLength={240}
-              onChange={(event) =>
-                setProfile("taxClassification", event.currentTarget.value)
-              }
-              placeholder="Not recorded"
-              value={draft.profile.taxClassification ?? ""}
-            />
-          </Field>
-          <Field label="Notes" variant="filled" wide>
-            <Textarea
-              maxLength={2_000}
-              onChange={(event) =>
-                setProfile("notes", event.currentTarget.value)
-              }
-              placeholder="Optional context for counsel"
-              rows={3}
-              value={draft.profile.notes ?? ""}
-            />
-          </Field>
+          <Collapsible className="entity-review__optional">
+            <CollapsibleTrigger>
+              <span>Additional details (optional)</span>
+              <DisclosureIndicator />
+            </CollapsibleTrigger>
+            <CollapsibleContent keepMounted>
+              <div className="legal-entity-editor__fields">
+                {!draft.connectedInvestment && (
+                  <Field label="Current titled owner" variant="filled">
+                    <Input
+                      maxLength={1_000}
+                      onChange={(event) =>
+                        setProfile("currentOwner", event.currentTarget.value)
+                      }
+                      placeholder="Not recorded"
+                      value={draft.profile.currentOwner ?? ""}
+                    />
+                  </Field>
+                )}
+                <Field label="Formation jurisdiction" variant="filled">
+                  <Input
+                    maxLength={240}
+                    onChange={(event) =>
+                      setProfile("jurisdiction", event.currentTarget.value)
+                    }
+                    placeholder="Not recorded"
+                    value={draft.profile.jurisdiction ?? ""}
+                  />
+                </Field>
+                <Field label="Formation date" variant="filled">
+                  <DatePicker
+                    aria-label="Formation date"
+                    onValueChange={(value) =>
+                      setProfile("formedOn", value || null)
+                    }
+                    value={draft.profile.formedOn ?? ""}
+                  />
+                </Field>
+                <Field
+                  description="Only the final four digits are stored."
+                  label="EIN last four"
+                  variant="filled"
+                >
+                  <Input
+                    inputMode="numeric"
+                    onChange={(event) =>
+                      setProfile("einLastFour", event.currentTarget.value)
+                    }
+                    pattern="[0-9]{4}"
+                    aria-invalid={einIssue !== undefined}
+                    placeholder="Not recorded"
+                    value={draft.profile.einLastFour ?? ""}
+                  />
+                </Field>
+                {!draft.connectedInvestment && (
+                  <Field label="Ownership interest" variant="filled">
+                    <InputGroup suffix="%">
+                      <Input
+                        inputMode="decimal"
+                        aria-invalid={validation.ownershipError !== null}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value;
+                          setDraft((current) => ({
+                            ...current,
+                            ownershipPercentText: value,
+                          }));
+                        }}
+                        placeholder="Not recorded"
+                        value={draft.ownershipPercentText}
+                      />
+                    </InputGroup>
+                  </Field>
+                )}
+                {!draft.connectedInvestment && (
+                  <Field label="Interest status" variant="filled">
+                    <Select
+                      items={interestStatusOptions}
+                      onValueChange={(value) => {
+                        if (
+                          interestStatusOptions.some(
+                            (option) => option.value === value,
+                          )
+                        ) {
+                          setProfile(
+                            "interestStatus",
+                            value as LegalEntityInterestStatus,
+                          );
+                        }
+                      }}
+                      value={draft.profile.interestStatus}
+                    >
+                      <SelectTrigger aria-label="Interest status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {interestStatusOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                )}
+                <Field label="Tax classification" variant="filled">
+                  <Input
+                    maxLength={240}
+                    onChange={(event) =>
+                      setProfile("taxClassification", event.currentTarget.value)
+                    }
+                    placeholder="Not recorded"
+                    value={draft.profile.taxClassification ?? ""}
+                  />
+                </Field>
+                <Field label="Notes" variant="filled" wide>
+                  <Textarea
+                    maxLength={2_000}
+                    onChange={(event) =>
+                      setProfile("notes", event.currentTarget.value)
+                    }
+                    placeholder="Optional context for counsel"
+                    rows={3}
+                    value={draft.profile.notes ?? ""}
+                  />
+                </Field>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
         {error !== null && <FormMessage tone="error">{error}</FormMessage>}
         {error === null && !valid && (
@@ -787,21 +791,19 @@ function LegalEntityEditor({
         <ActionGroup
           as="footer"
           className="legal-entity-editor__actions"
-          layout="split"
-          mobileLayout="stack"
+          align="end"
+          mobileLayout="grid"
         >
-          <p>
-            Saving adds a reviewed version. Existing versions remain in the
-            audit history.
-          </p>
-          <ActionGroup align="end" mobileLayout="grid">
-            <Button disabled={working} onClick={onCancel} tone="quiet">
-              Cancel
-            </Button>
-            <Button disabled={working || !valid} tone="primary" type="submit">
-              {working ? "Saving…" : editing ? "Save version" : "Add entity"}
-            </Button>
-          </ActionGroup>
+          <Button disabled={working} onClick={onCancel} tone="quiet">
+            Cancel
+          </Button>
+          <Button
+            disabled={working || !valid || !changed}
+            tone="primary"
+            type="submit"
+          >
+            {working ? "Saving…" : editing ? "Save version" : "Add entity"}
+          </Button>
         </ActionGroup>
       </form>
       {error !== null && draft.source?.nameResolution !== undefined && (
@@ -826,14 +828,11 @@ function LegalEntityEditor({
 
 function EntityRow({
   entity,
-  onSaved,
-  onReload,
+  onOpen,
 }: {
   entity: LegalEntityRecord;
-  onSaved: () => Promise<void>;
-  onReload: () => Promise<void>;
+  onOpen: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const positions = entity.sources.filter(
     (source) => source.source.kind === "holding_position",
   );
@@ -978,274 +977,380 @@ function EntityRow({
               );
             })}
         </div>
-        <TextLink aria-expanded={editing} onClick={() => setEditing(!editing)}>
-          {editing ? "Close review" : "Edit"}
-        </TextLink>
+        <TextLink onClick={onOpen}>Edit</TextLink>
       </footer>
-      {editing && (
-        <LegalEntityEditor
-          editor={editorForEntity(entity)}
-          onCancel={() => setEditing(false)}
-          onSaved={async () => {
-            await onSaved();
-            setEditing(false);
-          }}
-          onReload={async () => {
-            await onReload();
-            setEditing(false);
-          }}
-        />
-      )}
-      {editing &&
-        entity.sources
-          .filter((source) => source.source.kind === "holding_position")
-          .map((source) => (
-            <InvestmentReview
-              key={source.source.id}
-              positionId={source.source.id}
-              sourceLabel={source.sourceLabel}
-              onSaved={onSaved}
-            />
-          ))}
     </article>
   );
 }
 
+function candidateAction(candidate: LegalEntitySourceSummary): string {
+  switch (legalEntityReviewKind(candidate)) {
+    case "found":
+      return "Review details";
+    case "conflict":
+      return "Resolve name";
+    case "structure":
+      return "Review structure";
+    case "document":
+      return "Review PDF";
+    default:
+      return "View source options";
+  }
+}
+
 function CandidateRow({
   candidate,
-  entities,
   excluded,
-  onReviewed,
-  onReload,
-  onReviewOpenChange,
+  onOpen,
 }: {
   candidate: LegalEntitySourceSummary;
-  entities: readonly LegalEntityRecord[];
   excluded?: boolean;
-  onReviewed: () => Promise<void>;
-  onReload: () => Promise<void>;
-  onReviewOpenChange?: (key: string, open: boolean) => void;
+  onOpen: () => void;
 }) {
-  const [selectedEntityId, setSelectedEntityId] = useState(
-    entities[0]?.id ?? "",
+  const kind = legalEntityReviewKind(candidate);
+  return (
+    <article className="legal-entity-candidate">
+      <div className="legal-entity-candidate__copy">
+        <div>
+          <h3>
+            {candidate.legalEntityNameEvidence.legalName ??
+              candidate.sourceDisplayName}
+          </h3>
+          <Badge tone="warning">
+            {excluded
+              ? "Excluded"
+              : kind === "found"
+                ? "Needs review"
+                : kind === "conflict"
+                  ? "Names disagree"
+                  : kind === "structure"
+                    ? "Review structure"
+                    : kind === "document"
+                      ? "Review PDF"
+                      : "Name unavailable"}
+          </Badge>
+        </div>
+        <p>{sourceSummary(candidate)}</p>
+        <p>
+          {kind === "conflict"
+            ? "Compare the agreements or separate different investments."
+            : kind === "structure"
+              ? "Confirm the named vehicle and its structure."
+              : kind === "document"
+                ? "Read the agreement and enter its exact legal name."
+                : kind === "found"
+                  ? `Legal name reported in ${candidate.legalEntityNameEvidence.sourceField}.`
+                  : "Open source options to see what is missing."}
+        </p>
+      </div>
+      <Button tone="secondary" onClick={onOpen}>
+        {candidateAction(candidate)}
+      </Button>
+    </article>
   );
+}
+
+function EntityReviewWorkspace({
+  target,
+  inventory,
+  tab,
+  onTabChange,
+  onSaved,
+  onBack,
+  onNext,
+}: {
+  target: EntityReviewTarget;
+  inventory: LegalEntityInventory;
+  tab: EntityReviewTab;
+  onTabChange: (tab: EntityReviewTab) => void;
+  onSaved: () => Promise<void>;
+  onBack: () => void;
+  onNext?: (() => void) | undefined;
+}) {
+  const [resolution, setResolution] = useState<LegalNameResolutionInput>();
+  const [mode, setMode] = useState("new");
+  const [selectedEntityId, setSelectedEntityId] = useState("");
+  const [selectedPositionId, setSelectedPositionId] = useState("");
+  const saved = async () => {
+    await onSaved();
+    if (target.kind === "new") onBack();
+  };
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resolving, setResolving] = useState(false);
-  const [inlineEditor, setInlineEditor] = useState<EditorState | null>(null);
-  const reviewKind = legalEntityReviewKind(candidate);
-  const reviewable = reviewKind !== "waiting" && reviewKind !== "found";
-  const reviewOpen = resolving || inlineEditor !== null;
-  const rowKey = candidateKey(candidate);
-  useEffect(() => {
-    onReviewOpenChange?.(rowKey, reviewOpen);
-    return () => onReviewOpenChange?.(rowKey, false);
-  }, [rowKey, reviewOpen, onReviewOpenChange]);
-  const closeReview = () => {
-    setResolving(false);
-    setInlineEditor(null);
-  };
-  const add = (resolution?: LegalNameResolutionInput) =>
-    setInlineEditor(editorForCandidate(candidate, resolution));
-  const legalName = candidate.legalEntityNameEvidence.legalName;
-  const nameUnavailable = legalName === null;
-  // A document reassignment can resolve the conflict while this review stays
-  // open. Show the now-supported name without remounting investment drafts.
-  const activeEditor =
-    inlineEditor ??
-    (resolving && !nameUnavailable ? editorForCandidate(candidate) : null);
-  const conflicting =
-    candidate.legalEntityNameEvidence.state === "unavailable" &&
-    candidate.legalEntityNameEvidence.problem === "conflicting";
-  const displayName = legalName ?? candidate.sourceDisplayName;
-
-  const decide = async (decision: "linked" | "not_llc") => {
+  const entity = inventory.entities.find((item) =>
+    target.kind === "entity"
+      ? item.id === target.id
+      : item.sources.some(
+          (source) =>
+            source.source.kind === target.kind &&
+            source.source.id === target.id,
+        ),
+  );
+  const linkedPositions =
+    entity?.sources.filter(
+      (source) => source.source.kind === "holding_position",
+    ) ?? [];
+  const source =
+    target.kind === "entity"
+      ? linkedPositions.length === 1
+        ? linkedPositions[0]
+        : linkedPositions.find((item) => item.source.id === selectedPositionId)
+      : [
+          ...inventory.candidates,
+          ...inventory.excludedCandidates,
+          ...inventory.entities.flatMap((item) => item.sources),
+        ].find(
+          (item) =>
+            item.source.kind === target.kind && item.source.id === target.id,
+        );
+  const legalName =
+    resolution?.legalName ?? source?.legalEntityNameEvidence.legalName;
+  const matches = inventory.entities.filter(
+    (item) => item.legalName === legalName,
+  );
+  const reviewKind =
+    source === undefined ? "waiting" : legalEntityReviewKind(source);
+  const editor =
+    entity !== undefined
+      ? editorForEntity(entity)
+      : source !== undefined && legalName
+        ? editorForCandidate(source, resolution)
+        : target.kind === "new"
+          ? {
+              entityId: null,
+              expectedVersionId: null,
+              source: null,
+              profile: emptyProfile(),
+              ownershipPercentText: "",
+            }
+          : null;
+  const decide = async (kind: "linked" | "not_llc") => {
+    if (
+      source === undefined ||
+      working ||
+      (kind === "linked" &&
+        !matches.some((item) => item.id === selectedEntityId))
+    )
+      return;
     setWorking(true);
     setError(null);
     try {
       await reviewLegalEntitySource({
-        source: candidate.source,
-        expectedDecisionId: candidate.currentDecisionId,
+        source: source.source,
+        expectedDecisionId: source.currentDecisionId,
         decision:
-          decision === "linked"
-            ? { kind: "linked", legalEntityId: selectedEntityId }
-            : { kind: "not_llc" },
+          kind === "linked"
+            ? { kind, legalEntityId: selectedEntityId }
+            : { kind },
+        ...(kind === "linked" && resolution !== undefined
+          ? { nameResolution: resolution }
+          : {}),
       });
-      await onReviewed();
-    } catch (caught) {
+      await onSaved();
+      if (kind === "not_llc") onBack();
+    } catch (failure) {
       setError(
-        caught instanceof Error
-          ? caught.message
+        failure instanceof Error
+          ? failure.message
           : "The source review could not be saved.",
       );
     } finally {
       setWorking(false);
     }
   };
-
-  return (
-    <article
-      className={`legal-entity-candidate${
-        nameUnavailable && !reviewable
-          ? " legal-entity-candidate--unresolved"
-          : ""
-      }`}
-    >
-      <div className="legal-entity-candidate__copy">
-        <div>
-          <h3>{displayName}</h3>
-          {nameUnavailable ? (
-            <Badge tone="warning">
-              {conflicting
-                ? "Names disagree"
-                : reviewKind === "structure"
-                  ? "Review structure"
-                  : reviewKind === "document"
-                    ? "Review PDF"
-                    : "Name unavailable"}
-            </Badge>
-          ) : (
-            !excluded && <Badge tone="warning">Needs review</Badge>
-          )}
-        </div>
-        <p>{sourceSummary(candidate)}</p>
-        <p>
-          {nameUnavailable
-            ? candidate.source.kind === "ownership_container"
-              ? "This ownership label is a reference, not legal-name evidence."
-              : candidate.legalEntityNameEvidence.state === "unavailable" &&
-                  candidate.legalEntityNameEvidence.problem !== undefined
-                ? LEGAL_DOCUMENT_PROBLEM_COPY[
-                    candidate.legalEntityNameEvidence.problem
-                  ]
-                : "No exact legal name was reported by this source. Use a governing document, K-1, or provider legal-vehicle report to resolve it."
-            : `Legal name reported in ${candidate.legalEntityNameEvidence.sourceField}.`}
-        </p>
-        <AgreementEvidence sources={[candidate]} />
-        <p>
-          Recorded as {relationshipLabels[candidate.relationship].toLowerCase()}
-          {candidate.currentOwner === null
-            ? ". Owner not recorded."
-            : ` titled to ${candidate.currentOwner}.`}
-        </p>
-      </div>
-      {!nameUnavailable && (
-        <ActionGroup
-          className="legal-entity-candidate__actions"
-          layout="stack"
-          mobileLayout="stack"
-        >
-          <Button
-            disabled={working}
-            aria-expanded={reviewOpen}
-            onClick={() => (reviewOpen ? closeReview() : add())}
-            tone="secondary"
-          >
-            {reviewOpen
-              ? "Close review"
-              : excluded
-                ? "Review and add"
-                : "Review details"}
-          </Button>
-          {entities.length > 0 && activeEditor !== null && (
-            <div className="legal-entity-candidate__link">
-              <Select
-                items={entities.map((entity) => ({
-                  label: entity.legalName,
-                  value: entity.id,
-                }))}
-                onValueChange={(value) =>
-                  setSelectedEntityId(typeof value === "string" ? value : "")
-                }
-                value={selectedEntityId}
-              >
-                <SelectTrigger
-                  aria-label={`Existing entity for ${displayName}`}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {entities.map((entity) => (
-                    <SelectItem key={entity.id} value={entity.id}>
-                      {entity.legalName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                disabled={working || selectedEntityId.length === 0}
-                onClick={() => void decide("linked")}
-                size="compact"
-                tone="quiet"
-              >
-                Link source
-              </Button>
-            </div>
-          )}
-          {!excluded && (
-            <TextLink disabled={working} onClick={() => void decide("not_llc")}>
-              Exclude source
-            </TextLink>
-          )}
-        </ActionGroup>
+  const identity = (
+    <>
+      {entity === undefined && editor !== null && source !== undefined && (
+        <fieldset className="entity-review__destination">
+          <legend>Legal entity</legend>
+          <label>
+            <Input
+              type="radio"
+              name="entity-destination"
+              checked={mode === "new"}
+              onChange={() => setMode("new")}
+            />
+            Create new entity
+          </label>
+          <label>
+            <Input
+              type="radio"
+              name="entity-destination"
+              checked={mode === "existing"}
+              onChange={() => setMode("existing")}
+            />
+            Link existing entity
+          </label>
+        </fieldset>
       )}
-      {reviewable && (
-        <ActionGroup
-          className="legal-entity-candidate__actions"
-          layout="stack"
-          mobileLayout="stack"
-        >
-          <Button
-            tone="secondary"
-            aria-expanded={reviewOpen}
-            onClick={() => (reviewOpen ? closeReview() : setResolving(true))}
-          >
-            {reviewOpen
-              ? "Close review"
-              : reviewKind === "structure"
-                ? "Review structure"
-                : reviewKind === "document"
-                  ? "Review PDF"
-                  : "Resolve name"}
-          </Button>
-        </ActionGroup>
-      )}
-      {reviewable && resolving && inlineEditor === null && (
-        <LegalNameResolver
-          source={candidate}
-          entities={entities}
-          onAdd={add}
-          onClose={() => setResolving(false)}
-          onSaved={onReviewed}
-          onReload={onReload}
-        />
-      )}
-      {activeEditor !== null && (
+      {entity === undefined &&
+        source !== undefined &&
+        editor === null &&
+        reviewKind !== "waiting" && (
+          <LegalNameResolver
+            source={source}
+            entities={inventory.entities}
+            onAdd={setResolution}
+            onClose={onBack}
+            onSaved={saved}
+            onReload={onSaved}
+          />
+        )}
+      {editor !== null && (entity !== undefined || mode === "new") && (
         <LegalEntityEditor
-          editor={activeEditor}
-          onCancel={closeReview}
-          onSaved={async () => {
-            await onReviewed();
-            closeReview();
-          }}
-          onReload={async () => {
-            await onReload();
-            closeReview();
-          }}
+          key={entity?.versionId ?? resolution?.legalName ?? "new"}
+          editor={editor}
+          onCancel={onBack}
+          onSaved={saved}
+          onReload={onSaved}
         />
       )}
-      {reviewOpen && candidate.source.kind === "holding_position" && (
-        <InvestmentReview
-          positionId={candidate.source.id}
-          sourceLabel={candidate.sourceLabel}
-          onSaved={onReload}
-        />
+      {entity === undefined && editor !== null && mode === "existing" && (
+        <section className="entity-review__link">
+          <h2>Link existing entity</h2>
+          <p>
+            Link only when the saved legal name matches this source. This does
+            not combine investment amounts or terms.
+          </p>
+          {matches.length === 0 ? (
+            <p>
+              No saved entity has this exact legal name. Create a new entity for
+              this vehicle.
+            </p>
+          ) : (
+            <>
+              <Field label="Existing legal entity" variant="filled">
+                <Select
+                  items={matches.map((item) => ({
+                    value: item.id,
+                    label: item.legalName,
+                  }))}
+                  value={selectedEntityId || null}
+                  onValueChange={(value) =>
+                    setSelectedEntityId(typeof value === "string" ? value : "")
+                  }
+                >
+                  <SelectTrigger aria-label="Existing legal entity">
+                    <SelectValue placeholder="Choose an entity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {matches.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.legalName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Button
+                disabled={
+                  working ||
+                  !matches.some((item) => item.id === selectedEntityId)
+                }
+                onClick={() => void decide("linked")}
+              >
+                Link entity
+              </Button>
+            </>
+          )}
+        </section>
       )}
-      {reviewKind === "waiting" && (
-        <TextLink href="/holdings/sources">View source options</TextLink>
+      {editor === null && reviewKind === "waiting" && (
+        <Notice>
+          There is no readable legal-name evidence yet. Open Documents for the
+          source status and available next steps.
+        </Notice>
       )}
+    </>
+  );
+  const documents =
+    source === undefined ? null : (
+      <>
+        <AgreementEvidence sources={[source]} />
+        {source.legalEntityNameEvidence.state === "unavailable" &&
+          source.legalEntityNameEvidence.problem !== undefined && (
+            <p>
+              {
+                LEGAL_DOCUMENT_PROBLEM_COPY[
+                  source.legalEntityNameEvidence.problem
+                ]
+              }
+            </p>
+          )}
+        <TextLink href="/holdings/sources">Source options</TextLink>
+      </>
+    );
+  return (
+    <div className="entity-review">
+      <div className="entity-review__navigation">
+        <TextLink onClick={onBack}>Back to legal entities</TextLink>
+        {onNext && <TextLink onClick={onNext}>Next needing review</TextLink>}
+      </div>
+      <PageHeader
+        eyebrow="Investment review"
+        title={
+          source?.sourceDisplayName ??
+          entity?.legalName ??
+          (target.kind === "new" ? "New legal entity" : "Review unavailable")
+        }
+        description={
+          source
+            ? `Provider record · ${source.sourceLabel} · ${formatDate(source.sourceAsOf)}`
+            : "Your legal entity inventory"
+        }
+      />
       {error !== null && <FormMessage tone="error">{error}</FormMessage>}
-    </article>
+      {linkedPositions.length > 1 && target.kind === "entity" && (
+        <Field label="Investment to review" variant="filled">
+          <Select
+            value={selectedPositionId || null}
+            onValueChange={(value) =>
+              setSelectedPositionId(typeof value === "string" ? value : "")
+            }
+            items={linkedPositions.map((item) => ({
+              value: item.source.id,
+              label: item.sourceDisplayName,
+            }))}
+          >
+            <SelectTrigger aria-label="Investment to review">
+              <SelectValue placeholder="Choose an investment" />
+            </SelectTrigger>
+            <SelectContent>
+              {linkedPositions.map((item) => (
+                <SelectItem key={item.source.id} value={item.source.id}>
+                  {item.sourceDisplayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+      {source?.source.kind === "holding_position" ? (
+        <InvestmentReview
+          key={source.source.id}
+          positionId={source.source.id}
+          sourceLabel={source.sourceLabel}
+          identity={identity}
+          identitySaved={entity !== undefined}
+          documents={documents}
+          tab={tab}
+          onTabChange={onTabChange}
+          onSaved={saved}
+        />
+      ) : (
+        <div className="entity-review__panel">
+          {identity}
+          {documents}
+        </div>
+      )}
+      {entity === undefined && source !== undefined && (
+        <div className="entity-review__secondary">
+          <TextLink disabled={working} onClick={() => void decide("not_llc")}>
+            Exclude source
+          </TextLink>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1560,29 +1665,62 @@ function ProgressiveRows<T>({
   );
 }
 
-export function LegalEntities() {
+export function LegalEntities({
+  onBackToHoldings,
+}: {
+  onBackToHoldings?: () => void;
+}) {
   const [inventory, setInventory] = useState<LegalEntityInventory | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [editor, setEditor] = useState<EditorState | null>(null);
   const [batchWorking, setBatchWorking] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
-  const [openCandidateKeys, setOpenCandidateKeys] = useState<Set<string>>(
-    () => new Set(),
+  const [location, setLocation] = useState(() =>
+    entityReviewLocation(window.location.search),
   );
-  const candidateReviewOpenChanged = useCallback(
-    (key: string, open: boolean) => {
-      setOpenCandidateKeys((current) => {
-        if (current.has(key) === open) return current;
-        const next = new Set(current);
-        if (open) next.add(key);
-        else next.delete(key);
-        return next;
-      });
-    },
-    [],
-  );
+  const listScroll = useRef(0);
+  useEffect(() => {
+    const pop = () => setLocation(entityReviewLocation(window.location.search));
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+  const targetKind = location.target?.kind;
+  const targetId = location.target?.id;
+  useEffect(() => {
+    const frame = requestAnimationFrame(() =>
+      window.scrollTo({
+        top: targetKind === undefined ? listScroll.current : 0,
+        behavior: "instant",
+      }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [targetKind, targetId]);
+  const navigate = (
+    target: EntityReviewTarget | null,
+    tab: EntityReviewTab = "identity",
+  ) => {
+    if (location.target === null) listScroll.current = window.scrollY;
+    window.history.pushState(
+      { ...window.history.state },
+      "",
+      entityReviewUrl(target, tab),
+    );
+    setLocation({ target, tab });
+  };
+  const changeTab = (tab: EntityReviewTab) => {
+    window.history.replaceState(
+      window.history.state,
+      "",
+      entityReviewUrl(location.target, tab),
+    );
+    setLocation((current) => ({ ...current, tab }));
+  };
+  const openSource = (source: LegalEntitySourceSummary) =>
+    navigate(
+      source.source,
+      legalEntityReviewKind(source) === "waiting" ? "documents" : "identity",
+    );
 
   const refresh = useCallback(async () => {
     const next = await loadLegalEntities();
@@ -1644,13 +1782,7 @@ export function LegalEntities() {
 
   const saved = async () => {
     await refresh();
-    setEditor(null);
-    setNotice("The reviewed legal entity inventory was updated.");
-  };
-
-  const reviewed = async () => {
-    await refresh();
-    setNotice("The source review was saved.");
+    setNotice(null);
   };
 
   const applyExactBatch = async (expectedRevision: string) => {
@@ -1725,91 +1857,83 @@ export function LegalEntities() {
     );
   }
 
+  const nextCandidate = candidates.find(
+    (item) =>
+      item.source.kind !== location.target?.kind ||
+      item.source.id !== location.target?.id,
+  );
   return (
-    <div className="legal-entities">
-      {notice !== null && (
-        <FormMessage className="legal-entities__notice" tone="success">
-          {notice}
-        </FormMessage>
-      )}
-      {loadError !== null && <Notice tone="error">{loadError}</Notice>}
-
-      {editor === null && candidates.length > 0 && (
-        <section
-          aria-labelledby="legal-entity-candidates-title"
-          className="legal-entities__candidates"
-        >
-          <SectionHeader
-            description="Attention first: review PDFs and structures, resolve name conflicts, then confirm names found. Sources awaiting a document or recheck follow."
-            eyebrow="Review queue"
-            headingProps={{ id: "legal-entity-candidates-title" }}
-            title="Possible legal entities"
-          />
-          {inventory.exactBatch.sourceCount > 0 && (
-            <ExactBatchReview
-              batch={inventory.exactBatch}
-              error={batchError}
-              onApply={() => applyExactBatch(inventory.exactBatch.revision)}
-              working={batchWorking}
-            />
-          )}
-          <div className="legal-entities__candidate-list">
-            <ProgressiveRows
-              items={candidates}
-              label="sources"
-              keepVisible={(candidate) =>
-                openCandidateKeys.has(candidateKey(candidate))
-              }
-              render={(candidate) => (
-                <CandidateRow
-                  candidate={candidate}
-                  entities={inventory.entities}
-                  key={candidateKey(candidate)}
-                  onReviewed={reviewed}
-                  onReload={refresh}
-                  onReviewOpenChange={candidateReviewOpenChanged}
-                />
-              )}
-            />
-          </div>
-        </section>
-      )}
-
-      {editor !== null ? (
-        <LegalEntityEditor
-          editor={editor}
-          key={
-            editor.entityId ??
-            (editor.source === null
-              ? "manual"
-              : `${editor.source.reference.kind}:${editor.source.reference.id}`)
-          }
-          onCancel={() => setEditor(null)}
+    <>
+      {location.target !== null && (
+        <EntityReviewWorkspace
+          key={`${location.target.kind}:${location.target.id}`}
+          target={location.target}
+          inventory={inventory}
+          tab={location.tab}
+          onTabChange={changeTab}
           onSaved={saved}
-          onReload={async () => {
-            await refresh();
-            setEditor(null);
-          }}
+          onBack={() => navigate(null)}
+          onNext={nextCandidate ? () => openSource(nextCandidate) : undefined}
         />
-      ) : (
+      )}
+      <div hidden={location.target !== null} className="legal-entities">
+        <PageHeader
+          title="Legal entities"
+          eyebrow="Holdings"
+          description="Prepare an entity and interest list for counsel. This inventory does not transfer anything to a trust."
+          actions={
+            onBackToHoldings && (
+              <TextLink onClick={onBackToHoldings}>Back to holdings</TextLink>
+            )
+          }
+        />
+        {notice !== null && (
+          <FormMessage className="legal-entities__notice" tone="success">
+            {notice}
+          </FormMessage>
+        )}
+        {loadError !== null && <Notice tone="error">{loadError}</Notice>}
+        {candidates.length > 0 && (
+          <section
+            aria-labelledby="legal-entity-candidates-title"
+            className="legal-entities__candidates"
+          >
+            <SectionHeader
+              description="Review PDFs and structures first, then conflicting names and names found."
+              eyebrow="Review queue"
+              headingProps={{ id: "legal-entity-candidates-title" }}
+              title="Possible legal entities"
+            />
+            {inventory.exactBatch.sourceCount > 0 && (
+              <ExactBatchReview
+                batch={inventory.exactBatch}
+                error={batchError}
+                onApply={() => applyExactBatch(inventory.exactBatch.revision)}
+                working={batchWorking}
+              />
+            )}
+            <div className="legal-entities__candidate-list">
+              <ProgressiveRows
+                items={candidates}
+                label="sources"
+                render={(candidate) => (
+                  <CandidateRow
+                    candidate={candidate}
+                    key={candidateKey(candidate)}
+                    onOpen={() => openSource(candidate)}
+                  />
+                )}
+              />
+            </div>
+          </section>
+        )}
         <section
           aria-labelledby="known-legal-entities-title"
           className="legal-entities__known"
         >
           <SectionHeader
             action={
-              <Button
-                onClick={() =>
-                  setEditor({
-                    entityId: null,
-                    expectedVersionId: null,
-                    source: null,
-                    profile: emptyProfile(),
-                    ownershipPercentText: "",
-                  })
-                }
-                tone="primary"
-              >
+              <Button onClick={() => navigate({ kind: "new", id: "manual" })}>
                 Add entity
               </Button>
             }
@@ -1831,8 +1955,7 @@ export function LegalEntities() {
                   <EntityRow
                     entity={entity}
                     key={entity.id}
-                    onSaved={saved}
-                    onReload={refresh}
+                    onOpen={() => navigate({ kind: "entity", id: entity.id })}
                   />
                 )}
               />
@@ -1853,8 +1976,9 @@ export function LegalEntities() {
                       <EntityRow
                         entity={entity}
                         key={entity.id}
-                        onSaved={saved}
-                        onReload={refresh}
+                        onOpen={() =>
+                          navigate({ kind: "entity", id: entity.id })
+                        }
                       />
                     )}
                   />
@@ -1863,39 +1987,35 @@ export function LegalEntities() {
             </Collapsible>
           )}
         </section>
-      )}
-
-      {editor === null && inventory.excludedCandidates.length > 0 && (
-        <Collapsible className="legal-entities__excluded">
-          <CollapsibleTrigger>
-            <span>
-              Sources excluded from inventory ·{" "}
-              {inventory.excludedCandidates.length}
-            </span>
-            <DisclosureIndicator />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="legal-entities__candidate-list">
-              <ProgressiveRows
-                items={inventory.excludedCandidates}
-                label="excluded sources"
-                render={(candidate) => (
-                  <CandidateRow
-                    candidate={candidate}
-                    entities={inventory.entities}
-                    excluded
-                    key={candidateKey(candidate)}
-                    onReviewed={reviewed}
-                    onReload={refresh}
-                  />
-                )}
-              />
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {editor === null && <ExportWorkspace inventory={inventory} />}
-    </div>
+        {inventory.excludedCandidates.length > 0 && (
+          <Collapsible className="legal-entities__excluded">
+            <CollapsibleTrigger>
+              <span>
+                Sources excluded from inventory ·{" "}
+                {inventory.excludedCandidates.length}
+              </span>
+              <DisclosureIndicator />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="legal-entities__candidate-list">
+                <ProgressiveRows
+                  items={inventory.excludedCandidates}
+                  label="excluded sources"
+                  render={(candidate) => (
+                    <CandidateRow
+                      candidate={candidate}
+                      excluded
+                      key={candidateKey(candidate)}
+                      onOpen={() => openSource(candidate)}
+                    />
+                  )}
+                />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        <ExportWorkspace inventory={inventory} />
+      </div>
+    </>
   );
 }

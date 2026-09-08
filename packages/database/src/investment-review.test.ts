@@ -39,6 +39,63 @@ const base = (context: InvestmentReviewContext) => ({
     context.review?.participationStatus ?? context.defaultParticipationStatus,
 });
 
+it("reads back successive document assignments without dropping the first decision", async () => {
+  let context = await repository.getContext(subject, positionId);
+  const first = context.documents[0]!;
+  const second = context.documents[1]!;
+  await repository.review(subject, positionId, {
+    ...base(context),
+    documentAssignments: [
+      {
+        documentId: first.id,
+        sha256: first.sha256,
+        relationship: "supports",
+        targetPositionId: null,
+      },
+    ],
+  });
+  context = await repository.getContext(subject, positionId);
+  expect(context.review?.documentAssignments).toEqual([
+    {
+      documentId: first.id,
+      sha256: first.sha256,
+      relationship: "supports",
+      targetPositionId: null,
+    },
+  ]);
+  await repository.review(subject, positionId, {
+    ...base(context),
+    documentAssignments: [
+      {
+        documentId: second.id,
+        sha256: second.sha256,
+        relationship: "general",
+        targetPositionId: null,
+      },
+    ],
+  });
+  const reloaded = await repository.getContext(subject, positionId);
+  expect(reloaded.review?.documentAssignments).toHaveLength(2);
+  expect(reloaded.review?.documentAssignments).toEqual(
+    expect.arrayContaining([
+      {
+        documentId: first.id,
+        sha256: first.sha256,
+        relationship: "supports",
+        targetPositionId: null,
+      },
+      {
+        documentId: second.id,
+        sha256: second.sha256,
+        relationship: "general",
+        targetPositionId: null,
+      },
+    ]),
+  );
+  expect(reloaded.committedMinor).toBe(context.committedMinor);
+  expect(reloaded.fundedMinor).toBe(context.fundedMinor);
+});
+
 it("converges concurrent duplicate reviews and rejects reused request IDs", async () => {
   const context = await repository.getContext(subject, positionId);
   const request = { ...base(context), participationStatus: "pending" as const };

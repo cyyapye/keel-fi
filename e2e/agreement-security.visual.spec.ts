@@ -6,6 +6,7 @@ import type {
 import type { LegalDocumentScan } from "../packages/domain/src/provider-legal-documents";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
+import { routeInvestmentReview } from "./investment-review-fixtures";
 
 function candidate(
   index: number,
@@ -97,6 +98,7 @@ async function setup(page: Page, candidates: LegalEntitySourceSummary[]) {
   await page.route("**/api/legal-entities", (route) =>
     route.fulfill({ json: inventory }),
   );
+  for (const source of candidates) await routeInvestmentReview(page, source);
   const downloads: string[] = [];
   await page.route("**/api/legal-entity-documents/*", (route) => {
     downloads.push(route.request().url());
@@ -108,12 +110,27 @@ async function setup(page: Page, candidates: LegalEntitySourceSummary[]) {
   });
   const rows = page.locator(".legal-entity-candidate");
   await expect(rows).toHaveCount(candidates.length);
-  for (let index = 0; index < candidates.length; index += 1)
+  const workspace = page.locator(".entity-review");
+  const open = async (name: string) => {
+    if (await workspace.isVisible())
+      await workspace
+        .getByRole("button", { name: "Back to legal entities", exact: true })
+        .click();
     await rows
-      .nth(index)
-      .getByRole("button", { name: "Agreement evidence · 1" })
+      .filter({ has: page.getByRole("heading", { name, exact: true }) })
+      .getByRole("button", { name: "View source options", exact: true })
       .click();
-  return { rows, downloads };
+    await expect(
+      workspace.getByRole("tabpanel", {
+        name: "Documents",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await workspace
+      .getByRole("button", { name: "Agreement evidence · 1", exact: true })
+      .click();
+  };
+  return { rows, workspace, open, downloads };
 }
 
 async function noOverflow(page: Page) {
@@ -125,7 +142,7 @@ async function noOverflow(page: Page) {
 test("explains scan limits, encrypted content and threat matches without offering blocked downloads", async ({
   page,
 }) => {
-  const { rows, downloads } = await setup(page, [
+  const { workspace, open, downloads } = await setup(page, [
     candidate(1, "Demo Climate", {
       reason: "scan_limit",
       signature: "Heuristics.Limits.Exceeded.MaxFileSize",
@@ -139,39 +156,48 @@ test("explains scan limits, encrypted content and threat matches without offerin
       signature: "Win.Test.EICAR_HDB-1",
     }),
   ]);
-  await expect(rows.filter({ hasText: "Demo Climate" })).toContainText(
-    "This does not establish malware",
-  );
-  await expect(rows.filter({ hasText: "Demo Robotics" })).toContainText(
-    "Request an unencrypted copy",
-  );
-  await expect(rows.filter({ hasText: "Demo Energy" })).toContainText(
-    "Keep this agreement blocked",
-  );
-  await expect(
-    rows.getByRole("button", { name: /demo-\d-agreement\.pdf/u }),
-  ).toHaveCount(0);
-  await expect(
-    rows.getByRole("button", { name: "Recheck agreement" }),
-  ).toHaveCount(3);
-  await expect(
-    rows.getByRole("button", { name: "Review details" }),
-  ).toHaveCount(0);
+  for (const [name, explanation, screenshot] of [
+    [
+      "Demo Climate",
+      "This does not establish malware",
+      "agreement-security-reasons.png",
+    ],
+    [
+      "Demo Robotics",
+      "Request an unencrypted copy",
+      "agreement-security-encrypted.png",
+    ],
+    [
+      "Demo Energy",
+      "Keep this agreement blocked",
+      "agreement-security-threat.png",
+    ],
+  ] as const) {
+    await open(name);
+    await expect(workspace).toContainText(explanation);
+    await expect(
+      workspace.getByRole("button", { name: /demo-\d-agreement\.pdf/u }),
+    ).toHaveCount(0);
+    await expect(
+      workspace.getByRole("button", { name: "Recheck agreement" }),
+    ).toHaveCount(1);
+    await expect(
+      workspace.getByRole("button", { name: "Review details" }),
+    ).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    await expect(workspace).toHaveScreenshot(screenshot, {
+      animations: "disabled",
+      caret: "hide",
+    });
+    await noOverflow(page);
+  }
   expect(downloads).toEqual([]);
-  await page.mouse.move(0, 0);
-  await expect(
-    page.locator(".legal-entities__candidates").filter({ has: rows }),
-  ).toHaveScreenshot("agreement-security-reasons.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
-  await noOverflow(page);
 });
 
 test("offers a targeted retry for legacy and incomplete checks, and explains a busy source", async ({
   page,
 }) => {
-  const { rows, downloads } = await setup(page, [
+  const { workspace, open, downloads } = await setup(page, [
     candidate(4, "Demo Legacy"),
     candidate(5, "Demo Scanner Setup", undefined, true),
   ]);
@@ -202,20 +228,25 @@ test("offers a targeted retry for legacy and incomplete checks, and explains a b
           },
     );
   });
-  await expect(rows.nth(0)).toContainText("Alert reason unavailable");
-  await expect(rows.nth(1)).toContainText("Security check incomplete");
-  await rows.nth(0).getByRole("button", { name: "Recheck agreement" }).click();
-  await expect(rows.nth(0)).toContainText("Wait for it to finish");
-  busy = false;
-  await rows.nth(0).getByRole("button", { name: "Recheck agreement" }).click();
+  await open("Demo Scanner Setup");
+  await expect(workspace).toContainText("Security check incomplete");
   await expect(
-    rows.nth(0).getByRole("button", { name: "Check queued" }),
+    workspace.getByRole("button", { name: "Recheck agreement" }),
+  ).toBeEnabled();
+  await open("Demo Legacy");
+  await expect(workspace).toContainText("Alert reason unavailable");
+  await workspace.getByRole("button", { name: "Recheck agreement" }).click();
+  await expect(workspace).toContainText("Wait for it to finish");
+  busy = false;
+  await workspace.getByRole("button", { name: "Recheck agreement" }).click();
+  await expect(
+    workspace.getByRole("button", { name: "Check queued" }),
   ).toBeDisabled();
-  await expect(rows.nth(0)).toContainText(
+  await expect(workspace).toContainText(
     "The agreement stays blocked until it passes",
   );
   await expect(
-    rows.nth(0).getByRole("link", { name: "View source progress" }),
+    workspace.getByRole("link", { name: "View source progress" }),
   ).toHaveAttribute("href", "/holdings/sources");
   expect(requests).toEqual([
     { method: "POST", body: { provider: "sydecar" } },
@@ -223,9 +254,7 @@ test("offers a targeted retry for legacy and incomplete checks, and explains a b
   ]);
   expect(downloads).toEqual([]);
   await page.mouse.move(0, 0);
-  await expect(
-    page.locator(".legal-entities__candidates").filter({ has: rows }),
-  ).toHaveScreenshot("agreement-security-recheck.png", {
+  await expect(workspace).toHaveScreenshot("agreement-security-recheck.png", {
     animations: "disabled",
     caret: "hide",
   });

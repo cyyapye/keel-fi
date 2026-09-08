@@ -7,7 +7,6 @@ import {
   ActionGroup,
   Button,
   Field,
-  FormMessage,
   Input,
   InputGroup,
   Notice,
@@ -72,13 +71,11 @@ export function PositionEconomicsEditor({
     (terms === null || termsNeedReview || reportedTermsDiffer);
   const initialAnnualFeePpm = prefillFromReportedTerms
     ? (reportedManagementFeePpm ?? terms?.annualAdminFeePpm ?? null)
-    : (terms?.annualAdminFeePpm ?? 10_000);
-  const initialFeeYears = prefillFromReportedTerms
-    ? (terms?.adminFeeYears ?? null)
-    : (terms?.adminFeeYears ?? 10);
+    : (terms?.annualAdminFeePpm ?? null);
+  const initialFeeYears = terms?.adminFeeYears ?? null;
   const initialCarryPpm = prefillFromReportedTerms
     ? (reportedCarryPpm ?? terms?.carryPpm ?? null)
-    : (terms?.carryPpm ?? 200_000);
+    : (terms?.carryPpm ?? null);
   const reportedFeeLabel =
     reportedManagementFeePpm === null
       ? null
@@ -110,7 +107,6 @@ export function PositionEconomicsEditor({
   const [note, setNote] = useState(terms?.note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   if (context === null) {
     return null;
@@ -183,7 +179,6 @@ export function PositionEconomicsEditor({
       });
       await onAccepted();
       reset();
-      setNotice("SPV fee and carry terms accepted.");
     } catch (caught: unknown) {
       setError(
         caught instanceof Error
@@ -208,7 +203,6 @@ export function PositionEconomicsEditor({
           <Button
             onClick={() => {
               setOpen(true);
-              setNotice(null);
             }}
             tone="secondary"
           >
@@ -304,7 +298,6 @@ export function PositionEconomicsEditor({
         />
       </StatGroup>
 
-      {notice !== null && <FormMessage tone="success">{notice}</FormMessage>}
       {open && !reviewing && (
         <form
           noValidate
@@ -323,7 +316,7 @@ export function PositionEconomicsEditor({
             </p>
           )}
           <div className="position-economics__fields">
-            <Field label="Admin fee rate">
+            <Field label="Admin fee rate" variant="filled">
               <InputGroup suffix="%">
                 <Input
                   inputMode="decimal"
@@ -333,7 +326,7 @@ export function PositionEconomicsEditor({
                 />
               </InputGroup>
             </Field>
-            <Field label="Fee term">
+            <Field label="Fee term" variant="filled">
               <InputGroup suffix="years">
                 <Input
                   inputMode="numeric"
@@ -345,7 +338,7 @@ export function PositionEconomicsEditor({
                 />
               </InputGroup>
             </Field>
-            <Field label="Carry">
+            <Field label="Carry" variant="filled">
               <InputGroup suffix="%">
                 <Input
                   inputMode="decimal"
@@ -355,7 +348,7 @@ export function PositionEconomicsEditor({
                 />
               </InputGroup>
             </Field>
-            <Field label="What changed" wide>
+            <Field label="What changed" variant="filled" wide>
               <Input
                 maxLength={500}
                 onChange={(event) => setNote(event.currentTarget.value)}

@@ -11,7 +11,10 @@ import {
 } from "../packages/domain/src/legal-entities";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
-import { routeInvestmentReview } from "./investment-review-fixtures";
+import {
+  routeInvestmentReview,
+  selectReviewSection,
+} from "./investment-review-fixtures";
 
 const source: LegalEntitySourceSummary = {
   source: { kind: "holding_position", id: "position_demo_conflict" },
@@ -287,7 +290,7 @@ async function setup(
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
   const row = page
-    .locator(".legal-entity-candidate")
+    .locator(".legal-entity-candidate:visible, .entity-review")
     .filter({ hasText: "Demo Climate" });
   await expect(
     row
@@ -303,7 +306,7 @@ async function setup(
   ).toBeVisible();
   await expect(
     page
-      .locator(".legal-entity-candidate")
+      .locator(".legal-entity-candidate:visible, .entity-review")
       .filter({ hasText: "Demo Blocked" })
       .getByRole("button", { name: "Resolve name" }),
   ).toHaveCount(0);
@@ -355,6 +358,13 @@ test("compares exact alternatives without preselecting and saves a reviewed enti
     editor.getByLabel("Legal name", { exact: true }),
   ).toHaveAttribute("readonly", "");
   await editor.getByRole("button", { name: "Add entity", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Edit legal entity", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Back to legal entities", exact: true })
+    .click();
   expect(
     (writes[0] as CreateLegalEntityInput).source?.nameResolution,
   ).toMatchObject({
@@ -365,6 +375,14 @@ test("compares exact alternatives without preselecting and saves a reviewed enti
     quote: "Fund: Demo Climate LLC",
     expectedEvidenceRevision: expect.stringMatching(/^[a-f0-9]{64}$/u),
   });
+  if (
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .count()
+  )
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .click();
   await page.reload();
   await expect(
     page
@@ -372,12 +390,14 @@ test("compares exact alternatives without preselecting and saves a reviewed enti
       .filter({ hasText: "Reviewed name: Demo Climate LLC" }),
   ).toBeVisible();
   await expect(
-    page.locator(".legal-entity-candidate").filter({ hasText: "Demo Climate" }),
+    page
+      .locator(".legal-entity-candidate:visible, .entity-review")
+      .filter({ hasText: "Demo Climate" }),
   ).toHaveCount(0);
   await noOverflow(page);
 });
 
-test("reviews source parties inline without offering the representative as the invested name", async ({
+test("reviews source parties on the dedicated page without offering the representative as the invested name", async ({
   page,
 }) => {
   const { row, writes } = await setup(page, false, "other_structure");
@@ -445,10 +465,18 @@ test("reviews source parties inline without offering the representative as the i
     caret: "hide",
   });
   await noOverflow(page);
+  await expect(page.locator(".legal-entities")).toBeHidden();
   await expect(
     page.locator(".legal-entity-candidate").filter({ hasText: "Demo Blocked" }),
-  ).toBeVisible();
+  ).toHaveCount(1);
   await editor.getByRole("button", { name: "Add entity", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Edit legal entity", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Back to legal entities", exact: true })
+    .click();
   expect(writes[0]).toMatchObject({
     profile: {
       legalName: "Demo Series VII",
@@ -460,6 +488,14 @@ test("reviews source parties inline without offering the representative as the i
   await expect(
     page.getByText(/Reviewed structure: Demo Series VII/),
   ).toBeVisible();
+  if (
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .count()
+  )
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .click();
   await page.reload();
   await expect(
     page.getByText(/Type at review: Corporation \(your classification\)/),
@@ -525,7 +561,11 @@ for (const problem of ["name_not_found", "other_structure"] as const)
     await expect(row.locator(".legal-entity-editor")).toHaveCount(0);
     await name.fill("Demo Recognized LLC");
     await agreementPage.fill("4");
-    await expect(submit).toBeDisabled(); // An agreement is still required.
+    // The only eligible supporting agreement is prefilled, not fabricated.
+    await expect(
+      resolver.getByRole("combobox", { name: "Supporting agreement" }),
+    ).toContainText("demo-subscription.pdf");
+    await expect(submit).toBeEnabled();
     await resolver
       .getByRole("combobox", { name: "Supporting agreement" })
       .click();
@@ -574,12 +614,18 @@ for (const problem of ["name_not_found", "other_structure"] as const)
     const add = editor.getByRole("button", { name: "Add entity", exact: true });
     await expect(editor.locator("form")).toHaveAttribute("novalidate", "");
     await expect(add).toBeEnabled();
+    await editor
+      .getByRole("button", { name: "Additional details (optional)" })
+      .click();
     await editor.getByLabel("EIN last four").fill("12");
     await expect(add).toBeDisabled();
     await expect(editor).toContainText("Enter exactly four digits");
     await editor.getByLabel("EIN last four").press("Enter");
     expect(writes).toHaveLength(0);
+    await editor.getByLabel("EIN last four").fill("12345");
+    await expect(add).toBeDisabled();
     await editor.getByLabel("EIN last four").fill("1234");
+    await expect(editor.getByLabel("EIN last four")).toHaveValue("1234");
     await expect(add).toBeEnabled();
     // Participation and percentages now belong to the specific investment.
     // Their independent validation is covered in investment-review.visual.
@@ -598,6 +644,14 @@ for (const problem of ["name_not_found", "other_structure"] as const)
         },
       },
     });
+    if (
+      await page
+        .getByRole("button", { name: "Back to legal entities", exact: true })
+        .count()
+    )
+      await page
+        .getByRole("button", { name: "Back to legal entities", exact: true })
+        .click();
     await page.reload();
     await expect(
       page.getByText(/Name entered by you: Demo Recognized LLC/),
@@ -624,6 +678,14 @@ test("links a reviewed structure to an exact existing non-Other entity", async (
     "other_structure",
   );
   inventory.entities[0]!.legalName = "Demo Series VII";
+  if (
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .count()
+  )
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .click();
   await page.reload();
   await row
     .getByRole("button", { name: "Review structure", exact: true })
@@ -641,6 +703,14 @@ test("links a reviewed structure to an exact existing non-Other entity", async (
   expect(writes[0]).toMatchObject({
     decision: { kind: "linked", legalEntityId: existing.id },
   });
+  if (
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .count()
+  )
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .click();
   await page.reload();
   await expect(
     page.getByText(/Type at review: LLC \(your classification\)/),
@@ -664,6 +734,9 @@ test("gates manual creation and editing on all profile fields without browser va
   expect(writes).toHaveLength(0);
   await name.fill("Demo Manual LLC");
   await expect(add).toBeEnabled();
+  await editor
+    .getByRole("button", { name: "Additional details (optional)" })
+    .click();
   await editor.getByLabel("EIN last four").fill("abcd");
   await expect(add).toBeDisabled();
   await editor.getByLabel("EIN last four").fill("");
@@ -677,10 +750,13 @@ test("gates manual creation and editing on all profile fields without browser va
     name: "Save version",
     exact: true,
   });
-  await expect(save).toBeEnabled();
+  await expect(save).toBeDisabled(); // No unsaved changes yet.
   await name.fill("");
   await expect(save).toBeDisabled();
   await name.fill(existing.legalName);
+  await editor
+    .getByRole("button", { name: "Additional details (optional)" })
+    .click();
   await editor.getByLabel("Ownership interest").fill("100.0001");
   await expect(save).toBeDisabled();
   await editor.getByLabel("Ownership interest").fill("100");
@@ -725,22 +801,23 @@ for (const automatic of [true, false])
       },
       document,
     );
+    if (
+      await page
+        .getByRole("button", { name: "Back to legal entities", exact: true })
+        .count()
+    )
+      await page
+        .getByRole("button", { name: "Back to legal entities", exact: true })
+        .click();
     await page.reload();
-    const rows = page.locator(".legal-entity-candidate");
+    const rows = page.locator(
+      ".legal-entity-candidate:visible, .entity-review",
+    );
     await expect(rows).toHaveCount(25);
     await expect(rows.nth(0)).toContainText("Review PDF");
     await expect(rows.nth(1)).toContainText("Names disagree");
     await expect(rows.nth(2)).toContainText("Demo 000 LLC");
     await expect(page.getByText("Showing 25 of 500 sources")).toBeVisible();
-    await rows
-      .first()
-      .getByRole("button", { name: "Review PDF", exact: true })
-      .click();
-    const draft = rows
-      .first()
-      .getByRole("form")
-      .getByLabel("Exact legal name", { exact: true });
-    await draft.fill("Demo Draft Still Here LLC");
     const loadMore = page.getByRole("button", {
       name: "Load more sources",
       exact: true,
@@ -748,7 +825,25 @@ for (const automatic of [true, false])
     if (automatic) await loadMore.scrollIntoViewIfNeeded();
     else await loadMore.click();
     await expect(rows).toHaveCount(50);
+    const scrollBefore = await page.evaluate(() => window.scrollY);
+    await rows
+      .nth(26)
+      .getByRole("button", { name: "Review details", exact: true })
+      .click();
+    const draft = page
+      .getByRole("tabpanel", { name: "Identity", exact: true })
+      .getByLabel("Legal name", { exact: true });
+    await draft.fill("Demo Draft Still Here LLC");
+    await selectReviewSection(page, "Ownership");
+    await selectReviewSection(page, "Identity");
     await expect(draft).toHaveValue("Demo Draft Still Here LLC");
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .click();
+    await expect(rows).toHaveCount(50);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThanOrEqual(scrollBefore - 5);
     expect(
       requests.filter((path) => path === "/api/legal-entities"),
     ).toHaveLength(2);
@@ -822,6 +917,13 @@ test("supports a document-backed correction for a legacy conflict with no saved 
     reason: "The executed subscription names the invested series.",
   });
   await expect(
+    page.getByRole("heading", { name: "Edit legal entity", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Back to legal entities", exact: true })
+    .click();
+  await expect(
     page.getByText(
       /Your document-backed correction: Demo Climate Series I LLC/u,
     ),
@@ -849,8 +951,7 @@ test("keeps a stale resolution unsaved, reloads evidence, then links the exact e
   await expect(resolver).toContainText("The agreement evidence changed.");
   expect(inventory.entities[0]?.sources).toHaveLength(0);
   await resolver.getByRole("button", { name: "Reload evidence" }).click();
-  await row.getByRole("button", { name: "Resolve name", exact: true }).click();
-  await expect(resolver.locator('input[type="radio"]:checked')).toHaveCount(0);
+  await expect(resolver).toBeVisible();
   reject(false);
   await resolver.getByRole("radio", { name: /^Demo Climate, LLC /u }).check();
   await resolver.getByRole("combobox", { name: "Save to" }).click();
@@ -863,7 +964,18 @@ test("keeps a stale resolution unsaved, reloads evidence, then links the exact e
   await resolver
     .getByRole("button", { name: "Link entity", exact: true })
     .click();
-  await expect(row).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Edit legal entity", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Back to legal entities", exact: true })
+    .click();
+  await expect(
+    page
+      .locator(".legal-entity-candidate:visible")
+      .filter({ hasText: "Demo Climate" }),
+  ).toHaveCount(0);
   expect(inventory.entities).toHaveLength(1);
   expect(writes).toHaveLength(2);
   expect(inventory.entities[0]?.sources[0]?.nameResolution).toMatchObject({

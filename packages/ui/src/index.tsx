@@ -41,5 +41,12 @@ export {
   SelectTrigger,
   SelectValue,
 } from "./components/select";
-export { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/tabs";
+export {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  SectionNavigation,
+  type SectionTab,
+} from "./components/tabs";
 export { TextLink, type TextLinkProps } from "./components/text-link";
