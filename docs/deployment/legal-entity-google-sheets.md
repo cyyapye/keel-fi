@@ -19,13 +19,12 @@ Google Sheets access.
    OAuth client ID ending in `.apps.googleusercontent.com`, not a client secret.
    For local development, add that single value to the ignored
    `apps/api/.dev.vars`; do not copy credentials between worktrees. For a
-   deployed environment, use a persistent Worker secret binding so deployment
-   does not overwrite this account-specific setting:
-
-   ```sh
-   cd apps/api
-   pnpm exec wrangler secret put GOOGLE_SHEETS_CLIENT_ID --env preview
-   ```
+   deployed environment, add a secret binding with that name to the actual API
+   Worker in the Cloudflare dashboard. For preview, use the Worker identified by
+   `KEEL_PREVIEW_API_WORKER` in the GitHub `preview` environment. The checked-in
+   Wrangler configuration does not define a preview environment; the deployment
+   workflow generates private configuration with the correct Worker name. Secret
+   bindings persist across normal deployments.
 
 4. Reload Legal entities, open **Export**, and create a sheet using synthetic
    records. Verify the chosen columns, complete record count, literal values,
