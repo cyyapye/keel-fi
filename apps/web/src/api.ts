@@ -140,6 +140,8 @@ import {
   LegalEntityExactBatchInputSchema,
   LegalEntityExactBatchResultSchema,
   LegalEntityExportInputSchema,
+  LegalEntityExportOptionsSchema,
+  LegalEntityExportTableSchema,
   LegalEntityInventorySchema,
   LegalEntityRecordSchema,
   LegalEntitySourceReviewResultSchema,
@@ -443,6 +445,32 @@ export async function recheckLegalEntityDocument(
       "The agreement check could not be queued.",
     );
   return ProviderPortfolioAgentRunRequestSchema.parse(await response.json());
+}
+
+export async function loadLegalEntityExportOptions() {
+  const response = await fetch("/api/legal-entity-export/options", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error("Export destinations could not be loaded. Try again.");
+  }
+  return LegalEntityExportOptionsSchema.parse(await response.json());
+}
+
+export async function loadLegalEntityExportTable(
+  input: LegalEntityExportInput,
+) {
+  const response = await fetch("/api/legal-entity-export", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(LegalEntityExportInputSchema.parse(input)),
+  });
+  if (!response.ok) {
+    throw await responseError(response, "The export could not be prepared.");
+  }
+  return LegalEntityExportTableSchema.parse(await response.json());
 }
 
 export async function downloadLegalEntityExport(

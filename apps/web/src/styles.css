@@ -6456,9 +6456,27 @@ h1,
   gap: 26px 30px;
 }
 
-.legal-entity-editor__actions,
-.legal-entity-export__actions {
+.legal-entity-export-disclosure {
+  min-width: 0;
+}
+
+.legal-entity-export-disclosure .legal-entity-export {
+  margin-top: 32px;
+}
+
+.legal-entity-export__destination-help {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.legal-entity-editor__actions {
   margin-top: 28px;
+}
+
+.legal-entity-export__actions {
+  margin-top: 24px;
 }
 
 .legal-entity-editor__actions p,
@@ -6732,9 +6750,13 @@ h1,
 
   .legal-entity-row__facts,
   .legal-entity-editor__fields,
-  .legal-entity-export__scope,
-  .legal-entity-export__field-grid {
+  .legal-entity-export__scope {
     grid-template-columns: 1fr;
+  }
+
+  .legal-entity-export__field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 18px;
   }
 
   .legal-entity-row footer {

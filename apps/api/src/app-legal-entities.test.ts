@@ -3,10 +3,11 @@ import {
   type InvestmentPositionViewRepository,
   type LegalEntityRepository,
 } from "@keel/database";
-import type {
-  LegalEntityInventory,
-  LegalEntityProfileInput,
-  LegalEntityRecord,
+import {
+  LegalEntityExportTableSchema,
+  type LegalEntityInventory,
+  type LegalEntityProfileInput,
+  type LegalEntityRecord,
 } from "@keel/domain/legal-entities";
 import type { InvestmentPositionView } from "@keel/domain/position-read-model";
 import { describe, expect, it, vi } from "vitest";
@@ -107,6 +108,109 @@ function repositories(overrides: Partial<LegalEntityRepository> = {}) {
 }
 
 describe("legal entity API", () => {
+  it.each([
+    undefined,
+    "invalid-client",
+    "synthetic-client.apps.googleusercontent.com",
+  ])(
+    "exposes only valid Google export configuration without reading holdings (%s)",
+    async (clientId) => {
+      const options = repositories();
+      const response = await createApp(options).request(
+        "/api/legal-entity-export/options",
+        {},
+        {
+          ...env(),
+          ...(clientId === undefined
+            ? {}
+            : { GOOGLE_SHEETS_CLIENT_ID: clientId }),
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+      await expect(response.json()).resolves.toEqual({
+        googleSheetsClientId: clientId?.endsWith(".apps.googleusercontent.com")
+          ? clientId
+          : null,
+      });
+      expect(options.positionList).not.toHaveBeenCalled();
+      expect(options.legalEntityRepository.getState).not.toHaveBeenCalled();
+    },
+  );
+
+  it("exports every selected row from the authenticated projection as a table", async () => {
+    const largeInventory = {
+      ...inventory,
+      entities: Array.from({ length: 120 }, (_, index) => ({
+        ...entity,
+        id: `synthetic-${index}`,
+        legalName: `Synthetic ${String(index).padStart(3, "0")} LLC`,
+      })),
+    };
+    const options = repositories({
+      getState: vi.fn().mockResolvedValue(largeInventory),
+    });
+    const response = await createApp(options).request(
+      "/api/legal-entity-export",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fields: ["legal_name", "jurisdiction", "current_owner"],
+          includeNeedsReview: true,
+          includeHistorical: false,
+          includeOtherEntityTypes: true,
+        }),
+      },
+      env(),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    const body = LegalEntityExportTableSchema.parse(await response.json());
+    expect(body.columns).toEqual([
+      "Legal name",
+      "Formation jurisdiction",
+      "Current titled owner",
+    ]);
+    expect(body.rows).toHaveLength(120);
+    expect(body.rows[119]).toEqual([
+      "Synthetic 119 LLC",
+      "Delaware, US",
+      "Not recorded",
+    ]);
+    expect(options.positionList).toHaveBeenCalledTimes(1);
+    expect(options.legalEntityRepository.getState).toHaveBeenCalledTimes(1);
+    expect(options.legalEntityRepository.getState).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      positionView,
+    );
+    expect(options.legalEntityRepository.create).not.toHaveBeenCalled();
+  });
+
+  it.each(["/api/legal-entity-export/options", "/api/legal-entity-export"])(
+    "keeps %s behind production authentication",
+    async (path) => {
+      const options = repositories();
+      const response = await createApp(options).request(
+        path,
+        path.endsWith("/options")
+          ? {}
+          : {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            },
+        { ...env(), ENVIRONMENT: "production" },
+      );
+      expect(response.status).toBe(401);
+      expect(options.positionList).not.toHaveBeenCalled();
+      expect(options.legalEntityRepository.getState).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["document_choice", "document_entry", "document_structure"] as const)(
     "validates a source-bound %s and carries it across both write routes",
     async (kind) => {

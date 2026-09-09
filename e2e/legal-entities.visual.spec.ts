@@ -1,9 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import type {
+  LegalEntityExportInput,
   LegalEntityInventory,
   LegalEntityRecord,
   LegalEntitySourceSummary,
 } from "../packages/domain/src/legal-entities";
+import { legalEntityExportTable } from "../apps/api/src/legal-entity-export";
 
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
@@ -234,6 +236,9 @@ test("reviews legal entities and exports selected counsel fields", async ({
   let createBody: Record<string, unknown> | null = null;
   let exactBatchBody: Record<string, unknown> | null = null;
   let exportBody: Record<string, unknown> | null = null;
+  await page.route("**/api/legal-entity-export/options", (route) =>
+    route.fulfill({ json: { googleSheetsClientId: null } }),
+  );
 
   await page.clock.setFixedTime(new Date("2026-09-01T12:00:00.000Z"));
   await routeInvestmentReview(page, positionSource);
@@ -398,6 +403,20 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expect(page.locator(".page-intro")).toContainText(
     "This inventory does not transfer anything to a trust.",
   );
+  const exportButton = page.getByRole("button", {
+    name: "Export",
+    exact: true,
+  });
+  await expect(exportButton).toBeInViewport();
+  await expect(exportButton).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("heading", { name: "Export legal entities" }),
+  ).toBeHidden();
+  await exportButton.click();
+  await expect(exportButton).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    page.getByText("You can import the CSV into Google Sheets."),
+  ).toBeVisible();
   await expect(
     page.locator(
       '.legal-entity-export__field-grid input[type="checkbox"]:checked',
@@ -409,6 +428,21 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expect(
     page.getByLabel("Include unresolved source records"),
   ).toBeChecked();
+  const exportSnapshotStyle = await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await page.mouse.move(0, 0);
+  await expect(page.locator(".legal-entity-export")).toHaveScreenshot(
+    "legal-entity-export.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+    },
+  );
+  await exportSnapshotStyle.evaluate((style) => {
+    style.textContent = "";
+  });
+  await expectNoHorizontalOverflow(page);
   await expect(
     page.getByText(
       "2 reviewed LLCs · 3 source names to review · 2 missing legal names",
@@ -617,6 +651,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   ).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");
+  await exportButton.click();
   await page.getByRole("button", { name: /Download CSV/u }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe(
@@ -632,3 +667,254 @@ test("reviews legal entities and exports selected counsel fields", async ({
   );
   await expect(page).toHaveURL(/\/holdings\/entities$/u);
 });
+
+test("keeps export above 140 entities and preserves choices through collapse and failures", async ({
+  page,
+}) => {
+  const inventory = {
+    ...initialInventory,
+    candidates: [],
+    excludedCandidates: [],
+    entities: Array.from({ length: 140 }, (_, index) => ({
+      ...initialInventory.entities[0]!,
+      id: `synthetic-scale-${index}`,
+      legalName: `Synthetic ${String(index).padStart(3, "0")} LLC`,
+    })),
+  };
+  let optionRequests = 0;
+  let exportRequests = 0;
+  await page.route("**/api/legal-entities", (route) =>
+    route.fulfill({ json: inventory }),
+  );
+  await page.route("**/api/legal-entity-export/options", (route) => {
+    optionRequests += 1;
+    return route.fulfill({ json: { googleSheetsClientId: null } });
+  });
+  await page.route("**/api/legal-entity-export", (route) => {
+    exportRequests += 1;
+    return route.fulfill({
+      status: 503,
+      json: { error: "The export could not be prepared. Try again." },
+    });
+  });
+  await page.goto("/holdings/entities");
+  const toggle = page.getByRole("button", { name: "Export", exact: true });
+  await expect(toggle).toBeInViewport();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(optionRequests).toBe(0);
+  expect(await page.locator(".legal-entity-row").count()).toBeLessThan(140);
+  await toggle.press("Enter");
+  await expect(
+    page.getByText("You can import the CSV into Google Sheets."),
+  ).toBeVisible();
+  await page.getByLabel("Notes", { exact: true }).check();
+  await page.getByLabel("Include non-LLC entities").uncheck();
+  await toggle.click();
+  await expect(
+    page.getByRole("heading", { name: "Export legal entities" }),
+  ).toBeHidden();
+  await toggle.click();
+  await expect(page.getByLabel("Notes", { exact: true })).toBeChecked();
+  await expect(page.getByLabel("Include non-LLC entities")).not.toBeChecked();
+  expect(optionRequests).toBe(1);
+  const download = page.getByRole("button", { name: /Download CSV/u });
+  const options = page.locator(".legal-entity-export");
+  const inventoryList = page.locator(".legal-entities__known");
+  await expect
+    .poll(async () => {
+      const [action, panel, list] = await Promise.all([
+        download.boundingBox(),
+        options.boundingBox(),
+        inventoryList.boundingBox(),
+      ]);
+      return (
+        action !== null &&
+        panel !== null &&
+        list !== null &&
+        action.y < list.y &&
+        panel.y + panel.height <= list.y
+      );
+    })
+    .toBe(true);
+  await download.click();
+  await expect(
+    page.getByText("The export could not be prepared. Try again."),
+  ).toBeVisible();
+  await expect(page.getByLabel("Notes", { exact: true })).toBeChecked();
+  expect(exportRequests).toBe(1);
+  for (const checkbox of await page
+    .locator('.legal-entity-export__field-grid input[type="checkbox"]')
+    .all())
+    await checkbox.uncheck();
+  await expect(download).toBeDisabled();
+  await expect(page.getByText("Choose at least one column.")).toBeVisible();
+  await page.getByRole("button", { name: "Use recommended fields" }).click();
+  await expect(download).toBeEnabled();
+  await expect(
+    page.locator(".legal-entity-export__field-grid input:checked"),
+  ).toHaveCount(15);
+  await expectNoHorizontalOverflow(page);
+});
+
+async function routeGoogleExport(
+  page: Page,
+  outcome:
+    "success" | "popup_closed" | "popup_failed_to_open" | "denied" = "success",
+) {
+  await page.route("**/api/legal-entities", (route) =>
+    route.fulfill({ json: initialInventory }),
+  );
+  await page.route("**/api/legal-entity-export/options", (route) =>
+    route.fulfill({
+      json: {
+        googleSheetsClientId: "synthetic-client.apps.googleusercontent.com",
+      },
+    }),
+  );
+  await page.route("https://accounts.google.com/gsi/client", (route) =>
+    route.fulfill({
+      contentType: "application/javascript",
+      body: `window.google = { accounts: { oauth2: { initTokenClient: (config) => ({ requestAccessToken: () => {
+      if (config.client_id !== 'synthetic-client.apps.googleusercontent.com' || config.scope !== 'https://www.googleapis.com/auth/drive.file' || config.include_granted_scopes !== false) throw new Error('Unexpected Google authorization scope');
+      if (${JSON.stringify(outcome)} === 'denied') config.callback({ error: 'access_denied' });
+      else if (${JSON.stringify(outcome)} !== 'success') config.error_callback({ type: ${JSON.stringify(outcome)} });
+      else config.callback({ access_token: 'synthetic-oauth-token', expires_in: 3600, scope: config.scope });
+    } }) } } };`,
+    }),
+  );
+}
+
+test("creates a Google Sheet from selected records and columns and prevents unchanged resubmission", async ({
+  page,
+}) => {
+  await routeGoogleExport(page);
+  let tableInput: LegalEntityExportInput | null = null;
+  let createCalls = 0;
+  let googleBody: {
+    sheets: Array<{
+      data: Array<{
+        rowData: Array<{
+          values: Array<{ userEnteredValue: { stringValue: string } }>;
+        }>;
+      }>;
+    }>;
+  } | null = null;
+  await page.route("**/api/legal-entity-export", async (route) => {
+    expect(route.request().headers().authorization).toBeUndefined();
+    tableInput = route.request().postDataJSON() as LegalEntityExportInput;
+    await route.fulfill({
+      json: legalEntityExportTable(initialInventory, tableInput),
+    });
+  });
+  await page.route(
+    "https://sheets.googleapis.com/v4/spreadsheets",
+    async (route) => {
+      if (route.request().method() === "OPTIONS") {
+        await route.fulfill({
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Authorization,Content-Type",
+          },
+        });
+        return;
+      }
+      createCalls += 1;
+      expect(route.request().headers().authorization).toBe(
+        "Bearer synthetic-oauth-token",
+      );
+      googleBody = route.request().postDataJSON() as typeof googleBody;
+      await route.fulfill({
+        json: { spreadsheetId: "synthetic_sheet_123" },
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    },
+  );
+  await page.goto("/holdings/entities");
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  const create = page.getByRole("button", {
+    name: "Create Google Sheet",
+    exact: true,
+  });
+  await expect(create).toBeEnabled();
+  const exportSnapshotStyle = await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await page.mouse.move(0, 0);
+  await expect(page.locator(".legal-entity-export")).toHaveScreenshot(
+    "legal-entity-google-export.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+    },
+  );
+  await exportSnapshotStyle.evaluate((style) => {
+    style.textContent = "";
+  });
+  await page.getByLabel("Include unresolved source records").uncheck();
+  await page.getByLabel("Notes", { exact: true }).check();
+  await create.click();
+  await expect(
+    page.getByRole("link", { name: "Open Google Sheet" }),
+  ).toHaveAttribute(
+    "href",
+    "https://docs.google.com/spreadsheets/d/synthetic_sheet_123/edit",
+  );
+  await expect(
+    page.getByRole("button", { name: "Google Sheet created", exact: true }),
+  ).toBeDisabled();
+  expect(createCalls).toBe(1);
+  expect(tableInput).toMatchObject({
+    includeNeedsReview: false,
+    fields: expect.arrayContaining(["notes"]),
+  });
+  const rows = googleBody!.sheets[0]!.data[0]!.rowData;
+  expect(rows).toHaveLength(3);
+  expect(rows[0]!.values).toHaveLength(16);
+  expect(rows[1]!.values[0]!.userEnteredValue).toEqual({
+    stringValue: "Demo Family Holdings LLC",
+  });
+  await page.getByLabel("Include unresolved source records").check();
+  await expect(create).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+});
+
+for (const outcome of [
+  "popup_closed",
+  "popup_failed_to_open",
+  "denied",
+] as const) {
+  test(`preserves export choices when Google authorization returns ${outcome}`, async ({
+    page,
+  }) => {
+    await routeGoogleExport(page, outcome);
+    const writes: string[] = [];
+    await page.route("**/api/legal-entity-export", (route) => {
+      writes.push(route.request().url());
+      return route.abort();
+    });
+    await page.route("https://sheets.googleapis.com/**", (route) => {
+      writes.push(route.request().url());
+      return route.abort();
+    });
+    await page.goto("/holdings/entities");
+    await page.getByRole("button", { name: "Export", exact: true }).click();
+    await page.getByLabel("Notes", { exact: true }).check();
+    await page
+      .getByRole("button", { name: "Create Google Sheet", exact: true })
+      .click();
+    await expect(
+      page.getByText(
+        outcome === "denied"
+          ? "Allow Keel to create the Google Sheet, or download CSV instead."
+          : outcome === "popup_closed"
+            ? "Google sign-in was closed. Your export choices are unchanged."
+            : "Google sign-in could not open. Allow pop-ups for Keel and try again.",
+      ),
+    ).toBeVisible();
+    await expect(page.getByLabel("Notes", { exact: true })).toBeChecked();
+    await expect(
+      page.getByRole("button", { name: /Download CSV/u }),
+    ).toBeEnabled();
+    expect(writes).toEqual([]);
+  });
+}

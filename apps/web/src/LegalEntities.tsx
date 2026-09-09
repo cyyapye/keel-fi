@@ -68,11 +68,18 @@ import {
   createLegalEntity,
   downloadLegalEntityDocument,
   downloadLegalEntityExport,
+  loadLegalEntityExportOptions,
+  loadLegalEntityExportTable,
   loadLegalEntities,
   reviewLegalEntitySource,
   recheckLegalEntityDocument,
   updateLegalEntity,
 } from "./api";
+import {
+  createGoogleSheet,
+  GoogleSheetsCreationUncertainError,
+  prepareGoogleSheetsAuthorization,
+} from "./google-sheets-export";
 import { formatDate } from "./format";
 import {
   entityReviewLocation,
@@ -1429,19 +1436,75 @@ function ExactBatchReview({
   );
 }
 
-function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
+type GoogleExportDestination =
+  | { status: "loading" | "unavailable" }
+  | { status: "error"; message: string }
+  | { status: "ready"; authorize: () => Promise<string> };
+
+function ExportWorkspace({
+  inventory,
+  onBackToHoldings,
+}: {
+  inventory: LegalEntityInventory;
+  onBackToHoldings: (() => void) | undefined;
+}) {
+  const [expanded, setExpanded] = useState(false);
   const [fields, setFields] = useState<ReadonlySet<LegalEntityExportField>>(
     () => new Set(DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS),
   );
   const [includeNeedsReview, setIncludeNeedsReview] = useState(true);
   const [includeHistorical, setIncludeHistorical] = useState(false);
   const [includeOtherEntityTypes, setIncludeOtherEntityTypes] = useState(true);
-  const [working, setWorking] = useState(false);
+  const [working, setWorking] = useState<"csv" | "google" | null>(null);
+  const busy = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [uncertain, setUncertain] = useState(false);
+  const [createdSheet, setCreatedSheet] = useState<{
+    url: string;
+    selection: string;
+  } | null>(null);
+  const [google, setGoogle] = useState<GoogleExportDestination>({
+    status: "loading",
+  });
+  const googleSetup = useRef<Promise<GoogleExportDestination> | null>(null);
+
+  const prepareGoogle = useCallback(() => {
+    googleSetup.current ??= loadLegalEntityExportOptions().then(
+      async (options): Promise<GoogleExportDestination> =>
+        options.googleSheetsClientId === null
+          ? { status: "unavailable" }
+          : {
+              status: "ready",
+              authorize: await prepareGoogleSheetsAuthorization(
+                options.googleSheetsClientId,
+              ),
+            },
+    );
+    void googleSetup.current.then(setGoogle).catch(() => {
+      googleSetup.current = null;
+      setGoogle({
+        status: "error",
+        message: "Google Sheets could not load. You can still download CSV.",
+      });
+    });
+  }, []);
+  useEffect(() => {
+    if (expanded) prepareGoogle();
+  }, [expanded, prepareGoogle]);
 
   const selectedFields = LEGAL_ENTITY_EXPORT_FIELDS.filter((field) =>
     fields.has(field),
   );
+  const exportInput = {
+    fields: selectedFields,
+    includeNeedsReview,
+    includeHistorical,
+    includeOtherEntityTypes,
+  };
+  const selection = JSON.stringify({
+    input: exportInput,
+    asOf: inventory.asOf,
+  });
   const reviewedLlcCount = inventory.entities.filter(
     (entity) =>
       entity.entityType === "llc" && entity.interestStatus !== "historical",
@@ -1470,15 +1533,13 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
   };
 
   const download = async () => {
-    setWorking(true);
+    if (busy.current || selectedFields.length === 0) return;
+    busy.current = true;
+    setWorking("csv");
     setError(null);
+    setUncertain(false);
     try {
-      const result = await downloadLegalEntityExport({
-        fields: selectedFields,
-        includeNeedsReview,
-        includeHistorical,
-        includeOtherEntityTypes,
-      });
+      const result = await downloadLegalEntityExport(exportInput);
       const url = URL.createObjectURL(result.blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -1494,118 +1555,230 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
           : "The export could not be prepared.",
       );
     } finally {
-      setWorking(false);
+      busy.current = false;
+      setWorking(null);
+    }
+  };
+
+  const exportToGoogle = async () => {
+    if (
+      busy.current ||
+      google.status !== "ready" ||
+      selectedFields.length === 0 ||
+      createdSheet?.selection === selection
+    )
+      return;
+    busy.current = true;
+    setWorking("google");
+    setError(null);
+    setUncertain(false);
+    try {
+      const token = await google.authorize();
+      const table = await loadLegalEntityExportTable(exportInput);
+      const url = await createGoogleSheet(table, token);
+      setCreatedSheet({ url, selection });
+    } catch (caught) {
+      setUncertain(caught instanceof GoogleSheetsCreationUncertainError);
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The Google Sheet could not be created.",
+      );
+    } finally {
+      busy.current = false;
+      setWorking(null);
     }
   };
 
   return (
-    <section
-      aria-labelledby="legal-entity-export-title"
-      className="legal-entity-export"
+    <Collapsible
+      className="legal-entity-export-disclosure"
+      open={expanded}
+      onOpenChange={setExpanded}
     >
-      <SectionHeader
-        description="Recommended fields cover identity, ownership, status, provenance, and gaps. Financial details remain optional."
-        eyebrow="Counsel copy"
-        headingProps={{ id: "legal-entity-export-title" }}
-        title="Choose what to export"
+      <PageHeader
+        title="Legal entities"
+        eyebrow="Holdings"
+        description="Prepare an entity and interest list for counsel. This inventory does not transfer anything to a trust."
+        actions={
+          <>
+            {onBackToHoldings && (
+              <TextLink onClick={onBackToHoldings}>Back to holdings</TextLink>
+            )}
+            <CollapsibleTrigger render={<Button tone="primary" />}>
+              Export <DisclosureIndicator />
+            </CollapsibleTrigger>
+          </>
+        }
       />
-      <div className="legal-entity-export__scope">
-        <div>
-          <h3>Records</h3>
-          <p>
-            {reviewedLlcCount} reviewed{" "}
-            {reviewedLlcCount === 1 ? "LLC" : "LLCs"}
-            {" · "}
-            {sourceNameReviewCount} source{" "}
-            {sourceNameReviewCount === 1 ? "name" : "names"} to review
-            {" · "}
-            {unavailableNameCount} missing legal{" "}
-            {unavailableNameCount === 1 ? "name" : "names"}
-            {conflictingNameCount > 0 &&
-              ` · ${conflictingNameCount} ${conflictingNameCount === 1 ? "name conflict" : "name conflicts"}`}
-          </p>
-        </div>
-        <label>
-          <Input
-            checked={includeNeedsReview}
-            onChange={(event) =>
-              setIncludeNeedsReview(event.currentTarget.checked)
-            }
-            type="checkbox"
+      <CollapsibleContent keepMounted>
+        <section
+          aria-labelledby="legal-entity-export-title"
+          className="legal-entity-export"
+        >
+          <SectionHeader
+            description="Choose records and columns. Financial details are optional."
+            headingProps={{ id: "legal-entity-export-title" }}
+            title="Export legal entities"
           />
-          <span>Include unresolved source records</span>
-        </label>
-        <label>
-          <Input
-            checked={includeHistorical}
-            onChange={(event) =>
-              setIncludeHistorical(event.currentTarget.checked)
-            }
-            type="checkbox"
-          />
-          <span>Include historical and cancelled investments</span>
-        </label>
-        <label>
-          <Input
-            checked={includeOtherEntityTypes}
-            onChange={(event) =>
-              setIncludeOtherEntityTypes(event.currentTarget.checked)
-            }
-            type="checkbox"
-          />
-          <span>Include non-LLC entities</span>
-        </label>
-      </div>
-      <div className="legal-entity-export__fields">
-        <div className="legal-entity-export__fields-heading">
-          <h3>Columns</h3>
-          <TextLink
-            onClick={() =>
-              setFields(new Set(DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS))
-            }
+          <ActionGroup
+            className="legal-entity-export__actions"
+            wrap
+            mobileLayout="stack"
           >
-            Use recommended fields
-          </TextLink>
-        </div>
-        <div className="legal-entity-export__field-grid">
-          {LEGAL_ENTITY_EXPORT_FIELDS.map((field) => (
-            <label key={field}>
+            <Button
+              disabled={working !== null || selectedFields.length === 0}
+              onClick={() => void download()}
+              tone={google.status === "ready" ? "secondary" : "primary"}
+            >
+              {working === "csv"
+                ? "Preparing…"
+                : `Download CSV · ${selectedFields.length} columns`}
+            </Button>
+            {google.status === "ready" && (
+              <Button
+                disabled={
+                  working !== null ||
+                  selectedFields.length === 0 ||
+                  createdSheet?.selection === selection
+                }
+                onClick={() => void exportToGoogle()}
+                tone="primary"
+              >
+                {working === "google"
+                  ? "Creating Google Sheet…"
+                  : createdSheet?.selection === selection
+                    ? "Google Sheet created"
+                    : "Create Google Sheet"}
+              </Button>
+            )}
+          </ActionGroup>
+          <p className="legal-entity-export__destination-help">
+            {google.status === "ready"
+              ? "Google will ask you to choose an account and allow Keel to create this sheet. It will not be shared automatically."
+              : google.status === "loading"
+                ? "Checking Google Sheets availability…"
+                : google.status === "error"
+                  ? google.message
+                  : "You can import the CSV into Google Sheets."}
+            {google.status === "error" && (
+              <>
+                {" "}
+                <TextLink
+                  onClick={() => {
+                    setGoogle({ status: "loading" });
+                    prepareGoogle();
+                  }}
+                >
+                  Try Google Sheets again
+                </TextLink>
+              </>
+            )}
+          </p>
+          {error !== null && (
+            <FormMessage tone="error">
+              {error}{" "}
+              {uncertain && (
+                <TextLink
+                  href="https://drive.google.com/drive/recent"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Check Google Drive
+                </TextLink>
+              )}
+            </FormMessage>
+          )}
+          {createdSheet !== null && (
+            <FormMessage tone="success">
+              <TextLink
+                href={createdSheet.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open Google Sheet
+              </TextLink>
+            </FormMessage>
+          )}
+          {selectedFields.length === 0 && (
+            <FormMessage tone="error">Choose at least one column.</FormMessage>
+          )}
+          <div className="legal-entity-export__scope">
+            <div>
+              <h3>Records</h3>
+              <p>
+                {reviewedLlcCount} reviewed{" "}
+                {reviewedLlcCount === 1 ? "LLC" : "LLCs"}
+                {" · "}
+                {sourceNameReviewCount} source{" "}
+                {sourceNameReviewCount === 1 ? "name" : "names"} to review
+                {" · "}
+                {unavailableNameCount} missing legal{" "}
+                {unavailableNameCount === 1 ? "name" : "names"}
+                {conflictingNameCount > 0 &&
+                  ` · ${conflictingNameCount} ${conflictingNameCount === 1 ? "name conflict" : "name conflicts"}`}
+              </p>
+            </div>
+            <label>
               <Input
-                checked={fields.has(field)}
+                checked={includeNeedsReview}
                 onChange={(event) =>
-                  toggleField(field, event.currentTarget.checked)
+                  setIncludeNeedsReview(event.currentTarget.checked)
                 }
                 type="checkbox"
               />
-              <span>{LEGAL_ENTITY_EXPORT_FIELD_LABELS[field]}</span>
+              <span>Include unresolved source records</span>
             </label>
-          ))}
-        </div>
-      </div>
-      {error !== null && <FormMessage tone="error">{error}</FormMessage>}
-      <ActionGroup
-        as="footer"
-        className="legal-entity-export__actions"
-        layout="split"
-        mobileLayout="stack"
-      >
-        <p>
-          The CSV is generated for this download and is not retained by Keel.
-        </p>
-        <Button
-          disabled={working || selectedFields.length === 0}
-          onClick={() => void download()}
-          tone="primary"
-        >
-          {working
-            ? "Preparing…"
-            : `Download CSV · ${selectedFields.length} columns`}
-        </Button>
-      </ActionGroup>
-      {selectedFields.length === 0 && (
-        <FormMessage tone="error">Choose at least one column.</FormMessage>
-      )}
-    </section>
+            <label>
+              <Input
+                checked={includeHistorical}
+                onChange={(event) =>
+                  setIncludeHistorical(event.currentTarget.checked)
+                }
+                type="checkbox"
+              />
+              <span>Include historical and cancelled investments</span>
+            </label>
+            <label>
+              <Input
+                checked={includeOtherEntityTypes}
+                onChange={(event) =>
+                  setIncludeOtherEntityTypes(event.currentTarget.checked)
+                }
+                type="checkbox"
+              />
+              <span>Include non-LLC entities</span>
+            </label>
+          </div>
+          <div className="legal-entity-export__fields">
+            <div className="legal-entity-export__fields-heading">
+              <h3>Columns</h3>
+              <TextLink
+                onClick={() =>
+                  setFields(new Set(DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS))
+                }
+              >
+                Use recommended fields
+              </TextLink>
+            </div>
+            <div className="legal-entity-export__field-grid">
+              {LEGAL_ENTITY_EXPORT_FIELDS.map((field) => (
+                <label key={field}>
+                  <Input
+                    checked={fields.has(field)}
+                    onChange={(event) =>
+                      toggleField(field, event.currentTarget.checked)
+                    }
+                    type="checkbox"
+                  />
+                  <span>{LEGAL_ENTITY_EXPORT_FIELD_LABELS[field]}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </section>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -1877,15 +2050,9 @@ export function LegalEntities({
         />
       )}
       <div hidden={location.target !== null} className="legal-entities">
-        <PageHeader
-          title="Legal entities"
-          eyebrow="Holdings"
-          description="Prepare an entity and interest list for counsel. This inventory does not transfer anything to a trust."
-          actions={
-            onBackToHoldings && (
-              <TextLink onClick={onBackToHoldings}>Back to holdings</TextLink>
-            )
-          }
+        <ExportWorkspace
+          inventory={inventory}
+          onBackToHoldings={onBackToHoldings}
         />
         {notice !== null && (
           <FormMessage className="legal-entities__notice" tone="success">
@@ -2014,7 +2181,6 @@ export function LegalEntities({
             </CollapsibleContent>
           </Collapsible>
         )}
-        <ExportWorkspace inventory={inventory} />
       </div>
     </>
   );

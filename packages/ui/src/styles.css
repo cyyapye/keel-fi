@@ -1136,7 +1136,7 @@ h3 {
   transform: rotate(180deg);
 }
 
-[data-slot="collapsible-trigger"] {
+[data-slot="collapsible-trigger"]:where(:not(.button)) {
   padding: 0;
   color: inherit;
   font: inherit;
