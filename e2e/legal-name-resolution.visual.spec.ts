@@ -512,6 +512,7 @@ test("reviews source parties on the dedicated page without offering the represen
     animations: "disabled",
     caret: "hide",
   });
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect(
     page.getByRole("checkbox", { name: "Include non-LLC entities" }),
   ).toBeChecked();

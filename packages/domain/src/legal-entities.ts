@@ -500,6 +500,34 @@ export const LegalEntityExportInputSchema = z
   })
   .strict();
 
+export const LegalEntityExportOptionsSchema = z
+  .object({
+    googleSheetsClientId: z
+      .string()
+      .max(256)
+      .regex(/^[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/u)
+      .nullable(),
+  })
+  .strict();
+
+export const LegalEntityExportTableSchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    columns: z.array(z.string()).min(1).max(LEGAL_ENTITY_EXPORT_FIELDS.length),
+    rows: z.array(z.array(z.string())),
+  })
+  .strict()
+  .refine(
+    (table) => table.rows.every((row) => row.length === table.columns.length),
+    {
+      message: "Every export row must match the selected columns.",
+    },
+  );
+
+export type LegalEntityExportTable = z.infer<
+  typeof LegalEntityExportTableSchema
+>;
+
 export function exactLegalEntityTypeFromName(
   rawValue: string,
 ): ExactLegalEntityType | null {

@@ -2,8 +2,10 @@ import {
   formatOwnershipInterestPpm,
   LEGAL_ENTITY_EXPORT_FIELD_LABELS,
   LegalEntityExportInputSchema,
+  LegalEntityExportTableSchema,
   type LegalEntityExportField,
   type LegalEntityExportInput,
+  type LegalEntityExportTable,
   type LegalEntityInventory,
   type LegalEntityRecord,
   type LegalEntitySourceSummary,
@@ -485,15 +487,23 @@ export function legalEntityExportCsv(
   inventory: LegalEntityInventory,
   rawInput: LegalEntityExportInput,
 ): string {
-  const input = LegalEntityExportInputSchema.parse(rawInput);
-  const header = input.fields.map(
-    (field) => LEGAL_ENTITY_EXPORT_FIELD_LABELS[field],
-  );
-  const rows = legalEntityExportRows(inventory, input);
-  return `\uFEFF${[
-    header,
-    ...rows.map((row) => input.fields.map((field) => row[field])),
-  ]
+  const table = legalEntityExportTable(inventory, rawInput);
+  return `\uFEFF${[table.columns, ...table.rows]
     .map((row) => row.map(safeCsvCell).join(","))
     .join("\r\n")}\r\n`;
+}
+
+export function legalEntityExportTable(
+  inventory: LegalEntityInventory,
+  rawInput: LegalEntityExportInput,
+): LegalEntityExportTable {
+  const input = LegalEntityExportInputSchema.parse(rawInput);
+  const rows = legalEntityExportRows(inventory, input);
+  return LegalEntityExportTableSchema.parse({
+    title: `Keel legal entities · ${inventory.asOf.slice(0, 10)}`,
+    columns: input.fields.map(
+      (field) => LEGAL_ENTITY_EXPORT_FIELD_LABELS[field],
+    ),
+    rows: rows.map((row) => input.fields.map((field) => row[field])),
+  });
 }

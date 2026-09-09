@@ -106,6 +106,7 @@ import {
   LegalEntityExactBatchInputSchema,
   LegalEntityExactBatchResultSchema,
   LegalEntityExportInputSchema,
+  LegalEntityExportOptionsSchema,
   LegalEntityInventorySchema,
   LegalEntityRecordSchema,
   LegalEntitySourceReviewResultSchema,
@@ -137,7 +138,10 @@ import {
   readAngelListCsvUpload,
   readProviderTemplateCsvUpload,
 } from "./holding-import-upload";
-import { legalEntityExportCsv } from "./legal-entity-export";
+import {
+  legalEntityExportCsv,
+  legalEntityExportTable,
+} from "./legal-entity-export";
 import {
   CreateDocumentInvestmentInputSchema,
   CreateDocumentInvestmentResultSchema,
@@ -2232,6 +2236,17 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get("/api/legal-entity-export/options", (context) => {
+    const options = LegalEntityExportOptionsSchema.safeParse({
+      googleSheetsClientId: context.env.GOOGLE_SHEETS_CLIENT_ID ?? null,
+    });
+    return context.json(
+      options.success ? options.data : { googleSheetsClientId: null },
+      200,
+      { "Cache-Control": "private, no-store" },
+    );
+  });
+
   app.post("/api/legal-entity-export", async (context) => {
     let rawInput: unknown;
     try {
@@ -2257,6 +2272,15 @@ export function createApp(options: AppOptions = {}) {
         accessSubject,
         positionView,
       );
+      if (context.req.header("Accept")?.includes("application/json")) {
+        return context.json(
+          legalEntityExportTable(inventory, input.data),
+          200,
+          {
+            "Cache-Control": "private, no-store",
+          },
+        );
+      }
       return context.body(legalEntityExportCsv(inventory, input.data), 200, {
         "Cache-Control": "private, no-store",
         "Content-Disposition": `attachment; filename="keel-legal-entities-${asOf.slice(0, 10)}.csv"`,

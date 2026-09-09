@@ -16,6 +16,7 @@ export interface Env {
   DEPLOYMENT_SMOKE_TOKEN?: string;
   DOCUMENTS: R2Bucket;
   ENVIRONMENT: Environment;
+  GOOGLE_SHEETS_CLIENT_ID?: string;
   INGESTION_QUEUE: Queue;
   INVESTMENTS_NEW_CONNECTIONS_ENABLED?: string;
   MAC_AGENT_API_ORIGIN?: string;
