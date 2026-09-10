@@ -22,6 +22,7 @@ import {
   type ProviderPortfolioAgentLease,
   type ProviderPortfolioAgentProvider,
 } from "../packages/domain/src/index";
+import { runProviderAgentPolling } from "./provider-agent-polling";
 import {
   MacAgentAccessError,
   linuxAgentAuthorizationPath,
@@ -74,8 +75,6 @@ const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
 // D1 owns the daily/weekly schedule. The service must also notice an explicit
 // queued update promptly, without a restart or an extra daily provider scrape.
 const POLL_INTERVAL_MS = 60_000;
-const RECONNECT_POLL_INTERVAL_MS = 5_000;
-const FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000;
 const PAGE_TIMEOUT_MS = 45_000;
 
 type Command = "once" | "run" | "serve" | "setup";
@@ -2047,38 +2046,38 @@ async function serve(
     return;
   }
   let context: BrowserContext | null = null;
-  let nextUpdateCheckAt = 0;
-  while (true) {
-    try {
+  await runProviderAgentPolling({
+    updateIntervalMs: POLL_INTERVAL_MS,
+    checkReconnect: async () => {
       const authorization = readMacAgentAuthorization(keelOrigin, provider);
       const reconnect = await leaseProviderBrowserSession(
         authorization,
         provider,
       );
-      if (reconnect.session !== null) {
-        await context
-          ?.browser()
-          ?.close()
-          .catch(() => undefined);
-        context = null;
-        if (
-          await handleManagedReconnect(
-            keelOrigin,
-            provider,
-            authorization,
-            reconnect.session,
-          )
-        ) {
-          nextUpdateCheckAt = 0;
-        }
-      } else if (Date.now() >= nextUpdateCheckAt) {
-        if (context?.browser()?.isConnected() !== true) {
-          context = await connectContext(provider, keelOrigin);
-        }
-        await pollOnce(context, keelOrigin, provider);
-        nextUpdateCheckAt = Date.now() + POLL_INTERVAL_MS;
+      if (reconnect.session === null) {
+        return "idle";
       }
-    } catch (error) {
+      await context
+        ?.browser()
+        ?.close()
+        .catch(() => undefined);
+      context = null;
+      return (await handleManagedReconnect(
+        keelOrigin,
+        provider,
+        authorization,
+        reconnect.session,
+      ))
+        ? "connected"
+        : "handled";
+    },
+    checkUpdates: async () => {
+      if (context?.browser()?.isConnected() !== true) {
+        context = await connectContext(provider, keelOrigin);
+      }
+      await pollOnce(context, keelOrigin, provider);
+    },
+    onError: (error) => {
       const code =
         error instanceof MacAgentAccessError
           ? "mac_access_required"
@@ -2097,16 +2096,11 @@ async function serve(
       if (context?.browser()?.isConnected() !== true) {
         context = null;
       }
-      if (error instanceof MacAgentAccessError) {
-        await sleep(FAILURE_RETRY_INTERVAL_MS);
-        continue;
-      }
-      if (!(error instanceof ProviderBrowserRuntimeError)) {
-        nextUpdateCheckAt = Date.now() + FAILURE_RETRY_INTERVAL_MS;
-      }
-    }
-    await sleep(RECONNECT_POLL_INTERVAL_MS);
-  }
+      return error instanceof MacAgentAccessError
+        ? "authorization"
+        : "retryable";
+    },
+  });
 }
 
 async function main(): Promise<void> {
@@ -2124,6 +2118,7 @@ async function main(): Promise<void> {
 
 export const __providerPortfolioMacAgentTest = {
   queuedUpdatePollIntervalMs: POLL_INTERVAL_MS,
+  lease,
   buildLaunchAgentPlist,
   captureSydecar,
   captureTokenfolio,

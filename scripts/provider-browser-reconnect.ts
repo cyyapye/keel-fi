@@ -36,7 +36,7 @@ const DISPLAY_CANDIDATES = Array.from(
   { length: 40 },
   (_, index) => 120 + index,
 );
-const SESSION_POLL_INTERVAL_MS = 1_000;
+const SESSION_POLL_INTERVAL_MS = 5_000;
 const PROCESS_STOP_TIMEOUT_MS = 5_000;
 const START_TIMEOUT_MS = 30_000;
 const PUBLIC_TUNNEL_REQUEST_TIMEOUT_MS = 3_000;
@@ -385,6 +385,42 @@ async function closeChromeGracefully(
   } finally {
     await browser.close().catch(() => undefined);
   }
+}
+
+async function pollActiveBrowserSession(options: {
+  expiresAt: string;
+  isAlive: () => boolean;
+  readStatus: () => Promise<ProviderBrowserSession["status"]>;
+  onOpened: () => Promise<boolean>;
+  complete: () => Promise<"connected" | "terminated">;
+  now?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
+}): Promise<"connected" | "terminated"> {
+  const now = options.now ?? Date.now;
+  const wait = options.sleep ?? sleep;
+  const deadline = new Date(options.expiresAt).getTime();
+  while (now() < deadline) {
+    if (!options.isAlive()) {
+      throw new ProviderBrowserRuntimeError(
+        "browser_unavailable",
+        "The private provider browser stopped unexpectedly.",
+      );
+    }
+    const status = await options.readStatus();
+    if (
+      now() >= deadline ||
+      ["cancelled", "expired", "failed", "connected"].includes(status)
+    ) {
+      return "terminated";
+    }
+    if (status === "opened" && (await options.onOpened())) {
+      return options.complete();
+    }
+    await wait(
+      Math.max(0, Math.min(SESSION_POLL_INTERVAL_MS, deadline - now())),
+    );
+  }
+  return "terminated";
 }
 
 async function completeBrowserSession(
@@ -859,30 +895,25 @@ export async function runProviderBrowserSession(
       { leaseToken: options.lease.leaseToken, liveUrl: liveUrl.toString() },
     );
 
-    const deadline = new Date(options.lease.expiresAt).getTime();
     let entryPageRemoved = false;
-    while (Date.now() < deadline) {
-      if (
-        [xvfb, x11vnc, websockify, cloudflared, chrome].some(
-          (child) => child.exitCode !== null,
-        ) ||
-        viewerProxy.failed()
-      ) {
-        throw new ProviderBrowserRuntimeError(
-          "browser_unavailable",
-          "The private provider browser stopped unexpectedly.",
-        );
-      }
-      const session = await sessionApi(
-        options.authorization,
-        options.provider,
-        options.lease.id,
-        "status",
-      );
-      if (["cancelled", "expired", "failed"].includes(session.status)) {
-        return "terminated";
-      }
-      if (session.status === "opened" && viewerProxy.connected()) {
+    const activeViewer = viewerProxy;
+    return await pollActiveBrowserSession({
+      expiresAt: options.lease.expiresAt,
+      isAlive: () =>
+        [xvfb, x11vnc, websockify, cloudflared, chrome].every(
+          (child) => child !== null && child.exitCode === null,
+        ) && !activeViewer.failed(),
+      readStatus: async () =>
+        (
+          await sessionApi(
+            options.authorization,
+            options.provider,
+            options.lease.id,
+            "status",
+          )
+        ).status,
+      onOpened: async () => {
+        if (!activeViewer.connected()) return false;
         stage = "provider_sign_in";
         if (!entryPageRemoved) {
           await unlink(path.join(web.webRoot, `${web.accessToken}.html`)).catch(
@@ -890,23 +921,20 @@ export async function runProviderBrowserSession(
           );
           entryPageRemoved = true;
         }
-        if (
-          await options.isProviderReady(
+        return options.isProviderReady(
+          `http://127.0.0.1:${debuggingPort.toString()}`,
+        );
+      },
+      complete: () => {
+        stage = "session_verification";
+        return completeBrowserSession(options, () =>
+          closeChromeGracefully(
+            chrome!,
             `http://127.0.0.1:${debuggingPort.toString()}`,
-          )
-        ) {
-          stage = "session_verification";
-          return await completeBrowserSession(options, () =>
-            closeChromeGracefully(
-              chrome!,
-              `http://127.0.0.1:${debuggingPort.toString()}`,
-            ),
-          );
-        }
-      }
-      await sleep(SESSION_POLL_INTERVAL_MS);
-    }
-    return "terminated";
+          ),
+        );
+      },
+    });
   } catch (error) {
     const errorCode =
       error instanceof ProviderBrowserRuntimeError
@@ -941,6 +969,7 @@ export async function runProviderBrowserSession(
 }
 
 export const __providerBrowserReconnectTest = {
+  pollActiveBrowserSession,
   closeChromeGracefully,
   completeBrowserSession,
   publicTunnelResponds,

@@ -25,6 +25,7 @@ import {
   type AngelListMacAgentLease,
   type MacAgentAuthorization,
 } from "../packages/domain/src/index";
+import { runProviderAgentPolling } from "./provider-agent-polling";
 import {
   MacAgentAccessError,
   linuxAgentAuthorizationPath,
@@ -86,8 +87,6 @@ const LEGACY_LAUNCH_AGENT_PATH = path.join(
 const SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
 const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
 const POLL_INTERVAL_MS = DAILY_CHECK_INTERVAL_SECONDS * 1_000;
-const RECONNECT_POLL_INTERVAL_MS = 5_000;
-const FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000;
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const ANGELLIST_PORTFOLIO_PATH =
   /^\/v\/[a-z0-9-]{1,128}\/i\/[a-z0-9-]{1,128}\/portfolio(?:\/dashboard)?\/?$/iu;
@@ -1189,37 +1188,37 @@ async function serve(
     return;
   }
   let context: BrowserContext | null = null;
-  let nextUpdateCheckAt = 0;
-  while (true) {
-    try {
+  await runProviderAgentPolling({
+    updateIntervalMs: POLL_INTERVAL_MS,
+    checkReconnect: async () => {
       const authorization = readMacAgentAuthorization(keelOrigin, "angellist");
       const reconnect = await leaseProviderBrowserSession(
         authorization,
         "angellist",
       );
-      if (reconnect.session !== null) {
-        await context
-          ?.browser()
-          ?.close()
-          .catch(() => undefined);
-        context = null;
-        if (
-          await handleManagedReconnect(
-            keelOrigin,
-            authorization,
-            reconnect.session,
-          )
-        ) {
-          nextUpdateCheckAt = 0;
-        }
-      } else if (Date.now() >= nextUpdateCheckAt) {
-        if (context?.browser()?.isConnected() !== true) {
-          context = await connectContext(keelOrigin);
-        }
-        await pollOnce(context, keelOrigin);
-        nextUpdateCheckAt = Date.now() + POLL_INTERVAL_MS;
+      if (reconnect.session === null) {
+        return "idle";
       }
-    } catch (error) {
+      await context
+        ?.browser()
+        ?.close()
+        .catch(() => undefined);
+      context = null;
+      return (await handleManagedReconnect(
+        keelOrigin,
+        authorization,
+        reconnect.session,
+      ))
+        ? "connected"
+        : "handled";
+    },
+    checkUpdates: async () => {
+      if (context?.browser()?.isConnected() !== true) {
+        context = await connectContext(keelOrigin);
+      }
+      await pollOnce(context, keelOrigin);
+    },
+    onError: (error) => {
       const code =
         error instanceof MacAgentAccessError
           ? "mac_access_required"
@@ -1234,16 +1233,11 @@ async function serve(
       if (context?.browser()?.isConnected() !== true) {
         context = null;
       }
-      if (error instanceof MacAgentAccessError) {
-        await sleep(FAILURE_RETRY_INTERVAL_MS);
-        continue;
-      }
-      if (!(error instanceof ProviderBrowserRuntimeError)) {
-        nextUpdateCheckAt = Date.now() + FAILURE_RETRY_INTERVAL_MS;
-      }
-    }
-    await sleep(RECONNECT_POLL_INTERVAL_MS);
-  }
+      return error instanceof MacAgentAccessError
+        ? "authorization"
+        : "retryable";
+    },
+  });
 }
 
 async function main(): Promise<void> {
@@ -1260,6 +1254,8 @@ async function main(): Promise<void> {
 }
 
 export const __angellistMacAgentTest = {
+  queuedUpdatePollIntervalMs: POLL_INTERVAL_MS,
+  lease,
   agentPaths,
   angelListPage,
   buildLaunchAgentPlist,

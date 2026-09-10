@@ -2,8 +2,8 @@
 
 Keel can run the AngelList, Tokenfolio, and Sydecar portfolio agents on an
 always-on Linux worker. The worker keeps the provider sessions, stays available
-for managed reconnect requests, and checks for scheduled updates once daily, so
-updates do not depend on a Mac staying awake.
+for managed reconnect requests, and performs captures on the configured
+schedule, so updates do not depend on a Mac staying awake.
 
 The agent still has the same review boundary: each successful check creates a
 pending import. It cannot accept a position, remove a missing position, or
@@ -264,9 +264,19 @@ operator-only CLI run, execute the provider command as its matching provider
 identity with the same `HOME`, XDG directories, and executable `PATH` declared
 by its system service; never run it as the deployment user.
 
-The service stays available for managed reconnect requests and reports the
-worker heartbeat continuously. It checks for queued or scheduled portfolio
-updates once daily even when Holdings is set to weekly or off.
+The service checks for managed reconnect requests every 60 seconds while idle.
+Tokenfolio and Sydecar also check for queued portfolio updates every minute;
+AngelList keeps its daily update check. D1 determines when scheduled captures
+are due. A successful reconnect checks for an update immediately. Agent and
+credential activity timestamps advance at most once every five minutes during
+idle polling; authorization and revocation are checked on every request.
+
+An active reconnect checks status every five seconds and ends within its
+15-minute lease. Failed idle checks back off from one minute to 15 minutes;
+authorization failures wait 15 minutes. Successful checks restore normal timing.
+Update failures back off separately, keeping reconnect discovery responsive. See
+the [daily operating budget](../engineering/recurring-work-budgets.md) for the
+combined request/write ceilings and latency tradeoffs.
 
 ## Recovery and updates
 
@@ -279,6 +289,14 @@ updates once daily even when Holdings is set to weekly or off.
   rerun setup so the service points at the stable executables.
 - After pulling ordinary code changes into the same checkout, restart the unit
   with `sudo systemctl restart <unit-name>`.
+
+For a polling or heartbeat change, first deploy the verified API revision. Check
+that no provider capture or reconnect is active, update `/opt/keel-fi` to that
+same revision, and restart each existing provider unit. Verify its executable,
+working directory, revision, identity, and health. Leave profiles and
+credentials in place. A Workers deployment alone does not update these
+long-running clients. Observe an idle window and compare request and write rates
+with the budget; report the window separately from synthetic test results.
 
 Never copy a Mac Chrome profile to Linux. Browser secrets are platform-bound,
 and a copied profile is neither a reliable nor auditable authentication path.

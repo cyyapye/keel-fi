@@ -29,6 +29,27 @@
   `EXPLAIN QUERY PLAN` for correlated full scans. Progressive rendering does not
   excuse an inefficient server read.
 
+## Recurring work and operating cost
+
+- Before changing polling, retries, heartbeats, schedules, or authentication on
+  those paths, state the response/freshness target and count a full idle day and
+  a full failure day across all active processes and deployments. Include every
+  auxiliary loop, proxy/API invocation, database read, timestamp/index write,
+  and retry. Compare the total with the shared account allowance and reserve
+  explicit headroom for useful work; a per-call budget is insufficient.
+- Empty checks must not write application state. Any operational heartbeat must
+  have a separately justified write cadence. Keep credential revocation checks
+  current on every request; do not cache authorization to reduce writes.
+- Add a virtual-clock regression through the real client request,
+  authentication, and repository path. Assert independent daily ceilings,
+  bounded failure retries, and the required detection/cancellation latency.
+  Prove the old behavior fails the gate. See
+  `docs/engineering/recurring-work-budgets.md`.
+- A recurring-work fix is not activated until both the server and every existing
+  long-running client use the verified revision. Preserve provider identities,
+  credentials, and profiles; avoid interrupting an active run. Report local,
+  deployed, restarted, and observed usage evidence separately.
+
 ## Interface and copy
 
 - Use the repo-local `$keel-ui-quality` skill for every task that creates,

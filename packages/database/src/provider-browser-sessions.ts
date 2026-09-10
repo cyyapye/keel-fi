@@ -14,6 +14,8 @@ import {
   type ProviderBrowserSessionStatus,
 } from "@keel/domain";
 
+import { agentHeartbeatCutoff } from "./agent-heartbeat";
+
 const SESSION_DURATION_MS = 15 * 60 * 1_000;
 
 type HouseholdIdentity = {
@@ -39,7 +41,7 @@ type LeasedSessionRow = {
 
 type LiveUrlRow = { live_url: string };
 type IdRow = { id: string };
-type CountRow = { count: number };
+type AgentHeartbeatRow = { last_seen_at: string };
 
 export type ProviderBrowserSessionRepositoryErrorCode =
   | "agent_not_registered"
@@ -282,10 +284,15 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
   ): Promise<ProviderBrowserSessionLease> {
     const provider = MacAgentTargetSchema.parse(rawProvider);
     const identity = await this.findIdentity(accessSubject);
-    await this.requireRegisteredAgent(identity.household_id, provider);
+    const agent = await this.requireRegisteredAgent(
+      identity.household_id,
+      provider,
+    );
     const now = this.now();
     const timestamp = now.toISOString();
-    await this.touchAgent(identity.household_id, provider, timestamp);
+    if (agent.last_seen_at <= agentHeartbeatCutoff(now)) {
+      await this.touchAgent(identity.household_id, provider, now);
+    }
     await this.expireActive(identity.household_id, provider, now);
     const requested = await this.db
       .prepare(
@@ -530,52 +537,55 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
   private async touchAgent(
     householdId: string,
     provider: MacAgentTarget,
-    timestamp: string,
+    now: Date,
   ): Promise<void> {
+    const timestamp = now.toISOString();
+    const cutoff = agentHeartbeatCutoff(now);
     const statement =
       provider === "angellist"
         ? this.db
             .prepare(
               `UPDATE angellist_mac_agents
                SET last_seen_at = ?, updated_at = ?
-               WHERE household_id = ?`,
+               WHERE household_id = ? AND last_seen_at <= ?`,
             )
-            .bind(timestamp, timestamp, householdId)
+            .bind(timestamp, timestamp, householdId, cutoff)
         : this.db
             .prepare(
               `UPDATE provider_portfolio_agents
                SET last_seen_at = ?, updated_at = ?
-               WHERE household_id = ? AND provider = ?`,
+               WHERE household_id = ? AND provider = ? AND last_seen_at <= ?`,
             )
-            .bind(timestamp, timestamp, householdId, provider);
+            .bind(timestamp, timestamp, householdId, provider, cutoff);
     await this.db.batch([statement]);
   }
 
   private async requireRegisteredAgent(
     householdId: string,
     provider: MacAgentTarget,
-  ): Promise<void> {
+  ): Promise<AgentHeartbeatRow> {
     const row =
       provider === "angellist"
         ? await this.db
             .prepare(
-              `SELECT COUNT(*) AS count
+              `SELECT last_seen_at
                FROM angellist_mac_agents
                WHERE household_id = ?`,
             )
             .bind(householdId)
-            .first<CountRow>()
+            .first<AgentHeartbeatRow>()
         : await this.db
             .prepare(
-              `SELECT COUNT(*) AS count
+              `SELECT last_seen_at
                FROM provider_portfolio_agents
                WHERE household_id = ? AND provider = ?`,
             )
             .bind(householdId, provider)
-            .first<CountRow>();
-    if (row?.count !== 1) {
+            .first<AgentHeartbeatRow>();
+    if (row === null) {
       throw new ProviderBrowserSessionRepositoryError("agent_not_registered");
     }
+    return row;
   }
 
   private findActive(
