@@ -14,6 +14,8 @@ import {
   type ProviderPortfolioAgentRunRequest,
 } from "@keel/domain";
 
+import { agentHeartbeatCutoff } from "./agent-heartbeat";
+
 const DEFAULT_INTERVAL: AngelListMacAgentInterval = "daily";
 const OFFLINE_AFTER_MS = 36 * 60 * 60 * 1_000;
 const LEASE_DURATION_MS = 5 * 60 * 1_000;
@@ -326,15 +328,24 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
     const agent = await this.requireAgent(identity.household_id, provider);
     const now = this.now();
     const timestamp = now.toISOString();
-    await this.db.batch([
-      this.db
-        .prepare(
-          `UPDATE provider_portfolio_agents
+    if (agent.last_seen_at <= agentHeartbeatCutoff(now)) {
+      await this.db.batch([
+        this.db
+          .prepare(
+            `UPDATE provider_portfolio_agents
            SET last_seen_at = ?, updated_at = ?
-           WHERE id = ? AND household_id = ? AND provider = ?`,
-        )
-        .bind(timestamp, timestamp, agent.id, identity.household_id, provider),
-    ]);
+           WHERE id = ? AND household_id = ? AND provider = ? AND last_seen_at <= ?`,
+          )
+          .bind(
+            timestamp,
+            timestamp,
+            agent.id,
+            identity.household_id,
+            provider,
+            agentHeartbeatCutoff(now),
+          ),
+      ]);
+    }
 
     let active = await this.findActiveRun(agent.id);
     let expiredLease = false;

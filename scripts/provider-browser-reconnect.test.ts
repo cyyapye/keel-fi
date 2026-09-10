@@ -37,6 +37,80 @@ function reconnectOptions(
 }
 
 describe("managed provider browser reconnect", () => {
+  it("bounds network status checks for a full fifteen-minute active session", async () => {
+    let now = Date.parse("2026-09-01T00:00:00Z");
+    const expires = now + 15 * 60_000;
+    const readStatus = vi.fn(() => Promise.resolve("ready" as const));
+    const complete = vi.fn();
+    await expect(
+      __providerBrowserReconnectTest.pollActiveBrowserSession({
+        expiresAt: new Date(expires).toISOString(),
+        isAlive: () => true,
+        readStatus,
+        onOpened: () => Promise.resolve(false),
+        complete,
+        now: () => now,
+        sleep: (milliseconds) => {
+          now += milliseconds;
+          return Promise.resolve();
+        },
+      }),
+    ).resolves.toBe("terminated");
+    expect(readStatus.mock.calls.length).toBeLessThanOrEqual(180);
+    expect(now).toBe(expires);
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it.each(["cancelled", "expired", "failed", "connected"] as const)(
+    "stops active polling within five seconds of %s",
+    async (terminal) => {
+      let now = Date.parse("2026-09-01T00:00:00Z");
+      const start = now;
+      const complete = vi.fn();
+      await expect(
+        __providerBrowserReconnectTest.pollActiveBrowserSession({
+          expiresAt: new Date(now + 15 * 60_000).toISOString(),
+          isAlive: () => true,
+          readStatus: () => Promise.resolve(now === start ? "ready" : terminal),
+          onOpened: () => Promise.resolve(false),
+          complete,
+          now: () => now,
+          sleep: (milliseconds) => {
+            now += milliseconds;
+            return Promise.resolve();
+          },
+        }),
+      ).resolves.toBe("terminated");
+      expect(now - start).toBeLessThanOrEqual(5_000);
+      expect(complete).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not complete when a delayed status response arrives after lease expiry", async () => {
+    let now = Date.parse("2026-09-01T00:00:00Z");
+    const expiresAt = new Date(now + 15 * 60_000).toISOString();
+    const complete = vi.fn();
+    const onOpened = vi.fn();
+    const sleep = vi.fn();
+    await expect(
+      __providerBrowserReconnectTest.pollActiveBrowserSession({
+        expiresAt,
+        isAlive: () => true,
+        readStatus: () => {
+          now += 16 * 60_000;
+          return Promise.resolve("opened");
+        },
+        onOpened,
+        complete,
+        now: () => now,
+        sleep,
+      }),
+    ).resolves.toBe("terminated");
+    expect(onOpened).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it("reports connected only after closing and verifying the saved profile", async () => {
     const order: string[] = [];
     let finishVerification: () => void = () => undefined;

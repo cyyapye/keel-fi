@@ -28,6 +28,16 @@ unaffected layers; screenshots and local checks do not prove a live deployment. 
 - [ ] `make verify`
 - [ ] Any narrower or additional checks are listed above
 
+## Recurring work budget
+
+<!-- Required for polling, retries, schedules, heartbeats, and their auth paths;
+otherwise state N/A and why. Name the response/freshness target, every loop and
+active process/deployment, 24-hour idle/failure requests and row/index writes,
+shared-account headroom, independent regression ceilings, and proof the old
+behavior fails. Include cancellation/revocation holdouts and how every running
+client will receive the verified revision. See
+docs/engineering/recurring-work-budgets.md. -->
+
 ## Deployment and recovery
 
 <!-- State migration, rollout, rollback, backup, or explicit no-deploy impact. -->

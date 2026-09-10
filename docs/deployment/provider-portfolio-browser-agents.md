@@ -248,7 +248,13 @@ the existing agent only if its provider session has expired.
 The Linux service checks for queued work every minute; D1 still determines when
 daily or weekly portfolio captures are due. A queued update does not need a
 service restart. This adds at most 1,440 bounded lease checks per provider per
-day, not 1,440 provider captures; reconnect polling remains unchanged.
+day. These are lease checks, not provider captures. Reconnect discovery shares
+the same one-minute idle clock, adding at most 1,440 checks per provider per
+day. Activity timestamps advance at most every five minutes. Active reconnects
+poll every five seconds for at most 15 minutes, and failed idle checks back off
+to 15 minutes. The combined
+[operating budget](../engineering/recurring-work-budgets.md) includes
+authentication and both Worker invocations.
 
 The agent scans the document controls on every normal capture. Sydecar's current
 layout is read from one centralized Documents page for every position after the

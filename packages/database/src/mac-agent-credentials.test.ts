@@ -37,6 +37,7 @@ class TestD1Statement {
 }
 
 class TestD1Database {
+  public failNextBatch = false;
   public constructor(private readonly database: DatabaseSync) {}
 
   public prepare(query: string): TestD1Statement {
@@ -46,6 +47,10 @@ class TestD1Database {
   public batch(
     statements: readonly TestD1Statement[],
   ): Promise<{ success: true }[]> {
+    if (this.failNextBatch) {
+      this.failNextBatch = false;
+      return Promise.reject(new Error("synthetic D1 write failure"));
+    }
     this.database.exec("BEGIN");
     try {
       const results = statements.map((statement) => statement.execute());
@@ -87,6 +92,61 @@ afterEach(() => {
 });
 
 describe("Mac agent credential repository", () => {
+  it("throttles activity writes while checking revocation on every request", async () => {
+    database = createTestDatabase();
+    let now = new Date("2026-09-01T12:00:00Z");
+    const measured = new TestD1Database(database);
+    const d1 = measured as unknown as D1Database;
+    await new D1AngelListMacAgentRepository(d1, () => now).register(
+      "synthetic-access-subject",
+    );
+    const repository = new D1MacAgentCredentialRepository(d1, () => now);
+    const token = await repository.issueToken(
+      "synthetic-access-subject",
+      "angellist",
+    );
+    await repository.authenticate("angellist", token);
+    const changes = () =>
+      Number(database!.prepare("SELECT total_changes() AS count").get()!.count);
+    const initial = changes();
+    now = new Date("2026-09-01T12:04:59Z");
+    await expect(repository.authenticate("angellist", token)).resolves.toBe(
+      "synthetic-access-subject",
+    );
+    expect(changes()).toBe(initial);
+    now = new Date("2026-09-01T12:05:00Z");
+    await repository.authenticate("angellist", token);
+    expect(changes() - initial).toBe(1);
+    // Rotating inside the heartbeat interval must still invalidate the old
+    // credential as soon as the replacement proves it works.
+    now = new Date("2026-09-01T12:05:01Z");
+    const replacement = await repository.rotateToken(
+      "synthetic-access-subject",
+      "angellist",
+      token,
+    );
+    measured.failNextBatch = true;
+    await expect(
+      repository.authenticate("angellist", replacement),
+    ).rejects.toThrow("synthetic D1 write failure");
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM mac_agent_credentials WHERE last_used_at IS NULL AND revoked_at IS NULL",
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+    await expect(repository.authenticate("angellist", token)).resolves.toBe(
+      "synthetic-access-subject",
+    );
+    await expect(
+      repository.authenticate("angellist", replacement),
+    ).resolves.toBe("synthetic-access-subject");
+    await expect(
+      repository.authenticate("angellist", token),
+    ).resolves.toBeNull();
+  });
+
   it("stores only a digest and scopes authentication to one target", async () => {
     database = createTestDatabase();
     const now = new Date("2026-08-21T12:00:00.000Z");
