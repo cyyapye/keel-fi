@@ -25,6 +25,14 @@ export const navigation = [
   { id: "history", label: "Forecast History", index: "08" },
 ] as const satisfies readonly NavigationItem[];
 
+export const holdingsNavigation = [
+  { id: "overview", label: "Holdings", path: "/holdings" },
+  { id: "entities", label: "Legal entities", path: "/holdings/entities" },
+  { id: "sources", label: "Sources", path: "/holdings/sources" },
+] as const;
+
+export type HoldingsView = (typeof holdingsNavigation)[number]["id"];
+
 export function isHoldingsPath(pathname: string): boolean {
   return /^\/holdings(?:\/|$)/u.test(pathname);
 }

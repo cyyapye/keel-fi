@@ -5,10 +5,52 @@ import {
   PageHeader,
   Screen,
   SectionHeader,
+  TextLink,
 } from "@keel/ui";
 import type { ReactNode } from "react";
 
-import { navigation, pageHeading } from "./app-navigation";
+import {
+  holdingsNavigation,
+  type HoldingsView,
+  navigation,
+  pageHeading,
+} from "./app-navigation";
+
+export function HoldingsNavigation({
+  view,
+  onNavigate,
+}: {
+  view: HoldingsView;
+  onNavigate?: (view: HoldingsView) => void;
+}) {
+  return (
+    <nav aria-label="Holdings sections" className="holdings-navigation">
+      {holdingsNavigation.map((item) => (
+        <TextLink
+          key={item.id}
+          href={item.path}
+          aria-current={view === item.id ? "page" : undefined}
+          onClick={(event) => {
+            if (
+              !onNavigate ||
+              event.defaultPrevented ||
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            )
+              return;
+            event.preventDefault();
+            onNavigate(item.id);
+          }}
+        >
+          {item.label}
+        </TextLink>
+      ))}
+    </nav>
+  );
+}
 
 export function LoadingShell() {
   return (
@@ -66,6 +108,13 @@ export function HoldingsInitialShell() {
       operatorName="Demo Operator"
       pageTitle={pageHeading("holdings")}
     >
+      <HoldingsNavigation
+        view={
+          holdingsNavigation.find(
+            (item) => item.path === window.location.pathname,
+          )?.id ?? "overview"
+        }
+      />
       <HoldingsRouteShell />
     </AppShell>
   );

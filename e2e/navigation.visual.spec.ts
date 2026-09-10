@@ -89,7 +89,10 @@ test("paints the Holdings route before the full application loads", async ({
 
   releaseApplication();
   await expect(
-    page.getByRole("button", { name: "Manage sources" }),
+    page.getByText("Loading reviewed exposures…", { exact: true }),
+  ).toBeHidden();
+  await expect(
+    page.getByRole("link", { name: "Sources", exact: true }),
   ).toBeVisible();
 });
 

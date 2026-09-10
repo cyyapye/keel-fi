@@ -395,7 +395,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   });
 
   await page.goto("/holdings");
-  await page.getByRole("button", { name: "Legal entities" }).click();
+  await page.getByRole("link", { name: "Legal entities", exact: true }).click();
   await expect(page).toHaveURL(/\/holdings\/entities$/u);
   await expect(
     page.getByRole("heading", { level: 1, name: "Legal entities" }),
@@ -568,7 +568,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await page
     .getByRole("button", { name: "Back to legal entities", exact: true })
     .click();
-  await expect(page.locator(".holdings-screen")).toHaveScreenshot(
+  await expect(page.locator(".content")).toHaveScreenshot(
     "legal-entities.png",
     {
       animations: "disabled",
@@ -666,6 +666,85 @@ test("reviews legal entities and exports selected counsel fields", async ({
     15,
   );
   await expect(page).toHaveURL(/\/holdings\/entities$/u);
+});
+
+test("opens Holdings sections directly and returns from nested workspaces", async ({
+  page,
+}) => {
+  let holdingsRequests = 0;
+  let entityRequests = 0;
+  await routeHoldingsPage(page, () => {
+    holdingsRequests += 1;
+    return {
+      householdName: "Demo Household",
+      holdings: [],
+      investmentHoldings: emptyInvestmentHoldingsView,
+      acceptedCashAccounts: [],
+      pendingImports: [],
+    };
+  });
+  await page.route("**/api/legal-entities", (route) => {
+    entityRequests += 1;
+    return route.fulfill({ json: initialInventory });
+  });
+  await page.goto("/holdings/entities");
+  const sections = page.getByRole("navigation", { name: "Holdings sections" });
+  const entities = sections.getByRole("link", { name: "Legal entities" });
+  const sources = sections.getByRole("link", { name: "Sources" });
+  await expect(
+    page.getByRole("button", { name: "Export", exact: true }),
+  ).toBeVisible();
+  expect(holdingsRequests).toBe(0);
+  expect(entityRequests).toBe(1);
+  await entities.click();
+  await expect(
+    page.getByRole("button", { name: "Export", exact: true }),
+  ).toBeVisible();
+  expect(entityRequests).toBe(1);
+  await expect(entities).toHaveAttribute("aria-current", "page");
+  for (const link of await sections.getByRole("link").all()) {
+    await expect(link).toBeInViewport();
+    expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+
+  await sources.click();
+  await expect(page).toHaveURL(/\/holdings\/sources$/u);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Holding sources" }),
+  ).toBeVisible();
+  await expect(sources).toHaveAttribute("aria-current", "page");
+  await page
+    .getByRole("button", { name: "Import holdings", exact: true })
+    .click();
+  await expect(page.locator(".holding-import-workspace")).toBeVisible();
+  await sources.click();
+  await expect(page.locator(".holding-import-workspace")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Holding sources" }),
+  ).toBeVisible();
+
+  await entities.press("Enter");
+  await expect(page).toHaveURL(/\/holdings\/entities$/u);
+  await expect(entities).toHaveAttribute("aria-current", "page");
+  await page.goBack();
+  await expect(sources).toHaveAttribute("aria-current", "page");
+  await page.goForward();
+  await expect(entities).toHaveAttribute("aria-current", "page");
+  await page.getByRole("button", { name: "Add entity", exact: true }).click();
+  const requestsBeforeReturning = entityRequests;
+  await expect(page).toHaveURL(/review=new/u);
+  await entities.click();
+  await expect(page).toHaveURL(/\/holdings\/entities$/u);
+  await expect(
+    page.getByRole("button", { name: "Export", exact: true }),
+  ).toBeVisible();
+  expect(entityRequests).toBe(requestsBeforeReturning);
+  await sections.getByRole("link", { name: "Holdings", exact: true }).click();
+  await expect(page).toHaveURL(/\/holdings$/u);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Holdings", exact: true }),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
 });
 
 test("keeps export above 140 entities and preserves choices through collapse and failures", async ({
