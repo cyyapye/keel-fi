@@ -132,6 +132,8 @@ import {
   type UploadHoldingImportProvider,
 } from "./api";
 import {
+  holdingsNavigation,
+  type HoldingsView,
   navigation,
   pageHeading,
   pathForScreen,
@@ -153,7 +155,11 @@ import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanActualMonitoring } from "./PlanActualMonitoring";
 import { PlanInputsEditor } from "./PlanInputsEditor";
 import type { PortfolioSnapshotDrilldown } from "./PortfolioSnapshot";
-import { HoldingsRouteShell, LoadingShell } from "./RouteShells";
+import {
+  HoldingsNavigation,
+  HoldingsRouteShell,
+  LoadingShell,
+} from "./RouteShells";
 
 const PortfolioSnapshot = lazy(async () => {
   const module = await import("./PortfolioSnapshot");
@@ -6719,6 +6725,7 @@ const HOLDINGS_EXPOSURE_PAGE_SIZE = 12;
 
 function Holdings({
   data,
+  navigationVersion,
   onBaselineConfirmed,
   onCashAccepted,
   onExposureResolved,
@@ -6726,12 +6733,12 @@ function Holdings({
   onImportRouteChange,
   onLoadImport,
   onPreviewImport,
-  onViewChange,
   requestedDrilldown,
   requestedImportId,
   requestedView,
 }: {
   data: HoldingsPage;
+  navigationVersion: number;
   onBaselineConfirmed: () => Promise<void>;
   onCashAccepted: () => Promise<void>;
   onExposureResolved: () => Promise<void>;
@@ -6745,10 +6752,9 @@ function Holdings({
     provider: UploadHoldingImportProvider,
     file: File,
   ) => Promise<HoldingImportPreview>;
-  onViewChange: (view: "entities" | "overview" | "sources") => void;
   requestedDrilldown: PortfolioSnapshotDrilldown | null;
   requestedImportId: string | null;
-  requestedView: "entities" | "overview" | "sources";
+  requestedView: "overview" | "sources";
 }) {
   const [showImporter, setShowImporter] = useState(false);
   const [reviewedImportIds, setReviewedImportIds] = useState<
@@ -6771,15 +6777,27 @@ function Holdings({
   const [visibleExposureCount, setVisibleExposureCount] = useState(
     HOLDINGS_EXPOSURE_PAGE_SIZE,
   );
+  const [workspaceLocation, setWorkspaceLocation] = useState({
+    view: requestedView,
+    navigationVersion,
+  });
+  // Preserve mounted source checks and their one-attempt guard across sections;
+  // reset only the nested review/import workspace.
+  if (
+    workspaceLocation.view !== requestedView ||
+    workspaceLocation.navigationVersion !== navigationVersion
+  ) {
+    setWorkspaceLocation({ view: requestedView, navigationVersion });
+    setSelectedHoldingId(null);
+    setShowImporter(false);
+    setRoutedPreview(null);
+    setRoutedPreviewError(null);
+  }
   const selectedHolding =
     data.holdings.find((holding) => holding.id === selectedHoldingId) ?? null;
   const importerVisible = showImporter || requestedImportId !== null;
   const sourcesVisible =
     selectedHolding === null && !importerVisible && requestedView === "sources";
-  const entitiesVisible =
-    selectedHolding === null &&
-    !importerVisible &&
-    requestedView === "entities";
   const activeRoutedPreview =
     routedPreview?.id === requestedImportId ? routedPreview : null;
   const activeRoutedError =
@@ -6908,59 +6926,29 @@ function Holdings({
     <ScreenLayout className="holdings-screen">
       <PageHeader
         actions={
-          <>
-            {selectedHolding !== null ? (
-              <TextLink onClick={closeHoldingDetail}>Back to holdings</TextLink>
-            ) : importerVisible ? (
-              <TextLink onClick={closeImporter}>Close import</TextLink>
-            ) : sourcesVisible ? (
-              <>
-                <TextLink onClick={() => onViewChange("overview")}>
-                  Back to holdings
-                </TextLink>
-                <Button
-                  onClick={() => {
-                    setSelectedHoldingId(null);
-                    setShowImporter(true);
-                  }}
-                  tone="primary"
-                >
-                  Import holdings
-                </Button>
-              </>
-            ) : entitiesVisible ? (
-              <TextLink onClick={() => onViewChange("overview")}>
-                Back to holdings
-              </TextLink>
-            ) : (
-              <>
-                <TextLink onClick={() => onViewChange("entities")}>
-                  Legal entities
-                </TextLink>
-                <Button onClick={() => onViewChange("sources")} tone="primary">
-                  Manage sources
-                </Button>
-              </>
-            )}
-          </>
+          selectedHolding !== null ? (
+            <TextLink onClick={closeHoldingDetail}>Back to holdings</TextLink>
+          ) : importerVisible ? (
+            <TextLink onClick={closeImporter}>Close import</TextLink>
+          ) : sourcesVisible ? (
+            <Button
+              onClick={() => {
+                setSelectedHoldingId(null);
+                setShowImporter(true);
+              }}
+              tone="primary"
+            >
+              Import holdings
+            </Button>
+          ) : undefined
         }
         description={
-          entitiesVisible
-            ? "Prepare a reviewed entity list for counsel. This inventory does not transfer an entity to a trust."
-            : sourcesVisible
-              ? "Manage automatic updates, bank accounts, and brokerages."
-              : "See shared economic exposure, then open each legal position for ownership and source details."
+          sourcesVisible
+            ? "Manage automatic updates, bank accounts, and brokerages."
+            : "See shared economic exposure, then open each legal position for ownership and source details."
         }
-        eyebrow={
-          sourcesVisible || entitiesVisible ? "Holdings" : "Portfolio evidence"
-        }
-        title={
-          entitiesVisible
-            ? "Legal entities"
-            : sourcesVisible
-              ? "Holding sources"
-              : "Holdings"
-        }
+        eyebrow={sourcesVisible ? "Holdings" : "Portfolio evidence"}
+        title={sourcesVisible ? "Holding sources" : "Holdings"}
       />
 
       {selectedHolding !== null ? (
@@ -6997,8 +6985,6 @@ function Holdings({
             onPreview={onPreviewImport}
           />
         )
-      ) : entitiesVisible ? (
-        <LegalEntities />
       ) : (
         <>
           {sourcesVisible ? (
@@ -8563,9 +8549,10 @@ export function App() {
     useState<PortfolioSnapshotDrilldown | null>(
       () => routeFromLocation().holdingsDrilldown,
     );
-  const [holdingsView, setHoldingsView] = useState<
-    "entities" | "overview" | "sources"
-  >(() => routeFromLocation().holdingsView);
+  const [holdingsView, setHoldingsView] = useState<HoldingsView>(
+    () => routeFromLocation().holdingsView,
+  );
+  const [holdingsNavigationVersion, setHoldingsNavigationVersion] = useState(0);
   const [data, setData] = useState<AlphaData | null>(null);
   const [holdingsPageData, setHoldingsPageData] = useState<HoldingsPage | null>(
     null,
@@ -8683,24 +8670,19 @@ export function App() {
     setHoldingsView("overview");
   }, []);
 
-  const navigateToHoldingsView = useCallback(
-    (view: "entities" | "overview" | "sources") => {
-      const path =
-        view === "entities"
-          ? "/holdings/entities"
-          : view === "sources"
-            ? "/holdings/sources"
-            : "/holdings";
-      if (`${window.location.pathname}${window.location.search}` !== path) {
-        window.history.pushState(null, "", path);
-      }
-      setActiveScreen("holdings");
-      setHoldingImportId(null);
-      setHoldingsDrilldown(null);
-      setHoldingsView(view);
-    },
-    [],
-  );
+  const navigateToHoldingsView = useCallback((view: HoldingsView) => {
+    const path = holdingsNavigation.find((item) => item.id === view)!.path;
+    if (`${window.location.pathname}${window.location.search}` !== path) {
+      window.history.pushState(null, "", path);
+    }
+    setActiveScreen("holdings");
+    setHoldingImportId(null);
+    setHoldingsDrilldown(null);
+    setHoldingsView(view);
+    // A section link returns to its main view, including from an editor
+    // or import nested inside the currently selected section.
+    setHoldingsNavigationVersion((current) => current + 1);
+  }, []);
 
   const navigateToPortfolioDrilldown = useCallback(
     (drilldown: PortfolioSnapshotDrilldown) => {
@@ -8793,9 +8775,7 @@ export function App() {
       if (holdingsView === "entities")
         return (
           <ScreenLayout className="holdings-screen">
-            <LegalEntities
-              onBackToHoldings={() => navigateToHoldingsView("overview")}
-            />
+            <LegalEntities navigationVersion={holdingsNavigationVersion} />
           </ScreenLayout>
         );
       if (holdingsPageData === null) {
@@ -8814,6 +8794,7 @@ export function App() {
       return (
         <Holdings
           data={holdingsPageData}
+          navigationVersion={holdingsNavigationVersion}
           onBaselineConfirmed={async () => {
             await refreshAlphaData(true);
           }}
@@ -8827,7 +8808,6 @@ export function App() {
             return result;
           }}
           onImportRouteChange={navigateToHoldingImport}
-          onViewChange={navigateToHoldingsView}
           onLoadImport={loadHoldingImport}
           onPreviewImport={previewHoldingImport}
           requestedImportId={holdingImportId}
@@ -8963,10 +8943,10 @@ export function App() {
     holdingImportId,
     holdingsDrilldown,
     holdingsLoadError,
+    holdingsNavigationVersion,
     holdingsPageData,
     holdingsView,
     navigateToHoldingImport,
-    navigateToHoldingsView,
     navigateToGoal,
     navigateToPortfolioDrilldown,
     navigateToScreen,
@@ -9026,6 +9006,12 @@ export function App() {
       operatorName="Demo Operator"
       pageTitle={pageHeading(activeScreen)}
     >
+      {activeScreen === "holdings" && (
+        <HoldingsNavigation
+          view={holdingsView}
+          onNavigate={navigateToHoldingsView}
+        />
+      )}
       {content}
     </AppShell>
   );

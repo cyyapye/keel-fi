@@ -506,7 +506,7 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
   });
 
   await page.goto("/holdings");
-  await page.getByRole("button", { name: "Manage sources" }).click();
+  await page.getByRole("link", { name: "Sources", exact: true }).click();
   await page.getByRole("button", { name: "Import holdings" }).click();
   await expect(
     page.getByRole("heading", { name: "Import holdings" }),
@@ -605,7 +605,7 @@ test("imports Tokenfolio and Sydecar through provider-specific Keel templates", 
   );
 
   await page.goto("/holdings");
-  await page.getByRole("button", { name: "Manage sources" }).click();
+  await page.getByRole("link", { name: "Sources", exact: true }).click();
   await page.getByRole("button", { name: "Import holdings" }).click();
   await page.getByLabel("Source").click();
   await page.getByRole("option", { name: "Sydecar" }).click();

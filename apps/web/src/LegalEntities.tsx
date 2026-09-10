@@ -1441,13 +1441,7 @@ type GoogleExportDestination =
   | { status: "error"; message: string }
   | { status: "ready"; authorize: () => Promise<string> };
 
-function ExportWorkspace({
-  inventory,
-  onBackToHoldings,
-}: {
-  inventory: LegalEntityInventory;
-  onBackToHoldings: (() => void) | undefined;
-}) {
+function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
   const [expanded, setExpanded] = useState(false);
   const [fields, setFields] = useState<ReadonlySet<LegalEntityExportField>>(
     () => new Set(DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS),
@@ -1601,14 +1595,10 @@ function ExportWorkspace({
         eyebrow="Holdings"
         description="Prepare an entity and interest list for counsel. This inventory does not transfer anything to a trust."
         actions={
-          <>
-            {onBackToHoldings && (
-              <TextLink onClick={onBackToHoldings}>Back to holdings</TextLink>
-            )}
-            <CollapsibleTrigger render={<Button tone="primary" />}>
-              Export <DisclosureIndicator />
-            </CollapsibleTrigger>
-          </>
+          <CollapsibleTrigger render={<Button tone="primary" />}>
+            <span>Export</span>
+            <DisclosureIndicator />
+          </CollapsibleTrigger>
         }
       />
       <CollapsibleContent keepMounted>
@@ -1839,9 +1829,9 @@ function ProgressiveRows<T>({
 }
 
 export function LegalEntities({
-  onBackToHoldings,
+  navigationVersion,
 }: {
-  onBackToHoldings?: () => void;
+  navigationVersion: number;
 }) {
   const [inventory, setInventory] = useState<LegalEntityInventory | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1852,6 +1842,12 @@ export function LegalEntities({
   const [location, setLocation] = useState(() =>
     entityReviewLocation(window.location.search),
   );
+  const [sectionNavigationVersion, setSectionNavigationVersion] =
+    useState(navigationVersion);
+  if (sectionNavigationVersion !== navigationVersion) {
+    setSectionNavigationVersion(navigationVersion);
+    setLocation(entityReviewLocation(window.location.search));
+  }
   const listScroll = useRef(0);
   useEffect(() => {
     const pop = () => setLocation(entityReviewLocation(window.location.search));
@@ -2050,10 +2046,7 @@ export function LegalEntities({
         />
       )}
       <div hidden={location.target !== null} className="legal-entities">
-        <ExportWorkspace
-          inventory={inventory}
-          onBackToHoldings={onBackToHoldings}
-        />
+        <ExportWorkspace inventory={inventory} />
         {notice !== null && (
           <FormMessage className="legal-entities__notice" tone="success">
             {notice}

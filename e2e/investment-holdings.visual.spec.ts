@@ -12,7 +12,7 @@ import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
 
 async function openHoldingSources(page: Page) {
-  await page.getByRole("button", { name: "Manage sources" }).click();
+  await page.getByRole("link", { name: "Sources", exact: true }).click();
   await expect(page).toHaveURL(/\/holdings\/sources$/u);
   await expect(
     page.getByRole("heading", { name: "Holding sources", exact: true }),
@@ -653,7 +653,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Holdings/);
   await expect(
-    page.getByRole("button", { name: "Manage sources" }),
+    page.getByRole("link", { name: "Sources", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".page-count")).toHaveCount(0);
   await expect(
@@ -737,7 +737,10 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     disconnectedCard.getByRole("button", { name: "Connect again" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await page
+    .getByRole("navigation", { name: "Holdings sections" })
+    .getByRole("link", { name: "Holdings", exact: true })
+    .click();
   await expect(page).toHaveURL(/\/holdings$/u);
 
   const exposureView = page.locator(".investment-views");
@@ -1288,6 +1291,14 @@ test("runs one due brokerage check after Holdings renders", async ({
     "Data as of Aug 15, 2026 · Checked Aug 17, 2026",
   );
   await expect.poll(() => automaticRequestCount).toBe(1);
+  await page
+    .getByRole("navigation", { name: "Holdings sections" })
+    .getByRole("link", { name: "Holdings", exact: true })
+    .click();
+  await expect(page.locator(".exposure-group")).toHaveCount(5);
+  await openHoldingSources(page);
+  await expect(robinhoodCard).toBeVisible();
+  expect(automaticRequestCount).toBe(1);
 });
 
 test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
@@ -1527,7 +1538,10 @@ test("keeps reviewed history in exposures without showing fake brokerage account
   await expect(accounts).not.toContainText("AngelList reviewed history");
   await expect(accounts).not.toContainText("Original account details");
   await expectNoHorizontalOverflow(page);
-  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await page
+    .getByRole("navigation", { name: "Holdings sections" })
+    .getByRole("link", { name: "Holdings", exact: true })
+    .click();
 
   const exposureView = page.locator(".investment-views");
   await expect(exposureView.getByRole("tab")).toHaveCount(0);
@@ -1619,7 +1633,10 @@ test("keeps one reviewed-history legal position without a fake account", async (
   await expect(page.locator(".investment-institutions")).not.toContainText(
     "AngelList reviewed history",
   );
-  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await page
+    .getByRole("navigation", { name: "Holdings sections" })
+    .getByRole("link", { name: "Holdings", exact: true })
+    .click();
   const exposure = page.locator(".exposure-group").filter({
     has: page.getByText("Demo Pharmacy", { exact: true }),
   });

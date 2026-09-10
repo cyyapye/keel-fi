@@ -1239,6 +1239,33 @@ h1,
   background: transparent;
 }
 
+.holdings-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin-bottom: 28px;
+}
+
+.holdings-navigation .keel-link {
+  min-height: 44px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  text-decoration: none;
+}
+
+.holdings-navigation .keel-link[aria-current="page"] {
+  color: var(--ink);
+  border-bottom-color: currentColor;
+}
+
+.holdings-navigation
+  .keel-link:hover:not(:disabled):not([aria-disabled="true"]),
+.holdings-navigation .keel-link:focus-visible {
+  color: var(--ink);
+  opacity: 1;
+  text-decoration: none;
+}
+
 .holdings-screen {
   /* Holdings relies on spacing and type hierarchy instead of decorative rules. */
   --line: transparent;
