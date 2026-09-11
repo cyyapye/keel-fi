@@ -106,6 +106,12 @@ async function hideStickyTopbar(page: Page) {
   });
 }
 
+async function waitForOverviewLayout(page: Page) {
+  // The lazy portfolio section sits above monitoring. Its loaded metrics mark
+  // the layout expansion that must finish before an element screenshot scrolls.
+  await expect(page.locator(".portfolio-snapshot__metrics")).toBeVisible();
+}
+
 test("keeps material plan drift actionable without changing the plan", async ({
   page,
 }) => {
@@ -142,6 +148,7 @@ test("keeps material plan drift actionable without changing the plan", async ({
   });
 
   await page.goto("/");
+  await waitForOverviewLayout(page);
   await hideStickyTopbar(page);
   const monitoring = page.locator(".plan-monitoring");
   const monitoringSummary = monitoring.getByRole("button", {
@@ -269,6 +276,7 @@ test("keeps material plan drift actionable without changing the plan", async ({
   ).toBeVisible();
 
   await page.goto("/");
+  await waitForOverviewLayout(page);
   const restoredMonitoring = page.locator(".plan-monitoring");
   const restoredSummary = restoredMonitoring.getByRole("button", {
     name: /Monitoring needs attention/u,
@@ -291,6 +299,7 @@ test("keeps material plan drift actionable without changing the plan", async ({
     deferredItems: [],
   };
   await page.reload();
+  await waitForOverviewLayout(page);
   await hideStickyTopbar(page);
   const clearMonitoring = page.locator(".plan-monitoring");
   const clearSummary = clearMonitoring.getByRole("button", {
@@ -332,6 +341,7 @@ test("keeps material plan drift actionable without changing the plan", async ({
     deferredItems: [],
   };
   await page.reload();
+  await waitForOverviewLayout(page);
   const limitedMonitoring = page.locator(".plan-monitoring");
   const limitedSummary = limitedMonitoring.getByRole("button", {
     name: /Monitoring is limited/u,
