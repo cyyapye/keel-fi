@@ -471,6 +471,47 @@ async function connectContext(
   return context;
 }
 
+async function withProviderBrowser<T>(
+  provider: ProviderPortfolioAgentProvider,
+  keelOrigin: URL,
+  operation: (context: BrowserContext) => Promise<T>,
+  runtime = { connectContext, closeControlledChrome },
+): Promise<T> {
+  let context: BrowserContext | null = null;
+  let result: { ok: true; value: T } | { ok: false; error: unknown };
+  try {
+    context = await runtime.connectContext(provider, keelOrigin);
+    result = { ok: true, value: await operation(context) };
+  } catch (error) {
+    result = { ok: false, error };
+  }
+  try {
+    // Sydecar's open page eventually logs out an idle browser and clears its
+    // saved sign-in. Close the owned browser after work; keep the same profile
+    // for the next lease without extending or copying provider credentials.
+    if (provider === "sydecar") {
+      await runtime.closeControlledChrome(provider, keelOrigin);
+    }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "provider_portfolio_browser_cleanup_failed",
+        provider,
+      }),
+    );
+    if (result.ok) result = { ok: false, error };
+  } finally {
+    // CDP close only disconnects this client. Tokenfolio keeps its existing
+    // browser lifetime; Sydecar requires the explicit owned-browser shutdown.
+    await context
+      ?.browser()
+      ?.close()
+      .catch(() => undefined);
+  }
+  if (!result.ok) throw result.error;
+  return result.value;
+}
+
 function pageAtOrigin(context: BrowserContext, origin: string): Page | null {
   return (
     context.pages().find((page) => {
@@ -627,14 +668,15 @@ async function verifySavedProviderSession(
   provider: ProviderPortfolioAgentProvider,
 ): Promise<void> {
   // runProviderBrowserSession has gracefully closed the interactive browser.
-  // Use the ordinary background launch path and leave that browser running so
-  // the immediate update reuses the exact session we have just verified.
-  const context = await connectContext(provider, keelOrigin);
+  // Verify the ordinary background launch path against the saved profile.
+  // Sydecar closes again after verification, even if queueing the update fails.
   try {
-    await requireProviderPageReady(
-      await portfolioPage(context, provider),
-      provider,
-    );
+    await withProviderBrowser(provider, keelOrigin, async (context) => {
+      await requireProviderPageReady(
+        await portfolioPage(context, provider),
+        provider,
+      );
+    });
   } catch (error) {
     const code =
       error instanceof AgentFailure ? error.code : "page_not_supported";
@@ -651,12 +693,6 @@ async function verifySavedProviderSession(
         : "browser_unavailable",
       "Keel could not verify the saved provider session.",
     );
-  } finally {
-    // On a CDP connection, close disconnects the client, not the owned browser.
-    await context
-      .browser()
-      ?.close()
-      .catch(() => undefined);
   }
 }
 
@@ -1647,41 +1683,51 @@ async function reportFailure(
 }
 
 async function executeRun(
-  context: BrowserContext,
+  keelOrigin: URL,
   authorization: MacAgentAuthorization,
   provider: ProviderPortfolioAgentProvider,
   run: NonNullable<ProviderPortfolioAgentLease["run"]>,
+  useBrowser = withProviderBrowser,
 ): Promise<void> {
   let captureStage: SydecarCaptureStage | TokenfolioCaptureStage | null = null;
   let captureComplete = false;
   try {
-    const page = await portfolioPage(context, provider);
-    const asOfDate = new Date().toISOString().slice(0, 10);
-    const agreements = await createProviderAgreementCollector(
-      authorization,
+    const { asOfDate, bytes } = await useBrowser(
       provider,
-      run,
+      keelOrigin,
+      async (context) => {
+        const page = await portfolioPage(context, provider);
+        const asOfDate = new Date().toISOString().slice(0, 10);
+        const agreements = await createProviderAgreementCollector(
+          authorization,
+          provider,
+          run,
+        );
+        const bytes =
+          provider === "tokenfolio"
+            ? await captureTokenfolio(
+                page,
+                asOfDate,
+                (stage) => {
+                  captureStage = stage;
+                },
+                agreements,
+              )
+            : await captureSydecar(
+                page,
+                asOfDate,
+                (stage) => {
+                  captureStage = stage;
+                },
+                agreements,
+              );
+        captureComplete = true;
+        await agreements.flush();
+        return { asOfDate, bytes };
+      },
     );
-    const bytes =
-      provider === "tokenfolio"
-        ? await captureTokenfolio(
-            page,
-            asOfDate,
-            (stage) => {
-              captureStage = stage;
-            },
-            agreements,
-          )
-        : await captureSydecar(
-            page,
-            asOfDate,
-            (stage) => {
-              captureStage = stage;
-            },
-            agreements,
-          );
-    captureComplete = true;
-    await agreements.flush();
+    // Keep the lease until browser cleanup finishes. A second queued run must
+    // not acquire this profile while the previous run is still shutting it down.
     await uploadCompletion(authorization, provider, run, asOfDate, bytes);
   } catch (error) {
     if (error instanceof MacAgentAccessError) {
@@ -1714,16 +1760,16 @@ async function executeRun(
 }
 
 async function pollOnce(
-  context: BrowserContext,
   keelOrigin: URL,
   provider: ProviderPortfolioAgentProvider,
+  authorization = readMacAgentAuthorization(keelOrigin, provider),
+  useBrowser = withProviderBrowser,
 ): Promise<boolean> {
-  const authorization = readMacAgentAuthorization(keelOrigin, provider);
   const work = await lease(authorization, provider);
   if (work.run === null) {
     return false;
   }
-  await executeRun(context, authorization, provider, work.run);
+  await executeRun(keelOrigin, authorization, provider, work.run, useBrowser);
   return true;
 }
 
@@ -1925,19 +1971,21 @@ async function setup(
     await validateProviderBrowserRuntime();
   }
   await completeProviderSignIn(provider, keelOrigin);
-  const context = await connectContext(provider, keelOrigin);
-  const portfolio = await portfolioPage(context, provider);
-  await portfolio.bringToFront();
-  console.info(
-    `Checking the ${PROVIDERS[provider].label} session from the first Chrome window.`,
-  );
+  await withProviderBrowser(provider, keelOrigin, async (context) => {
+    const portfolio = await portfolioPage(context, provider);
+    await portfolio.bringToFront();
+    console.info(
+      `Checking the ${PROVIDERS[provider].label} session from the first Chrome window.`,
+    );
 
-  const keel = await keelPage(context, keelOrigin);
-  await keel.bringToFront();
-  console.info("Checking the Keel session from the first Chrome window.");
-  await validateSetupSessions(portfolio, keel, keelOrigin, provider);
-  const authorization = await authorize(keel, provider);
-  storeMacAgentAuthorization(keelOrigin, authorization);
+    const keel = await keelPage(context, keelOrigin);
+    await keel.bringToFront();
+    console.info("Checking the Keel session from the first Chrome window.");
+    await validateSetupSessions(portfolio, keel, keelOrigin, provider);
+    const authorization = await authorize(keel, provider);
+    storeMacAgentAuthorization(keelOrigin, authorization);
+  });
+  // Finish saving and closing the setup browser before starting its worker.
   const linuxUnit = await installBackgroundAgent(keelOrigin, provider);
   if (linuxUnit === null) {
     console.info(
@@ -1954,21 +2002,18 @@ async function runLocally(
   keelOrigin: URL,
   provider: ProviderPortfolioAgentProvider,
 ): Promise<void> {
-  const context = await connectContext(provider, keelOrigin);
   const authorization = readMacAgentAuthorization(keelOrigin, provider);
   const requested = await requestRun(authorization, provider);
   if (requested.status === "running") {
     console.info(`${PROVIDERS[provider].label} update is already in progress.`);
     return;
   }
-  const work = await lease(authorization, provider);
-  if (work.run === null) {
+  if (!(await pollOnce(keelOrigin, provider, authorization))) {
     console.info(
       `${PROVIDERS[provider].label} update is queued for another agent check.`,
     );
     return;
   }
-  await executeRun(context, authorization, provider, work.run);
   console.info(
     `${PROVIDERS[provider].label} update is in Keel and ready for review.`,
   );
@@ -2041,11 +2086,9 @@ async function serve(
   provider: ProviderPortfolioAgentProvider,
 ): Promise<void> {
   if (command === "once") {
-    const context = await connectContext(provider, keelOrigin);
-    await pollOnce(context, keelOrigin, provider);
+    await pollOnce(keelOrigin, provider);
     return;
   }
-  let context: BrowserContext | null = null;
   await runProviderAgentPolling({
     updateIntervalMs: POLL_INTERVAL_MS,
     checkReconnect: async () => {
@@ -2057,11 +2100,6 @@ async function serve(
       if (reconnect.session === null) {
         return "idle";
       }
-      await context
-        ?.browser()
-        ?.close()
-        .catch(() => undefined);
-      context = null;
       return (await handleManagedReconnect(
         keelOrigin,
         provider,
@@ -2072,10 +2110,7 @@ async function serve(
         : "handled";
     },
     checkUpdates: async () => {
-      if (context?.browser()?.isConnected() !== true) {
-        context = await connectContext(provider, keelOrigin);
-      }
-      await pollOnce(context, keelOrigin, provider);
+      await pollOnce(keelOrigin, provider);
     },
     onError: (error) => {
       const code =
@@ -2093,9 +2128,6 @@ async function serve(
           code,
         }),
       );
-      if (context?.browser()?.isConnected() !== true) {
-        context = null;
-      }
       return error instanceof MacAgentAccessError
         ? "authorization"
         : "retryable";
@@ -2119,6 +2151,8 @@ async function main(): Promise<void> {
 export const __providerPortfolioMacAgentTest = {
   queuedUpdatePollIntervalMs: POLL_INTERVAL_MS,
   lease,
+  pollOnce,
+  withProviderBrowser,
   buildLaunchAgentPlist,
   captureSydecar,
   captureTokenfolio,

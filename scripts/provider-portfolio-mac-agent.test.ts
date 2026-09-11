@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseProviderHoldingsTemplateCsv } from "../packages/connectors/src/index";
 import { __providerPortfolioMacAgentTest } from "./provider-portfolio-mac-agent";
@@ -19,7 +19,118 @@ const {
   rowsToCsv,
   tokenfolioActiveHoldingStatus,
   tokenfolioTabCount,
+  withProviderBrowser,
 } = __providerPortfolioMacAgentTest;
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("provider browser lifetime", () => {
+  const origin = new URL("https://keel.example.com");
+  const fixture = () => {
+    const disconnect = vi.fn().mockResolvedValue(undefined);
+    const context = { browser: () => ({ close: disconnect }) } as never;
+    return {
+      context,
+      disconnect,
+      runtime: {
+        connectContext: vi.fn().mockResolvedValue(context),
+        closeControlledChrome: vi.fn().mockResolvedValue(undefined),
+      },
+    };
+  };
+
+  it("keeps Sydecar open until the complete sync settles, then closes only its profile", async () => {
+    const { context, disconnect, runtime } = fixture();
+    let complete!: (value: string) => void;
+    const completion = new Promise<string>((resolve) => {
+      complete = resolve;
+    });
+    let finishShutdown!: () => void;
+    runtime.closeControlledChrome.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishShutdown = resolve;
+      }),
+    );
+    const capture = vi.fn().mockReturnValue(completion);
+    const result = withProviderBrowser("sydecar", origin, capture, runtime);
+    const settled = vi.fn();
+    void result.then(settled);
+
+    await vi.waitFor(() => expect(capture).toHaveBeenCalledWith(context));
+    expect(runtime.closeControlledChrome).not.toHaveBeenCalled();
+    complete("synthetic import completed");
+    await vi.waitFor(() =>
+      expect(runtime.closeControlledChrome).toHaveBeenCalledOnce(),
+    );
+    expect(settled).not.toHaveBeenCalled();
+    finishShutdown();
+    await expect(result).resolves.toBe("synthetic import completed");
+    expect(runtime.closeControlledChrome).toHaveBeenCalledExactlyOnceWith(
+      "sydecar",
+      origin,
+    );
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it.each(["connect", "capture"])(
+    "cleans up Sydecar when %s fails without replacing the original error",
+    async (stage) => {
+      const { disconnect, runtime } = fixture();
+      const failure = new Error("synthetic failure");
+      const capture = vi.fn().mockRejectedValue(failure);
+      if (stage === "connect")
+        runtime.connectContext.mockRejectedValue(failure);
+
+      await expect(
+        withProviderBrowser("sydecar", origin, capture, runtime),
+      ).rejects.toBe(failure);
+      expect(runtime.closeControlledChrome).toHaveBeenCalledExactlyOnceWith(
+        "sydecar",
+        origin,
+      );
+      expect(disconnect).toHaveBeenCalledTimes(stage === "connect" ? 0 : 1);
+    },
+  );
+
+  it("surfaces shutdown failures and preserves an earlier capture failure", async () => {
+    const { disconnect, runtime } = fixture();
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const cleanupFailure = new Error("synthetic cleanup failure");
+    runtime.closeControlledChrome.mockRejectedValue(cleanupFailure);
+    await expect(
+      withProviderBrowser("sydecar", origin, () => Promise.resolve(), runtime),
+    ).rejects.toBe(cleanupFailure);
+
+    const captureFailure = new Error("synthetic capture failure");
+    await expect(
+      withProviderBrowser(
+        "sydecar",
+        origin,
+        () => Promise.reject(captureFailure),
+        runtime,
+      ),
+    ).rejects.toBe(captureFailure);
+    expect(disconnect).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledWith(
+      JSON.stringify({
+        event: "provider_portfolio_browser_cleanup_failed",
+        provider: "sydecar",
+      }),
+    );
+  });
+
+  it("disconnects from Tokenfolio without shutting its browser down", async () => {
+    const { disconnect, runtime } = fixture();
+    await withProviderBrowser(
+      "tokenfolio",
+      origin,
+      () => Promise.resolve(),
+      runtime,
+    );
+    expect(runtime.closeControlledChrome).not.toHaveBeenCalled();
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+});
 
 describe("provider portfolio Mac agent", () => {
   it("checks queued updates each minute independently of the daily schedule", () => {
