@@ -1739,6 +1739,46 @@ describe("Keel API", () => {
     );
   });
 
+  it("logs a bounded reconnect diagnostic while preserving the generic error response", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const app = createApp({
+        providerBrowserSessionRepository: providerBrowserSessionRepository({
+          create: vi
+            .fn()
+            .mockRejectedValue(
+              new Error(
+                "No household is provisioned for this identity. synthetic-private-details",
+              ),
+            ),
+        }),
+      });
+      const response = await app.request(
+        "/api/automation/provider-browser/sydecar/reconnect",
+        { method: "POST" },
+        testEnv("local"),
+      );
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: "Keel could not start the Sydecar reconnect.",
+      });
+      expect(log).toHaveBeenCalledTimes(1);
+      const serialized = log.mock.calls[0]?.[0];
+      expect(JSON.parse(String(serialized))).toEqual({
+        event: "provider_browser_session_failed",
+        requestId: expect.any(String),
+        operation: "create",
+        provider: "sydecar",
+        reason: "identity_missing",
+        stage: "unknown",
+        type: "Error",
+      });
+      expect(serialized).not.toContain("synthetic-private-details");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("accepts remote-browser readiness only from the matching machine agent", async () => {
     const ready = vi
       .fn<ProviderBrowserSessionRepository["ready"]>()

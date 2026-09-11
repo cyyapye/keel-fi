@@ -195,6 +195,7 @@ import {
   D1RetainedPublicExposureReconciler,
   type RetainedPublicExposureReconciler,
 } from "./retained-public-exposure";
+import { providerBrowserFailureDiagnostic } from "./provider-browser-diagnostics";
 import type { AccessIdentity, Env } from "./types";
 import { registerProviderLegalDocumentRoutes } from "./provider-legal-documents";
 
@@ -2881,6 +2882,15 @@ export function createApp(options: AppOptions = {}) {
           "Cache-Control": "private, no-store",
         });
       } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "provider_browser_session_failed",
+            requestId: context.get("requestId"),
+            operation: "create",
+            provider,
+            ...providerBrowserFailureDiagnostic(error),
+          }),
+        );
         const setupRequired =
           error instanceof ProviderBrowserSessionRepositoryError &&
           error.code === "agent_not_registered";
@@ -3015,7 +3025,16 @@ export function createApp(options: AppOptions = {}) {
           200,
           { "Cache-Control": "no-store" },
         );
-      } catch {
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "provider_browser_session_failed",
+            requestId: context.get("requestId"),
+            operation: "lease",
+            provider,
+            ...providerBrowserFailureDiagnostic(error),
+          }),
+        );
         return context.json(
           { error: "Reconnect work could not be checked." },
           503,
