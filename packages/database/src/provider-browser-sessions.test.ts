@@ -94,6 +94,35 @@ afterEach(() => {
 });
 
 describe("provider browser session repository", () => {
+  it("preserves a failed insertion's cause without creating a session", async () => {
+    database = createTestDatabase();
+    const d1 = new TestD1Database(database) as unknown as D1Database;
+    const now = new Date("2026-09-04T12:00:00.000Z");
+    await new D1ProviderPortfolioAgentRepository(d1, () => now).register(
+      "synthetic-access-subject",
+      "sydecar",
+    );
+    database.exec(`CREATE TRIGGER synthetic_browser_insert_failure
+      BEFORE INSERT ON provider_browser_sessions
+      BEGIN SELECT RAISE(ABORT, 'synthetic private database failure'); END`);
+    await expect(
+      new D1ProviderBrowserSessionRepository(d1, () => now).create(
+        "synthetic-access-subject",
+        "sydecar",
+      ),
+    ).rejects.toMatchObject({
+      message: "Provider browser session could not be requested.",
+      cause: expect.objectContaining({
+        message: "synthetic private database failure",
+      }),
+    });
+    expect(
+      database
+        .prepare("SELECT count(*) AS count FROM provider_browser_sessions")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
   it.each(["cancelled", "expired", "connected"] as const)(
     "rejects delayed completion after a session is %s",
     async (terminal) => {

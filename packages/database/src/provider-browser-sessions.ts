@@ -182,10 +182,12 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
             requestedAt,
           ),
       ]);
-    } catch {
+    } catch (error) {
       const concurrent = await this.findActive(identity.household_id, provider);
       if (concurrent === null) {
-        throw new Error("Provider browser session could not be requested.");
+        throw new Error("Provider browser session could not be requested.", {
+          cause: error,
+        });
       }
       return toSession(concurrent);
     }

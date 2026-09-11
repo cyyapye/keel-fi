@@ -594,9 +594,28 @@ test("reviews legal entities and exports selected counsel fields", async ({
     .click();
   await editor.getByLabel("Formation jurisdiction").fill("Delaware, US");
   if (test.info().project.name === "chromium") {
-    const ein = await editor.getByLabel("EIN last four").boundingBox();
-    const tax = await editor.getByLabel("Tax classification").boundingBox();
-    expect(ein?.y).toBe(tax?.y);
+    // Read both controls in one frame: scrolling can move the page between
+    // separate boundingBox calls even when the fields are exactly aligned.
+    await expect
+      .poll(() =>
+        editor
+          .getByLabel("EIN last four")
+          .or(editor.getByLabel("Tax classification"))
+          .evaluateAll((controls) => {
+            if (controls.length !== 2) return false;
+            const [ein, tax] = controls.map((control) =>
+              control.getBoundingClientRect(),
+            );
+            return (
+              ein !== undefined &&
+              tax !== undefined &&
+              ein.height > 0 &&
+              tax.height > 0 &&
+              ein.y === tax.y
+            );
+          }),
+      )
+      .toBe(true);
   }
   await expect(editor.getByLabel("Ownership interest")).toHaveCount(0);
   expect(pageErrors).toEqual([]);
