@@ -72,8 +72,17 @@ make provider-agent-run PROVIDER=sydecar KEEL_URL=https://keel.example.com
 ```
 
 The Holdings screen can set the import interval to daily, weekly, or off. The
-Linux service stays available for managed reconnects and checks for queued or
-scheduled portfolio updates once per day. The macOS job remains a daily check.
+Linux service checks for queued work once per minute; D1 controls the scheduled
+capture interval. The macOS job remains a daily check. Empty checks do not open
+a provider browser.
+
+Sydecar closes its dedicated Chrome browser after each completed or failed
+capture, setup verification, and reconnect verification. The next capture
+reopens the same saved profile. Leaving Sydecar's page running between daily
+captures lets its client-side inactivity timer sign out and erase the saved
+login. Closing Chrome does not clear the profile, simulate activity, copy
+credentials, or override provider-side expiry. An expired or revoked sign-in
+still requires reconnecting. Tokenfolio keeps its existing browser lifetime.
 
 ## Reconnect from Holdings
 

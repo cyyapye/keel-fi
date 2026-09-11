@@ -201,6 +201,12 @@ describe("provider agent operating budget", () => {
   it("keeps a full idle day for all three agents inside the shared request and write budgets", async () => {
     const { measured, clock, authorizations, traffic } = await fixture();
     const before = measured.changes();
+    const beforeRoundTrips = measured.roundTrips;
+    const useBrowser = vi.fn(() =>
+      Promise.reject(
+        new Error("An idle agent must not open a provider browser"),
+      ),
+    );
     for (const provider of PROVIDERS) {
       clock.now = START;
       const authorization = authorizations.get(provider)!;
@@ -214,7 +220,18 @@ describe("provider agent operating budget", () => {
           return "idle";
         },
         checkUpdates: async () => {
-          expect((await leaseUpdate(authorization)).run).toBeNull();
+          if (provider === "angellist") {
+            expect((await leaseUpdate(authorization)).run).toBeNull();
+          } else {
+            expect(
+              await __providerPortfolioMacAgentTest.pollOnce(
+                new URL(ORIGIN),
+                provider,
+                authorization,
+                useBrowser,
+              ),
+            ).toBe(false);
+          }
         },
         updateIntervalMs:
           provider === "angellist"
@@ -236,6 +253,7 @@ describe("provider agent operating budget", () => {
     expect(traffic.workerInvocations).toBeLessThanOrEqual(20_000);
     expect(measured.changes() - before).toBeLessThanOrEqual(2_000);
     expect(traffic.maxRoundTrips).toBeLessThanOrEqual(10);
+    expect(useBrowser).not.toHaveBeenCalled();
     // SQLite's change counter excludes index maintenance. A new heartbeat
     // index must trigger an explicit D1 write-budget review instead of silently
     // making the measured row count understate billable writes.
@@ -273,10 +291,79 @@ describe("provider agent operating budget", () => {
         syntheticAgentDay: {
           ...traffic,
           databaseRowsChanged: measured.changes() - before,
+          databaseRoundTrips: measured.roundTrips - beforeRoundTrips,
+          idleBrowserStarts: useBrowser.mock.calls.length,
         },
       }),
     );
   }, 30_000);
+
+  it("releases a Sydecar lease when browser startup fails and stays closed on the next empty check", async () => {
+    const { measured, authorizations, portfolios } = await fixture();
+    const authorization = authorizations.get("sydecar")!;
+    await portfolios.requestRun(SUBJECT, "sydecar");
+    const failure = new Error("synthetic browser startup failure");
+    const useBrowser = vi.fn(() => Promise.reject(failure));
+    await expect(
+      __providerPortfolioMacAgentTest.pollOnce(
+        new URL(ORIGIN),
+        "sydecar",
+        authorization,
+        useBrowser,
+      ),
+    ).rejects.toThrow("unexpected_failure");
+    expect(await portfolios.getOverview(SUBJECT, "sydecar")).toMatchObject({
+      status: "needs_attention",
+      errorCode: "unexpected_failure",
+    });
+    expect(
+      measured.sqlite
+        .prepare(
+          "SELECT status, lease_token_sha256 FROM provider_portfolio_runs",
+        )
+        .all(),
+    ).toEqual([{ status: "failed", lease_token_sha256: null }]);
+    await expect(
+      __providerPortfolioMacAgentTest.pollOnce(
+        new URL(ORIGIN),
+        "sydecar",
+        authorization,
+        useBrowser,
+      ),
+    ).resolves.toBe(false);
+    expect(useBrowser).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the Sydecar lease until failed browser work has finished cleanup", async () => {
+    const { authorizations, portfolios } = await fixture();
+    const authorization = authorizations.get("sydecar")!;
+    await portfolios.requestRun(SUBJECT, "sydecar");
+    let finishCleanup!: () => void;
+    const cleanup = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    const useBrowser = vi.fn(async () => {
+      await cleanup;
+      throw new Error("synthetic capture failure after cleanup");
+    });
+    const result = __providerPortfolioMacAgentTest.pollOnce(
+      new URL(ORIGIN),
+      "sydecar",
+      authorization,
+      useBrowser,
+    );
+    await vi.waitFor(() => expect(useBrowser).toHaveBeenCalledOnce());
+    expect(await portfolios.requestRun(SUBJECT, "sydecar")).toMatchObject({
+      status: "running",
+    });
+    expect((await leaseUpdate(authorization)).run).toBeNull();
+    finishCleanup();
+    await expect(result).rejects.toThrow("unexpected_failure");
+    expect(await portfolios.getOverview(SUBJECT, "sydecar")).toMatchObject({
+      status: "needs_attention",
+      errorCode: "unexpected_failure",
+    });
+  });
 
   it("discovers a queued reconnect within a minute without writing on every check", async () => {
     const { measured, clock, authorizations, reconnects } = await fixture();

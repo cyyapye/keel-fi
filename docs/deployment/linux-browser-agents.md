@@ -35,6 +35,12 @@ The service runs Chrome headlessly after setup. The one-time sign-in uses a
 normal Chrome window in a private virtual desktop so Google and provider 2FA do
 not run inside a software-controlled browser.
 
+Portfolio checks open Chrome only after acquiring a job. Sydecar shuts down its
+owned browser after capture or sign-in verification, including failure, and
+reopens the same profile for the next leased capture. Its page must not remain
+open between daily captures: the page's inactivity timer can erase the saved
+login. The worker stays available for reconnects while Chrome is closed.
+
 ## Prepare the worker once
 
 Use a dedicated deployment user such as `keel-agent` for Git and dependency

@@ -25,6 +25,16 @@ Update failures back off separately from reconnect discovery, so a broken
 provider browser cannot delay the reconnect that repairs it. A successful
 reconnect bypasses the update retry delay and checks for work immediately.
 
+Portfolio checks acquire a run before opening a provider browser. Sydecar closes
+Chrome after captures and explicit sign-in verification, preserving its saved
+profile without running an idle page. The full-day test also requires zero
+browser starts during empty checks; the one-minute discovery clock must not turn
+browser shutdown into 1,440 browser launches per provider per day. Browser
+startup failure after a lease is reported through the existing terminal failure
+path. This lifecycle adds no polling loop, provider keepalive, API request, or
+heartbeat write to an idle day. The existing failure and cancellation bounds
+remain in force.
+
 Authentication performs an indexed database lookup for each request. There is no
 authorization cache. First use of a replacement credential retires older
 credentials atomically, independently of the timestamp cadence. Heartbeat
