@@ -1722,6 +1722,7 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
 
   await page.goto("/holdings/sources");
   await page.getByRole("button", { name: "Reconnect AngelList" }).click();
+  await expect(page.getByText("Preparing a private browser…")).toBeVisible();
   await page.clock.runFor(5_100);
   const openLink = page.getByRole("link", { name: "Open AngelList" });
   await expect(openLink).toHaveAttribute(
