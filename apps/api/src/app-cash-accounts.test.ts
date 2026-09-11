@@ -45,6 +45,7 @@ function repository(
     stageProposal: vi.fn(),
     completeRefresh: vi.fn(),
     failRefresh: vi.fn(),
+    applyAutomaticUpdates: vi.fn().mockResolvedValue(undefined),
     applyProposal: vi.fn().mockResolvedValue({
       proposalId: "synthetic-cash-proposal",
       acceptedCount: 1,
@@ -224,7 +225,7 @@ describe("cash account API", () => {
     expect(getAccounts).not.toHaveBeenCalled();
   });
 
-  it("returns a conflict before checking again while review is waiting", async () => {
+  it("returns a conflict while another check is active", async () => {
     const getAccounts = vi.fn();
     const cashAccountsRepository = repository({
       beginRefresh: vi
@@ -253,7 +254,7 @@ describe("cash account API", () => {
     expect(getAccounts).not.toHaveBeenCalled();
   });
 
-  it("blocks disconnect before Plaid while a review is waiting", async () => {
+  it("blocks disconnect before Plaid while a cash-flow review is waiting", async () => {
     const removeItem = vi.fn();
     const response = await createApp({
       cashAccountsRepository: repository({

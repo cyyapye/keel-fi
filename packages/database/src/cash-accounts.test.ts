@@ -1,69 +1,60 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NormalizedCashAccounts } from "@keel/connectors";
 
 import { D1CashAccountsRepository } from "./cash-accounts";
+import { createApp } from "../../../apps/api/src/app";
+import {
+  connectCashAccount,
+  PlaidCashClientError,
+  type PlaidCashClient,
+} from "../../../apps/api/src/plaid-cash-sync";
+import type { Env } from "../../../apps/api/src/types";
+import {
+  refreshDueCashAccounts as refreshCashClient,
+  loadCashAccounts,
+} from "../../../apps/web/src/api";
+import { handleRequest } from "../../../apps/web/src/worker";
 
 const migrationFiles = [
-  "packages/database/migrations/0001_keel_core.sql",
-  "packages/database/migrations/0002_versioned_goals.sql",
-  "packages/database/migrations/0003_evidence_applications.sql",
-  "packages/database/migrations/0004_portfolio_watch.sql",
-  "packages/database/migrations/0005_portfolio_watch_sources.sql",
-  "packages/database/migrations/0006_evidence_claim_integrity.sql",
-  "packages/database/migrations/0007_holding_imports.sql",
-  "packages/database/migrations/0008_signal_update_proposals.sql",
-  "packages/database/migrations/0009_angellist_mac_agent.sql",
-  "packages/database/migrations/0010_public_holdings.sql",
-  "packages/database/migrations/0011_portfolio_baselines.sql",
-  "packages/database/migrations/0012_append_only_cash_flow_plans.sql",
-  "packages/database/migrations/0013_plaid_holdings_webhooks.sql",
-  "packages/database/migrations/0014_robinhood_auto_adjudication.sql",
-  "packages/database/migrations/0015_reviewed_cash_accounts.sql",
-  "packages/database/migrations/0016_reviewed_liabilities.sql",
-  "packages/database/migrations/0017_reviewed_cash_flow.sql",
-  "packages/database/migrations/0018_reviewed_cash_account_identities.sql",
-  "packages/database/migrations/0025_retired_asset_lots.sql",
-  "packages/database/migrations/0041_reported_position_economics.sql",
-  "packages/database/migrations/0046_reviewed_legal_entity_inventory.sql",
-  "packages/database/migrations/0033_provider_portfolio_agents.sql",
-  "packages/database/migrations/0047_provider_legal_document_evidence.sql",
-  "packages/database/migrations/0048_private_document_access.sql",
-  "packages/database/migrations/0049_legal_name_resolutions.sql",
-  "packages/database/migrations/0050_agreement_rechecks.sql",
-  "packages/database/migrations/0051_legal_structure_review_guard.sql",
-  "packages/database/migrations/0052_reviewed_structure_entity_type.sql",
-  "packages/database/migrations/0053_connected_investment_reviews.sql",
+  ...readdirSync(resolve(process.cwd(), "packages/database/migrations"))
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+    .map((file) => `packages/database/migrations/${file}`),
   "packages/database/seed/synthetic.sql",
-] as const;
+];
 
 class TestD1Statement {
   public constructor(
     private readonly database: DatabaseSync,
     private readonly sql: string,
     private readonly values: readonly SQLInputValue[] = [],
+    private readonly measured?: TestD1Database,
   ) {}
 
   public bind(...values: SQLInputValue[]): TestD1Statement {
-    return new TestD1Statement(this.database, this.sql, values);
+    return new TestD1Statement(this.database, this.sql, values, this.measured);
   }
 
   public first<T>(): Promise<T | null> {
+    this.measured?.record(this.sql, this.values);
     return Promise.resolve(
       (this.database.prepare(this.sql).get(...this.values) as T) ?? null,
     );
   }
 
   public all<T>(): Promise<{ results: T[] }> {
+    this.measured?.record(this.sql, this.values);
     return Promise.resolve({
       results: this.database.prepare(this.sql).all(...this.values) as T[],
     });
   }
 
   public run(): Promise<{ meta: { changes: number } }> {
+    this.measured?.record(this.sql, this.values);
     const result = this.database.prepare(this.sql).run(...this.values);
     return Promise.resolve({ meta: { changes: Number(result.changes) } });
   }
@@ -74,16 +65,28 @@ class TestD1Statement {
 }
 
 class TestD1Database {
+  public roundTrips = 0;
+  public queries: { sql: string; values: readonly SQLInputValue[] }[] = [];
+  public failNextBatch = false;
+  public record(sql: string, values: readonly SQLInputValue[]) {
+    this.roundTrips++;
+    this.queries.push({ sql, values });
+  }
   public constructor(private readonly database: DatabaseSync) {}
 
   public prepare(sql: string): TestD1Statement {
-    return new TestD1Statement(this.database, sql);
+    return new TestD1Statement(this.database, sql, [], this);
   }
 
   public batch(statements: readonly TestD1Statement[]): Promise<void> {
+    this.roundTrips++;
     this.database.exec("BEGIN");
     try {
       statements.forEach((statement) => statement.execute());
+      if (this.failNextBatch) {
+        this.failNextBatch = false;
+        throw new Error("Synthetic commit failure");
+      }
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");
@@ -207,13 +210,6 @@ async function acceptOpaqueIdentityRotation(
     liveProposal.id,
     1,
   );
-  await repository.applyProposal("synthetic-access-subject", liveProposal.id, {
-    changeNote: "Accepted the reported and missing synthetic records.",
-    decisions: liveProposal.rows.map((row) => ({
-      rowId: row.id,
-      decision: "accepted",
-    })),
-  });
   return {
     connection,
     priorNaturalKeySha256,
@@ -224,18 +220,739 @@ async function acceptOpaqueIdentityRotation(
 describe("reviewed cash accounts", () => {
   let sqlite: DatabaseSync;
   let repository: D1CashAccountsRepository;
+  let measured: TestD1Database;
 
   beforeEach(() => {
     sqlite = new DatabaseSync(":memory:");
     migrationFiles.forEach((file) => {
       sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
     });
+    measured = new TestD1Database(sqlite);
     repository = new D1CashAccountsRepository(
-      new TestD1Database(sqlite) as unknown as D1Database,
+      measured as unknown as D1Database,
     );
   });
 
-  afterEach(() => sqlite.close());
+  afterEach(() => {
+    sqlite.close();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it.each(["idle", "failure"])(
+    "bounds a full %s day through the browser client, JWT authentication, proxy and real SQL",
+    async (mode) => {
+      const start = Date.parse("2026-09-01T00:00:00.000Z");
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(start - 8 * 86_400_000);
+      vi.spyOn(console, "info").mockImplementation(() => undefined);
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const objects = new Map<string, Uint8Array>();
+      const traffic = {
+        http: 0,
+        workers: 0,
+        jwks: 0,
+        provider: 0,
+        r2Reads: 0,
+        r2Writes: 0,
+      };
+      const bucket = {
+        put: (key: string, value: Uint8Array) => {
+          traffic.r2Writes++;
+          objects.set(key, new Uint8Array(value));
+          return Promise.resolve();
+        },
+        get: (key: string) => {
+          traffic.r2Reads++;
+          const value = objects.get(key);
+          return Promise.resolve(
+            value === undefined
+              ? null
+              : {
+                  arrayBuffer: () =>
+                    Promise.resolve(
+                      value.buffer.slice(
+                        value.byteOffset,
+                        value.byteOffset + value.byteLength,
+                      ),
+                    ),
+                },
+          );
+        },
+        delete: (key: string) => {
+          traffic.r2Writes++;
+          objects.delete(key);
+          return Promise.resolve();
+        },
+      } as unknown as R2Bucket;
+      const env: Env = {
+        DB: measured as unknown as D1Database,
+        DOCUMENTS: bucket,
+        ENVIRONMENT: "preview",
+        INGESTION_QUEUE: {} as Queue,
+        CONNECTOR_CREDENTIAL_KEY: btoa("k".repeat(32)).replace(/=+$/u, ""),
+        PLAID_CLIENT_ID: "synthetic-client",
+        PLAID_SECRET: "synthetic-secret",
+        PLAID_ENVIRONMENT: "sandbox",
+        PLAID_REDIRECT_URI: "https://synthetic-cash.keel.example.com/holdings",
+        ACCESS_AUD: "synthetic-cash-audience",
+        ACCESS_TEAM_DOMAIN: `cash-${mode}.cloudflareaccess.com`,
+      };
+      let bank = 0;
+      let fail = false;
+      const client: PlaidCashClient = {
+        createLinkToken: vi.fn(),
+        removeItem: vi.fn().mockResolvedValue(undefined),
+        exchangeToken: () =>
+          Promise.resolve({
+            credential: {
+              version: 1,
+              accessToken: `synthetic-access-${bank}`,
+              itemId: `synthetic-item-${bank}`,
+              institutionId: `synthetic-bank-${bank}`,
+            },
+            institutionLabel: `Synthetic bank ${bank.toString().padStart(2, "0")}`,
+          }),
+        getAccounts: (accessToken) => {
+          traffic.provider++;
+          if (fail)
+            throw new PlaidCashClientError(
+              "provider_unavailable",
+              "Synthetic provider outage",
+            );
+          const parsed = {
+            accounts: Array.from({ length: 5 }, (_, i) => ({
+              account_id: `synthetic-account-${i}`,
+              name: `Synthetic account ${i}`,
+              official_name: null,
+              subtype: "checking",
+              type: "depository",
+              balances: {
+                available: "1200.00",
+                current: "1250.00",
+                iso_currency_code: "USD",
+                unofficial_currency_code: null,
+              },
+            })),
+            item: { item_id: accessToken, institution_id: "synthetic-bank" },
+            request_id: "synthetic-request",
+          };
+          return Promise.resolve({
+            parsed,
+            bytes: new TextEncoder().encode(JSON.stringify(parsed)),
+          });
+        },
+      };
+      const connections: string[] = [];
+      for (bank = 0; bank < 20; bank++) {
+        const state = await connectCashAccount({
+          env,
+          repository,
+          client,
+          accessSubject: "synthetic-access-subject",
+          publicToken: "synthetic-public-token",
+        });
+        const proposal = state.pendingProposals[0]!;
+        connections.push(proposal.connectionId);
+        await repository.applyProposal(
+          "synthetic-access-subject",
+          proposal.id,
+          {
+            changeNote: "Included synthetic accounts for the daily budget.",
+            decisions: proposal.rows.map((row) => ({
+              rowId: row.id,
+              decision: "accepted",
+            })),
+          },
+        );
+      }
+      // One institution already has an unresolved account. Its next due check must still run.
+      const accepted = (
+        await repository.getState("synthetic-access-subject", true)
+      ).acceptedAccounts.filter((row) => row.connectionId === connections[0]);
+      await check(
+        connections[0]!,
+        [
+          ...accepted.map((row) =>
+            reportedRow({
+              naturalKeySha256: row.naturalKeySha256,
+              itemAccountKeySha256: row.naturalKeySha256,
+              accountLabel: row.accountLabel,
+            }),
+          ),
+          reportedRow({
+            naturalKeySha256: "f".repeat(64),
+            itemAccountKeySha256: "f".repeat(64),
+            accountLabel: "Synthetic unsupported cash",
+            valueState: "unsupported",
+            valueMinor: null,
+            balanceSource: null,
+            issues: ["Only USD cash balances are supported."],
+          }),
+        ],
+        new Date(start - 8 * 86_400_000).toISOString(),
+      );
+      await repository.applyAutomaticUpdates("synthetic-access-subject");
+      if (mode === "idle") {
+        vi.setSystemTime(start - 86_400_000);
+        for (const id of connections) {
+          const run = await repository.beginRefresh(
+            "synthetic-access-subject",
+            id,
+            "live",
+          );
+          await repository.completeRefresh(
+            "synthetic-access-subject",
+            run.id,
+            null,
+            0,
+          );
+        }
+      }
+      vi.setSystemTime(start);
+      fail = mode === "failure";
+      const keys = await crypto.subtle.generateKey(
+        {
+          name: "RSASSA-PKCS1-v1_5",
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256",
+        },
+        true,
+        ["sign", "verify"],
+      );
+      const jwk = {
+        ...(await crypto.subtle.exportKey("jwk", keys.publicKey)),
+        kid: "synthetic-cash-key",
+        alg: "RS256",
+        use: "sig",
+      };
+      const header = Buffer.from(
+        JSON.stringify({ alg: "RS256", kid: jwk.kid }),
+      ).toString("base64url");
+      const payload = Buffer.from(
+        JSON.stringify({
+          sub: "synthetic-access-subject",
+          aud: env.ACCESS_AUD,
+          iss: `https://${env.ACCESS_TEAM_DOMAIN}`,
+          exp: Math.floor(start / 1000) + 2 * 86400,
+        }),
+      ).toString("base64url");
+      const signature = await crypto.subtle.sign(
+        "RSASSA-PKCS1-v1_5",
+        keys.privateKey,
+        new TextEncoder().encode(`${header}.${payload}`),
+      );
+      let token = `${header}.${payload}.${Buffer.from(signature).toString("base64url")}`;
+      const app = createApp({
+        cashAccountsRepository: repository,
+        cashPlaidClient: client,
+      });
+      vi.stubGlobal(
+        "fetch",
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = input instanceof Request ? input.url : input.toString();
+          if (
+            url.startsWith(
+              `https://${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`,
+            )
+          ) {
+            traffic.jwks++;
+            return Response.json({ keys: [jwk] });
+          }
+          traffic.http++;
+          traffic.workers++;
+          const request = new Request(
+            new URL(url, "https://synthetic-cash.keel.example.com"),
+            init,
+          );
+          request.headers.set("Cf-Access-Jwt-Assertion", token);
+          return handleRequest(request, {
+            API: {
+              fetch: async (r) => {
+                traffic.workers++;
+                return app.fetch(r, env);
+              },
+            },
+            ASSETS: {
+              fetch: () =>
+                Promise.reject(new Error("Unexpected asset request")),
+            },
+          });
+        },
+      );
+      Object.assign(traffic, {
+        http: 0,
+        workers: 0,
+        jwks: 0,
+        provider: 0,
+        r2Reads: 0,
+        r2Writes: 0,
+      });
+      const beforeReads = measured.roundTrips;
+      const beforeChanges = Number(
+        sqlite.prepare("SELECT total_changes() AS count").get()!.count,
+      );
+      // Hourly visits for 24 hours; forcing the POST each visit is stricter than the browser eligibility check.
+      for (let hour = 0; hour < 24; hour++) {
+        vi.setSystemTime(start + hour * 3_600_000);
+        await loadCashAccounts();
+        await refreshCashClient();
+      }
+      const writes =
+        Number(sqlite.prepare("SELECT total_changes() AS count").get()!.count) -
+        beforeChanges;
+      expect(traffic.http).toBe(48);
+      expect(traffic.workers).toBe(96);
+      expect(traffic.jwks).toBeLessThanOrEqual(24);
+      expect(traffic.provider).toBe(mode === "idle" ? 0 : 20);
+      expect(traffic.r2Reads).toBe(mode === "idle" ? 0 : 20);
+      expect(traffic.r2Writes).toBe(0);
+      expect(writes).toBe(mode === "idle" ? 0 : 40);
+      expect(measured.roundTrips - beforeReads).toBeLessThanOrEqual(2600);
+      const beforeUnauthorized = measured.roundTrips;
+      token = "synthetic-invalid-token";
+      await expect(refreshCashClient()).rejects.toThrow();
+      expect(measured.roundTrips).toBe(beforeUnauthorized);
+    },
+  );
+
+  async function check(
+    connectionId: string,
+    rows: NormalizedCashAccounts["rows"],
+    date: string,
+    initial = false,
+  ) {
+    const run = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connectionId,
+      initial ? "initial" : "live",
+    );
+    const result = await repository.stageProposal(
+      "synthetic-access-subject",
+      run.id,
+      {
+        objectKey: `cash-observations/synthetic-${run.id}.json`,
+        sourceSha256: "f".repeat(64),
+        normalized: normalized(
+          rows.map((row) => ({ ...row, observedAt: date })),
+          date,
+        ),
+      },
+    );
+    await repository.completeRefresh(
+      "synthetic-access-subject",
+      run.id,
+      result.proposal?.id ?? null,
+      rows.length,
+    );
+    return result.proposal;
+  }
+
+  async function knownAccounts(rows = [reportedRow()]) {
+    const connection = await repository.upsertConnection(
+      "synthetic-access-subject",
+      "First Synthetic Bank",
+      "connector-secrets/synthetic-cash.enc",
+      "c".repeat(64),
+    );
+    const proposal = (await check(
+      connection.id,
+      rows,
+      "2026-08-14T18:00:00.000Z",
+      true,
+    ))!;
+    await repository.applyProposal("synthetic-access-subject", proposal.id, {
+      changeNote: "Included the synthetic accounts.",
+      decisions: proposal.rows.map((row) => ({
+        rowId: row.id,
+        decision: "accepted",
+      })),
+    });
+    return connection;
+  }
+
+  it("automatically accepts 100 known balances in fixed round trips with indexed reads and no GET writes", async () => {
+    const rows = Array.from({ length: 100 }, (_, index) =>
+      reportedRow({
+        naturalKeySha256: index.toString(16).padStart(64, "0"),
+        itemAccountKeySha256: index.toString(16).padStart(64, "0"),
+        accountLabel: `Synthetic account ${index.toString().padStart(3, "0")}`,
+      }),
+    );
+    const connection = await knownAccounts(rows);
+    const proposal = await check(
+      connection.id,
+      rows.map((row) => ({ ...row, valueMinor: 0, availableMinor: 0 })),
+      "2026-08-15T18:00:00.000Z",
+    );
+    expect(proposal?.rows).toHaveLength(100);
+    const before = measured.roundTrips;
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    expect(measured.roundTrips - before).toBe(6);
+    const decisions = sqlite
+      .prepare(
+        "SELECT decision, policy_version, prior_decision_id FROM cash_balance_review_decisions WHERE decision_source = 'policy'",
+      )
+      .all();
+    expect(decisions).toHaveLength(100);
+    expect(
+      decisions.every(
+        (decision) =>
+          decision.decision === "accepted" &&
+          decision.policy_version === "cash-balances-auto-v1" &&
+          decision.prior_decision_id !== null,
+      ),
+    ).toBe(true);
+    const changes = sqlite.prepare("SELECT total_changes() AS count").get();
+    const readsBefore = measured.roundTrips;
+    const state = await repository.getState("synthetic-access-subject", true);
+    expect(measured.roundTrips - readsBefore).toBe(5);
+    expect(state.pendingProposals).toEqual([]);
+    expect(state.acceptedAccounts).toHaveLength(100);
+    expect(state.acceptedAccounts.every((row) => row.valueMinor === 0)).toBe(
+      true,
+    );
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    expect(sqlite.prepare("SELECT total_changes() AS count").get()).toEqual(
+      changes,
+    );
+    const query = measured.queries.find(({ sql }) =>
+      sql.includes("AS is_latest"),
+    )!;
+    const plan = sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${query.sql}`)
+      .all(...query.values)
+      .map((row) => row.detail)
+      .join("\n");
+    expect(plan).toContain("cash_balance_proposals_connection_observed_idx");
+    expect(plan).toContain("cash_balance_proposal_rows_proposal_idx");
+    expect(plan).not.toMatch(/SCAN newer|SCAN decision/);
+  });
+
+  it("keeps 100 missing accounts and 100 new observations reviewable without exceeding the accepted-account limit", async () => {
+    const rows = Array.from({ length: 100 }, (_, index) =>
+      reportedRow({
+        naturalKeySha256: index.toString(16).padStart(64, "0"),
+        itemAccountKeySha256: index.toString(16).padStart(64, "0"),
+        accountLabel: `Original synthetic account ${index.toString()}`,
+      }),
+    );
+    const connection = await knownAccounts(rows);
+    const before = (await repository.getState("synthetic-access-subject", true))
+      .acceptedAccounts;
+    const proposal = (await check(
+      connection.id,
+      rows.map((row, index) => ({
+        ...row,
+        naturalKeySha256: (index + 100).toString(16).padStart(64, "0"),
+        itemAccountKeySha256: (index + 100).toString(16).padStart(64, "0"),
+        accountLabel: `Different synthetic account ${index.toString()}`,
+      })),
+      "2026-08-15T18:00:00.000Z",
+    ))!;
+    expect(proposal.rows).toHaveLength(200);
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    const readsBefore = measured.roundTrips;
+    const state = await repository.getState("synthetic-access-subject", true);
+    expect(measured.roundTrips - readsBefore).toBe(5);
+    expect(state.pendingProposals[0]?.rows).toHaveLength(200);
+    expect(state.acceptedAccounts).toEqual(before);
+    await expect(
+      repository.applyProposal("synthetic-access-subject", proposal.id, {
+        changeNote: "Tried to include too many synthetic accounts.",
+        decisions: proposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: row.valueState === "reported" ? "accepted" : "excluded",
+        })),
+      }),
+    ).rejects.toThrow("Cash accounts are limited to 100");
+    await repository.applyProposal("synthetic-access-subject", proposal.id, {
+      changeNote:
+        "Kept the existing synthetic accounts and their last balances.",
+      decisions: proposal.rows.map((row) => ({
+        rowId: row.id,
+        decision: "excluded",
+      })),
+    });
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .acceptedAccounts,
+    ).toEqual(before);
+  });
+
+  it("clears superseded observations even when all 20 institutions have an exception", async () => {
+    const connectionIds: string[] = [];
+    for (let index = 0; index < 20; index++) {
+      const connection = await repository.upsertConnection(
+        "synthetic-access-subject",
+        `Synthetic bank ${index.toString()}`,
+        `connector-secrets/synthetic-${index.toString()}.enc`,
+        index.toString(16).padStart(64, "0"),
+      );
+      connectionIds.push(connection.id);
+      const proposal = (await check(
+        connection.id,
+        [reportedRow()],
+        "2026-08-14T18:00:00.000Z",
+        true,
+      ))!;
+      await repository.applyProposal("synthetic-access-subject", proposal.id, {
+        changeNote: "Included the synthetic account.",
+        decisions: proposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted",
+        })),
+      });
+      await check(
+        connection.id,
+        [
+          reportedRow({
+            valueState: "unavailable",
+            valueMinor: null,
+            balanceSource: null,
+          }),
+        ],
+        "2026-08-15T18:00:00.000Z",
+      );
+    }
+    await check(
+      connectionIds[0]!,
+      [
+        reportedRow({
+          valueState: "unavailable",
+          valueMinor: null,
+          balanceSource: null,
+        }),
+      ],
+      "2026-08-16T18:00:00.000Z",
+    );
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM cash_balance_proposals WHERE status = 'pending_review'",
+        )
+        .get()!.count,
+    ).toBe(20);
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .pendingProposals,
+    ).toHaveLength(20);
+
+    await check(
+      connectionIds[0]!,
+      [reportedRow({ valueMinor: 150_000, availableMinor: 150_000 })],
+      "2026-08-17T18:00:00.000Z",
+    );
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    const state = await repository.getState("synthetic-access-subject", true);
+    expect(state.pendingProposals).toHaveLength(19);
+    expect(
+      state.acceptedAccounts.find(
+        (account) => account.connectionId === connectionIds[0],
+      )?.valueMinor,
+    ).toBe(150_000);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM cash_balance_proposals WHERE status = 'pending_review'",
+        )
+        .get()!.count,
+    ).toBe(19);
+  });
+
+  it("updates clean accounts while invalid, missing and new accounts stay in review, then recovers on the next check", async () => {
+    const savings = reportedRow({
+      naturalKeySha256: "b".repeat(64),
+      itemAccountKeySha256: "b".repeat(64),
+      accountLabel: "Synthetic savings",
+      subtype: "savings",
+    });
+    const reserve = reportedRow({
+      naturalKeySha256: "d".repeat(64),
+      itemAccountKeySha256: "d".repeat(64),
+      accountLabel: "Synthetic reserve",
+    });
+    const connection = await knownAccounts([reportedRow(), savings, reserve]);
+    const invalid = {
+      ...savings,
+      valueState: "unsupported" as const,
+      valueMinor: null,
+      balanceSource: null,
+      issues: ["Only USD cash balances are supported."],
+    };
+    const newlyReported = reportedRow({
+      naturalKeySha256: "e".repeat(64),
+      itemAccountKeySha256: "e".repeat(64),
+      accountLabel: "New synthetic account",
+    });
+    const proposal = (await check(
+      connection.id,
+      [
+        reportedRow({ valueMinor: 999_000, availableMinor: 999_000 }),
+        invalid,
+        newlyReported,
+      ],
+      "2026-08-15T18:00:00.000Z",
+    ))!;
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    const state = await repository.getState("synthetic-access-subject", true);
+    expect(state.acceptedAccounts.map((row) => row.valueMinor).sort()).toEqual(
+      [120_000, 120_000, 999_000].sort(),
+    );
+    expect(
+      state.pendingProposals[0]?.rows.map((row) => row.valueState).sort(),
+    ).toEqual(["not_reported", "reported", "unsupported"]);
+    await check(
+      connection.id,
+      [
+        reportedRow({ valueMinor: 150_000, availableMinor: 150_000 }),
+        savings,
+        reserve,
+      ],
+      "2026-08-16T18:00:00.000Z",
+    );
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    const recovered = await repository.getState(
+      "synthetic-access-subject",
+      true,
+    );
+    expect(recovered.pendingProposals).toEqual([]);
+    expect(
+      recovered.acceptedAccounts.find(
+        (row) => row.naturalKeySha256 === "a".repeat(64),
+      )?.valueMinor,
+    ).toBe(150_000);
+    await expect(
+      repository.applyProposal("synthetic-access-subject", proposal.id, {
+        changeNote: "Tried an obsolete review.",
+        decisions: proposal.rows.map((row) => ({
+          rowId: row.id,
+          decision: "excluded",
+        })),
+      }),
+    ).rejects.toThrow("stale");
+  });
+
+  it("rolls back failed policy batches and converges on duplicate recovery", async () => {
+    const connection = await knownAccounts();
+    await check(
+      connection.id,
+      [reportedRow({ valueMinor: 135_000, availableMinor: 135_000 })],
+      "2026-08-15T18:00:00.000Z",
+    );
+    measured.failNextBatch = true;
+    await expect(
+      repository.applyAutomaticUpdates("synthetic-access-subject"),
+    ).rejects.toThrow("Synthetic commit failure");
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .acceptedAccounts[0]?.valueMinor,
+    ).toBe(120_000);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT count(*) AS count FROM cash_balance_review_decisions WHERE decision_source = 'policy'",
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+    await Promise.all([
+      repository.applyAutomaticUpdates("synthetic-access-subject"),
+      repository.applyAutomaticUpdates("synthetic-access-subject"),
+    ]);
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .acceptedAccounts[0]?.valueMinor,
+    ).toBe(135_000);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT count(*) AS count FROM cash_balance_review_decisions WHERE decision_source = 'policy'",
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("ignores older observations and requires a decision for conflicting dates or account types", async () => {
+    const connection = await knownAccounts();
+    await check(
+      connection.id,
+      [reportedRow({ valueMinor: 135_000, availableMinor: 135_000 })],
+      "2026-08-13T18:00:00.000Z",
+    );
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .pendingProposals,
+    ).toEqual([]);
+    await check(
+      connection.id,
+      [reportedRow({ valueMinor: 135_000, availableMinor: 135_000 })],
+      "2026-08-14T18:00:00.000Z",
+    );
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    const conflicting = await repository.getState(
+      "synthetic-access-subject",
+      true,
+    );
+    expect(conflicting.acceptedAccounts[0]?.valueMinor).toBe(120_000);
+    expect(
+      conflicting.pendingProposals[0]?.rows[0]?.issues.join(" "),
+    ).toContain("same date");
+    await check(
+      connection.id,
+      [reportedRow({ subtype: "savings" })],
+      "2026-08-15T18:00:00.000Z",
+    );
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    expect(
+      (
+        await repository.getState("synthetic-access-subject", true)
+      ).pendingProposals[0]?.rows[0]?.issues.join(" "),
+    ).toContain("account's type");
+  });
+
+  it("preserves a declined balance until the bank reports a different value", async () => {
+    const connection = await knownAccounts();
+    const declined = (await check(
+      connection.id,
+      [reportedRow({ valueMinor: 135_000, availableMinor: 135_000 })],
+      "2026-08-14T18:00:00.000Z",
+    ))!;
+    await repository.applyProposal("synthetic-access-subject", declined.id, {
+      changeNote: "Kept the prior synthetic balance.",
+      decisions: declined.rows.map((row) => ({
+        rowId: row.id,
+        decision: "excluded",
+      })),
+    });
+    await check(
+      connection.id,
+      [reportedRow({ valueMinor: 135_000, availableMinor: 135_000 })],
+      "2026-08-15T18:00:00.000Z",
+    );
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .acceptedAccounts[0]?.valueMinor,
+    ).toBe(120_000);
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .pendingProposals,
+    ).toEqual([]);
+    await check(
+      connection.id,
+      [reportedRow({ valueMinor: 140_000, availableMinor: 140_000 })],
+      "2026-08-16T18:00:00.000Z",
+    );
+    await repository.applyAutomaticUpdates("synthetic-access-subject");
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .acceptedAccounts[0]?.valueMinor,
+    ).toBe(140_000);
+  });
 
   it("stages provider facts without changing the plan, then applies explicit row decisions", async () => {
     await expect(
@@ -293,13 +1010,17 @@ describe("reviewed cash accounts", () => {
       staged.proposal?.id ?? null,
       2,
     );
-    await expect(
-      repository.beginRefresh(
-        "synthetic-access-subject",
-        connection.id,
-        "live",
-      ),
-    ).rejects.toMatchObject({ code: "review_required" });
+    const nextRun = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "live",
+    );
+    await repository.completeRefresh(
+      "synthetic-access-subject",
+      nextRun.id,
+      null,
+      0,
+    );
     const state = await repository.getState("synthetic-access-subject", true);
     expect(state.pendingProposals).toHaveLength(1);
     expect(state.acceptedAccounts).toHaveLength(0);
@@ -821,7 +1542,8 @@ describe("reviewed cash accounts", () => {
       "synthetic-access-subject",
       true,
     );
-    expect(beforeReview.acceptedAccounts).toHaveLength(2);
+    expect(beforeReview.acceptedAccounts).toHaveLength(1);
+    expect(beforeReview.pendingProposals[0]?.rows).toHaveLength(2);
     expect(beforeReview.identityCandidates).toEqual([
       expect.objectContaining({
         connectionId: rotation.connection.id,
@@ -881,7 +1603,20 @@ describe("reviewed cash accounts", () => {
 
     const state = await repository.getState("synthetic-access-subject", true);
     expect(state.identityCandidates).toEqual([]);
-    expect(state.acceptedAccounts).toHaveLength(2);
+    expect(state.acceptedAccounts).toHaveLength(1);
+    const proposal = state.pendingProposals[0]!;
+    await repository.applyProposal("synthetic-access-subject", proposal.id, {
+      changeNote:
+        "Included the separate account and kept the missing account's last balance.",
+      decisions: proposal.rows.map((row) => ({
+        rowId: row.id,
+        decision: row.valueState === "reported" ? "accepted" : "excluded",
+      })),
+    });
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .acceptedAccounts,
+    ).toHaveLength(2);
   });
 
   it("counts every live provider attempt and enforces the monthly ceiling", async () => {

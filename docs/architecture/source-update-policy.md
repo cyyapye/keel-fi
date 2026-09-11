@@ -32,6 +32,47 @@ fixed round-trip budget and an indexed latest-observation query plan. Opening
 Holdings can recover its bounded pending queue of at most 20 imports through
 separate authenticated POSTs, after the initial read has rendered.
 
+## Cash accounts
+
+`cash-balances-auto-v1` accepts a newer valid live balance for a previously
+accepted account, using its protected identity or an explicitly resolved match.
+A normal balance movement, including a reported zero, needs no human approval.
+Unchanged and older observations receive no new accepted fact. A policy decision
+records its rule, reason, and prior accepted decision; source evidence and both
+human and automatic decisions remain append-only.
+
+First-time account inclusion, unsupported or missing values, changed account
+types, conflicting same-date values, and cached replacements stay in review.
+Missing accounts keep their last accepted value until the user explicitly marks
+it unavailable. Repeated values respect the user's previous exclusion; a changed
+value can be considered again. Unresolved rows do not block other accounts or
+later checks. New complete checks supersede older waiting rows without rewriting
+their evidence. Review submissions contain only remaining exceptions; obsolete
+submissions fail closed.
+
+Possible identifier rotations can be matched before the new record is accepted.
+**Same account** records the link and applies the valid balance once; **Keep
+separate** leaves the new account's inclusion as a user decision. Names only
+suggest a match. They never merge accounts automatically.
+
+The existing authenticated `POST /api/cash-accounts/auto-refresh` first
+processes waiting observations from D1, without fetching their objects or
+calling Plaid. This also recovers reviews created before the policy shipped.
+Ingestion uses the same operation after recording evidence. Atomic batches and
+unique row decisions make repeated recovery converge. SQL guards reject an
+obsolete acceptance. GETs only project state, in five round trips independent of
+the account count. The regression uses the documented maximum of 100 accepted
+accounts, and a policy batch needs six round trips. One observation can contain
+100 reported accounts plus 100 missing prior accounts; recovery processes at
+most 20 current proposals and 20 superseded proposals per call, using set-based
+decisions. Current exceptions cannot starve the cleanup of old observations. The
+existing weekly and monthly provider limits apply even when exceptions are
+waiting.
+
+After an accepted cash change, the browser invokes the existing baseline refresh
+POST and reloads Holdings and planning values. The initial baseline and genuine
+planning exceptions keep their existing review boundary.
+
 ## Planning baseline
 
 The initial baseline is a user decision. Later accepted-source updates use

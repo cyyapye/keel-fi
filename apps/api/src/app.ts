@@ -348,7 +348,7 @@ function cashAccountErrorResponse(
       status: 502 as const,
     },
     staging_failed: {
-      message: "Keel could not prepare the cash balances for review.",
+      message: "Keel could not process the cash balances.",
       status: 503 as const,
     },
     unexpected_failure: {
@@ -1571,7 +1571,13 @@ export function createApp(options: AppOptions = {}) {
         );
       }
       return context.json(
-        { error: "Every cash account needs a valid review decision." },
+        {
+          error:
+            message.startsWith("Resolve the possible account match") ||
+            message.startsWith("Cash accounts are limited to")
+              ? message
+              : "Every unresolved cash account needs a valid decision.",
+        },
         400,
         { "Cache-Control": "private, no-store" },
       );

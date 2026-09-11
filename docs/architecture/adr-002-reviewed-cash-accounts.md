@@ -36,8 +36,7 @@ Use Plaid for cash-account observations with these boundaries:
   numbers;
 - use the free `/accounts/get` response immediately after a new Item is linked;
 - when Holdings loads, call `/accounts/balance/get` only when the institution
-  has no pending review or active refresh and no live attempt in the preceding
-  seven days;
+  has no active refresh and no live attempt in the preceding seven days;
 - offer a manual retry only after a failed automatic check;
 - allow at most four live balance requests per connected institution per UTC
   calendar month, including an attempted request once it crosses Keel's provider
@@ -59,31 +58,28 @@ when Plaid reports one, otherwise a non-negative current balance. Missing,
 non-USD, or negative values remain explicit and cannot be accepted as usable
 cash.
 
-A provider fetch with a new, changed, missing, or unsupported account creates a
-proposal. An exact no-change result completes the checked connection without a
-proposal and without mutating accepted cash facts. Neither path directly changes
-the portfolio baseline, a cash-flow plan, a goal, or a forecast. The user must
-review each material account result and apply the proposal. A later Portfolio
-Baseline review then combines accepted cash with reviewed public holdings, keeps
-a separate manual residual, and identifies reviewed brokerage cash positions
-separately. Linked bank accounts and brokerage cash positions have exact
-accepted source identities and are counted together automatically. Only a
-positive manual residual alongside either sourced cash category requires an
-explicit overlap acknowledgment because the manual amount has no source
-identity. The review explains that the residual is added on top of sourced cash;
-the user's baseline apply action is the acknowledgment, without a second
-checkbox. The review previews the FI and runway effects, then appends the
-resulting plan, forecast, and goal versions.
+Cash acceptance now follows the
+[exception-based source policy](source-update-policy.md). A provider response is
+recorded first. Valid newer live balances for known accounts receive automatic
+decisions; first-time inclusion and unresolved identity or value exceptions
+require user decisions. Missing accounts preserve their last accepted balance.
+Waiting exceptions do not block clean accounts or future checks within the
+original provider budget.
+
+The first Portfolio Baseline confirms inclusion and any manual cash overlap.
+Later accepted balance changes refresh that baseline and its forecast history
+without changing the user's manual amounts, goals, or assumptions. A new overlap
+or unresolved planning choice still requires review.
 
 Plaid may omit `persistent_account_id` and may rotate `account_id`. When that
 happens, protected provider keys cannot prove whether a newly reported record
 and a missing prior record are the same account. Keel may suggest a possible
 match only when one reported record and one missing record form an unambiguous
-same-label and same-subtype pair in one reviewed proposal. The labels are
-candidate evidence, not identity. The user must choose **Same account** or
-**Keep separate**. That append-only decision either links the protected keys in
-the read projection or records that they remain distinct; accepted source rows
-are never rewritten.
+same-label and same-subtype pair in one proposal. This match can be resolved
+before accepting the reported balance. The labels are candidate evidence, not
+identity. The user must choose **Same account** or **Keep separate**. That
+append-only decision either links the protected keys in the read projection or
+records that they remain distinct; accepted source rows are never rewritten.
 
 ## Consequences
 
@@ -95,7 +91,8 @@ Positive:
 - missing accounts cannot be interpreted as withdrawals or spending; and
 - complete provider-identity rotation remains visible until explicitly reviewed;
   and
-- cash facts pass through the same review-first trust boundary as holdings.
+- cash facts pass through the same evidence and recorded-decision boundary as
+  holdings, without routine human approvals.
 
 Tradeoffs:
 

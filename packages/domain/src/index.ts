@@ -1616,7 +1616,8 @@ export const CashBalanceProposalSchema = z.object({
   observedAt: IsoTimestampSchema,
   retrievedAt: IsoTimestampSchema,
   summary: CashBalanceProposalSummarySchema,
-  rows: z.array(CashAccountProposalRowSchema).min(1).max(100),
+  // A complete check can contain 100 reported accounts and 100 missing prior accounts.
+  rows: z.array(CashAccountProposalRowSchema).min(1).max(200),
 });
 
 export const AcceptedCashAccountSchema = z
@@ -1736,7 +1737,7 @@ export const CashAccountReviewDecisionSchema = z.object({
 });
 
 export const CashAccountApplyInputSchema = z.object({
-  decisions: z.array(CashAccountReviewDecisionSchema).min(1).max(100),
+  decisions: z.array(CashAccountReviewDecisionSchema).min(1).max(200),
   changeNote: z.string().trim().min(1).max(500),
 });
 
