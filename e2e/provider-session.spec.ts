@@ -94,11 +94,12 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
         interactive = false,
       ) => {
         await context.route(`${origin}/**`, async (route) => {
+          // headers() can omit cookie headers; this assertion must inspect the
+          // complete request sent by the reopened browser.
+          const headers = await route.request().allHeaders();
           const authenticated =
             interactive ||
-            (route.request().headers().cookie ?? "").includes(
-              "synthetic_session=saved",
-            );
+            (headers.cookie ?? "").includes("synthetic_session=saved");
           if (!interactive) expect(authenticated).toBe(persisted);
           await route.fulfill({
             contentType: "text/html",
@@ -151,6 +152,13 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
           },
           verifySavedSession: async () => {
             const reopened = await start();
+            expect(
+              (await reopened.context.cookies(origin)).some(
+                (cookie) =>
+                  cookie.name === "synthetic_session" &&
+                  cookie.value === "saved",
+              ),
+            ).toBe(persisted);
             await __providerPortfolioMacAgentTest.requireProviderPageReady(
               await routePortfolio(reopened.context),
               provider,
