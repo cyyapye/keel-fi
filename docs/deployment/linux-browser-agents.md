@@ -35,11 +35,12 @@ The service runs Chrome headlessly after setup. The one-time sign-in uses a
 normal Chrome window in a private virtual desktop so Google and provider 2FA do
 not run inside a software-controlled browser.
 
-Portfolio checks open Chrome only after acquiring a job. Sydecar shuts down its
-owned browser after capture or sign-in verification, including failure, and
-reopens the same profile for the next leased capture. Its page must not remain
-open between daily captures: the page's inactivity timer can erase the saved
-login. The worker stays available for reconnects while Chrome is closed.
+Tokenfolio and Sydecar checks open Chrome only after acquiring a job. Sydecar
+shuts down its owned browser after capture or sign-in verification, including
+failure, and reopens the same profile for the next leased capture. Its page must
+not remain open between daily captures: the page's inactivity timer can erase
+the saved login. The worker stays available for reconnects while Chrome is
+closed.
 
 ## Prepare the worker once
 
@@ -78,6 +79,40 @@ sudo /usr/local/libexec/keel-agent-cloudflare-egress start
 The helper permits only Cloudflare's published IPv4 Tunnel destinations on
 `7844`; the namespace continues to deny other egress and exposes no inbound
 listener. Recheck Cloudflare's endpoint list when upgrading `cloudflared`.
+
+Keep DNS stable inside the network namespace as well. A bind mount of a single
+`systemd-resolved` file can disappear from the service's view when the host
+replaces that file. The service then sees the host's loopback resolver, which
+has no listener inside the isolated network. See the
+[upstream systemd report](https://github.com/systemd/systemd/issues/32366). Bind
+a dedicated directory containing links to the namespace's existing resolver
+instead:
+
+```sh
+sudo install -d -m 0755 /etc/keel-agent-network-resolver
+sudo ln -s /etc/netns/keel-agents/resolv.conf \
+  /etc/keel-agent-network-resolver/resolv.conf
+sudo ln -s /etc/netns/keel-agents/resolv.conf \
+  /etc/keel-agent-network-resolver/stub-resolv.conf
+```
+
+For each provider service, replace the existing resolver-file bind with this
+directory bind in a systemd drop-in. The example assumes DNS is the only
+`BindReadOnlyPaths` entry; preserve any other entries when resetting the list.
+
+```ini
+[Service]
+BindReadOnlyPaths=
+BindReadOnlyPaths=/etc/keel-agent-network-resolver:/run/systemd/resolve
+```
+
+Reload systemd and restart one idle provider at a time. Verify
+`/etc/resolv.conf` inside the running process's mount namespace, rather than
+relying only on `systemctl show`: its nameserver must match the configured
+namespace resolver. Preserve provider profiles, credentials, and existing
+network rules. A synthetic systemd test should replace the host-side target file
+and confirm that the service still reads its namespace resolver through the
+directory bind.
 
 Create the provider service identities once:
 
@@ -233,8 +268,9 @@ changes still enter the normal review queue.
 For Tokenfolio and Sydecar, an interactive portfolio alone is not success. The
 worker closes Chrome gracefully, reopens the same profile through its ordinary
 background launch path, and requires the same visible portfolio controls used by
-capture before completing the reconnect. The verified background browser stays
-available for the immediate update. A failed saved-session check does not
+capture before completing the reconnect. Tokenfolio keeps the verified browser
+available for the immediate update; Sydecar closes it and reopens the same
+profile for the next leased capture. A failed saved-session check does not
 complete the reconnect or trigger credential rotation. Cancellation and the
 15-minute lease still apply during verification.
 

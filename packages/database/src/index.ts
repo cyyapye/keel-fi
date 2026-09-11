@@ -772,7 +772,8 @@ export class D1AlphaRepository implements AlphaRepository {
                      FROM holding_position_exposure_mappings mapping
                      JOIN canonical_exposures canonical
                        ON canonical.id = mapping.exposure_id
-                     WHERE mapping.position_id = position.id
+                     WHERE mapping.household_id = position.household_id
+                       AND mapping.position_id = position.id
                        AND mapping.status = 'active'
                        AND canonical.company_id IS NOT NULL
                        AND NOT EXISTS (
@@ -797,7 +798,8 @@ export class D1AlphaRepository implements AlphaRepository {
                      FROM holding_position_exposure_mappings mapping
                      JOIN canonical_exposures canonical
                        ON canonical.id = mapping.exposure_id
-                     WHERE mapping.position_id = position.id
+                     WHERE mapping.household_id = position.household_id
+                       AND mapping.position_id = position.id
                        AND mapping.status = 'active'
                        AND canonical.company_id IS NOT NULL
                        AND NOT EXISTS (
