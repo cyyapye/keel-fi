@@ -1151,6 +1151,21 @@ export const connectorSyncRuns = sqliteTable(
       table.connectorAccountId,
       table.startedAt,
     ),
+    index("connector_sync_runs_cash_flow_latest_idx")
+      .on(
+        table.householdId,
+        sql`${table.startedAt} DESC`,
+        sql`${table.id} DESC`,
+      )
+      .where(
+        sql`${table.cursor} IN ('cash-flow-initial-v1', 'cash-flow-incremental-v1')`,
+      ),
+    index("connector_sync_runs_cash_live_latest_idx")
+      .on(table.connectorAccountId, sql`${table.startedAt} DESC`)
+      .where(sql`${table.cursor} = 'cash-live-v1'`),
+    index("connector_sync_runs_household_active_idx")
+      .on(table.householdId, table.cursor)
+      .where(sql`${table.status} IN ('queued', 'running')`),
     uniqueIndex("connector_sync_runs_active_account_unique")
       .on(table.connectorAccountId)
       .where(sql`${table.status} IN ('queued', 'running')`),
@@ -1242,10 +1257,6 @@ export const cashBalanceProposalRows = sqliteTable(
   },
   (table) => [
     uniqueIndex("cash_balance_proposal_rows_proposal_key_unique").on(
-      table.proposalId,
-      table.naturalKeySha256,
-    ),
-    index("cash_balance_proposal_rows_proposal_idx").on(
       table.proposalId,
       table.naturalKeySha256,
     ),
@@ -1481,10 +1492,6 @@ export const liabilityProposalRows = sqliteTable(
   },
   (table) => [
     uniqueIndex("liability_proposal_rows_proposal_key_unique").on(
-      table.proposalId,
-      table.naturalKeySha256,
-    ),
-    index("liability_proposal_rows_proposal_idx").on(
       table.proposalId,
       table.naturalKeySha256,
     ),
@@ -1797,10 +1804,6 @@ export const cashFlowProposalMonths = sqliteTable(
       table.proposalId,
       table.month,
     ),
-    index("cash_flow_proposal_months_proposal_idx").on(
-      table.proposalId,
-      table.month,
-    ),
     check(
       "cash_flow_proposal_months_values_check",
       sql`${table.outflowMinor} >= 0 AND ${table.transactionCount} > 0`,
@@ -1831,10 +1834,6 @@ export const cashFlowProposalCategories = sqliteTable(
   },
   (table) => [
     uniqueIndex("cash_flow_proposal_categories_proposal_category_unique").on(
-      table.proposalId,
-      table.category,
-    ),
-    index("cash_flow_proposal_categories_proposal_idx").on(
       table.proposalId,
       table.category,
     ),
@@ -2000,6 +1999,16 @@ export const holdingImports = sqliteTable(
   ],
 );
 
+export const retainedPublicExposureDocumentFailures = sqliteTable(
+  "retained_public_exposure_document_failures",
+  {
+    importId: text("import_id")
+      .primaryKey()
+      .references(() => holdingImports.id, { onDelete: "restrict" }),
+    lastAttemptAt: timestamp("last_attempt_at"),
+  },
+);
+
 export const holdingImportRows = sqliteTable(
   "holding_import_rows",
   {
@@ -2038,10 +2047,6 @@ export const holdingImportRows = sqliteTable(
   },
   (table) => [
     uniqueIndex("holding_import_rows_import_row_unique").on(
-      table.importId,
-      table.sourceRowNumber,
-    ),
-    index("holding_import_rows_import_idx").on(
       table.importId,
       table.sourceRowNumber,
     ),
@@ -2315,6 +2320,11 @@ export const holdingPositions = sqliteTable(
       table.provider,
       table.positionFingerprint,
     ),
+    index("holding_positions_continuity_match_idx").on(
+      table.householdId,
+      table.provider,
+      sql`lower(trim(${table.legalVehicleName}))`,
+    ),
     index("holding_positions_household_created_idx").on(
       table.householdId,
       table.createdAt,
@@ -2396,9 +2406,10 @@ export const holdingPositionSnapshots = sqliteTable(
       table.positionId,
       table.snapshotFingerprint,
     ),
-    index("holding_position_snapshots_position_idx").on(
+    index("holding_position_snapshots_observed_idx").on(
       table.positionId,
-      table.observedAt,
+      sql`${table.observedAt} DESC`,
+      sql`${table.createdAt} DESC`,
     ),
     check(
       "holding_position_snapshots_public_values_check",
@@ -2745,6 +2756,11 @@ export const holdingImportQuarantines = sqliteTable(
     uniqueIndex("holding_import_quarantines_position_unique")
       .on(table.importId, table.positionId)
       .where(sql`${table.positionId} IS NOT NULL`),
+    index("holding_import_quarantines_import_all_idx").on(
+      table.importId,
+      table.importRowId,
+      table.positionId,
+    ),
     index("holding_import_quarantines_household_created_idx").on(
       table.householdId,
       table.createdAt,
@@ -2910,10 +2926,6 @@ export const portfolioBaselineItems = sqliteTable(
       table.baselineId,
       table.positionId,
     ),
-    index("portfolio_baseline_items_baseline_idx").on(
-      table.baselineId,
-      table.positionId,
-    ),
     check(
       "portfolio_baseline_items_provider_check",
       sql`${table.provider} IN ('angellist', 'tokenfolio', 'sydecar', 'plaid_investments')`,
@@ -2965,10 +2977,6 @@ export const portfolioBaselineCashItems = sqliteTable(
   },
   (table) => [
     uniqueIndex("portfolio_baseline_cash_items_baseline_key_unique").on(
-      table.baselineId,
-      table.naturalKeySha256,
-    ),
-    index("portfolio_baseline_cash_items_baseline_idx").on(
       table.baselineId,
       table.naturalKeySha256,
     ),
@@ -3603,7 +3611,9 @@ export const holdingImportCoverages = sqliteTable(
     index("holding_import_coverages_household_container_idx").on(
       table.householdId,
       table.containerId,
-      table.observedAt,
+      sql`${table.observedAt} DESC`,
+      sql`${table.createdAt} DESC`,
+      sql`${table.id} DESC`,
     ),
     check(
       "holding_import_coverages_completeness_check",

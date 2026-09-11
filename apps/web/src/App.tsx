@@ -145,6 +145,7 @@ import {
   formatMoney,
   formatProbability,
 } from "./format";
+import { useBoundedPolling } from "./use-bounded-polling";
 import { openPlaidLink } from "./plaid-link";
 import { InvestmentHoldings } from "./InvestmentHoldings";
 import { LegalEntities } from "./LegalEntities";
@@ -3116,70 +3117,27 @@ function ProviderReconnectControl({
     };
   }, [acceptSession, provider]);
 
-  useEffect(() => {
-    if (
-      session === null ||
-      !["requested", "starting", "ready", "opened"].includes(session.status)
-    ) {
-      return;
-    }
-    let cancelled = false;
-    let checking = false;
-    let timer: number | undefined;
-    const scheduleCheck = (delay: number) => {
-      if (cancelled) {
-        return;
-      }
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-      }
-      timer = window.setTimeout(() => void check(), delay);
-    };
-    const check = async () => {
-      if (cancelled || checking) {
-        return;
-      }
-      checking = true;
-      try {
-        const next = await getProviderBrowserReconnect(session.id);
-        if (cancelled) {
-          return;
-        }
-        acceptSession(next);
-        openReadySession(next);
-        if (
-          ["requested", "starting", "ready", "opened"].includes(next.status)
-        ) {
-          scheduleCheck(1_000);
-        }
-      } catch {
-        if (!cancelled) {
-          setError(`Keel could not check the ${label} reconnect. Try again.`);
-          scheduleCheck(3_000);
-        }
-      } finally {
-        checking = false;
-      }
-    };
-    const checkWhenVisible = () => {
-      if (document.visibilityState === "visible") {
-        scheduleCheck(0);
-      }
-    };
-    document.addEventListener("visibilitychange", checkWhenVisible);
-    window.addEventListener("focus", checkWhenVisible);
-    window.addEventListener("pageshow", checkWhenVisible);
-    scheduleCheck(500);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", checkWhenVisible);
-      window.removeEventListener("focus", checkWhenVisible);
-      window.removeEventListener("pageshow", checkWhenVisible);
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-      }
-    };
-  }, [acceptSession, label, openReadySession, session]);
+  useBoundedPolling({
+    active:
+      session !== null &&
+      ["requested", "starting", "ready", "opened"].includes(session.status),
+    identity: session?.id ?? provider,
+    intervalMs: 5_000,
+    expiresAt: session?.expiresAt,
+    check: async () => {
+      if (session === null) return false;
+      const next = await getProviderBrowserReconnect(session.id);
+      acceptSession(next);
+      openReadySession(next);
+      return ["requested", "starting", "ready", "opened"].includes(next.status);
+    },
+    onError: () =>
+      setError(
+        `Keel could not check the ${label} reconnect. Retrying shortly.`,
+      ),
+    onTimeout: () =>
+      setError("Automatic checks paused. Reload this page to check progress."),
+  });
 
   const startReconnect = async () => {
     setBusy("start");
@@ -3348,10 +3306,13 @@ function AngelListMacAgentControl() {
 
   const reload = useCallback(async () => {
     try {
-      setOverview(await loadAngelListAutomationOverview());
+      const next = await loadAngelListAutomationOverview();
+      setOverview(next);
       setError(null);
+      return next;
     } catch {
       setError("Keel could not check AngelList updates. Try again shortly.");
+      return null;
     }
   }, []);
 
@@ -3362,13 +3323,19 @@ function AngelListMacAgentControl() {
     };
   }, [reload]);
 
-  useEffect(() => {
-    if (overview?.status !== "running") {
-      return;
-    }
-    const timer = window.setInterval(() => void reload(), 10_000);
-    return () => window.clearInterval(timer);
-  }, [overview?.status, reload]);
+  useBoundedPolling({
+    active: overview?.status === "running",
+    identity: "angellist",
+    intervalMs: 10_000,
+    check: async () => {
+      const next = await reload();
+      if (next === null) throw new Error("Status unavailable");
+      return next.status === "running";
+    },
+    onError: () => undefined, // reload already exposes a recoverable error.
+    onTimeout: () =>
+      setError("Automatic checks paused. Reload this page to check progress."),
+  });
 
   const setupCommand = providerAgentSetupCommand("angellist");
   const message = angelListAgentMessage(overview);
@@ -3703,8 +3670,10 @@ function ProviderPortfolioAgentRow({
         setNotice(null);
       }
       setError(null);
+      return next;
     } catch {
       setError(`Keel could not check ${label} updates. Try again shortly.`);
+      return null;
     }
   }, [label, provider]);
 
@@ -3713,13 +3682,19 @@ function ProviderPortfolioAgentRow({
     return () => window.clearTimeout(initial);
   }, [reload]);
 
-  useEffect(() => {
-    if (overview?.status !== "running") {
-      return;
-    }
-    const timer = window.setInterval(() => void reload(), 10_000);
-    return () => window.clearInterval(timer);
-  }, [overview?.status, reload]);
+  useBoundedPolling({
+    active: overview?.status === "running",
+    identity: provider,
+    intervalMs: 10_000,
+    check: async () => {
+      const next = await reload();
+      if (next === null) throw new Error("Status unavailable");
+      return next.status === "running";
+    },
+    onError: () => undefined, // reload already exposes a recoverable error.
+    onTimeout: () =>
+      setError("Automatic checks paused. Reload this page to check progress."),
+  });
 
   const setupCommand = providerAgentSetupCommand(provider);
   const message = providerPortfolioAgentMessage(provider, overview);
@@ -4117,40 +4092,26 @@ function AngelListBrowserRunControl() {
     };
   }, [acceptRefresh]);
 
-  useEffect(() => {
-    if (refresh?.status !== "waiting_for_sign_in") {
-      return;
-    }
-    let cancelled = false;
-    let timer: number | undefined;
-    const check = async () => {
-      try {
-        const next = await getAngelListSignInRefresh(refresh.id);
-        if (!cancelled) {
-          acceptRefresh(next);
-          if (next.status === "waiting_for_sign_in") {
-            timer = window.setTimeout(() => void check(), 3_000);
-          }
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setRefreshError(
-            error instanceof Error
-              ? error.message
-              : "Keel could not check the AngelList sign-in.",
-          );
-          timer = window.setTimeout(() => void check(), 5_000);
-        }
-      }
-    };
-    timer = window.setTimeout(() => void check(), 3_000);
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-      }
-    };
-  }, [acceptRefresh, refresh?.id, refresh?.status]);
+  useBoundedPolling({
+    active: refresh?.status === "waiting_for_sign_in",
+    identity: refresh?.id ?? "legacy-angellist",
+    intervalMs: 5_000,
+    expiresAt: refresh?.expiresAt,
+    check: async () => {
+      if (refresh === null) return false;
+      const next = await getAngelListSignInRefresh(refresh.id);
+      acceptRefresh(next);
+      return next.status === "waiting_for_sign_in";
+    },
+    onError: () =>
+      setRefreshError(
+        "Keel could not check the AngelList sign-in. Retrying shortly.",
+      ),
+    onTimeout: () =>
+      setRefreshError(
+        "Automatic checks paused. Reload this page to check progress.",
+      ),
+  });
 
   useEffect(() => {
     if (
@@ -4720,6 +4681,8 @@ function CashAccountsControl({
             (connection) =>
               connection.status === "ready" &&
               connection.liveRefreshesRemaining > 0 &&
+              (connection.lastLiveAttemptAt == null ||
+                Date.parse(connection.lastLiveAttemptAt) < refreshCutoff) &&
               (connection.lastCheckedAt === null ||
                 Date.parse(connection.lastCheckedAt) < refreshCutoff),
           );
@@ -8210,39 +8173,6 @@ export function App() {
       void refreshAlphaData().catch(() => undefined);
     }
   }, [activeScreen, data, refreshAlphaData]);
-
-  useEffect(() => {
-    const shouldPrefetchAlpha =
-      activeScreen === "holdings" &&
-      holdingsView !== "entities" &&
-      holdingsPageData !== null &&
-      data === null;
-    const shouldPrefetchHoldings =
-      activeScreen !== "holdings" && data !== null && holdingsPageData === null;
-    if (!shouldPrefetchAlpha && !shouldPrefetchHoldings) {
-      return;
-    }
-    const prefetch = () => {
-      if (shouldPrefetchAlpha) {
-        void refreshAlphaData().catch(() => undefined);
-      } else {
-        void refreshHoldingsPage().catch(() => undefined);
-      }
-    };
-    if ("requestIdleCallback" in window) {
-      const idle = window.requestIdleCallback(prefetch, { timeout: 3_000 });
-      return () => window.cancelIdleCallback(idle);
-    }
-    const timer = globalThis.setTimeout(prefetch, 1_000);
-    return () => globalThis.clearTimeout(timer);
-  }, [
-    activeScreen,
-    data,
-    holdingsPageData,
-    holdingsView,
-    refreshAlphaData,
-    refreshHoldingsPage,
-  ]);
 
   useEffect(() => {
     window.scrollTo({ behavior: "auto", top: 0 });

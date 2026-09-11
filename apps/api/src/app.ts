@@ -1126,6 +1126,27 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get("/api/session", async (context) => {
+    try {
+      const provisioned = await context.env.DB.prepare(
+        `SELECT 1 AS allowed FROM users user
+         JOIN households household ON household.owner_user_id = user.id
+         WHERE user.access_subject = ? LIMIT 1`,
+      )
+        .bind(context.get("identity").subject)
+        .first<{ allowed: number }>();
+      return context.json(
+        { authenticated: provisioned !== null },
+        provisioned === null ? 403 : 200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch {
+      return context.json({ authenticated: false }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+  });
+
   app.get("/api/alpha", async (context) => {
     try {
       const data = await repositoryFor(context.env).getAlphaData(
@@ -3499,15 +3520,17 @@ export function createApp(options: AppOptions = {}) {
       const preparation = await repositoryFor(
         context.env,
       ).preparePortfolioWatchScan(context.get("identity").subject);
-      await Promise.all(
-        preparation.jobs.map((job) =>
-          context.env.INGESTION_QUEUE.send({
-            ...job,
-            messageId: crypto.randomUUID(),
-            requestedAt: preparation.checkedAt,
-          }),
-        ),
-      );
+      if (preparation.jobs.length > 0) {
+        await context.env.INGESTION_QUEUE.sendBatch(
+          preparation.jobs.map((job) => ({
+            body: {
+              ...job,
+              messageId: crypto.randomUUID(),
+              requestedAt: preparation.checkedAt,
+            },
+          })),
+        );
+      }
       return context.json(
         PortfolioWatchScanResultSchema.parse({
           checkedAt: preparation.checkedAt,

@@ -175,7 +175,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       LEFT JOIN holding_position_economics_proposals terms ON terms.id = (
         SELECT proposal.id FROM holding_position_economics_proposals proposal
         JOIN holding_position_economics_reviews accepted ON accepted.proposal_id = proposal.id AND accepted.decision = 'accepted'
-        WHERE proposal.position_id = p.id AND NOT EXISTS (
+        WHERE proposal.household_id = p.household_id AND proposal.position_id = p.id AND NOT EXISTS (
           SELECT 1 FROM holding_position_economics_proposals later JOIN holding_position_economics_reviews accepted_later ON accepted_later.proposal_id = later.id AND accepted_later.decision = 'accepted'
           WHERE later.supersedes_proposal_id = proposal.id
         ) ORDER BY accepted.decided_at DESC, proposal.id DESC LIMIT 1

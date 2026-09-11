@@ -19,10 +19,14 @@ import {
 import type { Env } from "./types";
 
 const MAX_RETAINED_PUBLIC_DOCUMENT_BYTES = 5 * 1_048_576;
+// Explicit maintenance progresses over several requests: at most 25 MiB and
+// five R2 reads in one invocation, independent of retained document history.
+const MAX_RETAINED_PUBLIC_DOCUMENTS = 5;
 
 type RetainedPublicExposureRepository = Pick<
   D1ExposureRepository,
   | "listRetainedPublicExposureDocuments"
+  | "recordRetainedPublicExposureDocumentFailures"
   | "recordRetainedPublicExposureEvidence"
   | "recordRetainedProviderExposureEvidence"
   | "recordRetainedStructuredAssetExposureEvidence"
@@ -209,25 +213,22 @@ export class D1RetainedPublicExposureReconciler implements RetainedPublicExposur
     if (this.env.CONNECTOR_CREDENTIAL_KEY === undefined) {
       return { documentCount: 0, skippedDocumentCount: 0, identityCount: 0 };
     }
-    const documents =
-      await this.repository.listRetainedPublicExposureDocuments(accessSubject);
+    const documents = (
+      await this.repository.listRetainedPublicExposureDocuments(accessSubject)
+    ).slice(0, MAX_RETAINED_PUBLIC_DOCUMENTS);
     let skippedDocumentCount = 0;
+    const failedImportIds: string[] = [];
     let identityCount = 0;
+    const publicEvidence: RetainedPublicExposureEvidenceInput[] = [];
+    const providerEvidence: RetainedProviderExposureEvidenceInput[] = [];
+    const structuredEvidence: RetainedStructuredAssetExposureEvidenceInput[] =
+      [];
     for (const document of documents) {
       try {
         const evidence = await evidenceFromDocument(this.env, document);
-        await this.repository.recordRetainedPublicExposureEvidence(
-          accessSubject,
-          evidence.publicEvidence,
-        );
-        await this.repository.recordRetainedProviderExposureEvidence(
-          accessSubject,
-          evidence.providerEvidence,
-        );
-        await this.repository.recordRetainedStructuredAssetExposureEvidence(
-          accessSubject,
-          evidence.structuredAssetEvidence,
-        );
+        publicEvidence.push(...evidence.publicEvidence);
+        providerEvidence.push(...evidence.providerEvidence);
+        structuredEvidence.push(...evidence.structuredAssetEvidence);
         identityCount +=
           evidence.publicEvidence.filter(
             (row) => row.resolutionStatus === "strong_identifier",
@@ -240,7 +241,34 @@ export class D1RetainedPublicExposureReconciler implements RetainedPublicExposur
           ).length;
       } catch {
         skippedDocumentCount += 1;
+        failedImportIds.push(document.importId);
       }
+    }
+    if (failedImportIds.length > 0) {
+      await this.repository.recordRetainedPublicExposureDocumentFailures(
+        accessSubject,
+        failedImportIds,
+      );
+    }
+    // Parsing failures remain isolated to their source. Database failures must
+    // surface for retry; accepted, append-only evidence makes replay safe.
+    if (publicEvidence.length > 0) {
+      await this.repository.recordRetainedPublicExposureEvidence(
+        accessSubject,
+        publicEvidence,
+      );
+    }
+    if (providerEvidence.length > 0) {
+      await this.repository.recordRetainedProviderExposureEvidence(
+        accessSubject,
+        providerEvidence,
+      );
+    }
+    if (structuredEvidence.length > 0) {
+      await this.repository.recordRetainedStructuredAssetExposureEvidence(
+        accessSubject,
+        structuredEvidence,
+      );
     }
     await this.repository.reconcileAcceptedPublicExposureHistory(accessSubject);
     return {

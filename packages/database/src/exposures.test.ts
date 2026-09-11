@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { D1ExposureRepository } from "./exposures";
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
@@ -590,6 +590,15 @@ describe("canonical exposure resolution and aggregation", () => {
     migrationFiles.forEach((file) => {
       sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
     });
+    sqlite.exec(
+      readFileSync(
+        resolve(
+          process.cwd(),
+          "packages/database/migrations/0057_query_cost_bounds.sql",
+        ),
+        "utf8",
+      ),
+    );
     seedManualConnection(sqlite);
     database = new TestD1Database(sqlite);
     repository = new D1ExposureRepository(database as unknown as D1Database);
@@ -2121,6 +2130,69 @@ describe("canonical exposure resolution and aggregation", () => {
         },
       ),
     ).rejects.toMatchObject({ code: "already_resolved" });
+  });
+
+  it("defers failed retained documents for a day while advancing a 120-document backlog", async () => {
+    for (let index = 0; index < 120; index++) {
+      seedAcceptedPosition(sqlite, {
+        id: `position_retained_failure_${index}`,
+        label: "Synthetic retained security",
+        provider: "plaid_investments",
+        reportedExposureName: "Synthetic retained security",
+        positionKind: "direct",
+        valueMinor: 100_000,
+        valueState: "reported",
+        containerKind: "brokerage",
+        ticker: "SYN",
+      });
+    }
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(recordedAt));
+      database.resetRoundTripCount();
+      const initial =
+        await repository.listRetainedPublicExposureDocuments(accessSubject);
+      expect(initial).toHaveLength(120);
+      expect(database.roundTripCount).toBe(2);
+      const failed = initial.slice(0, 5).map((document) => document.importId);
+      await repository.recordRetainedPublicExposureDocumentFailures(
+        accessSubject,
+        failed,
+      );
+      expect(database.roundTripCount).toBe(4);
+      for (const elapsed of [0, 23 * 3_600_000]) {
+        vi.setSystemTime(Date.parse(recordedAt) + elapsed);
+        const next =
+          await repository.listRetainedPublicExposureDocuments(accessSubject);
+        expect(next).toHaveLength(115);
+        expect(
+          next.some((document) => failed.includes(document.importId)),
+        ).toBe(false);
+      }
+      vi.setSystemTime(Date.parse(recordedAt) + 86_400_001);
+      expect(
+        await repository.listRetainedPublicExposureDocuments(accessSubject),
+      ).toHaveLength(120);
+      await repository.recordRetainedPublicExposureDocumentFailures(
+        accessSubject,
+        ["synthetic-unknown"],
+      );
+      expect(
+        sqlite
+          .prepare(
+            "SELECT COUNT(*) AS count FROM retained_public_exposure_document_failures",
+          )
+          .get(),
+      ).toEqual({ count: 5 });
+      await expect(
+        repository.recordRetainedPublicExposureDocumentFailures(
+          "synthetic-unauthorized",
+          failed,
+        ),
+      ).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("groups retained positions by global, source-scoped, or structured identity", async () => {

@@ -12,22 +12,6 @@ const CONNECTOR_TYPE = "plaid-investments";
 const INVESTMENT_SYNC_STALE_AFTER_MS = 5 * 60 * 1_000;
 
 const DUE_AUTOMATIC_INVESTMENT_CONNECTIONS_SQL = `
-  WITH latest_runs AS (
-    SELECT scope.connection_id, run.status, run.started_at, run.error_code,
-           run.quarantined_count,
-           ROW_NUMBER() OVER (
-             PARTITION BY scope.connection_id
-             ORDER BY run.started_at DESC, run.id DESC
-           ) AS recency
-    FROM connector_sync_investment_connections scope
-    JOIN connector_sync_runs run ON run.id = scope.sync_run_id
-  ), pending_reviews AS (
-    SELECT DISTINCT import_scope.household_id, import_scope.connection_id
-    FROM holding_import_connections import_scope
-    JOIN holding_imports import ON import.id = import_scope.import_id
-    JOIN source_documents document ON document.id = import.source_document_id
-    WHERE document.review_status = 'pending_review'
-  )
   SELECT connection.id AS connection_id,
          MIN(COALESCE(latest.started_at, account.created_at)) AS due_order
   FROM connector_accounts account
@@ -51,18 +35,27 @@ const DUE_AUTOMATIC_INVESTMENT_CONNECTIONS_SQL = `
      FROM investment_connection_versions later_state
      WHERE later_state.supersedes_version_id = state.id
    )
-  LEFT JOIN latest_runs latest
-    ON latest.connection_id = connection.id AND latest.recency = 1
-  LEFT JOIN pending_reviews pending
-    ON pending.household_id = connection.household_id
-   AND pending.connection_id = connection.id
+  LEFT JOIN connector_sync_runs latest ON latest.id = (
+    SELECT run.id FROM connector_sync_investment_connections scope
+    JOIN connector_sync_runs run ON run.id = scope.sync_run_id
+    WHERE scope.connection_id = connection.id
+      AND scope.household_id = connection.household_id
+    ORDER BY run.started_at DESC, run.id DESC LIMIT 1
+  )
   WHERE account.connector_type = 'plaid-investments'
     AND account.status = 'active'
     AND account.provider_account_key IS NOT NULL
     AND state.lifecycle_state = 'active'
-    AND pending.connection_id IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM holding_import_connections import_scope
+      JOIN holding_imports import ON import.id = import_scope.import_id
+      JOIN source_documents document ON document.id = import.source_document_id
+      WHERE import_scope.household_id = connection.household_id
+        AND import_scope.connection_id = connection.id
+        AND document.review_status = 'pending_review'
+    )
     AND (
-      latest.connection_id IS NULL
+      latest.id IS NULL
       OR (
         latest.started_at < ?
         AND latest.quarantined_count = 0
@@ -125,6 +118,13 @@ type LatestRunRow = {
   preserved_position_count: number;
   baseline_refresh_status: "not_needed" | "refreshed" | "manual_required";
   holding_import_id: string | null;
+};
+
+type ConnectionStatusRow = LatestRunRow & {
+  connection_id: string;
+  run_id: string | null;
+  pending_import_id: string | null;
+  latest_linked_import_id: string | null;
 };
 
 type InvestmentConnectionRow = {
@@ -289,9 +289,14 @@ export class D1InvestmentConnectionsRepository
   ): Promise<InvestmentConnectionsState> {
     const identity = await findIdentity(this.db, accessSubject);
     const connections = await this.findConnections(identity.household_id);
-    const statuses = await Promise.all(
-      connections.map((connection) =>
-        this.connectionStatus(identity, connection),
+    const statusRows = await this.connectionStatusRows(
+      identity.household_id,
+      connections,
+    );
+    const statuses = connections.map((connection) =>
+      this.connectionStatus(
+        connection,
+        statusRows.get(connection.investment_connection_id ?? ""),
       ),
     );
     return InvestmentConnectionsStateSchema.parse({
@@ -370,13 +375,84 @@ export class D1InvestmentConnectionsRepository
     if (connection === null) {
       throw new Error("Investment connection was not found.");
     }
-    return this.connectionStatus(identity, connection);
+    const rows = await this.connectionStatusRows(identity.household_id, [
+      connection,
+    ]);
+    return this.connectionStatus(
+      connection,
+      rows.get(connection.investment_connection_id ?? ""),
+    );
   }
 
-  private async connectionStatus(
-    identity: HouseholdIdentity,
+  private async connectionStatusRows(
+    householdId: string,
+    connections: readonly ConnectionRow[],
+  ): Promise<Map<string, ConnectionStatusRow>> {
+    const ids = connections.flatMap((connection) =>
+      connection.status === "active" &&
+      connection.investment_lifecycle_state === "active" &&
+      connection.investment_connection_id !== null
+        ? [connection.investment_connection_id]
+        : [],
+    );
+    if (ids.length === 0) return new Map();
+    const rows = await this.db
+      .prepare(
+        `
+      SELECT connection.id AS connection_id, run.id AS run_id,
+        run.status, run.started_at, run.error_code,
+        run.adjudication_policy_version, run.auto_applied_count,
+        run.quarantined_count, run.preserved_position_count,
+        run.baseline_refresh_status, link.holding_import_id,
+        (
+          SELECT import_scope.import_id
+          FROM holding_import_connections import_scope
+          JOIN holding_imports import ON import.id = import_scope.import_id
+          JOIN source_documents document ON document.id = import.source_document_id
+          JOIN connector_sync_imports imported ON imported.holding_import_id = import.id
+          WHERE import_scope.household_id = connection.household_id
+            AND import_scope.connection_id = connection.id
+            AND imported.household_id = connection.household_id
+            AND document.review_status = 'pending_review'
+          ORDER BY imported.created_at DESC, imported.id DESC LIMIT 1
+        ) AS pending_import_id,
+        (
+          SELECT imported.holding_import_id
+          FROM holding_import_connections import_scope
+          JOIN connector_sync_imports imported ON imported.holding_import_id = import_scope.import_id
+          WHERE import_scope.household_id = connection.household_id
+            AND import_scope.connection_id = connection.id
+            AND imported.household_id = connection.household_id
+          ORDER BY imported.created_at DESC, imported.id DESC LIMIT 1
+        ) AS latest_linked_import_id
+      FROM investment_connections connection
+      LEFT JOIN connector_sync_runs run ON run.id = (
+        SELECT candidate.id FROM connector_sync_investment_connections scope
+        JOIN connector_sync_runs candidate ON candidate.id = scope.sync_run_id
+        JOIN connector_investment_connection_versions current_link
+          ON current_link.connector_account_id = candidate.connector_account_id
+          AND current_link.connection_id = connection.id
+          AND current_link.household_id = connection.household_id
+          AND NOT EXISTS (SELECT 1 FROM connector_investment_connection_versions later
+            WHERE later.supersedes_link_id = current_link.id)
+        WHERE scope.household_id = connection.household_id
+          AND scope.connection_id = connection.id
+          AND candidate.household_id = connection.household_id
+        ORDER BY candidate.started_at DESC, candidate.id DESC LIMIT 1
+      )
+      LEFT JOIN connector_sync_imports link ON link.sync_run_id = run.id
+      WHERE connection.household_id = ? AND connection.id IN (SELECT value FROM json_each(?))
+    `,
+      )
+      .bind(householdId, JSON.stringify(ids))
+      .all<ConnectionStatusRow>();
+    return new Map(rows.results.map((row) => [row.connection_id, row]));
+  }
+
+  private connectionStatus(
     connection: ConnectionRow,
-  ): Promise<InvestmentConnectionStatus> {
+    row: ConnectionStatusRow | undefined,
+  ): InvestmentConnectionStatus {
     if (
       connection.status === "revoked" ||
       connection.investment_connection_id === null ||
@@ -426,63 +502,13 @@ export class D1InvestmentConnectionsRepository
       throw new Error("Investment connection lifecycle is inconsistent.");
     }
 
-    const [latestRun, latestPendingImport, latestLinkedImport] =
-      await Promise.all([
-        this.db
-          .prepare(
-            `SELECT run.status, run.started_at, run.error_code,
-                  run.adjudication_policy_version,
-                  run.auto_applied_count,
-                  run.quarantined_count,
-                  run.preserved_position_count,
-                  run.baseline_refresh_status,
-                  link.holding_import_id
-           FROM connector_sync_runs run
-           JOIN connector_sync_investment_connections run_scope
-             ON run_scope.sync_run_id = run.id
-           LEFT JOIN connector_sync_imports link ON link.sync_run_id = run.id
-           WHERE run.connector_account_id = ? AND run.household_id = ?
-             AND run_scope.connection_id = ?
-           ORDER BY run.started_at DESC, run.id DESC
-           LIMIT 1`,
-          )
-          .bind(
-            connection.id,
-            identity.household_id,
-            connection.investment_connection_id,
-          )
-          .first<LatestRunRow>(),
-        this.db
-          .prepare(
-            `SELECT link.holding_import_id AS id
-           FROM connector_sync_imports link
-           JOIN holding_imports import ON import.id = link.holding_import_id
-           JOIN holding_import_connections import_scope
-             ON import_scope.import_id = import.id
-           JOIN source_documents document
-             ON document.id = import.source_document_id
-           WHERE link.household_id = ?
-             AND import_scope.connection_id = ?
-             AND document.review_status = 'pending_review'
-           ORDER BY link.created_at DESC, link.id DESC
-           LIMIT 1`,
-          )
-          .bind(identity.household_id, connection.investment_connection_id)
-          .first<{ id: string }>(),
-        this.db
-          .prepare(
-            `SELECT link.holding_import_id AS id
-             FROM connector_sync_imports link
-             JOIN holding_import_connections import_scope
-               ON import_scope.import_id = link.holding_import_id
-             WHERE link.household_id = ?
-               AND import_scope.connection_id = ?
-             ORDER BY link.created_at DESC, link.id DESC
-             LIMIT 1`,
-          )
-          .bind(identity.household_id, connection.investment_connection_id)
-          .first<{ id: string }>(),
-      ]);
+    const latestRun = row?.run_id == null ? null : row;
+    const latestPendingImport =
+      row?.pending_import_id == null ? null : { id: row.pending_import_id };
+    const latestLinkedImport =
+      row?.latest_linked_import_id == null
+        ? null
+        : { id: row.latest_linked_import_id };
     const staleRunning =
       latestRun !== null &&
       (latestRun.status === "queued" || latestRun.status === "running") &&

@@ -1,4 +1,5 @@
 import {
+  MAX_PORTFOLIO_WATCH_JOB_BATCH,
   PLAID_INVESTMENTS_DAILY_SYNC_CRON,
   PortfolioWatchSourceJobMessageSchema,
 } from "@keel/connectors";
@@ -9,7 +10,7 @@ import {
 
 import type { Env } from "./types";
 
-export const MAX_DAILY_PORTFOLIO_WATCH_JOBS = 100;
+export const MAX_DAILY_PORTFOLIO_WATCH_JOBS = MAX_PORTFOLIO_WATCH_JOB_BATCH;
 
 type ScheduledPortfolioWatchDependencies = {
   repository: ScheduledPortfolioWatchRepository;

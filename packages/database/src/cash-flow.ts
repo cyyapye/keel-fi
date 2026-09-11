@@ -28,6 +28,8 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
+import { groupRowsBy } from "./group-rows";
+
 const CONNECTOR_TYPE = "plaid-cash";
 const DAILY_CHECK_LIMIT = 4;
 const RETENTION_MONTHS = 24;
@@ -1170,7 +1172,8 @@ export class D1CashFlowRepository implements CashFlowRepository {
     householdId: string,
     connectionId?: string,
   ): Promise<readonly ConnectionRow[]> {
-    const today = utcDayPrefix();
+    const today = `${utcDayPrefix()}T00:00:00.000Z`;
+    const tomorrow = new Date(Date.parse(today) + 86_400_000).toISOString();
     return all<ConnectionRow>(
       this.db
         .prepare(
@@ -1227,7 +1230,7 @@ export class D1CashFlowRepository implements CashFlowRepository {
                       AND run.cursor IN (
                         'cash-flow-initial-v1', 'cash-flow-incremental-v1'
                       )
-                      AND substr(run.started_at, 1, 10) = ?
+                      AND run.started_at >= ? AND run.started_at < ?
                   ) AS daily_checks_used,
                   (
                     SELECT COUNT(*) FROM connector_sync_runs run
@@ -1236,7 +1239,7 @@ export class D1CashFlowRepository implements CashFlowRepository {
                         'cash-flow-initial-v1', 'cash-flow-incremental-v1'
                       )
                       AND run.status = 'succeeded'
-                      AND substr(run.started_at, 1, 10) = ?
+                      AND run.started_at >= ? AND run.started_at < ?
                   ) AS successful_checks_today
            FROM connector_accounts account
            LEFT JOIN cash_flow_connections flow
@@ -1248,7 +1251,9 @@ export class D1CashFlowRepository implements CashFlowRepository {
         )
         .bind(
           today,
+          tomorrow,
           today,
+          tomorrow,
           householdId,
           CONNECTOR_TYPE,
           connectionId ?? null,
@@ -1427,23 +1432,21 @@ export class D1CashFlowRepository implements CashFlowRepository {
         )
         .bind(householdId),
     );
-    return Promise.all(
-      proposals.map(async (proposal) => {
-        const [months, categories] = await Promise.all([
-          all<ProposalMonthRow>(
-            this.db
-              .prepare(
-                `SELECT month, outflow_minor, transaction_count
+    const [months, categories] = await Promise.all([
+      all<ProposalMonthRow & { proposal_id: string }>(
+        this.db
+          .prepare(
+            `SELECT proposal_id, month, outflow_minor, transaction_count
                  FROM cash_flow_proposal_months
-                 WHERE household_id = ? AND proposal_id = ?
+                 WHERE household_id = ? AND proposal_id IN (SELECT id FROM cash_flow_proposals WHERE household_id = ? AND status IN ('pending_review', 'ready_for_plan'))
                  ORDER BY month`,
-              )
-              .bind(householdId, proposal.id),
-          ),
-          all<ProposalCategoryRow>(
-            this.db
-              .prepare(
-                `SELECT category.id, category.category, category.label,
+          )
+          .bind(householdId, householdId),
+      ),
+      all<ProposalCategoryRow & { proposal_id: string }>(
+        this.db
+          .prepare(
+            `SELECT category.proposal_id, category.id, category.category, category.label,
                         category.total_minor, category.average_monthly_minor,
                         category.transaction_count,
                         category.default_treatment,
@@ -1452,111 +1455,118 @@ export class D1CashFlowRepository implements CashFlowRepository {
                  FROM cash_flow_proposal_categories category
                  LEFT JOIN cash_flow_review_decisions decision
                    ON decision.proposal_category_id = category.id
-                 WHERE category.household_id = ? AND category.proposal_id = ?
+                 WHERE category.household_id = ? AND category.proposal_id IN (SELECT id FROM cash_flow_proposals WHERE household_id = ? AND status IN ('pending_review', 'ready_for_plan'))
                  ORDER BY category.total_minor DESC, category.category`,
-              )
-              .bind(householdId, proposal.id),
-          ),
-        ]);
-        const planning: CashFlowPlanningContext = {
-          baseCashFlowPlanId: proposal.base_cash_flow_plan_id,
-          baseForecastSnapshotId: proposal.base_forecast_snapshot_id,
-          baseForecastSnapshotVersion: proposal.base_forecast_snapshot_version,
-          householdBurnMonthlyMinor: proposal.household_burn_monthly_minor,
-          businessBurnMonthlyMinor: proposal.business_burn_monthly_minor,
-          debtPaymentContextMonthlyMinor:
-            proposal.debt_payment_context_monthly_minor,
-          protectedCashFloorMinor: proposal.protected_cash_floor_minor,
-          fiEligibleLiquidMinor: proposal.fi_eligible_liquid_minor,
-        };
-        const totals = categories.reduce(
-          (result, category) => {
-            const treatment =
-              category.reviewed_treatment ?? category.default_treatment;
-            if (treatment === "household") {
-              result.household = addMinorUnits(
-                result.household,
-                category.total_minor,
-              );
-            } else if (treatment === "business") {
-              result.business = addMinorUnits(
-                result.business,
-                category.total_minor,
-              );
-            }
-            return result;
-          },
-          { household: 0, business: 0 },
-        );
-        const comparison = createCashFlowComparison(
-          planning,
-          roundedAverage(totals.household),
-          roundedAverage(totals.business),
-          !categories.some((category) => {
-            const treatment =
-              category.reviewed_treatment ?? category.default_treatment;
-            return (
-              category.category === "LOAN_PAYMENTS" &&
-              (treatment === "household" || treatment === "business")
-            );
-          }),
-        );
-        const changeNote = categories.find(
-          (category) => category.change_note !== null,
-        )?.change_note;
-        return {
-          id: proposal.id,
-          status: proposal.status,
-          observedAt: proposal.observed_at,
-          periodStartMonth: proposal.period_start_month,
-          periodEndMonth: proposal.period_end_month,
-          transactionCount: proposal.transaction_count,
-          pendingExcludedCount: proposal.pending_excluded_count,
-          unsupportedExcludedCount: proposal.unsupported_excluded_count,
-          unreviewedAccountExcludedCount:
-            proposal.unreviewed_account_excluded_count,
-          coveredConnectionCount: proposal.covered_connection_count,
-          planning,
-          comparison,
-          months: months.map((month) => ({
-            month: month.month,
-            outflowMinor: month.outflow_minor,
-            transactionCount: month.transaction_count,
-          })),
-          categories: categories.map((category) => ({
-            id: category.id,
-            category: CashFlowCategorySchema.parse(category.category),
-            label: category.label,
-            totalMinor: category.total_minor,
-            averageMonthlyMinor: category.average_monthly_minor,
-            transactionCount: category.transaction_count,
-            defaultTreatment: CashFlowTreatmentSchema.parse(
-              category.default_treatment,
-            ),
-            reviewedTreatment:
-              category.reviewed_treatment === null
-                ? null
-                : CashFlowTreatmentSchema.parse(category.reviewed_treatment),
-          })),
-          planSuggestion:
-            proposal.status === "ready_for_plan" &&
-            proposal.suggested_household_burn_monthly_minor !== null &&
-            proposal.suggested_business_burn_monthly_minor !== null
-              ? {
-                  proposalId: proposal.id,
-                  householdBurnMonthlyMinor:
-                    proposal.suggested_household_burn_monthly_minor,
-                  businessBurnMonthlyMinor:
-                    proposal.suggested_business_burn_monthly_minor,
-                  changeNote:
-                    `Observed cash flow review: ${changeNote ?? "Reviewed category treatment."}`.slice(
-                      0,
-                      500,
-                    ),
-                }
-              : null,
-        } satisfies CashFlowProposal;
-      }),
+          )
+          .bind(householdId, householdId),
+      ),
+    ]);
+    const monthsByProposal = groupRowsBy(months, (row) => row.proposal_id);
+    const categoriesByProposal = groupRowsBy(
+      categories,
+      (row) => row.proposal_id,
     );
+    return proposals.map((proposal) => {
+      const months = monthsByProposal.get(proposal.id) ?? [];
+      const categories = categoriesByProposal.get(proposal.id) ?? [];
+      const planning: CashFlowPlanningContext = {
+        baseCashFlowPlanId: proposal.base_cash_flow_plan_id,
+        baseForecastSnapshotId: proposal.base_forecast_snapshot_id,
+        baseForecastSnapshotVersion: proposal.base_forecast_snapshot_version,
+        householdBurnMonthlyMinor: proposal.household_burn_monthly_minor,
+        businessBurnMonthlyMinor: proposal.business_burn_monthly_minor,
+        debtPaymentContextMonthlyMinor:
+          proposal.debt_payment_context_monthly_minor,
+        protectedCashFloorMinor: proposal.protected_cash_floor_minor,
+        fiEligibleLiquidMinor: proposal.fi_eligible_liquid_minor,
+      };
+      const totals = categories.reduce(
+        (result, category) => {
+          const treatment =
+            category.reviewed_treatment ?? category.default_treatment;
+          if (treatment === "household") {
+            result.household = addMinorUnits(
+              result.household,
+              category.total_minor,
+            );
+          } else if (treatment === "business") {
+            result.business = addMinorUnits(
+              result.business,
+              category.total_minor,
+            );
+          }
+          return result;
+        },
+        { household: 0, business: 0 },
+      );
+      const comparison = createCashFlowComparison(
+        planning,
+        roundedAverage(totals.household),
+        roundedAverage(totals.business),
+        !categories.some((category) => {
+          const treatment =
+            category.reviewed_treatment ?? category.default_treatment;
+          return (
+            category.category === "LOAN_PAYMENTS" &&
+            (treatment === "household" || treatment === "business")
+          );
+        }),
+      );
+      const changeNote = categories.find(
+        (category) => category.change_note !== null,
+      )?.change_note;
+      return {
+        id: proposal.id,
+        status: proposal.status,
+        observedAt: proposal.observed_at,
+        periodStartMonth: proposal.period_start_month,
+        periodEndMonth: proposal.period_end_month,
+        transactionCount: proposal.transaction_count,
+        pendingExcludedCount: proposal.pending_excluded_count,
+        unsupportedExcludedCount: proposal.unsupported_excluded_count,
+        unreviewedAccountExcludedCount:
+          proposal.unreviewed_account_excluded_count,
+        coveredConnectionCount: proposal.covered_connection_count,
+        planning,
+        comparison,
+        months: months.map((month) => ({
+          month: month.month,
+          outflowMinor: month.outflow_minor,
+          transactionCount: month.transaction_count,
+        })),
+        categories: categories.map((category) => ({
+          id: category.id,
+          category: CashFlowCategorySchema.parse(category.category),
+          label: category.label,
+          totalMinor: category.total_minor,
+          averageMonthlyMinor: category.average_monthly_minor,
+          transactionCount: category.transaction_count,
+          defaultTreatment: CashFlowTreatmentSchema.parse(
+            category.default_treatment,
+          ),
+          reviewedTreatment:
+            category.reviewed_treatment === null
+              ? null
+              : CashFlowTreatmentSchema.parse(category.reviewed_treatment),
+        })),
+        planSuggestion:
+          proposal.status === "ready_for_plan" &&
+          proposal.suggested_household_burn_monthly_minor !== null &&
+          proposal.suggested_business_burn_monthly_minor !== null
+            ? {
+                proposalId: proposal.id,
+                householdBurnMonthlyMinor:
+                  proposal.suggested_household_burn_monthly_minor,
+                businessBurnMonthlyMinor:
+                  proposal.suggested_business_burn_monthly_minor,
+                changeNote:
+                  `Observed cash flow review: ${changeNote ?? "Reviewed category treatment."}`.slice(
+                    0,
+                    500,
+                  ),
+              }
+            : null,
+      } satisfies CashFlowProposal;
+    });
   }
 }

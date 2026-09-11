@@ -923,10 +923,10 @@ describe("Keel API", () => {
     };
 
     const env = testEnv("local");
-    const send = vi
-      .fn<Queue["send"]>()
-      .mockResolvedValue({} as Awaited<ReturnType<Queue["send"]>>);
-    env.INGESTION_QUEUE = { send } as unknown as Queue;
+    const sendBatch = vi
+      .fn<Queue["sendBatch"]>()
+      .mockResolvedValue({} as Awaited<ReturnType<Queue["sendBatch"]>>);
+    env.INGESTION_QUEUE = { sendBatch } as unknown as Queue;
     const response = await createApp({ repository }).request(
       "/api/watch/scan",
       { method: "POST" },
@@ -942,14 +942,21 @@ describe("Keel API", () => {
     expect(preparePortfolioWatchScan).toHaveBeenCalledWith(
       "synthetic-access-subject",
     );
-    expect(send).toHaveBeenCalledWith(
+    expect(sendBatch).toHaveBeenCalledOnce();
+    expect(sendBatch).toHaveBeenCalledWith([
       expect.objectContaining({
-        type: "portfolio_watch_source_verify",
-        sourceId: "source-1",
+        body: expect.objectContaining({
+          type: "portfolio_watch_source_verify",
+          sourceId: "source-1",
+        }),
       }),
-    );
-    expect(send.mock.calls[0]?.[0]).not.toHaveProperty("url");
-    expect(send.mock.calls[0]?.[0]).not.toHaveProperty("householdId");
+    ]);
+    expect(
+      [...(sendBatch.mock.calls[0]?.[0] ?? [])][0]?.body,
+    ).not.toHaveProperty("url");
+    expect(
+      [...(sendBatch.mock.calls[0]?.[0] ?? [])][0]?.body,
+    ).not.toHaveProperty("householdId");
   });
 
   it("stages a bounded AngelList CSV in private storage before review", async () => {

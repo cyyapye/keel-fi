@@ -21,6 +21,8 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
+import { groupRowsBy } from "./group-rows";
+
 const CONNECTOR_TYPE = "plaid-liabilities";
 const LIVE_REFRESH_LIMIT = 4;
 const STALE_AFTER_MS = 45 * 24 * 60 * 60 * 1_000;
@@ -172,8 +174,13 @@ async function findIdentity(
   return identity;
 }
 
-function monthPrefix(at: Date = new Date()): string {
-  return at.toISOString().slice(0, 7);
+function monthBounds(at: Date = new Date()): readonly [string, string] {
+  return [
+    new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1)).toISOString(),
+    new Date(
+      Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1),
+    ).toISOString(),
+  ];
 }
 
 function issuesFromJson(raw: string): string[] {
@@ -335,11 +342,12 @@ export class D1LiabilitiesRepository implements LiabilitiesRepository {
     configured: boolean,
   ): Promise<LiabilitiesState> {
     const identity = await findIdentity(this.db, accessSubject);
+    const acceptedRequest = this.acceptedLiabilities(identity.household_id);
     const [connections, acceptedLiabilities, pendingProposals, planning] =
       await Promise.all([
         this.connectionStateRows(identity.household_id),
-        this.acceptedLiabilities(identity.household_id),
-        this.pendingProposals(identity.household_id),
+        acceptedRequest,
+        this.pendingProposals(identity.household_id, acceptedRequest),
         this.planningContext(identity.household_id),
       ]);
     const errorCode = connections
@@ -591,7 +599,7 @@ export class D1LiabilitiesRepository implements LiabilitiesRepository {
              WHERE used.household_id = ?
                AND used.connector_account_id = ?
                AND used.cursor = 'liability-live-v1'
-               AND substr(used.started_at, 1, 7) = ?
+               AND used.started_at >= ? AND used.started_at < ?
            ) < ?
          )`,
       )
@@ -610,7 +618,7 @@ export class D1LiabilitiesRepository implements LiabilitiesRepository {
         refreshKind,
         identity.household_id,
         connection.id,
-        monthPrefix(new Date(startedAt)),
+        ...monthBounds(new Date(startedAt)),
         LIVE_REFRESH_LIMIT,
       )
       .run();
@@ -776,6 +784,7 @@ export class D1LiabilitiesRepository implements LiabilitiesRepository {
         `SELECT row.id
          FROM liability_proposal_rows row
          JOIN liability_proposals proposal ON proposal.id = row.proposal_id
+           AND proposal.household_id = row.household_id
          WHERE row.household_id = ? AND row.natural_key_sha256 = ?
            AND proposal.source = 'manual'
            AND proposal.status = 'pending_review'
@@ -1191,14 +1200,14 @@ export class D1LiabilitiesRepository implements LiabilitiesRepository {
                SELECT COUNT(*) FROM connector_sync_runs run
                WHERE run.connector_account_id = account.id
                  AND run.cursor = 'liability-live-v1'
-                 AND substr(run.started_at, 1, 7) = ?
+                 AND run.started_at >= ? AND run.started_at < ?
              ) AS live_refreshes_used
            FROM connector_accounts account
            WHERE account.household_id = ? AND account.connector_type = ?
              AND account.status = 'active'
            ORDER BY account.display_label, account.id`,
         )
-        .bind(monthPrefix(), householdId, CONNECTOR_TYPE),
+        .bind(...monthBounds(), householdId, CONNECTOR_TYPE),
     );
   }
 
@@ -1285,6 +1294,7 @@ export class D1LiabilitiesRepository implements LiabilitiesRepository {
 
   private async pendingProposals(
     householdId: string,
+    acceptedRequest: Promise<AcceptedLiability[]>,
   ): Promise<LiabilityProposal[]> {
     const proposals = await all<ProposalRow>(
       this.db
@@ -1306,43 +1316,46 @@ export class D1LiabilitiesRepository implements LiabilitiesRepository {
         )
         .bind(householdId),
     );
-    const accepted = await this.acceptedLiabilities(householdId);
+    const accepted = await acceptedRequest;
     const acceptedByKey = new Map(
       accepted.map((liability) => [liability.naturalKeySha256, liability]),
     );
-    return Promise.all(
-      proposals.map(async (proposal) => {
-        const sourceRows = await all<ProposalSourceRow>(
-          this.db
-            .prepare(
-              `SELECT id, natural_key_sha256, source, institution_label,
+    const sourceRows = await all<ProposalSourceRow & { proposal_id: string }>(
+      this.db
+        .prepare(
+          `SELECT proposal_id, id, natural_key_sha256, source, institution_label,
                       account_label, kind, classification, balance_minor,
                       value_state, payment_minor, interest_rate_ppm,
                       next_payment_due_date, is_overdue, effective_date,
                       observed_at, issues_json
                FROM liability_proposal_rows
-               WHERE household_id = ? AND proposal_id = ?
+               WHERE household_id = ? AND proposal_id IN (
+                 SELECT id FROM liability_proposals
+                 WHERE household_id = ? AND status = 'pending_review'
+               )
                ORDER BY account_label, id`,
-            )
-            .bind(householdId, proposal.id),
-        );
-        const rows = sourceRows.map((row) =>
-          proposalRowFrom(row, acceptedByKey.get(row.natural_key_sha256)),
-        );
-        return {
-          id: proposal.id,
-          connectionId: proposal.connector_account_id,
-          institutionLabel: proposal.institution_label,
-          source: proposal.source,
-          status: "pending_review" as const,
-          refreshKind: proposal.refresh_kind,
-          observedAt: proposal.observed_at,
-          retrievedAt: proposal.retrieved_at,
-          summary: summarize(rows),
-          rows,
-        };
-      }),
+        )
+        .bind(householdId, householdId),
     );
+    const rowsByProposal = groupRowsBy(sourceRows, (row) => row.proposal_id);
+    return proposals.map((proposal) => {
+      const sourceRows = rowsByProposal.get(proposal.id) ?? [];
+      const rows = sourceRows.map((row) =>
+        proposalRowFrom(row, acceptedByKey.get(row.natural_key_sha256)),
+      );
+      return {
+        id: proposal.id,
+        connectionId: proposal.connector_account_id,
+        institutionLabel: proposal.institution_label,
+        source: proposal.source,
+        status: "pending_review" as const,
+        refreshKind: proposal.refresh_kind,
+        observedAt: proposal.observed_at,
+        retrievedAt: proposal.retrieved_at,
+        summary: summarize(rows),
+        rows,
+      };
+    });
   }
 
   private async planningContext(householdId: string): Promise<PlanningContext> {

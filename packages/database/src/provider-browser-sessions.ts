@@ -203,13 +203,20 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
     if (current === null) {
       throw new ProviderBrowserSessionRepositoryError("session_not_found");
     }
-    await this.expireActive(
-      identity.household_id,
-      current.provider,
-      this.now(),
-    );
+    // Lease/create/open mutations persist expiry. Status is a read projection.
+    const expired =
+      ["requested", "starting", "ready", "opened"].includes(current.status) &&
+      Date.parse(current.expires_at) <= this.now().getTime();
     return toSession(
-      await this.requireSession(identity.household_id, sessionId),
+      expired
+        ? {
+            ...current,
+            status: "expired",
+            error_code: null,
+            opened_at: null,
+            connected_at: null,
+          }
+        : current,
     );
   }
 

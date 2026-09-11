@@ -49,6 +49,7 @@ type ConnectionStateRow = ConnectionRow & {
   latest_run_status: "queued" | "running" | "succeeded" | "failed" | null;
   latest_error_code: string | null;
   live_refreshes_used: number;
+  last_live_attempt_at: string | null;
 };
 
 type ProposalSourceRow = {
@@ -249,8 +250,13 @@ async function findIdentity(
   return identity;
 }
 
-function monthPrefix(at: Date = new Date()): string {
-  return at.toISOString().slice(0, 7);
+function monthBounds(at: Date = new Date()): readonly [string, string] {
+  return [
+    new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1)).toISOString(),
+    new Date(
+      Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1),
+    ).toISOString(),
+  ];
 }
 
 function issuesFromJson(raw: string): string[] {
@@ -606,6 +612,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
             ? "needs_attention"
             : "ready",
         lastCheckedAt: connection.last_synced_at,
+        lastLiveAttemptAt: connection.last_live_attempt_at,
         liveRefreshLimit: LIVE_REFRESH_LIMIT,
         liveRefreshesUsed: connection.live_refreshes_used,
         liveRefreshesRemaining: Math.max(
@@ -910,7 +917,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
              WHERE used.household_id = ?
                AND used.connector_account_id = ?
                AND used.cursor = 'cash-live-v1'
-               AND substr(used.started_at, 1, 7) = ?
+               AND used.started_at >= ? AND used.started_at < ?
            ) < ?
          )`,
       )
@@ -925,7 +932,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         refreshKind,
         identity.household_id,
         connection.id,
-        monthPrefix(new Date(startedAt)),
+        ...monthBounds(new Date(startedAt)),
         LIVE_REFRESH_LIMIT,
       )
       .run();
@@ -985,7 +992,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
            WHERE used.household_id = ?
              AND used.connector_account_id = ?
              AND used.cursor = 'cash-live-v1'
-             AND substr(used.started_at, 1, 7) = ?
+             AND used.started_at >= ? AND used.started_at < ?
          ) < ?`,
       )
       .bind(
@@ -1000,7 +1007,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         refreshedAfter,
         identity.household_id,
         connection.id,
-        monthPrefix(new Date(startedAt)),
+        ...monthBounds(new Date(startedAt)),
         LIVE_REFRESH_LIMIT,
       )
       .run();
@@ -1653,6 +1660,11 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
              account.status, account.last_synced_at,
              account.provider_account_key,
              (
+               SELECT run.started_at FROM connector_sync_runs run
+               WHERE run.connector_account_id = account.id AND run.cursor = 'cash-live-v1'
+               ORDER BY run.started_at DESC LIMIT 1
+             ) AS last_live_attempt_at,
+             (
                SELECT run.status FROM connector_sync_runs run
                WHERE run.connector_account_id = account.id
                ORDER BY run.started_at DESC, run.id DESC LIMIT 1
@@ -1666,32 +1678,15 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
                SELECT COUNT(*) FROM connector_sync_runs run
                WHERE run.connector_account_id = account.id
                  AND run.cursor = 'cash-live-v1'
-                 AND substr(run.started_at, 1, 7) = ?
+                 AND run.started_at >= ? AND run.started_at < ?
              ) AS live_refreshes_used
            FROM connector_accounts account
            WHERE account.household_id = ? AND account.connector_type = ?
              AND account.status = 'active'
            ORDER BY account.display_label, account.id`,
         )
-        .bind(monthPrefix(), householdId, CONNECTOR_TYPE),
+        .bind(...monthBounds(), householdId, CONNECTOR_TYPE),
     );
-  }
-
-  private async liveRefreshesUsed(
-    householdId: string,
-    connectionId: string,
-  ): Promise<number> {
-    const row = await this.db
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM connector_sync_runs
-         WHERE household_id = ? AND connector_account_id = ?
-           AND cursor = 'cash-live-v1'
-           AND substr(started_at, 1, 7) = ?`,
-      )
-      .bind(householdId, connectionId, monthPrefix())
-      .first<{ count: number }>();
-    return row?.count ?? 0;
   }
 
   private async hasActiveRefresh(
@@ -1832,15 +1827,15 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
           ORDER BY observed_at, ordering_id LIMIT 20
         )
       )
-      SELECT row.*, proposal.connector_account_id, proposal.refresh_kind,
-             proposal.observed_at AS proposal_observed_at, proposal.retrieved_at,
-             proposal.is_latest
-      FROM bounded proposal
-      JOIN cash_balance_proposal_rows row ON row.proposal_id = proposal.id
+      SELECT row.*, pending_proposal.connector_account_id, pending_proposal.refresh_kind,
+             pending_proposal.observed_at AS proposal_observed_at, pending_proposal.retrieved_at,
+             pending_proposal.is_latest
+      FROM bounded pending_proposal
+      JOIN cash_balance_proposal_rows row ON row.proposal_id = pending_proposal.id
       WHERE NOT EXISTS (
           SELECT 1 FROM cash_balance_review_decisions decision WHERE decision.proposal_row_id = row.id
         )
-      ORDER BY proposal.observed_at DESC, proposal.ordering_id DESC, row.account_label, row.id
+      ORDER BY pending_proposal.observed_at DESC, pending_proposal.ordering_id DESC, row.account_label, row.id
     `,
         )
         .bind(householdId),

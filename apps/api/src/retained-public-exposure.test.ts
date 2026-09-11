@@ -165,6 +165,9 @@ function sourceResponse(): Uint8Array {
 function repository() {
   return {
     listRetainedPublicExposureDocuments: vi.fn(),
+    recordRetainedPublicExposureDocumentFailures: vi
+      .fn()
+      .mockResolvedValue(undefined),
     recordRetainedPublicExposureEvidence: vi.fn().mockResolvedValue(undefined),
     recordRetainedProviderExposureEvidence: vi
       .fn()
@@ -299,6 +302,48 @@ describe("retained public exposure reconciliation", () => {
     );
   });
 
+  it("caps a 120-document backlog at five object reads and one write batch per evidence kind", async () => {
+    const bytes = sourceResponse();
+    const evidenceSha256 = createHash("sha256").update(bytes).digest("hex");
+    const source = repository();
+    source.listRetainedPublicExposureDocuments.mockResolvedValue(
+      Array.from({ length: 120 }, (_, index) => ({
+        importId: `synthetic-import-${index}`,
+        objectKey: `synthetic/${index}.json`,
+        byteSize: bytes.byteLength,
+        evidenceSha256,
+        rows: [{ importRowId: `synthetic-row-${index}`, sourceRowNumber: 1 }],
+      })),
+    );
+    const get = vi.fn().mockResolvedValue({
+      size: bytes.byteLength,
+      arrayBuffer: vi.fn().mockResolvedValue(bytes.buffer),
+    });
+    const env = {
+      CONNECTOR_CREDENTIAL_KEY: credentialKey,
+      DOCUMENTS: { get },
+    } as unknown as Env;
+    const result = await new D1RetainedPublicExposureReconciler(
+      env,
+      source,
+    ).reconcile("synthetic-access-subject");
+    expect(result).toEqual({
+      documentCount: 5,
+      skippedDocumentCount: 0,
+      identityCount: 5,
+    });
+    expect(get).toHaveBeenCalledTimes(5);
+    expect(source.recordRetainedPublicExposureEvidence).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(
+      source.recordRetainedPublicExposureEvidence.mock.calls[0]![1],
+    ).toHaveLength(5);
+    expect(source.reconcileAcceptedPublicExposureHistory).toHaveBeenCalledTimes(
+      1,
+    );
+  });
+
   it("fails closed per source document without blocking prior evidence reconciliation", async () => {
     const bytes = sourceResponse();
     const source = repository();
@@ -331,6 +376,11 @@ describe("retained public exposure reconciliation", () => {
       identityCount: 0,
     });
     expect(source.recordRetainedPublicExposureEvidence).not.toHaveBeenCalled();
+    expect(
+      source.recordRetainedPublicExposureDocumentFailures,
+    ).toHaveBeenCalledWith("synthetic-access-subject", [
+      "import_synthetic_retained",
+    ]);
     expect(
       source.recordRetainedProviderExposureEvidence,
     ).not.toHaveBeenCalled();

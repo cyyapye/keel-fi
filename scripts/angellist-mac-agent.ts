@@ -25,6 +25,7 @@ import {
   type AngelListMacAgentLease,
   type MacAgentAuthorization,
 } from "../packages/domain/src/index";
+import { waitForKeelSession } from "./keel-session-check";
 import { runProviderAgentPolling } from "./provider-agent-polling";
 import {
   MacAgentAccessError,
@@ -583,29 +584,8 @@ async function angelListPage(
 }
 
 async function waitForKeelSignIn(page: Page, keelOrigin: URL): Promise<void> {
-  const deadline = Date.now() + SETUP_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (new URL(page.url()).origin === keelOrigin.origin) {
-      const ready = await page
-        .evaluate(async () => {
-          const response = await fetch("/api/alpha", {
-            credentials: "same-origin",
-            headers: { Accept: "application/json" },
-          });
-          return (
-            response.ok &&
-            (response.headers.get("Content-Type") ?? "").includes(
-              "application/json",
-            )
-          );
-        })
-        .catch(() => false);
-      if (ready) {
-        return;
-      }
-    }
-    await sleep(1_000);
-  }
+  if (await waitForKeelSession(page, keelOrigin, SETUP_TIMEOUT_MS)) return;
+
   throw new Error("Keel sign-in was not completed within 30 minutes.");
 }
 

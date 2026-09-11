@@ -21,6 +21,8 @@ export const MAX_OFFICIAL_COMPANY_RESPONSE_BYTES = 1_024 * 1_024;
  * a successful verification into a retrying queue failure.
  */
 export const MAX_COMPANY_WEB_DISCOVERY_CANDIDATES = 40;
+// Admission bound for a shared free account; see recurring-work-budgets.md.
+export const MAX_PORTFOLIO_WATCH_JOB_BATCH = 40;
 export const MAX_COMPANY_WEB_EVENT_TEXT_CHARS = 2_000;
 export const MAX_COMPANY_WEB_DOCUMENT_CHARS =
   MAX_OFFICIAL_COMPANY_RESPONSE_BYTES;

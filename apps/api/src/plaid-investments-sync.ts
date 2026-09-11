@@ -1162,7 +1162,8 @@ async function syncDueInvestmentConnectionStatus(
   if (
     !isAutomaticInvestmentSyncEligible(connection) ||
     !connection.automaticUpdatesEnabled ||
-    connection.latestImportId !== null
+    connection.latestImportId !== null ||
+    (connection.lastSyncedAt !== null && connection.lastSyncedAt >= syncedAfter)
   ) {
     return connection;
   }
@@ -1201,7 +1202,16 @@ export async function syncDueInvestmentConnections(
   const state = await input.repository.getState(input.accessSubject, true);
   const now = input.now ?? new Date();
   const syncedAfter = automaticInvestmentSyncCutoff(now);
-  for (const connection of state.connections) {
+  const due = state.connections.filter(
+    (connection) =>
+      isAutomaticInvestmentSyncEligible(connection) &&
+      connection.automaticUpdatesEnabled &&
+      connection.latestImportId === null &&
+      (connection.lastSyncedAt === null ||
+        connection.lastSyncedAt < syncedAfter),
+  );
+  if (due.length === 0) return state;
+  for (const connection of due) {
     await syncDueInvestmentConnectionStatus(
       input,
       connection,

@@ -1382,6 +1382,7 @@ test("shows clear health and repair actions for portfolio agents", async ({
 test("keeps unverified sign-ins and page-reading failures separate", async ({
   page,
 }) => {
+  await page.clock.install({ time: new Date("2026-09-04T12:01:00.000Z") });
   const sessionId = "33333333-3333-4333-8333-333333333333";
   const sydecarSessionId = "44444444-4444-4444-8444-444444444444";
   let sessionStatus: "opened" | "failed" = "opened";
@@ -1493,6 +1494,7 @@ test("keeps unverified sign-ins and page-reading failures separate", async ({
   await expect(sources.getByText(/Tokenfolio reconnected/u)).toHaveCount(0);
   sessionStatus = "failed";
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.clock.runFor(5_100);
   await expect(
     sources.getByText(
       "The sign-in did not stay available for automatic updates. Keel has not marked it connected.",
@@ -1613,12 +1615,27 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
 test("starts a provider-scoped browser reconnect without terminal handoff", async ({
   page,
 }) => {
+  await page.clock.install({ time: new Date("2026-08-26T12:00:00.000Z") });
+  let reconnectChecks = 0;
+  let alphaChecks = 0;
   const sessionId = "22222222-2222-4222-8222-222222222222";
   let sessionStatus: "ready" | "opened" | "connected" = "ready";
   await page.addInitScript(() => {
     window.open = () => null;
+    const attempts: number[] = [];
+    Object.defineProperty(window, "__syntheticReconnectAttempts", {
+      value: attempts,
+    });
+    const request = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url.includes("/api/automation/provider-browser/sessions/"))
+        attempts.push(Date.now());
+      return request(input, init);
+    };
   });
   await page.route("**/api/alpha", async (route) => {
+    alphaChecks++;
     await route.fulfill({ json: alphaFixture });
   });
   await page.route("**/api/holding-imports", async (route) => {
@@ -1684,6 +1701,7 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
   await page.route(
     `**/api/automation/provider-browser/sessions/${sessionId}`,
     async (route) => {
+      reconnectChecks++;
       await route.fulfill({
         json: {
           version: 1,
@@ -1704,6 +1722,8 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
 
   await page.goto("/holdings/sources");
   await page.getByRole("button", { name: "Reconnect AngelList" }).click();
+  await expect(page.getByText("Preparing a private browser…")).toBeVisible();
+  await page.clock.runFor(5_100);
   const openLink = page.getByRole("link", { name: "Open AngelList" });
   await expect(openLink).toHaveAttribute(
     "href",
@@ -1714,8 +1734,53 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
   await expect(page.locator("body")).not.toContainText("VNC");
   await expect(page.locator("body")).not.toContainText("Paste in Terminal");
 
+  await page.clock.pauseAt(new Date("2026-08-26T12:00:20.000Z"));
+  await page.waitForLoadState("networkidle");
+  const firstAttempts = await page.evaluate(
+    () =>
+      (Reflect.get(window, "__syntheticReconnectAttempts") as number[]).length,
+  );
+  await page.clock.runFor(1_000);
+  expect(
+    await page.evaluate(
+      () =>
+        (Reflect.get(window, "__syntheticReconnectAttempts") as number[])
+          .length,
+    ),
+    "Reconnect checks must wait five seconds",
+  ).toBe(firstAttempts);
+
+  // Returned status objects and focus events must not restart the effect or
+  // bypass the shared five-second clock. Hidden tabs do no background work.
+  const firstCount = reconnectChecks;
+  for (let index = 0; index < 10; index++) {
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.clock.runFor(100);
+  }
+  expect(reconnectChecks - firstCount).toBeLessThanOrEqual(1);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenCount = reconnectChecks;
+  await page.clock.runFor(60_000);
+  expect(reconnectChecks).toBe(hiddenCount);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.runFor(1);
+  expect(alphaChecks).toBe(0);
+
   sessionStatus = "opened";
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.clock.runFor(5_100);
   await expect(
     page.getByText(
       "Finish signing in to AngelList. When the private screen closes, return to Keel.",
@@ -1725,6 +1790,7 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
 
   sessionStatus = "connected";
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.clock.runFor(5_100);
   await expect(
     page.getByText(
       "AngelList reconnected. Clear positions update automatically; exceptions stay available for review.",
@@ -1732,6 +1798,9 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
     ),
   ).toBeVisible();
 
+  const completedCount = reconnectChecks;
+  await page.clock.runFor(60_000);
+  expect(reconnectChecks).toBe(completedCount);
   await page.getByText("Troubleshooting", { exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Copy AngelList repair command" }),

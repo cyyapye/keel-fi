@@ -71,6 +71,7 @@ import {
   formatMagnitudeRoundedCurrency,
   formatRoundedCompactCurrency,
 } from "./format";
+import { useBoundedPolling } from "./use-bounded-polling";
 import { openPlaidLink } from "./plaid-link";
 
 const INVESTMENT_LINK_TOKEN_STORAGE_KEY = "keel.investmentLinkToken";
@@ -1992,18 +1993,26 @@ export function InvestmentHoldings({
     return () => globalThis.clearTimeout(timer);
   }, [mode, reloadExposureReviews]);
 
-  useEffect(() => {
-    if (
-      mode !== "sources" ||
-      !connectionState?.connections.some(
+  useBoundedPolling({
+    active:
+      mode === "sources" &&
+      (connectionState?.connections.some(
         (connection) => connection.status === "syncing",
-      )
-    ) {
-      return;
-    }
-    const timer = window.setInterval(() => void reloadConnections(), 10_000);
-    return () => window.clearInterval(timer);
-  }, [connectionState, mode, reloadConnections]);
+      ) ??
+        false),
+    identity: "investment-status",
+    intervalMs: 10_000,
+    check: async () => {
+      const next = await reloadConnections();
+      if (next === null) throw new Error("Status unavailable");
+      return next.connections.some(
+        (connection) => connection.status === "syncing",
+      );
+    },
+    onError: () => undefined,
+    onTimeout: () =>
+      setError("Automatic checks paused. Reload this page to check progress."),
+  });
 
   const acceptStatus = useCallback(
     async (next: InvestmentConnectionStatus) => {
