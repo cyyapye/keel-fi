@@ -78,6 +78,8 @@ const migrationFiles = [
   "packages/database/migrations/0051_legal_structure_review_guard.sql",
   "packages/database/migrations/0052_reviewed_structure_entity_type.sql",
   "packages/database/migrations/0053_connected_investment_reviews.sql",
+  "packages/database/migrations/0054_legal_entity_link_version_guard.sql",
+  "packages/database/migrations/0055_exception_based_source_updates.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -2445,7 +2447,7 @@ describe("canonical exposure resolution and aggregation", () => {
     ).rejects.toThrow("Structured asset exposure evidence changed.");
   });
 
-  it("reconciles 120 public positions with a row-count-independent D1 budget", async () => {
+  it("reconciles and projects 120 public positions within indexed D1 budgets", async () => {
     for (let index = 0; index < 120; index += 1) {
       const id = `position_scale_${index.toString().padStart(3, "0")}`;
       seedAcceptedPosition(sqlite, {
@@ -2519,6 +2521,41 @@ describe("canonical exposure resolution and aggregation", () => {
       "sqlite_autoindex_evidence_claims_2",
     );
     expect(acceptedValuationPlanDetails).not.toContain("SCAN");
+
+    database.resetRoundTripCount();
+    const alphaSqlStart = database.preparedSql.length;
+    const changesBefore = sqlite
+      .prepare("SELECT total_changes() AS count")
+      .get();
+    const alpha = await new D1AlphaRepository(
+      database as unknown as D1Database,
+    ).getAlphaData(accessSubject);
+    expect(
+      alpha.holdings.filter((holding) =>
+        holding.id.startsWith("position_scale_"),
+      ),
+    ).toHaveLength(120);
+    expect(database.roundTripCount).toBe(13);
+    expect(sqlite.prepare("SELECT total_changes() AS count").get()).toEqual(
+      changesBefore,
+    );
+    const holdingsSql = database.preparedSql
+      .slice(alphaSqlStart)
+      .find(
+        (sql) => sql.includes("SELECT * FROM (") && sql.includes("UNION ALL"),
+      );
+    expect(holdingsSql).toBeDefined();
+    const holdingsPlan = sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${holdingsSql ?? "SELECT 1"}`)
+      .all("hh_demo", "hh_demo") as Array<{ detail: string }>;
+    expect(holdingsPlan.map((row) => row.detail)).not.toContain("SCAN mapping");
+    expect(
+      holdingsPlan.filter(
+        (row) =>
+          row.detail.startsWith("SEARCH mapping ") &&
+          row.detail.includes("household_id=? AND position_id=?"),
+      ),
+    ).toHaveLength(2);
   });
 });
 
