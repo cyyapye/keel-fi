@@ -35,11 +35,12 @@ The service runs Chrome headlessly after setup. The one-time sign-in uses a
 normal Chrome window in a private virtual desktop so Google and provider 2FA do
 not run inside a software-controlled browser.
 
-Portfolio checks open Chrome only after acquiring a job. Sydecar shuts down its
-owned browser after capture or sign-in verification, including failure, and
-reopens the same profile for the next leased capture. Its page must not remain
-open between daily captures: the page's inactivity timer can erase the saved
-login. The worker stays available for reconnects while Chrome is closed.
+Tokenfolio and Sydecar checks open Chrome only after acquiring a job. Sydecar
+shuts down its owned browser after capture or sign-in verification, including
+failure, and reopens the same profile for the next leased capture. Its page must
+not remain open between daily captures: the page's inactivity timer can erase
+the saved login. The worker stays available for reconnects while Chrome is
+closed.
 
 ## Prepare the worker once
 
@@ -267,8 +268,9 @@ changes still enter the normal review queue.
 For Tokenfolio and Sydecar, an interactive portfolio alone is not success. The
 worker closes Chrome gracefully, reopens the same profile through its ordinary
 background launch path, and requires the same visible portfolio controls used by
-capture before completing the reconnect. The verified background browser stays
-available for the immediate update. A failed saved-session check does not
+capture before completing the reconnect. Tokenfolio keeps the verified browser
+available for the immediate update; Sydecar closes it and reopens the same
+profile for the next leased capture. A failed saved-session check does not
 complete the reconnect or trigger credential rotation. Cancellation and the
 15-minute lease still apply during verification.
 
