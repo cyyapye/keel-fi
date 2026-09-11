@@ -1645,6 +1645,30 @@ export async function changeInvestmentConnectionLifecycle(
   return InvestmentConnectionStatusSchema.parse(await response.json());
 }
 
+export async function reconcileHoldingImport(
+  importId: string,
+): Promise<HoldingImportPreview> {
+  const response = await fetch(
+    `/api/holding-imports/${encodeURIComponent(importId)}/reconcile`,
+    { method: "POST" },
+  );
+  if (!response.ok)
+    throw new Error("This update could not be checked. Try again.");
+  return HoldingImportPreviewSchema.parse(await response.json());
+}
+
+export async function refreshPortfolioBaseline(
+  signal?: AbortSignal,
+): Promise<PortfolioBaselineState> {
+  const response = await fetch("/api/portfolio-baseline/refresh", {
+    method: "POST",
+    signal: signal ?? null,
+  });
+  if (!response.ok)
+    throw new Error("Planning values could not be refreshed. Try again.");
+  return PortfolioBaselineStateSchema.parse(await response.json());
+}
+
 export async function loadHoldingImport(
   importId: string,
 ): Promise<HoldingImportPreview> {

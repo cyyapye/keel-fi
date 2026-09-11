@@ -6,6 +6,7 @@ import {
   PortfolioBaselineConfirmInputSchema,
   PortfolioBaselineConfirmResultSchema,
   PortfolioBaselineStateSchema,
+  portfolioBaselineReviewReasons,
   subtractMinorUnits,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineConfirmResult,
@@ -505,7 +506,53 @@ export interface PortfolioBaselineRepository {
   confirm(
     accessSubject: string,
     input: PortfolioBaselineConfirmInput,
+    policyVersion?: "accepted-sources-auto-v1",
   ): Promise<PortfolioBaselineConfirmResult>;
+}
+
+export async function refreshAcceptedPortfolioBaseline(
+  repository: PortfolioBaselineRepository,
+  accessSubject: string,
+): Promise<{
+  status: "not_needed" | "refreshed" | "manual_required";
+  baselineId: string | null;
+}> {
+  const state = await repository.getState(accessSubject);
+  if (state.status !== "ready")
+    return { status: "not_needed", baselineId: null };
+  if (
+    portfolioBaselineReviewReasons(state).length > 0 ||
+    state.latestBaseline === null ||
+    state.sourceRevision === null ||
+    state.baseForecastSnapshotId === null ||
+    state.baseForecastSnapshotVersion === null
+  ) {
+    return { status: "manual_required", baselineId: null };
+  }
+  try {
+    const result = await repository.confirm(
+      accessSubject,
+      {
+        sourceRevision: state.sourceRevision,
+        baseForecastSnapshotId: state.baseForecastSnapshotId,
+        baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
+        otherFiEligibleLiquidMinor:
+          state.latestBaseline.otherFiEligibleLiquidMinor,
+        duplicateReviewConfirmed: false,
+        // Carry forward the established cash treatment; new overlaps stop above.
+        cashOverlapReviewConfirmed: state.requiresCashOverlapReview,
+        changeNote:
+          "Accepted source values refreshed automatically. Planning choices are unchanged.",
+      },
+      "accepted-sources-auto-v1",
+    );
+    return { status: "refreshed", baselineId: result.baseline.id };
+  } catch (error) {
+    const latest = await repository.getState(accessSubject);
+    if (latest.status === "current")
+      return { status: "not_needed", baselineId: null };
+    throw error;
+  }
 }
 
 export class D1PortfolioBaselineRepository implements PortfolioBaselineRepository {
@@ -629,9 +676,18 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
   public async confirm(
     accessSubject: string,
     rawInput: PortfolioBaselineConfirmInput,
+    policyVersion?: "accepted-sources-auto-v1",
   ): Promise<PortfolioBaselineConfirmResult> {
     const input = PortfolioBaselineConfirmInputSchema.parse(rawInput);
     const state = await this.getState(accessSubject);
+    if (
+      policyVersion !== undefined &&
+      (portfolioBaselineReviewReasons(state).length > 0 ||
+        input.otherFiEligibleLiquidMinor !==
+          state.latestBaseline?.otherFiEligibleLiquidMinor)
+    ) {
+      throw new Error("Portfolio baseline requires a planning decision.");
+    }
     if (
       state.status !== "ready" ||
       !state.canConfirm ||
@@ -1032,6 +1088,16 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           createdAt,
         ),
     );
+    if (policyVersion !== undefined && state.latestBaseline !== null) {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO portfolio_baseline_policy_decisions
+        (baseline_id, prior_baseline_id, policy_version) VALUES (?, ?, ?)`,
+          )
+          .bind(baselineId, state.latestBaseline.id, policyVersion),
+      );
+    }
     sourceRows.forEach((row) => {
       statements.push(
         this.db

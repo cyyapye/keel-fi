@@ -90,14 +90,16 @@ flowchart LR
   registry; Queue jobs contain only internal source IDs. Real public sources are
   exercised by an opt-in runtime acceptance command while all checked-in
   portfolio data remains fabricated.
-- Accepted Plaid Investments, AngelList, and cash-account observations remain
-  source facts until the user confirms a Portfolio Baseline. The baseline
-  records the exact reviewed source revision, keeps unavailable values unknown,
-  requires overlap checks for cross-provider positions and linked cash versus
-  the manual residual, and proposes reviewed public-market holdings plus
-  reviewed cash and the residual as the FI-eligible replacement. Private paper
-  remains outside current liquidity. Confirmation writes the new FI cash plan,
-  forecast, and primary FI goal version in one D1 batch.
+- The user confirms the initial Portfolio Baseline. Later accepted holdings and
+  cash observations refresh it under the
+  [source update policy](./source-update-policy.md); unresolved exceptions and
+  planning choices still require review. The baseline records the exact reviewed
+  source revision, keeps unavailable values unknown, requires overlap checks for
+  cross-provider positions and linked cash versus the manual residual, and
+  proposes reviewed public-market holdings plus reviewed cash and the residual
+  as the FI-eligible replacement. Private paper remains outside current
+  liquidity. Confirmation writes the new FI cash plan, forecast, and primary FI
+  goal version in one D1 batch.
 - Multi-source investment identity uses HMAC-derived connection, container, and
   position keys. Institution and account labels are versioned metadata rather
   than identity. `holding_positions` and their accepted snapshots remain the

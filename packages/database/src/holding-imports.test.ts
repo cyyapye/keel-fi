@@ -11,7 +11,10 @@ import {
 import { D1AlphaRepository } from "./index";
 import { D1CashAccountsRepository } from "./cash-accounts";
 import { D1ExposureRepository } from "./exposures";
-import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
+import {
+  D1PortfolioBaselineRepository,
+  refreshAcceptedPortfolioBaseline,
+} from "./portfolio-baseline";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 
 const migrationFiles = [
@@ -63,6 +66,7 @@ const migrationFiles = [
   "packages/database/migrations/0051_legal_structure_review_guard.sql",
   "packages/database/migrations/0052_reviewed_structure_entity_type.sql",
   "packages/database/migrations/0053_connected_investment_reviews.sql",
+  "packages/database/migrations/0055_exception_based_source_updates.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -79,6 +83,7 @@ describe("nullable private investment date migration", () => {
         .filter(
           (file) =>
             ![
+              "packages/database/migrations/0055_exception_based_source_updates.sql",
               "packages/database/migrations/0035_nullable_private_investment_date.sql",
               "packages/database/migrations/0036_exact_reviewed_private_exposures.sql",
               "packages/database/migrations/0037_private_provider_position_continuity.sql",
@@ -2015,6 +2020,322 @@ describe("AngelList holding import persistence", () => {
         )
         .get(failed.preview.id),
     ).toEqual({ count: 0 });
+  });
+});
+
+describe("exception-based source updates", () => {
+  let sqlite: DatabaseSync;
+  let database: TestD1Database;
+  let imports: D1HoldingImportRepository;
+  let baselines: D1PortfolioBaselineRepository;
+  const subject = "synthetic-access-subject";
+  const clearInput = (hash: string, value = 125_000) => {
+    const input = stageInput(hash, {
+      unrealizedValueMinor: value,
+      unrealizedValueState: "reported",
+      netValueMinor: value,
+      netValueState: "reported",
+    });
+    input.canonicalScope.containers[0]!.completeness = "complete";
+    input.canonicalScope.containers[0]!.containerKind = "trust";
+    input.canonicalScope.containers[0]!.displayLabel = "Synthetic Family Trust";
+    return input;
+  };
+  beforeEach(() => {
+    sqlite = new DatabaseSync(":memory:");
+    migrationFiles.forEach((file) =>
+      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8")),
+    );
+    database = new TestD1Database(sqlite);
+    imports = new D1HoldingImportRepository(database as unknown as D1Database);
+    baselines = new D1PortfolioBaselineRepository(
+      database as unknown as D1Database,
+    );
+  });
+  afterEach(() => sqlite.close());
+
+  it("automatically accepts a clear private import and converges on repeated and concurrent deliveries", async () => {
+    const staged = await imports.stageHoldingImport(
+      subject,
+      clearInput("1".repeat(64)),
+    );
+    const [first, concurrent] = await Promise.all([
+      imports.autoAdjudicatePrivateHoldingImport(subject, staged.preview.id),
+      imports.autoAdjudicatePrivateHoldingImport(subject, staged.preview.id),
+    ]);
+    expect(first.status).toBe("applied");
+    expect(concurrent.status).toBe("applied");
+    expect(first.rows[0]).toMatchObject({
+      decisionSource: "policy",
+      adjudicationStatus: "auto_applied",
+    });
+    await imports.autoAdjudicatePrivateHoldingImport(
+      subject,
+      staged.preview.id,
+    );
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM holding_import_applications WHERE import_row_id = ?",
+        )
+        .get(first.rows[0]!.id),
+    ).toEqual({ count: 1 });
+  });
+
+  it.each(["tokenfolio", "sydecar"] as const)(
+    "accepts clear %s rows from partial coverage without inventing omissions",
+    async (provider) => {
+      const input = providerTemplateStageInput(provider);
+      const staged = await imports.stageHoldingImport(subject, input);
+      const result = await imports.autoAdjudicatePrivateHoldingImport(
+        subject,
+        staged.preview.id,
+      );
+      expect(result.status).toBe("applied");
+      expect(result.summary).toMatchObject({
+        autoAppliedCount: 1,
+        preservedPositionCount: 0,
+      });
+      expect(result.rows[0]?.administratorNavState).toBe(
+        input.rows[0]?.unrealizedValueState,
+      );
+    },
+  );
+
+  it("applies clear rows while keeping only duplicate rows for review, and retries exception decisions safely", async () => {
+    const input = clearInput("2".repeat(64));
+    input.rows.push(
+      { ...input.rows[0]!, rowNumber: 4, fundName: "Synthetic Other SPV" },
+      { ...input.rows[0]!, rowNumber: 5, fundName: "Synthetic Other SPV" },
+    );
+    input.canonicalScope.rows.push(
+      {
+        ...input.canonicalScope.rows[0]!,
+        sourceRowNumber: 4,
+        protectedPositionKey: "e".repeat(64),
+      },
+      {
+        ...input.canonicalScope.rows[0]!,
+        sourceRowNumber: 5,
+        protectedPositionKey: "e".repeat(64),
+      },
+    );
+    const staged = await imports.stageHoldingImport(subject, input);
+    const result = await imports.autoAdjudicatePrivateHoldingImport(
+      subject,
+      staged.preview.id,
+    );
+    expect(result).toMatchObject({
+      status: "quarantined",
+      summary: { autoAppliedCount: 1, quarantinedCount: 2 },
+    });
+    const decisions = result.rows
+      .filter((row) => row.decisionSource === null)
+      .map((row) => ({
+        rowId: row.id,
+        decision: "rejected" as const,
+        rationale: "Discard duplicate source rows.",
+      }));
+    await imports.applyHoldingImport(subject, result.id, {
+      currency: "USD",
+      decisions,
+    });
+    await imports.applyHoldingImport(subject, result.id, {
+      currency: "USD",
+      decisions,
+    });
+    expect((await imports.getHoldingImport(subject, result.id)).status).toBe(
+      "applied",
+    );
+    expect(await imports.listPendingHoldingImports(subject)).toEqual([]);
+  });
+
+  it("does not infer a new position when a prior source identity disappeared", async () => {
+    const first = await imports.stageHoldingImport(
+      subject,
+      clearInput("3".repeat(64)),
+    );
+    await imports.autoAdjudicatePrivateHoldingImport(subject, first.preview.id);
+    const renamed = clearInput("4".repeat(64));
+    renamed.canonicalScope.rows[0]!.protectedPositionKey = "f".repeat(64);
+    const next = await imports.stageHoldingImport(subject, renamed);
+    const result = await imports.autoAdjudicatePrivateHoldingImport(
+      subject,
+      next.preview.id,
+    );
+    expect(result).toMatchObject({
+      status: "quarantined",
+      summary: { autoAppliedCount: 0, quarantinedCount: 1 },
+    });
+    expect(result.rows[0]?.issues.join(" ")).toContain(
+      "legal position and owner",
+    );
+  });
+
+  it("ignores delayed private observations instead of replacing newer values", async () => {
+    const newer = clearInput("5".repeat(64), 175_000);
+    newer.effectiveDate = "2026-08-21";
+    newer.retrievedAt = "2026-08-21T12:00:00.000Z";
+    const first = await imports.stageHoldingImport(subject, newer);
+    await imports.autoAdjudicatePrivateHoldingImport(subject, first.preview.id);
+    const older = await imports.stageHoldingImport(
+      subject,
+      clearInput("6".repeat(64)),
+    );
+    const result = await imports.autoAdjudicatePrivateHoldingImport(
+      subject,
+      older.preview.id,
+    );
+    expect(result).toMatchObject({
+      status: "applied",
+      rows: [
+        {
+          adjudicationStatus: "ignored",
+          reasonCodes: ["older_observation_ignored"],
+        },
+      ],
+    });
+    const state = await baselines.getState(subject);
+    expect(
+      state.positions.find((position) => position.provider === "angellist")
+        ?.valueMinor,
+    ).toBe(175_000);
+  });
+
+  it("remembers a manually confirmed instrument change on later source updates", async () => {
+    const first = await imports.stageHoldingImport(
+      subject,
+      clearInput("ac".repeat(32)),
+    );
+    await imports.autoAdjudicatePrivateHoldingImport(subject, first.preview.id);
+    const conversion = clearInput("bc".repeat(32));
+    conversion.rows[0]!.dealMetadata.instrument = "preferred stock";
+    conversion.effectiveDate = "2026-08-23";
+    const changed = await imports.stageHoldingImport(subject, conversion);
+    const exception = await imports.autoAdjudicatePrivateHoldingImport(
+      subject,
+      changed.preview.id,
+    );
+    expect(exception.status).toBe("quarantined");
+    await imports.applyHoldingImport(subject, exception.id, {
+      currency: "USD",
+      decisions: [
+        {
+          rowId: exception.rows[0]!.id,
+          decision: "accepted",
+          rationale: "Confirmed the source conversion for this position.",
+        },
+      ],
+    });
+    const next = clearInput("cd".repeat(32), 200_000);
+    next.rows[0]!.dealMetadata.instrument = "preferred stock";
+    next.effectiveDate = "2026-08-24";
+    const staged = await imports.stageHoldingImport(subject, next);
+    expect(
+      await imports.autoAdjudicatePrivateHoldingImport(
+        subject,
+        staged.preview.id,
+      ),
+    ).toMatchObject({
+      status: "applied",
+      summary: { autoAppliedCount: 1, quarantinedCount: 0 },
+    });
+  });
+
+  it("refreshes private value changes without another planning decision and records its policy", async () => {
+    const initial = await imports.stageHoldingImport(
+      subject,
+      clearInput("7".repeat(64)),
+    );
+    await imports.autoAdjudicatePrivateHoldingImport(
+      subject,
+      initial.preview.id,
+    );
+    expect(
+      await refreshAcceptedPortfolioBaseline(baselines, subject),
+    ).toMatchObject({ status: "manual_required" });
+    const state = await baselines.getState(subject);
+    const confirmed = await baselines.confirm(subject, {
+      sourceRevision: state.sourceRevision!,
+      baseForecastSnapshotId: state.baseForecastSnapshotId!,
+      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion!,
+      otherFiEligibleLiquidMinor: 100_000,
+      duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: true,
+      changeNote: "Set synthetic planning choices.",
+    });
+    const update = clearInput("8".repeat(64), 185_000);
+    update.effectiveDate = "2026-08-22";
+    const staged = await imports.stageHoldingImport(subject, update);
+    await imports.autoAdjudicatePrivateHoldingImport(
+      subject,
+      staged.preview.id,
+    );
+    expect(
+      await refreshAcceptedPortfolioBaseline(baselines, subject),
+    ).toMatchObject({ status: "refreshed" });
+    const current = await baselines.getState(subject);
+    expect(current.status).toBe("current");
+    expect(current.latestBaseline?.fiEligibleLiquidMinor).toBe(
+      confirmed.baseline.fiEligibleLiquidMinor,
+    );
+    expect(current.latestBaseline?.otherFiEligibleLiquidMinor).toBe(100_000);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT prior_baseline_id, policy_version FROM portfolio_baseline_policy_decisions",
+        )
+        .get(),
+    ).toEqual({
+      prior_baseline_id: confirmed.baseline.id,
+      policy_version: "accepted-sources-auto-v1",
+    });
+    expect(await refreshAcceptedPortfolioBaseline(baselines, subject)).toEqual({
+      status: "not_needed",
+      baselineId: null,
+    });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM portfolio_baseline_policy_decisions",
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("keeps automatic adjudication round trips fixed for 120 distinct positions", async () => {
+    const input = clearInput("9".repeat(64));
+    const row = input.rows[0]!;
+    const scope = input.canonicalScope.rows[0]!;
+    input.rows = Array.from({ length: 120 }, (_, index) => ({
+      ...row,
+      rowNumber: index + 1,
+      fundName: `Synthetic Vehicle ${index}`,
+      companyOrFund: `Synthetic Company ${index}`,
+    }));
+    input.canonicalScope.rows = input.rows.map((item, index) => ({
+      ...scope,
+      sourceRowNumber: item.rowNumber,
+      protectedPositionKey: (index + 1).toString(16).padStart(64, "0"),
+    }));
+    const staged = await imports.stageHoldingImport(subject, input);
+    database.resetRoundTripCount();
+    const result = await imports.autoAdjudicatePrivateHoldingImport(
+      subject,
+      staged.preview.id,
+    );
+    expect(result.summary.autoAppliedCount).toBe(120);
+    expect(database.roundTripCount).toBeLessThanOrEqual(35);
+    const query = database.preparedSql.find((sql) =>
+      sql.includes("MAX(snapshot.observed_at)"),
+    )!;
+    const plan = sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${query}`)
+      .all(staged.preview.id, "hh_demo");
+    expect(JSON.stringify(plan)).toContain(
+      "holding_position_snapshots_observed_idx",
+    );
+    expect(JSON.stringify(plan)).not.toContain("SCAN snapshot");
   });
 });
 

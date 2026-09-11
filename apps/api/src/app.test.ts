@@ -490,12 +490,101 @@ function providerBrowserSessionRepository(
 }
 
 describe("Keel API", () => {
+  it("keeps import reads passive and runs automatic reconciliation only on an authenticated POST", async () => {
+    const reconcileHoldingImport = vi
+      .fn()
+      .mockResolvedValue(holdingImportPreview);
+    const repository = {
+      getHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
+      reconcileHoldingImport,
+    } as unknown as AlphaRepository;
+    const app = createApp({ repository });
+    expect(
+      (
+        await app.request(
+          "/api/holding-imports/synthetic-import",
+          {},
+          testEnv("local"),
+        )
+      ).status,
+    ).toBe(200);
+    expect(reconcileHoldingImport).not.toHaveBeenCalled();
+    expect(
+      (
+        await app.request(
+          "/api/holding-imports/synthetic-import/reconcile",
+          { method: "POST" },
+          testEnv("production"),
+        )
+      ).status,
+    ).toBe(401);
+    expect(reconcileHoldingImport).not.toHaveBeenCalled();
+    expect(
+      (
+        await app.request(
+          "/api/holding-imports/synthetic-import/reconcile",
+          { method: "POST" },
+          testEnv("local"),
+        )
+      ).status,
+    ).toBe(200);
+    expect(reconcileHoldingImport).toHaveBeenCalledExactlyOnceWith(
+      "synthetic-access-subject",
+      "synthetic-import",
+    );
+    reconcileHoldingImport.mockRejectedValueOnce(
+      new Error("Transient failure"),
+    );
+    expect(
+      (
+        await app.request(
+          "/api/holding-imports/synthetic-import/reconcile",
+          { method: "POST" },
+          testEnv("local"),
+        )
+      ).status,
+    ).toBe(503);
+  });
+
+  it("preserves staged source evidence if automatic reconciliation needs a retry", async () => {
+    const repository = {
+      stageHoldingImport: vi
+        .fn()
+        .mockResolvedValue({ created: true, preview: holdingImportPreview }),
+      reconcileHoldingImport: vi
+        .fn()
+        .mockRejectedValue(new Error("Temporary projection failure")),
+    } as unknown as AlphaRepository;
+    const put = vi.fn().mockResolvedValue({});
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const env = testEnv("local");
+    env.DOCUMENTS = { put, delete: remove } as unknown as R2Bucket;
+    const formData = new FormData();
+    formData.set(
+      "file",
+      new File(
+        [syntheticProviderTemplateCsv("tokenfolio")],
+        "synthetic-holdings.csv",
+        { type: "text/csv" },
+      ),
+    );
+    const response = await createApp({ repository }).request(
+      "/api/holding-imports/tokenfolio",
+      { method: "POST", body: formData },
+      env,
+    );
+    expect(response.status).toBe(500);
+    expect(put).toHaveBeenCalledOnce();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
   it("fails closed in production without an Access assertion", async () => {
     const getAlphaData = vi.fn<AlphaRepository["getAlphaData"]>();
     const repository: AlphaRepository = {
       getAlphaData,
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -521,6 +610,7 @@ describe("Keel API", () => {
       getAlphaData,
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -549,6 +639,7 @@ describe("Keel API", () => {
       getAlphaData,
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -585,6 +676,7 @@ describe("Keel API", () => {
       getAlphaData,
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -819,6 +911,7 @@ describe("Keel API", () => {
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan,
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -867,6 +960,7 @@ describe("Keel API", () => {
       getAlphaData: vi.fn(),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport,
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -947,6 +1041,7 @@ describe("Keel API", () => {
         getAlphaData: vi.fn(),
         preparePortfolioWatchScan: vi.fn(),
         stageHoldingImport,
+        reconcileHoldingImport: vi.fn().mockResolvedValue(providerPreview),
         getHoldingImport: vi.fn(),
         listPendingHoldingImports: vi.fn(),
         applyHoldingImport: vi.fn(),
@@ -1036,6 +1131,7 @@ describe("Keel API", () => {
       getAlphaData: vi.fn(),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -1093,6 +1189,7 @@ describe("Keel API", () => {
       getAlphaData: vi.fn(),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports,
       applyHoldingImport: vi.fn(),
@@ -1157,6 +1254,7 @@ describe("Keel API", () => {
       getAlphaData: vi.fn(),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport,
@@ -1200,6 +1298,7 @@ describe("Keel API", () => {
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -1243,6 +1342,7 @@ describe("Keel API", () => {
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -1272,6 +1372,7 @@ describe("Keel API", () => {
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -1336,6 +1437,7 @@ describe("Keel API", () => {
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -1377,6 +1479,7 @@ describe("Keel API", () => {
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -1424,6 +1527,7 @@ describe("Keel API", () => {
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -1471,6 +1575,7 @@ describe("Keel API", () => {
         .mockResolvedValue(alphaData),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport: vi.fn(),
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -1809,6 +1914,7 @@ describe("Keel API", () => {
       getAlphaData: vi.fn(),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport,
+      reconcileHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),
@@ -1943,6 +2049,7 @@ describe("Keel API", () => {
       getAlphaData: vi.fn(),
       preparePortfolioWatchScan: vi.fn(),
       stageHoldingImport,
+      reconcileHoldingImport: vi.fn().mockResolvedValue(tokenfolioPreview),
       getHoldingImport: vi.fn(),
       listPendingHoldingImports: vi.fn(),
       applyHoldingImport: vi.fn(),

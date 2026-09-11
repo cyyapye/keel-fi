@@ -887,7 +887,13 @@ describe("Plaid Investments sync", () => {
       hasCashAccountChanges: false,
       requiresDuplicateReview: false,
       requiresCashOverlapReview: false,
-      latestBaseline: { otherFiEligibleLiquidMinor: 25_000_000 },
+      positions: [],
+      cashAccounts: [],
+      changes: { positions: [], cashAccounts: [] },
+      latestBaseline: {
+        otherFiEligibleLiquidMinor: 25_000_000,
+        summary: { positionCount: 0, cashAccountCount: 0 },
+      },
     });
     const confirm = vi.fn().mockResolvedValue({
       baseline: { id: "synthetic-auto-baseline" },
@@ -960,15 +966,20 @@ describe("Plaid Investments sync", () => {
         },
       },
     );
-    expect(confirm).toHaveBeenCalledWith("synthetic-access-subject", {
-      sourceRevision: "c".repeat(64),
-      baseForecastSnapshotId: "synthetic-forecast",
-      baseForecastSnapshotVersion: 3,
-      otherFiEligibleLiquidMinor: 25_000_000,
-      duplicateReviewConfirmed: false,
-      cashOverlapReviewConfirmed: false,
-      changeNote: "Investment holdings refreshed automatically.",
-    });
+    expect(confirm).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      {
+        sourceRevision: "c".repeat(64),
+        baseForecastSnapshotId: "synthetic-forecast",
+        baseForecastSnapshotVersion: 3,
+        otherFiEligibleLiquidMinor: 25_000_000,
+        duplicateReviewConfirmed: false,
+        cashOverlapReviewConfirmed: false,
+        changeNote:
+          "Accepted source values refreshed automatically. Planning choices are unchanged.",
+      },
+      "accepted-sources-auto-v1",
+    );
     expect(repository.failSync).not.toHaveBeenCalled();
   });
 

@@ -1,9 +1,19 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 
 const investmentConnectionId = "11111111-1111-4111-8111-111111111111";
+
+async function expectNoHorizontalOverflow(page: Page) {
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+}
 
 function investmentStatus(overrides: Record<string, unknown> = {}) {
   return {
@@ -472,193 +482,67 @@ const robinhoodImportPreview = {
   ],
 };
 
-test("imports Tokenfolio and Sydecar through provider-specific Keel templates", async ({
+test("imports provider templates without asking to approve clear positions", async ({
   page,
 }) => {
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route(/\/api\/holding-imports$/, async (route) => {
-    await route.fulfill({ json: [] });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        status: "ready",
-        interval: "weekly",
-        runStatus: null,
-        lastSeenAt: "2026-08-20T16:00:00.000Z",
-        lastCompletedAt: "2026-08-20T16:00:00.000Z",
-        nextRunAt: "2026-08-27T16:00:00.000Z",
-        latestImportId: null,
-        errorCode: null,
-      },
+  await page.route("**/api/alpha", (route) =>
+    route.fulfill({ json: alphaFixture }),
+  );
+  for (const [provider, fixture] of [
+    ["tokenfolio", tokenfolioImportPreview],
+    ["sydecar", sydecarImportPreview],
+  ] as const) {
+    await page.route(`**/api/holding-imports/${provider}`, (route) => {
+      expect(route.request().method()).toBe("POST");
+      return route.fulfill({
+        status: 201,
+        json: {
+          ...fixture,
+          status: "applied",
+          summary: {
+            ...fixture.summary,
+            autoAppliedCount: fixture.rows.length,
+          },
+          rows: fixture.rows.map((row) => ({
+            ...row,
+            decisionSource: "policy",
+            adjudicationStatus: "auto_applied",
+          })),
+        },
+      });
     });
-  });
-  await page.route("**/api/holding-imports/tokenfolio", async (route) => {
-    expect(route.request().method()).toBe("POST");
-    await route.fulfill({ json: tokenfolioImportPreview, status: 201 });
-  });
-  await page.route("**/api/holding-imports/sydecar", async (route) => {
-    expect(route.request().method()).toBe("POST");
-    await route.fulfill({ json: sydecarImportPreview, status: 201 });
-  });
-
-  await page.goto("/holdings");
-  await page.getByRole("link", { name: "Sources", exact: true }).click();
-  await page.getByRole("button", { name: "Import holdings" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Import holdings" }),
-  ).toBeFocused();
-
-  const source = page.getByLabel("Source");
-  await source.click();
-  await page.getByRole("option", { name: "Sydecar" }).click();
-  const sydecarTemplateLink = page.getByRole("link", {
-    name: "Download Sydecar template",
-  });
-  await expect(sydecarTemplateLink).toHaveAttribute(
-    "href",
-    "/api/holding-import-templates/sydecar",
-  );
-  await expect(sydecarTemplateLink).toHaveAttribute("data-slot", "button-link");
-  await source.click();
-  await page.getByRole("option", { name: "Tokenfolio" }).click();
-  const tokenfolioTemplateLink = page.getByRole("link", {
-    name: "Download Tokenfolio template",
-  });
-  await expect(tokenfolioTemplateLink).toHaveAttribute(
-    "href",
-    "/api/holding-import-templates/tokenfolio",
-  );
-  await expect(tokenfolioTemplateLink).toHaveAttribute(
-    "data-slot",
-    "button-link",
-  );
-  await expect(
-    page.getByText(/Enter funded capital as Invested/),
-  ).toBeVisible();
-
-  const viewportWidths = await page.evaluate(() => ({
-    client: document.documentElement.clientWidth,
-    scroll: document.documentElement.scrollWidth,
-  }));
-  expect(viewportWidths.scroll).toBe(viewportWidths.client);
-  await page.addStyleTag({
-    content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
-  });
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-import-tokenfolio-template.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  await page.getByLabel("Tokenfolio template").setInputFiles({
-    name: "tokenfolio-holdings.csv",
-    mimeType: "text/csv",
-    buffer: Buffer.from(
-      "Keel Tokenfolio holdings template v1\nInvestment,Legal Position,Position Type,Held Through,Status,Investment Date,As Of Date,Invested USD,Committed USD,Current Value USD,Realized Value USD,Instrument\nSynthetic Robotics,Synthetic Robotics direct shares,Direct,Synthetic Family Trust,Live,2025-02-01,2026-08-20,$1250.00,,$1800.25,,Common stock\n",
-    ),
-  });
-  await page.getByRole("button", { name: "Review file" }).click();
-
-  await expect(
-    page.getByRole("heading", { name: "Review Tokenfolio import" }),
-  ).toBeFocused();
-  const summary = page.getByLabel("Import summary");
-  await expect(summary).toContainText("2Positions");
-  await expect(summary).toContainText("1Current values");
-  await expect(summary).toContainText("1Unavailable values");
-  await expect(page.getByText("Not reported")).toBeVisible();
-  await expect(
-    page.getByRole("checkbox", {
-      name: "I confirm the template’s $ values are USD.",
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Previous import preview page" }),
-  ).toHaveAttribute("data-slot", "text-link");
-  await expect(
-    page.getByRole("button", { name: "Next import preview page" }),
-  ).toHaveAttribute("data-slot", "text-link");
-  await expect(
-    page.getByRole("button", { name: "Close import" }),
-  ).toHaveAttribute("data-slot", "text-link");
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-import-tokenfolio-review.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  await page.goto("/holdings");
-  await page.getByRole("link", { name: "Sources", exact: true }).click();
-  await page.getByRole("button", { name: "Import holdings" }).click();
-  await page.getByLabel("Source").click();
-  await page.getByRole("option", { name: "Sydecar" }).click();
-  await page.getByLabel("Sydecar template").setInputFiles({
-    name: "sydecar-holdings.csv",
-    mimeType: "text/csv",
-    buffer: Buffer.from(
-      "Keel Sydecar holdings template v2\nInvestment,Legal Position,Position Type,Held Through,Status,Investment Date,As Of Date,Invested USD,Committed USD,Current Value USD,Realized Value USD,Instrument,Management Fee %,Carry %\nSynthetic Climate I,Synthetic Climate SPV I,SPV,Synthetic Investment Profile,Live,,2026-08-20,$5000.00,$7500.00,,,Membership interest,2%,20%\n",
-    ),
-  });
-  await page.getByRole("button", { name: "Review file" }).click();
-
-  await expect(
-    page.getByRole("heading", { name: "Review Sydecar import" }),
-  ).toBeFocused();
-  await expect(page.getByText("Investment date not reported")).toBeVisible();
-  await expect(page.getByText("Fee 2.0% · Carry 20.0%")).toBeVisible();
-  await expect(page.getByText("Position unchanged")).toBeVisible();
-  await expect(
-    page.getByText("Grouped under Synthetic Climate Systems"),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Existing company groupings stay in place."),
-  ).toBeVisible();
-  const sydecarViewportWidths = await page.evaluate(() => ({
-    client: document.documentElement.clientWidth,
-    scroll: document.documentElement.scrollWidth,
-  }));
-  expect(sydecarViewportWidths.scroll).toBe(sydecarViewportWidths.client);
-  const sydecarTableWidths = await page
-    .locator(".holdings-table-wrap")
-    .evaluate((element) => ({
-      client: element.clientWidth,
-      scroll: element.scrollWidth,
-    }));
-  expect(sydecarTableWidths.scroll).toBe(sydecarTableWidths.client);
-  await page.addStyleTag({
-    content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
-  });
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-import-sydecar-review.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
+    await page.goto("/holdings/sources");
+    await page.getByRole("button", { name: "Import holdings" }).click();
+    await page.getByLabel("Source").click();
+    const label = provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+    await page.getByRole("option", { name: label, exact: true }).click();
+    await expect(
+      page.getByRole("link", { name: `Download ${label} template` }),
+    ).toHaveAttribute("href", `/api/holding-import-templates/${provider}`);
+    if (provider === "tokenfolio")
+      await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(
+        "holdings-import-tokenfolio-template.png",
+        { animations: "disabled", maxDiffPixelRatio: 0.025 },
+      );
+    await page.locator('input[type="file"]').setInputFiles({
+      name: `${provider}-holdings.csv`,
+      mimeType: "text/csv",
+      buffer: Buffer.from("synthetic template"),
+    });
+    await page
+      .getByRole("button", { name: "Import file", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Update complete" }),
+    ).toBeVisible();
+    await expect(page.getByRole("checkbox")).toHaveCount(0);
+    await expect(page.getByText("No further review is needed.")).toBeVisible();
+    await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(
+      `holdings-import-${provider}-complete.png`,
+      { animations: "disabled", maxDiffPixelRatio: 0.025 },
+    );
+    await expectNoHorizontalOverflow(page);
+  }
 });
 
 test("uses one setup command interface for every portfolio agent", async ({
@@ -749,321 +633,151 @@ test("uses one setup command interface for every portfolio agent", async ({
   }
 });
 
-test("reviews a scheduled AngelList export from a persistent phone-safe route", async ({
+function exceptionPreview() {
+  return {
+    ...importPreview,
+    status: "quarantined",
+    summary: {
+      ...importPreview.summary,
+      autoAppliedCount: 70,
+      quarantinedCount: 2,
+      preservedPositionCount: 0,
+    },
+    rows: importPreview.rows.map((row, index) => ({
+      ...row,
+      decisionSource: index === 0 || index === 3 ? null : "policy",
+      adjudicationStatus:
+        index === 0 || index === 3 ? "quarantined" : "auto_applied",
+      issues:
+        index === 0
+          ? [
+              "Check the legal position and owner. This may overlap a previously recorded position.",
+            ]
+          : row.issues,
+    })),
+  };
+}
+
+test("shows only unresolved private positions and safely retries their decisions", async ({
   page,
 }) => {
-  const applyBodies: unknown[] = [];
-  const pendingImport = {
-    id: importPreview.id,
-    provider: "angellist" as const,
-    status: "pending_review" as const,
-    observedAt: importPreview.observedAt,
-    rowCount: importPreview.summary.rowCount,
-    createdAt: "2026-06-14T12:05:00.000Z",
-  };
-  await routeHoldingsPage(page, {
-    householdName: alphaFixture.dashboard.householdName,
-    holdings: alphaFixture.holdings,
-    investmentHoldings: emptyInvestmentHoldingsView,
-    acceptedCashAccounts: [],
-    pendingImports: [pendingImport],
-  });
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        status: "ready",
-        interval: "weekly",
-        runStatus: null,
-        lastSeenAt: "2026-08-09T16:00:00.000Z",
-        lastCompletedAt: "2026-08-03T16:00:00.000Z",
-        nextRunAt: "2026-08-16T16:00:00.000Z",
-        latestImportId: null,
-        errorCode: null,
-      },
-    });
-  });
-  await page.route(/\/api\/holding-imports$/, async (route) => {
-    await route.fulfill({
-      json: [pendingImport],
-    });
-  });
-  await page.route(
-    /\/api\/holding-imports\/holding_import_synthetic_angellist$/,
-    async (route) => {
-      await route.fulfill({ json: importPreview });
-    },
+  const preview = exceptionPreview();
+  const bodies: Array<{
+    decisions: Array<{ rowId: string; decision: string }>;
+  }> = [];
+  await page.route("**/api/alpha", (route) =>
+    route.fulfill({ json: alphaFixture }),
   );
-  await page.route(
-    /\/api\/holding-imports\/holding_import_synthetic_angellist\/apply$/,
-    async (route) => {
-      applyBodies.push(route.request().postDataJSON());
-      if (applyBodies.length === 1) {
-        await route.fulfill({
-          json: { error: "The reviewed import could not be applied." },
+  await page.route(`**/api/holding-imports/${preview.id}`, (route) =>
+    route.fulfill({ json: preview }),
+  );
+  await page.route(`**/api/holding-imports/${preview.id}/reconcile`, (route) =>
+    route.fulfill({ json: preview }),
+  );
+  await page.route(`**/api/holding-imports/${preview.id}/apply`, (route) => {
+    bodies.push(route.request().postDataJSON());
+    return bodies.length === 1
+      ? route.fulfill({
           status: 409,
+          json: { error: "The update changed. Try again." },
+        })
+      : route.fulfill({
+          json: {
+            importId: preview.id,
+            createdCount: 69,
+            updatedCount: 1,
+            unchangedCount: 1,
+            rejectedCount: 1,
+            lockedValueCount: 22,
+          },
         });
-        return;
-      }
-      await route.fulfill({
-        json: {
-          importId: importPreview.id,
-          createdCount: 68,
-          updatedCount: 1,
-          unchangedCount: 1,
-          rejectedCount: 2,
-          lockedValueCount: 22,
-        },
-      });
-    },
-  );
-
-  await page.goto("/holdings");
-
-  await expect(
-    page.getByText("Nothing changes until you review it."),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "A holding update is ready" }),
-  ).toBeVisible();
-
-  await page.addStyleTag({
-    content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
   });
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-import-pending.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
+  await page.goto(`/holdings/imports/${preview.id}`);
+  await expect(
+    page.getByRole("heading", { name: "2 positions need attention" }),
+  ).toBeVisible();
+  await expect(page.locator(".import-table tbody tr")).toHaveCount(2);
+  await expect(
+    page.getByText("70 positions recorded automatically", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(preview.rows[1]!.positionName, { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(
+    "holdings-import-exceptions.png",
+    { animations: "disabled", maxDiffPixelRatio: 0.025 },
   );
-
   await page
-    .getByRole("button", { name: /Review AngelList import dated/ })
-    .click();
-  await expect(page).toHaveURL(
-    /\/holdings\/imports\/holding_import_synthetic_angellist$/,
-  );
-  await expect(
-    page.getByRole("heading", { name: "Review AngelList import" }),
-  ).toBeVisible();
-
-  await page.reload();
-
-  const summary = page.getByLabel("Import summary");
-  await expect(summary).toContainText("72Positions");
-  await expect(summary).toContainText("50Administrator values");
-  await expect(summary).toContainText("22Locked values");
-  await expect(page.getByText("Locked by AngelList").first()).toBeVisible();
-  await expect(
-    page.getByText("Keel will not treat them as zero."),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      "Reported carry stays pending until reviewed in the position.",
-    ),
-  ).toBeVisible();
-  await expect(page.getByText("Carry 20.0%").first()).toBeVisible();
-  await expect(page.locator(".import-table tbody tr")).toHaveCount(10);
-
-  const harborDecision = page.getByRole("checkbox", {
-    name: "Include Harbor Health Systems",
-  });
-  await expect(harborDecision).toBeChecked();
-  await harborDecision.uncheck();
-  await expect(
-    page.getByRole("checkbox", {
-      name: "Delta Systems is excluded because it needs attention",
-    }),
-  ).toBeDisabled();
-  await expect(page.getByText("70 included · 2 excluded")).toBeVisible();
-
-  const applyButton = page.getByRole("button", { name: "Apply 70 positions" });
-  await expect(applyButton).toBeDisabled();
-  await page
-    .getByRole("checkbox", {
-      name: "I confirm the export’s $ values are USD.",
-    })
+    .getByLabel(`Accept update for ${preview.rows[0]!.positionName}`)
     .check();
-  await expect(applyButton).toBeEnabled();
-  await page.addStyleTag({
-    content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
-  });
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-import-decisions.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-  await applyButton.click();
-
+  await page
+    .getByRole("button", { name: "Apply 1 and dismiss the rest" })
+    .click();
+  await expect(page.getByText("The update changed. Try again.")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Apply 1 and dismiss the rest" })
+    .click();
   await expect(
-    page.getByRole("heading", { name: "Apply the reviewed import?" }),
-  ).toBeFocused();
-  await expect(page.getByText(/No forecast, underwriting value/)).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Confirm & apply" }),
+    page.getByRole("heading", { name: "Exceptions resolved" }),
   ).toBeVisible();
-
-  const viewportWidths = await page.evaluate(() => ({
-    client: document.documentElement.clientWidth,
-    scroll: document.documentElement.scrollWidth,
-  }));
-  expect(viewportWidths.scroll).toBe(viewportWidths.client);
-
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-import-review.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  await page.getByRole("button", { name: "Confirm & apply" }).click();
-  await expect(page.getByRole("alert")).toBeFocused();
-  await expect(page.getByRole("alert")).toContainText(
-    "Nothing changed. Try again.",
-  );
-  await expect(
-    page.getByRole("heading", { name: "Review AngelList import" }),
-  ).toBeVisible();
-
-  await page.getByRole("button", { name: "Confirm & apply" }).click();
-  await expect(
-    page.getByRole("heading", { name: "69 changes applied" }),
-  ).toBeVisible();
-  await expect(page.getByRole("status")).toContainText(
-    "Reviewed 72 AngelList positions.",
-  );
-
-  expect(applyBodies).toHaveLength(2);
-  expect(applyBodies[1]).toMatchObject({
-    currency: "USD",
-    decisions: expect.arrayContaining([
-      expect.objectContaining({
-        rowId: "import_row_1",
-        decision: "rejected",
-      }),
-      expect.objectContaining({
-        rowId: "import_row_3",
-        decision: "accepted",
-      }),
-      expect.objectContaining({
-        rowId: "import_row_4",
-        decision: "rejected",
-      }),
-    ]),
-  });
-  expect((applyBodies[1] as { decisions: unknown[] }).decisions).toHaveLength(
-    72,
-  );
+  expect(bodies).toHaveLength(2);
+  expect(bodies[0]).toEqual(bodies[1]);
+  expect(
+    bodies[1]?.decisions.map(({ rowId, decision }) => ({ rowId, decision })),
+  ).toEqual([
+    { rowId: preview.rows[0]!.id, decision: "accepted" },
+    { rowId: preview.rows[3]!.id, decision: "rejected" },
+  ]);
+  await expectNoHorizontalOverflow(page);
 });
 
-test("rejects an entire AngelList import without changing accepted holdings", async ({
+test("automatically processes an older pending import without opening its review", async ({
   page,
 }) => {
-  const applyBodies: unknown[] = [];
-  const pendingImport = {
-    id: importPreview.id,
-    provider: "angellist" as const,
-    status: "pending_review" as const,
-    observedAt: importPreview.observedAt,
-    rowCount: importPreview.summary.rowCount,
-    createdAt: "2026-06-14T12:05:00.000Z",
+  const preview = {
+    ...importPreview,
+    status: "applied",
+    summary: { ...importPreview.summary, autoAppliedCount: 72 },
+    rows: importPreview.rows.map((row) => ({
+      ...row,
+      decisionSource: "policy",
+      adjudicationStatus: "auto_applied",
+    })),
   };
+  let processed = false;
   await routeHoldingsPage(page, {
     householdName: alphaFixture.dashboard.householdName,
     holdings: alphaFixture.holdings,
     investmentHoldings: emptyInvestmentHoldingsView,
     acceptedCashAccounts: [],
-    pendingImports: [pendingImport],
+    pendingImports: [
+      {
+        id: preview.id,
+        provider: "angellist",
+        status: "pending_review",
+        rowCount: 72,
+        observedAt: preview.observedAt,
+        createdAt: preview.observedAt,
+      },
+    ],
   });
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
+  await page.route("**/api/alpha", (route) =>
+    route.fulfill({ json: alphaFixture }),
+  );
   await page.route(
-    /\/api\/holding-imports\/holding_import_synthetic_angellist$/,
-    async (route) => {
-      await route.fulfill({ json: importPreview });
+    `**/api/holding-imports/${preview.id}/reconcile`,
+    (route) => {
+      processed = true;
+      return route.fulfill({ json: preview });
     },
   );
-  await page.route(
-    /\/api\/holding-imports\/holding_import_synthetic_angellist\/apply$/,
-    async (route) => {
-      applyBodies.push(route.request().postDataJSON());
-      await route.fulfill({
-        json: {
-          importId: importPreview.id,
-          createdCount: 0,
-          updatedCount: 0,
-          unchangedCount: 0,
-          rejectedCount: importPreview.summary.rowCount,
-          lockedValueCount: 0,
-        },
-      });
-    },
-  );
-
-  await page.goto("/holdings/imports/holding_import_synthetic_angellist");
+  await page.goto("/holdings/sources");
+  await expect.poll(() => processed).toBe(true);
   await expect(
-    page.getByRole("heading", { name: "Review AngelList import" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("checkbox", {
-      name: "I confirm the export’s $ values are USD.",
-    }),
-  ).not.toBeChecked();
-
-  await page.getByRole("button", { name: "Reject entire import" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Reject this import?" }),
-  ).toBeFocused();
-  await expect(
-    page.getByText(
-      "Exclude all 72 positions. Accepted holdings will not change, and this import will leave the review queue.",
-    ),
-  ).toBeVisible();
-
-  const rejectButton = page.getByRole("button", {
-    exact: true,
-    name: "Reject import",
-  });
-  await expect(rejectButton).toBeEnabled();
-  await rejectButton.click();
-
-  await expect(
-    page.getByRole("heading", { name: "No holdings changed" }),
-  ).toBeVisible();
-  await expect(page.getByRole("status")).toContainText(
-    "Excluded all 72 AngelList positions.",
-  );
-  expect(applyBodies).toHaveLength(1);
-  const decisions = (applyBodies[0] as { decisions: { decision: string }[] })
-    .decisions;
-  expect(decisions).toHaveLength(72);
-  expect(decisions.every((decision) => decision.decision === "rejected")).toBe(
-    true,
-  );
+    page.getByRole("button", { name: /Review AngelList import/ }),
+  ).toHaveCount(0);
+  await expect(page.locator(".holding-import-workspace")).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
 });
 
 test("connects Robinhood through Investments and isolates exceptions", async ({
@@ -1481,7 +1195,9 @@ test("requests an AngelList update from the phone-safe Holdings flow", async ({
     .getByRole("combobox", { name: "Automatic updates" });
   await expect(intervalSelect).toHaveText("Weekly");
   await expect(
-    page.getByText("New exports follow your schedule and wait for review."),
+    page.getByText(
+      "Updates follow your schedule. Only uncertain positions need review.",
+    ),
   ).toBeVisible();
 
   const viewportWidths = await page.evaluate(() => ({
@@ -2011,7 +1727,7 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(
     page.getByText(
-      "AngelList reconnected. Updates resumed and new changes will wait for review.",
+      "AngelList reconnected. Clear positions update automatically; exceptions stay available for review.",
       { exact: true },
     ),
   ).toBeVisible();

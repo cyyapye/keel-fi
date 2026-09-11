@@ -6,6 +6,7 @@ import {
   PlaidInvestmentsHoldingsResponseSchema,
   type PlaidInvestmentsHoldingsResponse,
 } from "@keel/connectors";
+import { refreshAcceptedPortfolioBaseline } from "@keel/database";
 import type {
   D1HoldingImportRepository,
   PortfolioBaselineRepository,
@@ -837,33 +838,10 @@ async function refreshPortfolioBaseline(input: {
     return { status: "not_needed", baselineId: null };
   }
   try {
-    const state = await input.repository.getState(input.accessSubject);
-    if (
-      state.status !== "ready" ||
-      state.latestBaseline === null ||
-      state.hasCashAccountChanges ||
-      state.requiresDuplicateReview ||
-      state.requiresCashOverlapReview ||
-      state.sourceRevision === null ||
-      state.baseForecastSnapshotId === null ||
-      state.baseForecastSnapshotVersion === null
-    ) {
-      return {
-        status: state.status === "current" ? "not_needed" : "manual_required",
-        baselineId: null,
-      };
-    }
-    const result = await input.repository.confirm(input.accessSubject, {
-      sourceRevision: state.sourceRevision,
-      baseForecastSnapshotId: state.baseForecastSnapshotId,
-      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
-      otherFiEligibleLiquidMinor:
-        state.latestBaseline.otherFiEligibleLiquidMinor,
-      duplicateReviewConfirmed: false,
-      cashOverlapReviewConfirmed: false,
-      changeNote: "Investment holdings refreshed automatically.",
-    });
-    return { status: "refreshed", baselineId: result.baseline.id };
+    return await refreshAcceptedPortfolioBaseline(
+      input.repository,
+      input.accessSubject,
+    );
   } catch {
     return { status: "manual_required", baselineId: null };
   }

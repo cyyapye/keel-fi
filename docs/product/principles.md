@@ -22,6 +22,9 @@
 13. A reviewed baseline counts each accepted position snapshot at most once.
     Exposure views group positions without merging them or creating additional
     value.
+14. Routine source updates are accepted by recorded deterministic policies.
+    Human review is reserved for unresolved exceptions and planning choices. See
+    the [source update policy](../architecture/source-update-policy.md).
 
 The interface and copy acceptance criteria live in
 [`ui-and-copy.md`](./ui-and-copy.md). The canonical relationship model for

@@ -310,6 +310,7 @@ const scalePositions = Array.from({ length: 120 }, (_, index) => ({
 
 const scaleReadyState = {
   ...automaticReadyState,
+  requiresDuplicateReview: true,
   sourceRevision: "c".repeat(64),
   observedAt: "2026-08-18T16:00:00.000Z",
   summary: {
@@ -499,13 +500,16 @@ test("sets the initial FI baseline while checking only manual cash", async ({
   });
 });
 
-test("keeps an existing FI baseline behind an explicit review", async ({
+test("keeps a possible overlap behind an explicit baseline decision", async ({
   page,
 }) => {
   const alphaResponse = await page.request.get("/api/alpha");
   expect(alphaResponse.ok()).toBe(true);
   const alphaFixture = await alphaResponse.json();
-  let baselineState: Record<string, unknown> = automaticReadyState;
+  let baselineState: Record<string, unknown> = {
+    ...automaticReadyState,
+    requiresDuplicateReview: true,
+  };
   let confirmationBody: Record<string, unknown> | null = null;
 
   await page.route("**/api/alpha", async (route) => {
@@ -617,7 +621,7 @@ test("keeps an existing FI baseline behind an explicit review", async ({
     baseForecastSnapshotId: "snap_fi_v3",
     baseForecastSnapshotVersion: 3,
     otherFiEligibleLiquidMinor: 2_500_000,
-    duplicateReviewConfirmed: false,
+    duplicateReviewConfirmed: true,
     cashOverlapReviewConfirmed: false,
     changeNote:
       "Synthetic Public Company: $228,000.00 → $238,000.00; FI-eligible liquid: $1,825,000.00 → $263,000.00",
@@ -690,79 +694,81 @@ test("keeps a 120-source baseline review DOM bounded", async ({ page }) => {
   await expectNoHorizontalOverflow(page);
 });
 
-test("keeps accepted cash changes behind a separate baseline review", async ({
-  page,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
-  let confirmationCount = 0;
-
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await routeHoldingsPage(page, {
-    householdName: alphaFixture.dashboard.householdName,
-    holdings: alphaFixture.holdings,
-    investmentHoldings: emptyInvestmentHoldingsView,
-    acceptedCashAccounts: [],
-    pendingImports: [],
-  });
-  await page.route("**/api/portfolio-baseline", async (route) => {
-    await route.fulfill({ json: cashChangeReadyState });
-  });
-  await page.route("**/api/portfolio-baselines", async (route) => {
-    confirmationCount += 1;
-    await route.fulfill({ json: automaticConfirmationResult, status: 201 });
-  });
-  await page.route("**/api/holding-imports", async (route) => {
-    await route.fulfill({ json: [] });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        status: "ready",
-        interval: "weekly",
-        runStatus: null,
-        lastSeenAt: "2026-08-13T16:00:00.000Z",
-        lastCompletedAt: "2026-08-13T15:58:00.000Z",
-        nextRunAt: "2026-08-20T16:00:00.000Z",
-        latestImportId: null,
-        errorCode: null,
-      },
+for (const kind of ["public", "private", "cash"] as const) {
+  test(`automatically refreshes routine ${kind} changes without a baseline review`, async ({
+    page,
+  }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    const alphaFixture = await alphaResponse.json();
+    const base = kind === "cash" ? cashChangeReadyState : automaticReadyState;
+    const source =
+      kind === "private"
+        ? {
+            ...base,
+            changes: {
+              positions: [
+                {
+                  changeType: "updated",
+                  current: base.positions[1],
+                  previous: {
+                    valueMinor: 120_000,
+                    valueState: "reported",
+                    observedAt: "2026-08-08T16:00:00.000Z",
+                  },
+                },
+              ],
+              cashAccounts: [],
+            },
+          }
+        : base;
+    const current = {
+      ...source,
+      status: "current",
+      canConfirm: false,
+      hasSourceChanges: false,
+      changes: { positions: [], cashAccounts: [] },
+    };
+    let refreshCount = 0;
+    let confirmationCount = 0;
+    await routeHoldingsPage(page, {
+      householdName: alphaFixture.dashboard.householdName,
+      holdings: alphaFixture.holdings,
+      investmentHoldings: emptyInvestmentHoldingsView,
+      acceptedCashAccounts: [],
+      pendingImports: [],
     });
-  });
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({ json: investmentConnectionsState });
-  });
-  await page.route("**/api/cash-accounts", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "disconnected",
-        connections: [],
-        acceptedAccounts: [],
-        pendingProposals: [],
-        errorCode: null,
-      },
+    await page.route("**/api/alpha", (route) =>
+      route.fulfill({ json: alphaFixture }),
+    );
+    await page.route("**/api/portfolio-baseline", (route) =>
+      route.fulfill({ json: source }),
+    );
+    await page.route("**/api/portfolio-baselines", (route) => {
+      confirmationCount += 1;
+      return route.fulfill({ status: 500 });
     });
+    await page.route("**/api/portfolio-baseline/refresh", (route) => {
+      expect(route.request().method()).toBe("POST");
+      refreshCount += 1;
+      return route.fulfill({ json: current });
+    });
+    await page.goto("/holdings");
+    await expect.poll(() => refreshCount).toBe(1);
+    await expect(
+      page.getByRole("status", { name: "Updating planning values…" }),
+    ).toHaveCount(0);
+    await expect(
+      page.locator(".portfolio-baseline, .portfolio-baseline-review"),
+    ).toHaveCount(0);
+    expect(confirmationCount).toBe(0);
+    await expectNoHorizontalOverflow(page);
+    if (kind === "private")
+      await expect(page.locator("main")).toHaveScreenshot(
+        "portfolio-baseline-automatic.png",
+        { animations: "disabled", maxDiffPixelRatio: 0.025 },
+      );
   });
-
-  await page.goto("/holdings");
-  await expect(
-    page.getByRole("heading", { name: "1 baseline change is ready" }),
-  ).toBeVisible();
-  await page.waitForTimeout(250);
-  expect(confirmationCount).toBe(0);
-  await page.getByRole("button", { name: "Review changes" }).click();
-  await expect(
-    page.getByRole("textbox", { name: /^Cash held elsewhere/u }),
-  ).toHaveValue("0.00");
-  await expect(page.getByRole("checkbox")).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-});
+}
 
 test("retries an unavailable planning baseline", async ({ page }) => {
   const alphaResponse = await page.request.get("/api/alpha");

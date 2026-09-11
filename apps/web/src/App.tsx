@@ -109,7 +109,6 @@ import {
   loadAngelListAutomationOverview,
   loadAlphaData,
   loadHoldingsPage,
-  loadHoldingImport,
   loadLegacyAngelListAutomationOverview,
   loadCashAccounts,
   loadPortfolioBaseline,
@@ -150,6 +149,13 @@ import { openPlaidLink } from "./plaid-link";
 import { InvestmentHoldings } from "./InvestmentHoldings";
 import { LegalEntities } from "./LegalEntities";
 import { PositionEconomicsEditor } from "./PositionEconomicsEditor";
+import { HoldingImportOutcome } from "./HoldingImportOutcome";
+import { portfolioBaselineReviewReasons } from "@keel/domain";
+import {
+  loadHoldingImport,
+  reconcileHoldingImport,
+  refreshPortfolioBaseline,
+} from "./api";
 import { Obligations } from "./Obligations";
 import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanActualMonitoring } from "./PlanActualMonitoring";
@@ -1617,8 +1623,6 @@ function Goals({
   );
 }
 
-const HOLDING_IMPORT_PAGE_SIZE = 10;
-
 function holdingValueLabel(value: number | null): string {
   return value === null ? "Not set" : formatCompactMoney(value);
 }
@@ -1718,31 +1722,6 @@ function importCurrentGroupingLabel(
   return `Grouped under ${visibleNames.join(", ")}${remainingCount > 0 ? ` + ${remainingCount} more` : ""}`;
 }
 
-function importDecisionForRow(
-  row: HoldingImportRowPreview,
-  provider: HoldingImportPreview["provider"],
-  included: boolean,
-): HoldingImportApplyInput["decisions"][number] {
-  if (row.action === "needs_attention" || !included) {
-    return {
-      rowId: row.id,
-      decision: "rejected",
-      rationale:
-        row.action === "needs_attention"
-          ? "Excluded because the imported position needs attention."
-          : `Excluded during the ${holdingImportProviderName(provider)} holdings import review.`,
-    };
-  }
-  return {
-    rowId: row.id,
-    decision: "accepted",
-    rationale:
-      row.action === "no_change"
-        ? "Reviewed; no accepted holding change was required."
-        : `Accepted during the ${holdingImportProviderName(provider)} holdings import review.`,
-  };
-}
-
 function holdingImportProviderName(
   provider: HoldingImportPreview["provider"],
 ): string {
@@ -1831,60 +1810,20 @@ function HoldingImportWorkspace({
   const [preview, setPreview] = useState<HoldingImportPreview | null>(
     initialPreview,
   );
-  const [applyResult, setApplyResult] =
-    useState<HoldingImportApplyResult | null>(null);
   const [working, setWorking] = useState<"idle" | "previewing" | "applying">(
     "idle",
   );
-  const [confirming, setConfirming] = useState(false);
-  const [currencyConfirmed, setCurrencyConfirmed] = useState(false);
-  const [excludedRowIds, setExcludedRowIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const [page, setPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const workspaceHeadingRef = useRef<HTMLHeadingElement>(null);
-  const confirmationHeadingRef = useRef<HTMLHeadingElement>(null);
   const messageRef = useRef<HTMLDivElement>(null);
   const provider = preview?.provider ?? selectedProvider;
   const providerName = holdingImportProviderName(provider);
   const isPlaidInvestments = provider === "plaid_investments";
-  const isAngelList = provider === "angellist";
-  const unavailableValueCount =
-    preview?.rows.filter((row) => row.administratorNavState !== "reported")
-      .length ?? 0;
 
   useEffect(() => {
     workspaceHeadingRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    if (confirming) {
-      confirmationHeadingRef.current?.focus();
-    }
-  }, [confirming]);
-
-  useEffect(() => {
-    if (error !== null || applyResult !== null) {
-      messageRef.current?.focus();
-    }
-  }, [applyResult, error]);
-
-  const resetFile = () => {
-    setSelectedFile(null);
-    setPreview(null);
-    setApplyResult(null);
-    setConfirming(false);
-    setCurrencyConfirmed(false);
-    setExcludedRowIds(new Set());
-    setError(null);
-    setPage(0);
-    if (fileInputRef.current !== null) {
-      fileInputRef.current.value = "";
-    }
-    window.requestAnimationFrame(() => fileInputRef.current?.focus());
-  };
 
   const requestPreview = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1901,8 +1840,6 @@ function HoldingImportWorkspace({
     void onPreview(selectedProvider, selectedFile)
       .then((nextPreview) => {
         setPreview(nextPreview);
-        setExcludedRowIds(new Set());
-        setPage(0);
         window.requestAnimationFrame(() =>
           workspaceHeadingRef.current?.focus(),
         );
@@ -1917,116 +1854,6 @@ function HoldingImportWorkspace({
       .finally(() => setWorking("idle"));
   };
 
-  const applyPreview = () => {
-    if (preview === null) {
-      return;
-    }
-    const pendingRows = preview.rows.filter(
-      (row) => row.adjudicationStatus === "pending_review",
-    );
-    const hasIncludedRows = pendingRows.some(
-      (row) => row.action !== "needs_attention" && !excludedRowIds.has(row.id),
-    );
-    if (hasIncludedRows && !currencyConfirmed) {
-      return;
-    }
-    setWorking("applying");
-    setError(null);
-    void onApply(preview.id, {
-      currency: "USD",
-      decisions: preview.rows
-        .filter((row) => row.adjudicationStatus === "pending_review")
-        .map((row) =>
-          importDecisionForRow(
-            row,
-            preview.provider,
-            row.action !== "needs_attention" && !excludedRowIds.has(row.id),
-          ),
-        ),
-    })
-      .then((result) => {
-        setApplyResult(result);
-        setConfirming(false);
-      })
-      .catch((applyError: unknown) => {
-        setError(
-          applyError instanceof Error
-            ? applyError.message
-            : `Nothing changed. The ${providerName} import could not be applied.`,
-        );
-      })
-      .finally(() => setWorking("idle"));
-  };
-
-  if (applyResult !== null && preview !== null) {
-    const changedCount = applyResult.createdCount + applyResult.updatedCount;
-    const allRowsRejected =
-      applyResult.rejectedCount === preview.summary.rowCount;
-    return (
-      <section
-        aria-labelledby="holding-import-success-title"
-        className="holding-import-workspace"
-      >
-        <Notice
-          className="import-message import-message--success"
-          ref={messageRef}
-          tabIndex={-1}
-        >
-          <p className="eyebrow">
-            {allRowsRejected
-              ? "Import rejected"
-              : isPlaidInvestments
-                ? "Automatic update"
-                : "Import reviewed"}
-          </p>
-          <h2 id="holding-import-success-title">
-            {allRowsRejected || changedCount === 0
-              ? "No holdings changed"
-              : `${changedCount} ${changedCount === 1 ? "change" : "changes"} applied`}
-          </h2>
-          {allRowsRejected ? (
-            <p>
-              Excluded all {preview.summary.rowCount} {providerName} positions.
-              The import is reviewed and accepted holdings are unchanged.
-            </p>
-          ) : isPlaidInvestments ? (
-            <p>
-              Reviewed {preview.summary.rowCount} investment positions.{" "}
-              {preview.summary.administratorValueCount} market values were
-              recorded from this snapshot.
-            </p>
-          ) : isAngelList ? (
-            <p>
-              Reviewed {preview.summary.rowCount} AngelList positions.{" "}
-              {preview.summary.administratorValueCount} administrator values
-              were available; {applyResult.lockedValueCount} locked values
-              remain unavailable.
-            </p>
-          ) : (
-            <p>
-              Reviewed {preview.summary.rowCount} {providerName} positions.{" "}
-              {preview.summary.administratorValueCount} current values were
-              available; {unavailableValueCount} unavailable values remain
-              explicit.
-            </p>
-          )}
-          {!allRowsRejected && applyResult.rejectedCount > 0 && (
-            <small>
-              {applyResult.rejectedCount}{" "}
-              {applyResult.rejectedCount === 1
-                ? "position was"
-                : "positions were"}{" "}
-              excluded because they need attention.
-            </small>
-          )}
-          <Button onClick={onClose} tone="primary">
-            Back to holdings
-          </Button>
-        </Notice>
-      </section>
-    );
-  }
-
   if (preview === null) {
     return (
       <section
@@ -2035,14 +1862,14 @@ function HoldingImportWorkspace({
         className="holding-import-workspace"
       >
         <div className="import-heading">
-          <p className="eyebrow">Review first</p>
+          <p className="eyebrow">Source update</p>
           <h2 id="holding-import-title" ref={workspaceHeadingRef} tabIndex={-1}>
             Import holdings
           </h2>
           <p id="holding-import-boundary">
             {selectedProvider === "angellist"
-              ? "Choose your AngelList investments CSV export. Nothing changes until you review it."
-              : `Use Keel’s ${holdingImportProviderName(selectedProvider)} template and copy one row per legal position. Enter funded capital as Invested; leave unavailable current values blank. Nothing changes until review.`}
+              ? "Choose your AngelList investments CSV export. Clear positions update automatically; only exceptions need review."
+              : `Use Keel’s ${holdingImportProviderName(selectedProvider)} template and copy one row per legal position. Enter funded capital as Invested; leave unavailable current values blank. Clear positions update automatically; only exceptions need review.`}
           </p>
         </div>
         <form className="import-upload" onSubmit={requestPreview}>
@@ -2060,7 +1887,6 @@ function HoldingImportWorkspace({
                 }
                 setSelectedProvider(nextProvider);
                 setSelectedFile(null);
-                setCurrencyConfirmed(false);
                 setError(null);
                 if (fileInputRef.current !== null) {
                   fileInputRef.current.value = "";
@@ -2112,7 +1938,6 @@ function HoldingImportWorkspace({
               id="holding-import-file"
               onChange={(event) => {
                 setSelectedFile(event.currentTarget.files?.[0] ?? null);
-                setCurrencyConfirmed(false);
                 setError(null);
               }}
               ref={fileInputRef}
@@ -2142,11 +1967,23 @@ function HoldingImportWorkspace({
               Cancel
             </Button>
             <Button disabled={working !== "idle"} tone="primary" type="submit">
-              {working === "previewing" ? "Reading…" : "Review file"}
+              {working === "previewing" ? "Importing…" : "Import file"}
             </Button>
           </ActionGroup>
         </form>
       </section>
+    );
+  }
+
+  if (!isPlaidInvestments) {
+    return (
+      <HoldingImportOutcome
+        key={preview.id}
+        preview={preview}
+        providerName={providerName}
+        onApply={onApply}
+        onClose={onClose}
+      />
     );
   }
 
@@ -2327,473 +2164,7 @@ function HoldingImportWorkspace({
     );
   }
 
-  const pageCount = Math.max(
-    1,
-    Math.ceil(preview.rows.length / HOLDING_IMPORT_PAGE_SIZE),
-  );
-  const pageStart = page * HOLDING_IMPORT_PAGE_SIZE;
-  const visibleRows = preview.rows.slice(
-    pageStart,
-    pageStart + HOLDING_IMPORT_PAGE_SIZE,
-  );
-  const pageEnd = Math.min(
-    pageStart + HOLDING_IMPORT_PAGE_SIZE,
-    preview.rows.length,
-  );
-  const reviewRows = preview.rows.filter(
-    (row) => row.adjudicationStatus === "pending_review",
-  );
-  const rowIsIncluded = (row: HoldingImportRowPreview) =>
-    row.action !== "needs_attention" && !excludedRowIds.has(row.id);
-  const includedRows = reviewRows.filter(rowIsIncluded);
-  const includedCount = includedRows.length;
-  const excludedCount = reviewRows.length - includedCount;
-  const includedCreateCount = includedRows.filter(
-    (row) => row.action === "create_position",
-  ).length;
-  const includedUpdateCount = includedRows.filter(
-    (row) => row.action === "append_snapshot",
-  ).length;
-  const includedUnchangedCount = includedRows.filter(
-    (row) => row.action === "no_change",
-  ).length;
-  const includedChangeCount = includedCreateCount + includedUpdateCount;
-  const includedLockedValueCount = includedRows.filter(
-    (row) => row.administratorNavState === "locked",
-  ).length;
-  const includedUnavailableValueCount = includedRows.filter(
-    (row) => row.administratorNavState !== "reported",
-  ).length;
-  const allRowsExcluded = includedCount === 0;
-  const primaryActionLabel = allRowsExcluded
-    ? "Reject import"
-    : `Apply ${includedCount} ${includedCount === 1 ? "position" : "positions"}`;
-  const hasReportedCarry = preview.rows.some(
-    (row) => row.reportedCarryPpm !== null,
-  );
-
-  return (
-    <section
-      aria-busy={working === "applying"}
-      aria-labelledby="holding-import-title"
-      className="holding-import-workspace"
-    >
-      <div className="import-heading">
-        <p className="eyebrow">
-          {isPlaidInvestments
-            ? "Investment sync"
-            : holdingImportSourceLabel(provider)}
-        </p>
-        <h2 id="holding-import-title" ref={workspaceHeadingRef} tabIndex={-1}>
-          Review {providerName} import
-        </h2>
-        {isPlaidInvestments ? (
-          <p>
-            Snapshot dated {formatDate(preview.observedAt)}. Positions missing
-            from this snapshot are not treated as sales.
-          </p>
-        ) : isAngelList ? (
-          <p>
-            Export dated {formatDate(preview.observedAt)}. Locked values stay
-            unavailable; Keel will not treat them as zero.
-            {hasReportedCarry &&
-              " Reported carry stays pending until reviewed in the position."}
-          </p>
-        ) : provider === "sydecar" ? (
-          <p>
-            Snapshot dated {formatDate(preview.observedAt)}. Missing current
-            values stay unavailable. Existing company groupings stay in place.
-            Reported fee and carry stay pending until reviewed in each position.
-          </p>
-        ) : (
-          <p>
-            Snapshot dated {formatDate(preview.observedAt)}. Missing current
-            values stay unavailable; Keel will not treat them as zero.
-          </p>
-        )}
-      </div>
-
-      <StatGroup aria-label="Import summary" className="import-summary">
-        <Stat
-          as="div"
-          label="Positions"
-          value={preview.summary.rowCount}
-          valueFirst
-        />
-        <Stat
-          as="div"
-          label={
-            isPlaidInvestments
-              ? "Market values"
-              : isAngelList
-                ? "Administrator values"
-                : "Current values"
-          }
-          value={preview.summary.administratorValueCount}
-          valueFirst
-        />
-        <Stat
-          as="div"
-          label={
-            isPlaidInvestments
-              ? "Need attention"
-              : isAngelList
-                ? "Locked values"
-                : "Unavailable values"
-          }
-          value={
-            isPlaidInvestments
-              ? preview.summary.needsAttentionCount
-              : isAngelList
-                ? preview.summary.lockedValueCount
-                : unavailableValueCount
-          }
-          valueFirst
-        />
-      </StatGroup>
-
-      {preview.summary.needsAttentionCount > 0 && (
-        <Notice className="import-attention">
-          {preview.summary.needsAttentionCount}{" "}
-          {preview.summary.needsAttentionCount === 1
-            ? "position needs"
-            : "positions need"}{" "}
-          attention and will not be applied.
-        </Notice>
-      )}
-
-      {error !== null && (
-        <Notice ref={messageRef} tabIndex={-1} tone="error">
-          {error} Nothing changed. Try again.
-        </Notice>
-      )}
-
-      <Panel className="table-panel import-table-panel">
-        <div className="holdings-table-wrap">
-          <table className="data-table import-table">
-            <caption className="visually-hidden">
-              {providerName} positions ready for review
-            </caption>
-            <thead>
-              {isPlaidInvestments ? (
-                <tr>
-                  <th>Security</th>
-                  <th>Account</th>
-                  <th>Shares</th>
-                  <th>Cost basis</th>
-                  <th>Market value</th>
-                  <th>Import result</th>
-                </tr>
-              ) : (
-                <tr>
-                  <th>Investment / legal position</th>
-                  <th>Entity</th>
-                  <th>Status</th>
-                  <th>Invested</th>
-                  <th>Realized</th>
-                  <th>{isAngelList ? "Admin value" : "Current value"}</th>
-                  <th>Import result</th>
-                </tr>
-              )}
-            </thead>
-            <tbody>
-              {visibleRows.map((row) => {
-                const included = rowIsIncluded(row);
-                return isPlaidInvestments ? (
-                  <tr key={row.id}>
-                    <td data-label="Security">
-                      <strong>{row.exposureName}</strong>
-                      <span>{row.ticker ?? "Ticker not reported"}</span>
-                    </td>
-                    <td data-label="Account">{row.ownerLabel}</td>
-                    <td data-label="Shares">
-                      {formatQuantityMicros(row.quantityMicros)}
-                    </td>
-                    <td data-label="Cost basis">
-                      {holdingValueLabel(row.costBasisMinor)}
-                    </td>
-                    <td data-label="Market value">
-                      {importAdministratorValueLabel(row, preview.provider)}
-                    </td>
-                    <td data-label="Import result">
-                      <ImportResult provider={preview.provider} row={row} />
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={row.id}>
-                    <td data-label="Investment / legal position">
-                      <strong>{row.exposureName}</strong>
-                      <span>Legal position: {row.positionName}</span>
-                    </td>
-                    <td data-label="Entity">{row.ownerLabel}</td>
-                    <td data-label="Status">
-                      <strong>{row.providerStatus}</strong>
-                      <span className="source-meta">
-                        {row.investedOnState === "reported" &&
-                        row.investedOn !== null
-                          ? `Invested ${formatDate(row.investedOn)}`
-                          : "Investment date not reported"}
-                      </span>
-                    </td>
-                    <td data-label="Invested">
-                      {formatCompactMoney(row.investedMinor)}
-                      {(row.reportedManagementFeePpm !== null ||
-                        row.reportedCarryPpm !== null) && (
-                        <span className="source-meta">
-                          {row.reportedManagementFeePpm !== null && (
-                            <>
-                              Fee{" "}
-                              {formatProbability(row.reportedManagementFeePpm)}
-                            </>
-                          )}
-                          {row.reportedManagementFeePpm !== null &&
-                            row.reportedCarryPpm !== null &&
-                            " · "}
-                          {row.reportedCarryPpm !== null && (
-                            <>Carry {formatProbability(row.reportedCarryPpm)}</>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                    <td data-label="Realized">
-                      {formatCompactMoney(row.realizedValueMinor)}
-                    </td>
-                    <td
-                      className={
-                        row.administratorNavState === "locked"
-                          ? "import-value--locked"
-                          : undefined
-                      }
-                      data-label={isAngelList ? "Admin value" : "Current value"}
-                    >
-                      {importAdministratorValueLabel(row, preview.provider)}
-                    </td>
-                    <td data-label="Import result">
-                      <ImportResult provider={preview.provider} row={row} />
-                      {row.adjudicationStatus === "pending_review" && (
-                        <label
-                          className={`import-row-decision${included ? "" : " import-row-decision--excluded"}`}
-                        >
-                          <Input
-                            aria-label={
-                              row.action === "needs_attention"
-                                ? `${row.exposureName} is excluded because it needs attention`
-                                : `Include ${row.exposureName}`
-                            }
-                            checked={included}
-                            disabled={
-                              row.action === "needs_attention" ||
-                              working !== "idle"
-                            }
-                            onChange={(event) => {
-                              const nextIncluded = event.currentTarget.checked;
-                              setExcludedRowIds((current) => {
-                                const next = new Set(current);
-                                if (nextIncluded) {
-                                  next.delete(row.id);
-                                } else {
-                                  next.add(row.id);
-                                }
-                                return next;
-                              });
-                            }}
-                            type="checkbox"
-                          />
-                          <span>
-                            {row.action === "needs_attention"
-                              ? "Excluded by Keel"
-                              : included
-                                ? "Included"
-                                : "Excluded"}
-                          </span>
-                        </label>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-
-      <nav aria-label="Import preview pages" className="import-pagination">
-        <span>
-          {pageStart + 1}–{pageEnd} of {preview.rows.length}
-        </span>
-        <div>
-          <TextLink
-            aria-label="Previous import preview page"
-            disabled={page === 0}
-            onClick={() => setPage((current) => Math.max(0, current - 1))}
-          >
-            Previous
-          </TextLink>
-          <span>
-            Page {page + 1} of {pageCount}
-          </span>
-          <TextLink
-            aria-label="Next import preview page"
-            disabled={page + 1 >= pageCount}
-            onClick={() =>
-              setPage((current) => Math.min(pageCount - 1, current + 1))
-            }
-          >
-            Next
-          </TextLink>
-        </div>
-      </nav>
-
-      <label className="import-currency-confirmation">
-        <Input
-          checked={currencyConfirmed}
-          onChange={(event) =>
-            setCurrencyConfirmed(event.currentTarget.checked)
-          }
-          type="checkbox"
-        />
-        <span>
-          I confirm the{" "}
-          {isPlaidInvestments
-            ? "investment account’s"
-            : isAngelList
-              ? "export’s"
-              : "template’s"}{" "}
-          $ values are USD.
-        </span>
-      </label>
-
-      {confirming ? (
-        <ActionGroup
-          aria-labelledby="holding-import-confirmation-title"
-          className="import-confirmation"
-          layout="split"
-          mobileLayout="stack"
-        >
-          <div>
-            <p className="eyebrow">Final review</p>
-            <h3
-              id="holding-import-confirmation-title"
-              ref={confirmationHeadingRef}
-              tabIndex={-1}
-            >
-              {allRowsExcluded
-                ? "Reject this import?"
-                : "Apply the reviewed import?"}
-            </h3>
-            {allRowsExcluded ? (
-              <p>
-                Exclude all {excludedCount} positions. Accepted holdings will
-                not change, and this import will leave the review queue.
-              </p>
-            ) : isPlaidInvestments ? (
-              <p>
-                Create {preview.summary.createCount}, update{" "}
-                {preview.summary.updateCount}, and confirm{" "}
-                {preview.summary.unchangedCount} unchanged. Missing positions
-                will not be recorded as sales. No forecast, underwriting value,
-                or usable liquidity will be inferred.
-              </p>
-            ) : isAngelList ? (
-              <p>
-                Create {includedCreateCount}, update {includedUpdateCount}, and
-                confirm {includedUnchangedCount} unchanged.
-                {excludedCount > 0 && (
-                  <>
-                    {" "}
-                    {excludedCount}{" "}
-                    {excludedCount === 1 ? "position is" : "positions are"}{" "}
-                    excluded.
-                  </>
-                )}{" "}
-                {includedLockedValueCount} locked values will remain
-                unavailable. No forecast, underwriting value, or liquidity value
-                will be inferred.
-              </p>
-            ) : (
-              <p>
-                Create {includedCreateCount}, update {includedUpdateCount}, and
-                confirm {includedUnchangedCount} unchanged.
-                {excludedCount > 0 && (
-                  <>
-                    {" "}
-                    {excludedCount}{" "}
-                    {excludedCount === 1 ? "position is" : "positions are"}{" "}
-                    excluded.
-                  </>
-                )}{" "}
-                {includedUnavailableValueCount} unavailable values will remain
-                explicit. No forecast, underwriting value, or liquidity value
-                will be inferred.
-              </p>
-            )}
-          </div>
-          <ActionGroup align="end" mobileLayout="grid">
-            <Button
-              disabled={working !== "idle"}
-              onClick={() => setConfirming(false)}
-              tone="quiet"
-            >
-              Back
-            </Button>
-            <Button
-              disabled={
-                working !== "idle" || (!allRowsExcluded && !currencyConfirmed)
-              }
-              onClick={applyPreview}
-              tone="primary"
-            >
-              {working === "applying"
-                ? "Applying…"
-                : allRowsExcluded
-                  ? "Reject import"
-                  : includedChangeCount === 0
-                    ? "Confirm review"
-                    : "Confirm & apply"}
-            </Button>
-          </ActionGroup>
-        </ActionGroup>
-      ) : (
-        <ActionGroup
-          className="import-footer"
-          layout="split"
-          mobileLayout="stack"
-        >
-          <div>
-            <strong>
-              {includedCount} included · {excludedCount} excluded
-            </strong>
-            <span>Excluded rows will not change accepted holdings.</span>
-          </div>
-          <ActionGroup align="end" mobileLayout="grid">
-            <Button
-              onClick={initialPreview === null ? resetFile : onClose}
-              tone="quiet"
-            >
-              {initialPreview === null ? "Choose another file" : "Back"}
-            </Button>
-            <Button
-              disabled={working !== "idle"}
-              onClick={() => {
-                setExcludedRowIds(new Set(reviewRows.map((row) => row.id)));
-                setConfirming(true);
-              }}
-              tone="quiet"
-            >
-              Reject entire import
-            </Button>
-            <Button
-              disabled={!allRowsExcluded && !currencyConfirmed}
-              onClick={() => setConfirming(true)}
-              tone="primary"
-            >
-              {primaryActionLabel}
-            </Button>
-          </ActionGroup>
-        </ActionGroup>
-      )}
-    </section>
-  );
+  return null;
 }
 
 const POSITION_VALUE_SOURCE_OPTIONS = [
@@ -3574,7 +2945,7 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
       : {
           title: "Importing AngelList CSV",
           description:
-            "Downloading the latest CSV. Nothing changes until you review it.",
+            "Checking the latest CSV. Clear positions update automatically.",
         };
   }
   if (overview.status === "needs_attention") {
@@ -3582,7 +2953,7 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
       return {
         title: "AngelList needs reconnecting",
         description:
-          "Finish sign-in and 2FA in a private browser. New changes will still wait for review.",
+          "Finish sign-in and 2FA in a private browser to resume updates.",
       };
     }
     if (overview.errorCode === "keel_sign_in_required") {
@@ -3596,7 +2967,7 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
       return {
         title: "AngelList export needs attention",
         description:
-          "Reconnect and confirm Export CSV is available. Nothing changes until you review it.",
+          "Reconnect and confirm Export CSV is available to resume updates.",
       };
     }
     return {
@@ -3606,7 +2977,8 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
   }
   return {
     title: "AngelList is working",
-    description: "New exports follow your schedule and wait for review.",
+    description:
+      "Updates follow your schedule. Only uncertain positions need review.",
   };
 }
 
@@ -4065,7 +3437,7 @@ function AngelListMacAgentControl() {
 
   const reconnectCompleted = useCallback(() => {
     setNotice(
-      "AngelList reconnected. Updates resumed and new changes will wait for review.",
+      "AngelList reconnected. Clear positions update automatically; exceptions stay available for review.",
     );
     void reload();
   }, [reload]);
@@ -4260,7 +3632,7 @@ function providerPortfolioAgentMessage(
     if (overview.errorCode === "provider_sign_in_required") {
       return {
         title: `${label} needs reconnecting`,
-        description: `Finish sign-in and 2FA in a private browser. New changes will still wait for review.`,
+        description: `Finish sign-in and 2FA in a private browser to resume updates.`,
       };
     }
     if (overview.errorCode === "keel_sign_in_required") {
@@ -4425,7 +3797,7 @@ function ProviderPortfolioAgentRow({
 
   const reconnectCompleted = useCallback(() => {
     setNotice(
-      `${label} reconnected. Checking for updates now; new changes will wait for review.`,
+      `${label} reconnected. Checking for updates now; only uncertain positions need review.`,
     );
     setOverview((current) =>
       current === null
@@ -4607,7 +3979,7 @@ function ProviderPortfolioAgentsControl() {
       <div className="provider-agents__heading">
         <p className="eyebrow">Other portfolio updates</p>
         <h2 id="provider-portfolio-agents-title">Tokenfolio and Sydecar</h2>
-        <p>Set up each once. New updates wait for your review.</p>
+        <p>Set up each once. Clear positions update automatically.</p>
       </div>
       <div className="provider-agents__rows">
         {PROVIDER_PORTFOLIO_AGENTS.map((provider) => (
@@ -4902,7 +4274,7 @@ function AngelListBrowserRunControl() {
   const description = waiting
     ? "Open the temporary browser and finish signing in. If the phone keyboard does not appear, return here to type into the focused field."
     : refresh?.status === "connected"
-      ? "Scheduled exports can continue. New exports will still wait for your review."
+      ? "Scheduled updates can continue. Only uncertain positions need review."
       : refresh?.status === "expired"
         ? "Your saved sign-in was not changed. Start a new window when you are ready."
         : refresh?.status === "cancelled"
@@ -6213,11 +5585,25 @@ function PortfolioBaselineSection({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const onConfirmedRef = useRef(onConfirmed);
+  useEffect(() => {
+    onConfirmedRef.current = onConfirmed;
+  }, [onConfirmed]);
 
   const reload = useCallback(async (signal?: AbortSignal) => {
     const next = await loadPortfolioBaseline(signal);
     setState(next);
     setError(null);
+    if (
+      next.status === "ready" &&
+      portfolioBaselineReviewReasons(next).length === 0
+    ) {
+      const refreshed = await refreshPortfolioBaseline(signal);
+      setState(refreshed);
+      if (refreshed.status === "current" && !signal?.aborted) {
+        await onConfirmedRef.current();
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -6373,6 +5759,31 @@ function PortfolioBaselineSection({
     state.summary === null
   ) {
     return null;
+  }
+
+  const reviewReasons = portfolioBaselineReviewReasons(state);
+  if (state.status === "ready" && reviewReasons.length === 0) {
+    return error === null ? (
+      <p role="status">Updating planning values…</p>
+    ) : (
+      <section className="portfolio-baseline portfolio-baseline--error">
+        <Notice tone="error">{error}</Notice>
+        <Button
+          onClick={() =>
+            void reload().catch((failure: unknown) =>
+              setError(
+                failure instanceof Error
+                  ? failure.message
+                  : "Planning values could not be refreshed.",
+              ),
+            )
+          }
+          tone="secondary"
+        >
+          Retry automatic update
+        </Button>
+      </section>
+    );
   }
 
   if (reviewing) {
@@ -6706,7 +6117,7 @@ function PortfolioBaselineSection({
         <p>
           {state.latestBaseline === null
             ? "Set reviewed public holdings and cash as the FI baseline, then add any cash held elsewhere."
-            : "Review only the changed sources and their forecast impact."}
+            : reviewReasons.join(" ")}
         </p>
         {error !== null && (
           <FormMessage className="portfolio-baseline__error" tone="error">
@@ -6731,7 +6142,6 @@ function Holdings({
   onExposureResolved,
   onApplyImport,
   onImportRouteChange,
-  onLoadImport,
   onPreviewImport,
   requestedDrilldown,
   requestedImportId,
@@ -6747,7 +6157,6 @@ function Holdings({
     input: HoldingImportApplyInput,
   ) => Promise<HoldingImportApplyResult>;
   onImportRouteChange: (importId: string | null) => void;
-  onLoadImport: (importId: string) => Promise<HoldingImportPreview>;
   onPreviewImport: (
     provider: UploadHoldingImportProvider,
     file: File,
@@ -6774,6 +6183,8 @@ function Holdings({
   );
   const [showSmallCashBalances, setShowSmallCashBalances] = useState(false);
   const [cashRefreshVersion, setCashRefreshVersion] = useState(0);
+  const checkedImports = useRef(new Set<string>());
+  const [importCheckError, setImportCheckError] = useState<string | null>(null);
   const [visibleExposureCount, setVisibleExposureCount] = useState(
     HOLDINGS_EXPOSURE_PAGE_SIZE,
   );
@@ -6823,12 +6234,60 @@ function Holdings({
 
   useEffect(() => {
     let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const pending = data.pendingImports.filter(
+        (item) =>
+          item.provider !== "plaid_investments" &&
+          item.status === "pending_review" &&
+          !checkedImports.current.has(item.id),
+      );
+      if (pending.length === 0) return;
+      // The read model caps this queue at 20 imports; each write handles <=500 rows.
+      void (async () => {
+        for (const item of pending) {
+          if (cancelled) return;
+          checkedImports.current.add(item.id);
+          try {
+            const preview = await reconcileHoldingImport(item.id);
+            if (!cancelled && preview.status === "applied")
+              setReviewedImportIds((current) => new Set([...current, item.id]));
+          } catch {
+            if (!cancelled)
+              setImportCheckError(
+                "Some source updates could not be checked. Open the update to retry.",
+              );
+          }
+        }
+        if (!cancelled) {
+          await onExposureResolved();
+          setCashRefreshVersion((version) => version + 1);
+        }
+      })().catch(() => {
+        if (!cancelled)
+          setImportCheckError(
+            "Source updates were checked, but holdings could not reload. Refresh to try again.",
+          );
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [data.pendingImports, onExposureResolved]);
+
+  useEffect(() => {
+    let cancelled = false;
     if (requestedImportId === null) {
       return () => {
         cancelled = true;
       };
     }
-    void onLoadImport(requestedImportId)
+    void loadHoldingImport(requestedImportId)
+      .then((preview) =>
+        preview.provider === "plaid_investments"
+          ? preview
+          : reconcileHoldingImport(requestedImportId),
+      )
       .then((preview) => {
         if (!cancelled) {
           setRoutedPreview(preview);
@@ -6839,15 +6298,14 @@ function Holdings({
         if (!cancelled) {
           setRoutedPreviewError({
             importId: requestedImportId,
-            message:
-              "This holding import is unavailable or has already been reviewed.",
+            message: "This update could not be checked. Reopen it to retry.",
           });
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [onLoadImport, requestedImportId]);
+  }, [requestedImportId]);
 
   const closeImporter = () => {
     setShowImporter(false);
@@ -6987,6 +6445,9 @@ function Holdings({
         )
       ) : (
         <>
+          {importCheckError !== null && (
+            <Notice tone="error">{importCheckError}</Notice>
+          )}
           {sourcesVisible ? (
             <>
               <AngelListSignInControl />
@@ -7008,19 +6469,22 @@ function Holdings({
                   <div>
                     <p className="eyebrow">Holding updates</p>
                     <h2 id="pending-holding-imports-title">
-                      {pendingImports.length === 1
-                        ? "A holding update is ready"
-                        : `${pendingImports.length} holding updates are ready`}
+                      Source updates needing attention
                     </h2>
-                    <p>Nothing changes until you review it.</p>
+                    <p>
+                      Clear positions update automatically. Review only the
+                      exceptions.
+                    </p>
                   </div>
                   <div className="holding-import-pending__items">
                     {pendingImports.map((item) => (
                       <div key={item.id}>
                         <span>
-                          <strong>{item.rowCount} positions</strong>
+                          <strong>
+                            {holdingImportProviderName(item.provider)}
+                          </strong>
                           <small>
-                            {holdingImportSourceLabel(item.provider)} ·{" "}
+                            {item.rowCount} positions in this export ·{" "}
                             {formatDate(item.observedAt)}
                           </small>
                         </span>
@@ -7029,7 +6493,7 @@ function Holdings({
                           onClick={() => reviewPendingImport(item.id)}
                           tone="primary"
                         >
-                          Review import
+                          Review exceptions
                         </Button>
                       </div>
                     ))}
@@ -8808,8 +8272,11 @@ export function App() {
             return result;
           }}
           onImportRouteChange={navigateToHoldingImport}
-          onLoadImport={loadHoldingImport}
-          onPreviewImport={previewHoldingImport}
+          onPreviewImport={async (provider, file) => {
+            const preview = await previewHoldingImport(provider, file);
+            await refreshReviewedHoldings();
+            return preview;
+          }}
           requestedImportId={holdingImportId}
           requestedDrilldown={holdingsDrilldown}
           requestedView={holdingsView}

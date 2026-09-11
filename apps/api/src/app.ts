@@ -34,6 +34,7 @@ import {
   D1PositionEconomicsRepository,
   D1PositionValueAdjustmentRepository,
   D1ProviderBrowserSessionRepository,
+  refreshAcceptedPortfolioBaseline,
   type AlphaRepository,
   type AngelListMacAgentRepository,
   type CashAccountsRepository,
@@ -598,13 +599,14 @@ async function stageAngelListUpload(
     );
   }
 
+  let staged: Awaited<ReturnType<AlphaRepository["stageHoldingImport"]>>;
   try {
     const canonicalScope = await buildAngelListCanonicalScope({
       env,
       accessSubject,
       rows: parsed.rows,
     });
-    const staged = await repository.stageHoldingImport(accessSubject, {
+    staged = await repository.stageHoldingImport(accessSubject, {
       objectKey,
       sha256: await sha256Bytes(upload.bytes),
       byteSize: upload.bytes.byteLength,
@@ -616,7 +618,6 @@ async function stageAngelListUpload(
     if (!staged.created) {
       await discardPrivateObject(env.DOCUMENTS, objectKey);
     }
-    return staged;
   } catch {
     await discardPrivateObject(env.DOCUMENTS, objectKey);
     throw new AngelListImportRequestError(
@@ -624,6 +625,14 @@ async function stageAngelListUpload(
       "Keel could not prepare this import for review.",
     );
   }
+  // Evidence is already durable. A later failure must not delete its document.
+  return {
+    ...staged,
+    preview: await repository.reconcileHoldingImport(
+      accessSubject,
+      staged.preview.id,
+    ),
+  };
 }
 
 class ProviderTemplateImportRequestError extends Error {
@@ -687,6 +696,7 @@ async function stageProviderTemplateUpload(
   }
 
   let phase: "canonical_scope" | "review_staging" = "canonical_scope";
+  let staged: Awaited<ReturnType<AlphaRepository["stageHoldingImport"]>>;
   try {
     const canonicalScope = await buildProviderTemplateCanonicalScope({
       env,
@@ -695,7 +705,7 @@ async function stageProviderTemplateUpload(
       rows: parsed.rows,
     });
     phase = "review_staging";
-    const staged = await repository.stageHoldingImport(accessSubject, {
+    staged = await repository.stageHoldingImport(accessSubject, {
       provider,
       formatVersion: parsed.formatVersion,
       objectKey,
@@ -709,7 +719,6 @@ async function stageProviderTemplateUpload(
     if (!staged.created) {
       await discardPrivateObject(env.DOCUMENTS, objectKey);
     }
-    return staged;
   } catch {
     await discardPrivateObject(env.DOCUMENTS, objectKey);
     throw new ProviderTemplateImportRequestError(
@@ -718,6 +727,13 @@ async function stageProviderTemplateUpload(
       phase,
     );
   }
+  return {
+    ...staged,
+    preview: await repository.reconcileHoldingImport(
+      accessSubject,
+      staged.preview.id,
+    ),
+  };
 }
 
 function providerPortfolioAgentProvider(
@@ -1143,6 +1159,23 @@ export function createApp(options: AppOptions = {}) {
     } catch {
       return context.json(
         { error: "Keel could not prepare the portfolio baseline." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.post("/api/portfolio-baseline/refresh", async (context) => {
+    const repository = portfolioBaselineRepositoryFor(context.env);
+    const subject = context.get("identity").subject;
+    try {
+      await refreshAcceptedPortfolioBaseline(repository, subject);
+      return context.json(await repository.getState(subject), 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch {
+      return context.json(
+        { error: "Planning values could not be refreshed. Try again." },
         503,
         { "Cache-Control": "private, no-store" },
       );
@@ -4138,6 +4171,24 @@ export function createApp(options: AppOptions = {}) {
       return context.json(
         { error: "Keel could not load pending holding imports." },
         500,
+      );
+    }
+  });
+
+  app.post("/api/holding-imports/:importId/reconcile", async (context) => {
+    try {
+      const preview = await repositoryFor(context.env).reconcileHoldingImport(
+        context.get("identity").subject,
+        context.req.param("importId"),
+      );
+      return context.json(preview, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      return context.json(
+        { error: "This update could not be checked. Try again." },
+        errorMessage(error).includes("not found") ? 404 : 503,
+        { "Cache-Control": "private, no-store" },
       );
     }
   });
