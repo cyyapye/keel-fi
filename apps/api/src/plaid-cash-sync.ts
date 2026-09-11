@@ -905,7 +905,18 @@ export async function refreshDueCashAccounts(input: {
   const refreshedAfter = new Date(
     now.getTime() - AUTOMATIC_LIVE_REFRESH_INTERVAL_MS,
   ).toISOString();
+  let attempted = false;
   for (const connection of state.connections) {
+    if (
+      connection.status !== "ready" ||
+      connection.liveRefreshesRemaining === 0 ||
+      (connection.lastCheckedAt !== null &&
+        connection.lastCheckedAt >= refreshedAfter) ||
+      state.pendingProposals.some(
+        (proposal) => proposal.connectionId === connection.id,
+      )
+    )
+      continue;
     const run = await input.repository.beginAutomaticRefresh(
       input.accessSubject,
       connection.id,
@@ -914,7 +925,10 @@ export async function refreshDueCashAccounts(input: {
     if (run === null) {
       continue;
     }
+    attempted = true;
     await executeCashAccountRefresh({ ...input, run }).catch(() => undefined);
   }
-  return input.repository.getState(input.accessSubject, true);
+  return attempted
+    ? input.repository.getState(input.accessSubject, true)
+    : state;
 }

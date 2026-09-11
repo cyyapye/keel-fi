@@ -1990,7 +1990,8 @@ export class D1ExposureRepository {
                FROM holding_position_exposure_mappings mapping
                JOIN canonical_exposures exposure
                  ON exposure.id = mapping.exposure_id
-               WHERE mapping.position_id = application.position_id
+               WHERE mapping.household_id = import.household_id
+                 AND mapping.position_id = application.position_id
                  AND mapping.status = 'active'
                  AND exposure.exposure_kind <> 'unresolved'
                  AND NOT EXISTS (

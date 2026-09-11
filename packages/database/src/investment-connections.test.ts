@@ -496,9 +496,11 @@ describe("Plaid Investments connection state", () => {
       .all(syncedAfter, 100) as { detail: string }[];
     const details = queryPlan.map((row) => row.detail).join("\n");
     expect(details).toContain(
-      "connector_sync_investment_connections_connection_created_idx",
+      "connector_sync_investment_connections_household_idx",
     );
-    expect(details).not.toMatch(/SCAN (later_link|later_state)/u);
+    expect(details).not.toMatch(
+      /SCAN (later_link|later_state|scope|document)/u,
+    );
   });
 
   it("resolves only an active scheduled investment connection owner", async () => {

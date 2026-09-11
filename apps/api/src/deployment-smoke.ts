@@ -109,7 +109,7 @@ export async function runDeploymentSmoke(
   const previewUser = await env.DB.prepare(
     `SELECT access_subject
      FROM users
-     ORDER BY created_at, id
+     ORDER BY id
      LIMIT 1`,
   ).first<{ access_subject: string }>();
   if (previewUser === null || previewUser.access_subject.length === 0) {

@@ -295,12 +295,23 @@ describe("provider browser session repository", () => {
     );
 
     now = new Date("2026-08-26T12:16:00.000Z");
+    const changesBefore = database
+      .prepare("SELECT total_changes() AS count")
+      .get();
     await expect(
       repository.get("synthetic-access-subject", tokenfolio.id),
     ).resolves.toMatchObject({ status: "expired" });
     await expect(
       repository.get("synthetic-access-subject", sydecar.id),
     ).resolves.toMatchObject({ status: "expired" });
+    expect(database.prepare("SELECT total_changes() AS count").get()).toEqual(
+      changesBefore,
+    );
+    await expect(
+      repository.consume("synthetic-access-subject", tokenfolio.id),
+    ).rejects.toMatchObject({ code: "session_not_ready" });
+    // The normal lease mutation persists cleanup; expiry blocks access before it.
+    await repository.lease("synthetic-access-subject", "tokenfolio");
     expect(
       database
         .prepare(

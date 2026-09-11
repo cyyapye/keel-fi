@@ -179,6 +179,7 @@ export async function resolvePublicHostWithDnsJson(
           const response = await fetchImpl(query, {
             headers: { Accept: "application/dns-json" },
             redirect: "manual",
+            signal: AbortSignal.timeout(5_000),
           });
           if (!response.ok) {
             throw new Error("dns_lookup_failed");
@@ -750,60 +751,55 @@ async function processSourceJob(
     return;
   }
 
-  const followupJobs = await repository.registerCandidates(
-    source.id,
-    candidates,
-    checkedAt,
-  );
-  await Promise.all(
-    followupJobs.map((job) =>
-      env.INGESTION_QUEUE.send({
-        ...job,
-        messageId: crypto.randomUUID(),
-        requestedAt: checkedAt,
-      }),
-    ),
-  );
+  await repository.registerCandidates(source.id, candidates, checkedAt);
+  // Discovery persists due work. The daily scheduler admits it under the same
+  // 40-job budget; recursive enqueueing would multiply a day's batch by 40.
 
   if (lifecycle.nextStatus !== "active") {
     return;
   }
 
-  let objectStored = false;
   const objectKey = `public-watch/${source.id}/${fetched.sha256}`;
-  for (const event of events) {
-    if (event.publishedAt === null) {
-      continue;
-    }
-    const fingerprint = await sha256(
-      new TextEncoder().encode(observationFingerprintMaterial(source, event)),
-    );
-    if (await repository.hasObservation(source.householdId, fingerprint)) {
-      continue;
-    }
-    if (!objectStored) {
-      await env.DOCUMENTS.put(objectKey, fetched.bytes, {
-        httpMetadata: { contentType: fetched.contentType },
-      });
-      objectStored = true;
-    }
-    await repository.recordObservation({
-      sourceId: source.id,
-      objectKey,
-      contentType: fetched.contentType,
-      byteSize: fetched.bytes.byteLength,
-      sha256: fetched.sha256,
-      retrievedAt: checkedAt,
-      sourceUrl: event.canonicalUrl,
-      sourceTitle: event.title,
-      publishedAt: event.publishedAt,
-      eventType: mappedEventType(event.eventType),
-      observedFact: observedFactForEvent(event),
-      modelConfidencePpm: 900_000,
-      financingFacts: event.financingFacts,
-      fingerprint,
-    });
-  }
+  const observations = await Promise.all(
+    events.flatMap((event) => {
+      if (event.publishedAt === null) return [];
+      const publishedAt = event.publishedAt;
+      return [
+        (async () => ({
+          sourceId: source.id,
+          objectKey,
+          contentType: fetched.contentType,
+          byteSize: fetched.bytes.byteLength,
+          sha256: fetched.sha256,
+          retrievedAt: checkedAt,
+          sourceUrl: event.canonicalUrl,
+          sourceTitle: event.title,
+          publishedAt,
+          eventType: mappedEventType(event.eventType),
+          observedFact: observedFactForEvent(event),
+          modelConfidencePpm: 900_000,
+          financingFacts: event.financingFacts,
+          fingerprint: await sha256(
+            new TextEncoder().encode(
+              observationFingerprintMaterial(source, event),
+            ),
+          ),
+        }))(),
+      ];
+    }),
+  );
+  const existing = await repository.existingObservationFingerprints(
+    source.householdId,
+    observations.map((observation) => observation.fingerprint),
+  );
+  const additions = observations.filter(
+    (observation) => !existing.has(observation.fingerprint),
+  );
+  if (additions.length === 0) return;
+  await env.DOCUMENTS.put(objectKey, fetched.bytes, {
+    httpMetadata: { contentType: fetched.contentType },
+  });
+  await repository.recordObservations(additions);
 }
 
 export async function handlePortfolioWatchQueue(

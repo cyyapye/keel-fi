@@ -22,6 +22,7 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
+
 import {
   projectCashAccountIdentities,
   type AcceptedCashAccountHistoryRow,
@@ -249,8 +250,13 @@ async function findIdentity(
   return identity;
 }
 
-function monthPrefix(at: Date = new Date()): string {
-  return at.toISOString().slice(0, 7);
+function monthBounds(at: Date = new Date()): readonly [string, string] {
+  return [
+    new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1)).toISOString(),
+    new Date(
+      Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1),
+    ).toISOString(),
+  ];
 }
 
 function issuesFromJson(raw: string): string[] {
@@ -910,7 +916,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
              WHERE used.household_id = ?
                AND used.connector_account_id = ?
                AND used.cursor = 'cash-live-v1'
-               AND substr(used.started_at, 1, 7) = ?
+               AND used.started_at >= ? AND used.started_at < ?
            ) < ?
          )`,
       )
@@ -925,7 +931,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         refreshKind,
         identity.household_id,
         connection.id,
-        monthPrefix(new Date(startedAt)),
+        ...monthBounds(new Date(startedAt)),
         LIVE_REFRESH_LIMIT,
       )
       .run();
@@ -985,7 +991,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
            WHERE used.household_id = ?
              AND used.connector_account_id = ?
              AND used.cursor = 'cash-live-v1'
-             AND substr(used.started_at, 1, 7) = ?
+             AND used.started_at >= ? AND used.started_at < ?
          ) < ?`,
       )
       .bind(
@@ -1000,7 +1006,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         refreshedAfter,
         identity.household_id,
         connection.id,
-        monthPrefix(new Date(startedAt)),
+        ...monthBounds(new Date(startedAt)),
         LIVE_REFRESH_LIMIT,
       )
       .run();
@@ -1666,32 +1672,15 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
                SELECT COUNT(*) FROM connector_sync_runs run
                WHERE run.connector_account_id = account.id
                  AND run.cursor = 'cash-live-v1'
-                 AND substr(run.started_at, 1, 7) = ?
+                 AND run.started_at >= ? AND run.started_at < ?
              ) AS live_refreshes_used
            FROM connector_accounts account
            WHERE account.household_id = ? AND account.connector_type = ?
              AND account.status = 'active'
            ORDER BY account.display_label, account.id`,
         )
-        .bind(monthPrefix(), householdId, CONNECTOR_TYPE),
+        .bind(...monthBounds(), householdId, CONNECTOR_TYPE),
     );
-  }
-
-  private async liveRefreshesUsed(
-    householdId: string,
-    connectionId: string,
-  ): Promise<number> {
-    const row = await this.db
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM connector_sync_runs
-         WHERE household_id = ? AND connector_account_id = ?
-           AND cursor = 'cash-live-v1'
-           AND substr(started_at, 1, 7) = ?`,
-      )
-      .bind(householdId, connectionId, monthPrefix())
-      .first<{ count: number }>();
-    return row?.count ?? 0;
   }
 
   private async hasActiveRefresh(

@@ -22,6 +22,7 @@ import {
   type ProviderPortfolioAgentLease,
   type ProviderPortfolioAgentProvider,
 } from "../packages/domain/src/index";
+import { waitForKeelSession } from "./keel-session-check";
 import { runProviderAgentPolling } from "./provider-agent-polling";
 import {
   MacAgentAccessError,
@@ -551,37 +552,6 @@ async function portfolioPage(
     waitUntil: "domcontentloaded",
   });
   return page;
-}
-
-async function waitForKeelSession(
-  page: Page,
-  keelOrigin: URL,
-  timeoutMs: number,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (new URL(page.url()).origin === keelOrigin.origin) {
-      const ready = await page
-        .evaluate(async () => {
-          const response = await fetch("/api/alpha", {
-            credentials: "same-origin",
-            headers: { Accept: "application/json" },
-          });
-          return (
-            response.ok &&
-            (response.headers.get("Content-Type") ?? "").includes(
-              "application/json",
-            )
-          );
-        })
-        .catch(() => false);
-      if (ready) {
-        return true;
-      }
-    }
-    await sleep(1_000);
-  }
-  return false;
 }
 
 async function providerPageReady(

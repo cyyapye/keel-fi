@@ -316,6 +316,7 @@ type ImportCoveragePreviewRow = {
 
 type ImportPreviewRow = {
   id: string;
+  container_id: string;
   source_row_number: number;
   legal_vehicle_name: string;
   exposure_label: string;
@@ -1843,6 +1844,7 @@ export class D1HoldingImportRepository {
           .prepare(
             `SELECT
              row.id,
+             row_scope.container_id,
              row.source_row_number,
              row.legal_vehicle_name,
              row.exposure_label,
@@ -1896,26 +1898,20 @@ export class D1HoldingImportRepository {
            LEFT JOIN holding_import_row_decisions decision
              ON decision.import_row_id = row.id
            LEFT JOIN holding_import_quarantines quarantine
-             ON quarantine.import_row_id = row.id
+             ON quarantine.import_id = row.import_id
+             AND quarantine.import_row_id = row.id
            WHERE row.import_id = ? AND row.household_id = ?
            ORDER BY row.source_row_number`,
           )
           .bind(importId, identity.household_id),
       ),
-      all<ImportCoveragePreviewRow>(
+      all<Omit<ImportCoveragePreviewRow, "reported_row_count">>(
         this.db
           .prepare(
             `SELECT
              coverage.container_id,
              version.display_label,
-             coverage.completeness,
-             (SELECT COUNT(*)
-              FROM holding_import_rows row
-              JOIN holding_import_row_containers row_scope
-                ON row_scope.import_row_id = row.id
-              WHERE row.import_id = coverage.import_id
-                AND row_scope.container_id = coverage.container_id)
-               AS reported_row_count
+             coverage.completeness
            FROM holding_import_coverages coverage
            JOIN ownership_container_versions version
              ON version.container_id = coverage.container_id
@@ -1970,6 +1966,12 @@ export class D1HoldingImportRepository {
           .bind(importId, identity.household_id),
       ),
     ]);
+    const reportedRowsByContainer = new Map<string, number>();
+    for (const row of rows)
+      reportedRowsByContainer.set(
+        row.container_id,
+        (reportedRowsByContainer.get(row.container_id) ?? 0) + 1,
+      );
     const exposureNamesByRowId = new Map<string, string[]>();
     currentExposures.forEach((record) => {
       const names = exposureNamesByRowId.get(record.import_row_id) ?? [];
@@ -2065,7 +2067,7 @@ export class D1HoldingImportRepository {
         containerId: record.container_id,
         displayLabel: record.display_label,
         completeness: record.completeness,
-        reportedRowCount: record.reported_row_count,
+        reportedRowCount: reportedRowsByContainer.get(record.container_id) ?? 0,
       })),
       rows: previewRows,
     };
@@ -2241,11 +2243,19 @@ export class D1HoldingImportRepository {
       this.db
         .prepare(
           `SELECT snapshot.id, snapshot.position_id, snapshot.snapshot_fingerprint
-           FROM holding_position_snapshots snapshot
-           JOIN holding_positions position ON position.id = snapshot.position_id
-           WHERE snapshot.household_id = ? AND position.provider = ?`,
+           FROM holding_import_rows row
+           JOIN holding_import_row_containers scope ON scope.import_row_id = row.id
+           JOIN holding_position_ownerships ownership
+             ON ownership.container_id = scope.container_id
+             AND ownership.protected_position_key = row.position_fingerprint
+             AND NOT EXISTS (SELECT 1 FROM holding_position_ownerships later
+               WHERE later.supersedes_ownership_id = ownership.id)
+           JOIN holding_position_snapshots snapshot
+             ON snapshot.position_id = ownership.position_id
+             AND snapshot.snapshot_fingerprint = row.snapshot_fingerprint
+           WHERE row.household_id = ? AND row.import_id = ?`,
         )
-        .bind(identity.household_id, provider),
+        .bind(identity.household_id, importId),
     );
     const positionsByKey = new Map(
       positions.map((position) => [
@@ -2793,9 +2803,8 @@ export class D1HoldingImportRepository {
       }
     }
 
-    const containersByKey = new Map<string, CanonicalContainerRow>();
-    for (const containerScope of scope.containers) {
-      const existing = await this.db
+    const existingContainers = await all<CanonicalContainerRow>(
+      this.db
         .prepare(
           `SELECT
              container.id,
@@ -2810,7 +2819,7 @@ export class D1HoldingImportRepository {
              ON version.container_id = container.id
            WHERE container.household_id = ?
              AND container.connection_id = ?
-             AND container.protected_account_key = ?
+             AND container.protected_account_key IN (SELECT value FROM json_each(?))
              AND NOT EXISTS (
                SELECT 1
                FROM ownership_container_versions later
@@ -2820,9 +2829,21 @@ export class D1HoldingImportRepository {
         .bind(
           identity.household_id,
           connection.id,
-          containerScope.protectedAccountKey,
-        )
-        .first<CanonicalContainerRow>();
+          JSON.stringify(
+            scope.containers.map((container) => container.protectedAccountKey),
+          ),
+        ),
+    );
+    const existingByKey = new Map(
+      existingContainers.map((container) => [
+        container.protected_account_key,
+        container,
+      ]),
+    );
+    const containersByKey = new Map<string, CanonicalContainerRow>();
+    for (const containerScope of scope.containers) {
+      const existing =
+        existingByKey.get(containerScope.protectedAccountKey) ?? null;
       if (existing === null) {
         const containerId = crypto.randomUUID();
         const versionId = crypto.randomUUID();

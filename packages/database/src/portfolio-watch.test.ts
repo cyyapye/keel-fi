@@ -711,8 +711,8 @@ describe("Portfolio Watch scheduling", () => {
       "2026-08-28T13:00:00Z",
       100,
     );
-    expect(firstBatch).toHaveLength(100);
-    expect(new Set(firstBatch.map((job) => job.sourceId)).size).toBe(100);
+    expect(firstBatch).toHaveLength(40);
+    expect(new Set(firstBatch.map((job) => job.sourceId)).size).toBe(40);
     expect(firstBatch).toContainEqual({
       type: "portfolio_watch_source_verify",
       sourceId: "source_scale_001",

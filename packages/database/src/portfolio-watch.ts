@@ -1,4 +1,5 @@
 import {
+  MAX_PORTFOLIO_WATCH_JOB_BATCH,
   decideSourceLifecycle,
   evaluateSourceUrl,
   OfficialCompanySourceStatusSchema,
@@ -187,12 +188,6 @@ export interface ScheduledPortfolioWatchRepository {
   ): Promise<PortfolioWatchScanPreparation["jobs"]>;
 }
 
-type TargetRow = {
-  id: string;
-  company_id: string;
-  website_host: string | null;
-};
-
 type SourceRow = {
   id: string;
   household_id: string;
@@ -220,9 +215,22 @@ type SourceIdentityRow = {
   status: z.infer<typeof OfficialCompanySourceStatusSchema>;
 };
 
-type RecoverableDiscoveredSourceRow = {
+type DiscoveredSourceInput = {
   id: string;
-  last_attempt_at: string | null;
+  householdId: string;
+  targetId: string;
+  companyId: string;
+  kind: z.infer<typeof SourceKindSchema>;
+  url: string;
+  origin: string;
+  path: string;
+  authority: number;
+  identity: number;
+  operational: number;
+  coverage: string;
+  method: string;
+  observedUrl: string;
+  occurredAt: string;
 };
 
 async function all<T>(statement: D1PreparedStatement): Promise<readonly T[]> {
@@ -258,15 +266,6 @@ function nextCheckAt(checkedAt: string, succeeded: boolean): string {
   return next.toISOString();
 }
 
-function isSourceUniqueConstraint(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.includes(
-      "UNIQUE constraint failed: portfolio_watch_sources.watch_target_id, portfolio_watch_sources.canonical_url",
-    )
-  );
-}
-
 export class D1PortfolioWatchRepository {
   public constructor(private readonly db: D1Database) {}
 
@@ -275,7 +274,10 @@ export class D1PortfolioWatchRepository {
     rawLimit: number,
   ): Promise<PortfolioWatchScanPreparation["jobs"]> {
     const dueAt = z.iso.datetime({ offset: true }).parse(rawDueAt);
-    const limit = z.number().int().min(1).max(100).parse(rawLimit);
+    const limit = Math.min(
+      z.number().int().min(1).max(100).parse(rawLimit),
+      MAX_PORTFOLIO_WATCH_JOB_BATCH,
+    );
     const rows = await all<{
       id: string;
       status: z.infer<typeof OfficialCompanySourceStatusSchema>;
@@ -295,105 +297,8 @@ export class D1PortfolioWatchRepository {
     householdId: string,
   ): Promise<PortfolioWatchScanPreparation> {
     const checkedAt = new Date().toISOString();
-    const targets = await all<TargetRow>(
-      this.db
-        .prepare(
-          `SELECT target.id, target.company_id, company.website_host
-           FROM portfolio_watch_targets target
-           JOIN companies company ON company.id = target.company_id
-           WHERE target.household_id = ?
-             AND company.household_id = target.household_id
-             AND target.status = 'active'
-           ORDER BY target.id`,
-        )
-        .bind(householdId),
-    );
-
-    for (const target of targets) {
-      if (target.website_host === null) {
-        continue;
-      }
-      const homepage = evaluateSourceUrl({
-        rawUrl: `https://${target.website_host}/`,
-        approvedWebsiteHost: target.website_host,
-      });
-      if (!homepage.accepted) {
-        continue;
-      }
-
-      const existing = await this.db
-        .prepare(
-          `SELECT id FROM portfolio_watch_sources
-           WHERE watch_target_id = ? AND canonical_url = ?`,
-        )
-        .bind(target.id, homepage.source.canonicalUrl)
-        .first<{ id: string }>();
-      if (existing !== null) {
-        continue;
-      }
-
-      const sourceId = crypto.randomUUID();
-      const coverageJson = JSON.stringify({
-        discoveryMethod: "configured_homepage",
-      });
-      try {
-        await this.db.batch([
-          this.db
-            .prepare(
-              `INSERT INTO portfolio_watch_sources (
-             id, household_id, watch_target_id, company_id, source_kind,
-             source_class, canonical_url, allowed_origin, allowed_path_prefix,
-             status, authority_ppm, identity_confidence_ppm,
-             operational_health_ppm, coverage_json, auto_activated_at,
-             created_at, updated_at
-           ) VALUES (?, ?, ?, ?, 'official_company_web', 'official_company',
-             ?, ?, '/', 'discovered', 1000000, 850000, 0, ?, NULL, ?, ?)`,
-            )
-            .bind(
-              sourceId,
-              householdId,
-              target.id,
-              target.company_id,
-              homepage.source.canonicalUrl,
-              new URL(homepage.source.canonicalUrl).origin,
-              coverageJson,
-              checkedAt,
-              checkedAt,
-            ),
-          this.db
-            .prepare(
-              `INSERT INTO portfolio_watch_source_verification_events (
-                 id, household_id, source_id, event_type, reason_code,
-                 observed_url, normalized_url, http_status, content_type,
-                 redirect_url, security_passed, authority_ppm,
-                 identity_confidence_ppm, coverage_json, occurred_at
-               ) VALUES (?, ?, ?, 'discovered', 'configured_homepage', ?, ?,
-                 NULL, NULL, NULL, 1, 1000000, 850000, ?, ?)`,
-            )
-            .bind(
-              crypto.randomUUID(),
-              householdId,
-              sourceId,
-              homepage.source.canonicalUrl,
-              homepage.source.canonicalUrl,
-              coverageJson,
-              checkedAt,
-            ),
-          this.db
-            .prepare(
-              `INSERT INTO portfolio_watch_source_sync_state (
-                 source_id, next_check_at, consecutive_failure_count, updated_at
-               ) VALUES (?, ?, 0, ?)`,
-            )
-            .bind(sourceId, checkedAt, checkedAt),
-        ]);
-      } catch (error) {
-        if (!isSourceUniqueConstraint(error)) {
-          throw error;
-        }
-      }
-    }
-
+    // Accepted exposure changes already register homepages in the canonical
+    // database transaction. Preparing a scan only selects a bounded job batch.
     const sources = await all<{
       id: string;
       status: z.infer<typeof OfficialCompanySourceStatusSchema>;
@@ -403,12 +308,14 @@ export class D1PortfolioWatchRepository {
           `SELECT source.id, source.status
            FROM portfolio_watch_sources source
            JOIN portfolio_watch_targets target ON target.id = source.watch_target_id
+           LEFT JOIN portfolio_watch_source_sync_state sync ON sync.source_id = source.id
            WHERE source.household_id = ?
              AND target.status = 'active'
              AND source.status IN ('discovered', 'verified', 'active', 'degraded')
-           ORDER BY source.id`,
+           ORDER BY COALESCE(sync.last_attempt_at, ''), source.id
+           LIMIT ?`,
         )
-        .bind(householdId),
+        .bind(householdId, MAX_PORTFOLIO_WATCH_JOB_BATCH),
     );
 
     return PortfolioWatchScanPreparationSchema.parse({
@@ -487,123 +394,122 @@ export class D1PortfolioWatchRepository {
       return [];
     }
 
-    const existingCount = await this.db
-      .prepare(
-        `SELECT COUNT(*) AS source_count
-         FROM portfolio_watch_sources WHERE watch_target_id = ?`,
-      )
-      .bind(parent.watch_target_id)
-      .first<{ source_count: number }>();
-    let remaining = Math.max(0, 50 - (existingCount?.source_count ?? 0));
-
-    const jobs: PortfolioWatchScanPreparation["jobs"] = [];
+    const existing = await all<{ canonical_url: string }>(
+      this.db
+        .prepare(
+          `SELECT canonical_url FROM portfolio_watch_sources WHERE watch_target_id = ?`,
+        )
+        .bind(parent.watch_target_id),
+    );
+    const knownUrls = new Set(existing.map((source) => source.canonical_url));
+    let remaining = Math.max(0, 50 - existing.length);
+    const requestedUrls = new Set<string>();
+    const additions: DiscoveredSourceInput[] = [];
     for (const candidate of candidates) {
-      if (remaining === 0) {
-        break;
-      }
       const policy = evaluateSourceUrl({
         rawUrl: candidate.canonicalUrl,
         approvedWebsiteHost: new URL(parent.allowed_origin).hostname,
       });
-      if (!policy.accepted) {
+      if (!policy.accepted || requestedUrls.has(policy.source.canonicalUrl))
         continue;
-      }
-
-      const sourceId = crypto.randomUUID();
-      const coverageJson = JSON.stringify({
-        discoveryMethod: candidate.discoveryMethod,
-        parentSourceId,
-      });
       const url = new URL(policy.source.canonicalUrl);
-      try {
-        await this.db.batch([
-          this.db
-            .prepare(
-              `INSERT INTO portfolio_watch_sources (
-             id, household_id, watch_target_id, company_id, source_kind,
-             source_class, canonical_url, allowed_origin, allowed_path_prefix,
-             status, authority_ppm, identity_confidence_ppm,
-             operational_health_ppm, coverage_json, auto_activated_at,
-             created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, 'official_company', ?, ?, ?, 'discovered',
-             ?, ?, ?, ?, NULL, ?, ?)`,
-            )
-            .bind(
-              sourceId,
-              parent.household_id,
-              parent.watch_target_id,
-              parent.company_id,
-              candidate.sourceKind,
-              policy.source.canonicalUrl,
-              url.origin,
-              url.pathname,
-              candidate.grade.authorityPpm,
-              candidate.grade.identityPpm,
-              candidate.grade.operationalPpm,
-              coverageJson,
-              discoveredAt,
-              discoveredAt,
-            ),
-          this.db
-            .prepare(
-              `INSERT INTO portfolio_watch_source_verification_events (
-               id, household_id, source_id, event_type, reason_code,
-               observed_url, normalized_url, http_status, content_type,
-               redirect_url, security_passed, authority_ppm,
-               identity_confidence_ppm, coverage_json, occurred_at
-             ) VALUES (?, ?, ?, 'discovered', ?, ?, ?, NULL, NULL, NULL, 1,
-               ?, ?, ?, ?)`,
-            )
-            .bind(
-              crypto.randomUUID(),
-              parent.household_id,
-              sourceId,
-              candidate.discoveryMethod,
-              candidate.canonicalUrl,
-              policy.source.canonicalUrl,
-              candidate.grade.authorityPpm,
-              candidate.grade.identityPpm,
-              coverageJson,
-              discoveredAt,
-            ),
-          this.db
-            .prepare(
-              `INSERT INTO portfolio_watch_source_sync_state (
-               source_id, next_check_at, consecutive_failure_count, updated_at
-             ) VALUES (?, ?, 0, ?)`,
-            )
-            .bind(sourceId, discoveredAt, discoveredAt),
-        ]);
-        jobs.push({
-          type: "portfolio_watch_source_verify",
-          sourceId,
-        });
-        remaining -= 1;
-      } catch (error) {
-        if (!isSourceUniqueConstraint(error)) {
-          throw error;
-        }
-        const existing = await this.db
-          .prepare(
-            `SELECT source.id, sync.last_attempt_at
-             FROM portfolio_watch_sources source
-             LEFT JOIN portfolio_watch_source_sync_state sync
-               ON sync.source_id = source.id
-             WHERE source.watch_target_id = ?
-               AND source.canonical_url = ?
-               AND source.status = 'discovered'`,
-          )
-          .bind(parent.watch_target_id, policy.source.canonicalUrl)
-          .first<RecoverableDiscoveredSourceRow>();
-        if (existing?.last_attempt_at === null) {
-          jobs.push({
-            type: "portfolio_watch_source_verify",
-            sourceId: existing.id,
-          });
-        }
-      }
+      requestedUrls.add(url.href);
+      if (knownUrls.has(url.href) || remaining === 0) continue;
+      remaining--;
+      additions.push({
+        id: crypto.randomUUID(),
+        householdId: parent.household_id,
+        targetId: parent.watch_target_id,
+        companyId: parent.company_id,
+        kind: candidate.sourceKind,
+        url: url.href,
+        origin: url.origin,
+        path: url.pathname,
+        authority: candidate.grade.authorityPpm,
+        identity: candidate.grade.identityPpm,
+        operational: candidate.grade.operationalPpm,
+        coverage: JSON.stringify({
+          discoveryMethod: candidate.discoveryMethod,
+          parentSourceId,
+        }),
+        method: candidate.discoveryMethod,
+        observedUrl: candidate.canonicalUrl,
+        occurredAt: discoveredAt,
+      });
     }
-    return z.array(SourceJobSchema).parse(jobs);
+    await this.insertDiscoveredSources(additions);
+    const recoverable = await all<{ id: string }>(
+      this.db
+        .prepare(
+          `SELECT source.id FROM portfolio_watch_sources source
+       LEFT JOIN portfolio_watch_source_sync_state sync ON sync.source_id = source.id
+       WHERE source.watch_target_id = ? AND source.status = 'discovered'
+         AND source.canonical_url IN (SELECT value FROM json_each(?))
+         AND sync.last_attempt_at IS NULL`,
+        )
+        .bind(parent.watch_target_id, JSON.stringify([...requestedUrls])),
+    );
+    return z.array(SourceJobSchema).parse(
+      recoverable.map((source) => ({
+        type: "portfolio_watch_source_verify",
+        sourceId: source.id,
+      })),
+    );
+  }
+
+  private async insertDiscoveredSources(
+    sources: readonly DiscoveredSourceInput[],
+  ): Promise<void> {
+    if (sources.length === 0) return;
+    const input = JSON.stringify(sources);
+    // A transaction keeps registration and discovery evidence together. The
+    // conflict target handles racing discovery without swallowing other errors.
+    await this.db.batch([
+      this.db
+        .prepare(
+          `INSERT INTO portfolio_watch_sources (
+        id, household_id, watch_target_id, company_id, source_kind, source_class,
+        canonical_url, allowed_origin, allowed_path_prefix, status, authority_ppm,
+        identity_confidence_ppm, operational_health_ppm, coverage_json,
+        auto_activated_at, created_at, updated_at)
+        SELECT json_extract(value, '$.id'), json_extract(value, '$.householdId'),
+          json_extract(value, '$.targetId'), json_extract(value, '$.companyId'),
+          json_extract(value, '$.kind'), 'official_company', json_extract(value, '$.url'),
+          json_extract(value, '$.origin'), json_extract(value, '$.path'), 'discovered',
+          json_extract(value, '$.authority'), json_extract(value, '$.identity'),
+          json_extract(value, '$.operational'), json_extract(value, '$.coverage'), NULL,
+          json_extract(value, '$.occurredAt'), json_extract(value, '$.occurredAt')
+        FROM json_each(?) input
+        WHERE (SELECT COUNT(*) FROM portfolio_watch_sources existing
+          WHERE existing.watch_target_id = json_extract(input.value, '$.targetId')) < 50
+        ON CONFLICT(watch_target_id, canonical_url) DO NOTHING`,
+        )
+        .bind(input),
+      this.db
+        .prepare(
+          `INSERT INTO portfolio_watch_source_verification_events (
+        id, household_id, source_id, event_type, reason_code, observed_url,
+        normalized_url, http_status, content_type, redirect_url, security_passed,
+        authority_ppm, identity_confidence_ppm, coverage_json, occurred_at)
+        SELECT source.id || ':discovered', source.household_id, source.id,
+          'discovered', json_extract(input.value, '$.method'),
+          json_extract(input.value, '$.observedUrl'), source.canonical_url,
+          NULL, NULL, NULL, 1, source.authority_ppm, source.identity_confidence_ppm,
+          source.coverage_json, source.created_at
+        FROM json_each(?) input
+        JOIN portfolio_watch_sources source ON source.id = json_extract(input.value, '$.id')`,
+        )
+        .bind(input),
+      this.db
+        .prepare(
+          `INSERT INTO portfolio_watch_source_sync_state (
+        source_id, next_check_at, consecutive_failure_count, updated_at)
+        SELECT source.id, source.created_at, 0, source.created_at
+        FROM json_each(?) input
+        JOIN portfolio_watch_sources source ON source.id = json_extract(input.value, '$.id')`,
+        )
+        .bind(input),
+    ]);
   }
 
   public async recordVerification(
@@ -732,176 +638,193 @@ export class D1PortfolioWatchRepository {
     ]);
   }
 
+  public async existingObservationFingerprints(
+    householdId: string,
+    fingerprints: readonly string[],
+  ): Promise<Set<string>> {
+    if (fingerprints.length === 0) return new Set();
+    const existing = await all<{ fingerprint: string }>(
+      this.db
+        .prepare(
+          `SELECT fingerprint FROM public_source_observations
+       WHERE household_id = ? AND fingerprint IN (SELECT value FROM json_each(?))`,
+        )
+        .bind(householdId, JSON.stringify(fingerprints)),
+    );
+    return new Set(existing.map((row) => row.fingerprint));
+  }
+
   public async hasObservation(
     householdId: string,
     fingerprint: string,
   ): Promise<boolean> {
-    const row = await this.db
-      .prepare(
-        `SELECT id FROM public_source_observations
-         WHERE household_id = ? AND fingerprint = ?`,
-      )
-      .bind(householdId, fingerprint)
-      .first<{ id: string }>();
-    return row !== null;
+    return (
+      await this.existingObservationFingerprints(householdId, [fingerprint])
+    ).has(fingerprint);
   }
 
   public async recordObservation(
     rawInput: PortfolioWatchObservationInput,
   ): Promise<boolean> {
-    const input = PortfolioWatchObservationInputSchema.parse(rawInput);
-    const source = await this.getSource(input.sourceId);
-    if (source === null || source.status !== "active") {
-      return false;
-    }
-    const observedUrl = evaluateSourceUrl({
-      rawUrl: input.sourceUrl,
-      approvedWebsiteHost: source.approvedWebsiteHost,
-    });
-    if (
-      !observedUrl.accepted ||
-      new URL(observedUrl.source.canonicalUrl).origin !== source.allowedOrigin
-    ) {
-      throw new Error(
-        "Observation URL is outside the approved company origin.",
-      );
-    }
-    if (await this.hasObservation(source.householdId, input.fingerprint)) {
-      return false;
-    }
+    return (await this.recordObservations([rawInput])) > 0;
+  }
 
-    const existingDocument = await this.db
-      .prepare(
-        `SELECT id FROM source_documents WHERE household_id = ? AND sha256 = ?`,
+  public async recordObservations(
+    rawInputs: readonly PortfolioWatchObservationInput[],
+  ): Promise<number> {
+    const inputs = z
+      .array(PortfolioWatchObservationInputSchema)
+      .max(40)
+      .parse(rawInputs);
+    if (inputs.length === 0) return 0;
+    if (inputs.some((input) => input.sourceId !== inputs[0]!.sourceId))
+      throw new Error("Observation batch must describe one source");
+    const source = await this.getSource(inputs[0]!.sourceId);
+    if (source === null || source.status !== "active") return 0;
+    const validated = inputs.map((input) => {
+      const url = evaluateSourceUrl({
+        rawUrl: input.sourceUrl,
+        approvedWebsiteHost: source.approvedWebsiteHost,
+      });
+      if (
+        !url.accepted ||
+        new URL(url.source.canonicalUrl).origin !== source.allowedOrigin
       )
-      .bind(source.householdId, input.sha256)
-      .first<{ id: string }>();
-    const sourceDocumentId = existingDocument?.id ?? crypto.randomUUID();
-    const evidenceEventId = crypto.randomUUID();
-    const effectiveDate = input.publishedAt.slice(0, 10);
-    const claimPath =
-      input.financingFacts === null
-        ? `company_event.${input.eventType}`
-        : "company_event.financing_terms";
-    const sourceLabel = "Official company website";
-    const limitations =
-      "Public company information does not establish security terms, ownership, dilution, fees, taxes, or liquidity for this holding.";
-    const inference =
-      "This is a company-level public signal. It does not imply a holding value or liquidity outcome.";
-    const statements: D1PreparedStatement[] = [];
-
-    if (existingDocument === null) {
-      statements.push(
-        this.db
-          .prepare(
-            `INSERT INTO source_documents (
-               id, household_id, object_key, file_name, content_type,
-               byte_size, sha256, effective_date, retrieved_at, source_label,
-               review_status, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?)`,
-          )
-          .bind(
-            sourceDocumentId,
-            source.householdId,
-            input.objectKey,
-            `${input.sourceId}.source`,
-            input.contentType,
-            input.byteSize,
-            input.sha256,
-            effectiveDate,
-            input.retrievedAt,
-            sourceLabel,
-            input.retrievedAt,
-          ),
-      );
-    }
-
-    statements.push(
+        throw new Error(
+          "Observation URL is outside the approved company origin.",
+        );
+      return { ...input, sourceUrl: url.source.canonicalUrl };
+    });
+    const existing = await this.existingObservationFingerprints(
+      source.householdId,
+      validated.map((input) => input.fingerprint),
+    );
+    const newInputs = validated.filter((input) => {
+      if (existing.has(input.fingerprint)) return false;
+      existing.add(input.fingerprint);
+      return true;
+    });
+    if (newInputs.length === 0) return 0;
+    const documents = await all<{ id: string; sha256: string }>(
+      this.db
+        .prepare(
+          `SELECT id, sha256 FROM source_documents WHERE household_id = ?
+       AND sha256 IN (SELECT value FROM json_each(?))`,
+        )
+        .bind(
+          source.householdId,
+          JSON.stringify(newInputs.map((input) => input.sha256)),
+        ),
+    );
+    const documentIds = new Map(
+      documents.map((document) => [document.sha256, document.id]),
+    );
+    const newDocuments: Record<string, unknown>[] = [];
+    const observations = newInputs.map((input) => {
+      let documentId = documentIds.get(input.sha256);
+      if (documentId === undefined) {
+        documentId = crypto.randomUUID();
+        documentIds.set(input.sha256, documentId);
+        newDocuments.push({ ...input, documentId });
+      }
+      return {
+        ...input,
+        documentId,
+        eventId: crypto.randomUUID(),
+        claimId: crypto.randomUUID(),
+        observationId: crypto.randomUUID(),
+        claimPath:
+          input.financingFacts === null
+            ? `company_event.${input.eventType}`
+            : "company_event.financing_terms",
+        claimJson: JSON.stringify({
+          title: input.sourceTitle,
+          publishedAt: input.publishedAt,
+          sourceUrl: input.sourceUrl,
+          financingFacts: input.financingFacts,
+        }),
+      };
+    });
+    const encoded = JSON.stringify(observations);
+    // Fixed statements for up to forty events. A duplicate racing another
+    // delivery rolls back this transaction; the retry sees the existing evidence.
+    await this.db.batch([
+      this.db
+        .prepare(
+          `INSERT INTO source_documents (
+        id, household_id, object_key, file_name, content_type, byte_size, sha256,
+        effective_date, retrieved_at, source_label, review_status, created_at)
+        SELECT json_extract(value, '$.documentId'), ?, json_extract(value, '$.objectKey'),
+          json_extract(value, '$.sourceId') || '.source', json_extract(value, '$.contentType'),
+          json_extract(value, '$.byteSize'), json_extract(value, '$.sha256'),
+          substr(json_extract(value, '$.publishedAt'), 1, 10), json_extract(value, '$.retrievedAt'),
+          'Official company website', 'pending_review', json_extract(value, '$.retrievedAt')
+        FROM json_each(?)`,
+        )
+        .bind(source.householdId, JSON.stringify(newDocuments)),
       this.db
         .prepare(
           `INSERT INTO evidence_events (
-             id, household_id, company_id, source_document_id, event_type,
-             headline, effective_date, detected_at, retrieved_at, status,
-             confidence_ppm, prior_value_json, replacement_value_json,
-             estimated_forecast_impact_minor, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, '{}',
-             '{}', 0, ?)`,
+        id, household_id, company_id, source_document_id, event_type, headline,
+        effective_date, detected_at, retrieved_at, status, confidence_ppm,
+        prior_value_json, replacement_value_json, estimated_forecast_impact_minor, created_at)
+        SELECT json_extract(value, '$.eventId'), ?, ?, json_extract(value, '$.documentId'),
+          json_extract(value, '$.eventType'), json_extract(value, '$.sourceTitle'),
+          substr(json_extract(value, '$.publishedAt'), 1, 10), json_extract(value, '$.retrievedAt'),
+          json_extract(value, '$.retrievedAt'), 'pending_review', ?, '{}', '{}', 0,
+          json_extract(value, '$.retrievedAt') FROM json_each(?)`,
         )
         .bind(
-          evidenceEventId,
           source.householdId,
           source.companyId,
-          sourceDocumentId,
-          input.eventType,
-          input.sourceTitle,
-          effectiveDate,
-          input.retrievedAt,
-          input.retrievedAt,
           source.grade.authorityPpm,
-          input.retrievedAt,
+          encoded,
         ),
       this.db
         .prepare(
           `INSERT INTO evidence_claims (
-             id, household_id, evidence_event_id, field_path, claim_value_json,
-             unit, provenance, created_at
-           ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+        id, household_id, evidence_event_id, field_path, claim_value_json, unit, provenance, created_at)
+        SELECT json_extract(value, '$.claimId'), ?, json_extract(value, '$.eventId'),
+          json_extract(value, '$.claimPath'), json_extract(value, '$.claimJson'), NULL,
+          'Official company website', json_extract(value, '$.retrievedAt')
+        FROM json_each(?)`,
         )
-        .bind(
-          crypto.randomUUID(),
-          source.householdId,
-          evidenceEventId,
-          claimPath,
-          JSON.stringify({
-            title: input.sourceTitle,
-            publishedAt: input.publishedAt,
-            sourceUrl: observedUrl.source.canonicalUrl,
-            financingFacts: input.financingFacts,
-          }),
-          sourceLabel,
-          input.retrievedAt,
-        ),
+        .bind(source.householdId, encoded),
       this.db
         .prepare(
           `INSERT INTO public_source_observations (
-             id, household_id, company_id, evidence_event_id,
-             source_document_id, source_class, source_url, source_title,
-             published_at, retrieved_at, observed_fact, inference,
-             source_reliability_ppm, model_confidence_ppm,
-             valuation_low_minor, valuation_middle_minor,
-             valuation_high_minor, limitations, fingerprint, created_at,
-             source_id
-           ) VALUES (?, ?, ?, ?, ?, 'official_company', ?, ?, ?, ?, ?, ?, ?, ?,
-             NULL, NULL, NULL, ?, ?, ?, ?)`,
+        id, household_id, company_id, evidence_event_id, source_document_id, source_class,
+        source_url, source_title, published_at, retrieved_at, observed_fact, inference,
+        source_reliability_ppm, model_confidence_ppm, valuation_low_minor, valuation_middle_minor,
+        valuation_high_minor, limitations, fingerprint, created_at, source_id)
+        SELECT json_extract(value, '$.observationId'), ?, ?, json_extract(value, '$.eventId'),
+          json_extract(value, '$.documentId'), 'official_company', json_extract(value, '$.sourceUrl'),
+          json_extract(value, '$.sourceTitle'), json_extract(value, '$.publishedAt'),
+          json_extract(value, '$.retrievedAt'), json_extract(value, '$.observedFact'),
+          'This is a company-level public signal. It does not imply a holding value or liquidity outcome.',
+          ?, json_extract(value, '$.modelConfidencePpm'), NULL, NULL, NULL,
+          'Public company information does not establish security terms, ownership, dilution, fees, taxes, or liquidity for this holding.',
+          json_extract(value, '$.fingerprint'), json_extract(value, '$.retrievedAt'),
+          json_extract(value, '$.sourceId') FROM json_each(?)`,
         )
         .bind(
-          crypto.randomUUID(),
           source.householdId,
           source.companyId,
-          evidenceEventId,
-          sourceDocumentId,
-          observedUrl.source.canonicalUrl,
-          input.sourceTitle,
-          input.publishedAt,
-          input.retrievedAt,
-          input.observedFact,
-          inference,
           source.grade.authorityPpm,
-          input.modelConfidencePpm,
-          limitations,
-          input.fingerprint,
-          input.retrievedAt,
-          input.sourceId,
+          encoded,
         ),
       this.db
         .prepare(
           `UPDATE portfolio_watch_targets SET last_checked_at = ?
-           WHERE id = ? AND household_id = ?`,
+        WHERE id = ? AND household_id = ?`,
         )
-        .bind(input.retrievedAt, source.watchTargetId, source.householdId),
-    );
-    await this.db.batch(statements);
-    return true;
+        .bind(
+          newInputs.at(-1)!.retrievedAt,
+          source.watchTargetId,
+          source.householdId,
+        ),
+    ]);
+    return observations.length;
   }
 }
 

@@ -590,6 +590,15 @@ describe("canonical exposure resolution and aggregation", () => {
     migrationFiles.forEach((file) => {
       sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
     });
+    sqlite.exec(
+      readFileSync(
+        resolve(
+          process.cwd(),
+          "packages/database/migrations/0056_query_cost_bounds.sql",
+        ),
+        "utf8",
+      ),
+    );
     seedManualConnection(sqlite);
     database = new TestD1Database(sqlite);
     repository = new D1ExposureRepository(database as unknown as D1Database);

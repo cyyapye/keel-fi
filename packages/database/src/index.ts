@@ -1092,15 +1092,18 @@ export class D1AlphaRepository implements AlphaRepository {
                 curve.p75_minor,
                 curve.expected_minor,
                 curve.probability_zero_ppm
-              FROM liquidity_curves curve
+              FROM scenarios scenario
               JOIN forecast_snapshots snapshot
-                ON snapshot.id = curve.forecast_snapshot_id
+                ON snapshot.scenario_id = scenario.id
                 AND snapshot.version = (
                   SELECT MAX(newest.version)
                   FROM forecast_snapshots newest
-                  WHERE newest.scenario_id = curve.scenario_id
+                  WHERE newest.scenario_id = scenario.id
                 )
-              WHERE curve.household_id = ?
+              JOIN liquidity_curves curve
+                ON curve.forecast_snapshot_id = snapshot.id
+              WHERE scenario.household_id = ?
+                AND curve.household_id = scenario.household_id
               ORDER BY curve.scenario_id, curve.year`,
           )
           .bind(householdId),
