@@ -107,6 +107,68 @@ and security holdouts, headroom, and activation evidence or the exact remaining
 activation step. An omitted daily cost estimate blocks readiness for recurring
 work even when individual requests pass tests.
 
+## Cash balance checks
+
+Cash has no background loop, cron, webhook refresh, heartbeat, or automatic
+retry timer. A due Sources-page visit starts the existing check; an open idle
+page creates no additional traffic. The freshness target remains the first
+eligible visit after seven days, with four live attempts per institution per UTC
+month. Failure consumes an attempt and preserves the seven-day automatic
+cooldown; a manual retry remains explicit and shares the monthly limit.
+
+Exception-based acceptance removes the pending-review admission block. It does
+not shorten either interval. The existing automatic-refresh POST also recovers
+waiting D1 observations without a provider or object read. Unchanged recovery
+writes nothing. Source acceptance invokes the existing baseline POST once when
+accepted facts change; there is no new baseline polling loop.
+
+The synthetic envelope is 20 institutions and 100 accepted accounts per
+household, one foreground session with 24 hourly visits per day. Budget two
+cash-enabled deployments conservatively. Tests force both the GET and POST on
+every visit, which exceeds what the browser sends when checks are not due. The
+test uses the real browser helpers, web proxy, API authentication with a signed
+JWT and a synthetic JWKS endpoint, and real SQL; only Plaid and R2 transports
+are simulated.
+
+| Full day, per deployment                  | Idle within cooldown | Provider outage with all banks due |
+| ----------------------------------------- | -------------------: | ---------------------------------: |
+| Cash HTTP requests                        |                   48 |                                 48 |
+| Web + API invocations                     |                   96 |                                 96 |
+| Access certificate reads, upper bound     |                   24 |                                 24 |
+| Plaid live requests                       |                    0 |                                 20 |
+| R2 credential reads                       |                    0 |                                 20 |
+| R2 writes/deletes                         |                    0 |                                  0 |
+| Changed D1 rows                           |                    0 |                                 40 |
+| D1 round trips, independent daily ceiling |                2,600 |                              2,600 |
+
+An invalid JWT is rejected before D1 or provider work on the next request.
+Pending exceptions are included in both cases. Empty admission checks do not
+update connection timestamps. Failure changes one sync-run row at insertion and
+once at completion; its primary, account/start, and active-run indexes must also
+be budgeted. Reserving 200 index-inclusive writes per deployment is conservative
+for these 40 changed rows. Successful checks and acceptance are useful work and
+retain their separate bounded source/decision writes.
+
+Across two deployments this reserves 192 Worker invocations, at most 48 Access
+certificate reads, 40 provider attempts, 40 credential reads, 5,200 D1 round
+trips, and 400 index-inclusive writes for the failure day. Combined with the
+provider agent ceilings above, reserve at least 75,000 of the shared 100,000
+daily Worker requests and 95,000 of the shared 100,000 daily D1 writes for other
+work. These free-account allowance references were checked on 2026-09-11 against
+the [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+and [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/). Round
+trips are not billed rows read: inspect D1 row metrics for historical-data
+growth, and keep the indexed read-plan regression. Additional deployments,
+households, visits, or institutions require multiplying this envelope.
+
+`packages/database/src/cash-accounts.test.ts` enforces these budgets, the
+monthly ceiling, weekly eligibility, and automatic updates despite waiting
+exceptions. A control run with the former pending-review admission block failed:
+only 19 of 20 due institutions reached the provider. Restoring the new policy
+passes. No timer or credential process needs restarting. Deploy API + web
+together and reload existing browser tabs before claiming activation. Local
+tests do not prove live deployment or account usage.
+
 ## Tugling improvement
 
 Tugling 0.4.0 already asks for recurring costs in `scale-cost-review`, but a

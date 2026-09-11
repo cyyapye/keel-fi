@@ -1,10 +1,10 @@
-# Reviewed cash accounts
+# Cash accounts
 
 Keel links checking, savings, money-market, and cash-management accounts through
-Plaid, stages dated balance proposals, and stops. Applying a cash review creates
-accepted source facts; it does not change the FI plan. A separate Portfolio
-Baseline confirmation combines those facts with reviewed public holdings and a
-manual residual.
+Plaid. New account inclusion requires a decision; valid live balances for known
+accounts update automatically. Only unresolved exceptions remain in review.
+Accepted changes refresh an established FI baseline under its existing planning
+choices. Initial setup and unresolved cash overlaps still require confirmation.
 
 This integration never requests routing or account numbers, calls `/auth/get`,
 ingests transactions, runs a background balance schedule, or interprets a
@@ -55,11 +55,13 @@ unreadable and requires reconnecting it.
 - Each institution is capped at four attempted live checks per UTC calendar
   month. There is no background schedule or webhook-triggered cash refresh, so a
   page reload inside the cooldown makes no provider request.
-- Keel permits only one active check or waiting proposal per connection, so an
-  older review cannot be overtaken by another paid result.
+- Keel permits one active check per connection. Waiting exceptions do not block
+  the next due check. A newer complete observation replaces older waiting rows
+  with recorded decisions, preserving their evidence.
 - An exact no-change result completes the check without creating another review
-  or changing the last accepted cash fact. New, changed, missing, and
-  unsupported rows remain review proposals.
+  or changing the last accepted cash fact. Valid newer live balances for known
+  accounts apply automatically. New account inclusion, missing or unsupported
+  values, changed account types, and conflicting values remain exceptions.
 - The maximum live-balance cost is therefore
   `4 × the deployment's Plaid contract rate` per institution each month, plus
   any one-time Auth charge for linking.
@@ -96,9 +98,10 @@ limits, when changing this contract.
   alone never merge accounts.
 - If Plaid rotates both keys and supplies no persistent account ID, Keel shows a
   possible duplicate only for an unambiguous one-reported/one-missing pair with
-  the same label and subtype in one reviewed proposal. **Same account** appends
-  a protected-key link; **Keep separate** appends the opposite decision. Neither
-  choice rewrites the accepted observations, and names alone never decide it.
+  the same label and subtype. A pending pair can be resolved before either
+  observation changes accepted cash. **Same account** appends a protected-key
+  link; **Keep separate** appends the opposite decision. Neither choice rewrites
+  the accepted observations, and names alone never decide it.
 - A missing previously accepted account becomes an explicit `not_reported` row.
   The user may accept that state to clear the stale balance, but Keel never
   infers closure, withdrawal, or a zero balance.
@@ -119,8 +122,10 @@ artifacts:
    institutions. This proves token creation and the Link boundary; do not enter
    real credentials merely for release evidence.
 3. In a disposable Sandbox profile, complete Link with Plaid's synthetic user,
-   confirm a dated proposal appears, and verify no FI value changes before the
-   cash review and subsequent Portfolio Baseline confirmation.
+   include the initial accounts, and establish the Portfolio Baseline. On a
+   newer valid live check, verify cash and the established plan update without
+   another approval. Include a missing or invalid row and confirm its previous
+   balance is preserved while other accounts update.
 4. Apply a synthetic review containing a supported USD balance and an
    unsupported or missing balance. Confirm only the supported decision enters
    the baseline delta, unchanged accounts are omitted, and **What changed** is
@@ -138,4 +143,5 @@ release notes.
 
 Disconnecting from Observed cash flow removes the shared Plaid Item, so cash
 balance access also ends. Reviewed cash facts remain available for audit and a
-future connection requires a fresh review.
+future connection requires fresh provider authorization. Existing account
+identity and accepted decisions are preserved.

@@ -4490,22 +4490,18 @@ function CashBalanceProposalReview({
   onApplied,
   onCancel,
   proposal,
+  identityKeys,
 }: {
   onApplied: () => Promise<void>;
   onCancel: () => void;
   proposal: CashBalanceProposal;
+  identityKeys: ReadonlySet<string>;
 }) {
   const [includedByRow, setIncludedByRow] = useState<Record<string, boolean>>(
-    () =>
-      Object.fromEntries(
-        proposal.rows.map((row) => [
-          row.id,
-          row.valueState === "reported" || row.valueState === "not_reported",
-        ]),
-      ),
+    () => Object.fromEntries(proposal.rows.map((row) => [row.id, false])),
   );
   const [changeNote, setChangeNote] = useState(
-    `Reviewed ${proposal.institutionLabel} cash balances.`,
+    `Resolved ${proposal.institutionLabel} cash exceptions.`,
   );
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -4556,8 +4552,8 @@ function CashBalanceProposalReview({
           {proposal.refreshKind === "live"
             ? `Live balances from ${formatDate(proposal.observedAt)}.`
             : `Cached balances from ${formatDate(proposal.observedAt)}.`}{" "}
-          Choose which balances to approve. Your FI plan will not change until
-          you confirm its baseline.
+          Only unresolved accounts need a decision. Unselected updates keep your
+          last accepted balances.
         </p>
       </header>
 
@@ -4591,7 +4587,9 @@ function CashBalanceProposalReview({
       <div className="cash-review__rows">
         {proposal.rows.map((row) => {
           const canAccept =
-            row.valueState === "reported" || row.valueState === "not_reported";
+            !identityKeys.has(row.naturalKeySha256) &&
+            (row.valueState === "reported" ||
+              row.valueState === "not_reported");
           const checked = includedByRow[row.id] ?? false;
           return (
             <article key={row.id}>
@@ -4615,26 +4613,37 @@ function CashBalanceProposalReview({
                 {row.balanceSource !== null && (
                   <span>{row.balanceSource} balance</span>
                 )}
-                <label>
-                  <Input
-                    checked={checked}
-                    disabled={!canAccept || working}
-                    onChange={(event) =>
-                      setIncludedByRow((current) => ({
-                        ...current,
-                        [row.id]: event.currentTarget.checked,
-                      }))
-                    }
-                    type="checkbox"
-                  />
+                {canAccept ? (
+                  <label>
+                    <Input
+                      checked={checked}
+                      disabled={working}
+                      onChange={(event) => {
+                        const include = event.currentTarget.checked;
+                        setIncludedByRow((current) => ({
+                          ...current,
+                          [row.id]: include,
+                        }));
+                      }}
+                      type="checkbox"
+                    />
+                    <span>
+                      {row.valueState === "not_reported"
+                        ? "Mark balance unavailable"
+                        : row.action === "new_account"
+                          ? "Include account"
+                          : "Use this balance"}
+                    </span>
+                  </label>
+                ) : (
                   <span>
-                    {row.valueState === "not_reported"
-                      ? "Confirm not reported"
-                      : canAccept
-                        ? "Approve balance"
-                        : "Cannot approve this balance"}
+                    {identityKeys.has(row.naturalKeySha256)
+                      ? "Resolve the account match above"
+                      : row.priorValueMinor === null
+                        ? "Waiting for a supported balance"
+                        : "Previous balance kept"}
                   </span>
-                </label>
+                )}
               </div>
               {row.issues.length > 0 && (
                 <p className="cash-review__issue">{row.issues.join(" ")}</p>
@@ -4689,6 +4698,10 @@ function CashAccountsControl({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(initialCashAccountError);
   const oauthStarted = useRef(false);
+  const onAcceptedRef = useRef(onAccepted);
+  useEffect(() => {
+    onAcceptedRef.current = onAccepted;
+  }, [onAccepted]);
 
   const reload = useCallback(async (signal?: AbortSignal) => {
     const next = await loadCashAccounts(signal);
@@ -4707,16 +4720,13 @@ function CashAccountsControl({
             (connection) =>
               connection.status === "ready" &&
               connection.liveRefreshesRemaining > 0 &&
-              !initialState.pendingProposals.some(
-                (proposal) => proposal.connectionId === connection.id,
-              ) &&
               (connection.lastCheckedAt === null ||
                 Date.parse(connection.lastCheckedAt) < refreshCutoff),
           );
           if (
             controller.signal.aborted ||
             !initialState.configured ||
-            !hasDueConnection
+            (!hasDueConnection && initialState.pendingProposals.length === 0)
           ) {
             return;
           }
@@ -4727,14 +4737,13 @@ function CashAccountsControl({
               return;
             }
             setState(next);
-            const pending = next.pendingProposals.find(
-              (proposal) =>
-                !initialState.pendingProposals.some(
-                  (initialProposal) => initialProposal.id === proposal.id,
-                ),
+            const priorIds = new Set(
+              initialState.acceptedAccounts.map((account) => account.id),
             );
-            if (pending !== undefined) {
-              setNotice("Updated bank balances are ready to review.");
+            if (
+              next.acceptedAccounts.some((account) => !priorIds.has(account.id))
+            ) {
+              await onAcceptedRef.current();
             }
           } catch (refreshError: unknown) {
             if (!controller.signal.aborted) {
@@ -4766,7 +4775,7 @@ function CashAccountsControl({
     };
   }, [reload]);
 
-  const acceptState = useCallback((next: CashAccountsState) => {
+  const acceptState = useCallback(async (next: CashAccountsState) => {
     setState(next);
     setError(null);
     const pending = next.pendingProposals[0];
@@ -4776,6 +4785,7 @@ function CashAccountsControl({
     } else {
       setNotice("Balances checked. No review is waiting.");
     }
+    await onAcceptedRef.current();
   }, []);
 
   const exchangeToken = useCallback(
@@ -4790,7 +4800,7 @@ function CashAccountsControl({
         if (window.location.search.length > 0) {
           window.history.replaceState(null, "", window.location.pathname);
         }
-        acceptState(next);
+        await acceptState(next);
       } catch (exchangeError: unknown) {
         setError(
           exchangeError instanceof Error
@@ -4878,7 +4888,7 @@ function CashAccountsControl({
     setError(null);
     setNotice(null);
     try {
-      acceptState(await refreshCashAccount(connectionId));
+      await acceptState(await refreshCashAccount(connectionId));
     } catch (refreshError: unknown) {
       setError(
         refreshError instanceof Error
@@ -4917,7 +4927,7 @@ function CashAccountsControl({
       setState(next);
       setNotice(
         decision === "same_account"
-          ? "Account records combined. Review the FI baseline when ready."
+          ? "Account match saved. Future balances update automatically."
           : "Account records kept separate.",
       );
       try {
@@ -4970,8 +4980,8 @@ function CashAccountsControl({
                 : "Bank cash"}
           </h2>
           <p>
-            Bank accounts are separate from cash held inside a brokerage. New
-            balances wait for your review.
+            Balances update automatically. Review only new accounts and
+            unresolved changes.
           </p>
         </div>
         {!setupRequired && (
@@ -5111,12 +5121,18 @@ function CashAccountsControl({
                 return (
                   <CashBalanceProposalReview
                     key={pendingProposal.id}
+                    identityKeys={
+                      new Set(
+                        state.identityCandidates.flatMap((candidate) => [
+                          candidate.priorNaturalKeySha256,
+                          candidate.reportedNaturalKeySha256,
+                        ]),
+                      )
+                    }
                     onApplied={async () => {
                       setActiveProposalId(null);
                       await Promise.all([reload(), onAccepted()]);
-                      setNotice(
-                        "Balance decisions saved. Confirm the FI baseline when ready.",
-                      );
+                      setNotice("Cash decisions saved.");
                     }}
                     onCancel={() => setActiveProposalId(null)}
                     proposal={pendingProposal}
@@ -5129,7 +5145,7 @@ function CashAccountsControl({
                     <strong>{connection.institutionLabel}</strong>
                     <small>
                       {pendingProposal !== undefined
-                        ? `${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "balance" : "balances"} ready · ${pendingProposal.refreshKind === "live" ? "live check" : "cached"} ${formatDate(pendingProposal.observedAt)}`
+                        ? `${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "account needs" : "accounts need"} attention · ${pendingProposal.refreshKind === "live" ? "live check" : "cached"} ${formatDate(pendingProposal.observedAt)}`
                         : connection.lastCheckedAt === null
                           ? "Not checked yet"
                           : `Automatic check failed after ${formatDate(connection.lastCheckedAt)}`}
@@ -5155,7 +5171,7 @@ function CashAccountsControl({
                     {busyAction === connection.id
                       ? "Checking…"
                       : pendingProposal !== undefined
-                        ? `Review ${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "balance" : "balances"}`
+                        ? `Review ${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "exception" : "exceptions"}`
                         : "Try again"}
                   </Button>
                 </div>
@@ -8263,7 +8279,11 @@ export function App() {
             await refreshAlphaData(true);
           }}
           onCashAccepted={async () => {
-            await refreshHoldingsPage(true);
+            await refreshPortfolioBaseline();
+            await Promise.all([
+              refreshHoldingsPage(true),
+              refreshAlphaData(true),
+            ]);
           }}
           onExposureResolved={refreshReviewedHoldings}
           onApplyImport={async (importId, input) => {

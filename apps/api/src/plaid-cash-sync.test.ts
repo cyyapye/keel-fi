@@ -189,6 +189,7 @@ function cashRepository() {
     }),
     completeRefresh: vi.fn().mockResolvedValue(undefined),
     failRefresh: vi.fn().mockResolvedValue(undefined),
+    applyAutomaticUpdates: vi.fn().mockResolvedValue(undefined),
     applyProposal: vi.fn(),
     reviewIdentity: vi.fn().mockResolvedValue(undefined),
   } satisfies CashAccountsRepository & { secretReference: string | null };

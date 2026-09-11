@@ -858,7 +858,7 @@ async function executeCashAccountRefresh(input: {
     } catch {
       throw new PlaidCashClientError(
         "staging_failed",
-        "Keel could not prepare the cash balances for review.",
+        "Keel could not process the cash balances.",
       );
     }
     if (staged.proposal === null) {
@@ -873,6 +873,7 @@ async function executeCashAccountRefresh(input: {
       staged.proposal?.id ?? null,
       normalized.rows.length,
     );
+    await input.repository.applyAutomaticUpdates(input.accessSubject);
   } catch (error) {
     if (observationObjectKey !== null) {
       await input.env.DOCUMENTS.delete(observationObjectKey).catch(
@@ -897,6 +898,8 @@ export async function refreshDueCashAccounts(input: {
   accessSubject: string;
   now?: Date;
 }): Promise<CashAccountsState> {
+  // Recover existing proposals from retained D1 observations before considering a paid fetch.
+  await input.repository.applyAutomaticUpdates(input.accessSubject);
   const state = await input.repository.getState(input.accessSubject, true);
   const now = input.now ?? new Date();
   const refreshedAfter = new Date(

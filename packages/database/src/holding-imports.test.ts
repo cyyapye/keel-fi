@@ -67,6 +67,7 @@ const migrationFiles = [
   "packages/database/migrations/0052_reviewed_structure_entity_type.sql",
   "packages/database/migrations/0053_connected_investment_reviews.sql",
   "packages/database/migrations/0055_exception_based_source_updates.sql",
+  "packages/database/migrations/0056_exception_based_cash_balances.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -2242,6 +2243,117 @@ describe("exception-based source updates", () => {
     });
   });
 
+  it("refreshes the established FI baseline from automatically accepted cash without changing planning choices", async () => {
+    const imported = await imports.stageHoldingImport(
+      subject,
+      clearInput("ac".repeat(32)),
+    );
+    await imports.autoAdjudicatePrivateHoldingImport(
+      subject,
+      imported.preview.id,
+    );
+    const cash = new D1CashAccountsRepository(
+      database as unknown as D1Database,
+    );
+    const connection = await cash.upsertConnection(
+      subject,
+      "Synthetic Bank",
+      "connector-secrets/synthetic.enc",
+      "b".repeat(64),
+    );
+    const check = async (value: number, date: string, initial = false) => {
+      const run = await cash.beginRefresh(
+        subject,
+        connection.id,
+        initial ? "initial" : "live",
+      );
+      const result = await cash.stageProposal(subject, run.id, {
+        objectKey: `cash-observations/synthetic-${run.id}.json`,
+        sourceSha256: "c".repeat(64),
+        normalized: {
+          normalizedFingerprint: "d".repeat(64),
+          observedAt: date,
+          rows: [
+            {
+              naturalKeySha256: "a".repeat(64),
+              itemAccountKeySha256: "a".repeat(64),
+              institutionLabel: "Synthetic Bank",
+              accountLabel: "Synthetic checking",
+              subtype: "checking",
+              availableMinor: value,
+              currentMinor: value,
+              valueMinor: value,
+              valueState: "reported",
+              balanceSource: "available",
+              observedAt: date,
+              issues: [],
+            },
+          ],
+        },
+      });
+      await cash.completeRefresh(
+        subject,
+        run.id,
+        result.proposal?.id ?? null,
+        1,
+      );
+      return result.proposal!;
+    };
+    const cashProposal = await check(120_000, "2026-08-14T18:00:00.000Z", true);
+    await cash.applyProposal(subject, cashProposal.id, {
+      changeNote: "Included the synthetic cash account.",
+      decisions: cashProposal.rows.map((row) => ({
+        rowId: row.id,
+        decision: "accepted",
+      })),
+    });
+    const baseline = baselines;
+    const state = await baseline.getState("synthetic-access-subject");
+    expect(state.status).toBe("ready");
+    const initial = await baseline.confirm("synthetic-access-subject", {
+      sourceRevision: state.sourceRevision!,
+      baseForecastSnapshotId: state.baseForecastSnapshotId!,
+      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion!,
+      otherFiEligibleLiquidMinor: 0,
+      duplicateReviewConfirmed: true,
+      cashOverlapReviewConfirmed: true,
+      changeNote: "Established the synthetic cash plan.",
+    });
+    await check(150_000, "2026-08-15T18:00:00.000Z");
+    await cash.applyAutomaticUpdates("synthetic-access-subject");
+    expect(
+      (
+        await refreshAcceptedPortfolioBaseline(
+          baseline,
+          "synthetic-access-subject",
+        )
+      ).status,
+    ).toBe("refreshed");
+    const updated = await baseline.getState("synthetic-access-subject");
+    expect(updated.status).toBe("current");
+    expect(updated.latestBaseline?.otherFiEligibleLiquidMinor).toBe(0);
+    expect(updated.summary?.cashAccountValueMinor).toBe(150_000);
+    expect(updated.planning.householdBurnMonthlyMinor).toBe(
+      state.planning.householdBurnMonthlyMinor,
+    );
+    expect(updated.planning.fiTargetMinor).toBe(state.planning.fiTargetMinor);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT prior_baseline_id FROM portfolio_baseline_policy_decisions",
+        )
+        .get(),
+    ).toEqual({ prior_baseline_id: initial.baseline.id });
+    expect(
+      (
+        await refreshAcceptedPortfolioBaseline(
+          baseline,
+          "synthetic-access-subject",
+        )
+      ).status,
+    ).toBe("not_needed");
+  });
+
   it("refreshes private value changes without another planning decision and records its policy", async () => {
     const initial = await imports.stageHoldingImport(
       subject,
@@ -3287,13 +3399,28 @@ describe("reviewed portfolio baseline persistence", () => {
       proposalId,
       2,
     );
-    await cashAccounts.applyProposal("synthetic-access-subject", proposalId, {
-      changeNote: "Accepted the synthetic provider identity rotation.",
-      decisions: [reportedRowId, missingRowId].map((rowId) => ({
-        rowId,
-        decision: "accepted",
-      })),
-    });
+    // Reproduce the historical accepted split that existed before exception-based acceptance.
+    // New reviews resolve the identity before accepting; this case protects legacy readback.
+    for (const rowId of [reportedRowId, missingRowId]) {
+      sqlite
+        .prepare(
+          `INSERT INTO cash_balance_review_decisions
+        (id, household_id, proposal_id, proposal_row_id, reviewer_user_id, decision, change_note, decided_at, immutable)
+        VALUES (?, 'hh_demo', ?, ?, 'usr_demo', 'accepted', 'Historical synthetic cash review.', ?, 1)`,
+        )
+        .run(
+          `legacy_decision_${rowId}`,
+          proposalId,
+          rowId,
+          new Date().toISOString(),
+        );
+    }
+    sqlite
+      .prepare(
+        "UPDATE cash_balance_proposals SET status = 'applied' WHERE id = ?",
+      )
+      .run(proposalId);
+
     await expect(
       cashAccounts.getState("synthetic-access-subject", true),
     ).resolves.toMatchObject({
