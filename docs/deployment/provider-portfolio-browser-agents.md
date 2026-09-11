@@ -20,8 +20,10 @@ file; D1 stores only its SHA-256 digest. Daily checks submit directly to the
 dedicated agent API hostname and do not reuse the Keel browser session. The CSV
 exists only in memory and is discarded when the process exits.
 
-An update only creates a pending holding import. It never applies a holding,
-removes a missing position, or changes a forecast without review.
+An update records source evidence, then automatically accepts clear positions.
+Only unresolved exceptions need review. Missing positions stay unchanged, and
+routine baseline refreshes preserve the existing planning choices. See the
+[source update policy](../architecture/source-update-policy.md).
 
 ## One-time setup
 
@@ -85,8 +87,8 @@ cancellation, failure, or timeout. The selected provider profile stays on the
 worker, and the stream never exposes the underlying desktop or a public VNC
 port. Keel stores no provider cookie, password, or 2FA value. A successful
 reconnect rotates the machine credential, resumes updates, and requests an
-immediate update. The result is still a pending holding import that requires
-review.
+immediate update. Clear positions update automatically; only unresolved
+exceptions require review.
 
 The manual repair command remains under **Troubleshooting** for worker or agent
 failures. Provider sign-in expiry should not require it.

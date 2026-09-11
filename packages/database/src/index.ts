@@ -55,6 +55,10 @@ export * from "./angellist-mac-agent";
 export * from "./provider-portfolio-agent";
 export * from "./provider-legal-documents";
 export * from "./portfolio-baseline";
+import {
+  D1PortfolioBaselineRepository,
+  refreshAcceptedPortfolioBaseline,
+} from "./portfolio-baseline";
 export * from "./plan-inputs";
 export * from "./investment-connections";
 export * from "./portfolio-watch";
@@ -427,6 +431,10 @@ export interface AlphaRepository {
     input: HoldingImportStageInput,
   ): Promise<HoldingImportStageResult>;
   getHoldingImport(
+    accessSubject: string,
+    importId: string,
+  ): Promise<HoldingImportPreview>;
+  reconcileHoldingImport(
     accessSubject: string,
     importId: string,
   ): Promise<HoldingImportPreview>;
@@ -1352,6 +1360,20 @@ export class D1AlphaRepository implements AlphaRepository {
       accessSubject,
       importId,
     );
+  }
+
+  public async reconcileHoldingImport(
+    accessSubject: string,
+    importId: string,
+  ): Promise<HoldingImportPreview> {
+    const preview = await new D1HoldingImportRepository(
+      this.db,
+    ).autoAdjudicatePrivateHoldingImport(accessSubject, importId);
+    await refreshAcceptedPortfolioBaseline(
+      new D1PortfolioBaselineRepository(this.db),
+      accessSubject,
+    );
+    return preview;
   }
 
   public async listPendingHoldingImports(

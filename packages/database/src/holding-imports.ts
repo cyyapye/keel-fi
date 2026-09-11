@@ -44,6 +44,7 @@ const PLAID_INVESTMENTS_PARSER_SCHEMA = "plaid_investments_holdings_v1";
 const PLAID_INVESTMENTS_SOURCE_LABEL = "Plaid Investments";
 export const PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION =
   "plaid-investments-holdings-auto-v3";
+const PRIVATE_HOLDINGS_POLICY_VERSION = "private-holdings-auto-v1";
 const NON_BLOCKING_PLAID_INVESTMENTS_ISSUES = new Set([
   "Cost basis is unavailable.",
   PLAID_INVESTMENTS_CRYPTO_OUTSIDE_FI_ISSUE,
@@ -338,9 +339,11 @@ type ImportPreviewRow = {
   application_outcome:
     "created_position" | "appended_snapshot" | "no_change" | null;
   decision_source: "manual" | "policy" | null;
+  recorded_decision: "accepted" | "rejected" | null;
   reason_codes_json: string | null;
   quarantine_reason_code:
     "row_validation_failed" | "possible_identity_change" | null;
+  quarantine_detail: string | null;
 };
 
 type ImportPreviewExposureRow = {
@@ -611,7 +614,8 @@ function issues(serialized: string): string[] {
 function actionFor(row: ImportPreviewRow): HoldingImportRowPreview["action"] {
   if (
     row.parse_status === "needs_attention" ||
-    row.quarantine_reason_code !== null
+    (row.decision_source === null &&
+      row.quarantine_reason_code === "row_validation_failed")
   ) {
     return "needs_attention";
   }
@@ -685,11 +689,7 @@ export class D1HoldingImportRepository {
       rows.map((row) => ({
         id: row.id,
         provider: row.provider,
-        status:
-          row.provider === PLAID_INVESTMENTS_PROVIDER &&
-          row.quarantined_count > 0
-            ? "quarantined"
-            : "pending_review",
+        status: row.quarantined_count > 0 ? "quarantined" : "pending_review",
         observedAt:
           row.effective_date === null
             ? row.retrieved_at
@@ -1004,6 +1004,245 @@ export class D1HoldingImportRepository {
       created: true,
       preview,
     };
+  }
+
+  /** Accept validated evidence using the same transaction as manual decisions. */
+  public async autoAdjudicatePrivateHoldingImport(
+    accessSubject: string,
+    importId: string,
+  ): Promise<HoldingImportPreview> {
+    const preview = await this.getHoldingImport(accessSubject, importId);
+    if (preview.provider === PLAID_INVESTMENTS_PROVIDER) {
+      await this.autoAdjudicatePlaidInvestmentsHoldingImport(
+        accessSubject,
+        importId,
+      );
+      return this.getHoldingImport(accessSubject, importId);
+    }
+    const unresolvedIds = new Set(
+      preview.rows
+        .filter((row) => row.decisionSource === null)
+        .map((row) => row.id),
+    );
+    if (unresolvedIds.size === 0) {
+      // Recover projection work if an earlier request stopped after acceptance.
+      await new D1ExposureRepository(this.db).reconcileAcceptedImportExposures(
+        accessSubject,
+        importId,
+      );
+      return preview;
+    }
+    const identity = await this.findIdentity(accessSubject);
+    const [rows, positions] = await Promise.all([
+      all<{
+        id: string;
+        container_id: string;
+        position_fingerprint: string;
+        snapshot_fingerprint: string;
+        legal_vehicle_name: string;
+        instrument_type: string;
+        currency_hint: string | null;
+        completeness: string;
+        parse_status: string;
+      }>(
+        this.db
+          .prepare(
+            `
+        SELECT row.id, scope.container_id, row.position_fingerprint,
+          row.snapshot_fingerprint, row.legal_vehicle_name, row.instrument_type,
+          row.currency_hint, coverage.completeness, row.parse_status
+        FROM holding_import_rows row
+        JOIN holding_import_row_containers scope ON scope.import_row_id = row.id
+        JOIN holding_import_coverages coverage ON coverage.import_id = row.import_id
+          AND coverage.container_id = scope.container_id
+        WHERE row.import_id = ? AND row.household_id = ?
+        ORDER BY row.source_row_number
+      `,
+          )
+          .bind(importId, identity.household_id),
+      ),
+      all<{
+        id: string;
+        container_id: string;
+        protected_position_key: string;
+        legal_vehicle_name: string;
+        instrument_type: string;
+        currency: string;
+        observed_at: string;
+      }>(
+        this.db
+          .prepare(
+            `
+        SELECT position.id, ownership.container_id, ownership.protected_position_key,
+          position.legal_vehicle_name, position.currency,
+          (SELECT snapshot.instrument_type FROM holding_position_snapshots snapshot
+            WHERE snapshot.position_id = position.id
+            ORDER BY snapshot.observed_at DESC, snapshot.created_at DESC, snapshot.id DESC
+            LIMIT 1) AS instrument_type,
+          (SELECT MAX(snapshot.observed_at) FROM holding_position_snapshots snapshot
+            WHERE snapshot.position_id = position.id) AS observed_at
+        FROM holding_import_connections import_scope
+        JOIN ownership_containers container ON container.connection_id = import_scope.connection_id
+        JOIN holding_position_ownerships ownership ON ownership.container_id = container.id
+        JOIN holding_positions position ON position.id = ownership.position_id
+        WHERE import_scope.import_id = ? AND import_scope.household_id = ?
+          AND NOT EXISTS (SELECT 1 FROM holding_position_ownerships later
+            WHERE later.supersedes_ownership_id = ownership.id)
+      `,
+          )
+          .bind(importId, identity.household_id),
+      ),
+    ]);
+    const positionsByKey = new Map(
+      positions.map((position) => [
+        containerPositionKey(
+          position.container_id,
+          position.protected_position_key,
+        ),
+        position,
+      ]),
+    );
+    const reportedKeys = new Set(
+      rows.map((row) =>
+        containerPositionKey(row.container_id, row.position_fingerprint),
+      ),
+    );
+    const completeContainers = new Set(
+      preview.coverage
+        .filter((coverage) => coverage.completeness === "complete")
+        .map((coverage) => coverage.containerId),
+    );
+    const missingContainers = new Set(
+      positions
+        .filter(
+          (position) =>
+            completeContainers.has(position.container_id) &&
+            !reportedKeys.has(
+              containerPositionKey(
+                position.container_id,
+                position.protected_position_key,
+              ),
+            ),
+        )
+        .map((position) => position.container_id),
+    );
+    const normalizeName = (value: string) =>
+      value.trim().toLowerCase().replace(/\s+/gu, " ");
+    const positionsByName = new Map<string, (typeof positions)[number][]>();
+    for (const position of positions) {
+      const key = normalizeName(position.legal_vehicle_name);
+      const candidates = positionsByName.get(key) ?? [];
+      candidates.push(position);
+      positionsByName.set(key, candidates);
+    }
+    const decisions: HoldingImportApplyInput["decisions"] = [];
+    const reasons = new Map<string, readonly string[]>();
+    const quarantines: D1PreparedStatement[] = [];
+    const createdAt = new Date().toISOString();
+    for (const row of rows) {
+      if (!unresolvedIds.has(row.id)) continue;
+      const position = positionsByKey.get(
+        containerPositionKey(row.container_id, row.position_fingerprint),
+      );
+      // Delayed exports must never replace a newer accepted snapshot.
+      if (position !== undefined && preview.observedAt < position.observed_at) {
+        decisions.push({
+          rowId: row.id,
+          decision: "rejected",
+          rationale: "A newer source value is already recorded.",
+        });
+        reasons.set(row.id, ["older_observation_ignored"]);
+        continue;
+      }
+      const invalid =
+        row.parse_status !== "ready" ||
+        row.currency_hint !== "USD" ||
+        !["complete", "partial"].includes(row.completeness) ||
+        (position !== undefined && position.currency !== row.currency_hint);
+      const possibleIdentityChange =
+        position === undefined
+          ? missingContainers.has(row.container_id) ||
+            (
+              positionsByName.get(normalizeName(row.legal_vehicle_name)) ?? []
+            ).some(
+              (candidate) =>
+                !reportedKeys.has(
+                  containerPositionKey(
+                    candidate.container_id,
+                    candidate.protected_position_key,
+                  ),
+                ),
+            )
+          : position.instrument_type !== row.instrument_type;
+      if (invalid || possibleIdentityChange) {
+        quarantines.push(
+          this.db
+            .prepare(
+              `
+          INSERT OR IGNORE INTO holding_import_quarantines (
+            id, household_id, import_id, import_row_id, position_id,
+            reason_code, policy_version, evidence_sha256, detail, created_at
+          ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+        `,
+            )
+            .bind(
+              crypto.randomUUID(),
+              identity.household_id,
+              importId,
+              row.id,
+              invalid ? "row_validation_failed" : "possible_identity_change",
+              PRIVATE_HOLDINGS_POLICY_VERSION,
+              row.snapshot_fingerprint,
+              invalid
+                ? "The source identity, currency, or row data could not be validated. Correct the source and import it again."
+                : "Check the legal position and owner. This may replace or overlap a previously recorded position.",
+              createdAt,
+            ),
+        );
+        continue;
+      }
+      decisions.push({
+        rowId: row.id,
+        decision: "accepted",
+        rationale: "Validated source identity and position facts.",
+      });
+      reasons.set(row.id, [
+        position === undefined
+          ? "new_source_position"
+          : "exact_source_position",
+      ]);
+    }
+    if (quarantines.length > 0) await this.db.batch(quarantines);
+    if (decisions.length > 0) {
+      try {
+        await this.applyHoldingImport(
+          accessSubject,
+          importId,
+          { currency: "USD", decisions },
+          {
+            source: "policy",
+            policyVersion: PRIVATE_HOLDINGS_POLICY_VERSION,
+            allowPartial: true,
+            reasonCodesByRow: reasons,
+          },
+        );
+      } catch (error) {
+        // A concurrent identical delivery may already have recorded these rows.
+        const current = await this.getHoldingImport(accessSubject, importId);
+        if (
+          decisions.some(
+            (decision) =>
+              !current.rows.find((row) => row.id === decision.rowId)
+                ?.decisionSource,
+          )
+        )
+          throw error;
+        await new D1ExposureRepository(
+          this.db,
+        ).reconcileAcceptedImportExposures(accessSubject, importId);
+      }
+    }
+    return this.getHoldingImport(accessSubject, importId);
   }
 
   public async findPlaidInvestmentsHoldingImportByFingerprint(
@@ -1576,7 +1815,10 @@ export class D1HoldingImportRepository {
               AND decision.decision_source = 'policy'
               AND decision.decision = 'accepted') AS auto_applied_count,
            (SELECT COUNT(*) FROM holding_import_quarantines quarantine
-            WHERE quarantine.import_id = import.id) AS quarantined_count,
+            LEFT JOIN holding_import_row_decisions decision
+              ON decision.import_row_id = quarantine.import_row_id
+            WHERE quarantine.import_id = import.id
+              AND decision.id IS NULL) AS quarantined_count,
            (SELECT COUNT(*) FROM holding_import_quarantines quarantine
             WHERE quarantine.import_id = import.id
               AND quarantine.position_id IS NOT NULL)
@@ -1623,8 +1865,10 @@ export class D1HoldingImportRepository {
              snapshot.id AS existing_snapshot_id,
              application.outcome AS application_outcome,
              decision.decision_source,
+             decision.decision AS recorded_decision,
              decision.reason_codes_json,
-             quarantine.reason_code AS quarantine_reason_code
+             quarantine.reason_code AS quarantine_reason_code,
+             quarantine.detail AS quarantine_detail
            FROM holding_import_rows row
            JOIN holding_imports import ON import.id = row.import_id
            LEFT JOIN holding_import_row_reported_economics_evidence
@@ -1753,11 +1997,23 @@ export class D1HoldingImportRepository {
       quantityMicros: row.quantity_micros,
       costBasisMinor: row.cost_basis_minor,
       currentExposureNames: exposureNamesByRowId.get(row.id) ?? [],
-      action: actionFor(row),
-      issues: issues(row.issue_codes_json),
+      action:
+        provider.data === PLAID_INVESTMENTS_PROVIDER &&
+        row.quarantine_reason_code !== null &&
+        row.decision_source === null
+          ? "needs_attention"
+          : actionFor(row),
+      issues: [
+        ...issues(row.issue_codes_json),
+        ...(row.decision_source === null && row.quarantine_detail !== null
+          ? [row.quarantine_detail]
+          : []),
+      ],
       adjudicationStatus:
         row.decision_source === "policy"
-          ? "auto_applied"
+          ? row.recorded_decision === "rejected"
+            ? "ignored"
+            : "auto_applied"
           : row.decision_source === "manual"
             ? "manually_resolved"
             : row.quarantine_reason_code !== null
@@ -1920,11 +2176,13 @@ export class D1HoldingImportRepository {
     if (unresolvedRows.length === 0) {
       const exactRetry =
         existingDecisions.length === rows.length &&
-        input.decisions.length === rows.length &&
-        existingDecisions.every((recorded) => {
-          const requested = decisionsByRow.get(recorded.import_row_id);
+        input.decisions.every((requested) => {
+          const recorded = existingDecisions.find(
+            (decision) => decision.import_row_id === requested.rowId,
+          );
           return (
-            requested !== undefined &&
+            recorded !== undefined &&
+            recorded.decision_source === decisionContext.source &&
             requested.decision === recorded.decision &&
             requested.rationale === recorded.rationale &&
             (requested.decision === "rejected" ||

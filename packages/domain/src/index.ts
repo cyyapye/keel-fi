@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { portfolioBaselineReviewReasons } from "./portfolio-baseline-policy";
+
 import { PositionValueContextSchema } from "./position-value";
 import { PositionEconomicsContextSchema } from "./position-economics";
 
@@ -968,6 +970,7 @@ export const HoldingImportRowActionSchema = z.enum([
 export const HoldingImportAdjudicationStatusSchema = z.enum([
   "pending_review",
   "auto_applied",
+  "ignored",
   "quarantined",
   "manually_resolved",
 ]);

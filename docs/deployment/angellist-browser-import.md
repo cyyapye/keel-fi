@@ -5,7 +5,8 @@ request AngelList's investments CSV. The update computer keeps the AngelList
 session; neither browser cookies nor credentials are uploaded to Keel. A
 one-time Cloudflare Access sign-in authorizes a target-scoped machine
 credential. Daily checks use it to send only the CSV to Keel's dedicated agent
-API, where it enters the existing holding-import review flow.
+API, where clear positions update automatically and exceptions remain for
+review.
 
 Cloudflare Browser Run is retired for this workflow. The API Worker no longer
 needs a Browser Rendering binding, AngelList KV namespace, cron trigger, stored
@@ -35,8 +36,10 @@ browser session, or AngelList-specific deployment secret.
 - Repeating a byte-identical export can add newly supported carry parsing to its
   retained source row. Keel appends that evidence without rewriting the import,
   its accepted position, or its financial snapshot.
-- A completed agent run creates or reuses a holding import. It never applies
-  holdings or forecasts. The user must review a new import in Keel.
+- A completed agent run creates or reuses source evidence, then runs the
+  [automatic source policy](../architecture/source-update-policy.md). Clear
+  positions apply without another click; exceptions preserve prior holdings.
+  Routine baseline updates preserve the existing planning choices.
 - D1 is canonical for registration, interval, heartbeat, run leases, failures,
   and completion state. Lease tokens are short-lived and only their SHA-256
   digests are stored.

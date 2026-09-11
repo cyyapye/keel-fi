@@ -2866,6 +2866,21 @@ export const portfolioBaselines = sqliteTable(
   ],
 );
 
+export const portfolioBaselinePolicyDecisions = sqliteTable(
+  "portfolio_baseline_policy_decisions",
+  {
+    baselineId: text("baseline_id")
+      .primaryKey()
+      .references(() => portfolioBaselines.id, { onDelete: "restrict" }),
+    priorBaselineId: text("prior_baseline_id")
+      .notNull()
+      .references(() => portfolioBaselines.id, { onDelete: "restrict" }),
+    policyVersion: text("policy_version", {
+      enum: ["accepted-sources-auto-v1"],
+    }).notNull(),
+  },
+);
+
 export const portfolioBaselineItems = sqliteTable(
   "portfolio_baseline_items",
   {
