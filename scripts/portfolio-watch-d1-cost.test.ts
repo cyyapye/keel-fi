@@ -24,12 +24,11 @@ it("bounds the complete source job graph for a daily maximum discovery, replay, 
     const jobs: Parameters<typeof __portfolioWatchTest.processSourceJob>[0][] =
       [];
     const send = vi.fn();
-    const sendBatch = vi.fn(
-      async (batch: { body: (typeof jobs)[number] }[]) => {
-        jobs.push(...batch.map(({ body }) => body));
-      },
-    );
-    const put = vi.fn(async () => ({}));
+    const sendBatch = vi.fn((batch: { body: (typeof jobs)[number] }[]) => {
+      jobs.push(...batch.map(({ body }) => body));
+      return Promise.resolve();
+    });
+    const put = vi.fn(() => Promise.resolve({}));
     const env = {
       DB: measured.database,
       DOCUMENTS: { put },
@@ -54,7 +53,7 @@ it("bounds the complete source job graph for a daily maximum discovery, replay, 
     let sourceRequests = 0;
     const fetchSource: NonNullable<
       Parameters<typeof __portfolioWatchTest.processSourceJob>[2]
-    >["fetchSource"] = async (source) => {
+    >["fetchSource"] = (source) => {
       sourceRequests++;
       const text = `<rss version="2.0"><channel><title>${source.companyName}</title><link>${source.canonicalUrl}</link>${Array.from(
         { length: 40 },
@@ -67,7 +66,7 @@ it("bounds the complete source job graph for a daily maximum discovery, replay, 
         "application/rss+xml",
       );
       expect(inspected).toHaveLength(40);
-      return {
+      return Promise.resolve({
         ok: true,
         bytes: new TextEncoder().encode(text),
         text,
@@ -76,7 +75,7 @@ it("bounds the complete source job graph for a daily maximum discovery, replay, 
         sha256: createHash("sha256").update(text).digest("hex"),
         etag: null,
         lastModified: null,
-      };
+      });
     };
     for (const job of jobs) {
       await __portfolioWatchTest.processSourceJob(job, env, {
@@ -128,16 +127,16 @@ it("bounds the complete source job graph for a daily maximum discovery, replay, 
     ).toEqual([3, 3]);
     measured.reset();
     sourceRequests = 0;
-    const failure = async (): Promise<ApprovedSourceFetchResult> => {
+    const failure = (): Promise<ApprovedSourceFetchResult> => {
       sourceRequests++;
-      return {
+      return Promise.resolve({
         ok: false,
         reason: "source_timeout",
         permanent: false,
         status: null,
         contentType: null,
         redirectUrl: null,
-      };
+      });
     };
     for (let attempt = 0; attempt < 4; attempt++)
       for (const job of jobs) {

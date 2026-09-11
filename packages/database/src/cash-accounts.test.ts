@@ -510,7 +510,7 @@ describe("reviewed cash accounts", () => {
       expect(traffic.r2Reads).toBe(mode === "idle" ? 0 : 20);
       expect(traffic.r2Writes).toBe(0);
       expect(writes).toBe(mode === "idle" ? 0 : 40);
-      expect(measured.roundTrips - beforeReads).toBeLessThanOrEqual(2600);
+      expect(measured.roundTrips - beforeReads).toBeLessThanOrEqual(600);
       const beforeUnauthorized = measured.roundTrips;
       token = "synthetic-invalid-token";
       await expect(refreshCashClient()).rejects.toThrow();
@@ -627,7 +627,7 @@ describe("reviewed cash accounts", () => {
       .map((row) => row.detail)
       .join("\n");
     expect(plan).toContain("cash_balance_proposals_connection_observed_idx");
-    expect(plan).toContain("cash_balance_proposal_rows_proposal_idx");
+    expect(plan).toContain("sqlite_autoindex_cash_balance_proposal_rows_2");
     expect(plan).not.toMatch(/SCAN newer|SCAN decision/);
   });
 

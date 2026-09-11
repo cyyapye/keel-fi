@@ -951,10 +951,12 @@ describe("Keel API", () => {
         }),
       }),
     ]);
-    expect([...(sendBatch.mock.calls[0]?.[0] ?? [])][0]?.body).not.toHaveProperty("url");
-    expect([...(sendBatch.mock.calls[0]?.[0] ?? [])][0]?.body).not.toHaveProperty(
-      "householdId",
-    );
+    expect(
+      [...(sendBatch.mock.calls[0]?.[0] ?? [])][0]?.body,
+    ).not.toHaveProperty("url");
+    expect(
+      [...(sendBatch.mock.calls[0]?.[0] ?? [])][0]?.body,
+    ).not.toHaveProperty("householdId");
   });
 
   it("stages a bounded AngelList CSV in private storage before review", async () => {

@@ -908,13 +908,11 @@ export async function refreshDueCashAccounts(input: {
   let attempted = false;
   for (const connection of state.connections) {
     if (
-      connection.status !== "ready" ||
       connection.liveRefreshesRemaining === 0 ||
+      (connection.lastLiveAttemptAt != null &&
+        connection.lastLiveAttemptAt >= refreshedAfter) ||
       (connection.lastCheckedAt !== null &&
-        connection.lastCheckedAt >= refreshedAfter) ||
-      state.pendingProposals.some(
-        (proposal) => proposal.connectionId === connection.id,
-      )
+        connection.lastCheckedAt >= refreshedAfter)
     )
       continue;
     const run = await input.repository.beginAutomaticRefresh(

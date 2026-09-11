@@ -1,7 +1,7 @@
 export type PollingEnvironment = {
   now: () => number;
   visible: () => boolean;
-  setTimeout: (callback: () => void, delay: number) => number;
+  setTimeout: (callback: () => void | Promise<void>, delay: number) => number;
   clearTimeout: (timer: number) => void;
   onVisible: (callback: () => void) => () => void;
 };

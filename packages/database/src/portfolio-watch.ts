@@ -480,11 +480,15 @@ export class D1PortfolioWatchRepository {
           json_extract(value, '$.operational'), json_extract(value, '$.coverage'), NULL,
           json_extract(value, '$.occurredAt'), json_extract(value, '$.occurredAt')
         FROM json_each(?) input
-        WHERE (SELECT COUNT(*) FROM portfolio_watch_sources existing
-          WHERE existing.watch_target_id = json_extract(input.value, '$.targetId')) < 50
+        WHERE NOT EXISTS (SELECT 1 FROM portfolio_watch_sources existing
+          WHERE existing.watch_target_id = json_extract(input.value, '$.targetId')
+            AND existing.canonical_url = json_extract(input.value, '$.url'))
+        ORDER BY CAST(input.key AS INTEGER)
+        LIMIT MAX(0, 50 - (SELECT COUNT(*) FROM portfolio_watch_sources existing
+          WHERE existing.watch_target_id = ?))
         ON CONFLICT(watch_target_id, canonical_url) DO NOTHING`,
         )
-        .bind(input),
+        .bind(input, sources[0]!.targetId),
       this.db
         .prepare(
           `INSERT INTO portfolio_watch_source_verification_events (

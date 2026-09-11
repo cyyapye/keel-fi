@@ -7,6 +7,26 @@ CREATE INDEX connector_sync_runs_cash_flow_latest_idx
 CREATE INDEX connector_sync_runs_household_active_idx
   ON connector_sync_runs(household_id, cursor)
   WHERE status IN ('queued', 'running');
+CREATE INDEX connector_sync_runs_cash_live_latest_idx
+  ON connector_sync_runs(connector_account_id, started_at DESC)
+  WHERE cursor = 'cash-live-v1';
+
+-- Same observation date can have many accepted captures. Cover the complete
+-- latest-snapshot ordering instead of sorting every historical tied date.
+DROP INDEX holding_position_snapshots_position_idx;
+DROP INDEX holding_position_snapshots_observed_idx;
+CREATE INDEX holding_position_snapshots_observed_idx
+  ON holding_position_snapshots(position_id, observed_at DESC, created_at DESC);
+DROP INDEX holding_import_coverages_household_container_idx;
+CREATE INDEX holding_import_coverages_household_container_idx
+  ON holding_import_coverages(household_id, container_id, observed_at DESC, created_at DESC, id DESC);
+
+-- Operational retry state only. A bad source must not occupy every bounded
+-- maintenance slot or be read from object storage again on each page visit.
+CREATE TABLE retained_public_exposure_document_failures (
+  import_id TEXT PRIMARY KEY REFERENCES holding_imports(id) ON DELETE RESTRICT,
+  last_attempt_at TEXT NOT NULL
+);
 
 -- These seven indexes exactly duplicate existing UNIQUE indexes, including
 -- column order and collation. Keep uniqueness and remove their extra writes.

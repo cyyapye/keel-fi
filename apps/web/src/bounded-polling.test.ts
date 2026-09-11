@@ -67,7 +67,7 @@ describe("browser request budgets", () => {
 
   it("pauses hidden tabs and cannot turn focus events into extra requests", async () => {
     const clock = fixture();
-    const check = vi.fn(async () => true);
+    const check = vi.fn(() => Promise.resolve(true));
     startBoundedPolling({
       environment: clock.environment,
       intervalMs: 5_000,
@@ -124,9 +124,9 @@ describe("browser request budgets", () => {
       environment: clock.environment,
       intervalMs: 5_000,
       deadline: 15_000,
-      check: async () => {
+      check: () => {
         detected.push(Date.now());
-        return true;
+        return Promise.resolve(true);
       },
       onError: () => undefined,
       onTimeout: timeout,

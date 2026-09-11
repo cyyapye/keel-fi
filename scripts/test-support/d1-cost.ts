@@ -16,7 +16,7 @@ export async function createCostDatabase(script?: string) {
     d1Databases: ["DB"],
     compatibilityDate: "2026-07-28",
   });
-  const database = (await runtime.getD1Database("DB")) as unknown as D1Database;
+  const database = await runtime.getD1Database("DB");
   const execute = (sql: string) =>
     database.batch(
       unstable_splitSqlQuery(sql).map((statement) =>

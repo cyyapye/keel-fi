@@ -1382,6 +1382,7 @@ test("shows clear health and repair actions for portfolio agents", async ({
 test("keeps unverified sign-ins and page-reading failures separate", async ({
   page,
 }) => {
+  await page.clock.install({ time: new Date("2026-09-04T12:01:00.000Z") });
   const sessionId = "33333333-3333-4333-8333-333333333333";
   const sydecarSessionId = "44444444-4444-4444-8444-444444444444";
   let sessionStatus: "opened" | "failed" = "opened";
@@ -1493,6 +1494,7 @@ test("keeps unverified sign-ins and page-reading failures separate", async ({
   await expect(sources.getByText(/Tokenfolio reconnected/u)).toHaveCount(0);
   sessionStatus = "failed";
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.clock.runFor(5_100);
   await expect(
     sources.getByText(
       "The sign-in did not stay available for automatic updates. Keel has not marked it connected.",
@@ -1620,6 +1622,17 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
   let sessionStatus: "ready" | "opened" | "connected" = "ready";
   await page.addInitScript(() => {
     window.open = () => null;
+    const attempts: number[] = [];
+    Object.defineProperty(window, "__syntheticReconnectAttempts", {
+      value: attempts,
+    });
+    const request = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url.includes("/api/automation/provider-browser/sessions/"))
+        attempts.push(Date.now());
+      return request(input, init);
+    };
   });
   await page.route("**/api/alpha", async (route) => {
     alphaChecks++;
@@ -1719,6 +1732,22 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
   await expect(page.locator("body")).not.toContainText("SSH");
   await expect(page.locator("body")).not.toContainText("VNC");
   await expect(page.locator("body")).not.toContainText("Paste in Terminal");
+
+  await page.clock.pauseAt(new Date("2026-08-26T12:00:20.000Z"));
+  await page.waitForLoadState("networkidle");
+  const firstAttempts = await page.evaluate(
+    () =>
+      (Reflect.get(window, "__syntheticReconnectAttempts") as number[]).length,
+  );
+  await page.clock.runFor(1_000);
+  expect(
+    await page.evaluate(
+      () =>
+        (Reflect.get(window, "__syntheticReconnectAttempts") as number[])
+          .length,
+    ),
+    "Reconnect checks must wait five seconds",
+  ).toBe(firstAttempts);
 
   // Returned status objects and focus events must not restart the effect or
   // bypass the shared five-second clock. Hidden tabs do no background work.

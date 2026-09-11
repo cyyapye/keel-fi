@@ -17,7 +17,8 @@ it("bounds all three setup checks through the browser client, auth and real D1 w
   const measured = measureD1(fixture.database);
   let subject = "synthetic-unprovisioned-subject";
   const app = createApp({
-    verifyAccess: async () => ({ kind: "user", subject, email: null }),
+    verifyAccess: () =>
+      Promise.resolve({ kind: "user" as const, subject, email: null }),
   });
   const env: Env = {
     DB: measured.database,
@@ -129,11 +130,12 @@ it("bounds a full browser reconnect day through the real status client and read-
   );
   const app = createApp({
     providerBrowserSessionRepository: sessions,
-    verifyAccess: async () => ({
-      kind: "user",
-      subject: "synthetic-access-subject",
-      email: null,
-    }),
+    verifyAccess: () =>
+      Promise.resolve({
+        kind: "user" as const,
+        subject: "synthetic-access-subject",
+        email: null,
+      }),
   });
   const env: Env = {
     DB: measured.database,
@@ -163,7 +165,10 @@ it("bounds a full browser reconnect day through the real status client and read-
     for (const failed of [false, true]) {
       failure = failed;
       now = start + Number(failed) * 86_400_000;
-      const jobs = new Map<number, { at: number; callback: () => void }>();
+      const jobs = new Map<
+        number,
+        { at: number; callback: () => void | Promise<void> }
+      >();
       let sequence = 0;
       let stopped = 0;
       for (const provider of ["angellist", "tokenfolio", "sydecar"] as const) {

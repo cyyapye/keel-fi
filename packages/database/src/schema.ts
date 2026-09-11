@@ -1160,6 +1160,9 @@ export const connectorSyncRuns = sqliteTable(
       .where(
         sql`${table.cursor} IN ('cash-flow-initial-v1', 'cash-flow-incremental-v1')`,
       ),
+    index("connector_sync_runs_cash_live_latest_idx")
+      .on(table.connectorAccountId, sql`${table.startedAt} DESC`)
+      .where(sql`${table.cursor} = 'cash-live-v1'`),
     index("connector_sync_runs_household_active_idx")
       .on(table.householdId, table.cursor)
       .where(sql`${table.status} IN ('queued', 'running')`),
@@ -1996,6 +1999,16 @@ export const holdingImports = sqliteTable(
   ],
 );
 
+export const retainedPublicExposureDocumentFailures = sqliteTable(
+  "retained_public_exposure_document_failures",
+  {
+    importId: text("import_id")
+      .primaryKey()
+      .references(() => holdingImports.id, { onDelete: "restrict" }),
+    lastAttemptAt: timestamp("last_attempt_at"),
+  },
+);
+
 export const holdingImportRows = sqliteTable(
   "holding_import_rows",
   {
@@ -2393,9 +2406,10 @@ export const holdingPositionSnapshots = sqliteTable(
       table.positionId,
       table.snapshotFingerprint,
     ),
-    index("holding_position_snapshots_position_idx").on(
+    index("holding_position_snapshots_observed_idx").on(
       table.positionId,
-      table.observedAt,
+      sql`${table.observedAt} DESC`,
+      sql`${table.createdAt} DESC`,
     ),
     check(
       "holding_position_snapshots_public_values_check",
@@ -3597,7 +3611,9 @@ export const holdingImportCoverages = sqliteTable(
     index("holding_import_coverages_household_container_idx").on(
       table.householdId,
       table.containerId,
-      table.observedAt,
+      sql`${table.observedAt} DESC`,
+      sql`${table.createdAt} DESC`,
+      sql`${table.id} DESC`,
     ),
     check(
       "holding_import_coverages_completeness_check",

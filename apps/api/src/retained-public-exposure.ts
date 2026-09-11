@@ -26,6 +26,7 @@ const MAX_RETAINED_PUBLIC_DOCUMENTS = 5;
 type RetainedPublicExposureRepository = Pick<
   D1ExposureRepository,
   | "listRetainedPublicExposureDocuments"
+  | "recordRetainedPublicExposureDocumentFailures"
   | "recordRetainedPublicExposureEvidence"
   | "recordRetainedProviderExposureEvidence"
   | "recordRetainedStructuredAssetExposureEvidence"
@@ -216,6 +217,7 @@ export class D1RetainedPublicExposureReconciler implements RetainedPublicExposur
       await this.repository.listRetainedPublicExposureDocuments(accessSubject)
     ).slice(0, MAX_RETAINED_PUBLIC_DOCUMENTS);
     let skippedDocumentCount = 0;
+    const failedImportIds: string[] = [];
     let identityCount = 0;
     const publicEvidence: RetainedPublicExposureEvidenceInput[] = [];
     const providerEvidence: RetainedProviderExposureEvidenceInput[] = [];
@@ -239,7 +241,14 @@ export class D1RetainedPublicExposureReconciler implements RetainedPublicExposur
           ).length;
       } catch {
         skippedDocumentCount += 1;
+        failedImportIds.push(document.importId);
       }
+    }
+    if (failedImportIds.length > 0) {
+      await this.repository.recordRetainedPublicExposureDocumentFailures(
+        accessSubject,
+        failedImportIds,
+      );
     }
     // Parsing failures remain isolated to their source. Database failures must
     // surface for retry; accepted, append-only evidence makes replay safe.

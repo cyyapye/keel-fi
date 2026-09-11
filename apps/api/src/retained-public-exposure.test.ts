@@ -165,6 +165,9 @@ function sourceResponse(): Uint8Array {
 function repository() {
   return {
     listRetainedPublicExposureDocuments: vi.fn(),
+    recordRetainedPublicExposureDocumentFailures: vi
+      .fn()
+      .mockResolvedValue(undefined),
     recordRetainedPublicExposureEvidence: vi.fn().mockResolvedValue(undefined),
     recordRetainedProviderExposureEvidence: vi
       .fn()
@@ -312,12 +315,10 @@ describe("retained public exposure reconciliation", () => {
         rows: [{ importRowId: `synthetic-row-${index}`, sourceRowNumber: 1 }],
       })),
     );
-    const get = vi
-      .fn()
-      .mockResolvedValue({
-        size: bytes.byteLength,
-        arrayBuffer: vi.fn().mockResolvedValue(bytes.buffer),
-      });
+    const get = vi.fn().mockResolvedValue({
+      size: bytes.byteLength,
+      arrayBuffer: vi.fn().mockResolvedValue(bytes.buffer),
+    });
     const env = {
       CONNECTOR_CREDENTIAL_KEY: credentialKey,
       DOCUMENTS: { get },
@@ -375,6 +376,11 @@ describe("retained public exposure reconciliation", () => {
       identityCount: 0,
     });
     expect(source.recordRetainedPublicExposureEvidence).not.toHaveBeenCalled();
+    expect(
+      source.recordRetainedPublicExposureDocumentFailures,
+    ).toHaveBeenCalledWith("synthetic-access-subject", [
+      "import_synthetic_retained",
+    ]);
     expect(
       source.recordRetainedProviderExposureEvidence,
     ).not.toHaveBeenCalled();

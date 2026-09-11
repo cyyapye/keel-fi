@@ -23,6 +23,13 @@
   await database, object-storage, or network operations inside a row loop; use
   set-based SQL or bounded batches and indexes that match join, filter, and
   ordering keys.
+- Count actual D1 `rows_read` and `rows_written`, including index maintenance,
+  independently of returned rows, statement count, and round trips. Inspect
+  referenced views and integrity triggers. An indexed lookup repeated over
+  household history can still be quadratic. Include positive matches, empty
+  results, historical growth and unrelated households in cost holdouts. Grow
+  history per returned item, including repeated observation dates; cover the
+  complete latest/prior ordering, not just its leading timestamp.
 - For collection or read-model changes, add a deterministic synthetic scale case
   with at least 120 items when the domain can exceed 100, or use its documented
   maximum. Assert a fixed query or D1 round-trip budget and inspect
@@ -37,6 +44,13 @@
   auxiliary loop, proxy/API invocation, database read, timestamp/index write,
   and retry. Compare the total with the shared account allowance and reserve
   explicit headroom for useful work; a per-call budget is insufficient.
+- Also budget a maximum useful-work day, multiplying queue discovery and retry
+  fanout. Include browser prefetch, sign-in probes, proxy hops, object reads and
+  scheduled backup/export work. Give each recurring producer one owner, an
+  admission bound, and a deadline. Update the runtime call inventory with a
+  reviewed budget; accepting a snapshot or raising a ceiling is not a fix.
+- Enforce discovery and queue capacity at atomic admission, then test racing
+  callers and duplicate deliveries; a preflight count does not enforce a cap.
 - Empty checks must not write application state. Any operational heartbeat must
   have a separately justified write cadence. Keep credential revocation checks
   current on every request; do not cache authorization to reduce writes.

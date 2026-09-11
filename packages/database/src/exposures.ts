@@ -1509,6 +1509,10 @@ export class D1ExposureRepository {
              ON document.id = import.source_document_id
            WHERE import.household_id = ?
              AND import.provider IN ('robinhood', 'plaid_investments')
+             AND NOT EXISTS (
+               SELECT 1 FROM retained_public_exposure_document_failures failure
+               WHERE failure.import_id = import.id AND failure.last_attempt_at >= ?
+             )
              AND row.position_kind = 'direct'
              AND row.public_exposure_identity_kind IS NULL
              AND row.protected_exposure_key IS NULL
@@ -1547,7 +1551,10 @@ export class D1ExposureRepository {
            ORDER BY import.created_at, import.id, row.source_row_number
            LIMIT 500`,
         )
-        .bind(identity.household_id),
+        .bind(
+          identity.household_id,
+          new Date(Date.now() - 86_400_000).toISOString(),
+        ),
     );
 
     const documents = new Map<
@@ -1586,6 +1593,31 @@ export class D1ExposureRepository {
       });
     }
     return [...documents.values()];
+  }
+
+  public async recordRetainedPublicExposureDocumentFailures(
+    accessSubject: string,
+    rawImportIds: readonly string[],
+  ): Promise<void> {
+    const importIds = z
+      .array(z.string().min(1).max(256))
+      .max(5)
+      .parse(rawImportIds);
+    if (importIds.length === 0) return;
+    const identity = await this.findIdentity(accessSubject);
+    await this.db
+      .prepare(
+        `INSERT INTO retained_public_exposure_document_failures (import_id, last_attempt_at)
+       SELECT id, ? FROM holding_imports
+       WHERE household_id = ? AND id IN (SELECT value FROM json_each(?))
+       ON CONFLICT(import_id) DO UPDATE SET last_attempt_at = excluded.last_attempt_at`,
+      )
+      .bind(
+        new Date().toISOString(),
+        identity.household_id,
+        JSON.stringify(importIds),
+      )
+      .run();
   }
 
   public async recordRetainedPublicExposureEvidence(

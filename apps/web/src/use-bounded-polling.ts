@@ -30,7 +30,10 @@ export function useBoundedPolling(options: {
       environment: {
         now: Date.now,
         visible: () => document.visibilityState === "visible",
-        setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+        setTimeout: (callback, delay) =>
+          window.setTimeout(() => {
+            void callback();
+          }, delay),
         clearTimeout: (timer) => window.clearTimeout(timer),
         onVisible: (callback) => {
           document.addEventListener("visibilitychange", callback);

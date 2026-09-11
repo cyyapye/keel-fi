@@ -22,7 +22,6 @@ import {
 } from "@keel/domain";
 import { z } from "zod";
 
-
 import {
   projectCashAccountIdentities,
   type AcceptedCashAccountHistoryRow,
@@ -50,6 +49,7 @@ type ConnectionStateRow = ConnectionRow & {
   latest_run_status: "queued" | "running" | "succeeded" | "failed" | null;
   latest_error_code: string | null;
   live_refreshes_used: number;
+  last_live_attempt_at: string | null;
 };
 
 type ProposalSourceRow = {
@@ -612,6 +612,7 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
             ? "needs_attention"
             : "ready",
         lastCheckedAt: connection.last_synced_at,
+        lastLiveAttemptAt: connection.last_live_attempt_at,
         liveRefreshLimit: LIVE_REFRESH_LIMIT,
         liveRefreshesUsed: connection.live_refreshes_used,
         liveRefreshesRemaining: Math.max(
@@ -1659,6 +1660,11 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
              account.status, account.last_synced_at,
              account.provider_account_key,
              (
+               SELECT run.started_at FROM connector_sync_runs run
+               WHERE run.connector_account_id = account.id AND run.cursor = 'cash-live-v1'
+               ORDER BY run.started_at DESC LIMIT 1
+             ) AS last_live_attempt_at,
+             (
                SELECT run.status FROM connector_sync_runs run
                WHERE run.connector_account_id = account.id
                ORDER BY run.started_at DESC, run.id DESC LIMIT 1
@@ -1821,15 +1827,15 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
           ORDER BY observed_at, ordering_id LIMIT 20
         )
       )
-      SELECT row.*, proposal.connector_account_id, proposal.refresh_kind,
-             proposal.observed_at AS proposal_observed_at, proposal.retrieved_at,
-             proposal.is_latest
-      FROM bounded proposal
-      JOIN cash_balance_proposal_rows row ON row.proposal_id = proposal.id
+      SELECT row.*, pending_proposal.connector_account_id, pending_proposal.refresh_kind,
+             pending_proposal.observed_at AS proposal_observed_at, pending_proposal.retrieved_at,
+             pending_proposal.is_latest
+      FROM bounded pending_proposal
+      JOIN cash_balance_proposal_rows row ON row.proposal_id = pending_proposal.id
       WHERE NOT EXISTS (
           SELECT 1 FROM cash_balance_review_decisions decision WHERE decision.proposal_row_id = row.id
         )
-      ORDER BY proposal.observed_at DESC, proposal.ordering_id DESC, row.account_label, row.id
+      ORDER BY pending_proposal.observed_at DESC, pending_proposal.ordering_id DESC, row.account_label, row.id
     `,
         )
         .bind(householdId),

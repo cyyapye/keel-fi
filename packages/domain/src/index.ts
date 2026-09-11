@@ -1656,6 +1656,7 @@ export const CashAccountConnectionSchema = z.object({
   institutionLabel: z.string().min(1).max(512),
   status: z.enum(["ready", "needs_attention"]),
   lastCheckedAt: IsoTimestampSchema.nullable(),
+  lastLiveAttemptAt: IsoTimestampSchema.nullable().optional(),
   liveRefreshLimit: z.number().int().positive(),
   liveRefreshesUsed: z.number().int().nonnegative(),
   liveRefreshesRemaining: z.number().int().nonnegative(),

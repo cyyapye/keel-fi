@@ -133,11 +133,8 @@ export function productionQueries(): QuerySource[] {
         )
           owner = owner.parent;
         const method =
-          owner &&
-          "name" in owner &&
-          owner.name &&
-          ts.isIdentifier(owner.name as ts.Node)
-            ? (owner.name as ts.Identifier).text
+          owner && "name" in owner && owner.name && ts.isIdentifier(owner.name)
+            ? owner.name.text
             : "module";
         const line =
           source.getLineAndCharacterOfPosition(node.getStart()).line + 1;

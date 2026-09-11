@@ -130,15 +130,20 @@ export async function seedCostProposals(db: D1Database) {
       .prepare(
         `INSERT INTO connector_accounts (id, household_id, connector_type, display_label,
       secret_reference, status, last_synced_at, provider_account_key, created_at)
-      VALUES ('cost-cash', 'hh_demo', 'plaid-cash', 'Synthetic cost bank',
-        'connector-secrets/synthetic.enc', 'active', NULL, ?, ?)`,
+      SELECT CASE WHEN value = 0 THEN 'cost-cash' ELSE 'cost-cash-' || value END,
+        'hh_demo', 'plaid-cash', 'Synthetic cost bank ' || value,
+        'connector-secrets/synthetic.enc', 'active', NULL, printf('%064x', value + 30000), ?
+      FROM json_each(?)`,
       )
-      .bind(syntheticDigest(30_000), COST_TIME),
+      .bind(
+        COST_TIME,
+        JSON.stringify(Array.from({ length: 20 }, (_, index) => index)),
+      ),
     db
       .prepare(
         `INSERT INTO connector_sync_runs (id, household_id, connector_account_id,
       status, started_at, finished_at, cursor, discovered_count, proposed_count, error_code)
-      SELECT 'cost-cash-run-' || value, 'hh_demo', 'cost-cash', 'succeeded', ?, ?,
+      SELECT 'cost-cash-run-' || value, 'hh_demo', CASE WHEN value % 20 = 0 THEN 'cost-cash' ELSE 'cost-cash-' || (value % 20) END, 'succeeded', ?, ?,
         'cash-initial-v1', 1, 1, NULL FROM json_each(?)`,
       )
       .bind(COST_TIME, COST_TIME, numbers),
@@ -147,9 +152,9 @@ export async function seedCostProposals(db: D1Database) {
         `INSERT INTO cash_balance_proposals (id, household_id, connector_account_id, sync_run_id,
       source_object_key, source_sha256, normalized_fingerprint, refresh_kind, observed_at,
       retrieved_at, status, created_at)
-      SELECT 'cost-cash-proposal-' || value, 'hh_demo', 'cost-cash', 'cost-cash-run-' || value,
+      SELECT 'cost-cash-proposal-' || value, 'hh_demo', CASE WHEN value % 20 = 0 THEN 'cost-cash' ELSE 'cost-cash-' || (value % 20) END, 'cost-cash-run-' || value,
         'synthetic/cash/' || value, printf('%064x', value), printf('%064x', value),
-        'initial', ?, ?, CASE WHEN value < 20 THEN 'pending_review' ELSE 'applied' END, ? FROM json_each(?)`,
+        'initial', CASE WHEN value < 20 THEN ? ELSE '2026-08-01T00:00:00.000Z' END, ?, CASE WHEN value < 20 THEN 'pending_review' ELSE 'applied' END, ? FROM json_each(?)`,
       )
       .bind(COST_TIME, COST_TIME, COST_TIME, numbers),
     db

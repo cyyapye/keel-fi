@@ -12,10 +12,14 @@ const roots = [
   "apps/web/src/worker.ts",
   "scripts/angellist-mac-agent.ts",
   "scripts/provider-portfolio-mac-agent.ts",
+  "scripts/linux-agent-setup-session.ts",
+  "scripts/ingestion-dlq-redrive.ts",
   "scripts/private-document-backup-job.ts",
   "scripts/preview-deployment-smoke.ts",
 ];
-const configuration = ts.readConfigFile("tsconfig.json", ts.sys.readFile);
+const configuration = ts.readConfigFile("tsconfig.json", (file) =>
+  ts.sys.readFile(file),
+);
 const options = ts.parseJsonConfigFileContent(
   configuration.config,
   ts.sys,
@@ -106,6 +110,19 @@ it("accounts for every runtime timer, network and queue call in the entrypoint g
     visit(source);
   }
   roots.forEach(visitFile);
+  // Scheduler and retry configuration can multiply unchanged call sites.
+  for (const file of [
+    "apps/api/wrangler.jsonc",
+    "apps/web/wrangler.jsonc",
+    ".github/workflows/private-document-backup.yml",
+  ]) {
+    entries.push(
+      `${file} | deployment configuration | ${createHash("sha256")
+        .update(readFileSync(file, "utf8"))
+        .digest("hex")
+        .slice(0, 16)}`,
+    );
+  }
   expect(visited.size).toBeGreaterThan(80);
   expect(entries.length).toBeGreaterThan(60);
   expect(entries.sort()).toMatchSnapshot();

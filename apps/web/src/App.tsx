@@ -4681,6 +4681,8 @@ function CashAccountsControl({
             (connection) =>
               connection.status === "ready" &&
               connection.liveRefreshesRemaining > 0 &&
+              (connection.lastLiveAttemptAt == null ||
+                Date.parse(connection.lastLiveAttemptAt) < refreshCutoff) &&
               (connection.lastCheckedAt === null ||
                 Date.parse(connection.lastCheckedAt) < refreshCutoff),
           );

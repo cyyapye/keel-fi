@@ -202,6 +202,58 @@ describe("real D1 reads at collection scale", () => {
     );
   });
 
+  it("keeps the 50-source limit when two discovery batches race after reading the same capacity", async () => {
+    const parent = await fixture.database
+      .prepare(
+        "SELECT id FROM portfolio_watch_sources WHERE company_id = 'cost-company-1' LIMIT 1",
+      )
+      .first<{ id: string }>();
+    if (!parent) throw new Error("Synthetic parent missing");
+    await fixture.database
+      .prepare(
+        "UPDATE portfolio_watch_sources SET status = 'active' WHERE id = ?",
+      )
+      .bind(parent.id)
+      .run();
+    let arrivals = 0;
+    let release: () => void = () => undefined;
+    const bothRead = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const racing = {
+      prepare: fixture.database.prepare.bind(fixture.database),
+      batch: async (statements: D1PreparedStatement[]) => {
+        if (++arrivals === 2) release();
+        await bothRead;
+        return fixture.database.batch(statements);
+      },
+    } as D1Database;
+    const watch = new D1PortfolioWatchRepository(racing);
+    const source = await watch.getSource(parent.id);
+    if (!source) throw new Error("Synthetic source missing");
+    await Promise.all(
+      ["first", "second"].map((batch) =>
+        watch.registerCandidates(
+          source.id,
+          Array.from({ length: 40 }, (_, index) => ({
+            canonicalUrl: `${source.allowedOrigin}/news/${batch}-${index}`,
+            sourceKind: "official_company_web" as const,
+            discoveryMethod: "synthetic-racing-discovery",
+            grade: source.grade,
+          })),
+          COST_TIME,
+        ),
+      ),
+    );
+    const total = await fixture.database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM portfolio_watch_sources WHERE watch_target_id = ?",
+      )
+      .bind(source.watchTargetId)
+      .first<{ count: number }>();
+    expect(total?.count).toBe(50);
+  });
+
   it("bounds forty source discoveries and observations and makes replay read-only", async () => {
     const watch = new D1PortfolioWatchRepository(measured.database);
     const row = await fixture.database
@@ -275,6 +327,14 @@ describe("real D1 reads at collection scale", () => {
 
   it("excludes prior months from recurring cash usage counts", async () => {
     const cash = new D1CashAccountsRepository(measured.database);
+    await fixture.database
+      .prepare(
+        `INSERT INTO connector_sync_runs
+      (id, household_id, connector_account_id, status, started_at, finished_at, cursor, discovered_count, proposed_count, error_code)
+      VALUES ('cost-current-live', 'hh_demo', 'cost-cash', 'succeeded', ?, ?, 'cash-live-v1', 0, 0, NULL)`,
+      )
+      .bind(COST_TIME, COST_TIME)
+      .run();
     measured.reset();
     const before = await cash.getState(COST_SUBJECT, true);
     const beforeCost = { ...measured.cost };

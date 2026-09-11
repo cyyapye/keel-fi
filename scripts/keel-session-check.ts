@@ -24,10 +24,10 @@ export async function waitForKeelSession(
               headers: { Accept: "application/json" },
               signal: AbortSignal.timeout(10_000),
             });
-            const json = (response.headers.get("Content-Type") ?? "").includes(
-              "application/json",
-            )
-              ? ((await response.json()) as unknown)
+            const json: unknown = (
+              response.headers.get("Content-Type") ?? ""
+            ).includes("application/json")
+              ? await response.json()
               : null;
             return {
               ready:
