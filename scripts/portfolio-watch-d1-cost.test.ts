@@ -19,6 +19,12 @@ it("bounds the complete source job graph for a daily maximum discovery, replay, 
   try {
     await seedCostHoldings(fixture.database);
     await seedCostWatchTargets(fixture.database);
+    // SQLite enrollment triggers use wall time. Make the generated sources
+    // due at the start of the virtual day before measuring scheduler work.
+    await fixture.database
+      .prepare("UPDATE portfolio_watch_source_sync_state SET next_check_at = ?")
+      .bind("2026-09-12T00:00:00.000Z")
+      .run();
     const measured = measureD1(fixture.database);
     const repository = new D1PortfolioWatchRepository(measured.database);
     const jobs: Parameters<typeof __portfolioWatchTest.processSourceJob>[0][] =
