@@ -69,7 +69,7 @@ test("recovers from a failed main application without retrying on tab resume", a
     animations: "disabled",
   });
 
-  const initialApiRequests = apiRequests.length;
+  expect(apiRequests).toEqual([new URL("/api/holdings-page", page.url()).href]);
   for (let hour = 0; hour < 24; hour += 1) {
     await page.evaluate(() => {
       document.dispatchEvent(new Event("visibilitychange"));
@@ -79,7 +79,7 @@ test("recovers from a failed main application without retrying on tab resume", a
     await page.clock.runFor(60 * 60_000);
   }
   expect(moduleRequests).toBe(1);
-  expect(apiRequests).toHaveLength(initialApiRequests);
+  expect(apiRequests).toHaveLength(1);
   expect(failures).toEqual([]);
   await expect(reload).toBeVisible();
 
