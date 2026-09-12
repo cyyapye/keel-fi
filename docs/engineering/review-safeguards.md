@@ -32,6 +32,28 @@ already accepts document/page-only entry. The correction is shared by the UI and
 counsel export. No parser permissions, security limits, review acceptance, or
 financial data rules change.
 
+## Exception-based investment decisions
+
+R1, R3, R4 and R5 now also cover `investment-review-auto-v1`. Merely visiting a
+section still does not accept source defaults. A recorded automatic decision can
+resolve an unambiguous source-backed section without another human click. The
+[automatic repository cases](../../packages/database/src/automatic-investment-review.test.ts)
+exercise import recovery, complete reconciled terms, conflicting documents,
+duplicate vehicle names, manual corrections, live scan races and duplicate
+requests. [Extraction cases](../../scripts/legal-document-economics.test.ts)
+reject unsupported terms, missing values and forged numeric citations.
+
+The
+[automatic review browser flow](../../e2e/automatic-investment-review.visual.spec.ts)
+starts with 120 sources, leaves a missing setup fee as the only exception,
+prefills clear terms, saves a manual correction and reopens the saved values.
+Desktop/mobile failure states retain inventory access and require an explicit
+retry. The
+[D1 cost case](../../scripts/automatic-investment-review-d1-cost.test.ts) counts
+billing metadata, history and empty/repeated requests. These tests prove
+synthetic behavior; deployment, agent upgrades and live backlog completion
+remain distinct evidence.
+
 ## Use the audit during delivery
 
 1. Select the affected rows before editing. Check the linked implementation and

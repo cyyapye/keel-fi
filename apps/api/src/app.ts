@@ -19,6 +19,8 @@ import {
   D1InvestmentExposureViewRepository,
   D1LegalEntityRepository,
   D1InvestmentReviewRepository,
+  D1AutomaticInvestmentReviewRepository,
+  type AutomaticInvestmentReviewRepository,
   InvestmentReviewError,
   type InvestmentReviewRepository,
   D1LiabilitiesRepository,
@@ -59,6 +61,10 @@ import {
   PositionEconomicsError,
   PositionValueAdjustmentError,
 } from "@keel/database";
+import {
+  ResolveInvestmentReviewsInputSchema,
+  ResolveInvestmentReviewsResultSchema,
+} from "@keel/domain/automatic-investment-review";
 import {
   AngelListMacAgentConfigInputSchema,
   AngelListMacAgentFailureInputSchema,
@@ -235,6 +241,7 @@ type AppOptions = {
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
   legalEntityRepository?: LegalEntityRepository;
   investmentReviewRepository?: InvestmentReviewRepository;
+  automaticInvestmentReviewRepository?: AutomaticInvestmentReviewRepository;
   positionEconomicsRepository?: PositionEconomicsRepository;
   positionValueAdjustmentRepository?: PositionValueAdjustmentRepository;
   providerBrowserSessionRepository?: ProviderBrowserSessionRepository;
@@ -848,6 +855,9 @@ export function createApp(options: AppOptions = {}) {
   const investmentReviewRepositoryFor = (env: Env) =>
     options.investmentReviewRepository ??
     new D1InvestmentReviewRepository(env.DB);
+  const automaticInvestmentReviewRepositoryFor = (env: Env) =>
+    options.automaticInvestmentReviewRepository ??
+    new D1AutomaticInvestmentReviewRepository(env.DB);
   const positionValueAdjustmentRepositoryFor = (env: Env) =>
     options.positionValueAdjustmentRepository ??
     new D1PositionValueAdjustmentRepository(env.DB);
@@ -2148,6 +2158,25 @@ export function createApp(options: AppOptions = {}) {
       }
     },
   );
+
+  app.post("/api/legal-entities/resolve", async (context) => {
+    const input = ResolveInvestmentReviewsInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!input.success)
+      return context.json(
+        { error: "Enter a valid automatic review cursor." },
+        400,
+      );
+    const result = await automaticInvestmentReviewRepositoryFor(
+      context.env,
+    ).resolve(context.get("identity").subject, input.data.afterPositionId);
+    return context.json(
+      ResolveInvestmentReviewsResultSchema.parse(result),
+      200,
+      { "Cache-Control": "private, no-store" },
+    );
+  });
 
   app.get("/api/legal-entities", async (context) => {
     const accessSubject = context.get("identity").subject;

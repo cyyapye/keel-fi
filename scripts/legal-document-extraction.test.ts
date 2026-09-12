@@ -180,7 +180,7 @@ describe("local legal document extraction", () => {
       const prefix = ending === "Parent" ? "under the Parent" : "under the";
       const definition = `“Fund”: ${name}, established as a Series ${prefix}\n${nextLine}`;
       expect(extractLegalNameFromPages([definition])).toMatchObject({
-        version: 5,
+        version: 6,
         problem: null,
         citations: [
           {

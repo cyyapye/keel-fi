@@ -7,22 +7,28 @@ export function investmentReviewSections(
   identitySaved: boolean,
 ) {
   const companyConfirmed =
-    context?.mappings.some(
+    context?.automaticReview?.resolved.includes("company") === true ||
+    (context?.mappings.some(
       (mapping) =>
         mapping.status === "active" &&
         mapping.companyId !== null &&
         (mapping.decisionSource === "review" ||
           context.companyReceipt?.mappingId === mapping.id),
-    ) ?? false;
+    ) ??
+      false);
   const investmentReviewed =
-    context?.review !== null &&
-    context?.review !== undefined &&
-    context.review.participationStatus !== "unknown";
+    context?.automaticReview?.resolved.includes("participation") === true ||
+    (context?.review !== null &&
+      context?.review !== undefined &&
+      context.review.participationStatus !== "unknown");
   const termsReviewed =
-    context?.economics == null ||
-    (context.economics.reportedTerms === null &&
-      context.economics.acceptedTerms === null) ||
-    calculatePositionEconomics(context.economics) !== null;
+    !context?.automaticReview?.issues.some(
+      (issue) => issue.section === "economics",
+    ) &&
+    (context?.economics == null ||
+      (context.economics.reportedTerms === null &&
+        context.economics.acceptedTerms === null) ||
+      calculatePositionEconomics(context.economics) !== null);
   const documents = context?.documents ?? [];
   const assignments = new Map(
     context?.review?.documentAssignments.map((item) => [

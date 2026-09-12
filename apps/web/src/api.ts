@@ -157,6 +157,10 @@ import {
   type UpdateLegalEntityInput,
 } from "@keel/domain/legal-entities";
 import {
+  ResolveInvestmentReviewsInputSchema,
+  ResolveInvestmentReviewsResultSchema,
+} from "@keel/domain/automatic-investment-review";
+import {
   PLAN_ACTUAL_COOLDOWN_DAYS,
   PlanActualMonitoringStateSchema,
   PlanActualSnoozeInputSchema,
@@ -235,6 +239,27 @@ export async function loadLegalEntities(
     );
   }
   return LegalEntityInventorySchema.parse(await response.json());
+}
+
+export async function resolveInvestmentReviews(
+  afterPositionId: string | null = null,
+  signal?: AbortSignal,
+) {
+  const response = await fetch("/api/legal-entities/resolve", {
+    method: "POST",
+    credentials: "same-origin",
+    signal: signal ?? null,
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(
+      ResolveInvestmentReviewsInputSchema.parse({ afterPositionId }),
+    ),
+  });
+  if (!response.ok)
+    throw await responseError(
+      response,
+      "Automatic review could not finish. Your saved records are available.",
+    );
+  return ResolveInvestmentReviewsResultSchema.parse(await response.json());
 }
 
 async function investmentReviewRequest(

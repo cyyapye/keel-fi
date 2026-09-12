@@ -170,6 +170,50 @@ positive reconnect case, not an empty query. See
 and regressions. Cloudflare allowances are shared across the entire account:
 [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/).
 
+### Investment review recovery
+
+Automatic investment review adds no background scheduler. The owner is either
+the existing accepted-import operation or one foreground Legal entities page.
+Ingestion runs after accepted source evidence; page entry recovers already saved
+positions. The freshness target is the completion of that operation, with a
+30-second browser deadline. Navigation aborts the browser request; a server
+transaction already admitted may finish atomically. Failure exposes an explicit
+retry. There is no network retry, focus refresh or idle heartbeat.
+
+Admission is 120 positions per transaction. An existing import's 500-row cap
+limits recovery to five sequential batches. A page likewise stops after five
+batches and offers continuation. Stale transaction races allow at most three
+attempts; they do not enqueue additional work. Authentication remains current on
+every request. The operation reads only D1 projections and evidence: zero
+provider calls, object reads/writes or PDF processing. Normal document capture
+keeps the existing 24-document per-run limit and sandbox limits.
+
+`scripts/automatic-investment-review-d1-cost.test.ts` measures the actual
+client, web/API path and D1 metadata for a 120-position household. One
+foreground session making 20 deliberate visits in a virtual day sends 40 HTTP
+requests (80 conservative web/API invocations), reads 175,760 D1 rows and writes
+zero rows. An idle open tab adds zero requests. A complete request outage makes
+one failed request per visit with no automatic retry or application write.
+Independent ceilings are 350,000 reads and zero writes for unchanged visits.
+
+A synthetic 120-row source import with 24 captured agreements costs 6,118
+index-inclusive writes before automatic review. Automatic review adds 1,286, for
+7,404 total, inside the unchanged 8,000-write accepted-capture allowance. A
+separate one-time 120-agreement backlog costs 4,454 automatic-review writes; its
+documents already exist and are not fetched again. Reserve up to 8,000 of the
+existing 20,000 useful-work writes for one such backlog session, leaving at
+least 12,000 for other useful work. Its 350,000-read visit ceiling also comes
+from the existing 3-million useful-work reserve. This does not add a new
+deployment or multiply the three-agent envelope. Repeated bulk imports or larger
+foreground inventories require the existing combined-budget review.
+
+The runtime inventory change is one authenticated recovery fetch, the existing
+initial-load timer's callback, and a single abort deadline. It introduces no
+periodic callback. The history and unchanged-replay tests must pass before
+accepting that inventory update. API/web deployment, reloaded browser tabs and
+upgraded document agents are separate activation steps; local tests do not
+establish live backlog completion.
+
 ## Activation and observation
 
 Deploy the tested API and update all existing long-running clients before

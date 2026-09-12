@@ -69,6 +69,7 @@ const migrationFiles = [
   "packages/database/migrations/0053_connected_investment_reviews.sql",
   "packages/database/migrations/0055_exception_based_source_updates.sql",
   "packages/database/migrations/0056_exception_based_cash_balances.sql",
+  "packages/database/migrations/0059_automatic_investment_reviews.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -92,6 +93,7 @@ describe("nullable private investment date migration", () => {
               "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
               "packages/database/migrations/0039_reviewed_position_economics.sql",
               "packages/database/migrations/0058_net_invested_position_economics.sql",
+              "packages/database/migrations/0059_automatic_investment_reviews.sql",
               "packages/database/migrations/0040_holdings_read_performance.sql",
               "packages/database/migrations/0041_reported_position_economics.sql",
               "packages/database/migrations/0053_connected_investment_reviews.sql",

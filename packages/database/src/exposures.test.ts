@@ -81,6 +81,7 @@ const migrationFiles = [
   "packages/database/migrations/0053_connected_investment_reviews.sql",
   "packages/database/migrations/0054_legal_entity_link_version_guard.sql",
   "packages/database/migrations/0055_exception_based_source_updates.sql",
+  "packages/database/migrations/0059_automatic_investment_reviews.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

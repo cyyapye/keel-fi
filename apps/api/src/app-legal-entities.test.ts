@@ -108,6 +108,58 @@ function repositories(overrides: Partial<LegalEntityRepository> = {}) {
 }
 
 describe("legal entity API", () => {
+  it("runs one authenticated automatic batch only on POST and validates its cursor", async () => {
+    const options = repositories();
+    const resolve = vi.fn().mockResolvedValue({
+      processedCount: 120,
+      changedCount: 118,
+      resolvedCount: 118,
+      exceptionCount: 2,
+      nextPositionId: "position-next",
+    });
+    const app = createApp({
+      ...options,
+      automaticInvestmentReviewRepository: { resolve },
+    });
+    const read = await app.request("/api/legal-entities", {}, env());
+    expect(read.status).toBe(200);
+    expect(resolve).not.toHaveBeenCalled();
+    const response = await app.request(
+      "/api/legal-entities/resolve",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ afterPositionId: null }),
+      },
+      env(),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(resolve).toHaveBeenCalledWith("synthetic-access-subject", null);
+    await expect(response.json()).resolves.toMatchObject({ exceptionCount: 2 });
+    const invalid = await app.request(
+      "/api/legal-entities/resolve",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ afterPositionId: "", householdId: "other" }),
+      },
+      env(),
+    );
+    expect(invalid.status).toBe(400);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    const anonymous = await app.request(
+      "/api/legal-entities/resolve",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+      { ...env(), ENVIRONMENT: "preview" },
+    );
+    expect(anonymous.status).toBe(401);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
   it.each([
     undefined,
     "invalid-client",

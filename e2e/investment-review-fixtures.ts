@@ -35,6 +35,19 @@ export async function routeInvestmentReview(
   source: LegalEntitySourceSummary,
   overrides: Partial<InvestmentReviewContext> = {},
 ) {
+  // Existing review fixtures hold their evidence fixed. Tests of automatic
+  // recovery replace this route with a state transition explicitly.
+  await page.route("**/api/legal-entities/resolve", (route) =>
+    route.fulfill({
+      json: {
+        processedCount: 0,
+        changedCount: 0,
+        resolvedCount: 0,
+        exceptionCount: 0,
+        nextPositionId: null,
+      },
+    }),
+  );
   const context = InvestmentReviewContextSchema.parse({
     positionId: source.source.id,
     positionLabel: source.sourceDisplayName,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AutomaticInvestmentReviewSchema } from "./automatic-investment-review";
 import {
   InvestmentCompanyReceiptSchema,
   InvestmentReviewStateSchema,
@@ -198,6 +199,7 @@ export const LegalEntitySourceSummarySchema = z
     nameResolution: LegalNameResolutionSchema.optional(),
     investmentReview: InvestmentReviewStateSchema.nullable().optional(),
     companyReview: InvestmentCompanyReceiptSchema.nullable().optional(),
+    automaticReview: AutomaticInvestmentReviewSchema.nullable().optional(),
   })
   .strict()
   .superRefine((value, context) => {

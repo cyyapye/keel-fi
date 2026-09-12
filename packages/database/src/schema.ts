@@ -2329,6 +2329,7 @@ export const holdingPositions = sqliteTable(
       table.householdId,
       table.createdAt,
     ),
+    index("holding_positions_household_id_idx").on(table.householdId, table.id),
     check(
       "holding_positions_kind_check",
       sql`${table.positionKind} IN ('direct', 'spv_interest', 'fund_interest')`,
@@ -2575,6 +2576,7 @@ export const holdingPositionEconomicsProposals = sqliteTable(
     adminFeeYears: integer("admin_fee_years").notNull(),
     carryPpm: integer("carry_ppm").notNull(),
     note: text("note").notNull(),
+    decisionSource: text("decision_source").notNull().default("manual"),
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -2601,6 +2603,10 @@ export const holdingPositionEconomicsProposals = sqliteTable(
     check(
       "holding_position_economics_proposals_amounts_check",
       sql`${table.commitmentMinor} > 0 AND ${table.fundedMinor} >= 0`,
+    ),
+    check(
+      "holding_position_economics_proposals_decision_source_check",
+      sql`${table.decisionSource} IN ('manual', 'policy')`,
     ),
     check(
       "holding_position_economics_proposals_fee_check",
@@ -3335,6 +3341,12 @@ export const legalEntityVersions = sqliteTable(
       table.legalEntityId,
       table.version,
     ),
+    index("legal_entity_versions_household_name_idx").on(
+      table.householdId,
+      table.legalName,
+      table.legalEntityId,
+      table.version,
+    ),
     check(
       "legal_entity_versions_version_check",
       sql`${table.version} > 0 AND ((${table.version} = 1 AND ${table.supersedesVersionId} IS NULL) OR (${table.version} > 1 AND ${table.supersedesVersionId} IS NOT NULL))`,
@@ -3402,6 +3414,7 @@ export const legalEntitySourceDecisions = sqliteTable(
     interestStatus: text("interest_status").notNull(),
     openedOn: text("opened_on"),
     decision: text("decision").notNull(),
+    decisionSource: text("decision_source").notNull().default("manual"),
     legalEntityId: text("legal_entity_id").references(() => legalEntities.id, {
       onDelete: "restrict",
     }),
@@ -3444,6 +3457,10 @@ export const legalEntitySourceDecisions = sqliteTable(
     check(
       "legal_entity_source_decisions_source_check",
       sql`${table.sourceKind} IN ('ownership_container', 'holding_position') AND length(${table.sourceReference}) BETWEEN 1 AND 500`,
+    ),
+    check(
+      "legal_entity_source_decisions_decision_source_check",
+      sql`${table.decisionSource} IN ('manual', 'policy')`,
     ),
     check(
       "legal_entity_source_decisions_metadata_check",
@@ -3835,6 +3852,11 @@ export const holdingPositionExposureMappings = sqliteTable(
     uniqueIndex("holding_position_exposure_mapping_roots_unique")
       .on(table.positionId, table.exposureId)
       .where(sql`${table.supersedesMappingId} IS NULL`),
+    index("holding_position_exposure_mappings_position_idx").on(
+      table.positionId,
+      table.exposureId,
+      sql`${table.version} DESC`,
+    ),
     index("holding_position_exposure_mappings_household_position_idx").on(
       table.householdId,
       table.positionId,
@@ -3908,6 +3930,55 @@ export const planActualMonitoringCooldowns = sqliteTable(
     check(
       "plan_actual_monitoring_cooldowns_immutable_check",
       sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const automaticInvestmentReviews = sqliteTable(
+  "automatic_investment_reviews",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => holdingPositionSnapshots.id, { onDelete: "restrict" }),
+    policyVersion: text("policy_version").notNull(),
+    sourceRevision: text("source_revision").notNull(),
+    expectedGuardJson: text("expected_guard_json").notNull(),
+    resultGuardJson: text("result_guard_json").notNull(),
+    summaryJson: text("summary_json").notNull(),
+    detailsJson: text("details_json").notNull(),
+    version: integer("version").notNull(),
+    supersedesId: text("supersedes_id").unique(),
+    recordedByUserId: text("recorded_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    recordedAt: timestamp("recorded_at"),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.supersedesId],
+      foreignColumns: [table.id],
+      name: "automatic_investment_reviews_supersedes_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("automatic_investment_reviews_version_unique").on(
+      table.positionId,
+      table.version,
+    ),
+    check(
+      "automatic_investment_reviews_policy_check",
+      sql`${table.policyVersion} = 'investment-review-auto-v1' AND length(${table.sourceRevision}) = 64 AND ${table.version} > 0`,
+    ),
+    check(
+      "automatic_investment_reviews_json_check",
+      sql`json_valid(${table.expectedGuardJson}) AND json_valid(${table.resultGuardJson}) AND json_valid(${table.summaryJson}) AND json_valid(${table.detailsJson})`,
+    ),
+    check(
+      "automatic_investment_reviews_summary_check",
+      sql`json_extract(${table.summaryJson}, '$.id') = ${table.id} AND json_extract(${table.summaryJson}, '$.snapshotId') = ${table.snapshotId}`,
     ),
   ],
 );

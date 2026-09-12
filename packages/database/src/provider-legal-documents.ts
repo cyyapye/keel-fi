@@ -61,6 +61,12 @@ export function legalNameEvidenceFromDocuments(
     ...(document.extraction.companyCitations === undefined
       ? {}
       : { companyCitations: document.extraction.companyCitations }),
+    ...(document.extraction.economicsCitations === undefined
+      ? {}
+      : { economicsCitations: document.extraction.economicsCitations }),
+    ...(document.extraction.economicsProblem === undefined
+      ? {}
+      : { economicsProblem: document.extraction.economicsProblem }),
     extractorVersion: document.extraction.version,
     extractionProblem: document.extraction.problem,
     observedAt: document.checkedAt,

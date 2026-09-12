@@ -14,6 +14,22 @@ import {
   selectReviewSection,
 } from "./investment-review-fixtures";
 
+// Keep the existing manual-review fixtures fixed; automatic transitions have
+// their own browser suite and real D1 integration tests.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/legal-entities/resolve", (route) =>
+    route.fulfill({
+      json: {
+        processedCount: 0,
+        changedCount: 0,
+        resolvedCount: 0,
+        exceptionCount: 0,
+        nextPositionId: null,
+      },
+    }),
+  );
+});
+
 const positionSource = {
   source: { kind: "holding_position" as const, id: "position_demo_venture" },
   sourceDisplayName: "Demo Robotics",
