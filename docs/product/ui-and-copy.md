@@ -23,6 +23,8 @@ finite maintenance queue lives in
 - Keep one primary action per section whenever possible.
 - Use Holdings as the default reference for information density and Scenarios as
   the default reference for interactive controls.
+- Reuse established visual patterns, and make labels and apparent affordances
+  match implemented behavior.
 
 ## Shared implementation layer
 
@@ -69,11 +71,20 @@ append-only, immutable, retained, persistence, D1, model status, and private
 alpha unless the user must understand that concept to proceed. Explain a concept
 once, in the shortest accurate language.
 
-Synthetic data and review boundaries remain non-negotiable, but they should be
-expressed as concise product language such as “Demo sources” and “Nothing
-changes until you review it.”
+Keep synthetic-data and review disclosures concise and accurate. Use “Demo
+sources” for synthetic data. For source updates, follow the
+[source-update policy](../architecture/source-update-policy.md): routine updates
+can apply through recorded automatic decisions, while exceptions and planning
+choices require review. Explain the boundary for the current action; “Review
+needed” is appropriate for an exception. Do not imply that every routine update
+requires a human click or that a source default is an accepted decision.
 
 ## Definition of done
+
+A change is material when it affects hierarchy, layout, spacing, typography,
+color, borders, badges, responsive behavior, accessibility, interaction, a
+transient state, or product meaning. Copy beyond a mechanical spelling or
+punctuation correction is material, including source and review disclosures.
 
 Before handing off a material interface change:
 

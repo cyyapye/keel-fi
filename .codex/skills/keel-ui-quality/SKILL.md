@@ -1,115 +1,49 @@
 ---
 name: keel-ui-quality
 description:
-  Enforce Keel's interface and copy contract for any task that creates, edits,
-  reviews, diagnoses, or verifies user-visible frontend work. Use for React
-  components, pages, layouts, CSS, design tokens, responsive behavior,
-  accessibility, UI copy, charts, interaction affordances, loading, empty,
-  success, or error states, and Playwright visual baselines under apps/web or
-  e2e. Trigger even when the request is phrased only as polish, simplify,
-  restyle, rename, clean up, make clearer, fix the mobile view, or fix a visual
-  bug.
+  Implement or review Keel's user-visible UI, copy, accessibility, and
+  responsive behavior in apps/web, packages/ui, and visual tests. Use for UI
+  diagnosis and polish; skip backend-only and contributor-documentation work.
 ---
 
 # Keel UI quality
 
-Apply Keel's product language deliberately and leave current-run visual
-evidence. Treat the repository contract as the authority; use this skill as its
-execution workflow.
+The [product contract](../../../docs/product/ui-and-copy.md) owns Keel's visual
+language, copy rules, and acceptance criteria. Use this skill to select the work
+and evidence the requested task needs.
 
-## Load the contract
+## Match the scope
 
-1. Read `AGENTS.md` and `docs/product/ui-and-copy.md` completely before editing.
-2. Inspect the current Git state and preserve unrelated user changes.
-3. Inspect the affected screen in the running app at desktop and mobile sizes.
-   If it is not running, use the repository's documented development workflow to
-   start it.
-4. Choose the closest Keel reference: use Holdings for information-dense
-   layouts, Scenarios for interactive controls, or the closest established
-   screen for another pattern.
+- **Mechanical copy correction:** read the affected source and relevant copy
+  rules. Use focused checks; app startup, reference-screen comparison, and new
+  visual coverage are not automatic requirements. If an existing screenshot
+  changes, follow the baseline procedure below for the affected cases.
+- **Diagnosis or review:** inspect the relevant contract sections and current
+  screen or screenshot evidence needed to assess the issue. Report findings;
+  implementation and its completion checks apply when changes are authorized.
+- **Material interface change:** read the product contract and satisfy its
+  definition of done. This includes meaningful copy, appearance, responsive,
+  accessibility, interaction, and transient-state changes. Inspect the running
+  screen and its closest Keel reference before coding. Use the repository's
+  documented development workflow when startup is needed.
 
-Treat a change as material when it affects page or section hierarchy, visible
-product copy beyond a typo, spacing, typography, color, borders, badges,
-responsive behavior, interaction, or a loading, empty, success, or error state.
+For material changes or screenshot-baseline updates, read
+[visual-verification.md](references/visual-verification.md). It owns screenshot
+commands, supported-platform baselines, artifact handling, and visual replay.
 
-## Frame the change
+## Follow the affected boundary
 
-Before coding, identify:
+- When changing collection loading, request behavior, or a read model, trace the
+  initial request and apply the root `AGENTS.md` read-path requirements. Initial
+  content must not wait for sync, reconciliation, backfill, provider, or
+  object-storage work; rendered collections must keep the DOM bounded. A
+  copy-only correction does not itself require a backend scale investigation.
+- For source-update or review disclosures, read the
+  [source-update policy](../../../docs/architecture/source-update-policy.md).
+  Describe the applicable automatic decision or human-review exception without
+  changing acceptance policy as part of a copy edit.
 
-- the screen's primary action or decision;
-- the essential trust boundary, if any;
-- the hierarchy that should remain after secondary copy is removed;
-- every line, box, badge, or label that must justify its presence.
-
-For a data-backed collection screen, trace the complete initial request before
-changing the UI. Use at least 120 deterministic synthetic items unless the
-domain has a smaller documented maximum. Initial content must not wait for sync,
-reconciliation, backfill, provider, or object-storage work, and the rendered DOM
-must remain bounded.
-
-Do not invent a new visual language when an existing Keel pattern solves the
-problem.
-
-## Implement
-
-- Prefer whitespace, spacing, and type hierarchy to containers and dividers.
-- Keep one primary action per section whenever possible.
-- Keep only copy that helps the user act, decide, orient, or understand an
-  essential trust or safety boundary.
-- Remove repeated explanations and internal implementation terms. Rewrite
-  necessary concepts in concise product language.
-- Make labels and apparent affordances match implemented behavior.
-- Preserve concise synthetic-data and review-before-change disclosures.
-- Keep desktop and mobile layouts intentional; do not merely allow the desktop
-  layout to wrap.
-- Preserve Keel's financial correctness and external-evidence boundaries from
-  `AGENTS.md`.
-
-## Verify visually and functionally
-
-1. Run the narrowest relevant lint, type, unit, and browser checks while
-   iterating.
-2. For a data-backed collection, run its backend scale regression. Assert a
-   row-count-independent query or D1 round-trip budget and indexed query plans;
-   client pagination or progressive rendering is not a substitute.
-3. For every material change, ensure a deterministic Playwright screenshot
-   covers the affected screen on both configured desktop and mobile projects.
-   Add coverage when none exists.
-4. Keep visual fixtures inside browser tests. Use fixed synthetic values and
-   retain separate functional coverage for real application behavior.
-5. Update snapshots only after confirming the rendered change is intentional:
-
-   `pnpm exec playwright test e2e/<visual-spec> --update-snapshots=all`
-
-6. Inspect every generated PNG with the image-viewing tool. Check hierarchy,
-   spacing, copy density, borders, badges, contrast, clipping, sticky
-   navigation, transient states, and horizontal overflow.
-7. Keep one expected baseline per covered state, project, and supported
-   platform. Snapshot updates must overwrite those canonical files rather than
-   create dated copies.
-8. Commit only expected baselines. Never commit `test-results/`, actual or diff
-   images, traces, Playwright reports, or downloaded CI artifacts. Delete
-   obsolete baselines when their test, state, project, or platform is removed.
-9. Rerun the visual spec without snapshot-update mode.
-10. Run `make verify` before handoff. Keep browser tests serialized when they
-    share the seeded local D1 state.
-
-Never update a baseline merely to make a test green. Fix unintended rendering or
-interaction first.
-
-## Handoff gate
-
-Do not call a material UI task complete unless all of these are true:
-
-- the before-and-after comparison used an explicit Keel reference screen;
-- desktop and mobile screenshots were generated and inspected in the current
-  run;
-- the border-and-badge and copy-reduction passes were completed;
-- the primary action and trust boundary remain clear;
-- the relevant visual test passes without updating snapshots;
-- `make verify` passes, or the exact pre-existing blocker is reported with
-  evidence.
-
-In the handoff, lead with the user-visible outcome and report the reference
-screen, inspected screenshots, and verification result. Never expose real
-financial or personal data in code, fixtures, screenshots, or logs.
+Use focused checks while iterating. Material UI changes require `make verify`
+before handoff; runtime or migration publication follows the root gate. Report
+the outcome and evidence actually obtained, with any exact pre-existing blocker
+or unverified boundary. A blocked check is not a passing result.
