@@ -214,6 +214,29 @@ accepting that inventory update. API/web deployment, reloaded browser tabs and
 upgraded document agents are separate activation steps; local tests do not
 establish live backlog completion.
 
+## Browser page recovery
+
+Module-load or render failures expose recovery as soon as the failure is known.
+The owning browser tab does not reload automatically: only an explicit "Reload
+Keel" action starts a fresh navigation through the existing startup and
+authentication paths. Delayed portfolio failures leave the rest of the screen
+and navigation available. The document also carries a recovery link before
+JavaScript starts.
+
+This adds no recurring producer, timer, sign-in probe, API call, or database
+write. Across all deployments and agents, the added idle-day, failure-day and
+useful-work-day background cost is zero; the existing combined allowance and
+useful-work reserve are unchanged. Each deliberate reload performs the ordinary
+page load, without automatic retry fanout. No agent restart is needed; existing
+tabs must reload once to receive the new browser code.
+
+`e2e/app-recovery.visual.spec.ts` drives the real browser startup path against
+synthetic local D1. A virtual failure day with hourly focus, visibility and
+page-show events permits one failed module attempt and zero subsequent API
+requests until a deliberate reload. Failed and successful manual reloads retain
+the route; login HTML and render exceptions cannot erase the recovery action.
+The same recovery assertion fails on the former unguarded app.
+
 ## Activation and observation
 
 Deploy the tested API and update all existing long-running clients before

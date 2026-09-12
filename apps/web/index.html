@@ -9,9 +9,20 @@
     />
     <meta name="robots" content="noindex, nofollow" />
     <title>Keel · Private Alpha</title>
+    <link rel="stylesheet" href="/src/startup.css" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="startup-shell">
+        <div class="startup-brand">Keel</div>
+        <div class="startup-message" role="status">
+          <h1>Opening Keel</h1>
+          <p>Reload this page if it doesn’t open.</p>
+          <a class="startup-reload" href="">Reload Keel</a>
+          <noscript><p>Enable JavaScript to use Keel.</p></noscript>
+        </div>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
