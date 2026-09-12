@@ -2568,6 +2568,9 @@ export const holdingPositionEconomicsProposals = sqliteTable(
     supersedesProposalId: text("supersedes_proposal_id"),
     commitmentMinor: integer("commitment_minor").notNull(),
     fundedMinor: integer("funded_minor").notNull(),
+    capitalBasis: text("capital_basis").notNull().default("gross_commitment"),
+    grossCommitmentMinor: integer("gross_commitment_minor"),
+    setupFeePpm: integer("setup_fee_ppm"),
     annualAdminFeePpm: integer("annual_admin_fee_ppm").notNull(),
     adminFeeYears: integer("admin_fee_years").notNull(),
     carryPpm: integer("carry_ppm").notNull(),
@@ -2601,7 +2604,11 @@ export const holdingPositionEconomicsProposals = sqliteTable(
     ),
     check(
       "holding_position_economics_proposals_fee_check",
-      sql`${table.annualAdminFeePpm} BETWEEN 0 AND 1000000 AND ${table.adminFeeYears} BETWEEN 1 AND 100 AND ${table.annualAdminFeePpm} * ${table.adminFeeYears} <= 1000000`,
+      sql`${table.annualAdminFeePpm} BETWEEN 0 AND 1000000 AND ${table.adminFeeYears} BETWEEN 1 AND 100 AND (${table.setupFeePpm} IS NULL OR (typeof(${table.setupFeePpm}) = 'integer' AND ${table.setupFeePpm} BETWEEN 0 AND 1000000)) AND ${table.annualAdminFeePpm} * ${table.adminFeeYears} + COALESCE(${table.setupFeePpm}, 0) <= 1000000`,
+    ),
+    check(
+      "holding_position_economics_proposals_capital_check",
+      sql`(${table.capitalBasis} = 'gross_commitment' AND ${table.grossCommitmentMinor} IS NULL) OR (${table.capitalBasis} = 'net_invested' AND typeof(${table.grossCommitmentMinor}) = 'integer' AND ${table.grossCommitmentMinor} BETWEEN 1 AND 9007199254740991 AND ${table.setupFeePpm} IS NOT NULL)`,
     ),
     check(
       "holding_position_economics_proposals_carry_check",

@@ -1,5 +1,6 @@
 import { type Holding } from "@keel/domain";
 import {
+  AcceptPositionEconomicsInputSchema,
   calculatePositionEconomics,
   type PositionEconomicsContext,
 } from "@keel/domain/position-economics";
@@ -12,10 +13,24 @@ import {
   Notice,
   Stat,
   StatGroup,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@keel/ui";
 import { useId, useState } from "react";
 import { acceptPositionEconomics } from "./api";
-import { formatCompactMoney, formatProbability } from "./format";
+import {
+  currencyFractionDigits,
+  formatCompactCurrency,
+  formatProbability,
+} from "./format";
+
+const capitalBasisChoices = [
+  { value: "gross_commitment", label: "Before fees · gross commitment" },
+  { value: "net_invested", label: "Already net of fees · invested capital" },
+];
 
 function percentageInputValue(valuePpm: number): string {
   const whole = BigInt(valuePpm) / 10_000n;
@@ -37,6 +52,33 @@ function parsePercentageInput(value: string): number | null {
 
 function percentageInputValueOrBlank(value: number | null): string {
   return value === null ? "" : percentageInputValue(value);
+}
+
+function moneyInputValue(
+  value: number | null | undefined,
+  currency: string,
+): string {
+  if (value == null) return "";
+  const amount = BigInt(value);
+  const digits = currencyFractionDigits(currency);
+  const unit = 10n ** BigInt(digits);
+  return digits === 0
+    ? amount.toString()
+    : `${amount / unit}.${(amount % unit).toString().padStart(digits, "0")}`;
+}
+
+function parseMoneyInput(value: string, currency: string): number | null {
+  const normalized = value.trim().replaceAll(",", "");
+  if (!/^\d+(?:\.\d*)?$/u.test(normalized)) return null;
+  const [whole = "0", decimal = ""] = normalized.split(".");
+  const digits = currencyFractionDigits(currency);
+  if (decimal.length > digits) return null;
+  const minor =
+    BigInt(whole) * 10n ** BigInt(digits) +
+    BigInt(decimal.padEnd(digits, "0") || "0");
+  return minor > 0n && minor <= BigInt(Number.MAX_SAFE_INTEGER)
+    ? Number(minor)
+    : null;
 }
 
 export function PositionEconomicsEditor({
@@ -104,6 +146,15 @@ export function PositionEconomicsEditor({
   const [carry, setCarry] = useState(
     percentageInputValueOrBlank(initialCarryPpm),
   );
+  const [capitalBasis, setCapitalBasis] = useState(
+    terms === null ? "" : (terms.capitalBasis ?? "gross_commitment"),
+  );
+  const [grossCommitment, setGrossCommitment] = useState(
+    moneyInputValue(terms?.grossCommitmentMinor, context?.currency ?? "USD"),
+  );
+  const [setupFee, setSetupFee] = useState(
+    percentageInputValueOrBlank(terms?.setupFeePpm ?? null),
+  );
   const [note, setNote] = useState(terms?.note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,71 +163,92 @@ export function PositionEconomicsEditor({
     return null;
   }
 
+  const money = (minor: number) =>
+    formatCompactCurrency(minor, context.currency).replace(/^USD /u, "$");
   const annualAdminFeePpm = parsePercentageInput(annualFee);
+  const setupFeePpm = parsePercentageInput(setupFee);
   const adminFeeYears = /^\d+$/u.test(feeYears.trim())
     ? Number(feeYears)
     : null;
   const carryPpm = parsePercentageInput(carry);
+  const parsedInput = AcceptPositionEconomicsInputSchema.safeParse({
+    expectedSnapshotId: context.snapshotId,
+    expectedTermsId: terms?.id ?? null,
+    capitalBasis,
+    grossCommitmentMinor:
+      capitalBasis === "net_invested"
+        ? parseMoneyInput(grossCommitment, context.currency)
+        : null,
+    setupFeePpm,
+    annualAdminFeePpm,
+    adminFeeYears,
+    carryPpm,
+    note: note.trim(),
+  });
   const validYears =
     adminFeeYears !== null &&
     Number.isSafeInteger(adminFeeYears) &&
     adminFeeYears >= 1 &&
     adminFeeYears <= 100;
-  const validTotalFee =
+  const excessiveFee =
     annualAdminFeePpm !== null &&
+    setupFeePpm !== null &&
     validYears &&
-    BigInt(annualAdminFeePpm) * BigInt(adminFeeYears) <= 1_000_000n;
-  const canReview =
-    validTotalFee && carryPpm !== null && note.trim().length >= 3;
-  const draftContext: PositionEconomicsContext | null = canReview
+    BigInt(annualAdminFeePpm) * BigInt(adminFeeYears) + BigInt(setupFeePpm) >
+      1_000_000n;
+  const draftContext: PositionEconomicsContext | null = parsedInput.success
     ? {
         ...context,
         acceptedTerms: {
+          ...parsedInput.data,
           id: terms?.id ?? "draft-position-economics",
           positionId: holding.id,
           acceptedAgainstSnapshotId: context.snapshotId,
           commitmentMinorAtAcceptance: context.committedMinor,
           fundedMinorAtAcceptance: context.fundedMinor,
-          annualAdminFeePpm,
-          adminFeeYears,
-          carryPpm,
-          note: note.trim(),
           acceptedAt: terms?.acceptedAt ?? new Date().toISOString(),
         },
       }
     : null;
   const draftEconomics =
     draftContext === null ? null : calculatePositionEconomics(draftContext);
+  const capitalMismatch = parsedInput.success && draftEconomics === null;
+  const changed =
+    terms === null ||
+    termsNeedReview ||
+    capitalBasis !== (terms.capitalBasis ?? "gross_commitment") ||
+    (capitalBasis === "net_invested"
+      ? parseMoneyInput(grossCommitment, context.currency)
+      : null) !== (terms.grossCommitmentMinor ?? null) ||
+    setupFeePpm !== (terms.setupFeePpm ?? null) ||
+    annualAdminFeePpm !== terms.annualAdminFeePpm ||
+    adminFeeYears !== terms.adminFeeYears ||
+    carryPpm !== terms.carryPpm ||
+    note.trim() !== terms.note;
+  const canReview = draftEconomics !== null && changed;
   const reset = () => {
     setOpen(false);
     setReviewing(false);
     setAnnualFee(percentageInputValueOrBlank(initialAnnualFeePpm));
     setFeeYears(initialFeeYears?.toString() ?? "");
     setCarry(percentageInputValueOrBlank(initialCarryPpm));
+    setCapitalBasis(
+      terms === null ? "" : (terms.capitalBasis ?? "gross_commitment"),
+    );
+    setGrossCommitment(
+      moneyInputValue(terms?.grossCommitmentMinor, context?.currency ?? "USD"),
+    );
+    setSetupFee(percentageInputValueOrBlank(terms?.setupFeePpm ?? null));
     setNote(terms?.note ?? "");
     setError(null);
   };
 
   const accept = async () => {
-    if (
-      !canReview ||
-      annualAdminFeePpm === null ||
-      adminFeeYears === null ||
-      carryPpm === null
-    ) {
-      return;
-    }
+    if (!canReview || !parsedInput.success) return;
     setBusy(true);
     setError(null);
     try {
-      await acceptPositionEconomics(holding.id, {
-        expectedSnapshotId: context.snapshotId,
-        expectedTermsId: terms?.id ?? null,
-        annualAdminFeePpm,
-        adminFeeYears,
-        carryPpm,
-        note: note.trim(),
-      });
+      await acceptPositionEconomics(holding.id, parsedInput.data);
       await onAccepted();
       reset();
     } catch (caught: unknown) {
@@ -197,11 +269,12 @@ export function PositionEconomicsEditor({
         <div>
           <p className="eyebrow">Investment terms</p>
           <h3 id={headingId}>SPV economics</h3>
-          <p>Commitment and funded capital come from the reviewed source.</p>
+          <p>Review how fees relate to the imported investment amount.</p>
         </div>
         {!open && (
           <Button
             onClick={() => {
+              reset();
               setOpen(true);
             }}
             tone="secondary"
@@ -219,14 +292,37 @@ export function PositionEconomicsEditor({
 
       <StatGroup className="position-economics__values">
         <Stat
-          detail={`Accepted from ${holding.sourceLabel}.`}
-          label="Commitment"
-          value={formatCompactMoney(context.committedMinor)}
+          detail={
+            displayedEconomics !== null &&
+            terms?.capitalBasis === "net_invested"
+              ? `Imported net: ${money(context.committedMinor)} from ${holding.sourceLabel}.`
+              : `Accepted from ${holding.sourceLabel}.`
+          }
+          label={
+            displayedEconomics === null
+              ? "Imported amount"
+              : terms?.capitalBasis === "net_invested"
+                ? "Gross commitment"
+                : "Commitment"
+          }
+          value={money(
+            displayedEconomics?.committedMinor ?? context.committedMinor,
+          )}
         />
         <Stat
-          detail="Capital paid into the SPV so far."
-          label="Funded capital"
-          value={formatCompactMoney(context.fundedMinor)}
+          detail={
+            terms?.capitalBasis === "net_invested" &&
+            displayedEconomics !== null
+              ? "Reported after fees."
+              : "Amount reported by the source."
+          }
+          label={
+            terms?.capitalBasis === "net_invested" &&
+            displayedEconomics !== null
+              ? "Imported funded capital"
+              : "Funded capital"
+          }
+          value={money(context.fundedMinor)}
         />
         <Stat
           detail={
@@ -242,9 +338,9 @@ export function PositionEconomicsEditor({
                     : "Add the fee rate and term."
                   : termsNeedReview
                     ? "Commitment or funded capital changed after acceptance."
-                    : `${formatProbability(terms.annualAdminFeePpm)} for ${terms.adminFeeYears} years, paid upfront.`
+                    : `Management: ${money(displayedEconomics!.upfrontAdminFeeMinor)}. Setup: ${terms.setupFeePpm == null ? "not recorded" : money(displayedEconomics!.setupFeeMinor)}.`
           }
-          label="Upfront admin fee"
+          label="Upfront fees"
           value={
             displayedEconomics === null
               ? termsNeedReview
@@ -252,19 +348,24 @@ export function PositionEconomicsEditor({
                 : reportedManagementFeePpm === null
                   ? "Not set"
                   : "Not accepted"
-              : formatCompactMoney(displayedEconomics.upfrontAdminFeeMinor)
+              : money(
+                  Number(
+                    BigInt(displayedEconomics.upfrontAdminFeeMinor) +
+                      BigInt(displayedEconomics.setupFeeMinor),
+                  ),
+                )
           }
           valueClassName={displayedEconomics === null ? "is-not-set" : ""}
         />
         <Stat
-          detail="Commitment less upfront admin fee. Not tax basis."
-          label="Position cost basis"
+          detail="Gross commitment less fees. Not tax basis."
+          label="Net invested"
           value={
             displayedEconomics === null
               ? termsNeedReview
                 ? "Needs review"
                 : "Not set"
-              : formatCompactMoney(displayedEconomics.positionCostBasisMinor)
+              : money(displayedEconomics.positionCostBasisMinor)
           }
           valueClassName={displayedEconomics === null ? "is-not-set" : ""}
         />
@@ -316,9 +417,49 @@ export function PositionEconomicsEditor({
             </p>
           )}
           <div className="position-economics__fields">
-            <Field label="Admin fee rate" variant="filled">
+            <Field label="Imported amount" variant="filled" wide>
+              <Select
+                items={capitalBasisChoices}
+                onValueChange={(value) => {
+                  if (typeof value === "string") setCapitalBasis(value);
+                }}
+                value={capitalBasis || null}
+                required
+              >
+                <SelectTrigger aria-label="Imported amount">
+                  <SelectValue placeholder="Choose how the amount is reported" />
+                </SelectTrigger>
+                <SelectContent>
+                  {capitalBasisChoices.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            {capitalBasis === "net_invested" && (
+              <Field
+                label={`Gross commitment · ${context.currency}`}
+                description={`Before fees. The imported net amount is ${money(context.committedMinor)}.`}
+                variant="filled"
+                wide
+              >
+                <Input
+                  inputMode="decimal"
+                  aria-label={`Gross commitment · ${context.currency}`}
+                  value={grossCommitment}
+                  onChange={(event) =>
+                    setGrossCommitment(event.currentTarget.value)
+                  }
+                  required
+                />
+              </Field>
+            )}
+            <Field label="Management fee rate" variant="filled">
               <InputGroup suffix="%">
                 <Input
+                  aria-label="Management fee rate"
                   inputMode="decimal"
                   onChange={(event) => setAnnualFee(event.currentTarget.value)}
                   required
@@ -326,9 +467,14 @@ export function PositionEconomicsEditor({
                 />
               </InputGroup>
             </Field>
-            <Field label="Fee term" variant="filled">
+            <Field
+              label="Fee term"
+              description="Use 1 year for a one-time fee."
+              variant="filled"
+            >
               <InputGroup suffix="years">
                 <Input
+                  aria-label="Fee term"
                   inputMode="numeric"
                   max="100"
                   min="1"
@@ -338,9 +484,21 @@ export function PositionEconomicsEditor({
                 />
               </InputGroup>
             </Field>
+            <Field label="Setup fee" variant="filled">
+              <InputGroup suffix="%">
+                <Input
+                  aria-label="Setup fee"
+                  inputMode="decimal"
+                  value={setupFee}
+                  onChange={(event) => setSetupFee(event.currentTarget.value)}
+                  required
+                />
+              </InputGroup>
+            </Field>
             <Field label="Carry" variant="filled">
               <InputGroup suffix="%">
                 <Input
+                  aria-label="Carry"
                   inputMode="decimal"
                   onChange={(event) => setCarry(event.currentTarget.value)}
                   required
@@ -358,9 +516,15 @@ export function PositionEconomicsEditor({
               />
             </Field>
           </div>
-          {!validTotalFee && annualAdminFeePpm !== null && validYears && (
+          {excessiveFee && (
             <Notice tone="error">
-              The total upfront fee cannot exceed 100%.
+              Management and setup fees together cannot exceed 100%.
+            </Notice>
+          )}
+          {capitalMismatch && (
+            <Notice tone="error">
+              Gross commitment less management and setup fees must equal the
+              imported net amount of {money(context.committedMinor)}.
             </Notice>
           )}
           {error !== null && <Notice tone="error">{error}</Notice>}
@@ -382,23 +546,34 @@ export function PositionEconomicsEditor({
       {open && reviewing && draftEconomics !== null && (
         <div className="position-economics__review">
           <div>
-            <span>Upfront admin fee</span>
+            <span>Gross commitment</span>
+            <strong>{money(draftEconomics.committedMinor)}</strong>
+          </div>
+          <div>
+            <span>Upfront management fee</span>
             <strong>
               {formatProbability(draftEconomics.totalAdminFeePpm)} ·{" "}
-              {formatCompactMoney(draftEconomics.upfrontAdminFeeMinor)}
+              {money(draftEconomics.upfrontAdminFeeMinor)}
             </strong>
           </div>
           <div>
-            <span>Position cost basis</span>
+            <span>Setup fee</span>
             <strong>
-              {formatCompactMoney(context.committedMinor)} →{" "}
-              {formatCompactMoney(draftEconomics.positionCostBasisMinor)}
+              {formatProbability(draftEconomics.setupFeePpm)} ·{" "}
+              {money(draftEconomics.setupFeeMinor)}
             </strong>
+          </div>
+          <div>
+            <span>Net invested</span>
+            <strong>{money(draftEconomics.positionCostBasisMinor)}</strong>
           </div>
           <div>
             <span>Carry on exit gains</span>
             <strong>{formatProbability(draftEconomics.carryPpm)}</strong>
           </div>
+          {capitalBasis === "net_invested" && (
+            <p>Fees have already been deducted from the imported amount.</p>
+          )}
           <p>{note.trim()}</p>
           <small>
             Carry is recorded as a term now and applied only when a partial or

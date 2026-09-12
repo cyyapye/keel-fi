@@ -178,6 +178,14 @@ function financialValues(
     }
     const prefix = `${source.sourceDisplayName}: `;
     if (field === "commitment") {
+      if (
+        source.financials.capitalBasis === "net_invested" &&
+        source.financials.grossCommitmentMinor != null
+      ) {
+        return [
+          `${prefix}${exactMoney(source.financials.grossCommitmentMinor, source.financials.currency)} (reviewed gross; imported net ${source.financials.commitmentMinor === null ? NOT_RECORDED : exactMoney(source.financials.commitmentMinor, source.financials.currency)})`,
+        ];
+      }
       return [
         `${prefix}${
           source.financials.commitmentMinor === null
@@ -198,7 +206,7 @@ function financialValues(
                 source.financials.fundedMinor,
                 source.financials.currency,
               )
-        }`,
+        }${source.financials.capitalBasis === "net_invested" ? " (imported net of fees)" : ""}`,
       ];
     }
     const value = source.financials.currentValue;
@@ -300,7 +308,7 @@ function investmentExportFields(
   });
   const terms = sources.map(
     (source) =>
-      `${source.sourceDisplayName}: ${source.financials?.annualAdminFeePpm == null ? "Fee not reviewed" : `${share(source.financials.annualAdminFeePpm)} annual admin fee for ${source.financials.adminFeeYears} years`}; carry ${share(source.financials?.carryPpm ?? null)}`,
+      `${source.sourceDisplayName}: ${source.financials?.annualAdminFeePpm == null ? "Fee not reviewed" : `${share(source.financials.annualAdminFeePpm)} annual admin fee for ${source.financials.adminFeeYears} years`}${source.financials?.setupFeePpm == null ? "" : `; setup fee ${share(source.financials.setupFeePpm)}`}; carry ${share(source.financials?.carryPpm ?? null)}`,
   );
   return {
     underlying_company: company.join("; ") || NOT_RECORDED,

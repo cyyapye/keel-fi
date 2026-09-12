@@ -2541,7 +2541,7 @@ function PositionPerformanceSummary({ holding }: { holding: Holding }) {
   });
   const basisHelper = {
     provider: "Reported by the brokerage source.",
-    reviewed_spv_terms: "Commitment less the reviewed upfront admin fee.",
+    reviewed_spv_terms: "Gross commitment less reviewed upfront fees.",
     funded_amount_estimate: "Funded amount estimate; fee terms are not set.",
   }[performance.costBasisSource ?? "funded_amount_estimate"];
 

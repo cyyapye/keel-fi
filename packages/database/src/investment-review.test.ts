@@ -14,6 +14,9 @@ import {
 import { D1ProviderPortfolioAgentRepository } from "./provider-portfolio-agent";
 import { D1ProviderLegalDocumentRepository } from "./provider-legal-documents";
 import { D1InvestmentReviewRepository } from "./investment-review";
+import { D1PositionEconomicsRepository } from "./position-economics";
+import { D1HoldingsPageRepository } from "./holdings-page";
+import { calculatePositionEconomics } from "@keel/domain/position-economics";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1LegalEntityRepository } from "./legal-entities";
 import {
@@ -37,6 +40,109 @@ const base = (context: InvestmentReviewContext) => ({
   expectedEvidenceRevision: context.evidenceRevision,
   participationStatus:
     context.review?.participationStatus ?? context.defaultParticipationStatus,
+});
+
+it("reads reviewed net capital through detail and holdings without rewriting the import", async () => {
+  const original = await repository.getContext(subject, positionId);
+  const economics = new D1PositionEconomicsRepository(d1.asD1());
+  const request = {
+    expectedSnapshotId: original.snapshotId!,
+    expectedTermsId: null,
+    capitalBasis: "net_invested" as const,
+    grossCommitmentMinor: 1_250_000,
+    annualAdminFeePpm: 150_000,
+    adminFeeYears: 1,
+    setupFeePpm: 50_000,
+    carryPpm: 150_000,
+    note: "Synthetic net capital reconciled to the subscription.",
+  };
+  await expect(
+    economics.accept(subject, positionId, {
+      ...request,
+      grossCommitmentMinor: 1_250_001,
+    }),
+  ).rejects.toMatchObject({ code: "capital_mismatch" });
+  const first = await economics.accept(subject, positionId, request);
+  const second = await economics.accept(subject, positionId, {
+    ...request,
+    expectedTermsId: first.id,
+    carryPpm: 180_000,
+  });
+  await expect(
+    economics.accept(subject, positionId, {
+      ...request,
+      expectedTermsId: first.id,
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  const detail = await repository.getContext(subject, positionId);
+  expect(detail).toMatchObject({
+    snapshotId: original.snapshotId,
+    committedMinor: 1_000_000,
+    fundedMinor: 1_000_000,
+  });
+  expect(detail.economics?.acceptedTerms).toEqual(second);
+  expect(calculatePositionEconomics(detail.economics!)).toMatchObject({
+    committedMinor: 1_250_000,
+    upfrontAdminFeeMinor: 187_500,
+    setupFeeMinor: 62_500,
+    positionCostBasisMinor: 1_000_000,
+  });
+  const page = await new D1HoldingsPageRepository(d1.asD1()).getPage(
+    subject,
+    "configuration_required",
+  );
+  expect(
+    page.holdings.find((holding) => holding.id === positionId)
+      ?.positionEconomicsContext?.acceptedTerms,
+  ).toEqual(second);
+  const view = await new D1InvestmentPositionViewRepository(d1.asD1()).list(
+    subject,
+    now,
+  );
+  const inventory = await new D1LegalEntityRepository(d1.asD1()).getState(
+    subject,
+    view,
+  );
+  const rows = legalEntityExportRows(inventory, {
+    fields: ["legal_name", "fee_and_carry"],
+    includeNeedsReview: true,
+    includeHistorical: true,
+    includeOtherEntityTypes: true,
+  });
+  const exported = rows.find((row) =>
+    row.source_record.includes("Synthetic Growth 1"),
+  );
+  expect(exported?.commitment).toContain(
+    "USD 12500.00 (reviewed gross; imported net USD 10000.00)",
+  );
+  expect(exported?.funded).toContain("USD 10000.00 (imported net of fees)");
+  expect(exported?.fee_and_carry).toContain("setup fee 5%");
+  expect(
+    d1.sqlite
+      .prepare(
+        "SELECT COUNT(*) count FROM holding_position_economics_proposals WHERE position_id = ?",
+      )
+      .get(positionId),
+  ).toEqual({ count: 2 });
+  expect(() =>
+    d1.sqlite
+      .prepare(
+        "UPDATE holding_position_economics_proposals SET gross_commitment_minor = 1 WHERE id = ?",
+      )
+      .run(first.id),
+  ).toThrow(/immutable/u);
+  expect(() =>
+    d1.sqlite
+      .prepare(
+        `INSERT INTO holding_position_economics_proposals (
+    id, household_id, position_id, snapshot_id, supersedes_proposal_id, commitment_minor, funded_minor,
+    capital_basis, gross_commitment_minor, setup_fee_ppm, annual_admin_fee_ppm, admin_fee_years, carry_ppm, note, created_by, created_at, immutable
+  ) SELECT 'synthetic-invalid-capital', household_id, position_id, snapshot_id, id, commitment_minor, funded_minor,
+    capital_basis, gross_commitment_minor + 1, setup_fee_ppm, annual_admin_fee_ppm, admin_fee_years, carry_ppm, note, created_by, created_at, immutable
+    FROM holding_position_economics_proposals WHERE id = ?`,
+      )
+      .run(second.id),
+  ).toThrow(/net capital does not reconcile/u);
 });
 
 it("reads back successive document assignments without dropping the first decision", async () => {

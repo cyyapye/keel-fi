@@ -1,6 +1,7 @@
 import {
   AcceptPositionEconomicsInputSchema,
   PositionEconomicsTermsSchema,
+  calculatePositionEconomics,
   type AcceptPositionEconomicsInput,
   type PositionEconomicsTerms,
 } from "@keel/domain/position-economics";
@@ -16,6 +17,7 @@ type CurrentPositionEconomicsRow = {
   snapshot_id: string;
   invested_minor: number;
   allocation_minor: number;
+  currency: string;
 };
 
 type AcceptedPositionEconomicsRow = {
@@ -23,7 +25,7 @@ type AcceptedPositionEconomicsRow = {
 };
 
 export type PositionEconomicsErrorCode =
-  "not_found" | "not_spv" | "missing_commitment" | "stale";
+  "not_found" | "not_spv" | "missing_commitment" | "capital_mismatch" | "stale";
 
 export class PositionEconomicsError extends Error {
   public constructor(
@@ -96,6 +98,36 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
     const proposalId = crypto.randomUUID();
     const reviewId = crypto.randomUUID();
     const acceptedAt = new Date().toISOString();
+    const terms = PositionEconomicsTermsSchema.parse({
+      id: proposalId,
+      positionId,
+      acceptedAgainstSnapshotId: position.snapshot_id,
+      commitmentMinorAtAcceptance: position.allocation_minor,
+      fundedMinorAtAcceptance: position.invested_minor,
+      capitalBasis: input.capitalBasis ?? "gross_commitment",
+      grossCommitmentMinor: input.grossCommitmentMinor ?? null,
+      setupFeePpm: input.setupFeePpm ?? null,
+      annualAdminFeePpm: input.annualAdminFeePpm,
+      adminFeeYears: input.adminFeeYears,
+      carryPpm: input.carryPpm,
+      note: input.note,
+      acceptedAt,
+    });
+    if (
+      calculatePositionEconomics({
+        snapshotId: position.snapshot_id,
+        currency: position.currency,
+        committedMinor: position.allocation_minor,
+        fundedMinor: position.invested_minor,
+        reportedTerms: null,
+        acceptedTerms: terms,
+      }) === null
+    ) {
+      throw new PositionEconomicsError(
+        "capital_mismatch",
+        "Gross commitment less management and setup fees must equal the imported net amount.",
+      );
+    }
     try {
       await this.db.batch([
         this.db
@@ -103,9 +135,10 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
             `INSERT INTO holding_position_economics_proposals (
                id, household_id, position_id, snapshot_id,
                supersedes_proposal_id, commitment_minor, funded_minor,
+               capital_basis, gross_commitment_minor, setup_fee_ppm,
                annual_admin_fee_ppm, admin_fee_years, carry_ppm, note,
                created_by, created_at, immutable
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
           )
           .bind(
             proposalId,
@@ -115,6 +148,9 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
             currentTerms?.id ?? null,
             position.allocation_minor,
             position.invested_minor,
+            terms.capitalBasis,
+            terms.grossCommitmentMinor,
+            terms.setupFeePpm,
             input.annualAdminFeePpm,
             input.adminFeeYears,
             input.carryPpm,
@@ -151,18 +187,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
       throw error;
     }
 
-    return PositionEconomicsTermsSchema.parse({
-      id: proposalId,
-      positionId,
-      acceptedAgainstSnapshotId: position.snapshot_id,
-      commitmentMinorAtAcceptance: position.allocation_minor,
-      fundedMinorAtAcceptance: position.invested_minor,
-      annualAdminFeePpm: input.annualAdminFeePpm,
-      adminFeeYears: input.adminFeeYears,
-      carryPpm: input.carryPpm,
-      note: input.note,
-      acceptedAt,
-    });
+    return terms;
   }
 
   private async findIdentity(
@@ -197,6 +222,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
         `SELECT
            position.id AS position_id,
            position.position_kind,
+           position.currency,
            snapshot.id AS snapshot_id,
            snapshot.invested_minor,
            snapshot.allocation_minor
