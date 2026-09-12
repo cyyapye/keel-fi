@@ -177,6 +177,9 @@ function positionSourceSummary(
       currentValue: currentPositionValue(position),
     },
     currentDecisionId: null,
+    ...(position.automaticReview == null
+      ? {}
+      : { automaticReview: position.automaticReview }),
     ...(position.investmentReview == null
       ? {}
       : { investmentReview: position.investmentReview }),

@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./agreement-economics": "./src/agreement-economics.ts",
+    "./automatic-investment-review": "./src/automatic-investment-review.ts",
     "./exposure-read-model": "./src/exposure-read-model.ts",
     "./holdings-page": "./src/holdings-page.ts",
     "./investment-holdings-view": "./src/investment-holdings-view.ts",

@@ -64,12 +64,17 @@ export const PositionEconomicsTermsSchema = FeeTermsSchema.extend({
   fundedMinorAtAcceptance: NonNegativeMoneyMinorSchema,
   note: z.string().trim().min(3).max(500),
   acceptedAt: IsoTimestampSchema,
+  decisionSource: z.enum(["manual", "policy"]).optional(),
 }).superRefine(validateFeeTerms);
 
 export const ReportedPositionEconomicsTermsSchema = z
   .object({
     managementFeePpm: ProbabilityPpmSchema.nullable(),
     carryPpm: ProbabilityPpmSchema.nullable(),
+    adminFeeYears: z.number().int().min(1).max(100).nullable().optional(),
+    setupFeePpm: ProbabilityPpmSchema.nullable().optional(),
+    grossCommitmentMinor: PositiveMoneyMinorSchema.nullable().optional(),
+    netInvestedMinor: PositiveMoneyMinorSchema.nullable().optional(),
     sourceLabel: z.string().trim().min(1).max(1_000),
     observedAt: IsoTimestampSchema,
   })

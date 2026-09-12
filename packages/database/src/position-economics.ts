@@ -112,6 +112,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
       carryPpm: input.carryPpm,
       note: input.note,
       acceptedAt,
+      decisionSource: "manual",
     });
     if (
       calculatePositionEconomics({

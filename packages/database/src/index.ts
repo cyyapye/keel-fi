@@ -75,6 +75,8 @@ export * from "./position-value-adjustments";
 export * from "./position-economics";
 export * from "./legal-entities";
 export * from "./investment-review";
+export * from "./automatic-investment-review";
+import { D1AutomaticInvestmentReviewRepository } from "./automatic-investment-review";
 
 type DashboardRow = {
   as_of_date: string;
@@ -186,6 +188,7 @@ type HoldingRow = {
   economics_carry_ppm: number | null;
   economics_note: string | null;
   economics_accepted_at: string | null;
+  economics_decision_source: string | null;
   reported_management_fee_ppm: number | null;
   reported_carry_ppm: number | null;
 };
@@ -745,6 +748,7 @@ export class D1AlphaRepository implements AlphaRepository {
                  NULL AS economics_carry_ppm,
                  NULL AS economics_note,
                  NULL AS economics_accepted_at,
+                 NULL AS economics_decision_source,
                  NULL AS reported_management_fee_ppm,
                  NULL AS reported_carry_ppm
                FROM asset_lots lot
@@ -890,6 +894,7 @@ export class D1AlphaRepository implements AlphaRepository {
                  economics.carry_ppm AS economics_carry_ppm,
                  economics.note AS economics_note,
                  economics_review.decided_at AS economics_accepted_at,
+                 economics.decision_source AS economics_decision_source,
                  economics_evidence.management_fee_ppm
                    AS reported_management_fee_ppm,
                  economics_evidence.carry_ppm AS reported_carry_ppm
@@ -1229,6 +1234,7 @@ export class D1AlphaRepository implements AlphaRepository {
                         carryPpm: row.economics_carry_ppm,
                         note: row.economics_note,
                         acceptedAt: row.economics_accepted_at,
+                        decisionSource: row.economics_decision_source,
                       },
               },
         positionValueContext:
@@ -1387,6 +1393,10 @@ export class D1AlphaRepository implements AlphaRepository {
     const preview = await new D1HoldingImportRepository(
       this.db,
     ).autoAdjudicatePrivateHoldingImport(accessSubject, importId);
+    await new D1AutomaticInvestmentReviewRepository(this.db).resolveImport(
+      accessSubject,
+      importId,
+    );
     await refreshAcceptedPortfolioBaseline(
       new D1PortfolioBaselineRepository(this.db),
       accessSubject,
@@ -1407,11 +1417,14 @@ export class D1AlphaRepository implements AlphaRepository {
     importId: string,
     input: HoldingImportApplyInput,
   ): Promise<HoldingImportApplyResult> {
-    return new D1HoldingImportRepository(this.db).applyHoldingImport(
+    const result = await new D1HoldingImportRepository(
+      this.db,
+    ).applyHoldingImport(accessSubject, importId, input);
+    await new D1AutomaticInvestmentReviewRepository(this.db).resolveImport(
       accessSubject,
       importId,
-      input,
     );
+    return result;
   }
 
   public async saveGoal(

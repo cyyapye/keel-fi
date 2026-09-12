@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AutomaticInvestmentReviewSchema } from "./automatic-investment-review";
 import {
   InvestmentCompanyReceiptSchema,
   InvestmentReviewStateSchema,
@@ -117,6 +118,7 @@ export const InvestmentPositionRecordSchema = z.object({
     ReportedPositionEconomicsTermsSchema.nullable().optional(),
   investmentReview: InvestmentReviewStateSchema.nullable().optional(),
   companyReview: InvestmentCompanyReceiptSchema.nullable().optional(),
+  automaticReview: AutomaticInvestmentReviewSchema.nullable().optional(),
   priorValue: PriorPositionValueSchema.nullable().optional(),
 });
 

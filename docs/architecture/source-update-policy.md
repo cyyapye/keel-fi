@@ -32,6 +32,50 @@ fixed round-trip budget and an indexed latest-observation query plan. Opening
 Holdings can recover its bounded pending queue of at most 20 imports through
 separate authenticated POSTs, after the initial read has rendered.
 
+## Investment identity and terms
+
+`investment-review-auto-v1` completes clear investment reviews after source
+acceptance. It also recovers existing accepted positions through authenticated
+`POST /api/legal-entities/resolve`. Opening Legal entities renders its
+projection first, then starts this bounded operation. Neither read endpoint
+performs it.
+
+An exact, unambiguous legal vehicle name can establish a new entity. Matching
+names never merge existing entities. A company mapping requires a clean,
+strongly associated agreement citation; multiple mappings or conflicting
+companies remain exceptions. Provider participation status needs no extra
+confirmation. Ownership percentages and trust or tax conclusions are never
+inferred.
+
+Fee acceptance requires explicit management rate and prepaid term, setup rate,
+carry, currency, and gross capital evidence. All fees must reconcile to the
+source amount using integer money and ppm. Missing is not zero. A net import
+keeps its imported amount and records the evidenced gross amount separately;
+carry only applies to exit gains. Incomplete, conflicting, unsupported, blocked,
+or ambiguously associated evidence stays in the review queue. Clear fields are
+prefilled so the user supplies only the missing information.
+
+Each automatic decision records its policy, source revision, accepted sections,
+exceptions and supporting evidence. Manual identity, participation, company and
+fee decisions take precedence. A later source amount can require a new fee
+decision, but cannot silently replace a manual one. Every accepted record stays
+editable through the existing versioned review forms.
+
+The transaction checks the current source, review heads, entity version, mapping
+set, incoming document assignments and scan state before any acceptance. Racing
+manual edits win; duplicate recovery converges without new writes. The operation
+processes 120 positions per batch, with at most three transaction attempts for a
+stale race. Import recovery covers its existing 500-row maximum; page recovery
+stops after five batches or a 30-second client deadline, with an explicit
+continuation or retry. It performs no provider, PDF or object read and adds no
+polling loop.
+
+Migration `0059` must precede the API/web release. Extraction v6 adds explicit
+fee citations; older extraction versions remain valid evidence but do not gain
+invented fee terms. Existing agents need the verified revision and their normal
+bounded capture to obtain new citations. Tests do not establish that a live
+backlog has been recaptured or automatically accepted.
+
 ## Cash accounts
 
 `cash-balances-auto-v1` accepts a newer valid live balance for a previously

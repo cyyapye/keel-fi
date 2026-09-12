@@ -65,6 +65,7 @@ import {
 import {
   AgreementSecurityCheckError,
   applyLegalEntityExactBatch,
+  resolveInvestmentReviews,
   createLegalEntity,
   downloadLegalEntityDocument,
   downloadLegalEntityExport,
@@ -1015,6 +1016,7 @@ function CandidateRow({
   onOpen: () => void;
 }) {
   const kind = legalEntityReviewKind(candidate);
+  const exception = candidate.automaticReview?.issues[0];
   return (
     <article className="legal-entity-candidate">
       <div className="legal-entity-candidate__copy">
@@ -1039,19 +1041,25 @@ function CandidateRow({
         </div>
         <p>{sourceSummary(candidate)}</p>
         <p>
-          {kind === "conflict"
-            ? "Compare the agreements or separate different investments."
-            : kind === "structure"
-              ? "Confirm the named vehicle and its structure."
-              : kind === "document"
-                ? "Read the agreement and enter its exact legal name."
-                : kind === "found"
-                  ? `Legal name reported in ${candidate.legalEntityNameEvidence.sourceField}.`
-                  : "Open source options to see what is missing."}
+          {exception
+            ? exception.message
+            : kind === "conflict"
+              ? "Compare the agreements or separate different investments."
+              : kind === "structure"
+                ? "Confirm the named vehicle and its structure."
+                : kind === "document"
+                  ? "Read the agreement and enter its exact legal name."
+                  : kind === "found"
+                    ? `Legal name reported in ${candidate.legalEntityNameEvidence.sourceField}.`
+                    : "Open source options to see what is missing."}
         </p>
       </div>
       <Button tone="secondary" onClick={onOpen}>
-        {candidateAction(candidate)}
+        {exception?.section === "economics"
+          ? "Review terms"
+          : exception?.section === "company"
+            ? "Review company"
+            : candidateAction(candidate)}
       </Button>
     </article>
   );
@@ -1839,6 +1847,10 @@ export function LegalEntities({
   const [notice, setNotice] = useState<string | null>(null);
   const [batchWorking, setBatchWorking] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
+  const [automaticWorking, setAutomaticWorking] = useState(false);
+  const [automaticError, setAutomaticError] = useState<string | null>(null);
+  const [automaticCursor, setAutomaticCursor] = useState<string | null>(null);
+  const automaticAbort = useRef<AbortController | null>(null);
   const [location, setLocation] = useState(() =>
     entityReviewLocation(window.location.search),
   );
@@ -1888,7 +1900,13 @@ export function LegalEntities({
   const openSource = (source: LegalEntitySourceSummary) =>
     navigate(
       source.source,
-      legalEntityReviewKind(source) === "waiting" ? "documents" : "identity",
+      source.automaticReview?.issues[0]?.section === "economics" ||
+        source.automaticReview?.issues[0]?.section === "participation"
+        ? "investment"
+        : source.automaticReview?.issues[0]?.section === "documents" ||
+            legalEntityReviewKind(source) === "waiting"
+          ? "documents"
+          : "identity",
     );
 
   const refresh = useCallback(async () => {
@@ -1896,6 +1914,48 @@ export function LegalEntities({
     setInventory(next);
     setLoadError(null);
   }, []);
+
+  const resolveAutomatically = useCallback(
+    async (cursor: string | null = null) => {
+      if (automaticAbort.current !== null) return;
+      const controller = new AbortController();
+      automaticAbort.current = controller;
+      setAutomaticWorking(true);
+      setAutomaticError(null);
+      const timeout = window.setTimeout(() => controller.abort(), 30_000);
+      let changed = false;
+      try {
+        for (let batch = 0; batch < 5; batch++) {
+          const result = await resolveInvestmentReviews(
+            cursor,
+            controller.signal,
+          );
+          changed ||= result.changedCount > 0;
+          cursor = result.nextPositionId;
+          setAutomaticCursor(cursor);
+          if (cursor === null) break;
+        }
+        if (changed && !controller.signal.aborted) {
+          const next = await loadLegalEntities(controller.signal);
+          if (!controller.signal.aborted) setInventory(next);
+        }
+      } catch (error) {
+        if (automaticAbort.current === controller)
+          setAutomaticError(
+            error instanceof Error && !controller.signal.aborted
+              ? error.message
+              : "Automatic review paused. Your saved records are available.",
+          );
+      } finally {
+        window.clearTimeout(timeout);
+        if (automaticAbort.current === controller) {
+          automaticAbort.current = null;
+          setAutomaticWorking(false);
+        }
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1906,6 +1966,13 @@ export function LegalEntities({
           if (!cancelled) {
             setInventory(next);
             setLoadError(null);
+            if (
+              [
+                ...next.candidates,
+                ...next.entities.flatMap((entity) => entity.sources),
+              ].some((source) => source.source.kind === "holding_position")
+            )
+              void resolveAutomatically();
           }
         })
         .catch((caught) => {
@@ -1927,8 +1994,10 @@ export function LegalEntities({
       window.clearTimeout(timer);
       cancelled = true;
       controller.abort();
+      automaticAbort.current?.abort();
+      automaticAbort.current = null;
     };
-  }, []);
+  }, [resolveAutomatically]);
 
   const activeEntities = useMemo(
     () =>
@@ -1938,7 +2007,19 @@ export function LegalEntities({
     [inventory],
   );
   const candidates = useMemo(
-    () => [...(inventory?.candidates ?? [])].sort(compareLegalEntityAttention),
+    () =>
+      [
+        ...new Map(
+          [
+            ...(inventory?.candidates ?? []),
+            ...(inventory?.entities.flatMap((entity) =>
+              entity.sources.filter(
+                (source) => (source.automaticReview?.issues.length ?? 0) > 0,
+              ),
+            ) ?? []),
+          ].map((source) => [candidateKey(source), source]),
+        ).values(),
+      ].sort(compareLegalEntityAttention),
     [inventory],
   );
   const historicalEntities = useMemo(
@@ -1951,6 +2032,7 @@ export function LegalEntities({
 
   const saved = async () => {
     await refresh();
+    await resolveAutomatically();
     setNotice(null);
   };
 
@@ -2047,6 +2129,31 @@ export function LegalEntities({
       )}
       <div hidden={location.target !== null} className="legal-entities">
         <ExportWorkspace inventory={inventory} />
+        <p className="legal-entities__notice" role="status">
+          {automaticWorking
+            ? "Checking source details automatically…"
+            : "Matching source details are accepted automatically. You can edit any record."}
+        </p>
+        {automaticError !== null && (
+          <Notice tone="error">
+            {automaticError}{" "}
+            <TextLink
+              onClick={() => void resolveAutomatically(automaticCursor)}
+            >
+              Retry automatic review
+            </TextLink>
+          </Notice>
+        )}
+        {!automaticWorking &&
+          automaticError === null &&
+          automaticCursor !== null && (
+            <Button
+              tone="secondary"
+              onClick={() => void resolveAutomatically(automaticCursor)}
+            >
+              Continue automatic review
+            </Button>
+          )}
         {notice !== null && (
           <FormMessage className="legal-entities__notice" tone="success">
             {notice}
@@ -2059,10 +2166,10 @@ export function LegalEntities({
             className="legal-entities__candidates"
           >
             <SectionHeader
-              description="Review PDFs and structures first, then conflicting names and names found."
+              description="Only missing, conflicting, or unsupported details need your attention."
               eyebrow="Review queue"
               headingProps={{ id: "legal-entity-candidates-title" }}
-              title="Possible legal entities"
+              title="Needs your review"
             />
             {inventory.exactBatch.sourceCount > 0 && (
               <ExactBatchReview

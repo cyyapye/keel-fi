@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { PositionEconomicsContextSchema } from "./position-economics";
+import { AutomaticInvestmentReviewSchema } from "./automatic-investment-review";
 import { LegalNameDocumentReferenceSchema } from "./provider-legal-documents";
 
 const Id = z.string().min(1).max(500);
@@ -235,6 +236,7 @@ export const InvestmentCompanyReceiptSchema =
     mappingId: Id,
     recordedAt: z.iso.datetime({ offset: true }),
     sourceDocument: LegalNameDocumentReferenceSchema.nullable(),
+    decisionSource: z.enum(["review", "deterministic_policy"]).optional(),
   });
 
 export const InvestmentReviewContextSchema = z
@@ -248,6 +250,7 @@ export const InvestmentReviewContextSchema = z
     currency: z.string().regex(/^[A-Z]{3}$/u),
     economics: PositionEconomicsContextSchema.nullable(),
     review: InvestmentReviewStateSchema.nullable(),
+    automaticReview: AutomaticInvestmentReviewSchema.nullable().optional(),
     defaultParticipationStatus: InvestmentParticipationSchema,
     // This is a review projection, not a PDF download/parse batch. Each capture
     // still has its original six-document security and resource budget.

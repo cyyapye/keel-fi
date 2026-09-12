@@ -110,11 +110,30 @@ export function PositionEconomicsEditor({
   const reportedTermsDiffer = reportedFeeDiffers || reportedCarryDiffers;
   const prefillFromReportedTerms =
     reportedTerms !== null &&
-    (terms === null || termsNeedReview || reportedTermsDiffer);
+    (terms === null ||
+      (terms.decisionSource === "policy" &&
+        (termsNeedReview || reportedTermsDiffer)));
   const initialAnnualFeePpm = prefillFromReportedTerms
     ? (reportedManagementFeePpm ?? terms?.annualAdminFeePpm ?? null)
     : (terms?.annualAdminFeePpm ?? null);
-  const initialFeeYears = terms?.adminFeeYears ?? null;
+  const initialFeeYears =
+    terms?.adminFeeYears ?? reportedTerms?.adminFeeYears ?? null;
+  const initialCapitalBasis =
+    terms?.capitalBasis ??
+    (terms !== null
+      ? "gross_commitment"
+      : reportedTerms?.netInvestedMinor === context?.committedMinor &&
+          reportedTerms?.grossCommitmentMinor != null
+        ? "net_invested"
+        : reportedTerms?.grossCommitmentMinor === context?.committedMinor
+          ? "gross_commitment"
+          : "");
+  const initialGrossCommitment =
+    initialCapitalBasis === "net_invested"
+      ? (terms?.grossCommitmentMinor ?? reportedTerms?.grossCommitmentMinor)
+      : null;
+  const initialSetupFee =
+    terms?.setupFeePpm ?? reportedTerms?.setupFeePpm ?? null;
   const initialCarryPpm = prefillFromReportedTerms
     ? (reportedCarryPpm ?? terms?.carryPpm ?? null)
     : (terms?.carryPpm ?? null);
@@ -136,7 +155,10 @@ export function PositionEconomicsEditor({
     ? "Management fee is not included in this source. Confirm it against the deal documents before accepting."
     : !hasReportedCarryTerm
       ? "Carry is not included in this source. Confirm it against the deal documents before accepting."
-      : "Confirm the fee term against the deal documents before accepting.";
+      : reportedTerms?.adminFeeYears != null &&
+          reportedTerms.setupFeePpm == null
+        ? "Enter the missing setup fee, including zero if there is none."
+        : "Confirm the fee term against the deal documents before accepting.";
   const [open, setOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [annualFee, setAnnualFee] = useState(
@@ -146,14 +168,12 @@ export function PositionEconomicsEditor({
   const [carry, setCarry] = useState(
     percentageInputValueOrBlank(initialCarryPpm),
   );
-  const [capitalBasis, setCapitalBasis] = useState(
-    terms === null ? "" : (terms.capitalBasis ?? "gross_commitment"),
-  );
+  const [capitalBasis, setCapitalBasis] = useState(initialCapitalBasis);
   const [grossCommitment, setGrossCommitment] = useState(
-    moneyInputValue(terms?.grossCommitmentMinor, context?.currency ?? "USD"),
+    moneyInputValue(initialGrossCommitment, context?.currency ?? "USD"),
   );
   const [setupFee, setSetupFee] = useState(
-    percentageInputValueOrBlank(terms?.setupFeePpm ?? null),
+    percentageInputValueOrBlank(initialSetupFee),
   );
   const [note, setNote] = useState(terms?.note ?? "");
   const [busy, setBusy] = useState(false);
@@ -232,13 +252,11 @@ export function PositionEconomicsEditor({
     setAnnualFee(percentageInputValueOrBlank(initialAnnualFeePpm));
     setFeeYears(initialFeeYears?.toString() ?? "");
     setCarry(percentageInputValueOrBlank(initialCarryPpm));
-    setCapitalBasis(
-      terms === null ? "" : (terms.capitalBasis ?? "gross_commitment"),
-    );
+    setCapitalBasis(initialCapitalBasis);
     setGrossCommitment(
-      moneyInputValue(terms?.grossCommitmentMinor, context?.currency ?? "USD"),
+      moneyInputValue(initialGrossCommitment, context?.currency ?? "USD"),
     );
-    setSetupFee(percentageInputValueOrBlank(terms?.setupFeePpm ?? null));
+    setSetupFee(percentageInputValueOrBlank(initialSetupFee));
     setNote(terms?.note ?? "");
     setError(null);
   };
@@ -283,7 +301,8 @@ export function PositionEconomicsEditor({
               ? reportedTerms === null
                 ? "Add fee & carry"
                 : "Review fee & carry"
-              : termsNeedReview || reportedTermsDiffer
+              : termsNeedReview ||
+                  (terms.decisionSource === "policy" && reportedTermsDiffer)
                 ? "Review fee & carry"
                 : "Update fee & carry"}
           </Button>

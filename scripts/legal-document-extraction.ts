@@ -10,6 +10,10 @@ import {
   type LegalDocumentProblem,
 } from "../packages/domain/src/provider-legal-documents";
 import { PdfSandboxError, readPdfInSandbox } from "./pdf-sandbox";
+import {
+  agreementEconomicsLine,
+  MAX_ECONOMICS_CITATIONS,
+} from "../packages/domain/src/agreement-economics";
 
 const compact = (value: string) => value.replace(/\s+/gu, " ").trim();
 const entitySuffix =
@@ -47,6 +51,32 @@ export function extractLegalNameFromPages(
     LegalDocumentExtraction["companyCitations"]
   > = [];
   const titles: LegalDocumentCitation[] = [];
+  const economicsCitations = pages.flatMap((text, index) =>
+    text
+      .split(/\r?\n/u)
+      .flatMap((line) => agreementEconomicsLine(line, index + 1)),
+  );
+  if (economicsCitations.length > MAX_ECONOMICS_CITATIONS)
+    return failed("limit_reached", pages.length);
+  const economics = {
+    ...(economicsCitations.length === 0 ? {} : { economicsCitations }),
+    ...(pages.some(
+      (page) =>
+        /\b(?:hurdle rate|preferred return|catch[- ]up|tiered carry|tiered management fee)\b/iu.test(
+          page,
+        ) ||
+        page
+          .split(/\r?\n/u)
+          .some(
+            (line) =>
+              /\b(?:management fee|setup fee|carry|carried interest)\b.*\d.*%/iu.test(
+                line,
+              ) && agreementEconomicsLine(line, 1).length === 0,
+          ),
+    )
+      ? { economicsProblem: "nonstandard_terms" as const }
+      : {}),
+  };
   pages.forEach((text, index) => {
     const lines = text.split(/\r?\n/u);
     lines.forEach((line, lineIndex) => {
@@ -154,6 +184,7 @@ export function extractLegalNameFromPages(
     );
     return LegalDocumentExtractionSchema.parse({
       ...failed("other_structure", pages.length),
+      ...economics,
       companyCitations: companies,
       structure: {
         kind: "compartment",
@@ -200,6 +231,7 @@ export function extractLegalNameFromPages(
   if (citations.length === 0)
     return {
       ...failed("name_not_found", pages.length),
+      ...economics,
       companyCitations: companies,
     };
   // Preserve spelling, punctuation and case exactly. Even seemingly equivalent
@@ -217,6 +249,7 @@ export function extractLegalNameFromPages(
     problem: alternatives.length > 1 ? "conflicting" : null,
     citations: alternatives.length > 1 ? alternatives : citations.slice(0, 1),
     companyCitations: companies,
+    ...economics,
   });
 }
 

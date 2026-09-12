@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  AgreementEconomicsCitationSchema,
+  MAX_ECONOMICS_CITATIONS,
+} from "./agreement-economics";
 
 // These limits apply on both sides of the agent boundary. Documents are private
 // evidence, not authority to change a holding or accept a legal entity.
@@ -9,7 +13,7 @@ export const MAX_LEGAL_DOCUMENTS_PER_POSITION = 6;
 export const MAX_LEGAL_DOCUMENTS_PER_RUN = 24;
 export const MAX_LEGAL_DOCUMENT_RUN_BYTES = 64 * 1024 * 1024;
 export const MAX_LEGAL_DOCUMENT_POSITION_BYTES = 16 * 1024 * 1024;
-export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 5;
+export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 6;
 export const MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT = 8;
 export const LEGAL_DOCUMENT_RECHECK_MS = 7 * 24 * 60 * 60 * 1_000;
 export const LEGAL_DOCUMENT_SCANNER_VERSION = 2;
@@ -184,6 +188,7 @@ export const LegalDocumentExtractionSchema = z
       z.literal(2),
       z.literal(3),
       z.literal(4),
+      z.literal(5),
       z.literal(LEGAL_DOCUMENT_EXTRACTOR_VERSION),
     ]),
     pageCount: z.number().int().min(0).max(MAX_LEGAL_DOCUMENT_PAGES),
@@ -196,6 +201,11 @@ export const LegalDocumentExtractionSchema = z
       .array(UnderlyingCompanyCitationSchema)
       .max(8)
       .optional(),
+    economicsCitations: z
+      .array(AgreementEconomicsCitationSchema)
+      .max(MAX_ECONOMICS_CITATIONS)
+      .optional(),
+    economicsProblem: z.literal("nonstandard_terms").optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -211,6 +221,14 @@ export const LegalDocumentExtractionSchema = z
           : value.citations.length === 0;
     if (
       !validState ||
+      ((value.economicsCitations !== undefined ||
+        value.economicsProblem !== undefined) &&
+        (value.version < 6 ||
+          value.problem === "security_blocked" ||
+          value.problem === "scanner_unavailable" ||
+          value.economicsCitations?.some(
+            (citation) => citation.page > value.pageCount,
+          ))) ||
       ((value.companyCitations?.length ?? 0) > 0 &&
         (value.version < 5 ||
           value.problem === "security_blocked" ||
@@ -395,6 +413,11 @@ export const LegalNameDocumentReferenceSchema = z
       .array(UnderlyingCompanyCitationSchema)
       .max(8)
       .optional(),
+    economicsCitations: z
+      .array(AgreementEconomicsCitationSchema)
+      .max(MAX_ECONOMICS_CITATIONS)
+      .optional(),
+    economicsProblem: z.literal("nonstandard_terms").optional(),
     extractorVersion: z
       .number()
       .int()
@@ -413,6 +436,10 @@ export const LegalNameDocumentReferenceSchema = z
       document.scan === undefined || document.scan.sha256 === document.sha256,
     "The scan must describe this agreement's exact bytes.",
   );
+
+export type LegalNameDocumentReference = z.infer<
+  typeof LegalNameDocumentReferenceSchema
+>;
 
 export const LEGAL_DOCUMENT_SCAN_REASON_COPY: Record<
   LegalDocumentScanReason,

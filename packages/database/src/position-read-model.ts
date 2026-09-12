@@ -20,6 +20,7 @@ import {
 } from "@keel/domain/investment-review";
 import { LegalNameDocumentReferenceSchema } from "@keel/domain/provider-legal-documents";
 import { z } from "zod";
+import { AutomaticInvestmentReviewSchema } from "@keel/domain/automatic-investment-review";
 
 type HouseholdIdentity = {
   household_id: string;
@@ -89,6 +90,8 @@ type InvestmentPositionRow = {
   legal_name_evidence_json: string | null;
   investment_review_json?: string | null;
   company_review_json?: string | null;
+  automatic_review_json?: string | null;
+  economics_decision_source?: string | null;
   incoming_document_json?: string | null;
   adjustment_id: string | null;
   adjustment_supersedes_proposal_id: string | null;
@@ -191,6 +194,7 @@ function positionFromRow(
           carryPpm: row.economics_carry_ppm,
           note: row.economics_note,
           acceptedAt: row.economics_accepted_at,
+          decisionSource: row.economics_decision_source ?? undefined,
         });
   const reportedEconomicsTerms =
     row.reported_management_fee_ppm === null && row.reported_carry_ppm === null
@@ -204,6 +208,13 @@ function positionFromRow(
   return {
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
+    ...(row.automatic_review_json == null
+      ? {}
+      : {
+          automaticReview: AutomaticInvestmentReviewSchema.parse(
+            JSON.parse(row.automatic_review_json),
+          ),
+        }),
     ...(row.investment_review_json == null
       ? {}
       : {
@@ -486,7 +497,13 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              accepted_import.provider AS import_provider,
              legal_observation.evidence_json AS legal_name_evidence_json,
              investment_review.state_json AS investment_review_json,
-             company_review.receipt_json AS company_review_json,
+             COALESCE(company_review.receipt_json, json_extract(automatic.details_json, '$.company.receipt')) AS company_review_json,
+             CASE WHEN automatic.snapshot_id = snapshot.id
+               AND json_extract(automatic.result_guard_json, '$.observationId') IS legal_observation.id
+               AND json_extract(automatic.result_guard_json, '$.reviewId') IS investment_review.id
+               AND json_extract(automatic.result_guard_json, '$.companyReviewId') IS company_review.id
+               AND json_extract(automatic.result_guard_json, '$.termsId') IS economics.id
+               THEN automatic.summary_json ELSE NULL END automatic_review_json,
              (SELECT json_group_array(json(assignment.document_json)) FROM investment_document_assignments assignment
                WHERE assignment.household_id = position.household_id AND assignment.target_position_id = position.id) AS incoming_document_json,
              adjustment.id AS adjustment_id,
@@ -517,6 +534,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              economics.admin_fee_years AS economics_admin_fee_years,
              economics.carry_ppm AS economics_carry_ppm,
              economics.note AS economics_note,
+             economics.decision_source AS economics_decision_source,
              economics_review.decided_at AS economics_accepted_at,
              economics_evidence.management_fee_ppm
                AS reported_management_fee_ppm,
@@ -631,6 +649,9 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            LEFT JOIN holding_position_economics_reviews economics_review
              ON economics_review.proposal_id = economics.id
             AND economics_review.decision = 'accepted'
+           LEFT JOIN automatic_investment_reviews automatic ON automatic.id = (
+             SELECT id FROM automatic_investment_reviews WHERE household_id = position.household_id AND position_id = position.id ORDER BY version DESC LIMIT 1
+           )
            WHERE position.household_id = ?
              AND NOT EXISTS (
                SELECT 1

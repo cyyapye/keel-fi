@@ -46,16 +46,19 @@ to distinguish same-label investments. The Tokenfolio drawer/Deal Snapshot and
 Sydecar detail fallback must match the observed investment ID. Signed document
 URLs are still ephemeral and provider-allowlisted.
 
-Extraction v5 reads explicit underlying/target/portfolio company labels from
-agreements and linked investment memos. A deal label, manager, representative,
-comparable company, or an SPV name is not company-mapping authority. Company
-choices retain document ID, hash, page, quote, extraction version, observation
-time, provider, and association. A user confirmation is labelled separately.
-Disagreement remains reviewable; the extractor does not choose a winner.
+Extraction v5 introduced explicit underlying/target/portfolio company labels
+from agreements and linked investment memos. A deal label, manager,
+representative, comparable company, or an SPV name is not company-mapping
+authority. Company choices retain document ID, hash, page, quote, extraction
+version, observation time, provider, and association. A user confirmation is
+labelled separately. Disagreement remains reviewable; the extractor does not
+choose a winner.
 
 Company reviews replace the position's current exposure mapping through the
-existing versioned mapping history. A source update never silently overwrites
-that accepted decision. Existing mappings remain visible in the review form;
+existing versioned mapping history. A source update never silently overwrites a
+human decision. Exact cited matches can receive a recorded automatic policy
+decision; its company receipt is stored with that policy, without manufacturing
+a second human review. Existing mappings remain visible in the review form;
 earlier mappings are not retroactively presented as v5 document citations.
 
 Provider IDs are retained for association, not used to re-key existing accepted
@@ -77,11 +80,11 @@ recorded separately and never deducted from contributed or invested capital.
 Migration `0058` extends the existing append-only economics proposals. Original
 snapshot commitment and funded amounts remain source evidence; reviewed gross
 commitment is a separate term tied to that snapshot. A new source snapshot
-requires review before these terms apply again. Historical reviews retain their
-gross calculation, and a missing setup fee remains unrecorded. New UI reviews
-require the setup rate explicitly, including zero when there is no setup fee.
-Entity exports label reviewed gross commitment and imported net funding
-separately.
+requires a new recorded decision before these terms apply again. Historical
+reviews retain their gross calculation, and a missing setup fee remains
+unrecorded. New UI reviews require the setup rate explicitly, including zero
+when there is no setup fee. Entity exports label reviewed gross commitment and
+imported net funding separately.
 
 Money calculations use integer minor units and ppm. The combined fee is rounded
 half up once; any rounding remainder after the management fee belongs to setup,
@@ -93,6 +96,27 @@ or automatic rewrite of existing financial records. Domain, repository readback,
 API validation, desktop/mobile review, and the existing 120-position query
 budget cover this contract; these checks do not establish a production
 deployment.
+
+## Automatic review and remaining exceptions
+
+Migration `0059` and `investment-review-auto-v1` extend the review boundary to
+recorded deterministic decisions. Complete, consistent evidence resolves
+identity, company, participation, fees and document association automatically.
+The queue contains remaining exceptions, including exceptions on already linked
+entities. Its action opens the section needing attention. All records remain
+editable, and recovery preserves subsequent human corrections.
+
+Extraction v6 adds independently validated citations for gross/net capital,
+management rate and term, setup fee and carry. Quotes must reproduce exact
+integer values and an explicit supported basis. Missing fields, currency
+conflicts, conditional or tiered terms, unreadable documents and inconsistent
+citations cannot be accepted as complete economics. The form prefills the clear
+fields. No provider default supplies a missing setup fee or prepaid term.
+
+The source-update policy documents the transaction guards, bounded recovery, and
+client activation requirement. Existing v1-v5 document evidence remains
+readable; agents must run the new extractor during a normal capture before those
+documents can supply v6 fee citations.
 
 ## Read and write budgets
 

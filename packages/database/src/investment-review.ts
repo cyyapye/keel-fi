@@ -1,3 +1,4 @@
+import { automaticEconomics } from "@keel/domain/automatic-investment-review";
 import {
   CreateDocumentInvestmentInputSchema,
   InvestmentCompanyReceiptSchema,
@@ -47,6 +48,7 @@ type Position = {
   state_json: string | null;
   receipt_json: string | null;
   economics_json: string | null;
+  automatic_review_json: string | null;
   observation_id: string | null;
   reported_management_fee_ppm: number | null;
   reported_carry_ppm: number | null;
@@ -153,13 +155,19 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status,
       observation.evidence_json, observation.id observation_id, origin.source_json origin_json, review.state_json,
       reported_terms.management_fee_ppm reported_management_fee_ppm, reported_terms.carry_ppm reported_carry_ppm, s.observed_at,
-      company_review.receipt_json,
+      COALESCE(company_review.receipt_json, json_extract(automatic.details_json, '$.company.receipt')) receipt_json,
+      CASE WHEN automatic.snapshot_id = s.id
+        AND json_extract(automatic.result_guard_json, '$.observationId') IS observation.id
+        AND json_extract(automatic.result_guard_json, '$.reviewId') IS review.id
+        AND json_extract(automatic.result_guard_json, '$.companyReviewId') IS company_review.id
+        AND json_extract(automatic.result_guard_json, '$.termsId') IS terms.id
+        THEN automatic.summary_json ELSE NULL END automatic_review_json,
       CASE WHEN terms.id IS NULL THEN NULL ELSE json_object(
         'id', terms.id, 'positionId', p.id, 'acceptedAgainstSnapshotId', terms.snapshot_id,
         'commitmentMinorAtAcceptance', terms.commitment_minor, 'fundedMinorAtAcceptance', terms.funded_minor,
         'capitalBasis', terms.capital_basis, 'grossCommitmentMinor', terms.gross_commitment_minor, 'setupFeePpm', terms.setup_fee_ppm,
         'annualAdminFeePpm', terms.annual_admin_fee_ppm, 'adminFeeYears', terms.admin_fee_years,
-        'carryPpm', terms.carry_ppm, 'note', terms.note, 'acceptedAt', terms_review.decided_at
+        'carryPpm', terms.carry_ppm, 'note', terms.note, 'acceptedAt', terms_review.decided_at, 'decisionSource', terms.decision_source
       ) END economics_json
       FROM holding_positions p
       LEFT JOIN holding_import_applications a ON a.id = (SELECT candidate.id FROM holding_import_applications candidate JOIN holding_position_snapshots snapshot ON snapshot.id = candidate.snapshot_id WHERE candidate.position_id = p.id ORDER BY candidate.applied_at DESC, snapshot.observed_at DESC, candidate.id DESC LIMIT 1)
@@ -173,6 +181,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       LEFT JOIN document_investment_origins origin ON origin.position_id = p.id
       LEFT JOIN holding_investment_reviews review ON review.id = (SELECT id FROM holding_investment_reviews WHERE household_id = p.household_id AND position_id = p.id ORDER BY version DESC LIMIT 1)
       LEFT JOIN investment_company_reviews company_review ON company_review.id = (SELECT id FROM investment_company_reviews WHERE household_id = p.household_id AND position_id = p.id ORDER BY version DESC LIMIT 1)
+      LEFT JOIN automatic_investment_reviews automatic ON automatic.id = (SELECT id FROM automatic_investment_reviews WHERE household_id = p.household_id AND position_id = p.id ORDER BY version DESC LIMIT 1)
       LEFT JOIN holding_position_economics_proposals terms ON terms.id = (
         SELECT proposal.id FROM holding_position_economics_proposals proposal
         JOIN holding_position_economics_reviews accepted ON accepted.proposal_id = proposal.id AND accepted.decision = 'accepted'
@@ -308,6 +317,10 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     const context = InvestmentReviewContextSchema.parse({
       positionId,
       positionLabel: position.legal_vehicle_name,
+      automaticReview:
+        position.automatic_review_json === null
+          ? null
+          : (JSON.parse(position.automatic_review_json) as unknown),
       holderLabel: position.owner_label,
       snapshotId: position.snapshot_id,
       committedMinor: position.allocation_minor,
@@ -374,6 +387,22 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
             ),
       otherPositions: otherPositions.results,
     });
+    if (context.economics !== null) {
+      context.economics.reportedTerms = automaticEconomics(
+        context.economics,
+        documents.filter(
+          (doc) =>
+            !excluded.has(doc.id) &&
+            (doc.sourceInvestment?.association === "investment_page" ||
+              doc.sourceInvestment?.association === "document_investment_id" ||
+              review?.documentAssignments.some(
+                (assignment) =>
+                  assignment.documentId === doc.id &&
+                  assignment.relationship === "supports",
+              )),
+        ),
+      ).reported;
+    }
     return {
       position,
       context,

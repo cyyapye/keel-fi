@@ -1085,8 +1085,8 @@ export function InvestmentReview({
       setError(null);
       try {
         await action();
-        setContext(await loadInvestmentReview(positionId));
         await onSaved();
+        setContext(await loadInvestmentReview(positionId));
         return true;
       } catch (error) {
         setError(
@@ -1110,6 +1110,13 @@ export function InvestmentReview({
         );
   return (
     <section className="investment-review" aria-label="Investment review">
+      {context?.automaticReview && (
+        <p className="entity-review__next">
+          {context.automaticReview.issues.length === 0
+            ? "Source details accepted automatically. You can edit any section."
+            : "Matching source details are filled in. Review the remaining questions; you can edit any section."}
+        </p>
+      )}
       {error !== null && (
         <FormMessage tone="error">
           {error}{" "}
@@ -1161,8 +1168,8 @@ export function InvestmentReview({
                     positionEconomicsContext: context.economics,
                   }}
                   onAccepted={async () => {
-                    setContext(await loadInvestmentReview(positionId));
                     await onSaved();
+                    setContext(await loadInvestmentReview(positionId));
                   }}
                 />
               ) : (

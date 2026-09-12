@@ -66,6 +66,25 @@ admitted 81 sources, while the corrected transaction retains the 50-source cap.
 
 ## Gates
 
+Automatic investment recovery uses seven set-based reads and one transaction
+containing nine INSERT statements for ordinary evidence for a 120-position
+batch. An indexed position/exposure/version lookup also serves allocation
+integrity triggers. Without it, the unchanged 25,000-read acceptance gate
+measured 28,467 reads and failed because those triggers scanned unrelated
+mappings. The corrected full batch measured 11,066 reads and 4,454
+index-inclusive writes. Repeating unchanged evidence performs no writes. A
+second control with 120 historical mapping versions per position failed at
+66,369 reads. Looking up each mapping root in the existing partial index and
+seeking its latest version also closes that growth path in the commit guards,
+without another write index. Company citations are stored in the automatic
+decision, avoiding a duplicate human-review receipt. The dedicated cost case
+covers policy and mapping history, equal observation dates, an empty unrelated
+household, complete capture cost and a virtual day. GETs remain projections.
+Large citation arrays are split into bindings of at most 1,500,000 UTF-8 bytes
+within the same transaction, below the
+[D1 string limit](https://developers.cloudflare.com/d1/platform/limits/).
+Per-position evidence admission is also measured in bytes, not characters.
+
 - `scripts/d1-query-cost.test.ts` discovers SQL from production source, resolves
   conditional query variants, expands views and checks real workerd query plans.
   Unknown SQL construction fails the inventory. Explicit base-table scans and
