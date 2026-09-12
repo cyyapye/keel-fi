@@ -6,18 +6,65 @@ const NonNegativeMoneyMinorSchema = z.number().int().safe().nonnegative();
 const PositiveMoneyMinorSchema = z.number().int().safe().positive();
 const ProbabilityPpmSchema = z.number().int().min(0).max(1_000_000);
 
-export const PositionEconomicsTermsSchema = z.object({
+const FeeTermsSchema = z.object({
+  // Missing fields describe reviews made before net capital and setup fees
+  // were supported. New reviews explicitly supply all three fields.
+  capitalBasis: z.enum(["gross_commitment", "net_invested"]).optional(),
+  grossCommitmentMinor: PositiveMoneyMinorSchema.nullable().optional(),
+  setupFeePpm: ProbabilityPpmSchema.nullable().optional(),
+  annualAdminFeePpm: ProbabilityPpmSchema,
+  adminFeeYears: z.number().int().min(1).max(100),
+  carryPpm: ProbabilityPpmSchema,
+});
+
+function validateFeeTerms(
+  input: z.infer<typeof FeeTermsSchema>,
+  context: z.RefinementCtx,
+) {
+  if (
+    BigInt(input.annualAdminFeePpm) * BigInt(input.adminFeeYears) +
+      BigInt(input.setupFeePpm ?? 0) >
+    PARTS_PER_MILLION
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Management and setup fees together cannot exceed 100%.",
+      path: ["setupFeePpm"],
+    });
+  }
+  if (input.capitalBasis === "net_invested") {
+    if (input.setupFeePpm == null) {
+      context.addIssue({
+        code: "custom",
+        message: "Enter the setup fee, including zero if there is none.",
+        path: ["setupFeePpm"],
+      });
+    }
+    if (input.grossCommitmentMinor == null) {
+      context.addIssue({
+        code: "custom",
+        message: "Enter the gross commitment before fees.",
+        path: ["grossCommitmentMinor"],
+      });
+    }
+  } else if (input.grossCommitmentMinor != null) {
+    context.addIssue({
+      code: "custom",
+      message: "Gross imports already supply the commitment.",
+      path: ["grossCommitmentMinor"],
+    });
+  }
+}
+
+export const PositionEconomicsTermsSchema = FeeTermsSchema.extend({
   id: z.string().min(1),
   positionId: z.string().min(1),
   acceptedAgainstSnapshotId: z.string().min(1),
   commitmentMinorAtAcceptance: PositiveMoneyMinorSchema,
   fundedMinorAtAcceptance: NonNegativeMoneyMinorSchema,
-  annualAdminFeePpm: ProbabilityPpmSchema,
-  adminFeeYears: z.number().int().min(1).max(100),
-  carryPpm: ProbabilityPpmSchema,
   note: z.string().trim().min(3).max(500),
   acceptedAt: IsoTimestampSchema,
-});
+}).superRefine(validateFeeTerms);
 
 export const ReportedPositionEconomicsTermsSchema = z
   .object({
@@ -46,35 +93,23 @@ export const PositionEconomicsContextSchema = z.object({
   reportedTerms: ReportedPositionEconomicsTermsSchema.nullable().default(null),
 });
 
-export const AcceptPositionEconomicsInputSchema = z
-  .object({
-    expectedSnapshotId: z.string().min(1),
-    expectedTermsId: z.string().min(1).nullable(),
-    annualAdminFeePpm: ProbabilityPpmSchema,
-    adminFeeYears: z.number().int().min(1).max(100),
-    carryPpm: ProbabilityPpmSchema,
-    note: z.string().trim().min(3).max(500),
-  })
+export const AcceptPositionEconomicsInputSchema = FeeTermsSchema.extend({
+  setupFeePpm: ProbabilityPpmSchema.optional(),
+  expectedSnapshotId: z.string().min(1),
+  expectedTermsId: z.string().min(1).nullable(),
+  note: z.string().trim().min(3).max(500),
+})
   .strict()
-  .superRefine((input, context) => {
-    if (
-      BigInt(input.annualAdminFeePpm) * BigInt(input.adminFeeYears) >
-      PARTS_PER_MILLION
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "The total upfront admin fee cannot exceed 100%.",
-        path: ["adminFeeYears"],
-      });
-    }
-  });
+  .superRefine(validateFeeTerms);
 
 export const CalculatedPositionEconomicsSchema = z.object({
   committedMinor: NonNegativeMoneyMinorSchema,
   fundedMinor: NonNegativeMoneyMinorSchema,
   upfrontAdminFeeMinor: NonNegativeMoneyMinorSchema,
+  setupFeeMinor: NonNegativeMoneyMinorSchema,
   positionCostBasisMinor: NonNegativeMoneyMinorSchema,
   totalAdminFeePpm: ProbabilityPpmSchema,
+  setupFeePpm: ProbabilityPpmSchema,
   carryPpm: ProbabilityPpmSchema,
 });
 
@@ -121,29 +156,40 @@ export function calculatePositionEconomics(
   const totalAdminFeePpm =
     BigInt(parsed.acceptedTerms.annualAdminFeePpm) *
     BigInt(parsed.acceptedTerms.adminFeeYears);
-  if (totalAdminFeePpm > PARTS_PER_MILLION) {
-    throw new Error("The total upfront admin fee cannot exceed 100%.");
+  const setupFeePpm = BigInt(parsed.acceptedTerms.setupFeePpm ?? 0);
+  const netImport = parsed.acceptedTerms.capitalBasis === "net_invested";
+  const grossMinor = BigInt(
+    netImport
+      ? parsed.acceptedTerms.grossCommitmentMinor!
+      : parsed.committedMinor,
+  );
+  const feeMinor = (rate: bigint) =>
+    (grossMinor * rate + PARTS_PER_MILLION / 2n) / PARTS_PER_MILLION;
+  const upfrontAdminFeeMinor = feeMinor(totalAdminFeePpm);
+  // Round the combined fee once; assign any remaining minor unit to setup so
+  // the displayed breakdown always sums to gross capital, even at 100% fees.
+  const totalFeeMinor = feeMinor(totalAdminFeePpm + setupFeePpm);
+  const positionCostBasisMinor = grossMinor - totalFeeMinor;
+  if (netImport && positionCostBasisMinor !== BigInt(parsed.committedMinor)) {
+    return null;
   }
-  const upfrontAdminFeeMinor =
-    (BigInt(parsed.committedMinor) * totalAdminFeePpm +
-      PARTS_PER_MILLION / 2n) /
-    PARTS_PER_MILLION;
-  const feeAppliedToCommitmentMinor =
-    upfrontAdminFeeMinor > BigInt(parsed.committedMinor)
-      ? BigInt(parsed.committedMinor)
-      : upfrontAdminFeeMinor;
 
   return CalculatedPositionEconomicsSchema.parse({
-    committedMinor: parsed.committedMinor,
+    committedMinor: safeNonNegativeNumber(grossMinor, "Gross commitment"),
     fundedMinor: parsed.fundedMinor,
     upfrontAdminFeeMinor: safeNonNegativeNumber(
       upfrontAdminFeeMinor,
       "Upfront admin fee",
     ),
+    setupFeeMinor: safeNonNegativeNumber(
+      totalFeeMinor - upfrontAdminFeeMinor,
+      "Setup fee",
+    ),
     positionCostBasisMinor: safeNonNegativeNumber(
-      BigInt(parsed.committedMinor) - feeAppliedToCommitmentMinor,
+      positionCostBasisMinor,
       "Position cost basis",
     ),
+    setupFeePpm: Number(setupFeePpm),
     totalAdminFeePpm: safeNonNegativeNumber(
       totalAdminFeePpm,
       "Total admin fee",

@@ -412,6 +412,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
       expect(route.request().postDataJSON()).toEqual({
         expectedSnapshotId: "snapshot_holding_demo_spv",
         expectedTermsId: null,
+        capitalBasis: "gross_commitment",
+        grossCommitmentMinor: null,
+        setupFeePpm: 0,
         annualAdminFeePpm: 20_000,
         adminFeeYears: 1,
         carryPpm: 200_000,
@@ -423,6 +426,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
         acceptedAgainstSnapshotId: "snapshot_holding_demo_spv",
         commitmentMinorAtAcceptance: 10_000_000,
         fundedMinorAtAcceptance: 10_000_000,
+        capitalBasis: "gross_commitment",
+        grossCommitmentMinor: null,
+        setupFeePpm: 0,
         annualAdminFeePpm: 20_000,
         adminFeeYears: 1,
         carryPpm: 200_000,
@@ -826,7 +832,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Review fee & carry" }).click();
-  await expect(page.getByLabel("Admin fee rate")).toHaveValue("");
+  await expect(page.getByLabel("Management fee rate")).toHaveValue("");
   await expect(page.getByLabel("Fee term")).toHaveValue("");
   await expect(page.getByLabel("Carry")).toHaveValue("20");
   await expect(
@@ -888,7 +894,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
       "Reviewed value copied into the provider template as of the source date.",
     ),
   ).toBeVisible();
-  await expect(page.getByText("Commitment", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Imported amount", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.locator(".position-economics__values").getByText("$100k"),
   ).toHaveCount(2);
@@ -905,21 +913,33 @@ test("leads with the investment and opens a truthful holding detail", async ({
   );
 
   await page.getByRole("button", { name: "Review fee & carry" }).click();
-  const adminFeeRate = page.getByLabel("Admin fee rate");
+  const adminFeeRate = page.getByLabel("Management fee rate");
   await expect(adminFeeRate).toHaveAttribute("data-slot", "input");
   await expect(adminFeeRate).toHaveValue("2");
   await expect(page.getByLabel("Fee term")).toHaveValue("");
   await expect(page.getByLabel("Carry")).toHaveValue("20");
   await adminFeeRate.focus();
   await expect(adminFeeRate).toHaveCSS("box-shadow", "none");
-  await expect(page.getByLabel("Admin fee rate").locator("xpath=..")).toHaveCSS(
-    "border-bottom-color",
-    "rgb(38, 34, 56)",
-  );
+  await expect(
+    page.getByLabel("Management fee rate").locator("xpath=.."),
+  ).toHaveCSS("border-bottom-color", "rgb(38, 34, 56)");
+  await page
+    .getByRole("combobox", { name: "Imported amount", exact: true })
+    .click();
+  await page
+    .getByRole("option", {
+      name: "Before fees · gross commitment",
+      exact: true,
+    })
+    .click();
   await page.getByLabel("Fee term").fill("1");
   await page
     .getByLabel("What changed")
     .fill("Reviewed synthetic SPV subscription terms.");
+  await expect(
+    page.getByRole("button", { name: "Review terms", exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel("Setup fee", { exact: true }).fill("0");
   await adminFeeRate.focus();
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
@@ -934,7 +954,8 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.getByRole("button", { name: "Review terms" }).click();
   const economicsReview = page.locator(".position-economics__review");
   await expect(economicsReview).toContainText("2.0% · $2k");
-  await expect(economicsReview).toContainText("$100k → $98k");
+  await expect(economicsReview).toContainText("$100k");
+  await expect(economicsReview).toContainText("$98k");
   await expect(economicsReview).toContainText("20.0%");
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(

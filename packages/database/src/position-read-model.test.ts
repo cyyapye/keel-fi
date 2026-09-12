@@ -48,6 +48,7 @@ const migrationFiles = [
   "packages/database/migrations/0032_provider_template_holdings.sql",
   "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
   "packages/database/migrations/0039_reviewed_position_economics.sql",
+  "packages/database/migrations/0058_net_invested_position_economics.sql",
   "packages/database/migrations/0040_holdings_read_performance.sql",
   "packages/database/migrations/0041_reported_position_economics.sql",
   "packages/database/migrations/0046_reviewed_legal_entity_inventory.sql",
@@ -822,8 +823,24 @@ describe("canonical investment position view", () => {
         unrealizedValueState: "reported",
         netValueMinor: 100_000 + index,
         netValueState: "reported",
+        positionKind: "spv_interest",
+        investedMinor: 2_730_000,
+        allocationMinor: 2_730_000,
         createPosition: true,
         acceptObservation: true,
+      });
+      await new D1PositionEconomicsRepository(
+        database as unknown as D1Database,
+      ).accept("synthetic-access-subject", `position_scale_${suffix}`, {
+        expectedSnapshotId: `snapshot_scale_${suffix}`,
+        expectedTermsId: null,
+        capitalBasis: "net_invested",
+        grossCommitmentMinor: 3_000_000,
+        annualAdminFeePpm: 80_000,
+        adminFeeYears: 1,
+        setupFeePpm: 10_000,
+        carryPpm: 150_000,
+        note: "Synthetic scale capital reconciliation.",
       });
       const fingerprint = (index + 1_000).toString(16).padStart(64, "0");
       const capture = {
@@ -856,7 +873,8 @@ describe("canonical investment position view", () => {
         .flatMap((container) => container.positions)
         .every(
           (position) =>
-            position.legalEntityNameEvidence.state === "document_reported",
+            position.legalEntityNameEvidence.state === "document_reported" &&
+            position.acceptedEconomicsTerms?.grossCommitmentMinor === 3_000_000,
         ),
     ).toBe(true);
 

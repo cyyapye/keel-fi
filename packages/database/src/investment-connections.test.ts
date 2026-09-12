@@ -57,6 +57,7 @@ const migrationFiles = [
   "packages/database/migrations/0035_nullable_private_investment_date.sql",
   "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
   "packages/database/migrations/0039_reviewed_position_economics.sql",
+  "packages/database/migrations/0058_net_invested_position_economics.sql",
   "packages/database/migrations/0040_holdings_read_performance.sql",
   "packages/database/migrations/0041_reported_position_economics.sql",
   "packages/database/migrations/0044_public_equity_sync_schedule.sql",

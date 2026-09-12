@@ -7,6 +7,10 @@ import {
   CreateDocumentInvestmentInputSchema,
   InvestmentOwnershipObservationSchema,
 } from "../packages/domain/src/investment-review";
+import {
+  AcceptPositionEconomicsInputSchema,
+  PositionEconomicsTermsSchema,
+} from "../packages/domain/src/position-economics";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import {
@@ -14,7 +18,12 @@ import {
   selectReviewSection,
 } from "./investment-review-fixtures";
 
-async function setup(page: Page, conflict = false, backgroundCount = 0) {
+async function setup(
+  page: Page,
+  conflict = false,
+  backgroundCount = 0,
+  netImported = false,
+) {
   const doc = {
     id: "11111111-1111-4111-8111-111111111111",
     fileName: "demo-growth-subscription.pdf",
@@ -50,7 +59,7 @@ async function setup(page: Page, conflict = false, backgroundCount = 0) {
   const source: LegalEntitySourceSummary = {
     source: { kind: "holding_position", id: "position_demo_growth_iv" },
     sourceDisplayName: "Demo Growth IV",
-    sourceLabel: "Sydecar agreement",
+    sourceLabel: netImported ? "Tokenfolio template" : "Sydecar agreement",
     sourceAsOf: "2026-09-01",
     currentOwner: "Demo Family LLC",
     currentDecisionId: null,
@@ -134,13 +143,13 @@ async function setup(page: Page, conflict = false, backgroundCount = 0) {
   );
   const fixture = await routeInvestmentReview(page, source, {
     snapshotId: "snapshot_demo_growth_iv",
-    committedMinor: 1_000_000,
-    fundedMinor: 1_000_000,
+    committedMinor: netImported ? 2_730_000 : 1_000_000,
+    fundedMinor: netImported ? 2_730_000 : 1_000_000,
     economics: {
       snapshotId: "snapshot_demo_growth_iv",
       currency: "USD",
-      committedMinor: 1_000_000,
-      fundedMinor: 1_000_000,
+      committedMinor: netImported ? 2_730_000 : 1_000_000,
+      fundedMinor: netImported ? 2_730_000 : 1_000_000,
       acceptedTerms: null,
       reportedTerms: null,
     },
@@ -665,7 +674,12 @@ test("uses responsive section navigation, keeps focus rings visible, and leaves 
   await review
     .getByRole("button", { name: "Add fee & carry", exact: true })
     .click();
-  for (const label of ["Admin fee rate", "Fee term", "Carry"]) {
+  for (const label of [
+    "Management fee rate",
+    "Fee term",
+    "Setup fee",
+    "Carry",
+  ]) {
     await expect(review.getByLabel(label)).toHaveValue("");
     await expect(
       review.getByLabel(label).locator("xpath=ancestor::label"),
@@ -874,4 +888,157 @@ test("shows saving on the clicked button then disables unchanged submission with
   await expect(
     review.getByRole("button", { name: "Add ownership evidence", exact: true }),
   ).toBeVisible();
+});
+
+test("reviews fees already included in an imported amount and preserves the net investment across saves", async ({
+  page,
+}) => {
+  const { review, context } = await setup(page, false, 0, true);
+  const requests: unknown[] = [];
+  let reject = true;
+  await page.route(
+    "**/api/investment-positions/position_demo_growth_iv/economics",
+    async (route) => {
+      const input = AcceptPositionEconomicsInputSchema.parse(
+        route.request().postDataJSON(),
+      );
+      requests.push(input);
+      if (reject)
+        return route.fulfill({
+          status: 409,
+          json: {
+            error:
+              "The position changed. Review the latest terms and try again.",
+          },
+        });
+      const terms = PositionEconomicsTermsSchema.parse({
+        ...input,
+        id: `synthetic-terms-${requests.length}`,
+        positionId: context.positionId,
+        acceptedAgainstSnapshotId: context.snapshotId,
+        commitmentMinorAtAcceptance: context.committedMinor,
+        fundedMinorAtAcceptance: context.fundedMinor,
+        acceptedAt: "2026-09-01T12:00:00.000Z",
+      });
+      context.economics!.acceptedTerms = terms;
+      return route.fulfill({ status: 201, json: terms });
+    },
+  );
+  await selectReviewSection(page, "Investment");
+  await review
+    .getByRole("button", { name: "Add fee & carry", exact: true })
+    .click();
+  await review
+    .getByRole("combobox", { name: "Imported amount", exact: true })
+    .click();
+  await page
+    .getByRole("option", {
+      name: "Already net of fees · invested capital",
+      exact: true,
+    })
+    .click();
+  await review.getByLabel("Management fee rate", { exact: true }).fill("8");
+  await review.getByLabel("Fee term", { exact: true }).fill("1");
+  await review.getByLabel("Setup fee", { exact: true }).fill("1");
+  await review.getByLabel("Carry", { exact: true }).fill("15");
+  await review
+    .getByLabel("What changed", { exact: true })
+    .fill("Synthetic gross capital and fees confirmed.");
+  const gross = review.getByLabel("Gross commitment · USD", { exact: true });
+  await gross.fill("29000");
+  await expect(
+    review.getByText(
+      "Gross commitment less management and setup fees must equal the imported net amount of $27.3k.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    review.getByRole("button", { name: "Review terms", exact: true }),
+  ).toBeDisabled();
+  await gross.fill("30000");
+  await expect(review.locator(".position-economics")).toHaveScreenshot(
+    "investment-net-fees-form.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await review
+    .getByRole("button", { name: "Review terms", exact: true })
+    .click();
+  const preview = review.locator(".position-economics__review");
+  for (const amount of [
+    "$30k",
+    "8.0% · $2.4k",
+    "1.0% · $300",
+    "$27.3k",
+    "15.0%",
+  ])
+    await expect(preview.getByText(amount, { exact: true })).toBeVisible();
+  await expect(review.locator(".position-economics")).toHaveScreenshot(
+    "investment-net-fees-review.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await review
+    .getByRole("button", { name: "Accept terms", exact: true })
+    .click();
+  await expect(
+    preview.getByText(
+      "The position changed. Review the latest terms and try again.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await review.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(gross).toHaveValue("30000");
+  await expect(review.getByLabel("Setup fee", { exact: true })).toHaveValue(
+    "1",
+  );
+  reject = false;
+  await review
+    .getByRole("button", { name: "Review terms", exact: true })
+    .click();
+  await review
+    .getByRole("button", { name: "Accept terms", exact: true })
+    .click();
+  await expect(
+    review.getByRole("button", { name: "Update fee & carry", exact: true }),
+  ).toBeVisible();
+  expect(requests[1]).toMatchObject({
+    capitalBasis: "net_invested",
+    grossCommitmentMinor: 3_000_000,
+    setupFeePpm: 10_000,
+    annualAdminFeePpm: 80_000,
+    carryPpm: 150_000,
+  });
+  await page.reload();
+  await selectReviewSection(page, "Investment");
+  const values = review.locator(".position-economics__values");
+  await expect(values.getByText("$30k", { exact: true })).toBeVisible();
+  await expect(values.getByText("$27.3k", { exact: true })).toHaveCount(2);
+  await expect(
+    values.getByText("Management: $2.4k. Setup: $300.", { exact: true }),
+  ).toBeVisible();
+  await expect(review.locator(".position-economics")).toHaveScreenshot(
+    "investment-net-fees-accepted.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await review
+    .getByRole("button", { name: "Update fee & carry", exact: true })
+    .click();
+  await expect(gross).toHaveValue("30000.00");
+  await expect(
+    review.getByRole("button", { name: "Review terms", exact: true }),
+  ).toBeDisabled();
+  await review.getByLabel("Carry", { exact: true }).fill("18");
+  await review
+    .getByRole("button", { name: "Review terms", exact: true })
+    .click();
+  await expect(preview.getByText("$27.3k", { exact: true })).toBeVisible();
+  await review
+    .getByRole("button", { name: "Accept terms", exact: true })
+    .click();
+  await expect(values.getByText("18.0%", { exact: true })).toBeVisible();
+  await expect(values.getByText("$27.3k", { exact: true })).toHaveCount(2);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
 });

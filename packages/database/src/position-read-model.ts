@@ -108,6 +108,9 @@ type InvestmentPositionRow = {
   economics_snapshot_id: string | null;
   economics_commitment_minor: number | null;
   economics_funded_minor: number | null;
+  economics_capital_basis: "gross_commitment" | "net_invested" | null;
+  economics_gross_commitment_minor: number | null;
+  economics_setup_fee_ppm: number | null;
   economics_annual_admin_fee_ppm: number | null;
   economics_admin_fee_years: number | null;
   economics_carry_ppm: number | null;
@@ -180,6 +183,9 @@ function positionFromRow(
           acceptedAgainstSnapshotId: row.economics_snapshot_id,
           commitmentMinorAtAcceptance: row.economics_commitment_minor,
           fundedMinorAtAcceptance: row.economics_funded_minor,
+          capitalBasis: row.economics_capital_basis,
+          grossCommitmentMinor: row.economics_gross_commitment_minor,
+          setupFeePpm: row.economics_setup_fee_ppm,
           annualAdminFeePpm: row.economics_annual_admin_fee_ppm,
           adminFeeYears: row.economics_admin_fee_years,
           carryPpm: row.economics_carry_ppm,
@@ -503,6 +509,9 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              economics.snapshot_id AS economics_snapshot_id,
              economics.commitment_minor AS economics_commitment_minor,
              economics.funded_minor AS economics_funded_minor,
+             economics.capital_basis AS economics_capital_basis,
+             economics.gross_commitment_minor AS economics_gross_commitment_minor,
+             economics.setup_fee_ppm AS economics_setup_fee_ppm,
              economics.annual_admin_fee_ppm
                AS economics_annual_admin_fee_ppm,
              economics.admin_fee_years AS economics_admin_fee_years,

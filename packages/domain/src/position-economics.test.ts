@@ -53,8 +53,10 @@ describe("position economics", () => {
       committedMinor: 10_000_000,
       fundedMinor: 10_000_000,
       upfrontAdminFeeMinor: 1_000_000,
+      setupFeeMinor: 0,
       positionCostBasisMinor: 9_000_000,
       totalAdminFeePpm: 100_000,
+      setupFeePpm: 0,
       carryPpm: 200_000,
     });
   });
@@ -75,6 +77,43 @@ describe("position economics", () => {
     });
   });
 
+  it("reconciles a net import to reviewed gross capital without deducting fees twice", () => {
+    const netContext = {
+      ...context,
+      committedMinor: 2_730_000,
+      fundedMinor: 2_730_000,
+      acceptedTerms: {
+        ...context.acceptedTerms,
+        commitmentMinorAtAcceptance: 2_730_000,
+        fundedMinorAtAcceptance: 2_730_000,
+        capitalBasis: "net_invested" as const,
+        grossCommitmentMinor: 3_000_000,
+        annualAdminFeePpm: 80_000,
+        adminFeeYears: 1,
+        setupFeePpm: 10_000,
+        carryPpm: 150_000,
+      },
+    };
+    expect(calculatePositionEconomics(netContext)).toMatchObject({
+      committedMinor: 3_000_000,
+      upfrontAdminFeeMinor: 240_000,
+      setupFeeMinor: 30_000,
+      positionCostBasisMinor: 2_730_000,
+      carryPpm: 150_000,
+    });
+    expect(
+      calculatePositionPerformance({
+        currentValueMinor: 2_730_000,
+        currentValueReported: true,
+        realizedValueMinor: 0,
+        providerCostBasisMinor: null,
+        fundedMinor: 2_730_000,
+        economicsContext: netContext,
+        allowFundedAmountEstimate: true,
+      }),
+    ).toMatchObject({ costBasisMinor: 2_730_000, totalGainMinor: 0 });
+  });
+
   it("rejects fee terms above the commitment", () => {
     expect(
       AcceptPositionEconomicsInputSchema.safeParse({
@@ -86,6 +125,76 @@ describe("position economics", () => {
         note: "Synthetic terms.",
       }).success,
     ).toBe(false);
+  });
+
+  it("includes setup fees on gross imports and keeps rounding in minor units", () => {
+    expect(
+      calculatePositionEconomics({
+        ...context,
+        acceptedTerms: { ...context.acceptedTerms, setupFeePpm: 25_000 },
+      }),
+    ).toMatchObject({
+      upfrontAdminFeeMinor: 1_000_000,
+      setupFeeMinor: 250_000,
+      positionCostBasisMinor: 8_750_000,
+    });
+    expect(
+      calculatePositionEconomics({
+        ...context,
+        committedMinor: 1,
+        acceptedTerms: {
+          ...context.acceptedTerms,
+          commitmentMinorAtAcceptance: 1,
+          annualAdminFeePpm: 500_000,
+          adminFeeYears: 1,
+          setupFeePpm: 500_000,
+        },
+      }),
+    ).toMatchObject({
+      upfrontAdminFeeMinor: 1,
+      setupFeeMinor: 0,
+      positionCostBasisMinor: 0,
+    });
+  });
+
+  it("requires explicit gross capital for net imports and rejects inconsistent terms", () => {
+    const input = {
+      expectedSnapshotId: context.snapshotId,
+      expectedTermsId: null,
+      annualAdminFeePpm: 80_000,
+      adminFeeYears: 1,
+      setupFeePpm: 10_000,
+      carryPpm: 150_000,
+      note: "Synthetic capital reconciliation.",
+    };
+    for (const invalid of [
+      { capitalBasis: "net_invested" },
+      { capitalBasis: "net_invested", grossCommitmentMinor: 0 },
+      {
+        capitalBasis: "net_invested",
+        grossCommitmentMinor: Number.MAX_SAFE_INTEGER + 1,
+      },
+      { capitalBasis: "gross_commitment", grossCommitmentMinor: 3_000_000 },
+      { setupFeePpm: null },
+      { setupFeePpm: 950_000 },
+      { setupFeePpm: -1 },
+      { setupFeePpm: 0.5 },
+    ])
+      expect(
+        AcceptPositionEconomicsInputSchema.safeParse({ ...input, ...invalid })
+          .success,
+      ).toBe(false);
+    expect(
+      calculatePositionEconomics({
+        ...context,
+        acceptedTerms: {
+          ...context.acceptedTerms,
+          capitalBasis: "net_invested",
+          grossCommitmentMinor: 3_000_000,
+          setupFeePpm: 0,
+        },
+      }),
+    ).toBeNull();
   });
 
   it("does not reprice accepted terms against a newer source snapshot", () => {

@@ -64,6 +64,36 @@ remain a blocked import review, not an automatic merge or split. A separate
 provider-identity migration would need explicit continuity reconciliation and
 tests for renamed and same-date investments before changing those keys.
 
+## Reviewed gross and net capital
+
+SPV economics reviews distinguish a gross imported commitment from an imported
+amount that already excludes fees. A net import requires an explicit reviewed
+gross commitment; Keel does not infer that choice from the provider name.
+Management fees (rate times prepaid years) and a separate one-time setup fee are
+percentages of gross commitment. A one-time management fee uses one year. Gross
+less both fees must reconcile exactly to the imported net commitment. Carry is
+recorded separately and never deducted from contributed or invested capital.
+
+Migration `0058` extends the existing append-only economics proposals. Original
+snapshot commitment and funded amounts remain source evidence; reviewed gross
+commitment is a separate term tied to that snapshot. A new source snapshot
+requires review before these terms apply again. Historical reviews retain their
+gross calculation, and a missing setup fee remains unrecorded. New UI reviews
+require the setup rate explicitly, including zero when there is no setup fee.
+Entity exports label reviewed gross commitment and imported net funding
+separately.
+
+Money calculations use integer minor units and ppm. The combined fee is rounded
+half up once; any rounding remainder after the management fee belongs to setup,
+so the breakdown always sums to gross. The database independently enforces the
+same reconciliation without overflowing SQLite integer multiplication.
+
+Apply `0058` before deploying the new API/web. There is no provider-agent change
+or automatic rewrite of existing financial records. Domain, repository readback,
+API validation, desktop/mobile review, and the existing 120-position query
+budget cover this contract; these checks do not establish a production
+deployment.
+
 ## Read and write budgets
 
 The entity collection remains projection-only: four position-view reads plus

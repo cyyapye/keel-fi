@@ -2,7 +2,7 @@ const integerFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-function currencyFractionDigits(currency: string): number {
+export function currencyFractionDigits(currency: string): number {
   try {
     return (
       new Intl.NumberFormat("en-US", {

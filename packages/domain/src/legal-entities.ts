@@ -76,6 +76,18 @@ export const LegalEntitySourceFinancialsSchema = z
     currency: z.string().regex(/^[A-Z]{3}$/u),
     commitmentMinor: z.number().int().safe().nonnegative().nullable(),
     fundedMinor: z.number().int().safe().nonnegative().nullable(),
+    capitalBasis: z
+      .enum(["gross_commitment", "net_invested"])
+      .nullable()
+      .optional(),
+    grossCommitmentMinor: z
+      .number()
+      .int()
+      .safe()
+      .positive()
+      .nullable()
+      .optional(),
+    setupFeePpm: z.number().int().min(0).max(1_000_000).nullable().optional(),
     currentValue: ReportedValueSchema,
     annualAdminFeePpm: z
       .number()
