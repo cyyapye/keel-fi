@@ -162,6 +162,7 @@ import { ObservedCashFlow } from "./ObservedCashFlow";
 import { PlanActualMonitoring } from "./PlanActualMonitoring";
 import { PlanInputsEditor } from "./PlanInputsEditor";
 import type { PortfolioSnapshotDrilldown } from "./PortfolioSnapshot";
+import { ErrorBoundary, PortfolioRecovery } from "./AppRecovery";
 import {
   HoldingsNavigation,
   HoldingsRouteShell,
@@ -709,12 +710,14 @@ function Dashboard({
         </Panel>
       </div>
 
-      <Suspense fallback={null}>
-        <PortfolioSnapshot
-          onDrilldown={onPortfolioDrilldown}
-          onViewHoldings={() => onNavigate("holdings")}
-        />
-      </Suspense>
+      <ErrorBoundary fallback={<PortfolioRecovery />}>
+        <Suspense fallback={null}>
+          <PortfolioSnapshot
+            onDrilldown={onPortfolioDrilldown}
+            onViewHoldings={() => onNavigate("holdings")}
+          />
+        </Suspense>
+      </ErrorBoundary>
 
       <Panel
         className="liquidity-panel"

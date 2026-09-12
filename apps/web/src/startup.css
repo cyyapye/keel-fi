@@ -1,0 +1,74 @@
+/* Loaded by the document, independently of the application module graph. */
+body {
+  margin: 0;
+}
+
+.startup-shell {
+  box-sizing: border-box;
+  display: grid;
+  min-height: 100svh;
+  padding: 35px;
+  color: #f7f4ee;
+  background: #262238;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  place-items: center;
+}
+
+.startup-brand {
+  position: absolute;
+  top: 30px;
+  left: 35px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+
+.startup-shell .startup-message {
+  max-width: 28rem;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  text-align: center;
+}
+
+.startup-message h1 {
+  margin: 0 0 12px;
+  color: inherit;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.startup-message p {
+  margin: 0;
+  color: rgb(247 244 238 / 75%);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.startup-shell .startup-reload {
+  box-sizing: border-box;
+  display: inline-flex;
+  min-height: 44px;
+  margin-top: 24px;
+  padding: 12px 20px;
+  align-items: center;
+  justify-content: center;
+  color: #262238;
+  background: #f7f4ee;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.startup-shell .startup-reload:focus-visible {
+  outline: 2px solid #f7f4ee;
+  outline-offset: 4px;
+}
