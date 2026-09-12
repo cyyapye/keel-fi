@@ -1,8 +1,14 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { runPreviewDeploymentSmoke } from "./preview-deployment-smoke";
 
 const gitSha = "c".repeat(40);
+const applicationHtml = readFileSync(
+  new URL("../apps/web/index.html", import.meta.url),
+  "utf8",
+).replace('src="/src/main.tsx"', 'src="/assets/app.js"');
 
 type FetchImplementation = (
   input: string | URL | Request,
@@ -23,7 +29,9 @@ function environment(): NodeJS.ProcessEnv {
   };
 }
 
-function successfulFetch(): ReturnType<typeof vi.fn> {
+function successfulFetch(
+  dashboardHtml = applicationHtml,
+): ReturnType<typeof vi.fn> {
   return vi.fn((input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(
       input instanceof Request ? input.url : input.toString(),
@@ -102,10 +110,9 @@ function successfulFetch(): ReturnType<typeof vi.fn> {
       );
     }
     return Promise.resolve(
-      new Response(
-        '<!doctype html><div id="root"></div><script type="module" src="/assets/app.js"></script>',
-        { headers: { "Content-Type": "text/html" } },
-      ),
+      new Response(dashboardHtml, {
+        headers: { "Content-Type": "text/html" },
+      }),
     );
   });
 }
@@ -121,6 +128,39 @@ describe("preview deployment runtime verification", () => {
     ).resolves.toBeUndefined();
 
     expect(fetchImplementation).toHaveBeenCalledTimes(13);
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      new URL("/assets/app.js", environment().KEEL_PREVIEW_URL),
+      expect.any(Object),
+    );
+  });
+
+  it.each([
+    [
+      "a page without the Keel mount",
+      applicationHtml.replace('id="root"', 'id="different-app"'),
+      "did not return the Keel application shell",
+    ],
+    [
+      "a page without an app script",
+      applicationHtml.replace(/<script\b[^>]*><\/script>/, ""),
+      "could not identify the application asset",
+    ],
+    [
+      "an app script outside the preview origin",
+      applicationHtml.replace(
+        "/assets/app.js",
+        "https://different-app.example.com/app.js",
+      ),
+      "resolved an asset outside the preview origin",
+    ],
+  ])("rejects %s", async (_description, dashboardHtml, message) => {
+    await expect(
+      runPreviewDeploymentSmoke(
+        environment(),
+        successfulFetch(dashboardHtml),
+        () => Promise.resolve(),
+      ),
+    ).rejects.toThrow(message);
   });
 
   it("waits for a new Mac agent hostname to resolve", async () => {

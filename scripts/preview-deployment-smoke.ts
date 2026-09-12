@@ -211,7 +211,7 @@ export async function runPreviewDeploymentSmoke(
   });
   requireSuccessfulResponse(dashboardResponse, "Dashboard smoke");
   const dashboardHtml = await dashboardResponse.text();
-  if (!/<div\s+id=["']root["']><\/div>/.test(dashboardHtml)) {
+  if (!/<div\s+id=["']root["']>/.test(dashboardHtml)) {
     throw new Error(
       "Dashboard smoke did not return the Keel application shell.",
     );
