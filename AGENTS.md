@@ -8,7 +8,9 @@
 - Use integer minor currency units and integer probabilities in parts per
   million. Never use JavaScript floating-point arithmetic for money.
 - External observations create evidence events and proposed changes. They must
-  not directly mutate accepted financial records.
+  not directly mutate accepted financial records. Acceptance requires a recorded
+  human or deterministic policy decision; review does not always mean a human
+  approval.
 - Forecast snapshots and accepted review decisions are append-only.
 - Validate every external boundary with Zod and keep production authentication
   fail-closed.
@@ -36,54 +38,24 @@
   `EXPLAIN QUERY PLAN` for correlated full scans. Progressive rendering does not
   excuse an inefficient server read.
 
-## Recurring work and operating cost
+## Task-specific guidance
 
+Load the applicable guidance when the task crosses its boundary:
+
+- For user-visible frontend work, including `packages/ui` and visual tests, use
+  [$keel-ui-quality](.codex/skills/keel-ui-quality/SKILL.md). It routes minor
+  edits, diagnosis, and material changes to the required product and visual
+  checks.
+- For ingestion, source acceptance, or planning refresh, follow
+  [source-update-policy.md](docs/architecture/source-update-policy.md). Routine
+  updates use recorded policies; identity, evidence, and planning exceptions
+  retain their review boundaries and manual decisions.
 - Before changing polling, retries, heartbeats, schedules, or authentication on
-  those paths, state the response/freshness target and count a full idle day and
-  a full failure day across all active processes and deployments. Include every
-  auxiliary loop, proxy/API invocation, database read, timestamp/index write,
-  and retry. Compare the total with the shared account allowance and reserve
-  explicit headroom for useful work; a per-call budget is insufficient.
-- Also budget a maximum useful-work day, multiplying queue discovery and retry
-  fanout. Include browser prefetch, sign-in probes, proxy hops, object reads and
-  scheduled backup/export work. Give each recurring producer one owner, an
-  admission bound, and a deadline. Update the runtime call inventory with a
-  reviewed budget; accepting a snapshot or raising a ceiling is not a fix.
-- Enforce discovery and queue capacity at atomic admission, then test racing
-  callers and duplicate deliveries; a preflight count does not enforce a cap.
-- Empty checks must not write application state. Any operational heartbeat must
-  have a separately justified write cadence. Keep credential revocation checks
-  current on every request; do not cache authorization to reduce writes.
-- Add a virtual-clock regression through the real client request,
-  authentication, and repository path. Assert independent daily ceilings,
-  bounded failure retries, and the required detection/cancellation latency.
-  Prove the old behavior fails the gate. See
-  `docs/engineering/recurring-work-budgets.md`.
-- A recurring-work fix is not activated until both the server and every existing
-  long-running client use the verified revision. Preserve provider identities,
-  credentials, and profiles; avoid interrupting an active run. Report local,
-  deployed, restarted, and observed usage evidence separately.
-
-## Interface and copy
-
-- Use the repo-local `$keel-ui-quality` skill for every task that creates,
-  changes, reviews, diagnoses, or verifies user-visible frontend behavior.
-- Treat `docs/product/ui-and-copy.md` as acceptance criteria for every material
-  interface change.
-- Compare a new or substantially changed screen with the closest existing Keel
-  reference screens before implementing it. Holdings and Scenarios are the
-  default references for information-dense and interactive work.
-- Default to whitespace, spacing, and type hierarchy. Add a border, divider,
-  badge, or container only when it communicates a real grouping, state, or
-  interaction.
-- UI copy must help the user act, decide, orient, or understand an essential
-  trust boundary. Remove repeated explanations and internal implementation terms
-  such as connector, append-only, immutable, retained, and private alpha unless
-  the user needs that concept.
-- Keep required synthetic-data and review-boundary disclosures concise and
-  user-facing.
-- For material screen changes, update and inspect the desktop and mobile
-  Playwright screenshot baselines before handoff.
+  those paths, satisfy the change requirements and affected workload budgets in
+  [recurring-work-budgets.md](docs/engineering/recurring-work-budgets.md).
+- When preparing a PR or release, follow the verification and exact-revision
+  evidence requirements in
+  [.github/workflows/README.md](.github/workflows/README.md).
 
 ## Codex and local workflow
 
@@ -102,9 +74,15 @@
   stack is gone with `make dev-status`.
 - Run `make verify` before publishing runtime or migration changes. Use focused
   targets such as `make lint`, `make typecheck`, `make test`, `make db-verify`,
-  or `make e2e` while iterating.
+  or `make e2e` while iterating; repeat or broaden them when changes, failures,
+  or unresolved concerns justify it. Documentation-only work uses relevant
+  format, link, and instruction checks; required CI checks still apply.
 - Do not copy `.env` files, credentials, or private financial inputs into
   worktrees. Local development uses only the checked-in synthetic seed.
+- Continue authorized local work through implementation, relevant verification,
+  and fixes caused by the change. Reuse existing authorization for these steps.
+  Ask when an unresolved decision materially changes the outcome or an action
+  exceeds the authorized scope. Report any unverified boundary explicitly.
 
 ## Tugling project adapter
 

@@ -5,6 +5,38 @@ full producer-to-storage path before choosing a timer, including auxiliary
 polls, retries, authentication, heartbeats, and proxy fanout. Empty work and a
 provider outage both need explicit budgets.
 
+## Change requirements
+
+Before changing polling, retries, heartbeats, schedules, or authentication on
+those paths:
+
+- State the response/freshness target and count a full idle day and a full
+  failure day across all active processes and deployments. Include every
+  auxiliary loop, proxy/API invocation, database read, timestamp/index write,
+  and retry. Compare the total with the shared account allowance and reserve
+  explicit headroom for useful work; a per-call budget is insufficient.
+- Also budget a maximum useful-work day, multiplying queue discovery and retry
+  fanout. Include browser prefetch, sign-in probes, proxy hops, object reads and
+  scheduled backup/export work. Give each recurring producer one owner, an
+  admission bound, and a deadline. Update the runtime call inventory with a
+  reviewed budget; accepting a snapshot or raising a ceiling is not a fix.
+- Enforce discovery and queue capacity at atomic admission, then test racing
+  callers and duplicate deliveries; a preflight count does not enforce a cap.
+- Empty checks must not write application state. Any operational heartbeat must
+  have a separately justified write cadence. Keep credential revocation checks
+  current on every request; do not cache authorization to reduce writes.
+- Add a virtual-clock regression through the real client request,
+  authentication, and repository path. Assert independent daily ceilings,
+  bounded failure retries, and the required detection/cancellation latency.
+  Prove the old behavior fails the gate.
+- A recurring-work fix is not activated until both the server and every existing
+  long-running client use the verified revision. Preserve provider identities,
+  credentials, and profiles; avoid interrupting an active run. Report local,
+  deployed, restarted, and observed usage evidence separately.
+
+Read the workload sections affected by the change; the measured envelopes below
+do not automatically apply to another producer or deployment.
+
 ## Provider agent contract
 
 The envelope is one always-on process per provider, three providers, and one
