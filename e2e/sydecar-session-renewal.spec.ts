@@ -4,12 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, expect, test, type BrowserContext } from "@playwright/test";
 import { controlledChromeArguments } from "../scripts/browser-agent-runtime";
+import { providerAgreementCollector } from "../scripts/provider-legal-document-capture";
 import { __providerBrowserReconnectTest } from "../scripts/provider-browser-reconnect";
 import { __providerPortfolioMacAgentTest } from "../scripts/provider-portfolio-mac-agent";
 
 const { closeChromeGracefully, stopChild } = __providerBrowserReconnectTest;
-const { renewSavedSydecarSession, requireProviderPageReady } =
-  __providerPortfolioMacAgentTest;
+const {
+  keelPage,
+  portfolioPage,
+  renewSavedSydecarSession,
+  requireProviderPageReady,
+} = __providerPortfolioMacAgentTest;
 const origin = "https://app.sydecar.io";
 const hour = 3_600_000;
 const start = Date.parse("2026-09-01T00:00:00.000Z");
@@ -30,7 +35,7 @@ async function fixture(flood = false) {
     path.join(os.tmpdir(), "keel-synthetic-renewal-"),
   );
   const processes: Array<{ child: ChildProcess; endpoint: string }> = [];
-  const state = { now: start, requests: 0, refreshes: 0 };
+  const state = { now: start, requests: 0, refreshes: 0, documents: 0 };
   const tokens = () => ({
     access_token: syntheticToken(state.now + hour),
     refresh_token: syntheticToken(state.now + 12 * hour),
@@ -91,6 +96,14 @@ async function fixture(flood = false) {
     await context.route("**/*", async (route) => {
       state.requests++;
       const url = new URL(route.request().url());
+      if (route.request().resourceType() === "document") state.documents++;
+      if (url.origin === "https://keel.example.com") {
+        await route.fulfill({
+          contentType: "text/html",
+          body: "Synthetic Keel setup",
+        });
+        return;
+      }
       if (url.origin !== origin)
         throw new Error(
           `Unexpected synthetic request origin: ${url.origin}${url.pathname}`,
@@ -167,9 +180,9 @@ async function fixture(flood = false) {
 }
 
 async function ordinaryCapture(context: BrowserContext) {
-  const page = await context.newPage();
-  await page.goto(`${origin}/investments`);
+  const page = await portfolioPage(context, "sydecar");
   await requireProviderPageReady(page, "sydecar", 2_000);
+  return page;
 }
 
 for (const maintain of [false, true]) {
@@ -190,6 +203,8 @@ for (const maintain of [false, true]) {
           runtime.state.now = start + hours * hour;
           const next = await runtime.launch();
           await renewSavedSydecarSession(next.context, () => runtime.state.now);
+          expect(runtime.state.documents).toBe(hours / 6 + 1);
+          await expect.poll(() => next.context.pages().length).toBe(1);
           await next.close();
         }
       runtime.state.now = start + 24 * hour;
@@ -197,6 +212,7 @@ for (const maintain of [false, true]) {
       if (maintain) {
         await ordinaryCapture(nextDay.context);
         expect(runtime.state.refreshes).toBe(4);
+        expect(runtime.state.documents).toBe(5);
       } else {
         await expect(ordinaryCapture(nextDay.context)).rejects.toThrow(
           "provider_sign_in_required",
@@ -220,6 +236,61 @@ test("Sydecar renewal fails closed at its provider-request admission bound", asy
       renewSavedSydecarSession(browser.context, () => runtime.state.now),
     ).rejects.toThrow("unexpected_failure");
     expect(runtime.state.requests).toBeLessThanOrEqual(150);
+  } finally {
+    await runtime.cleanup();
+  }
+});
+
+test("Sydecar page ownership preserves Keel setup and bounded agreement popups", async ({
+  isMobile,
+}) => {
+  test.skip(isMobile, "The provider worker uses desktop Chrome.");
+  const runtime = await fixture();
+  try {
+    const browser = await runtime.launch(true);
+    const abandoned = await browser.context.newPage();
+    await abandoned.goto(`${origin}/investments`);
+    const page = await ordinaryCapture(browser.context);
+    expect(abandoned.isClosed()).toBe(true);
+    const setup = await keelPage(
+      browser.context,
+      new URL("https://keel.example.com"),
+    );
+    expect(setup.url()).toBe("https://keel.example.com/holdings");
+    const documentUrl =
+      "https://storage.googleapis.com/sydecar-prod-documents/synthetic/agreement.pdf?synthetic=one";
+    await page.setContent(
+      `<h2 data-testid="investment-docs-heading">Investment Docs</h2><a data-testid="data-room-doc-download" onclick="window.open('${documentUrl}')">Subscription Agreement (Counter-Signed) (Subscription Agreement)</a>`,
+    );
+    await page.bringToFront();
+    let downloads = 0;
+    let saved = 0;
+    const collector = providerAgreementCollector({
+      provider: "sydecar",
+      manifest: { version: 1, captures: [] },
+      renew: () => Promise.resolve(),
+      download: async (url) => {
+        expect(url.href).toBe(documentUrl);
+        downloads++;
+        // This regression tests popup ownership and the bounded downloader
+        // handoff. Existing PDF tests cover successful scanning and extraction.
+        throw new Error("Synthetic download unavailable");
+      },
+      save: async ({ capture }) => {
+        expect(capture.problem).toBe("inaccessible");
+        saved++;
+      },
+    });
+    await collector.collect(page, {
+      investment: "Synthetic Atlas",
+      legalPosition: "Synthetic source reference",
+      heldThrough: "Synthetic Family LLC",
+      investmentDate: "2026-01-01",
+    });
+    await collector.flush();
+    expect(downloads).toBe(1);
+    expect(saved).toBe(1);
+    expect(browser.context.pages()).toHaveLength(2);
   } finally {
     await runtime.cleanup();
   }

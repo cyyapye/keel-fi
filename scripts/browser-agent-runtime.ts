@@ -246,7 +246,8 @@ export function controlledChromeArguments(
       : []),
     // A blank URL still lets Chrome restore older provider tabs before CDP
     // request controls attach. Start with no tabs; the leased operation opens
-    // its page only after installing its routing/admission rules.
+    // its page only after installing its routing/admission rules. Sydecar also
+    // blocks delayed restoration when that first explicit window opens.
     "--no-startup-window",
   ];
 }

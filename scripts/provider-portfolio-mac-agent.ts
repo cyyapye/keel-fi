@@ -528,12 +528,72 @@ function pageAtOrigin(context: BrowserContext, origin: string): Page | null {
   );
 }
 
+const controlledPages = new WeakMap<
+  BrowserContext,
+  { pages: Set<Page>; creating: Promise<void> }
+>();
+
+async function newControlledPage(context: BrowserContext): Promise<Page> {
+  let state = controlledPages.get(context);
+  if (state === undefined) {
+    state = { pages: new Set(), creating: Promise.resolve() };
+    controlledPages.set(context, state);
+    const owned = state;
+    await context.route("**/*", async (route) => {
+      let requestPage: Page | null = null;
+      try {
+        requestPage = route.request().frame().page();
+      } catch {
+        // Restored tabs can navigate before Chromium exposes their frame.
+      }
+      if (requestPage !== null && owned.pages.has(requestPage)) {
+        await route.fallback();
+      } else {
+        await route.abort("blockedbyclient").catch(() => undefined);
+      }
+    });
+    context.on("page", (candidate) => {
+      // A new explicit about:blank page is registered before it navigates.
+      // Closing unowned restored tabs also prevents their count growing on
+      // every restart. Document popups retain their existing bounded handler.
+      void owned.creating
+        .then(async () => {
+          if (
+            !owned.pages.has(candidate) &&
+            (await candidate.opener()) === null
+          )
+            await candidate.close();
+        })
+        .catch(() => undefined);
+    });
+  }
+  let created!: () => void;
+  state.creating = new Promise<void>((resolve) => {
+    created = resolve;
+  });
+  try {
+    const page = await context.newPage();
+    state.pages.add(page);
+    const owned = state;
+    await Promise.all(
+      context.pages().map(async (candidate) => {
+        if (!owned.pages.has(candidate) && (await candidate.opener()) === null)
+          await candidate.close().catch(() => undefined);
+      }),
+    );
+    return page;
+  } finally {
+    created();
+  }
+}
+
 async function keelPage(
   context: BrowserContext,
   keelOrigin: URL,
 ): Promise<Page> {
-  const page =
-    pageAtOrigin(context, keelOrigin.origin) ?? (await context.newPage());
+  const page = controlledPages.has(context)
+    ? await newControlledPage(context)
+    : (pageAtOrigin(context, keelOrigin.origin) ?? (await context.newPage()));
   if (new URL(page.url()).origin !== keelOrigin.origin) {
     await page.goto(new URL("/holdings", keelOrigin).toString(), {
       waitUntil: "domcontentloaded",
@@ -548,7 +608,9 @@ async function portfolioPage(
 ): Promise<Page> {
   const config = PROVIDERS[provider];
   const page =
-    pageAtOrigin(context, config.origin) ?? (await context.newPage());
+    provider === "sydecar"
+      ? await newControlledPage(context)
+      : (pageAtOrigin(context, config.origin) ?? (await context.newPage()));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(config.portfolioUrl, {
     timeout: PAGE_TIMEOUT_MS,
@@ -2280,6 +2342,7 @@ async function main(): Promise<void> {
 export const __providerPortfolioMacAgentTest = {
   queuedUpdatePollIntervalMs: POLL_INTERVAL_MS,
   lease,
+  keelPage,
   pollOnce,
   withProviderBrowser,
   checkSessionRenewal,
@@ -2297,6 +2360,7 @@ export const __providerPortfolioMacAgentTest = {
   parseProviderDate,
   parsePercentagePpm,
   parseUsdMinor,
+  portfolioPage,
   providerPageReady,
   providerSignInVisible,
   requireProviderPageReady,

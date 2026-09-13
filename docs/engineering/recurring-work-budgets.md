@@ -90,7 +90,12 @@ closes its browser before reporting, and admits at most 150 page HTTP requests,
 including assets and auxiliary calls. Chrome starts with no tabs and background
 networking disabled. A blank startup URL alone permits restoration of older
 provider tabs before the request guard attaches; cold-browser tests require zero
-pages before installing routes, even after a prior portfolio visit.
+pages before installing routes, even after a prior portfolio visit. Chrome can
+also defer restoration until the first explicit window opens. Sydecar admits
+requests only from pages explicitly created by its operation, closes restored
+tabs, and keeps its existing bounded agreement-popup interception. Tests count
+exactly one provider document navigation per operation across repeated cold
+starts; a zero-page startup assertion alone does not establish that boundary.
 
 A reconnect requested during maintenance waits for its bounded provider
 operation and browser cleanup, then the next one-minute discovery check. Browser

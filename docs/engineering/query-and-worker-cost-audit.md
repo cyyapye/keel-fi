@@ -173,8 +173,10 @@ envelope.
     undercount writes. Assert a sanity floor as well as the independent ceiling.
 12. Install request controls before any provider page can run. Chrome can
     restore saved tabs before an explicit navigation, bypassing a guard attached
-    afterward. Cold-start tests must cover reused profiles and prove that no
-    page opens before admission controls are installed.
+    afterward or defer restoration until the first new window opens. Cold-start
+    tests must cover reused profiles, reject requests from unowned pages and
+    count actual admitted navigations through the whole operation. A zero-page
+    startup assertion and a retry-dependent CI pass are insufficient proof.
 
 These rules reduce recurrence and make known failures mechanically detectable.
 They do not justify a promise that no future query, workload growth, repeated
