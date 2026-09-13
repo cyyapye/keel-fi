@@ -545,7 +545,7 @@ test("imports provider templates without asking to approve clear positions", asy
   }
 });
 
-test("uses one setup command interface for every portfolio agent", async ({
+test("orders sources by liquidity and groups private investment setup", async ({
   page,
 }) => {
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -583,6 +583,19 @@ test("uses one setup command interface for every portfolio agent", async ({
   ).toHaveCount(3);
   await expect(page.getByText("Set up on this Mac")).toHaveCount(0);
   await expect(page.locator("code")).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText([
+    "Add a bank",
+    "Brokerages",
+    "Private investments",
+  ]);
+  const privateInvestments = page.getByRole("region", {
+    name: "Private investments",
+  });
+  const providerRows = privateInvestments.getByRole("article");
+  await expect(providerRows).toHaveCount(3);
+  await expect(providerRows.nth(0)).toHaveAccessibleName("AngelList");
+  await expect(providerRows.nth(1)).toHaveAccessibleName("Tokenfolio");
+  await expect(providerRows.nth(2)).toHaveAccessibleName("Sydecar");
 
   const viewportWidths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -617,8 +630,7 @@ test("uses one setup command interface for every portfolio agent", async ({
   }
   await expect(page.getByText("Copied. Paste in Terminal.")).toHaveCount(3);
 
-  const providerRows = page.locator(".provider-agent-row");
-  for (const index of [0, 1]) {
+  for (const index of [0, 1, 2]) {
     const buttonBox = await providerRows
       .nth(index)
       .getByRole("button")
@@ -1185,18 +1197,35 @@ test("requests an AngelList update from the phone-safe Holdings flow", async ({
       status: 202,
     });
   });
+  await page.route(
+    "**/api/automation/provider-holdings/*/status",
+    async (route) => {
+      const provider = new URL(route.request().url()).pathname
+        .split("/")
+        .at(-2);
+      await route.fulfill({
+        json: { ...overview(), provider, interval: "daily" },
+      });
+    },
+  );
 
   await page.goto("/holdings/sources");
+  const privateInvestments = page.getByRole("region", {
+    name: "Private investments",
+  });
   await expect(
-    page.getByRole("heading", { name: "AngelList is working" }),
-  ).toBeVisible();
-  const intervalSelect = page
-    .locator(".angellist-agent")
-    .getByRole("combobox", { name: "Automatic updates" });
+    privateInvestments.getByRole("heading", { name: "Working" }),
+  ).toHaveCount(3);
+  const angelList = privateInvestments.getByRole("article", {
+    name: "AngelList Working",
+  });
+  const intervalSelect = angelList.getByRole("combobox", {
+    name: "Automatic updates",
+  });
   await expect(intervalSelect).toHaveText("Weekly");
   await expect(
-    page.getByText(
-      "Updates follow your schedule. Only uncertain positions need review.",
+    privateInvestments.getByText(
+      "Clear positions update automatically. Only uncertain positions need review.",
     ),
   ).toBeVisible();
 
@@ -1229,9 +1258,14 @@ test("requests an AngelList update from the phone-safe Holdings flow", async ({
   await expect(page.getByText("AngelList will update daily.")).toBeVisible();
   expect(intervalUpdates).toEqual([{ interval: "daily" }]);
 
-  await page.getByRole("button", { name: "Queue update" }).click();
+  await privateInvestments
+    .getByRole("article", { name: "AngelList Working" })
+    .getByRole("button", { name: "Queue update" })
+    .click();
   await expect(
-    page.getByRole("heading", { name: "AngelList update is queued" }),
+    privateInvestments
+      .getByRole("article", { name: "AngelList Update queued" })
+      .getByRole("heading", { name: "Update queued" }),
   ).toBeVisible();
   await expect(
     page.getByText("AngelList update queued for the agent’s next daily check."),
@@ -1513,6 +1547,14 @@ test("keeps unverified sign-ins and page-reading failures separate", async ({
     ),
   ).toBe(true);
   await page.mouse.move(0, 0);
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
   await expect(sources).toHaveScreenshot(
     "holdings-provider-session-unverified.png",
     { animations: "disabled", caret: "hide" },
