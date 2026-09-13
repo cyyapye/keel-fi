@@ -26,12 +26,6 @@ Keel's pin. Review the upstream release proof and run the synthetic Keel dogfood
 case before accepting a new revision. Live model evaluation does not run on pull
 requests.
 
-The isolated unreleased enforcement pilot has a separate `tugling-pilot.yml`
-workflow and adapter. It runs required native checks without changing these
-accepted source pins or deployment dependencies. See the
-[pilot contract](../../docs/engineering/tugling-required-pilot.md) for its scope
-and remaining evidence boundaries.
-
 ## Self-hosted runner lanes
 
 The private repository uses two isolated Linux x64 runner services on the

@@ -87,7 +87,7 @@ describe("local legal document extraction", () => {
     "Filename: Synthetic Atlas LLC.pdf",
     "LIMITED LIABILITY COMPANY AGREEMENT\nOF\nSYNTHETIC PARENT LLC\n“Parent LLC”: Synthetic Parent LLC\nThe invested series is defined in a separate agreement.",
   ])(
-    "does not treat labels, investor/manager names or truncated names as vehicle evidence",
+    "does not treat labels, investor/manager names or truncated names as vehicle evidence: %s",
     (text) => {
       expect(extractLegalNameFromPages([text])).toMatchObject({
         problem: "name_not_found",
@@ -220,7 +220,7 @@ describe("local legal document extraction", () => {
     "“Fund”: Synthetic Atlas, a Series of\nSynthetic Parent LLC, established as a Series under the Parent LLC Agreement.",
     "“Fund”: Synthetic Atlas LLC, established as a Series under the\n“Manager”: Synthetic Manager LLC",
   ])(
-    "does not join a split name or another role to complete a qualification",
+    "does not join a split name or another role to complete a qualification: %s",
     (text) => {
       expect(extractLegalNameFromPages([text])).toMatchObject({
         problem: "name_not_found",

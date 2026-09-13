@@ -57,13 +57,26 @@ describe("Google Sheets export", () => {
   });
 
   it.each([
-    { rows: [["a", "b"]] },
-    { rows: Array.from({ length: 10_001 }, () => ["a", "b", "c"]) },
-    { rows: [["a".repeat(50_001), "b", "c"]] },
-    { rows: Array.from({ length: 50 }, () => ["a".repeat(49_000), "b", "c"]) },
+    { name: "column mismatch", overrides: { rows: [["a", "b"]] } },
+    {
+      name: "row limit",
+      overrides: {
+        rows: Array.from({ length: 10_001 }, () => ["a", "b", "c"]),
+      },
+    },
+    {
+      name: "cell limit",
+      overrides: { rows: [["a".repeat(50_001), "b", "c"]] },
+    },
+    {
+      name: "total byte limit",
+      overrides: {
+        rows: Array.from({ length: 50 }, () => ["a".repeat(49_000), "b", "c"]),
+      },
+    },
   ])(
-    "rejects malformed or oversized exports before sending data",
-    async (overrides) => {
+    "rejects malformed or oversized exports before sending data: $name",
+    async ({ overrides }) => {
       const fetcher = vi.fn();
       vi.stubGlobal("fetch", fetcher);
       await expect(

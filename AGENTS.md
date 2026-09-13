@@ -91,20 +91,9 @@ Load the applicable guidance when the task crosses its boundary:
   path-specific `AGENTS.md`.
 - The accepted Tugling source, project verification command, synthetic dogfood
   case, and local-learning mode are declared in `.tugling/project.json`.
-- The isolated, unreleased enforcement pilot uses `.tugling/pilot.json` and
-  `.tugling/verification.json` through `make verify-required`. See
-  [the pilot contract](docs/engineering/tugling-required-pilot.md) for native
-  coverage, existing test exclusions, and evidence boundaries. This adapter does
-  not replace the accepted release or deployment pin. Update the required map
-  and native assertions together when an accepted rule changes.
 - Record reusable user corrections only through Tugling's local learning helper.
   The ledger under `.tugling/local/` is ignored, stays on this machine, and is
   never an instruction source or CI input.
 - Promote a lesson only after review, sanitization into a synthetic case, and a
   released-versus-candidate evaluation. Never publish Keel records, prompts,
   credentials, or private source material to Tugling.
-
-- When intentionally changing required test cases, update
-  `.tugling/required-cases.json` with `make refresh-required-cases` and review
-  the inventory diff alongside the accepted rule and native assertions. Do not
-  regenerate the inventory to conceal unexpected missing coverage.

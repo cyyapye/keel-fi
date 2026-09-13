@@ -1,0 +1,273 @@
+{
+  "schema_version": 1,
+  "flows": [
+    {
+      "id": "gate-and-artifact-integrity",
+      "description": "Reject substituted candidate code and omitted/filtered native cases; exercise owned temporary checkout success, failure and cancellation.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "python"],
+      "timeout_seconds": 120,
+      "sources": [
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py",
+        "scripts/test_linux_test_run.py",
+        "scripts/linux-test-run.py",
+        ".tugling/pilot-cases.json",
+        "scripts/tugling-pilot.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "unittest owns synthetic Git and native runner fixtures in temporary directories.",
+        "health": "Real runner exit and case outcomes are checked against the reviewed inventory.",
+        "cleanup": "TemporaryDirectory and linux-test-run finally blocks remove only their owned paths and process groups."
+      }
+    },
+    {
+      "id": "native-unit-and-cost",
+      "description": "Exercise all native domain, API, database, client, workflow, resource and billing assertions with exact individual case accounting.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest"],
+      "timeout_seconds": 900,
+      "sources": [
+        "vitest.config.ts",
+        "scripts/pilot_native.py",
+        ".tugling/pilot-cases.json",
+        "scripts/shared-ui-usage.test.ts",
+        "scripts/d1-query-cost.test.ts",
+        "scripts/d1-read-budgets.test.ts",
+        "scripts/holding-history-d1-cost.test.ts",
+        "scripts/provider-agent-d1-cost.test.ts",
+        "scripts/provider-agent-usage.test.ts",
+        "scripts/cash-request-d1-cost.test.ts",
+        "scripts/automatic-investment-review-d1-cost.test.ts",
+        "scripts/portfolio-watch-d1-cost.test.ts",
+        "scripts/runtime-work-inventory.test.ts",
+        "scripts/pdf-sandbox.test.ts",
+        "scripts/private-document-backup.test.ts",
+        "scripts/preview-deployment-workflow.test.ts",
+        "scripts/preview-deployment-evidence.test.ts",
+        "packages/database/src/automatic-investment-review.test.ts",
+        "packages/database/src/cash-accounts.test.ts",
+        "packages/database/src/holding-imports.test.ts",
+        "packages/domain/src/index.test.ts",
+        "scripts/pilot-vitest-reporter.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "Vitest owns workerd, synthetic D1, GPG and temporary fixture processes; maxWorkers remains four.",
+        "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
+        "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
+      }
+    },
+    {
+      "id": "source-quality",
+      "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
+      "argv": ["make", "data-scan", "format-check", "lint", "typecheck"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "scripts/check-public-data.mjs",
+        "eslint.config.mjs",
+        "tsconfig.json"
+      ],
+      "runtime": null
+    },
+    {
+      "id": "compose-configuration",
+      "description": "Validate the existing isolated synthetic development stack configuration.",
+      "argv": ["docker", "compose", "config", "--quiet"],
+      "timeout_seconds": 30,
+      "sources": ["compose.yaml"],
+      "runtime": null
+    },
+    {
+      "id": "pdf-isolation",
+      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
+      "argv": ["make", "pdf-sandbox-verify"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "scripts/pdf-sandbox-verify.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/boundary.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native verifier creates named serial containers on the provisioned rootless socket using prepared immutable images.",
+        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
+        "cleanup": "The native launcher removes exact owned containers; no shared daemon or image cleanup."
+      }
+    },
+    {
+      "id": "build-and-entry-budget",
+      "description": "Build every workspace and enforce the native 100 KiB initial JavaScript gzip budget and lazy application boundary.",
+      "argv": ["make", "build"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "apps/web/package.json",
+        "scripts/check-web-entry-budget.mjs"
+      ],
+      "runtime": null
+    },
+    {
+      "id": "migration-and-seed",
+      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
+      "argv": ["make", "db-verify"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "scripts/local-seed-scenarios.ts",
+        "packages/database/seed/synthetic.sql"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native seed runner creates and resets only this checkout local scenario state.",
+        "health": "Scenario readback assertions check migrations, seeds and relationships.",
+        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
+      }
+    },
+    {
+      "id": "browser-workflows",
+      "description": "Exercise the complete desktop/mobile browser contract, including minimal review, automatic decisions, persisted saves, layout, recovery and real synthetic document capture.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "playwright"],
+      "timeout_seconds": 3600,
+      "sources": [
+        "Makefile",
+        "playwright.config.ts",
+        "scripts/pilot_native.py",
+        ".tugling/pilot-cases.json",
+        "scripts/dev.ts",
+        "scripts/dev-ports.ts",
+        "scripts/reset-e2e-state.mjs",
+        "e2e/private-alpha.spec.ts",
+        "e2e/automatic-investment-review.visual.spec.ts",
+        "e2e/investment-review.visual.spec.ts",
+        "e2e/legal-entities.visual.spec.ts",
+        "e2e/cash-accounts.visual.spec.ts",
+        "e2e/portfolio-baseline.visual.spec.ts",
+        "e2e/app-recovery.visual.spec.ts",
+        "e2e/provider-browser-lifecycle.spec.ts",
+        "e2e/provider-legal-documents.spec.ts",
+        "e2e/provider-session.spec.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "Native D1 reset precedes Playwright webServer pnpm dev on checkout-specific ports; existing-server reuse is disabled.",
+        "health": "Playwright waits through Vite /api/alpha, then asserts browser behavior and unchanged screenshot baselines.",
+        "cleanup": "Playwright stops owned browsers/server groups; reports occupy one locked slot under .tugling/local/pilot."
+      }
+    }
+  ],
+  "requirements": [
+    {
+      "id": "complete-native-membership",
+      "description": "All reviewed native cases and runner variants must execute with accepted outcomes; omitted, skipped, replaced or filtered cases fail.",
+      "sources": [
+        "docs/engineering/tugling-pilot.md",
+        ".tugling/pilot-cases.json"
+      ],
+      "flows": [
+        "gate-and-artifact-integrity",
+        "native-unit-and-cost",
+        "browser-workflows"
+      ]
+    },
+    {
+      "id": "synthetic-canonical-integer-state",
+      "description": "Keep repository inputs synthetic, D1 canonical, financial arithmetic integer and accepted decisions/forecasts append-only.",
+      "sources": ["AGENTS.md", "docs/product/principles.md"],
+      "flows": [
+        "source-quality",
+        "native-unit-and-cost",
+        "migration-and-seed",
+        "browser-workflows"
+      ]
+    },
+    {
+      "id": "source-workflow-and-review",
+      "description": "Routine observations use recorded deterministic acceptance; identity, evidence and planning exceptions retain explicit decisions and minimal valid submission.",
+      "sources": [
+        "docs/architecture/source-update-policy.md",
+        "docs/product/ui-and-copy.md"
+      ],
+      "flows": ["native-unit-and-cost", "browser-workflows"]
+    },
+    {
+      "id": "shared-responsive-ui",
+      "description": "Use the accepted shared compositions and responsive controls, keep primary actions clear, preserve invalid drafts and saved-state behavior.",
+      "sources": ["docs/product/ui-and-copy.md", "apps/web/AGENTS.md"],
+      "flows": ["native-unit-and-cost", "browser-workflows"]
+    },
+    {
+      "id": "projection-scale-and-cost",
+      "description": "Keep GETs projection-only with fixed round trips and independent D1 billing/query-plan ceilings across positive, empty, 120-item, historical and unrelated-household cases.",
+      "sources": [
+        "AGENTS.md",
+        "docs/engineering/query-and-worker-cost-audit.md"
+      ],
+      "flows": ["native-unit-and-cost"]
+    },
+    {
+      "id": "recurring-work-envelope",
+      "description": "Preserve combined idle, outage and useful-work budgets, bounded queue admission, unchanged replay, latency, cancellation and current authorization.",
+      "sources": ["docs/engineering/recurring-work-budgets.md"],
+      "flows": ["native-unit-and-cost", "browser-workflows"]
+    },
+    {
+      "id": "authentication-and-external-boundaries",
+      "description": "Validate external inputs and authenticate fail-closed, preserving evidence before accepted state.",
+      "sources": [
+        "AGENTS.md",
+        "docs/security/private-document-baseline.md",
+        "docs/security/threat-model.md"
+      ],
+      "flows": ["native-unit-and-cost", "browser-workflows"]
+    },
+    {
+      "id": "document-resource-and-artifact-bounds",
+      "description": "Preserve reader/scanner isolation, input/output/time limits, bounded document capture/cache and backup count/bytes, integrity and exact owned cleanup.",
+      "sources": [
+        "docs/deployment/pdf-sandbox.md",
+        "docs/deployment/backup-and-recovery.md",
+        "docs/security/private-document-baseline.md"
+      ],
+      "flows": ["native-unit-and-cost", "pdf-isolation", "browser-workflows"]
+    },
+    {
+      "id": "temporary-work-ownership",
+      "description": "Exercise success, failure and cancellation cleanup and explicit retained-run ownership; external seven-day collector activation remains outside this pilot.",
+      "sources": [
+        "docs/deployment/linux-test-cleanup.md",
+        "docs/engineering/tugling-pilot.md"
+      ],
+      "flows": ["gate-and-artifact-integrity"]
+    },
+    {
+      "id": "native-build-and-bootstrap",
+      "description": "Preserve locked bootstrap, synthetic migrations, focused commands, build validity and the existing initial JavaScript budget.",
+      "sources": [
+        "CONTRIBUTING.md",
+        "Makefile",
+        "scripts/check-web-entry-budget.mjs"
+      ],
+      "flows": [
+        "source-quality",
+        "compose-configuration",
+        "build-and-entry-budget",
+        "migration-and-seed"
+      ]
+    },
+    {
+      "id": "release-and-deployment-boundary",
+      "description": "Preserve accepted source pins, merge verification, secret scan, protected deployment ordering, exact release evidence and production approval.",
+      "sources": [
+        ".github/workflows/README.md",
+        "docs/deployment/checklist.md",
+        "docs/engineering/tugling-pilot.md"
+      ],
+      "flows": ["gate-and-artifact-integrity", "native-unit-and-cost"]
+    }
+  ]
+}

@@ -26,6 +26,11 @@ a later commit is not sufficient.
 6. Explain calculation, migration, security, and data-provenance effects in the
    pull request.
 
+The isolated [Tugling candidate pilot](docs/engineering/tugling-pilot.md) adds
+`make pilot-verify` for complete native case accounting on a committed revision.
+Its separate source pin and PR-head evidence do not promote the candidate or
+replace the accepted release/deployment checks.
+
 Repository rules for `main` should require the four PR Checks jobs documented in
 `.github/workflows/README.md`. The post-merge workflow verifies the exact merged
 commit; it does not deploy it.
