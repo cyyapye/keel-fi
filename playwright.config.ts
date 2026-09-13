@@ -10,9 +10,15 @@ export default defineConfig({
   fullyParallel: true,
   // Functional flows share the seeded local D1 database and must not mutate it concurrently.
   workers: 1,
-  forbidOnly: Boolean(process.env.CI),
+  forbidOnly:
+    Boolean(process.env.CI) || process.env.KEEL_REQUIRED_TESTS === "1",
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  reporter: [
+    [process.env.CI ? "github" : "list"],
+    ...(process.env.KEEL_REQUIRED_TESTS === "1"
+      ? ([["./scripts/required-playwright-reporter.ts"]] as const)
+      : []),
+  ],
   snapshotPathTemplate:
     "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}-{platform}{ext}",
   use: {

@@ -1,0 +1,48 @@
+name: Tugling Required Enforcement Pilot
+
+on:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tugling-pilot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  required:
+    name: Candidate required native checks
+    runs-on: [self-hosted, Linux, X64, keel-ci]
+    timeout-minutes: 90
+    steps:
+      - name: Check out the exact Keel candidate
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Check out the unreleased pilot source
+        uses: actions/checkout@v5
+        with:
+          repository: cyyapye/tugling
+          ref: 24aa7ec64524b5816858b09037e504c92af5251e
+          path: .tugling/checkouts/required-pilot
+          persist-credentials: false
+      - run: pnpm exec playwright install chromium
+      - run: make pdf-sandbox-build
+      - name: Execute every declared native requirement for this revision
+        run:
+          make verify-required TUGLING_SOURCE=.tugling/checkouts/required-pilot
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tugling-pilot-browser-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove this job's local verification receipts
+        if: always()
+        run: rm -f -- .tugling/local/verification/*.json

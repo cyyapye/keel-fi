@@ -91,6 +91,12 @@ Load the applicable guidance when the task crosses its boundary:
   path-specific `AGENTS.md`.
 - The accepted Tugling source, project verification command, synthetic dogfood
   case, and local-learning mode are declared in `.tugling/project.json`.
+- The isolated, unreleased enforcement pilot uses `.tugling/pilot.json` and
+  `.tugling/verification.json` through `make verify-required`. See
+  [the pilot contract](docs/engineering/tugling-required-pilot.md) for native
+  coverage, existing test exclusions, and evidence boundaries. This adapter does
+  not replace the accepted release or deployment pin. Update the required map
+  and native assertions together when an accepted rule changes.
 - Record reusable user corrections only through Tugling's local learning helper.
   The ledger under `.tugling/local/` is ignored, stays on this machine, and is
   never an instruction source or CI input.

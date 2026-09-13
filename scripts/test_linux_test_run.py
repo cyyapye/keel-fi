@@ -51,4 +51,12 @@ class RunnerTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    required = {"test_success_failure_and_debug_retention", "test_signal_cleans_checkout"}
+    names = set(unittest.defaultTestLoader.getTestCaseNames(RunnerTests))
+    if not required.issubset(names):
+        sys.exit("Required temporary-runner tests are missing")
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(RunnerTests)
+    expected_count = suite.countTestCases()
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if not result.wasSuccessful() or result.skipped or result.testsRun != expected_count:
+        sys.exit("Required temporary-runner tests failed, skipped, or did not execute")

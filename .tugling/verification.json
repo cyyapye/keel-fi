@@ -1,0 +1,242 @@
+{
+  "schema_version": 1,
+  "flows": [
+    {
+      "id": "linux-test-cleanup",
+      "description": "Exercise owned temporary checkout cleanup on success, failure, cancellation and explicit debug retention, excluding environment and untracked inputs.",
+      "argv": ["make", "test-linux-cleanup"],
+      "timeout_seconds": 120,
+      "sources": [
+        "Makefile",
+        "scripts/linux-test-run.py",
+        "scripts/test_linux_test_run.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "Python unittest creates synthetic repositories and runner children in temporary directories.",
+        "health": "Tests wait for actual child exit and inspect the ownership marker and retained directory.",
+        "cleanup": "The runner terminates its process group; unittest TemporaryDirectory removes each owned fixture, including retained debug cases."
+      }
+    },
+    {
+      "id": "synthetic-migrations",
+      "description": "Apply the complete D1 migration chain, seed the checked-in default synthetic scenario and assert local database invariants.",
+      "argv": ["make", "db-verify"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "scripts/local-seed-scenarios.ts",
+        "scripts/local-seed-scenarios.test.ts",
+        "packages/database/seed/synthetic.sql"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native db-reset and db-check commands run Wrangler against the isolated local synthetic D1 state.",
+        "health": "Wrangler must finish migrations and the scenario invariant queries successfully.",
+        "cleanup": "Each Wrangler process exits. The existing ignored worktree-local synthetic D1 database remains available for local development."
+      }
+    },
+    {
+      "id": "canonical",
+      "description": "Run Keel make verify: unchanged real PDF isolation probes, public-data scan, formatting, lint, types, all native unit/API/D1 tests, production builds and the complete desktop/mobile browser suite.",
+      "argv": ["make", "verify"],
+      "timeout_seconds": 3600,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "vitest.config.ts",
+        "playwright.config.ts",
+        "scripts/required-test-inventory.ts",
+        "scripts/required-vitest-reporter.ts",
+        "scripts/required-playwright-reporter.ts",
+        "scripts/required-verification.test.ts",
+        ".tugling/browser-exclusions.json",
+        "scripts/check-public-data.mjs",
+        "scripts/check-web-entry-budget.mjs",
+        "scripts/pdf-sandbox-verify.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox.test.ts",
+        "scripts/shared-ui-usage.test.ts",
+        "scripts/d1-query-cost.test.ts",
+        "scripts/d1-read-budgets.test.ts",
+        "scripts/holding-history-d1-cost.test.ts",
+        "scripts/automatic-investment-review-d1-cost.test.ts",
+        "scripts/cash-request-d1-cost.test.ts",
+        "scripts/portfolio-watch-d1-cost.test.ts",
+        "scripts/provider-agent-usage.test.ts",
+        "scripts/provider-agent-d1-cost.test.ts",
+        "scripts/runtime-work-inventory.test.ts",
+        "scripts/queue-runtime-config.test.ts",
+        "scripts/private-document-backup.test.ts",
+        "scripts/private-document-r2.test.ts",
+        "scripts/preview-deployment-workflow.test.ts",
+        "scripts/preview-deployment-config.test.ts",
+        "scripts/preview-deployment-evidence.test.ts",
+        "scripts/preview-deployment-smoke.test.ts",
+        "scripts/legal-document-economics.test.ts",
+        "scripts/browser-agent-runtime.test.ts",
+        "scripts/test-support/d1-cost.ts",
+        "scripts/test-support/d1-meter.ts",
+        "scripts/dev.ts",
+        "scripts/reset-e2e-state.mjs",
+        "packages/domain/src/index.test.ts",
+        "packages/evidence/src/index.test.ts",
+        "packages/database/src/holding-imports.test.ts",
+        "packages/database/src/cash-accounts.test.ts",
+        "packages/database/src/cash-flow.test.ts",
+        "packages/database/src/plan-inputs.test.ts",
+        "packages/database/src/investment-review.test.ts",
+        "packages/database/src/automatic-investment-review.test.ts",
+        "packages/database/src/legal-entities.test.ts",
+        "packages/database/src/provider-legal-documents.test.ts",
+        "apps/api/src/auth.test.ts",
+        "apps/api/src/app.test.ts",
+        "apps/api/src/app-holdings-page.test.ts",
+        "apps/api/src/app-legal-entities.test.ts",
+        "apps/api/src/app-investment-review.test.ts",
+        "apps/api/src/plaid-webhook.test.ts",
+        "apps/api/src/portfolio-watch-schedule.test.ts",
+        "apps/api/src/portfolio-watch-plaid-recovery.integration.test.ts",
+        "apps/api/src/provider-legal-documents.test.ts",
+        "e2e/agreement-security.visual.spec.ts",
+        "e2e/app-recovery.visual.spec.ts",
+        "e2e/automatic-investment-review.visual.spec.ts",
+        "e2e/cash-accounts.visual.spec.ts",
+        "e2e/goals.visual.spec.ts",
+        "e2e/holdings-detail.visual.spec.ts",
+        "e2e/holdings-import.visual.spec.ts",
+        "e2e/investment-holdings.visual.spec.ts",
+        "e2e/investment-review.visual.spec.ts",
+        "e2e/legal-entities.visual.spec.ts",
+        "e2e/legal-name-resolution.visual.spec.ts",
+        "e2e/navigation.visual.spec.ts",
+        "e2e/obligations.visual.spec.ts",
+        "e2e/observed-cash-flow.visual.spec.ts",
+        "e2e/overview-links.visual.spec.ts",
+        "e2e/plan-actual-monitoring.visual.spec.ts",
+        "e2e/plan-inputs.visual.spec.ts",
+        "e2e/portfolio-baseline.visual.spec.ts",
+        "e2e/portfolio-dashboard.visual.spec.ts",
+        "e2e/portfolio-watch.visual.spec.ts",
+        "e2e/private-alpha.spec.ts",
+        "e2e/provider-browser-lifecycle.spec.ts",
+        "e2e/provider-legal-documents.spec.ts",
+        "e2e/provider-portfolio-mac-agent.spec.ts",
+        "e2e/provider-session.spec.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "Native PDF probes own rootless sandbox containers. Vitest fixtures own synthetic SQLite/workerd resources. make e2e resets its isolated D1 store and Playwright launches pnpm dev on worktree-specific ports.",
+        "health": "Real PDF adversarial assertions, database readiness and Playwright webServer /api/alpha readiness must succeed before their dependent checks.",
+        "cleanup": "PDF and Vitest fixtures dispose owned containers, workers and temporary files. Playwright stops its owned web/API process group; screenshots and traces stay in ignored native report directories. make e2e refuses server reuse through KEEL_E2E_ISOLATED=1."
+      }
+    }
+  ],
+  "requirements": [
+    {
+      "id": "synthetic-only",
+      "description": "Public repository inputs and fixtures remain synthetic; reject prohibited source-document formats and secret patterns. Semantic privacy and full-history secret review remain separately required.",
+      "sources": ["AGENTS.md", ".github/workflows/README.md"],
+      "flows": ["canonical", "synthetic-migrations"]
+    },
+    {
+      "id": "canonical-state-and-history",
+      "description": "D1 owns accepted application state; recorded evidence decisions, forecast snapshots and financial review history retain their accepted append-only and versioned boundaries.",
+      "sources": ["AGENTS.md", "docs/architecture/overview.md"],
+      "flows": ["canonical", "synthetic-migrations"]
+    },
+    {
+      "id": "integer-finance",
+      "description": "Currency uses integer minor units and probabilities use integer ppm; missing financial facts stay unknown.",
+      "sources": ["AGENTS.md", "docs/architecture/source-update-policy.md"],
+      "flows": ["canonical"]
+    },
+    {
+      "id": "validated-auth-boundaries",
+      "description": "Zod validates external payloads and production authorization fails closed, including immediate credential revocation and private document access.",
+      "sources": ["AGENTS.md", "docs/engineering/recurring-work-budgets.md"],
+      "flows": ["canonical"]
+    },
+    {
+      "id": "recorded-source-decisions",
+      "description": "Routine source updates use recorded deterministic policies; identity, unsupported evidence, manual decisions and planning exceptions retain the accepted review boundaries. Duplicate and racing attempts converge.",
+      "sources": [
+        "AGENTS.md",
+        "docs/architecture/source-update-policy.md",
+        "docs/architecture/connected-investment-review.md"
+      ],
+      "flows": ["canonical"]
+    },
+    {
+      "id": "projection-only-reads",
+      "description": "User-facing reads serve D1 projections without reconciliation, provider/object reads, writes or per-row repository fanout.",
+      "sources": [
+        "AGENTS.md",
+        "docs/engineering/query-and-worker-cost-audit.md"
+      ],
+      "flows": ["canonical"]
+    },
+    {
+      "id": "d1-scale-and-billing",
+      "description": "Use existing 120-item or documented-maximum holdouts, fixed round-trip ceilings, full query ordering/history and unrelated households; inspect query plans and real index-inclusive D1 billing counters.",
+      "sources": [
+        "AGENTS.md",
+        "docs/engineering/query-and-worker-cost-audit.md"
+      ],
+      "flows": ["canonical"]
+    },
+    {
+      "id": "recurring-work-and-retry-budgets",
+      "description": "Preserve the accepted aggregate idle, failure and useful-work envelopes, freshness, atomic admission, retry/deadline/cancellation bounds and runtime inventory.",
+      "sources": ["docs/engineering/recurring-work-budgets.md"],
+      "flows": ["canonical"]
+    },
+    {
+      "id": "shared-ui-and-user-workflows",
+      "description": "Shared components, minimal valid submissions, recorded routine updates, exceptional review, save/readback/retry behavior and desktop/mobile visual regressions follow Keel UI policy.",
+      "sources": [
+        "apps/web/AGENTS.md",
+        "docs/product/ui-and-copy.md",
+        "docs/engineering/review-safeguards.md"
+      ],
+      "flows": ["canonical"]
+    },
+    {
+      "id": "web-entry-capacity",
+      "description": "Keep the initial route shell and the existing 100 KiB gzip initial JavaScript ceiling enforced by the production build.",
+      "sources": [
+        "docs/engineering/recurring-work-budgets.md",
+        "scripts/check-web-entry-budget.mjs"
+      ],
+      "flows": ["canonical"]
+    },
+    {
+      "id": "pdf-and-document-security",
+      "description": "Real rootless PDF isolation and scanner probes remain mandatory, with existing resource limits, privacy, original-byte ownership and fail-closed evidence access.",
+      "sources": [
+        "docs/deployment/pdf-sandbox.md",
+        "docs/engineering/recurring-work-budgets.md"
+      ],
+      "flows": ["canonical"]
+    },
+    {
+      "id": "artifact-ownership-and-recovery",
+      "description": "Preserve bounded document backup/recovery and owned temporary artifact cleanup, active leases, cancellation and explicit seven-day debug retention; do not delete foreign artifacts.",
+      "sources": [
+        "docs/deployment/linux-test-cleanup.md",
+        "docs/engineering/recurring-work-budgets.md"
+      ],
+      "flows": ["linux-test-cleanup", "canonical"]
+    },
+    {
+      "id": "release-and-verification-integrity",
+      "description": "Keep native gates, required test discovery, accepted source pins, exact-SHA deployment prerequisites, isolated unprivileged runner lanes, no remote seeding and existing backup/order/smoke safeguards. Hosted enforcement and live release evidence are separate.",
+      "sources": [
+        "AGENTS.md",
+        ".github/workflows/README.md",
+        "docs/engineering/tugling-required-pilot.md"
+      ],
+      "flows": ["linux-test-cleanup", "synthetic-migrations", "canonical"]
+    }
+  ]
+}

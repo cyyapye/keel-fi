@@ -15,7 +15,7 @@ AGENT_PLATFORM ?= $(shell uname -s)
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify pdf-sandbox-build pdf-sandbox-verify
+.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify verify-required test-linux-cleanup pdf-sandbox-build pdf-sandbox-verify
 
 help:
 	@echo "Keel developer commands"
@@ -29,6 +29,7 @@ help:
 	@echo "  make dev-logs      Follow Docker development service logs"
 	@echo "  make dev-build     Rebuild Docker development images"
 	@echo "  make verify        Run the complete local verification suite"
+	@echo "  make verify-required TUGLING_SOURCE=/path/to/candidate  Run the isolated Tugling pilot gate"
 	@echo "  make pdf-sandbox-build   Build the PDF reader using a provisioned rootless Docker socket"
 	@echo "  make pdf-sandbox-verify  Prove PDF isolation with synthetic adversarial probes"
 	@echo "  make check         Run source checks, unit tests, and builds"
@@ -173,5 +174,14 @@ pdf-sandbox-verify:
 
 verify:
 	$(MAKE) pdf-sandbox-verify
-	$(MAKE) check
-	$(MAKE) e2e
+	KEEL_REQUIRED_TESTS=1 $(MAKE) check
+	KEEL_REQUIRED_TESTS=1 $(MAKE) e2e
+
+# The unreleased pilot wraps the self-contained canonical gate. Never map this
+# target back into Tugling or change the accepted release/deployment adapter.
+verify-required:
+	@test -n "$(TUGLING_SOURCE)" || { echo "Set TUGLING_SOURCE to the exact reviewed pilot checkout." >&2; exit 1; }
+	python3 scripts/verify-required.py --source-root "$(TUGLING_SOURCE)"
+
+test-linux-cleanup:
+	python3 scripts/test_linux_test_run.py

@@ -7,6 +7,8 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   {
     ignores: [
+      ".tugling/local/**",
+      ".tugling/checkouts/**",
       "**/coverage/**",
       "**/dist/**",
       "**/node_modules/**",
