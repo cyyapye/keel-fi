@@ -78,6 +78,9 @@ async function fixture(flood = false) {
       noDefaults: true,
     });
     const context = browser.contexts()[0]!;
+    // Restored tabs can load the actual provider before routing is installed.
+    // Assert the cold-start boundary, including after a saved portfolio visit.
+    expect(context.pages()).toHaveLength(0);
     if (seed)
       await context.addInitScript((value) => {
         localStorage.setItem("auth_token", value.access_token);
@@ -89,7 +92,9 @@ async function fixture(flood = false) {
       state.requests++;
       const url = new URL(route.request().url());
       if (url.origin !== origin)
-        throw new Error("Unexpected synthetic request origin");
+        throw new Error(
+          `Unexpected synthetic request origin: ${url.origin}${url.pathname}`,
+        );
       if (url.pathname === "/__fixture__/ping") {
         await route.fulfill({ status: 204 });
         return;

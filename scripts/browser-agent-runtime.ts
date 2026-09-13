@@ -244,7 +244,10 @@ export function controlledChromeArguments(
     ...(supported === "linux"
       ? ["--headless=new", "--disable-dev-shm-usage"]
       : []),
-    "about:blank",
+    // A blank URL still lets Chrome restore older provider tabs before CDP
+    // request controls attach. Start with no tabs; the leased operation opens
+    // its page only after installing its routing/admission rules.
+    "--no-startup-window",
   ];
 }
 

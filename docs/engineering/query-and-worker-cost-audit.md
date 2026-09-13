@@ -171,6 +171,10 @@ envelope.
 11. Reset per-scenario operational timestamps before rewinding a test clock.
     Future heartbeat timestamps can make an apparently complete virtual day
     undercount writes. Assert a sanity floor as well as the independent ceiling.
+12. Install request controls before any provider page can run. Chrome can
+    restore saved tabs before an explicit navigation, bypassing a guard attached
+    afterward. Cold-start tests must cover reused profiles and prove that no
+    page opens before admission controls are installed.
 
 These rules reduce recurrence and make known failures mechanically detectable.
 They do not justify a promise that no future query, workload growth, repeated

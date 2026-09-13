@@ -87,8 +87,10 @@ access token and at least eight hours of provider-issued refresh lifetime. Only
 expiry metadata leaves the browser. No provider credential or account claim is
 sent to Keel. The operation has a two-minute deadline after browser startup,
 closes its browser before reporting, and admits at most 150 page HTTP requests,
-including assets and auxiliary calls. Chrome starts on a blank page with
-background networking disabled.
+including assets and auxiliary calls. Chrome starts with no tabs and background
+networking disabled. A blank startup URL alone permits restoration of older
+provider tabs before the request guard attaches; cold-browser tests require zero
+pages before installing routes, even after a prior portfolio visit.
 
 A reconnect requested during maintenance waits for its bounded provider
 operation and browser cleanup, then the next one-minute discovery check. Browser
