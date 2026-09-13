@@ -1095,9 +1095,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   const hasVisibleDecorativeBorder = await page
     .locator(
       [
-        ".angellist-agent",
-        ".angellist-agent__controls select",
-        ".angellist-agent__meta",
+        ".provider-agents",
+        ".provider-agent-row__controls select",
+        ".provider-agent-row__meta",
         ".cash-accounts",
         ".cash-holdings",
         ".investment-institutions",
