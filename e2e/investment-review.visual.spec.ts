@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import type {
-  LegalEntityInventory,
-  LegalEntitySourceSummary,
+import {
+  CreateLegalEntityInputSchema,
+  type LegalEntityInventory,
+  type LegalEntitySourceSummary,
 } from "../packages/domain/src/legal-entities";
 import {
   CreateDocumentInvestmentInputSchema,
@@ -193,6 +194,112 @@ async function setup(
     inventory,
   };
 }
+
+test("advances through every pending review before wrapping, including reload and browser history", async ({
+  page,
+}) => {
+  const { inventory, row } = await setup(page, false, 3);
+  for (const candidate of inventory.candidates.slice(1))
+    await routeInvestmentReview(page, candidate);
+  const next = row.getByRole("button", {
+    name: "Next needing review",
+    exact: true,
+  });
+  const title = row.getByRole("heading", { level: 1 });
+  for (const name of [
+    "Demo A 0 LLC",
+    "Demo A 1 LLC",
+    "Demo A 2 LLC",
+    "Demo Growth IV",
+  ]) {
+    await next.click();
+    await expect(title).toHaveText(name);
+  }
+  await next.click();
+  await expect(title).toHaveText("Demo A 0 LLC");
+  await next.click();
+  await expect(title).toHaveText("Demo A 1 LLC");
+  await page.reload();
+  await expect(title).toHaveText("Demo A 1 LLC");
+  await next.click();
+  await expect(title).toHaveText("Demo A 2 LLC");
+  await page.goBack();
+  await expect(title).toHaveText("Demo A 1 LLC");
+  await page.goForward();
+  await expect(title).toHaveText("Demo A 2 LLC");
+});
+
+test("continues after a saved review leaves the queue and hides Next for its only remaining item", async ({
+  page,
+}) => {
+  const { inventory, row } = await setup(page, false, 3);
+  for (const candidate of inventory.candidates.slice(1))
+    await routeInvestmentReview(page, candidate);
+  await page.route("**/api/legal-entities", async (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({ json: inventory });
+    const input = CreateLegalEntityInputSchema.parse(
+      route.request().postDataJSON(),
+    );
+    const source = inventory.candidates.find(
+      (item) => item.source.id === input.source?.reference.id,
+    )!;
+    const entity = {
+      ...input.profile,
+      id: "entity_demo_saved_queue_item",
+      versionId: "entity_demo_saved_queue_item_v1",
+      version: 1,
+      recordedAt: inventory.asOf,
+      sources: [
+        { ...source, currentDecisionId: "decision_demo_saved_queue_item" },
+      ],
+    };
+    inventory.entities.push(entity);
+    inventory.candidates = inventory.candidates.filter(
+      (item) => item !== source,
+    );
+    return route.fulfill({ status: 201, json: entity });
+  });
+  const next = row.getByRole("button", {
+    name: "Next needing review",
+    exact: true,
+  });
+  const title = row.getByRole("heading", { level: 1 });
+  await next.click();
+  await expect(title).toHaveText("Demo A 0 LLC");
+  await next.click();
+  await expect(title).toHaveText("Demo A 1 LLC");
+  await row.getByRole("button", { name: "Add entity", exact: true }).click();
+  await expect(
+    row.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeVisible();
+  await next.click();
+  await expect(title).toHaveText("Demo A 2 LLC");
+
+  inventory.candidates = inventory.candidates.filter(
+    (item) => item.source.id === "demo_background_2",
+  );
+  await page.reload();
+  await expect(title).toHaveText("Demo A 2 LLC");
+  await expect(next).toHaveCount(0);
+  await expect(
+    row.getByRole("button", { name: "Back to legal entities", exact: true }),
+  ).toBeVisible();
+
+  await page.goto(
+    "/holdings/entities?review=entity%3Aentity_demo_saved_queue_item",
+  );
+  await expect(title).toHaveText("Demo A 1 LLC");
+  await next.click();
+  await expect(title).toHaveText("Demo A 2 LLC");
+
+  inventory.candidates = [];
+  await page.goto(
+    "/holdings/entities?review=entity%3Aentity_demo_saved_queue_item",
+  );
+  await expect(title).toHaveText("Demo A 1 LLC");
+  await expect(next).toHaveCount(0);
+});
 
 test("opens the supported entity name after moving a different investment's agreement", async ({
   page,

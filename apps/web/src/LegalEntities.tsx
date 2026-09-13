@@ -1072,7 +1072,8 @@ function EntityReviewWorkspace({
   onTabChange,
   onSaved,
   onBack,
-  onNext,
+  candidates,
+  onOpenSource,
 }: {
   target: EntityReviewTarget;
   inventory: LegalEntityInventory;
@@ -1080,7 +1081,8 @@ function EntityReviewWorkspace({
   onTabChange: (tab: EntityReviewTab) => void;
   onSaved: () => Promise<void>;
   onBack: () => void;
-  onNext?: (() => void) | undefined;
+  candidates: readonly LegalEntitySourceSummary[];
+  onOpenSource: (source: LegalEntitySourceSummary) => void;
 }) {
   const [resolution, setResolution] = useState<LegalNameResolutionInput>();
   const [mode, setMode] = useState("new");
@@ -1118,6 +1120,19 @@ function EntityReviewWorkspace({
           (item) =>
             item.source.kind === target.kind && item.source.id === target.id,
         );
+  const otherCandidates = candidates.filter(
+    (item) =>
+      item.source.kind !== source?.source.kind ||
+      item.source.id !== source?.source.id,
+  );
+  // Keep moving in the list's attention order even after saving removes the
+  // current source from the queue. Only wrap after reaching the end.
+  const nextCandidate =
+    (source === undefined
+      ? undefined
+      : otherCandidates.find(
+          (item) => compareLegalEntityAttention(item, source) > 0,
+        )) ?? otherCandidates[0];
   const legalName =
     resolution?.legalName ?? source?.legalEntityNameEvidence.legalName;
   const matches = inventory.entities.filter(
@@ -1299,7 +1314,11 @@ function EntityReviewWorkspace({
     <div className="entity-review">
       <div className="entity-review__navigation">
         <TextLink onClick={onBack}>Back to legal entities</TextLink>
-        {onNext && <TextLink onClick={onNext}>Next needing review</TextLink>}
+        {nextCandidate && (
+          <TextLink onClick={() => onOpenSource(nextCandidate)}>
+            Next needing review
+          </TextLink>
+        )}
       </div>
       <PageHeader
         eyebrow="Investment review"
@@ -2108,11 +2127,6 @@ export function LegalEntities({
     );
   }
 
-  const nextCandidate = candidates.find(
-    (item) =>
-      item.source.kind !== location.target?.kind ||
-      item.source.id !== location.target?.id,
-  );
   return (
     <>
       {location.target !== null && (
@@ -2124,7 +2138,8 @@ export function LegalEntities({
           onTabChange={changeTab}
           onSaved={saved}
           onBack={() => navigate(null)}
-          onNext={nextCandidate ? () => openSource(nextCandidate) : undefined}
+          candidates={candidates}
+          onOpenSource={openSource}
         />
       )}
       <div hidden={location.target !== null} className="legal-entities">
