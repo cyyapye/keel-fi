@@ -93,6 +93,11 @@ def main():
                 or receipt["project_revision"] != summary["regression_revision"]
                 or not receipt["worktree_unchanged"] or failed != ["native-unit-and-cost"]):
             raise ValueError("the real required gate did not reject the intended native cost regression")
+        cost_result = receipt["results"][-1]
+        if (cost_result["failure"] != "command-failed"
+                or type(cost_result["exit_code"]) is not int or cost_result["exit_code"] <= 0
+                or cost_result["forced_cleanup"] is not False):
+            raise ValueError("the cost gate must finish with an assertion failure, not timeout or forced cleanup")
         native = json.loads((local / "pilot/vitest.json").read_text())
         idle_cases = [case for suite in native["testResults"]
                       if suite["name"].endswith("/scripts/provider-agent-usage.test.ts")
