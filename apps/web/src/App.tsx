@@ -2917,24 +2917,18 @@ function HoldingDetailWorkspace({
 }
 
 function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
-  title: string;
-  description: string;
+  title: string | null;
+  description: string | null;
 } {
-  if (overview === null) {
+  if (overview === null || overview.status === "setup_required") {
     return {
-      title: "Checking AngelList updates",
-      description: "Keel is checking whether your update agent is ready.",
-    };
-  }
-  if (overview.status === "setup_required") {
-    return {
-      title: "Finish AngelList setup",
-      description: "Sign in once on the computer that will run updates.",
+      title: null,
+      description: null,
     };
   }
   if (overview.status === "offline") {
     return {
-      title: "AngelList is paused — agent check overdue",
+      title: "Paused — agent check overdue",
       description:
         "The update computer is not responding. No holdings changed.",
     };
@@ -2942,12 +2936,11 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
   if (overview.status === "running") {
     return overview.runStatus === "queued"
       ? {
-          title: "AngelList update is queued",
-          description:
-            "It will start at the next daily check. Run the update command if you need it sooner.",
+          title: "Update queued",
+          description: "It will start at the agent’s next daily check.",
         }
       : {
-          title: "Importing AngelList CSV",
+          title: "Reading portfolio",
           description:
             "Checking the latest CSV. Clear positions update automatically.",
         };
@@ -2962,27 +2955,27 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
     }
     if (overview.errorCode === "keel_sign_in_required") {
       return {
-        title: "AngelList is paused — agent access needs renewal",
+        title: "Paused — agent access needs renewal",
         description:
           "The update computer needs troubleshooting. Your AngelList sign-in can stay as-is.",
       };
     }
     if (overview.errorCode === "export_unavailable") {
       return {
-        title: "AngelList export needs attention",
+        title: "Export needs attention",
         description:
           "Reconnect and confirm Export CSV is available to resume updates.",
       };
     }
     return {
-      title: "AngelList update needs attention",
+      title: "Update needs attention",
       description: "Reconnect AngelList, then try the update again.",
     };
   }
   return {
-    title: "AngelList is working",
-    description:
-      "Updates follow your schedule. Only uncertain positions need review.",
+    title:
+      overview.lastCompletedAt === null ? "Ready for first update" : "Working",
+    description: null,
   };
 }
 
@@ -3413,23 +3406,31 @@ function AngelListMacAgentControl() {
   }, [reload]);
 
   return (
-    <section
-      aria-labelledby="angellist-agent-title"
-      className="angellist-agent"
+    <article
+      aria-labelledby={
+        message.title === null
+          ? "angellist-agent-label"
+          : "angellist-agent-label angellist-agent-title"
+      }
+      className="provider-agent-row"
     >
-      <div className="angellist-agent__heading">
-        <p className="eyebrow">AngelList updates</p>
-        <h2 id="angellist-agent-title">{message.title}</h2>
-        <p>{message.description}</p>
+      <div className="provider-agent-row__heading">
+        <p className="eyebrow" id="angellist-agent-label">
+          AngelList
+        </p>
+        {message.title !== null && (
+          <h3 id="angellist-agent-title">{message.title}</h3>
+        )}
+        {message.description !== null && <p>{message.description}</p>}
       </div>
 
-      <div className="angellist-agent__action" aria-live="polite">
+      <div className="provider-agent-row__action" aria-live="polite">
         {overview === null && error === null ? (
-          <span className="angellist-agent__checking" role="status">
+          <span className="provider-agent-row__checking" role="status">
             Checking…
           </span>
         ) : setupRequired ? (
-          <div className="angellist-agent__setup">
+          <div className="provider-agent-row__setup">
             <Button
               disabled={busyAction !== null}
               onClick={() => void copySetupCommand()}
@@ -3440,7 +3441,7 @@ function AngelListMacAgentControl() {
             {error === COPY_AGENT_COMMAND_ERROR && <code>{setupCommand}</code>}
           </div>
         ) : repairRequired ? (
-          <div className="angellist-agent__setup">
+          <div className="provider-agent-row__setup">
             {managedReconnectAvailable && (
               <ProviderReconnectControl
                 label="AngelList"
@@ -3458,10 +3459,10 @@ function AngelListMacAgentControl() {
         ) : (
           <ActionGroup
             align="end"
-            className="angellist-agent__controls"
+            className="provider-agent-row__controls"
             mobileLayout="stack"
           >
-            <div className="angellist-agent__interval">
+            <div className="provider-agent-row__interval">
               <span id="angellist-update-interval-label">
                 Automatic updates
               </span>
@@ -3511,7 +3512,7 @@ function AngelListMacAgentControl() {
         )}
 
         {overview !== null && !setupRequired && (
-          <DataList className="angellist-agent__meta">
+          <DataList className="provider-agent-row__meta">
             <DataItem
               label="Last agent check"
               value={
@@ -3540,17 +3541,17 @@ function AngelListMacAgentControl() {
         )}
 
         {notice !== null && (
-          <FormMessage className="angellist-agent__notice" tone="success">
+          <FormMessage className="provider-agent-row__notice" tone="success">
             {notice}
           </FormMessage>
         )}
         {error !== null && (
-          <FormMessage className="angellist-agent__error" tone="error">
+          <FormMessage className="provider-agent-row__error" tone="error">
             {error}
           </FormMessage>
         )}
       </div>
-    </section>
+    </article>
   );
 }
 
@@ -3948,18 +3949,22 @@ function ProviderPortfolioAgentRow({
   );
 }
 
-function ProviderPortfolioAgentsControl() {
+function PrivateInvestmentSourcesControl() {
   return (
     <section
-      aria-labelledby="provider-portfolio-agents-title"
+      aria-labelledby="private-investment-sources-title"
       className="provider-agents"
     >
       <div className="provider-agents__heading">
-        <p className="eyebrow">Other portfolio updates</p>
-        <h2 id="provider-portfolio-agents-title">Tokenfolio and Sydecar</h2>
-        <p>Set up each once. Clear positions update automatically.</p>
+        <p className="eyebrow">Portfolio updates</p>
+        <h2 id="private-investment-sources-title">Private investments</h2>
+        <p>
+          Clear positions update automatically. Only uncertain positions need
+          review.
+        </p>
       </div>
       <div className="provider-agents__rows">
+        <AngelListSignInControl />
         {PROVIDER_PORTFOLIO_AGENTS.map((provider) => (
           <ProviderPortfolioAgentRow key={provider} provider={provider} />
         ))}
@@ -6384,7 +6389,7 @@ function Holdings({
         }
         description={
           sourcesVisible
-            ? "Manage automatic updates, bank accounts, and brokerages."
+            ? "Manage bank accounts, brokerages, and private investments."
             : "See shared economic exposure, then open each legal position for ownership and source details."
         }
         eyebrow={sourcesVisible ? "Holdings" : "Portfolio evidence"}
@@ -6431,16 +6436,12 @@ function Holdings({
             <Notice tone="error">{importCheckError}</Notice>
           )}
           {sourcesVisible ? (
-            <>
-              <AngelListSignInControl />
-              <ProviderPortfolioAgentsControl />
-              <CashAccountsControl
-                onAccepted={async () => {
-                  setCashRefreshVersion((current) => current + 1);
-                  await onCashAccepted();
-                }}
-              />
-            </>
+            <CashAccountsControl
+              onAccepted={async () => {
+                setCashRefreshVersion((current) => current + 1);
+                await onCashAccepted();
+              }}
+            />
           ) : (
             <>
               {pendingImports.length > 0 && (
@@ -6513,6 +6514,7 @@ function Holdings({
             showSmallBalances={showSmallCashBalances}
             visibleExposureCount={visibleExposureCount}
           />
+          {sourcesVisible && <PrivateInvestmentSourcesControl />}
         </>
       )}
     </ScreenLayout>

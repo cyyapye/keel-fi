@@ -69,7 +69,7 @@ it("accounts for every runtime timer, network and queue call in the entrypoint g
         }
         const callee = node.expression.getText(source);
         const kind =
-          /(?:^|\.)(?:fetch|fetchImpl|fetchImplementation|fetcher)$/u.test(
+          /(?:^|\.)(?:fetch|fetchImpl|fetchImplementation|fetcher|macAgentApi|goto|fallback)$/u.test(
             callee,
           )
             ? "network"

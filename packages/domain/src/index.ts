@@ -1427,6 +1427,32 @@ export const ProviderPortfolioAgentFailureInputSchema = z
   })
   .strict();
 
+export const ProviderSessionRenewalLeaseSchema = z
+  .object({
+    version: z.literal(1),
+    renewal: z
+      .object({
+        leaseToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+        expiresAt: IsoTimestampSchema,
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+export const ProviderSessionRenewalFailureSchema = z
+  .object({
+    errorCode: z.enum(["provider_sign_in_required", "unexpected_failure"]),
+  })
+  .strict();
+
+export type ProviderSessionRenewalLease = z.infer<
+  typeof ProviderSessionRenewalLeaseSchema
+>;
+export type ProviderSessionRenewalFailure = z.infer<
+  typeof ProviderSessionRenewalFailureSchema
+>;
+
 export const CloudflareLiveViewUrlSchema = z
   .url()
   .superRefine((value, context) => {
