@@ -143,6 +143,17 @@ describe("private document backup and recovery", () => {
     expect(() => backupInventory(sql(4097))).toThrow();
     expect(backupInventory(sql())).toHaveLength(1);
   });
+  it("bounds aggregate backup bytes independently of document count", () => {
+    // 128 individually valid 8 MiB documents reach the existing 1 GiB limit
+    // without allocating those contents or approaching the 4,096-document cap.
+    const atLimit = `${sql(128)}\nUPDATE source_documents SET byte_size = 8388608;`;
+    expect(backupInventory(atLimit)).toHaveLength(128);
+    expect(() =>
+      backupInventory(
+        `${atLimit}\nUPDATE source_documents SET byte_size = byte_size + 1 WHERE id = 'document-0';`,
+      ),
+    ).toThrow("Document backup exceeds the private-alpha limit");
+  });
   it.each(["20260905T223729!", "20260905T224010!"])(
     "authenticates a streamed archive and rejects ciphertext tampering (%s)",
     async (timestamp) => {

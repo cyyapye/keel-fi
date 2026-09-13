@@ -15,7 +15,7 @@ AGENT_PLATFORM ?= $(shell uname -s)
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify pdf-sandbox-build pdf-sandbox-verify
+.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify pdf-sandbox-build pdf-sandbox-verify pilot-validate pilot-verify
 
 help:
 	@echo "Keel developer commands"
@@ -29,6 +29,7 @@ help:
 	@echo "  make dev-logs      Follow Docker development service logs"
 	@echo "  make dev-build     Rebuild Docker development images"
 	@echo "  make verify        Run the complete local verification suite"
+	@echo "  make pilot-verify  Run the isolated Tugling pilot required gate (TUGLING_PILOT_SOURCE required)"
 	@echo "  make pdf-sandbox-build   Build the PDF reader using a provisioned rootless Docker socket"
 	@echo "  make pdf-sandbox-verify  Prove PDF isolation with synthetic adversarial probes"
 	@echo "  make check         Run source checks, unit tests, and builds"
@@ -175,3 +176,13 @@ verify:
 	$(MAKE) pdf-sandbox-verify
 	$(MAKE) check
 	$(MAKE) e2e
+
+pilot-validate:
+	@python3 -I scripts/tugling-pilot.py validate
+
+pilot-verify:
+	@python3 -I scripts/tugling-pilot.py required
+
+.PHONY: pilot-clean
+pilot-clean:
+	@python3 -I scripts/tugling-pilot.py cleanup

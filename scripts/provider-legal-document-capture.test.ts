@@ -81,9 +81,12 @@ describe("agreement download boundary", () => {
     "https://storage.googleapis.com:8443/sydecar-prod-documents/one.pdf",
     "http://127.0.0.1/private.pdf",
     "file:///private/agreement.pdf",
-  ])("rejects unknown origins, buckets, credentials and protocols", (url) => {
-    expect(() => agreementUrl("sydecar", url)).toThrow();
-  });
+  ])(
+    "rejects unknown origins, buckets, credentials and protocols: %s",
+    (url) => {
+      expect(() => agreementUrl("sydecar", url)).toThrow();
+    },
+  );
   it("bounds streaming bytes even without a trustworthy length header", async () => {
     const bytes = syntheticAgreementPdf();
     expect(

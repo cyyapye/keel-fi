@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "tugling": {
+    "repository": "https://github.com/cyyapye/tugling",
+    "channel": "pinned",
+    "revision": "c5990a7f6827b3daa20e3d76a4d1fa017e41de3d",
+    "version": "0.5.0"
+  },
+  "project": {
+    "adapter": "AGENTS.md",
+    "instructions": ["AGENTS.md", "apps/web/AGENTS.md"],
+    "canonical_verify": ["make", "pilot-verify"],
+    "ci_workflow": ".github/workflows/tugling-pilot.yml",
+    "dogfood_case": ".tugling/dogfood.json",
+    "verification": ".tugling/pilot-verification.json",
+    "receipt_retention": {
+      "max_age_seconds": 604800,
+      "max_files": 64,
+      "max_bytes": 16777216
+    }
+  },
+  "learning": {
+    "mode": "local",
+    "local_path": ".tugling/local/corrections.jsonl"
+  }
+}

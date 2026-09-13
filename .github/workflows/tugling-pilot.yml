@@ -1,0 +1,96 @@
+name: Tugling candidate pilot
+
+on:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      regression_probe:
+        description:
+          Run the polling regression rejection probe instead of the complete
+          passing gate
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tugling-pilot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  required:
+    name:
+      ${{ inputs.regression_probe && 'Polling regression rejection probe' ||
+      'Complete native pilot gate' }}
+    runs-on: [self-hosted, Linux, X64, keel-ci]
+    timeout-minutes: ${{ inputs.regression_probe && 30 || 120 }}
+    defaults:
+      run:
+        working-directory: keel
+    env:
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
+    steps:
+      - name: Check out exact PR head or merge-queue candidate
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: keel
+          persist-credentials: false
+      - name: Assert intended project revision
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - name: Check out reviewed candidate as a sibling
+        uses: actions/checkout@v5
+        with:
+          repository: cyyapye/tugling
+          ref: c5990a7f6827b3daa20e3d76a4d1fa017e41de3d
+          path: tugling-candidate
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+          version: 11.9.0
+          package_json_file: keel/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.13.0
+          cache: pnpm
+          cache-dependency-path: keel/pnpm-lock.yaml
+      - name: Prepare locked dependencies and synthetic runtime
+        run: make bootstrap
+      - name: Build isolated PDF runtimes on the provisioned rootless daemon
+        run: make pdf-sandbox-build
+      - name: Execute complete required gate on this revision
+        if: ${{ !inputs.regression_probe }}
+        run: |
+          mkdir -p .tugling/local
+          make pilot-verify > .tugling/local/pilot-required.json
+      - name: Inspect current required receipt
+        if: ${{ !inputs.regression_probe }}
+        run: |
+          receipt=$(python3 -I -c 'import json; print(json.load(open(".tugling/local/pilot-required.json"))["flow_verification"]["path"])')
+          python3 -I scripts/tugling-pilot.py evidence "$receipt"
+      - name: Prove the required gate rejects increased idle polling
+        if: ${{ inputs.regression_probe }}
+        run: python3 -I scripts/pilot_regression_probe.py
+      - name: Retain synthetic verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name:
+            native-pilot-${{ github.event.pull_request.head.sha || github.sha
+            }}-${{ github.run_attempt }}
+          path: |
+            keel/.tugling/local/pilot-required.json
+            keel/.tugling/local/pilot-probe-required.json
+            keel/.tugling/local/pilot-probe-summary.json
+            keel/.tugling/local/pilot-probe.log
+            keel/.tugling/local/verification/
+            keel/.tugling/local/pilot/vitest.json
+            keel/.tugling/local/pilot/playwright.json
+            keel/.tugling/local/pilot/browser-results/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
