@@ -20,6 +20,7 @@ const {
   tokenfolioActiveHoldingStatus,
   tokenfolioTabCount,
   withProviderBrowser,
+  withRenewalDeadline,
 } = __providerPortfolioMacAgentTest;
 
 afterEach(() => vi.restoreAllMocks());
@@ -129,6 +130,34 @@ describe("provider browser lifetime", () => {
     );
     expect(runtime.closeControlledChrome).not.toHaveBeenCalled();
     expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("closes a stalled renewal before its five-minute lease can expire", async () => {
+    vi.useFakeTimers();
+    const { disconnect, runtime } = fixture();
+    try {
+      const operation = vi.fn(() => new Promise<void>(() => undefined));
+      const renewal = withProviderBrowser(
+        "sydecar",
+        origin,
+        () => withRenewalDeadline(operation),
+        runtime,
+      );
+      const rejected = expect(renewal).rejects.toThrow("unexpected_failure");
+      await vi.advanceTimersByTimeAsync(119_999);
+      expect(operation).toHaveBeenCalledOnce();
+      expect(runtime.closeControlledChrome).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await rejected;
+      expect(runtime.closeControlledChrome).toHaveBeenCalledExactlyOnceWith(
+        "sydecar",
+        origin,
+      );
+      expect(disconnect).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -336,7 +365,7 @@ describe("provider portfolio Mac agent", () => {
     });
   });
 
-  it("installs an isolated daily LaunchAgent for each provider and origin", () => {
+  it("installs an isolated hourly Sydecar check while D1 owns the daily capture schedule", () => {
     const keelOrigin = new URL("https://keel.example.com");
     const plist = buildLaunchAgentPlist({
       keelOrigin,
@@ -352,7 +381,7 @@ describe("provider portfolio Mac agent", () => {
       providerPaths("sydecar", keelOrigin).launchAgentLabel,
     );
     expect(plist).toContain("<string>sydecar</string>");
-    expect(plist).toContain("<integer>86400</integer>");
+    expect(plist).toContain("<integer>3600</integer>");
     expect(plist).toContain(
       "/opt/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     );

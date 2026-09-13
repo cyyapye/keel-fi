@@ -17,6 +17,7 @@ import {
   ProviderPortfolioAgentOverviewSchema,
   ProviderPortfolioAgentProviderSchema,
   ProviderPortfolioAgentRunRequestSchema,
+  ProviderSessionRenewalLeaseSchema,
   type MacAgentAuthorization,
   type ProviderPortfolioAgentErrorCode,
   type ProviderPortfolioAgentLease,
@@ -63,6 +64,7 @@ import {
   type ConnectOverCDPOptions,
   type Locator,
   type Page,
+  type Route,
 } from "@playwright/test";
 import { z } from "zod";
 import {
@@ -77,6 +79,7 @@ const DAILY_CHECK_INTERVAL_SECONDS = 24 * 60 * 60;
 // queued update promptly, without a restart or an extra daily provider scrape.
 const POLL_INTERVAL_MS = 60_000;
 const PAGE_TIMEOUT_MS = 45_000;
+const SESSION_RENEWAL_REQUEST_LIMIT = 150;
 
 type Command = "once" | "run" | "serve" | "setup";
 
@@ -525,12 +528,72 @@ function pageAtOrigin(context: BrowserContext, origin: string): Page | null {
   );
 }
 
+const controlledPages = new WeakMap<
+  BrowserContext,
+  { pages: Set<Page>; creating: Promise<void> }
+>();
+
+async function newControlledPage(context: BrowserContext): Promise<Page> {
+  let state = controlledPages.get(context);
+  if (state === undefined) {
+    state = { pages: new Set(), creating: Promise.resolve() };
+    controlledPages.set(context, state);
+    const owned = state;
+    await context.route("**/*", async (route) => {
+      let requestPage: Page | null = null;
+      try {
+        requestPage = route.request().frame().page();
+      } catch {
+        // Restored tabs can navigate before Chromium exposes their frame.
+      }
+      if (requestPage !== null && owned.pages.has(requestPage)) {
+        await route.fallback();
+      } else {
+        await route.abort("blockedbyclient").catch(() => undefined);
+      }
+    });
+    context.on("page", (candidate) => {
+      // A new explicit about:blank page is registered before it navigates.
+      // Closing unowned restored tabs also prevents their count growing on
+      // every restart. Document popups retain their existing bounded handler.
+      void owned.creating
+        .then(async () => {
+          if (
+            !owned.pages.has(candidate) &&
+            (await candidate.opener()) === null
+          )
+            await candidate.close();
+        })
+        .catch(() => undefined);
+    });
+  }
+  let created!: () => void;
+  state.creating = new Promise<void>((resolve) => {
+    created = resolve;
+  });
+  try {
+    const page = await context.newPage();
+    state.pages.add(page);
+    const owned = state;
+    await Promise.all(
+      context.pages().map(async (candidate) => {
+        if (!owned.pages.has(candidate) && (await candidate.opener()) === null)
+          await candidate.close().catch(() => undefined);
+      }),
+    );
+    return page;
+  } finally {
+    created();
+  }
+}
+
 async function keelPage(
   context: BrowserContext,
   keelOrigin: URL,
 ): Promise<Page> {
-  const page =
-    pageAtOrigin(context, keelOrigin.origin) ?? (await context.newPage());
+  const page = controlledPages.has(context)
+    ? await newControlledPage(context)
+    : (pageAtOrigin(context, keelOrigin.origin) ?? (await context.newPage()));
   if (new URL(page.url()).origin !== keelOrigin.origin) {
     await page.goto(new URL("/holdings", keelOrigin).toString(), {
       waitUntil: "domcontentloaded",
@@ -545,7 +608,9 @@ async function portfolioPage(
 ): Promise<Page> {
   const config = PROVIDERS[provider];
   const page =
-    pageAtOrigin(context, config.origin) ?? (await context.newPage());
+    provider === "sydecar"
+      ? await newControlledPage(context)
+      : (pageAtOrigin(context, config.origin) ?? (await context.newPage()));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(config.portfolioUrl, {
     timeout: PAGE_TIMEOUT_MS,
@@ -1743,6 +1808,158 @@ async function pollOnce(
   return true;
 }
 
+const SessionExpirySchema = z
+  .object({
+    access: z.number().int().nonnegative().max(20_000_000_000).nullable(),
+    refresh: z.number().int().nonnegative().max(20_000_000_000).nullable(),
+  })
+  .strict();
+
+async function renewSavedSydecarSession(
+  context: BrowserContext,
+  now = Date.now,
+): Promise<void> {
+  let admittedRequests = 0;
+  let exhausted = false;
+  const admit = async (route: Route) => {
+    if (admittedRequests >= SESSION_RENEWAL_REQUEST_LIMIT) {
+      exhausted = true;
+      await route.abort("blockedbyclient").catch(() => undefined);
+      return;
+    }
+    admittedRequests++;
+    await route.fallback().catch(() => undefined);
+  };
+  // The provider's ordinary application performs its own token refresh. We do
+  // not replay credentials, rewrite expiry, or simulate human activity. Bound
+  // all page, API, asset and auxiliary requests for this maintenance operation.
+  await context.route("**/*", admit);
+  // Keep the cap attached through shutdown. Removing it before Browser.close
+  // would allow late provider timers to start unbudgeted requests.
+  const page = await portfolioPage(context, "sydecar");
+  await requireProviderPageReady(page, "sydecar");
+  const expiry = SessionExpirySchema.parse(
+    await page.evaluate(() => {
+      const expires = (key: string) => {
+        try {
+          const token = localStorage.getItem(key);
+          if (token === null) return null;
+          const encoded = token.split(".")[1];
+          if (encoded === undefined) return null;
+          const payload: unknown = JSON.parse(
+            atob(encoded.replaceAll("-", "+").replaceAll("_", "/")),
+          );
+          if (
+            typeof payload !== "object" ||
+            payload === null ||
+            !("exp" in payload)
+          )
+            return null;
+          return typeof payload.exp === "number" &&
+            Number.isSafeInteger(payload.exp)
+            ? payload.exp
+            : null;
+        } catch {
+          return null;
+        }
+      };
+      // Only expiry metadata crosses the browser boundary. Tokens and other
+      // account claims stay inside the existing dedicated Chrome profile.
+      return {
+        access: expires("auth_token"),
+        refresh: expires("refresh_token"),
+      };
+    }),
+  );
+  const timestamp = now() / 1_000;
+  if (expiry.refresh !== null && expiry.refresh <= timestamp)
+    throw new AgentFailure("provider_sign_in_required");
+  if (
+    exhausted ||
+    expiry.access === null ||
+    expiry.access <= timestamp ||
+    expiry.refresh === null ||
+    expiry.refresh < timestamp + 8 * 60 * 60
+  ) {
+    // A ready cached shell does not prove renewal. Require enough actual
+    // provider-issued lifetime for the next six-hour check plus discovery.
+    throw new AgentFailure("unexpected_failure");
+  }
+  console.info(
+    JSON.stringify({
+      event: "provider_session_renewal_verified",
+      provider: "sydecar",
+      admittedRequests,
+      refreshRemainingSeconds: Math.floor(expiry.refresh - timestamp),
+    }),
+  );
+}
+
+async function withRenewalDeadline(
+  operation: () => Promise<void>,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      operation(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new AgentFailure("unexpected_failure")),
+          120_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function checkSessionRenewal(
+  keelOrigin: URL,
+  authorization = readMacAgentAuthorization(keelOrigin, "sydecar"),
+  useBrowser = withProviderBrowser,
+  renew = renewSavedSydecarSession,
+): Promise<void> {
+  const prefix = agentPath("sydecar", "/mac-agent/session-renewal");
+  const response = await macAgentApi(authorization, `${prefix}/lease`, {
+    method: "POST",
+  });
+  if (response.status !== 200) throw new AgentFailure("unexpected_failure");
+  const { renewal } = ProviderSessionRenewalLeaseSchema.parse(response.body);
+  if (renewal === null) return;
+  let failure: "provider_sign_in_required" | "unexpected_failure" | null = null;
+  try {
+    await useBrowser("sydecar", keelOrigin, (context) =>
+      withRenewalDeadline(() => renew(context)),
+    );
+  } catch (error) {
+    failure =
+      error instanceof AgentFailure &&
+      error.code === "provider_sign_in_required"
+        ? "provider_sign_in_required"
+        : "unexpected_failure";
+  }
+  const completion = await macAgentApi(
+    authorization,
+    `${prefix}/${failure === null ? "complete" : "fail"}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Keel-Agent-Lease": renewal.leaseToken,
+      },
+      ...(failure === null
+        ? {}
+        : { body: JSON.stringify({ errorCode: failure }) }),
+    },
+  );
+  if (completion.status !== 200) throw new AgentFailure("unexpected_failure");
+  z.object({ version: z.literal(1) })
+    .strict()
+    .parse(completion.body);
+  if (failure !== null) throw new AgentFailure(failure);
+}
+
 function xml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -1808,7 +2025,7 @@ ${argumentXml}
     <key>RunAtLoad</key>
     <true/>
     <key>StartInterval</key>
-    <integer>${DAILY_CHECK_INTERVAL_SECONDS.toString()}</integer>
+    <integer>${(options.provider === "sydecar" ? 60 * 60 : DAILY_CHECK_INTERVAL_SECONDS).toString()}</integer>
     <key>ProcessType</key>
     <string>Background</string>
     <key>StandardOutPath</key>
@@ -2057,9 +2274,13 @@ async function serve(
 ): Promise<void> {
   if (command === "once") {
     await pollOnce(keelOrigin, provider);
+    if (provider === "sydecar") await checkSessionRenewal(keelOrigin);
     return;
   }
   await runProviderAgentPolling({
+    ...(provider === "sydecar"
+      ? { checkSessionRenewal: () => checkSessionRenewal(keelOrigin) }
+      : {}),
     updateIntervalMs: POLL_INTERVAL_MS,
     checkReconnect: async () => {
       const authorization = readMacAgentAuthorization(keelOrigin, provider);
@@ -2121,8 +2342,12 @@ async function main(): Promise<void> {
 export const __providerPortfolioMacAgentTest = {
   queuedUpdatePollIntervalMs: POLL_INTERVAL_MS,
   lease,
+  keelPage,
   pollOnce,
   withProviderBrowser,
+  checkSessionRenewal,
+  renewSavedSydecarSession,
+  withRenewalDeadline,
   buildLaunchAgentPlist,
   captureSydecar,
   captureTokenfolio,
@@ -2135,6 +2360,7 @@ export const __providerPortfolioMacAgentTest = {
   parseProviderDate,
   parsePercentagePpm,
   parseUsdMinor,
+  portfolioPage,
   providerPageReady,
   providerSignInVisible,
   requireProviderPageReady,

@@ -239,9 +239,16 @@ export function controlledChromeArguments(
     "--remote-debugging-port=0",
     "--no-first-run",
     "--no-default-browser-check",
+    "--disable-background-networking",
+    "--disable-background-mode",
     ...(supported === "linux"
       ? ["--headless=new", "--disable-dev-shm-usage"]
       : []),
+    // A blank URL still lets Chrome restore older provider tabs before CDP
+    // request controls attach. Start with no tabs; the leased operation opens
+    // its page only after installing its routing/admission rules. Sydecar also
+    // blocks delayed restoration when that first explicit window opens.
+    "--no-startup-window",
   ];
 }
 

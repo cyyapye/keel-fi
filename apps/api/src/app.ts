@@ -92,6 +92,7 @@ import {
   ProviderBrowserSessionFailureInputSchema,
   ProviderBrowserSessionReadyInputSchema,
   ProviderPortfolioAgentFailureInputSchema,
+  ProviderSessionRenewalFailureSchema,
   ProviderPortfolioAgentProviderSchema,
   PrivateExposureExactBatchInputSchema,
   PrivateExposureExactBatchResultSchema,
@@ -800,6 +801,13 @@ function machineRouteTarget(
     );
   if (providerLease !== null) {
     return providerLease[1] as ProviderPortfolioAgentProvider;
+  }
+  if (
+    /^\/api\/automation\/provider-holdings\/sydecar\/mac-agent\/session-renewal\/(?:lease|complete|fail)$/u.test(
+      pathname,
+    )
+  ) {
+    return "sydecar";
   }
   const providerRun =
     /^\/api\/automation\/provider-holdings\/(tokenfolio|sydecar)\/mac-agent\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:fail|complete|document-manifest|documents)$/iu.exec(
@@ -3950,6 +3958,74 @@ export function createApp(options: AppOptions = {}) {
       }
     },
   );
+
+  app.post(
+    "/api/automation/provider-holdings/sydecar/mac-agent/session-renewal/lease",
+    async (context) => {
+      try {
+        return context.json(
+          await providerPortfolioAgentRepositoryFor(
+            context.env,
+          ).leaseSessionRenewal(context.get("identity").subject),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        const missing =
+          error instanceof ProviderPortfolioAgentRepositoryError &&
+          error.code === "agent_not_registered";
+        return context.json(
+          { error: "Keel could not check session maintenance." },
+          missing ? 409 : 503,
+        );
+      }
+    },
+  );
+  for (const outcome of ["complete", "fail"] as const) {
+    app.post(
+      `/api/automation/provider-holdings/sydecar/mac-agent/session-renewal/${outcome}`,
+      async (context) => {
+        const leaseToken = context.req.header("X-Keel-Agent-Lease") ?? "";
+        if (!/^[A-Za-z0-9_-]{43}$/u.test(leaseToken))
+          return context.json(
+            { error: "This session lease is no longer valid." },
+            409,
+          );
+        let failure = null;
+        if (outcome === "fail") {
+          const parsed = ProviderSessionRenewalFailureSchema.safeParse(
+            await context.req.json().catch(() => null),
+          );
+          if (!parsed.success)
+            return context.json(
+              { error: "Choose a supported failure code." },
+              400,
+            );
+          failure = parsed.data;
+        }
+        try {
+          await providerPortfolioAgentRepositoryFor(
+            context.env,
+          ).finishSessionRenewal(
+            context.get("identity").subject,
+            leaseToken,
+            failure,
+          );
+          return context.json({ version: 1 }, 200, {
+            "Cache-Control": "private, no-store",
+          });
+        } catch (error) {
+          const invalid =
+            error instanceof ProviderPortfolioAgentRepositoryError &&
+            error.code === "lease_invalid";
+          return context.json(
+            { error: "Keel could not record session maintenance." },
+            invalid ? 409 : 503,
+          );
+        }
+      },
+    );
+  }
 
   app.post(
     "/api/automation/provider-holdings/:provider/mac-agent/runs/:runId/fail",

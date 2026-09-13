@@ -5,6 +5,10 @@ import {
   ProviderPortfolioAgentOverviewSchema,
   ProviderPortfolioAgentProviderSchema,
   ProviderPortfolioAgentRunRequestSchema,
+  ProviderSessionRenewalLeaseSchema,
+  ProviderSessionRenewalFailureSchema,
+  type ProviderSessionRenewalLease,
+  type ProviderSessionRenewalFailure,
   type AngelListMacAgentInterval,
   type ProviderPortfolioAgentConfigInput,
   type ProviderPortfolioAgentFailureInput,
@@ -15,6 +19,7 @@ import {
 } from "@keel/domain";
 
 import { agentHeartbeatCutoff } from "./agent-heartbeat";
+import { recordProviderSessionVerification } from "./provider-session-renewals";
 
 const DEFAULT_INTERVAL: AngelListMacAgentInterval = "daily";
 const OFFLINE_AFTER_MS = 36 * 60 * 60 * 1_000;
@@ -63,6 +68,14 @@ export class ProviderPortfolioAgentRepositoryError extends Error {
 }
 
 export interface ProviderPortfolioAgentRepository {
+  leaseSessionRenewal(
+    accessSubject: string,
+  ): Promise<ProviderSessionRenewalLease>;
+  finishSessionRenewal(
+    accessSubject: string,
+    leaseToken: string,
+    failure: ProviderSessionRenewalFailure | null,
+  ): Promise<void>;
   getOverview(
     accessSubject: string,
     provider: ProviderPortfolioAgentProvider,
@@ -412,7 +425,10 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
            SET status = 'leased', lease_token_sha256 = ?, lease_expires_at = ?,
              started_at = ?
            WHERE id = ? AND household_id = ? AND agent_id = ?
-             AND status = 'queued'`,
+             AND status = 'queued'
+             AND NOT EXISTS (SELECT 1 FROM provider_session_renewals renewal
+               WHERE renewal.agent_id = provider_portfolio_runs.agent_id
+                 AND renewal.lease_expires_at > ?)`,
         )
         .bind(
           leaseTokenSha256,
@@ -421,6 +437,7 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
           active.id,
           identity.household_id,
           agent.id,
+          timestamp,
         ),
     ]);
     const leased = await this.db
@@ -449,6 +466,173 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
                 : { recheckDocumentId: leased.recheck_document_id }),
             },
     });
+  }
+
+  public async leaseSessionRenewal(
+    accessSubject: string,
+  ): Promise<ProviderSessionRenewalLease> {
+    const identity = await this.findIdentity(accessSubject);
+    const agent = await this.requireAgent(identity.household_id, "sydecar");
+    const empty: ProviderSessionRenewalLease = { version: 1, renewal: null };
+    if (
+      agent.interval === "off" ||
+      agent.last_error_code === "provider_sign_in_required"
+    )
+      return empty;
+    const now = this.now();
+    const timestamp = now.toISOString();
+    const due = await this.db
+      .prepare(
+        `SELECT agent_id, attempts, lease_token_sha256 FROM provider_session_renewals
+      WHERE agent_id = ? AND next_check_at <= ?
+        AND (lease_expires_at IS NULL OR lease_expires_at <= ?)`,
+      )
+      .bind(agent.id, timestamp, timestamp)
+      .first<{
+        agent_id: string;
+        attempts: number;
+        lease_token_sha256: string | null;
+      }>();
+    if (due === null) return empty;
+    if (due.attempts >= 3) {
+      if (due.lease_token_sha256 !== null) {
+        await this.db.batch([
+          this.db
+            .prepare(
+              `UPDATE provider_session_renewals
+            SET last_outcome_token_sha256 = lease_token_sha256,
+              lease_token_sha256 = NULL, lease_expires_at = NULL, last_error_code = 'unexpected_failure'
+            WHERE agent_id = ? AND attempts = 3 AND lease_token_sha256 = ? AND lease_expires_at <= ?`,
+            )
+            .bind(agent.id, due.lease_token_sha256, timestamp),
+          this.db
+            .prepare(
+              `UPDATE provider_portfolio_agents SET last_error_code = 'unexpected_failure', updated_at = ?
+            WHERE id = ? AND last_error_code IS NOT 'unexpected_failure'
+              AND EXISTS (SELECT 1 FROM provider_session_renewals renewal
+              WHERE renewal.agent_id = provider_portfolio_agents.id AND renewal.attempts = 3
+                AND renewal.last_outcome_token_sha256 = ? AND renewal.last_error_code = 'unexpected_failure')`,
+            )
+            .bind(timestamp, agent.id, due.lease_token_sha256),
+        ]);
+      }
+      return empty;
+    }
+    const token = newLeaseToken();
+    const digest = await sha256(token);
+    const expiresAt = new Date(now.getTime() + LEASE_DURATION_MS).toISOString();
+    await this.db.batch([
+      this.db
+        .prepare(
+          `UPDATE provider_session_renewals
+      SET lease_token_sha256 = ?, lease_expires_at = ?, attempts = attempts + 1,
+        next_check_at = ?
+      WHERE agent_id = ? AND next_check_at <= ? AND attempts < 3
+        AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+        AND EXISTS (SELECT 1 FROM provider_portfolio_agents agent
+          WHERE agent.id = provider_session_renewals.agent_id AND agent.interval <> 'off'
+            AND (agent.last_error_code IS NULL OR agent.last_error_code <> 'provider_sign_in_required'))
+        AND NOT EXISTS (SELECT 1 FROM provider_portfolio_runs run
+          WHERE run.agent_id = provider_session_renewals.agent_id AND run.status IN ('queued', 'leased'))
+        AND NOT EXISTS (SELECT 1 FROM provider_browser_sessions session
+          WHERE session.household_id = ? AND session.provider = 'sydecar'
+            AND session.status IN ('requested', 'starting', 'ready', 'opened') AND session.expires_at > ?)`,
+        )
+        .bind(
+          digest,
+          expiresAt,
+          new Date(now.getTime() + 60 * 60_000).toISOString(),
+          agent.id,
+          timestamp,
+          timestamp,
+          identity.household_id,
+          timestamp,
+        ),
+    ]);
+    const won = await this.db
+      .prepare(
+        `SELECT agent_id FROM provider_session_renewals
+      WHERE agent_id = ? AND lease_token_sha256 = ?`,
+      )
+      .bind(agent.id, digest)
+      .first();
+    return ProviderSessionRenewalLeaseSchema.parse({
+      version: 1,
+      renewal: won === null ? null : { leaseToken: token, expiresAt },
+    });
+  }
+
+  public async finishSessionRenewal(
+    accessSubject: string,
+    leaseToken: string,
+    rawFailure: ProviderSessionRenewalFailure | null,
+  ): Promise<void> {
+    const failure =
+      rawFailure === null
+        ? null
+        : ProviderSessionRenewalFailureSchema.parse(rawFailure);
+    const identity = await this.findIdentity(accessSubject);
+    const agent = await this.requireAgent(identity.household_id, "sydecar");
+    const digest = await sha256(leaseToken);
+    const now = this.now();
+    const timestamp = now.toISOString();
+    const current = await this.db
+      .prepare(
+        `SELECT lease_token_sha256, lease_expires_at,
+      last_outcome_token_sha256 FROM provider_session_renewals WHERE agent_id = ?`,
+      )
+      .bind(agent.id)
+      .first<{
+        lease_token_sha256: string | null;
+        lease_expires_at: string | null;
+        last_outcome_token_sha256: string | null;
+      }>();
+    if (current?.last_outcome_token_sha256 === digest) return;
+    if (
+      current?.lease_token_sha256 !== digest ||
+      current.lease_expires_at === null ||
+      current.lease_expires_at <= timestamp
+    ) {
+      throw new ProviderPortfolioAgentRepositoryError("lease_invalid");
+    }
+    const code = failure?.errorCode ?? null;
+    await this.db.batch([
+      this.db
+        .prepare(
+          `UPDATE provider_session_renewals SET
+        last_verified_at = CASE WHEN ? IS NULL THEN ? ELSE last_verified_at END,
+        next_check_at = ?, attempts = CASE WHEN ? IS NULL THEN 0 ELSE attempts END,
+        lease_token_sha256 = NULL, lease_expires_at = NULL,
+        last_outcome_token_sha256 = ?, last_error_code = ?
+        WHERE agent_id = ? AND lease_token_sha256 = ? AND lease_expires_at > ?`,
+        )
+        .bind(
+          code,
+          timestamp,
+          new Date(
+            now.getTime() + (code === null ? 6 : 1) * 60 * 60_000,
+          ).toISOString(),
+          code,
+          digest,
+          code,
+          agent.id,
+          digest,
+          timestamp,
+        ),
+      // The outcome predicate prevents racing success/failure deliveries from
+      // changing the agent after another delivery won the transition.
+      this.db
+        .prepare(
+          `UPDATE provider_portfolio_agents SET last_error_code = ?, updated_at = ?
+        WHERE id = ? AND last_error_code IS NOT ?
+          AND EXISTS (SELECT 1 FROM provider_session_renewals renewal
+          WHERE renewal.agent_id = provider_portfolio_agents.id
+            AND renewal.last_outcome_token_sha256 = ? AND renewal.last_error_code IS ?
+            AND (? = 'provider_sign_in_required' OR (? IS NOT NULL AND renewal.attempts >= 3)
+              OR (? IS NULL AND provider_portfolio_agents.last_error_code = 'provider_sign_in_required')))`,
+        )
+        .bind(code, timestamp, agent.id, code, digest, code, code, code, code),
+    ]);
   }
 
   public async assertLease(
@@ -514,6 +698,12 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
           identity.household_id,
           provider,
         ),
+      ...recordProviderSessionVerification(
+        this.db,
+        identity.household_id,
+        provider,
+        now,
+      ),
     ]);
     return this.overviewFor(identity.household_id, provider, now);
   }

@@ -160,6 +160,23 @@ envelope.
 8. Verify the deployed revision, running clients and observed usage separately.
    A local pass, merged PR or newly created client does not update old
    processes.
+9. Test beyond every relevant session deadline. An immediate reconnect and
+   capture missed Sydecar's twelve-hour refresh expiry before its daily sync.
+   Closing a page fixes an idle logout, not server-side token expiry. The repair
+   uses bounded native-provider renewal with synthetic cold-browser expiry tests
+   and requires a later live renewal and scheduled capture.
+10. Exercise intermittent recovery, not only a complete outage: successful
+    retries reset failure counters and can produce more work in a day. Keep
+    request admission, retry limits and daily billing assertions independent.
+11. Reset per-scenario operational timestamps before rewinding a test clock.
+    Future heartbeat timestamps can make an apparently complete virtual day
+    undercount writes. Assert a sanity floor as well as the independent ceiling.
+12. Install request controls before any provider page can run. Chrome can
+    restore saved tabs before an explicit navigation, bypassing a guard attached
+    afterward or defer restoration until the first new window opens. Cold-start
+    tests must cover reused profiles, reject requests from unowned pages and
+    count actual admitted navigations through the whole operation. A zero-page
+    startup assertion and a retry-dependent CI pass are insufficient proof.
 
 These rules reduce recurrence and make known failures mechanically detectable.
 They do not justify a promise that no future query, workload growth, repeated

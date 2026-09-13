@@ -7,6 +7,11 @@ import { D1ProviderBrowserSessionRepository } from "../../packages/database/src/
 import { D1ProviderPortfolioAgentRepository } from "../../packages/database/src/provider-portfolio-agent";
 import { measureD1 } from "./d1-meter";
 
+// Full-day scenarios execute tens of thousands of real requests. The host test
+// reports their measured totals; per-request informational logs would drown out
+// that evidence. Keep errors and all production routing/authentication intact.
+console.info = () => undefined;
+
 export default {
   async fetch(
     request: Request,

@@ -2,10 +2,12 @@
 // work on this clock so an auxiliary reconnect loop cannot bypass its budget.
 export const PROVIDER_AGENT_IDLE_INTERVAL_MS = 60_000;
 export const PROVIDER_AGENT_MAX_RETRY_INTERVAL_MS = 15 * 60_000;
+export const PROVIDER_SESSION_DISCOVERY_INTERVAL_MS = 60 * 60_000;
 
 type PollingOptions = {
   checkReconnect: () => Promise<"idle" | "connected" | "handled">;
   checkUpdates: () => Promise<void>;
+  checkSessionRenewal?: () => Promise<void>;
   updateIntervalMs: number;
   onError: (error: unknown) => "authorization" | "retryable";
   now?: () => number;
@@ -22,6 +24,7 @@ export async function runProviderAgentPolling(
     ((milliseconds: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   let nextUpdateCheckAt = 0;
+  let nextSessionCheckAt = 0;
   let reconnectRetryMs = PROVIDER_AGENT_IDLE_INTERVAL_MS;
   let updateRetryMs = PROVIDER_AGENT_IDLE_INTERVAL_MS;
   const failureDelay = (error: unknown, interval: number) =>
@@ -54,6 +57,21 @@ export async function runProviderAgentPolling(
         const delay = failureDelay(error, updateRetryMs);
         nextUpdateCheckAt = now() + delay;
         updateRetryMs = increaseDelay(delay);
+      }
+    }
+    if (
+      reconnect === "idle" &&
+      options.checkSessionRenewal &&
+      now() >= nextSessionCheckAt
+    ) {
+      try {
+        await options.checkSessionRenewal();
+      } catch (error) {
+        options.onError(error);
+      } finally {
+        // Share the existing process/clock. Errors cannot fall through to a
+        // one-minute renewal retry; D1 separately admits at most three failures.
+        nextSessionCheckAt = now() + PROVIDER_SESSION_DISCOVERY_INTERVAL_MS;
       }
     }
     // A failed capture or browser must not delay the reconnect that repairs it.
