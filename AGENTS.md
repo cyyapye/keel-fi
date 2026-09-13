@@ -103,3 +103,8 @@ Load the applicable guidance when the task crosses its boundary:
 - Promote a lesson only after review, sanitization into a synthetic case, and a
   released-versus-candidate evaluation. Never publish Keel records, prompts,
   credentials, or private source material to Tugling.
+
+- When intentionally changing required test cases, update
+  `.tugling/required-cases.json` with `make refresh-required-cases` and review
+  the inventory diff alongside the accepted rule and native assertions. Do not
+  regenerate the inventory to conceal unexpected missing coverage.

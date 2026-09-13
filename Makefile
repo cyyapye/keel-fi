@@ -173,6 +173,7 @@ pdf-sandbox-verify:
 	$(PNPM) exec tsx scripts/pdf-sandbox-verify.ts
 
 verify:
+	$(if $(strip $(TEST_ARGS)$(E2E_ARGS)),$(error make verify requires the complete suite; use make test or make e2e for focused arguments))
 	$(MAKE) pdf-sandbox-verify
 	KEEL_REQUIRED_TESTS=1 $(MAKE) check
 	KEEL_REQUIRED_TESTS=1 $(MAKE) e2e
@@ -185,3 +186,7 @@ verify-required:
 
 test-linux-cleanup:
 	python3 scripts/test_linux_test_run.py
+
+.PHONY: refresh-required-cases
+refresh-required-cases:
+	node scripts/refresh-required-cases.mjs

@@ -21,7 +21,12 @@ jobs:
       - name: Check out the exact Keel candidate
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Confirm the exact candidate revision
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
       - uses: ./.github/actions/setup-node-pnpm
       - name: Check out the unreleased pilot source
         uses: actions/checkout@v5

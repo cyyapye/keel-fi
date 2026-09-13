@@ -1,5 +1,6 @@
 import type { Reporter, TestModule } from "vitest/node";
 import {
+  assertRequiredCases,
   assertRequiredFiles,
   projectTestPath,
   requiredTestFiles,
@@ -11,6 +12,16 @@ export default class RequiredVitestReporter implements Reporter {
     assertRequiredFiles(
       requiredTestFiles(root, "vitest"),
       new Set(modules.map((module) => projectTestPath(root, module.moduleId))),
+    );
+    assertRequiredCases(
+      root,
+      "vitest",
+      modules.flatMap((module) =>
+        [...module.children.allTests()].map(
+          (test) =>
+            `${projectTestPath(root, module.moduleId)} > ${test.fullName}`,
+        ),
+      ),
     );
     for (const module of modules) {
       const file = projectTestPath(root, module.moduleId);

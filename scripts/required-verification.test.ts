@@ -30,14 +30,36 @@ async function fixture(runner: "vitest" | "playwright") {
   );
   const first = `${testDirectory}/first.${suffix}.ts`;
   const second = `${testDirectory}/second.${suffix}.ts`;
-  const source = (mode = "") =>
+  const source = (mode = "", omitSecond = false) =>
     browser
       ? `import { test, expect } from "@playwright/test";
-       test${mode}("synthetic required case", () => { expect(2 + 2).toBe(4); });\n`
+       test("first required case", () => { expect(2 + 2).toBe(4); });
+       ${omitSecond ? "" : `test${mode}("second required case", () => { expect(3 + 3).toBe(6); });`}\n`
       : `import { it, expect } from "vitest";
-       it${mode}("synthetic required case", () => { expect(2 + 2).toBe(4); });\n`;
+       it("first required case", () => { expect(2 + 2).toBe(4); });
+       ${omitSecond ? "" : `it${mode}("second required case", () => { expect(3 + 3).toBe(6); });`}\n`;
   await writeFile(resolve(directory, first), source());
   await writeFile(resolve(directory, second), source());
+  await mkdir(resolve(directory, ".tugling"));
+  await writeFile(
+    resolve(directory, ".tugling/required-cases.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      vitest: ["first", "second"].flatMap((file) =>
+        ["first", "second"].map(
+          (name) => `scripts/${file}.test.ts > ${name} required case`,
+        ),
+      ),
+      playwright: ["chromium", "mobile-chromium"].flatMap((project) =>
+        ["first", "second"].flatMap((file) =>
+          ["first", "second"].map(
+            (name) =>
+              `${project} > e2e/${file}.spec.ts > ${name} required case`,
+          ),
+        ),
+      ),
+    }),
+  );
   execFileSync("git", ["init", "-q", directory]);
   execFileSync("git", ["add", "."], { cwd: directory });
   const run = (...filters: string[]) =>
@@ -79,7 +101,33 @@ describe("required native verification", () => {
         expect(skipped.status, skipped.stdout + skipped.stderr).not.toBe(0);
         expect(skipped.stdout + skipped.stderr).toContain("Required");
 
+        // Keep the file and another passing case: filename discovery alone
+        // cannot prove the accepted assertion is still present.
+        await writeFile(
+          resolve(probe.directory, probe.second),
+          probe.source("", true),
+        );
+        const omitted = probe.run();
+        expect(omitted.error).toBeUndefined();
+        expect(omitted.status, omitted.stdout + omitted.stderr).not.toBe(0);
+        expect(omitted.stdout + omitted.stderr).toContain(
+          "Required case inventory mismatch",
+        );
+
         await writeFile(resolve(probe.directory, probe.second), probe.source());
+        const titleFiltered = probe.run(
+          runner === "playwright" ? "--grep" : "--testNamePattern",
+          "first required case",
+        );
+        expect(titleFiltered.error).toBeUndefined();
+        expect(
+          titleFiltered.status,
+          titleFiltered.stdout + titleFiltered.stderr,
+        ).not.toBe(0);
+        expect(titleFiltered.stdout + titleFiltered.stderr).toContain(
+          "Required",
+        );
+
         const filtered = probe.run(probe.first);
         expect(filtered.error).toBeUndefined();
         expect(filtered.status, filtered.stdout + filtered.stderr).not.toBe(0);
@@ -108,6 +156,23 @@ describe("required native verification", () => {
             });`;
           await rm(resolve(probe.directory, probe.second));
           await writeFile(resolve(probe.directory, excludedFile), source);
+          const inventoryPath = resolve(
+            probe.directory,
+            ".tugling/required-cases.json",
+          );
+          const inventory: { playwright: string[] } = JSON.parse(
+            await readFile(inventoryPath, "utf8"),
+          );
+          inventory.playwright = inventory.playwright.filter(
+            (identity) => !identity.includes(" > e2e/second.spec.ts > "),
+          );
+          inventory.playwright.push(
+            ...["chromium", "mobile-chromium"].map(
+              (project) =>
+                `${project} > ${excludedFile} > tokenfolio accepts a saved sign-in after a real Chrome restart`,
+            ),
+          );
+          await writeFile(inventoryPath, JSON.stringify(inventory));
           execFileSync("git", ["add", "-A"], { cwd: probe.directory });
           const excluded = probe.run();
           expect(excluded.status, excluded.stdout + excluded.stderr).toBe(0);
@@ -130,6 +195,78 @@ describe("required native verification", () => {
     },
     60_000,
   );
+
+  it("executes only the tracked helper from the exact source repository root", async () => {
+    const parent = resolve(root, ".tugling/local/required-pilot");
+    await mkdir(parent, { recursive: true });
+    const directory = await mkdtemp(resolve(parent, "source-identity-"));
+    const sourceRoot = resolve(directory, "source");
+    const project = resolve(directory, "project");
+    const helperPath = "plugins/tugling/scripts/project_contract.py";
+    const marker = resolve(directory, "executed");
+    try {
+      await mkdir(resolve(sourceRoot, "plugins/tugling/scripts"), {
+        recursive: true,
+      });
+      await mkdir(resolve(project, "scripts"), { recursive: true });
+      await mkdir(resolve(project, ".tugling"));
+      const helper = `from pathlib import Path\nPath(${JSON.stringify(marker)}).write_text("synthetic helper")\n`;
+      await writeFile(resolve(sourceRoot, helperPath), helper);
+      await writeFile(resolve(sourceRoot, ".gitignore"), "ignored/\n");
+      execFileSync("git", ["init", "-q", sourceRoot]);
+      execFileSync("git", ["add", "."], { cwd: sourceRoot });
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Synthetic",
+          "-c",
+          "user.email=synthetic@example.invalid",
+          "commit",
+          "-qm",
+          "Synthetic source",
+        ],
+        { cwd: sourceRoot },
+      );
+      const revision = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: sourceRoot,
+        encoding: "utf8",
+      }).trim();
+      await writeFile(
+        resolve(project, ".tugling/pilot.json"),
+        JSON.stringify({ tugling: { revision } }),
+      );
+      await writeFile(
+        resolve(project, "scripts/verify-required.py"),
+        await readFile(resolve(root, "scripts/verify-required.py")),
+      );
+      const run = (source: string) =>
+        spawnSync(
+          "python3",
+          ["scripts/verify-required.py", "--source-root", source],
+          {
+            cwd: project,
+            encoding: "utf8",
+            timeout: 10_000,
+          },
+        );
+      const good = run(sourceRoot);
+      expect(good.status, good.stdout + good.stderr).toBe(0);
+      expect(await readFile(marker, "utf8")).toBe("synthetic helper");
+      await rm(marker);
+      const nested = resolve(sourceRoot, "ignored");
+      await mkdir(resolve(nested, "plugins/tugling/scripts"), {
+        recursive: true,
+      });
+      await writeFile(resolve(nested, helperPath), helper);
+      const rejected = run(nested);
+      expect(rejected.status, rejected.stdout + rejected.stderr).not.toBe(0);
+      expect(rejected.stderr).toContain("Git repository root");
+      await expect(readFile(marker)).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 
   it("rejects skipped or missing Python cleanup regressions through their native entry point", async () => {
     const parent = resolve(root, ".tugling/local/required-pilot");
@@ -220,13 +357,26 @@ describe("required native verification", () => {
     ]);
     const makefile = await readFile(resolve(root, "Makefile"), "utf8");
     expect(makefile).toContain(
-      "verify:\n\t$(MAKE) pdf-sandbox-verify\n\tKEEL_REQUIRED_TESTS=1 $(MAKE) check\n\tKEEL_REQUIRED_TESTS=1 $(MAKE) e2e",
+      "\t$(MAKE) pdf-sandbox-verify\n\tKEEL_REQUIRED_TESTS=1 $(MAKE) check\n\tKEEL_REQUIRED_TESTS=1 $(MAKE) e2e",
     );
+    const focused = spawnSync(
+      "make",
+      ["verify", "E2E_ARGS=--list --reporter=list"],
+      { cwd: root, encoding: "utf8", timeout: 5_000 },
+    );
+    expect(focused.status, focused.stdout + focused.stderr).not.toBe(0);
+    expect(focused.stderr).toContain("make verify requires the complete suite");
     const workflow = await readFile(
       resolve(root, ".github/workflows/tugling-pilot.yml"),
       "utf8",
     );
     expect(workflow).toContain(`ref: ${pilot.tugling.revision as string}`);
+    expect(workflow).toContain(
+      "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+    );
+    expect(workflow).toContain(
+      'run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"',
+    );
     expect(workflow).toMatch(
       /run:\s+make verify-required TUGLING_SOURCE=\.tugling\/checkouts\/required-pilot/u,
     );

@@ -58,8 +58,22 @@ test files with Git's inventory, independently of runner filters. Empty,
 omitted, pending, unexpectedly skipped or non-passing required cases fail.
 Focused-only tests are forbidden. Required Playwright execution includes both
 `chromium` and `mobile-chromium`; the existing retry policy remains unchanged.
-The native Python temporary-runner entry point also requires both existing
-regressions to execute without skips.
+`make verify` rejects `TEST_ARGS` and `E2E_ARGS`, including reporter overrides;
+use the focused native targets when selecting tests during iteration. The native
+Python temporary-runner entry point also requires both existing regressions to
+execute without skips.
+
+The committed `.tugling/required-cases.json` records individual case identities,
+including repeated titles and each browser project. A missing case inside a
+nonempty file, a title filter, or an unregistered new case fails required
+execution. After an intentional rule or test change, run
+`make refresh-required-cases` and review its diff with the affected policy and
+assertions. Verification never regenerates this inventory; do not refresh it to
+hide an unexpected omission.
+
+The candidate workflow checks out and asserts the exact PR head (or merge-group
+SHA). The launcher requires the actual source repository root and the tracked
+helper bytes at the declared candidate commit before executing code.
 
 Two existing platform exclusions are retained explicitly:
 

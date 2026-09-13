@@ -8,6 +8,7 @@ import type {
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import {
+  assertRequiredCases,
   assertRequiredFiles,
   projectTestPath,
   requiredTestFiles,
@@ -45,6 +46,21 @@ export default class RequiredPlaywrightReporter implements Reporter {
           ),
         );
       }
+      assertRequiredCases(
+        root,
+        "playwright",
+        tests.map((test) => {
+          const titles = [test.title];
+          for (
+            let suite: Suite | undefined = test.parent;
+            suite?.type === "describe";
+            suite = suite.parent
+          ) {
+            titles.unshift(suite.title);
+          }
+          return `${test.parent.project()?.name ?? ""} > ${projectTestPath(root, test.location.file)} > ${titles.join(" > ")}`;
+        }),
+      );
       const exclusions = Exclusions.parse(
         JSON.parse(
           readFileSync(

@@ -122,7 +122,10 @@
         "e2e/provider-browser-lifecycle.spec.ts",
         "e2e/provider-legal-documents.spec.ts",
         "e2e/provider-portfolio-mac-agent.spec.ts",
-        "e2e/provider-session.spec.ts"
+        "e2e/provider-session.spec.ts",
+        ".tugling/required-cases.json",
+        "scripts/refresh-required-cases.mjs",
+        "scripts/verify-required.py"
       ],
       "runtime": {
         "owner": "native-command",
