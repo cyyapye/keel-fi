@@ -269,16 +269,17 @@ test("Sydecar page ownership preserves Keel setup and bounded agreement popups",
       provider: "sydecar",
       manifest: { version: 1, captures: [] },
       renew: () => Promise.resolve(),
-      download: async (url) => {
+      download: (url) => {
         expect(url.href).toBe(documentUrl);
         downloads++;
         // This regression tests popup ownership and the bounded downloader
         // handoff. Existing PDF tests cover successful scanning and extraction.
-        throw new Error("Synthetic download unavailable");
+        return Promise.reject(new Error("Synthetic download unavailable"));
       },
-      save: async ({ capture }) => {
+      save: ({ capture }) => {
         expect(capture.problem).toBe("inaccessible");
         saved++;
+        return Promise.resolve();
       },
     });
     await collector.collect(page, {
