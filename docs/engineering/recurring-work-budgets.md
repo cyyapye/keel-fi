@@ -29,6 +29,12 @@ those paths:
   authentication, and repository path. Assert independent daily ceilings,
   bounded failure retries, and the required detection/cancellation latency.
   Prove the old behavior fails the gate.
+- When preserving a provider session, compare its access, refresh and idle
+  deadlines with the complete scheduled interval. A successful immediate restart
+  does not prove a later capture. Cover intermittent recovery as well as
+  continuous outages; retries followed by success can be the busiest day. Reset
+  heartbeat state when rewinding fixture clocks so future timestamps cannot
+  silently suppress writes in the next measured scenario.
 - A recurring-work fix is not activated until both the server and every existing
   long-running client use the verified revision. Preserve provider identities,
   credentials, and profiles; avoid interrupting an active run. Report local,
@@ -58,14 +64,63 @@ provider browser cannot delay the reconnect that repairs it. A successful
 reconnect bypasses the update retry delay and checks for work immediately.
 
 Portfolio checks acquire a run before opening a provider browser. Sydecar closes
-Chrome after captures and explicit sign-in verification, preserving its saved
-profile without running an idle page. The full-day test also requires zero
-browser starts during empty checks; the one-minute discovery clock must not turn
-browser shutdown into 1,440 browser launches per provider per day. Browser
-startup failure after a lease is reported through the existing terminal failure
-path. This lifecycle adds no polling loop, provider keepalive, API request, or
-heartbeat write to an idle day. The existing failure and cancellation bounds
-remain in force.
+Chrome after captures, sign-in verification and session maintenance, preserving
+its profile without running an idle page. Empty checks must open zero browsers;
+the one-minute discovery clock cannot become 1,440 browser launches per day.
+Browser startup failures follow the leased operation's bounded failure path.
+
+### Sydecar session maintenance
+
+The provider's observed access-token lifetime is one hour and refresh-token
+lifetime is twelve hours; its open-page idle logout is earlier still. Closing
+Chrome prevents that idle logout but cannot preserve server authorization across
+a daily capture interval. The existing Sydecar process checks for a maintenance
+lease once per hour (24 additional authenticated requests per day). D1 admits
+maintenance six hours after the last verified capture, reconnect or renewal. The
+macOS Sydecar job also wakes hourly; capture scheduling remains in D1.
+
+One atomic five-minute lease excludes competing maintenance, capture and managed
+reconnect browser ownership. Already queued captures and reconnects win
+admission. An admitted operation opens the ordinary provider application so its
+own client renews its session. Success requires a ready portfolio, an unexpired
+access token and at least eight hours of provider-issued refresh lifetime. Only
+expiry metadata leaves the browser. No provider credential or account claim is
+sent to Keel. The operation has a two-minute deadline after browser startup,
+closes its browser before reporting, and admits at most 150 page HTTP requests,
+including assets and auxiliary calls. Chrome starts on a blank page with
+background networking disabled.
+
+A reconnect requested during maintenance waits for its bounded provider
+operation and browser cleanup, then the next one-minute discovery check. Browser
+startup, cleanup and network latency add to that active-work delay. Once an
+interactive reconnect starts, its existing five-second cancellation checks
+remain unchanged. Maintenance does not add a second status-polling loop.
+
+After a transient error or crashed lease, the next attempt is at least an hour
+later. Three consecutive attempts stop maintenance and expose an error; a
+provider sign-in rejection stops immediately. A verified reconnect or successful
+capture resets this state. Turning scheduled updates off disables maintenance.
+Authorization and revocation remain current on every request. Maintenance never
+creates an import or advances the portfolio's last/next capture time.
+
+Starting immediately after verification, the successful virtual day performs
+three renewals (hours 6, 12 and 18); any rolling day permits at most four
+successful renewals. A continuous provider outage permits three attempts. Two
+failures followed by success is the maximum retry pattern: at most nine attempts
+in a rolling day, or 1,350 admitted provider-page HTTP requests. The actual-D1
+day test includes that intermittent pattern, independently caps nine browser
+starts and exactly 24 discovery calls, and keeps the existing 2,000
+index-inclusive write ceiling. No Keel object reads, imports or financial writes
+are part of maintenance. Existing useful-capture reserves still apply
+separately.
+
+Real Chrome tests model one-hour access and twelve-hour refresh expiry across
+cold starts. The former close-only behavior loses authentication after a day;
+normal provider refresh at hours 6/12/18 preserves the following daily capture.
+This synthetic proof must be followed by a deployed renewal event and the next
+scheduled live capture without another sign-in. Account revocation, changed
+provider policy or downtime beyond the refresh deadline can still need
+reconnect.
 
 Authentication performs an indexed database lookup for each request. There is no
 authorization cache. First use of a replacement credential retires older
@@ -134,7 +189,10 @@ scheduler constants.
 
 | Workload                                           | HTTP requests | Web/API invocations | D1 rows read | D1 rows written |
 | -------------------------------------------------- | ------------: | ------------------: | -----------: | --------------: |
-| Three idle agents, measured                        |         7,201 |              14,402 |       76,901 |           1,725 |
+| Three idle agents, measured                        |         7,225 |              14,450 |       77,165 |           1,725 |
+| Three agents with successful session renewal       |         7,228 |              14,456 |       77,248 |           1,731 |
+| Three agents with a renewal outage                 |         7,228 |              14,456 |       77,250 |           1,732 |
+| Three agents with intermittent renewal failures    |         7,234 |              14,468 |       77,353 |           1,743 |
 | Three idle agents, ceiling                         |        10,000 |              20,000 |      150,000 |           2,000 |
 | Three revoked agents, measured                     |           288 |                 576 |          288 |               0 |
 | Three revoked agents, ceiling                      |           300 |                 600 |        1,000 |               0 |

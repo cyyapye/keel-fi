@@ -73,8 +73,9 @@ make provider-agent-run PROVIDER=sydecar KEEL_URL=https://keel.example.com
 
 The Holdings screen can set the import interval to daily, weekly, or off. The
 Linux service checks for queued work once per minute; D1 controls the scheduled
-capture interval. The macOS job remains a daily check. Empty checks do not open
-a provider browser.
+capture interval. The macOS Tokenfolio job checks daily; Sydecar checks hourly
+so a daily or weekly capture interval does not expire its saved sign-in. Empty
+checks do not open a provider browser.
 
 Sydecar closes its dedicated Chrome browser after each completed or failed
 capture, setup verification, and reconnect verification. The next capture
@@ -83,6 +84,17 @@ captures lets its client-side inactivity timer sign out and erase the saved
 login. Closing Chrome does not clear the profile, simulate activity, copy
 credentials, or override provider-side expiry. An expired or revoked sign-in
 still requires reconnecting. Tokenfolio keeps its existing browser lifetime.
+
+Sydecar's refresh authorization currently lasts twelve hours. While scheduled
+updates are enabled, the agent leases a separate session check six hours after
+the last verified capture, reconnect or renewal. It briefly opens the ordinary
+provider page, lets the provider renew its own session, checks expiry metadata,
+and closes Chrome. This does not import holdings or change the capture interval.
+Transient errors retry hourly, at most three times; an expired sign-in stops
+until recovery. See the
+[operating budget](../engineering/recurring-work-budgets.md#sydecar-session-maintenance)
+for admission, deadlines and full-day costs. Upgrade both the API/web and the
+existing worker; reinstall a macOS job to apply its hourly wake interval.
 
 ## Reconnect from Holdings
 

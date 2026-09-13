@@ -198,6 +198,37 @@ async function leaseUpdate(authorization: MacAgentAuthorization) {
 }
 
 describe("provider agent operating budget", () => {
+  it("requires current Sydecar authorization before any session maintenance", async () => {
+    const { measured, authorizations } = await fixture();
+    const otherAuthorization = authorizations.get("tokenfolio");
+    const sydecarAuthorization = authorizations.get("sydecar");
+    if (!otherAuthorization || !sydecarAuthorization)
+      throw new Error("Missing synthetic test authorization");
+    const useBrowser = vi.fn(() =>
+      Promise.reject(new Error("No unauthorized browser work")),
+    );
+    await expect(
+      __providerPortfolioMacAgentTest.checkSessionRenewal(
+        new URL(ORIGIN),
+        otherAuthorization,
+        useBrowser,
+      ),
+    ).rejects.toBeInstanceOf(MacAgentAccessError);
+    measured.sqlite
+      .prepare(
+        "UPDATE mac_agent_credentials SET revoked_at = ? WHERE target = 'sydecar' AND revoked_at IS NULL",
+      )
+      .run(new Date(START).toISOString());
+    await expect(
+      __providerPortfolioMacAgentTest.checkSessionRenewal(
+        new URL(ORIGIN),
+        sydecarAuthorization,
+        useBrowser,
+      ),
+    ).rejects.toBeInstanceOf(MacAgentAccessError);
+    expect(useBrowser).not.toHaveBeenCalled();
+  });
+
   it("keeps a full idle day for all three agents inside the shared request and write budgets", async () => {
     const { measured, clock, authorizations, traffic } = await fixture();
     const before = measured.changes();
@@ -212,6 +243,16 @@ describe("provider agent operating budget", () => {
       const authorization = authorizations.get(provider)!;
       const controller = new AbortController();
       await runProviderAgentPolling({
+        ...(provider === "sydecar"
+          ? {
+              checkSessionRenewal: () =>
+                __providerPortfolioMacAgentTest.checkSessionRenewal(
+                  new URL(ORIGIN),
+                  authorization,
+                  useBrowser,
+                ),
+            }
+          : {}),
         checkReconnect: async () => {
           expect(
             (await leaseProviderBrowserSession(authorization, provider))

@@ -15,6 +15,7 @@ import {
 } from "@keel/domain";
 
 import { agentHeartbeatCutoff } from "./agent-heartbeat";
+import { recordProviderSessionVerification } from "./provider-session-renewals";
 
 const SESSION_DURATION_MS = 15 * 60 * 1_000;
 
@@ -331,7 +332,12 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
            SET status = 'starting', lease_token_sha256 = ?, started_at = ?,
              updated_at = ?
            WHERE id = ? AND household_id = ? AND provider = ?
-             AND status = 'requested' AND expires_at > ?`,
+             AND status = 'requested' AND expires_at > ?
+             AND NOT EXISTS (SELECT 1 FROM provider_portfolio_agents agent
+               JOIN provider_session_renewals renewal ON renewal.agent_id = agent.id
+               WHERE agent.household_id = provider_browser_sessions.household_id
+                 AND agent.provider = provider_browser_sessions.provider
+                 AND renewal.lease_expires_at > ?)`,
         )
         .bind(
           digest,
@@ -340,6 +346,7 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
           requested.id,
           identity.household_id,
           provider,
+          timestamp,
           timestamp,
         ),
     ]);
@@ -444,6 +451,12 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
           identity.household_id,
           provider,
         ),
+      ...recordProviderSessionVerification(
+        this.db,
+        identity.household_id,
+        provider,
+        now,
+      ),
     ]);
     return toSession(
       await this.requireSession(identity.household_id, sessionId),

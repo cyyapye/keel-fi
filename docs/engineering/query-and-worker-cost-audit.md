@@ -160,6 +160,17 @@ envelope.
 8. Verify the deployed revision, running clients and observed usage separately.
    A local pass, merged PR or newly created client does not update old
    processes.
+9. Test beyond every relevant session deadline. An immediate reconnect and
+   capture missed Sydecar's twelve-hour refresh expiry before its daily sync.
+   Closing a page fixes an idle logout, not server-side token expiry. The repair
+   uses bounded native-provider renewal with synthetic cold-browser expiry tests
+   and requires a later live renewal and scheduled capture.
+10. Exercise intermittent recovery, not only a complete outage: successful
+    retries reset failure counters and can produce more work in a day. Keep
+    request admission, retry limits and daily billing assertions independent.
+11. Reset per-scenario operational timestamps before rewinding a test clock.
+    Future heartbeat timestamps can make an apparently complete virtual day
+    undercount writes. Assert a sanity floor as well as the independent ceiling.
 
 These rules reduce recurrence and make known failures mechanically detectable.
 They do not justify a promise that no future query, workload growth, repeated

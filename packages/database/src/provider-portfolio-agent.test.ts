@@ -8,6 +8,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import { D1ProviderPortfolioAgentRepository } from "./provider-portfolio-agent";
+import { D1ProviderBrowserSessionRepository } from "./provider-browser-sessions";
 
 class TestD1Statement {
   private bindings: SQLInputValue[] = [];
@@ -128,6 +129,167 @@ let database: DatabaseSync | null = null;
 afterEach(() => {
   database?.close();
   database = null;
+});
+
+describe("Sydecar session renewal admission", () => {
+  async function fixture() {
+    database = createTestDatabase();
+    const sql = database;
+    const d1 = new TestD1Database(sql) as unknown as D1Database;
+    const clock = { now: Date.parse("2026-08-21T12:00:00.000Z") };
+    const repository = new D1ProviderPortfolioAgentRepository(
+      d1,
+      () => new Date(clock.now),
+    );
+    const reconnects = new D1ProviderBrowserSessionRepository(
+      d1,
+      () => new Date(clock.now),
+    );
+    await repository.register("synthetic-access-subject", "sydecar");
+    await repository.requestRun("synthetic-access-subject", "sydecar");
+    const run = (await repository.lease("synthetic-access-subject", "sydecar"))
+      .run!;
+    await repository.complete(
+      "synthetic-access-subject",
+      "sydecar",
+      run.id,
+      run.leaseToken,
+      seedPendingImport(sql, "sydecar"),
+    );
+    return { sql, clock, repository, reconnects };
+  }
+  const subject = "synthetic-access-subject";
+  const hour = 3_600_000;
+
+  it("does not write before due, admits one racing caller, and keeps the financial schedule unchanged", async () => {
+    const { sql, clock, repository } = await fixture();
+    const before = await repository.getOverview(subject, "sydecar");
+    clock.now += hour;
+    const changes = sql.prepare("SELECT total_changes() AS n").get()!.n;
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    expect(sql.prepare("SELECT total_changes() AS n").get()!.n).toBe(changes);
+    clock.now += 5 * hour;
+    const races = await Promise.all(
+      Array.from({ length: 8 }, () => repository.leaseSessionRenewal(subject)),
+    );
+    const leases = races.flatMap((result) =>
+      result.renewal === null ? [] : [result.renewal],
+    );
+    expect(leases).toHaveLength(1);
+    await repository.finishSessionRenewal(subject, leases[0]!.leaseToken, null);
+    const finishedChanges = sql.prepare("SELECT total_changes() AS n").get()!.n;
+    await repository.finishSessionRenewal(subject, leases[0]!.leaseToken, null);
+    await repository.finishSessionRenewal(subject, leases[0]!.leaseToken, {
+      errorCode: "provider_sign_in_required",
+    });
+    expect(sql.prepare("SELECT total_changes() AS n").get()!.n).toBe(
+      finishedChanges,
+    );
+    const after = await repository.getOverview(subject, "sydecar");
+    expect(after.lastCompletedAt).toBe(before.lastCompletedAt);
+    expect(after.nextRunAt).toBe(before.nextRunAt);
+    expect(after.errorCode).toBeNull();
+    expect(
+      sql.prepare("SELECT count(*) AS n FROM provider_portfolio_runs").get()!.n,
+    ).toBe(1);
+  });
+
+  it("excludes captures and interactive reconnects while the renewal owns the browser", async () => {
+    const { clock, repository, reconnects } = await fixture();
+    clock.now += 6 * hour;
+    const renewal = (await repository.leaseSessionRenewal(subject)).renewal!;
+    await repository.requestRun(subject, "sydecar");
+    await reconnects.create(subject, "sydecar");
+    expect((await repository.lease(subject, "sydecar")).run).toBeNull();
+    expect((await reconnects.lease(subject, "sydecar")).session).toBeNull();
+    await repository.finishSessionRenewal(subject, renewal.leaseToken, null);
+    expect((await reconnects.lease(subject, "sydecar")).session).not.toBeNull();
+  });
+
+  it("gives already queued captures and reconnects priority over maintenance", async () => {
+    const { clock, repository, reconnects } = await fixture();
+    clock.now += 6 * hour;
+    await repository.requestRun(subject, "sydecar");
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    const run = (await repository.lease(subject, "sydecar")).run!;
+    await repository.fail(subject, "sydecar", run.id, run.leaseToken, {
+      errorCode: "unexpected_failure",
+    });
+    await reconnects.create(subject, "sydecar");
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+  });
+
+  it("bounds failures and crash retries, rejects stale completions, and honors off", async () => {
+    const { clock, repository } = await fixture();
+    clock.now += 6 * hour;
+    await repository.configure(subject, "sydecar", { interval: "off" });
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    await repository.configure(subject, "sydecar", { interval: "daily" });
+    const first = (await repository.leaseSessionRenewal(subject)).renewal!;
+    clock.now += hour;
+    const second = (await repository.leaseSessionRenewal(subject)).renewal!;
+    await expect(
+      repository.finishSessionRenewal(subject, first.leaseToken, null),
+    ).rejects.toThrow("lease_invalid");
+    await repository.finishSessionRenewal(subject, second.leaseToken, {
+      errorCode: "unexpected_failure",
+    });
+    clock.now += hour;
+    const third = (await repository.leaseSessionRenewal(subject)).renewal!;
+    await repository.finishSessionRenewal(subject, third.leaseToken, {
+      errorCode: "unexpected_failure",
+    });
+    clock.now += hour;
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    expect((await repository.getOverview(subject, "sydecar")).errorCode).toBe(
+      "unexpected_failure",
+    );
+  });
+
+  it("surfaces three crashed renewal attempts once instead of silently stopping", async () => {
+    const { sql, clock, repository } = await fixture();
+    clock.now += 6 * hour;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect(
+        (await repository.leaseSessionRenewal(subject)).renewal,
+      ).not.toBeNull();
+      clock.now += hour;
+    }
+    const before = Number(sql.prepare("SELECT total_changes() AS n").get()!.n);
+    const cleanup = await Promise.all(
+      Array.from({ length: 8 }, () => repository.leaseSessionRenewal(subject)),
+    );
+    expect(cleanup.every((result) => result.renewal === null)).toBe(true);
+    expect((await repository.getOverview(subject, "sydecar")).errorCode).toBe(
+      "unexpected_failure",
+    );
+    const changes = sql.prepare("SELECT total_changes() AS n").get()!.n;
+    expect(Number(changes) - before).toBe(2);
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    expect(sql.prepare("SELECT total_changes() AS n").get()!.n).toBe(changes);
+  });
+
+  it("stops after provider authorization rejection instead of retrying a lost login", async () => {
+    const { sql, clock, repository } = await fixture();
+    clock.now += 6 * hour;
+    const renewal = (await repository.leaseSessionRenewal(subject)).renewal!;
+    const before = Number(sql.prepare("SELECT total_changes() AS n").get()!.n);
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        repository.finishSessionRenewal(subject, renewal.leaseToken, {
+          errorCode: "provider_sign_in_required",
+        }),
+      ),
+    );
+    expect(
+      Number(sql.prepare("SELECT total_changes() AS n").get()!.n) - before,
+    ).toBe(2);
+    clock.now += hour;
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    expect((await repository.getOverview(subject, "sydecar")).errorCode).toBe(
+      "provider_sign_in_required",
+    );
+  });
 });
 
 describe("provider portfolio Mac agent repository", () => {

@@ -146,6 +146,8 @@ describe("portfolio agent platform runtime", () => {
     expect(arguments_).toContain("--headless=new");
     expect(arguments_).toContain("--disable-dev-shm-usage");
     expect(arguments_).toContain("--remote-debugging-address=127.0.0.1");
+    expect(arguments_).toContain("--disable-background-networking");
+    expect(arguments_.at(-1)).toBe("about:blank");
   });
 
   it("prefers the Keel Linux Chrome wrapper when the host provides it", async () => {

@@ -412,6 +412,10 @@ function providerAgentRepository(
   overrides: Partial<ProviderPortfolioAgentRepository> = {},
 ): ProviderPortfolioAgentRepository {
   return {
+    leaseSessionRenewal: vi
+      .fn()
+      .mockResolvedValue({ version: 1, renewal: null }),
+    finishSessionRenewal: vi.fn().mockResolvedValue(undefined),
     getOverview: vi.fn().mockResolvedValue(readyProviderAgentOverview),
     register: vi.fn().mockResolvedValue(readyProviderAgentOverview),
     configure: vi.fn().mockResolvedValue(readyProviderAgentOverview),

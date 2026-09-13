@@ -35,12 +35,12 @@ The service runs Chrome headlessly after setup. The one-time sign-in uses a
 normal Chrome window in a private virtual desktop so Google and provider 2FA do
 not run inside a software-controlled browser.
 
-Tokenfolio and Sydecar checks open Chrome only after acquiring a job. Sydecar
-shuts down its owned browser after capture or sign-in verification, including
-failure, and reopens the same profile for the next leased capture. Its page must
-not remain open between daily captures: the page's inactivity timer can erase
-the saved login. The worker stays available for reconnects while Chrome is
-closed.
+Tokenfolio and Sydecar checks open Chrome only after acquiring a capture or
+session-maintenance lease. Sydecar shuts down its owned browser after capture or
+sign-in verification, including failure, and reopens the same profile for the
+next leased capture. Its page must not remain open between daily captures: the
+page's inactivity timer can erase the saved login. The worker stays available
+for reconnects while Chrome is closed.
 
 ## Prepare the worker once
 
@@ -282,7 +282,14 @@ cookies, page text, credentials, account identifiers, or source URLs to logs.
 Deploy the API/web first and update the existing provider service code only
 after its exact revision passes verification. Preserve its Linux identity and
 Chrome profile. Synthetic restart tests do not establish real-provider session
-durability: a live reconnect and following capture remain the activation check.
+durability. Sydecar's twelve-hour refresh authorization also needs normal
+provider renewal before a daily capture. After deploying migration 0060, API/web
+and the existing Sydecar worker, verify a live reconnect, a later
+`provider_session_renewal_verified` event and the following scheduled capture
+without another sign-in. Log only the bounded request count and remaining
+refresh lifetime; never log token values. Check D1 lease outcomes separately
+from browser evidence. Preserve the existing profile, credential, user and
+service sandbox throughout activation.
 
 ## Verify and operate it
 
@@ -312,6 +319,13 @@ AngelList keeps its daily update check. D1 determines when scheduled captures
 are due. A successful reconnect checks for an update immediately. Agent and
 credential activity timestamps advance at most once every five minutes during
 idle polling; authorization and revocation are checked on every request.
+
+Sydecar additionally discovers session-maintenance work hourly within that same
+process. D1 admits a brief native-provider renewal six hours after verification,
+with a five-minute lease, two-minute operation deadline, at most 150 page HTTP
+requests and three hourly attempts before stopping. Captures and managed
+reconnects exclude maintenance atomically. Setting scheduled updates off also
+disables maintenance; portfolio capture times are otherwise unchanged.
 
 An active reconnect checks status every five seconds and ends within its
 15-minute lease. Failed idle checks back off from one minute to 15 minutes;
