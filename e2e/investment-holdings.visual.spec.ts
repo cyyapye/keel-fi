@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
+import type * as CollectionSearch from "../apps/web/src/collection-search";
 import type { Holding } from "../packages/domain/src/index";
 import type { InvestmentHoldingsView } from "../packages/domain/src/investment-holdings-view";
 
@@ -1788,4 +1789,232 @@ test("progressively renders long exposure lists", async ({
   await expect(exposureView.locator(".exposure-group")).toHaveCount(25);
   await expect(lowestExposureName).toBeVisible();
   await expect(exposureView.locator(".exposure-pagination")).toHaveCount(0);
+});
+
+test("searches holdings by SPV and hidden cash while preserving totals and return navigation", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const reviewsLoaded = page.waitForResponse("**/api/private-exposure-reviews");
+  await page.goto("/holdings");
+  await reviewsLoaded;
+  const search = page.getByRole("searchbox", { name: "Search holdings" });
+  await expect(page.locator(".exposure-group")).toHaveCount(5);
+  const total = (await page.locator(".investment-views__total").textContent())!;
+  const cashTotal = (await page
+    .locator(".cash-holdings__total")
+    .textContent())!;
+  const requests: string[] = [];
+  const recordRequest = (request: Request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/"))
+      requests.push(request.url());
+  };
+  page.on("request", recordRequest);
+  await search.fill("  BEACON, spv ");
+  const group = page.locator(".exposure-group");
+  await expect(group).toHaveCount(1);
+  await expect(group).toContainText("Beacon Robotics");
+  await expect(group).toContainText("1 matching position · 2 total");
+  await expect(group.locator(".exposure-group__positions article")).toHaveCount(
+    1,
+  );
+  await expect(group.locator(".exposure-group__value")).toHaveText("$120k");
+  await expect(page.locator(".investment-views__total")).toHaveText(total);
+  await expect(group.locator("mark").first()).toHaveText("Beacon");
+  expect(requests).toEqual([]);
+  page.off("request", recordRequest);
+  await expectNoHorizontalOverflow(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page).toHaveScreenshot("investment-holdings-search-spv.png", {
+    animations: "disabled",
+    caret: "hide",
+    fullPage: true,
+  });
+  await group
+    .getByRole("button", { name: "View Synthetic Beacon SPV holding details" })
+    .click();
+  await page
+    .getByRole("button", { name: "Back to holdings", exact: true })
+    .click();
+  await expect(search).toHaveValue("  BEACON, spv ");
+  await expect(
+    group.getByRole("button", {
+      name: "View Synthetic Beacon SPV holding details",
+    }),
+  ).toBeFocused();
+  await search.fill("nvidia");
+  await expect(page.locator(".exposure-group")).toHaveCount(1);
+  await expect(page.locator(".exposure-group")).toContainText("NVDA");
+  await expect(page.locator(".exposure-group")).toContainText(
+    "NVIDIA common stock",
+  );
+  await search.fill("Travel cash");
+  await expect(
+    page.locator(".cash-holdings").getByText("Travel cash", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".cash-holdings__total")).toHaveText(cashTotal);
+  await search.fill("no-such-synthetic-holding");
+  await expect(
+    page.getByRole("heading", { name: "No matching holdings" }),
+  ).toBeVisible();
+  await expect(page.locator(".holdings-search [role=status]")).toHaveText(
+    "0 results",
+  );
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page).toHaveScreenshot("investment-holdings-search-empty.png", {
+    animations: "disabled",
+    caret: "hide",
+    fullPage: true,
+  });
+  await search.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(search).toBeFocused();
+  await expect(page.locator(".exposure-group")).toHaveCount(5);
+  await expect(page.locator(".investment-views__total")).toHaveText(total);
+  await expect(
+    page.locator(".cash-holdings").getByText("Travel cash", { exact: true }),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+for (const size of [120, 1_000]) {
+  test(`searches all ${size} holdings before pagination with zero additional projection reads`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript(() =>
+      Object.defineProperty(window, "IntersectionObserver", {
+        configurable: true,
+        value: undefined,
+      }),
+    );
+    const scaleHoldings = Array.from({ length: size }, (_, index) => ({
+      ...paginatedHoldings[0]!,
+      id: `position_search_${index}`,
+      positionName:
+        index === 0 ? "Café Nebula Series A" : `Demo Security ${index}`,
+      exposureName: index === 0 ? "Café Nebula" : `Demo Exposure ${index}`,
+      ticker: index === 0 ? "NEB1" : `DMO${index}`,
+      administratorNavMinor: (index + 1) * 10_000,
+    }));
+    const scaleView = investmentHoldingsViewFor(scaleHoldings);
+    let projectionReads = 0;
+    await routeHoldingsPage(page, () => {
+      projectionReads += 1;
+      return {
+        householdName: "Demo Household",
+        holdings: scaleHoldings,
+        investmentHoldings: scaleView,
+        acceptedCashAccounts: [],
+        pendingImports: [],
+      };
+    });
+    await page.goto("/holdings");
+    await expect(page.locator(".exposure-group")).toHaveCount(12);
+    await expect(
+      page.locator(".exposure-group").getByText("NEB1", { exact: true }),
+    ).toHaveCount(0);
+    const search = page.getByRole("searchbox", { name: "Search holdings" });
+    await search.fill(" CAFE — nebula ");
+    await expect(page.locator(".exposure-group")).toHaveCount(1);
+    await expect(page.locator(".exposure-group")).toContainText("NEB1");
+    await expect(page.locator(".holdings-search [role=status]")).toHaveText(
+      "1 exposure · 1 position",
+    );
+    await expect(page.locator(".exposure-group mark").first()).toHaveText(
+      "Café",
+    );
+    await search.fill("Robinhood");
+    await expect(page.locator(".exposure-group")).toHaveCount(12);
+    await expect(
+      page.locator(".exposure-group__positions article"),
+    ).toHaveCount(12);
+    await expect(page.locator(".holdings-search [role=status]")).toHaveText(
+      `${size} exposures · ${size} positions`,
+    );
+    expect(projectionReads).toBe(1);
+    await search.fill("NEB1");
+    await expect(page.locator(".exposure-group")).toHaveCount(1);
+    expect(projectionReads).toBe(1);
+    await expectNoHorizontalOverflow(page);
+    const timings = await page.evaluate(async (data) => {
+      const moduleUrl = "/src/collection-search.ts";
+      const { buildHoldingsSearchIndex, searchHoldings } = (await import(
+        moduleUrl
+      )) as typeof CollectionSearch;
+      const buildStart = performance.now();
+      const index = buildHoldingsSearchIndex(data, []);
+      const buildMs = performance.now() - buildStart;
+      const durations: number[] = [];
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const started = performance.now();
+        searchHoldings(
+          index,
+          ["cafe nebula", "Robinhood", "no matching record"][attempt % 3]!,
+        );
+        durations.push(performance.now() - started);
+      }
+      durations.sort((left, right) => left - right);
+      return {
+        buildMs,
+        p95SearchMs: durations[56],
+        maxSearchMs: durations.at(-1),
+      };
+    }, scaleView);
+    await testInfo.attach(`holdings-search-${size}-timings.json`, {
+      body: JSON.stringify(timings),
+      contentType: "application/json",
+    });
+    expect(timings.p95SearchMs).toBeLessThan(50);
+  });
+}
+
+test("search bounds positions within a single large exposure and preserves the loaded batch on return", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(window, "IntersectionObserver", {
+      configurable: true,
+      value: undefined,
+    }),
+  );
+  const positions = Array.from({ length: 120 }, (_, index) => ({
+    ...paginatedHoldings[0]!,
+    id: `position_search_group_${index}`,
+    companyId: "company_search_nebula",
+    positionName: `Demo Nebula SPV ${String(index).padStart(3, "0")}`,
+    exposureName: "Demo Nebula",
+    ticker: null,
+    sourceLabel: "Synthetic venture export",
+  }));
+  const view = investmentHoldingsViewFor(positions);
+  await routeHoldingsPage(page, {
+    householdName: "Demo Household",
+    holdings: positions,
+    investmentHoldings: view,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.goto("/holdings");
+  await page.getByRole("searchbox", { name: "Search holdings" }).fill("nebula");
+  await expect(page.locator(".exposure-group__positions article")).toHaveCount(
+    25,
+  );
+  await page
+    .getByRole("button", { name: "Load more Demo Nebula positions" })
+    .click();
+  await expect(page.locator(".exposure-group__positions article")).toHaveCount(
+    50,
+  );
+  const target = page.getByRole("button", {
+    name: "View Demo Nebula SPV 049 holding details",
+  });
+  await target.click();
+  await page
+    .getByRole("button", { name: "Back to holdings", exact: true })
+    .click();
+  await expect(page.locator(".exposure-group__positions article")).toHaveCount(
+    50,
+  );
+  await expect(target).toBeFocused();
 });

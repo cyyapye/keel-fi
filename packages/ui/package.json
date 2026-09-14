@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.tsx",
+    "./text-search": "./src/lib/text-search.ts",
     "./styles.css": "./src/styles.css"
   },
   "scripts": {

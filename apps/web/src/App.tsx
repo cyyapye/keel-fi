@@ -36,6 +36,11 @@ import type { PositionValueSourceKind } from "@keel/domain/position-value";
 import type { HoldingsPage } from "@keel/domain/holdings-page";
 import { calculatePositionPerformance } from "@keel/domain/position-economics";
 import {
+  buildHoldingsSearchIndex,
+  searchHoldings,
+  HOLDINGS_POSITION_PAGE_SIZE,
+} from "./collection-search";
+import {
   ActionGroup,
   AppShell,
   Badge,
@@ -64,6 +69,7 @@ import {
   PageHeader,
   Panel,
   Screen as ScreenLayout,
+  SearchField,
   Select,
   SelectContent,
   SelectItem,
@@ -6153,6 +6159,22 @@ function Holdings({
   requestedView: "overview" | "sources";
 }) {
   const [showImporter, setShowImporter] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visiblePositionCounts, setVisiblePositionCounts] = useState<
+    ReadonlyMap<string, number>
+  >(() => new Map());
+  const searchIndex = useMemo(
+    () =>
+      buildHoldingsSearchIndex(
+        data.investmentHoldings,
+        data.acceptedCashAccounts,
+      ),
+    [data.investmentHoldings, data.acceptedCashAccounts],
+  );
+  const searchMatches = useMemo(
+    () => searchHoldings(searchIndex, searchQuery),
+    [searchIndex, searchQuery],
+  );
   const [reviewedImportIds, setReviewedImportIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -6368,7 +6390,17 @@ function Holdings({
   };
 
   return (
-    <ScreenLayout className="holdings-screen">
+    <ScreenLayout
+      className="holdings-screen"
+      data-searching={
+        searchMatches !== null &&
+        selectedHolding === null &&
+        !sourcesVisible &&
+        !importerVisible
+          ? "true"
+          : undefined
+      }
+    >
       <PageHeader
         actions={
           selectedHolding !== null ? (
@@ -6395,6 +6427,21 @@ function Holdings({
         eyebrow={sourcesVisible ? "Holdings" : "Portfolio evidence"}
         title={sourcesVisible ? "Holding sources" : "Holdings"}
       />
+
+      {selectedHolding === null && !importerVisible && !sourcesVisible && (
+        <SearchField
+          className="holdings-search"
+          label="Search holdings"
+          placeholder="Search holdings, companies, or tickers…"
+          onValueChange={(query) => {
+            setSearchQuery(query);
+            setVisibleExposureCount(HOLDINGS_EXPOSURE_PAGE_SIZE);
+            setVisiblePositionCounts(new Map());
+          }}
+          resultLabel={searchMatches?.resultLabel}
+          value={searchQuery}
+        />
+      )}
 
       {selectedHolding !== null ? (
         <HoldingDetailWorkspace
@@ -6443,7 +6490,10 @@ function Holdings({
               }}
             />
           ) : (
-            <>
+            <div
+              className="holdings-browse-context"
+              hidden={searchMatches !== null}
+            >
               {pendingImports.length > 0 && (
                 <section
                   aria-labelledby="pending-holding-imports-title"
@@ -6492,7 +6542,7 @@ function Holdings({
                     : null
                 }
               />
-            </>
+            </div>
           )}
           <InvestmentHoldings
             acceptedCashAccounts={data.acceptedCashAccounts}
@@ -6502,17 +6552,31 @@ function Holdings({
             onExposureOpenChange={setExposureOpen}
             onExposureResolved={onExposureResolved}
             onLoadMoreExposures={loadMoreExposures}
+            onLoadMorePositions={(exposureId) =>
+              setVisiblePositionCounts((current) => {
+                const next = new Map(current);
+                next.set(
+                  exposureId,
+                  (current.get(exposureId) ?? HOLDINGS_POSITION_PAGE_SIZE) +
+                    HOLDINGS_POSITION_PAGE_SIZE,
+                );
+                return next;
+              })
+            }
             onOpenHolding={openHoldingDetail}
             onReviewImport={reviewPendingImport}
             onShowSmallBalancesChange={setShowSmallCashBalances}
             openExposureIds={openExposureIds}
             requestedExposureId={
-              requestedDrilldown?.type === "exposure"
+              searchMatches === null && requestedDrilldown?.type === "exposure"
                 ? requestedDrilldown.exposureId
                 : null
             }
+            searchMatches={searchMatches}
+            searchQuery={searchQuery}
             showSmallBalances={showSmallCashBalances}
             visibleExposureCount={visibleExposureCount}
+            visiblePositionCounts={visiblePositionCounts}
           />
           {sourcesVisible && <PrivateInvestmentSourcesControl />}
         </>
