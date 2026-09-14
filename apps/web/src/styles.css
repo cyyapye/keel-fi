@@ -1266,6 +1266,28 @@ h1,
   text-decoration: none;
 }
 
+.holdings-search,
+.legal-entities__search {
+  --line: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+.holdings-search {
+  margin: -24px 0 0;
+}
+
+.legal-entities__search {
+  margin: 0;
+}
+
+.holdings-screen[data-searching="true"] > .investment-views,
+.holdings-screen[data-searching="true"] > .cash-holdings {
+  padding-top: 0;
+}
+
+.holdings-browse-context:not([hidden]) {
+  display: contents;
+}
+
 .holdings-screen {
   /* Holdings relies on spacing and type hierarchy instead of decorative rules. */
   --line: transparent;

@@ -25,7 +25,7 @@ function fingerprint(character: string): string {
 }
 
 function fingerprintForIndex(index: number): string {
-  return index.toString(16).padStart(2, "0").repeat(32);
+  return index.toString(16).padStart(64, "0");
 }
 
 function recordFromHolding(

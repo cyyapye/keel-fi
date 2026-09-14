@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type * as CollectionSearch from "../apps/web/src/collection-search";
 import type {
   LegalEntityExportInput,
   LegalEntityInventory,
@@ -298,6 +299,246 @@ test("keeps the initial review action and first source in the viewport", async (
     await expect(batchAction).toBeInViewport({ ratio: 1 });
     await expectNoHorizontalOverflow(page);
   }
+});
+
+test("searches the full legal inventory, reveals historical matches and refreshes after a saved rename", async ({
+  page,
+}, testInfo) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(window, "IntersectionObserver", {
+      configurable: true,
+      value: undefined,
+    }),
+  );
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  let reads = 0;
+  let writes = 0;
+  const relatedSource = {
+    ...positionSource,
+    source: { kind: "holding_position" as const, id: "position_demo_related" },
+    sourceDisplayName: "Demo Nebula Robotics",
+  };
+  let inventory: LegalEntityInventory = {
+    ...initialInventory,
+    entities: [
+      ...Array.from({ length: 140 }, (_, index) => ({
+        ...initialInventory.entities[0]!,
+        id: `search_entity_${index}`,
+        legalName:
+          index === 139
+            ? "Café Horizon Holdings LLC"
+            : `Synthetic ${String(index).padStart(3, "0")} LLC`,
+        sources: index === 138 ? [relatedSource] : [],
+      })),
+      {
+        ...initialInventory.entities[0]!,
+        id: "search_entity_historical",
+        legalName: "Demo Horizon Legacy LLC",
+        interestStatus: "historical",
+      },
+    ],
+    candidates: [
+      { ...positionSource, sourceDisplayName: "Demo Horizon Robotics" },
+    ],
+    excludedCandidates: [
+      {
+        ...initialInventory.excludedCandidates[0]!,
+        sourceDisplayName: "Demo Horizon Prior Vehicle",
+      },
+    ],
+    exactBatch: {
+      revision: "a".repeat(64),
+      sourceCount: 0,
+      entityCount: 0,
+      existingEntityCount: 0,
+      newEntityCount: 0,
+      llcEntityCount: 0,
+      limitedPartnershipEntityCount: 0,
+      remainingCandidateCount: 1,
+    },
+  };
+  await page.route("**/api/legal-entities", (route) => {
+    reads += 1;
+    return route.fulfill({ json: inventory });
+  });
+  await page.route("**/api/legal-entities/search_entity_139", (route) => {
+    writes += 1;
+    const input = route.request().postDataJSON() as {
+      profile: LegalEntityRecord;
+    };
+    const current = inventory.entities.find(
+      (entity) => entity.id === "search_entity_139",
+    )!;
+    const saved = {
+      ...current,
+      ...input.profile,
+      version: current.version + 1,
+      versionId: "search_entity_139_v2",
+    };
+    inventory = {
+      ...inventory,
+      entities: inventory.entities.map((entity) =>
+        entity.id === saved.id ? saved : entity,
+      ),
+    };
+    return route.fulfill({ json: saved });
+  });
+  await page.goto("/holdings/entities");
+  const search = page.getByRole("searchbox", { name: "Search legal entities" });
+  await expect(
+    page.locator(".legal-entities__known .legal-entity-row"),
+  ).toHaveCount(25);
+  await expect(
+    page.getByRole("heading", {
+      name: "Café Horizon Holdings LLC",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await search.fill(" CAFE,  horizon ");
+  await expect(
+    page.locator(".legal-entities__known .legal-entity-row"),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("heading", {
+      name: "Café Horizon Holdings LLC",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.locator(".legal-entity-row h3 mark").first()).toHaveText(
+    "Café",
+  );
+  expect(reads).toBe(1);
+  expect(writes).toBe(0);
+  await search.fill("horizon");
+  await expect(
+    page.locator(".legal-entities__search [role=status]"),
+  ).toHaveText("4 results · Includes historical interests");
+  await expect(
+    page.locator(".legal-entities__candidates .legal-entity-candidate"),
+  ).toHaveCount(1);
+  await expect(
+    page.locator(".legal-entities__history .legal-entity-row"),
+  ).toHaveCount(1);
+  await expect(
+    page
+      .locator(".legal-entities__history")
+      .getByText("Demo Horizon Legacy LLC", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".legal-entities__excluded .legal-entity-candidate"),
+  ).toHaveCount(1);
+  await expect(
+    page
+      .locator(".legal-entities__excluded")
+      .getByText("Excluded", { exact: true }),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page).toHaveScreenshot("legal-entities-search.png", {
+    animations: "disabled",
+    caret: "hide",
+    fullPage: true,
+  });
+  await search.fill("Nebula");
+  await expect(
+    page.locator(".legal-entities__known .legal-entity-row"),
+  ).toHaveCount(1);
+  await expect(
+    page.locator(".legal-entities__known .legal-entity-row"),
+  ).toContainText("Synthetic 138 LLC");
+  await search.fill("no matching synthetic entity");
+  await expect(
+    page.locator(".legal-entities__search [role=status]"),
+  ).toContainText("0 results");
+  await expect(
+    page.getByRole("heading", { name: "No matching current entities" }),
+  ).toBeVisible();
+  expect(reads).toBe(1);
+  expect(writes).toBe(0);
+  await search.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(search).toBeFocused();
+  await expect(
+    page.locator(".legal-entities__known .legal-entity-row"),
+  ).toHaveCount(25);
+  await search.fill("cafe horizon");
+  await page
+    .locator(".legal-entities__known .legal-entity-row")
+    .getByRole("button", { name: "Edit", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Back to legal entities", exact: true })
+    .click();
+  await expect(search).toHaveValue("cafe horizon");
+  await page
+    .locator(".legal-entities__known .legal-entity-row")
+    .getByRole("button", { name: "Edit", exact: true })
+    .click();
+  await page
+    .getByRole("textbox", { name: "Legal name", exact: true })
+    .fill("Demo Aurora Holdings LLC");
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Back to legal entities", exact: true })
+    .click();
+  await expect(search).toHaveValue("cafe horizon");
+  await expect(
+    page.locator(".legal-entities__known .legal-entity-row"),
+  ).toHaveCount(0);
+  await search.fill("aurora");
+  await expect(
+    page.getByRole("heading", {
+      name: "Demo Aurora Holdings LLC",
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(writes).toBe(1);
+  expect(reads).toBe(2);
+  const timings = await page.evaluate(async (data) => {
+    const moduleUrl = "/src/collection-search.ts";
+    const { buildLegalEntitySearchIndex, searchLegalEntities } = (await import(
+      moduleUrl
+    )) as typeof CollectionSearch;
+    return [120, 1_000].map((size) => {
+      const scaled = {
+        ...data,
+        entities: Array.from({ length: size }, (_, index) => ({
+          ...data.entities[0]!,
+          id: `benchmark_${index}`,
+          legalName: `Demo Benchmark ${index} LLC`,
+        })),
+      };
+      const buildStart = performance.now();
+      const index = buildLegalEntitySearchIndex(scaled);
+      const buildMs = performance.now() - buildStart;
+      const durations: number[] = [];
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const started = performance.now();
+        searchLegalEntities(
+          index,
+          ["benchmark 119", "demo", "no matching record"][attempt % 3]!,
+        );
+        durations.push(performance.now() - started);
+      }
+      durations.sort((left, right) => left - right);
+      return {
+        size,
+        buildMs,
+        p95SearchMs: durations[56],
+        maxSearchMs: durations.at(-1),
+      };
+    });
+  }, inventory);
+  await testInfo.attach("legal-entity-search-timings.json", {
+    body: JSON.stringify(timings),
+    contentType: "application/json",
+  });
+  for (const timing of timings) expect(timing.p95SearchMs).toBeLessThan(50);
+  expect(errors).toEqual([]);
 });
 
 test("reviews legal entities and exports selected counsel fields", async ({

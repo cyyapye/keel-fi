@@ -935,6 +935,78 @@ h3 {
   box-shadow: none;
 }
 
+.search {
+  width: 100%;
+  min-width: 0;
+}
+
+.search__field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 4px 0 14px;
+  border: 1px solid var(--line);
+}
+
+.search__field:focus-within {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+
+.search__field svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.search__field .input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font-size: 16px;
+}
+
+.search__field .input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.search__field .input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.search__field .input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search__status {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.search__status:empty {
+  display: none;
+}
+
+.search-highlight {
+  padding: 0;
+  color: inherit;
+  background: rgb(38 34 56 / 12%);
+}
+
 .date-picker__trigger {
   display: flex;
   align-items: center;

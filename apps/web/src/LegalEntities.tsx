@@ -42,6 +42,8 @@ import {
   InputGroup,
   Notice,
   PageHeader,
+  SearchField,
+  SearchHighlight,
   SectionHeader,
   Select,
   SelectContent,
@@ -88,6 +90,10 @@ import {
   type EntityReviewTarget,
   type EntityReviewTab,
 } from "./legal-entity-navigation";
+import {
+  buildLegalEntitySearchIndex,
+  searchLegalEntities,
+} from "./collection-search";
 
 const entityTypeOptions = [
   { label: "LLC", value: "llc" },
@@ -837,9 +843,11 @@ function LegalEntityEditor({
 function EntityRow({
   entity,
   onOpen,
+  searchQuery = "",
 }: {
   entity: LegalEntityRecord;
   onOpen: () => void;
+  searchQuery?: string;
 }) {
   const positions = entity.sources.filter(
     (source) => source.source.kind === "holding_position",
@@ -877,7 +885,11 @@ function EntityRow({
     <article className="legal-entity-row">
       <div className="legal-entity-row__heading">
         <div>
-          <h3>{entity.legalName}</h3>
+          <h3>
+            <SearchHighlight query={searchQuery}>
+              {entity.legalName}
+            </SearchHighlight>
+          </h3>
           <p>
             {entityTypeLabels[entity.entityType]} ·{" "}
             {relationshipLabels[entity.relationship]}
@@ -902,11 +914,19 @@ function EntityRow({
       <DataList className="legal-entity-row__facts">
         <DataItem
           label="Current titled owner"
-          value={owners.join("; ") || entity.currentOwner || "Not recorded"}
+          value={
+            <SearchHighlight query={searchQuery}>
+              {owners.join("; ") || entity.currentOwner || "Not recorded"}
+            </SearchHighlight>
+          }
         />
         <DataItem
           label="Jurisdiction"
-          value={entity.jurisdiction ?? "Not recorded"}
+          value={
+            <SearchHighlight query={searchQuery}>
+              {entity.jurisdiction ?? "Not recorded"}
+            </SearchHighlight>
+          }
         />
         <DataItem
           label="Ownership interest"
@@ -945,9 +965,11 @@ function EntityRow({
       <footer>
         <div>
           <p>
-            {entity.sources.length === 0
-              ? "Manual record"
-              : entity.sources.map(sourceSummary).join("; ")}
+            <SearchHighlight query={searchQuery}>
+              {entity.sources.length === 0
+                ? "Manual record"
+                : entity.sources.map(sourceSummary).join("; ")}
+            </SearchHighlight>
           </p>
           <AgreementEvidence sources={entity.sources} />
           {entity.sources
@@ -963,8 +985,11 @@ function EntityRow({
                       : resolution.kind === "document_entry"
                         ? "Name entered by you"
                         : "Your document-backed correction"}
-                  : {resolution.legalName} · {resolution.fileName} · page{" "}
-                  {resolution.page}
+                  :{" "}
+                  <SearchHighlight query={searchQuery}>
+                    {resolution.legalName}
+                  </SearchHighlight>{" "}
+                  · {resolution.fileName} · page {resolution.page}
                   {resolution.reviewedEntityType !== undefined && (
                     <>
                       <br />
@@ -1010,10 +1035,12 @@ function CandidateRow({
   candidate,
   excluded,
   onOpen,
+  searchQuery = "",
 }: {
   candidate: LegalEntitySourceSummary;
   excluded?: boolean;
   onOpen: () => void;
+  searchQuery?: string;
 }) {
   const kind = legalEntityReviewKind(candidate);
   const exception = candidate.automaticReview?.issues[0];
@@ -1022,8 +1049,10 @@ function CandidateRow({
       <div className="legal-entity-candidate__copy">
         <div>
           <h3>
-            {candidate.legalEntityNameEvidence.legalName ??
-              candidate.sourceDisplayName}
+            <SearchHighlight query={searchQuery}>
+              {candidate.legalEntityNameEvidence.legalName ??
+                candidate.sourceDisplayName}
+            </SearchHighlight>
           </h3>
           <Badge tone="warning">
             {excluded
@@ -1039,7 +1068,11 @@ function CandidateRow({
                       : "Name unavailable"}
           </Badge>
         </div>
-        <p>{sourceSummary(candidate)}</p>
+        <p>
+          <SearchHighlight query={searchQuery}>
+            {sourceSummary(candidate)}
+          </SearchHighlight>
+        </p>
         <p>
           {exception
             ? exception.message
@@ -1876,6 +1909,15 @@ export function LegalEntities({
   navigationVersion: number;
 }) {
   const [inventory, setInventory] = useState<LegalEntityInventory | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchIndex = useMemo(
+    () => (inventory === null ? null : buildLegalEntitySearchIndex(inventory)),
+    [inventory],
+  );
+  const searchMatches = useMemo(
+    () => searchLegalEntities(searchIndex, searchQuery),
+    [searchIndex, searchQuery],
+  );
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -2036,9 +2078,11 @@ export function LegalEntities({
   const activeEntities = useMemo(
     () =>
       inventory?.entities.filter(
-        (entity) => entity.interestStatus !== "historical",
+        (entity) =>
+          entity.interestStatus !== "historical" &&
+          (searchMatches === null || searchMatches.entityIds.has(entity.id)),
       ) ?? [],
-    [inventory],
+    [inventory, searchMatches],
   );
   const candidates = useMemo(
     () =>
@@ -2059,10 +2103,36 @@ export function LegalEntities({
   const historicalEntities = useMemo(
     () =>
       inventory?.entities.filter(
-        (entity) => entity.interestStatus === "historical",
+        (entity) =>
+          entity.interestStatus === "historical" &&
+          (searchMatches === null || searchMatches.entityIds.has(entity.id)),
       ) ?? [],
-    [inventory],
+    [inventory, searchMatches],
   );
+
+  const visibleCandidates = useMemo(
+    () =>
+      searchMatches === null
+        ? candidates
+        : candidates.filter((candidate) =>
+            searchMatches.sourceKeys.has(candidateKey(candidate)),
+          ),
+    [candidates, searchMatches],
+  );
+  const excludedCandidates = useMemo(
+    () =>
+      (inventory?.excludedCandidates ?? []).filter(
+        (candidate) =>
+          searchMatches === null ||
+          searchMatches.sourceKeys.has(candidateKey(candidate)),
+      ),
+    [inventory, searchMatches],
+  );
+  const resultCount =
+    activeEntities.length +
+    historicalEntities.length +
+    visibleCandidates.length +
+    excludedCandidates.length;
 
   const saved = async () => {
     await refresh();
@@ -2160,7 +2230,19 @@ export function LegalEntities({
       <div hidden={location.target !== null} className="legal-entities">
         <div className="legal-entities__intro">
           <ExportWorkspace inventory={inventory} />
-          {automaticWorking && (
+          <SearchField
+            className="legal-entities__search"
+            label="Search legal entities"
+            placeholder="Search legal entities or companies…"
+            onValueChange={setSearchQuery}
+            value={searchQuery}
+            resultLabel={
+              searchMatches === null
+                ? undefined
+                : `${resultCount} ${resultCount === 1 ? "result" : "results"} · Includes historical interests`
+            }
+          />
+          {automaticWorking && searchMatches === null && (
             <p className="legal-entities__notice" role="status">
               Checking source details automatically…
             </p>
@@ -2192,16 +2274,16 @@ export function LegalEntities({
           )}
           {loadError !== null && <Notice tone="error">{loadError}</Notice>}
         </div>
-        {candidates.length > 0 && (
+        {visibleCandidates.length > 0 && (
           <section
             aria-labelledby="legal-entity-candidates-title"
             className="legal-entities__candidates"
           >
             <SectionHeader
               headingProps={{ id: "legal-entity-candidates-title" }}
-              title={`Needs your review · ${candidates.length}`}
+              title={`Needs your review · ${visibleCandidates.length}`}
             />
-            {inventory.exactBatch.sourceCount > 0 && (
+            {searchMatches === null && inventory.exactBatch.sourceCount > 0 && (
               <ExactBatchReview
                 batch={inventory.exactBatch}
                 error={batchError}
@@ -2211,13 +2293,15 @@ export function LegalEntities({
             )}
             <div className="legal-entities__candidate-list">
               <ProgressiveRows
-                items={candidates}
+                items={visibleCandidates}
+                key={searchQuery}
                 label="sources"
                 render={(candidate) => (
                   <CandidateRow
                     candidate={candidate}
                     key={candidateKey(candidate)}
                     onOpen={() => openSource(candidate)}
+                    searchQuery={searchQuery}
                   />
                 )}
               />
@@ -2239,26 +2323,41 @@ export function LegalEntities({
             title="Known legal entities"
           />
           {activeEntities.length === 0 ? (
-            <EmptyState compact title="No reviewed legal entities yet">
-              Add an entity or review a source.
+            <EmptyState
+              compact
+              title={
+                searchMatches === null
+                  ? "No reviewed legal entities yet"
+                  : "No matching current entities"
+              }
+            >
+              {searchMatches === null
+                ? "Add an entity or review a source."
+                : "Try another name, company, or source, or clear your search."}
             </EmptyState>
           ) : (
             <div className="legal-entities__list">
               <ProgressiveRows
                 items={activeEntities}
+                key={searchQuery}
                 label="entities"
                 render={(entity) => (
                   <EntityRow
                     entity={entity}
                     key={entity.id}
                     onOpen={() => navigate({ kind: "entity", id: entity.id })}
+                    searchQuery={searchQuery}
                   />
                 )}
               />
             </div>
           )}
           {historicalEntities.length > 0 && (
-            <Collapsible className="legal-entities__history">
+            <Collapsible
+              className="legal-entities__history"
+              key={`history:${searchQuery}`}
+              defaultOpen={searchMatches !== null}
+            >
               <CollapsibleTrigger>
                 <span>Historical interests · {historicalEntities.length}</span>
                 <DisclosureIndicator />
@@ -2267,11 +2366,13 @@ export function LegalEntities({
                 <div className="legal-entities__list">
                   <ProgressiveRows
                     items={historicalEntities}
+                    key={searchQuery}
                     label="historical entities"
                     render={(entity) => (
                       <EntityRow
                         entity={entity}
                         key={entity.id}
+                        searchQuery={searchQuery}
                         onOpen={() =>
                           navigate({ kind: "entity", id: entity.id })
                         }
@@ -2283,19 +2384,23 @@ export function LegalEntities({
             </Collapsible>
           )}
         </section>
-        {inventory.excludedCandidates.length > 0 && (
-          <Collapsible className="legal-entities__excluded">
+        {excludedCandidates.length > 0 && (
+          <Collapsible
+            className="legal-entities__excluded"
+            key={`excluded:${searchQuery}`}
+            defaultOpen={searchMatches !== null}
+          >
             <CollapsibleTrigger>
               <span>
-                Sources excluded from inventory ·{" "}
-                {inventory.excludedCandidates.length}
+                Sources excluded from inventory · {excludedCandidates.length}
               </span>
               <DisclosureIndicator />
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="legal-entities__candidate-list">
                 <ProgressiveRows
-                  items={inventory.excludedCandidates}
+                  items={excludedCandidates}
+                  key={searchQuery}
                   label="excluded sources"
                   render={(candidate) => (
                     <CandidateRow
@@ -2303,6 +2408,7 @@ export function LegalEntities({
                       excluded
                       key={candidateKey(candidate)}
                       onOpen={() => openSource(candidate)}
+                      searchQuery={searchQuery}
                     />
                   )}
                 />

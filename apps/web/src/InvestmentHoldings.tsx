@@ -39,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
   SectionHeader,
+  SearchHighlight,
   Stat,
   TextLink,
 } from "@keel/ui";
@@ -73,6 +74,12 @@ import {
 } from "./format";
 import { useBoundedPolling } from "./use-bounded-polling";
 import { openPlaidLink } from "./plaid-link";
+import {
+  HOLDINGS_POSITION_PAGE_SIZE,
+  isCashExposure,
+  isCashPosition,
+  type HoldingsSearchMatches,
+} from "./collection-search";
 
 const INVESTMENT_LINK_TOKEN_STORAGE_KEY = "keel.investmentLinkToken";
 const INVESTMENT_LINK_MODE_STORAGE_KEY = "keel.investmentLinkMode";
@@ -587,16 +594,6 @@ function exposurePerformanceLabel(
     return basisAndPriceLabel;
   }
   return `${basisAndPriceLabel} · ${signedRoundedReturnLabel(returnPpm)}`;
-}
-
-function isCashPosition(position: InvestmentExposurePosition): boolean {
-  return position.instrumentType.trim().toLowerCase() === "cash";
-}
-
-function isCashExposure(group: InvestmentExposureGroup): boolean {
-  return group.contributions.some((contribution) =>
-    contribution.decisionReference.startsWith("cash-currency-v1:"),
-  );
 }
 
 function companyExposureGroups(data: InvestmentHoldingsView) {
@@ -1177,10 +1174,14 @@ function ExposureView({
   onExposureOpenChange,
   onOpenHolding,
   onLoadMoreExposures,
+  onLoadMorePositions,
   onSubmitExposureReview,
   requestedExposureId,
   sortDirection,
+  searchMatches,
+  searchQuery,
   visibleExposureCount,
+  visiblePositionCounts,
 }: {
   data: InvestmentHoldingsView;
   exposureReviewBatchBusy: boolean;
@@ -1197,13 +1198,17 @@ function ExposureView({
   onExposureOpenChange: (exposureId: string, open: boolean) => void;
   onOpenHolding: (holdingId: string) => void;
   onLoadMoreExposures: () => void;
+  onLoadMorePositions: (exposureId: string) => void;
   onSubmitExposureReview: (
     position: PrivateExposureReviewPosition,
     input: PrivateExposureResolutionInput,
   ) => void;
   requestedExposureId: string | null;
   sortDirection: ExposureSortDirection;
+  searchMatches: HoldingsSearchMatches | null;
+  searchQuery: string;
   visibleExposureCount: number;
+  visiblePositionCounts: ReadonlyMap<string, number>;
 }) {
   const holdingDetailAction = (holdingId: string, holdingName: string) =>
     openableHoldingIds.has(holdingId) ? (
@@ -1234,9 +1239,17 @@ function ExposureView({
     positionContextById.has(position.id)
       ? positionContextById.get(position.id)
       : `${position.institutionLabel} · ${position.containerLabel}`;
+  const positionById = useMemo(
+    () =>
+      new Map(
+        data.exposureView.positions.map((position) => [position.id, position]),
+      ),
+    [data],
+  );
   const canonicalUnallocated = data.exposureView.positions.filter(
     (position) =>
       !isCashPosition(position) &&
+      (searchMatches === null || searchMatches.positionIds.has(position.id)) &&
       (position.hasUnknownAllocation ||
         (position.unallocatedValueMinor ?? 0) > 0 ||
         position.mappedExposureIds.length === 0),
@@ -1254,15 +1267,21 @@ function ExposureView({
       ),
     [data, sortDirection],
   );
-  const totalExposureCount = sortedExposureGroups.length;
-  const paginatedExposureGroups = sortedExposureGroups.slice(
+  const matchingExposureGroups =
+    searchMatches === null
+      ? sortedExposureGroups
+      : sortedExposureGroups.filter((group) =>
+          searchMatches.exposurePositions.has(group.exposure.id),
+        );
+  const totalExposureCount = matchingExposureGroups.length;
+  const paginatedExposureGroups = matchingExposureGroups.slice(
     0,
     visibleExposureCount,
   );
   const requestedExposureGroup =
     requestedExposureId === null
       ? undefined
-      : sortedExposureGroups.find(
+      : matchingExposureGroups.find(
           (group) => group.exposure.id === requestedExposureId,
         );
   const visibleCanonicalExposureGroups =
@@ -1279,6 +1298,8 @@ function ExposureView({
           ),
         ];
   const hasMoreExposures = visibleExposureCount < totalExposureCount;
+  const unallocatedLimit =
+    visiblePositionCounts.get("unallocated") ?? HOLDINGS_POSITION_PAGE_SIZE;
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const exposureGroupsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1325,7 +1346,7 @@ function ExposureView({
     return () => observer.disconnect();
   }, [hasMoreExposures, onLoadMoreExposures, visibleExposureCount]);
   if (
-    companyExposureGroups(data).length === 0 &&
+    matchingExposureGroups.length === 0 &&
     canonicalUnallocated.length === 0
   ) {
     return (
@@ -1334,9 +1355,15 @@ function ExposureView({
         compact
         headingAs="h3"
         icon={null}
-        title="No company exposures"
+        title={
+          searchMatches === null
+            ? "No company exposures"
+            : "No matching exposures"
+        }
       >
-        Connect an investment institution or import a holding update.
+        {searchMatches === null
+          ? "Connect an investment institution or import a holding update."
+          : "Try another name, ticker, or source."}
       </EmptyState>
     );
   }
@@ -1352,58 +1379,61 @@ function ExposureView({
               or allocation is clear.
             </p>
           </div>
-          {(exposureReviewState?.exactBatch.positionCount ?? 0) > 0 && (
-            <div className="private-exposure-exact-batch">
-              <div>
-                <p className="eyebrow">Exact company matches</p>
-                <h4>
-                  {exposureReviewState!.exactBatch.positionCount} exact{" "}
-                  {exposureReviewState!.exactBatch.positionCount === 1
-                    ? "match is"
-                    : "matches are"}{" "}
-                  ready
-                </h4>
-                <p>
-                  Assign these positions to{" "}
-                  {exposureReviewState!.exactBatch.companyCount}{" "}
-                  {exposureReviewState!.exactBatch.companyCount === 1
-                    ? "company"
-                    : "companies"}
-                  . Legal positions and values stay unchanged.
-                </p>
-                {exposureReviewState!.exactBatch.excludedPositionCount > 0 && (
+          {searchMatches === null &&
+            (exposureReviewState?.exactBatch.positionCount ?? 0) > 0 && (
+              <div className="private-exposure-exact-batch">
+                <div>
+                  <p className="eyebrow">Exact company matches</p>
+                  <h4>
+                    {exposureReviewState!.exactBatch.positionCount} exact{" "}
+                    {exposureReviewState!.exactBatch.positionCount === 1
+                      ? "match is"
+                      : "matches are"}{" "}
+                    ready
+                  </h4>
                   <p>
-                    {exposureReviewState!.exactBatch.excludedPositionCount}{" "}
-                    {exposureReviewState!.exactBatch.excludedPositionCount === 1
-                      ? "other position needs"
-                      : "other positions need"}{" "}
-                    individual review.
+                    Assign these positions to{" "}
+                    {exposureReviewState!.exactBatch.companyCount}{" "}
+                    {exposureReviewState!.exactBatch.companyCount === 1
+                      ? "company"
+                      : "companies"}
+                    . Legal positions and values stay unchanged.
                   </p>
-                )}
-                {exposureReviewBatchError !== null && (
-                  <FormMessage
-                    className="private-exposure-exact-batch__error"
-                    tone="error"
-                  >
-                    {exposureReviewBatchError}
-                  </FormMessage>
-                )}
+                  {exposureReviewState!.exactBatch.excludedPositionCount >
+                    0 && (
+                    <p>
+                      {exposureReviewState!.exactBatch.excludedPositionCount}{" "}
+                      {exposureReviewState!.exactBatch.excludedPositionCount ===
+                      1
+                        ? "other position needs"
+                        : "other positions need"}{" "}
+                      individual review.
+                    </p>
+                  )}
+                  {exposureReviewBatchError !== null && (
+                    <FormMessage
+                      className="private-exposure-exact-batch__error"
+                      tone="error"
+                    >
+                      {exposureReviewBatchError}
+                    </FormMessage>
+                  )}
+                </div>
+                <Button
+                  disabled={
+                    exposureReviewBatchBusy ||
+                    exposureReviewBusyPositionId !== null
+                  }
+                  onClick={onApplyExactBatch}
+                  tone="primary"
+                >
+                  {exposureReviewBatchBusy
+                    ? "Assigning…"
+                    : `Assign ${exposureReviewState!.exactBatch.positionCount} exact ${exposureReviewState!.exactBatch.positionCount === 1 ? "match" : "matches"}`}
+                </Button>
               </div>
-              <Button
-                disabled={
-                  exposureReviewBatchBusy ||
-                  exposureReviewBusyPositionId !== null
-                }
-                onClick={onApplyExactBatch}
-                tone="primary"
-              >
-                {exposureReviewBatchBusy
-                  ? "Assigning…"
-                  : `Assign ${exposureReviewState!.exactBatch.positionCount} exact ${exposureReviewState!.exactBatch.positionCount === 1 ? "match" : "matches"}`}
-              </Button>
-            </div>
-          )}
-          {canonicalUnallocated.map((position) => {
+            )}
+          {canonicalUnallocated.slice(0, unallocatedLimit).map((position) => {
             const reviewPosition = reviewPositionById.get(position.id) ?? null;
             const reviewOpen = exposureReviewPositionId === position.id;
             const positionName = positionDisplayName(position);
@@ -1420,9 +1450,15 @@ function ExposureView({
                           : position.legalVehicleName
                       }
                     >
-                      {positionName}
+                      <SearchHighlight query={searchQuery}>
+                        {positionName}
+                      </SearchHighlight>
                     </strong>
-                    <small>{positionContext(position)}</small>
+                    <small>
+                      <SearchHighlight query={searchQuery}>
+                        {positionContext(position) ?? ""}
+                      </SearchHighlight>
+                    </small>
                   </span>
                   <span className="position-row__value">
                     {exposurePositionValue(position)}
@@ -1472,15 +1508,25 @@ function ExposureView({
               </Fragment>
             );
           })}
+          {canonicalUnallocated.length > unallocatedLimit && (
+            <div className="exposure-pagination">
+              <span>
+                Showing {unallocatedLimit} of {canonicalUnallocated.length}{" "}
+                unresolved positions
+              </span>
+              <Button
+                onClick={() => onLoadMorePositions("unallocated")}
+                tone="secondary"
+              >
+                Load more unresolved positions
+              </Button>
+            </div>
+          )}
         </section>
       )}
       {visibleCanonicalExposureGroups.map((group) => {
         const positions = group.contributions
-          .map((contribution) =>
-            data.exposureView.positions.find(
-              (position) => position.id === contribution.positionId,
-            ),
-          )
+          .map((contribution) => positionById.get(contribution.positionId))
           .filter(
             (position): position is InvestmentExposurePosition =>
               position !== undefined,
@@ -1489,6 +1535,17 @@ function ExposureView({
             compareExposurePositions(left, right, sortDirection),
           );
         const positionCount = positions.length;
+        const matchingPositions =
+          searchMatches === null
+            ? positions
+            : positions.filter((position) =>
+                searchMatches.exposurePositions
+                  .get(group.exposure.id)
+                  ?.has(position.id),
+              );
+        const positionLimit =
+          visiblePositionCounts.get(group.exposure.id) ??
+          HOLDINGS_POSITION_PAGE_SIZE;
         const displayName = exposureDisplayName(group, positions);
         const investedEstimateCount = positions.filter(
           (position) =>
@@ -1518,11 +1575,16 @@ function ExposureView({
           <Collapsible
             className="exposure-group"
             data-exposure-id={group.exposure.id}
-            key={group.exposure.id}
+            key={`${searchMatches === null ? "browse" : searchQuery}:${group.exposure.id}`}
             onOpenChange={(open) =>
               onExposureOpenChange(group.exposure.id, open)
             }
-            open={openExposureIds.has(group.exposure.id)}
+            defaultOpen={searchMatches !== null}
+            open={
+              searchMatches === null
+                ? openExposureIds.has(group.exposure.id)
+                : undefined
+            }
           >
             <CollapsibleTrigger
               aria-current={
@@ -1538,11 +1600,23 @@ function ExposureView({
                       : group.exposure.canonicalName
                   }
                 >
-                  {displayName}
+                  <SearchHighlight query={searchQuery}>
+                    {displayName}
+                  </SearchHighlight>
                 </strong>
                 <small>
-                  {positionCount}{" "}
-                  {positionCount === 1 ? "position" : "positions"}
+                  {searchMatches !== null &&
+                    displayName !== group.exposure.canonicalName && (
+                      <>
+                        <SearchHighlight query={searchQuery}>
+                          {group.exposure.canonicalName}
+                        </SearchHighlight>{" "}
+                        ·{" "}
+                      </>
+                    )}
+                  {matchingPositions.length < positionCount
+                    ? `${matchingPositions.length} matching ${matchingPositions.length === 1 ? "position" : "positions"} · ${positionCount} total`
+                    : `${positionCount} ${positionCount === 1 ? "position" : "positions"}`}
                   {group.exposure.exposureKind === "unresolved"
                     ? " · Unresolved"
                     : ""}
@@ -1573,7 +1647,7 @@ function ExposureView({
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="exposure-group__positions">
-                {positions.map((position) => {
+                {matchingPositions.slice(0, positionLimit).map((position) => {
                   const positionName = positionDisplayName(position);
                   const valueSourceLabel = exposureValueSourceLabel(position);
                   const currentSharePrice =
@@ -1597,9 +1671,15 @@ function ExposureView({
                               : position.legalVehicleName
                           }
                         >
-                          {positionName}
+                          <SearchHighlight query={searchQuery}>
+                            {positionName}
+                          </SearchHighlight>
                         </strong>
-                        <small>{positionContext(position)}</small>
+                        <small>
+                          <SearchHighlight query={searchQuery}>
+                            {positionContext(position) ?? ""}
+                          </SearchHighlight>
+                        </small>
                       </span>
                       <span
                         className="position-row__value"
@@ -1640,6 +1720,20 @@ function ExposureView({
                     </article>
                   );
                 })}
+                {matchingPositions.length > positionLimit && (
+                  <div className="exposure-pagination">
+                    <span>
+                      Showing {positionLimit} of {matchingPositions.length}{" "}
+                      positions
+                    </span>
+                    <Button
+                      onClick={() => onLoadMorePositions(group.exposure.id)}
+                      tone="secondary"
+                    >
+                      Load more {displayName} positions
+                    </Button>
+                  </div>
+                )}
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -1668,6 +1762,10 @@ function CashHoldingsView({
   onOpenHolding,
   openableHoldingIds,
   showSmallBalances,
+  searchMatches,
+  searchQuery,
+  visibleCount,
+  onLoadMore,
 }: {
   accounts: readonly AcceptedCashAccount[];
   data: InvestmentHoldingsView;
@@ -1676,6 +1774,10 @@ function CashHoldingsView({
   onOpenHolding: (holdingId: string) => void;
   openableHoldingIds: ReadonlySet<string>;
   showSmallBalances: boolean;
+  searchMatches: HoldingsSearchMatches | null;
+  searchQuery: string;
+  visibleCount: number;
+  onLoadMore: () => void;
 }) {
   const bankAccounts = accounts;
   const brokeragePositions = data.exposureView.positions.filter(isCashPosition);
@@ -1720,14 +1822,20 @@ function CashHoldingsView({
     position.valueMinor !== null &&
     position.valueMinor < SMALL_CASH_BALANCE_MINOR;
   const smallBalanceCount =
-    bankAccounts.filter(isSmallBankAccount).length +
-    brokeragePositions.filter(isSmallBrokeragePosition).length;
-  const regularBankAccounts = bankAccounts.filter(
-    (account) => !isSmallBankAccount(account),
+    searchMatches !== null
+      ? 0
+      : bankAccounts.filter(isSmallBankAccount).length +
+        brokeragePositions.filter(isSmallBrokeragePosition).length;
+  const regularBankAccounts = bankAccounts.filter((account) =>
+    searchMatches === null
+      ? !isSmallBankAccount(account)
+      : searchMatches.accountIds.has(account.id),
   );
   const smallBankAccounts = bankAccounts.filter(isSmallBankAccount);
-  const regularBrokeragePositions = brokeragePositions.filter(
-    (position) => !isSmallBrokeragePosition(position),
+  const regularBrokeragePositions = brokeragePositions.filter((position) =>
+    searchMatches === null
+      ? !isSmallBrokeragePosition(position)
+      : searchMatches.positionIds.has(position.id),
   );
   const smallBrokeragePositions = brokeragePositions.filter(
     isSmallBrokeragePosition,
@@ -1735,10 +1843,16 @@ function CashHoldingsView({
   const bankAccountRow = (account: (typeof bankAccounts)[number]) => (
     <article key={account.id}>
       <span>
-        <strong>{account.accountLabel}</strong>
+        <strong>
+          <SearchHighlight query={searchQuery}>
+            {account.accountLabel}
+          </SearchHighlight>
+        </strong>
         <small>
-          {account.institutionLabel} · Bank cash · As of{" "}
-          {formatDate(account.observedAt)}
+          <SearchHighlight query={searchQuery}>
+            {account.institutionLabel}
+          </SearchHighlight>{" "}
+          · Bank cash · As of {formatDate(account.observedAt)}
         </small>
       </span>
       <strong>
@@ -1753,10 +1867,16 @@ function CashHoldingsView({
   ) => (
     <article key={position.id}>
       <span>
-        <strong>{positionDisplayName(position)}</strong>
+        <strong>
+          <SearchHighlight query={searchQuery}>
+            {positionDisplayName(position)}
+          </SearchHighlight>
+        </strong>
         <small>
-          {position.institutionLabel} · {position.containerLabel} · As of{" "}
-          {formatDate(position.observedAt)}
+          <SearchHighlight
+            query={searchQuery}
+          >{`${position.institutionLabel} · ${position.containerLabel}`}</SearchHighlight>{" "}
+          · As of {formatDate(position.observedAt)}
         </small>
       </span>
       <strong>{exposurePositionValue(position)}</strong>
@@ -1772,6 +1892,14 @@ function CashHoldingsView({
       )}
     </article>
   );
+
+  if (
+    searchMatches !== null &&
+    regularBankAccounts.length + regularBrokeragePositions.length === 0
+  )
+    return null;
+  const regularCount =
+    regularBankAccounts.length + regularBrokeragePositions.length;
 
   return (
     <section aria-labelledby="cash-holdings-title" className="cash-holdings">
@@ -1805,9 +1933,21 @@ function CashHoldingsView({
           open={showSmallBalances}
         >
           <div className="cash-holdings__rows">
-            {regularBankAccounts.map(bankAccountRow)}
-            {regularBrokeragePositions.map(brokeragePositionRow)}
+            {regularBankAccounts.slice(0, visibleCount).map(bankAccountRow)}
+            {regularBrokeragePositions
+              .slice(0, Math.max(visibleCount - regularBankAccounts.length, 0))
+              .map(brokeragePositionRow)}
           </div>
+          {regularCount > visibleCount && (
+            <div className="exposure-pagination">
+              <span>
+                Showing {visibleCount} of {regularCount} cash balances
+              </span>
+              <Button onClick={onLoadMore} tone="secondary">
+                Load more cash balances
+              </Button>
+            </div>
+          )}
           {smallBalanceCount > 0 && (
             <>
               <div className="cash-holdings__disclosure">
@@ -1822,9 +1962,25 @@ function CashHoldingsView({
               </div>
               <CollapsibleContent>
                 <div className="cash-holdings__rows cash-holdings__small-balances">
-                  {smallBankAccounts.map(bankAccountRow)}
-                  {smallBrokeragePositions.map(brokeragePositionRow)}
+                  {smallBankAccounts.slice(0, visibleCount).map(bankAccountRow)}
+                  {smallBrokeragePositions
+                    .slice(
+                      0,
+                      Math.max(visibleCount - smallBankAccounts.length, 0),
+                    )
+                    .map(brokeragePositionRow)}
                 </div>
+                {smallBalanceCount > visibleCount && (
+                  <div className="exposure-pagination">
+                    <span>
+                      Showing {visibleCount} of {smallBalanceCount} small
+                      balances
+                    </span>
+                    <Button onClick={onLoadMore} tone="secondary">
+                      Load more small balances
+                    </Button>
+                  </div>
+                )}
               </CollapsibleContent>
             </>
           )}
@@ -1842,13 +1998,17 @@ export function InvestmentHoldings({
   onExposureOpenChange,
   onExposureResolved,
   onLoadMoreExposures,
+  onLoadMorePositions,
   onOpenHolding,
   onReviewImport,
   onShowSmallBalancesChange,
   openExposureIds,
   requestedExposureId,
   showSmallBalances,
+  searchMatches,
+  searchQuery,
   visibleExposureCount,
+  visiblePositionCounts,
 }: {
   acceptedCashAccounts: readonly AcceptedCashAccount[];
   data: InvestmentHoldingsView;
@@ -1857,13 +2017,17 @@ export function InvestmentHoldings({
   onExposureOpenChange: (exposureId: string, open: boolean) => void;
   onExposureResolved: () => Promise<void>;
   onLoadMoreExposures: () => void;
+  onLoadMorePositions: (exposureId: string) => void;
   onOpenHolding: (holdingId: string) => void;
   onReviewImport: (importId: string) => void;
   onShowSmallBalancesChange: (open: boolean) => void;
   openExposureIds: ReadonlySet<string>;
   requestedExposureId: string | null;
   showSmallBalances: boolean;
+  searchMatches: HoldingsSearchMatches | null;
+  searchQuery: string;
   visibleExposureCount: number;
+  visiblePositionCounts: ReadonlyMap<string, number>;
 }) {
   const [connectionState, setConnectionState] =
     useState<InvestmentConnectionsState | null>(null);
@@ -2537,6 +2701,18 @@ export function InvestmentHoldings({
     );
   }
 
+  if (searchMatches?.resultLabel === "0 results") {
+    return (
+      <EmptyState
+        className="holdings-search-empty"
+        compact
+        title="No matching holdings"
+      >
+        Try another name, ticker, or source, or clear your search.
+      </EmptyState>
+    );
+  }
+
   return (
     <>
       <CashHoldingsView
@@ -2547,6 +2723,12 @@ export function InvestmentHoldings({
         onOpenHolding={onOpenHolding}
         openableHoldingIds={knownHoldingIds}
         showSmallBalances={showSmallBalances}
+        searchMatches={searchMatches}
+        searchQuery={searchQuery}
+        visibleCount={
+          visiblePositionCounts.get("cash") ?? HOLDINGS_POSITION_PAGE_SIZE
+        }
+        onLoadMore={() => onLoadMorePositions("cash")}
       />
       <section
         aria-labelledby="investment-views-title"
@@ -2653,12 +2835,16 @@ export function InvestmentHoldings({
           onExposureOpenChange={onExposureOpenChange}
           onOpenHolding={onOpenHolding}
           onLoadMoreExposures={onLoadMoreExposures}
+          onLoadMorePositions={onLoadMorePositions}
           onSubmitExposureReview={(position, input) =>
             void submitExposureReview(position, input)
           }
           requestedExposureId={requestedExposureId}
           sortDirection={exposureSortDirection}
           visibleExposureCount={visibleExposureCount}
+          visiblePositionCounts={visiblePositionCounts}
+          searchMatches={searchMatches}
+          searchQuery={searchQuery}
         />
       </section>
     </>
