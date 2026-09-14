@@ -2706,6 +2706,7 @@ export function InvestmentHoldings({
       <EmptyState
         className="holdings-search-empty"
         compact
+        icon={null}
         title="No matching holdings"
       >
         Try another name, ticker, or source, or clear your search.
