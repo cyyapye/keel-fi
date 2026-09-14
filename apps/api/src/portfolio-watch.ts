@@ -23,6 +23,8 @@ import {
 } from "@keel/connectors";
 import {
   D1PortfolioWatchRepository,
+  D1PortfolioWatchActivityRepository,
+  type TrackedWatchJob,
   type PortfolioWatchSourceRecord,
 } from "@keel/database";
 import { z } from "zod";
@@ -600,23 +602,31 @@ type ProcessSourceJobOptions = {
   now?: () => string;
 };
 
-async function processSourceJob(
+async function inspectSourceJob(
   message: PortfolioWatchSourceJobMessage,
   env: Env,
   options: ProcessSourceJobOptions = {},
-): Promise<void> {
+): Promise<{
+  state: "succeeded" | "failed" | "skipped";
+  errorCode: string | null;
+}> {
   const repository = new D1PortfolioWatchRepository(env.DB);
   const source = await repository.getSource(message.sourceId);
   if (source === null) {
-    return;
+    return { state: "skipped", errorCode: "source_not_monitored" };
   }
   if (
     (message.type === "portfolio_watch_source_scan" &&
       source.status !== "active") ||
     (message.type === "portfolio_watch_source_verify" &&
-      !["discovered", "verified", "degraded"].includes(source.status))
+      ![
+        "discovered",
+        "verified",
+        "degraded",
+        ...(message.runId === undefined ? [] : ["active"]),
+      ].includes(source.status))
   ) {
-    return;
+    return { state: "skipped", errorCode: "source_not_ready" };
   }
 
   const checkedAt = (options.now ?? (() => new Date().toISOString()))();
@@ -650,7 +660,7 @@ async function processSourceJob(
       lastModified: null,
       errorCode: fetched.reason,
     });
-    return;
+    return { state: "failed", errorCode: fetched.reason };
   }
 
   const identityConfirmed = confirmsCompanyIdentity(
@@ -679,7 +689,7 @@ async function processSourceJob(
       lastModified: fetched.lastModified,
       errorCode: "identity_disappeared",
     });
-    return;
+    return { state: "failed", errorCode: "identity_disappeared" };
   }
   const grade = {
     authorityPpm: source.grade.authorityPpm,
@@ -717,7 +727,7 @@ async function processSourceJob(
     lifecycle.nextStatus === "quarantined" ||
     lifecycle.nextStatus === "degraded"
   ) {
-    return;
+    return { state: "failed", errorCode: lifecycle.reason };
   }
 
   let candidates;
@@ -748,7 +758,7 @@ async function processSourceJob(
       lastModified: fetched.lastModified,
       errorCode: "unsafe_or_malformed_document",
     });
-    return;
+    return { state: "failed", errorCode: "unsafe_or_malformed_document" };
   }
 
   await repository.registerCandidates(source.id, candidates, checkedAt);
@@ -756,7 +766,7 @@ async function processSourceJob(
   // 40-job budget; recursive enqueueing would multiply a day's batch by 40.
 
   if (lifecycle.nextStatus !== "active") {
-    return;
+    return { state: "failed", errorCode: "source_identity_unconfirmed" };
   }
 
   const objectKey = `public-watch/${source.id}/${fetched.sha256}`;
@@ -795,11 +805,57 @@ async function processSourceJob(
   const additions = observations.filter(
     (observation) => !existing.has(observation.fingerprint),
   );
-  if (additions.length === 0) return;
+  if (additions.length === 0) return { state: "succeeded", errorCode: null };
   await env.DOCUMENTS.put(objectKey, fetched.bytes, {
     httpMetadata: { contentType: fetched.contentType },
   });
-  await repository.recordObservations(additions);
+  await repository.recordObservations(
+    additions,
+    message.runId === undefined ? null : message.messageId,
+  );
+  return { state: "succeeded", errorCode: null };
+}
+
+async function processSourceJob(
+  message: PortfolioWatchSourceJobMessage,
+  env: Env,
+  options: ProcessSourceJobOptions = {},
+): Promise<void> {
+  // Messages admitted before this migration remain compatible. New producers
+  // always attach the durable run identity; an unknown run cannot fetch a URL.
+  if (message.runId === undefined) {
+    await inspectSourceJob(message, env, options);
+    return;
+  }
+  const job: TrackedWatchJob = { ...message, runId: message.runId };
+  const now = options.now ?? (() => new Date().toISOString());
+  const activity = new D1PortfolioWatchActivityRepository(env.DB);
+  const claim = await activity.claim(job, now());
+  if (claim === "finished") return;
+  if (claim === "busy") throw new Error("watch_check_busy");
+  try {
+    const result = await inspectSourceJob(message, env, options);
+    await activity.finish(
+      job,
+      claim.token,
+      now(),
+      result.state,
+      result.errorCode,
+    );
+  } catch (error) {
+    if (claim.attempts >= 4) {
+      await activity.finish(
+        job,
+        claim.token,
+        now(),
+        "failed",
+        "processing_failed",
+      );
+      return;
+    }
+    await activity.release(job, claim.token);
+    throw error;
+  }
 }
 
 export async function handlePortfolioWatchQueue(

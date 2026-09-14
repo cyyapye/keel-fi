@@ -37,6 +37,7 @@ export const IngestionMessageSchema = z.object({
  */
 const PortfolioWatchSourceJobFields = {
   messageId: z.uuid(),
+  runId: z.uuid().optional(),
   sourceId: z.string().min(1),
   requestedAt: IsoTimestampSchema,
 } as const;

@@ -233,20 +233,73 @@ sources need at least three daily batches, and new discoveries can add backlog.
 
 The real scheduler/processor/D1 test includes 120 targets. A maximum discovery
 day of 40 jobs produces 1,600 observations plus discovered sources. Measured
-totals: 52,682 reads, 42,200 index-inclusive writes, 481 D1 round trips, 40
-queue messages, 40 object writes and 40 source fetches. Including the two DNS
-resolvers with parallel A/AAAA, the external request bound is 200. Each DNS
-request has a five-second deadline; the source request has a ten-second deadline
-and a 1 MiB response limit. URLs and public-address checks remain fail-closed.
+totals: about 58,000 reads and 46,000 index-inclusive writes, 564 D1 round
+trips, 40 queue messages, 40 object writes and 40 source fetches. Including the
+two DNS resolvers with parallel A/AAAA, the external request bound is 200. Each
+DNS request has a five-second deadline; the source request has a ten-second
+deadline and a 1 MiB response limit. URLs and public-address checks remain
+fail-closed.
 
-An unchanged replay writes no new observations or objects. Verification still
-records an explicit attempted check: the 40-job replay measured 400 writes. Four
-complete outage attempts per job (the configured three retries plus the first
-attempt) measured 1,920 reads and 1,600 writes, with at most 800 external
-requests. An empty day makes one indexed scheduler read, at most ten scanned
-rows, zero writes, and no queue call. Ceilings: busy day 150,000 reads / 50,000
-writes; failure day 20,000 reads / 8,000 writes. The test asserts the queue
-retry config and rejects recursive sends.
+A duplicate tracked delivery writes no database rows, observations, or objects;
+the 40-job replay measures 120 reads and 80 D1 round trips. A later newly
+admitted check still records its own attempt. Four complete legacy outage
+attempts per job (the configured three retries plus the first attempt) measured
+1,920 reads and 1,600 writes, with at most 800 external requests. An empty day
+makes one indexed scheduler read, at most ten scanned rows, zero writes, and no
+queue call. Ceilings: busy day 150,000 reads / 50,000 writes; failure day 20,000
+reads / 8,000 writes. The test asserts the queue retry config and rejects
+recursive sends.
+
+### Portfolio Watch progress
+
+The owner is one foreground Portfolio Watch page observing one admitted run.
+Manual and daily producers share atomic admission: at most forty checks per run,
+one active check per source, a two-minute claim lease, four processing attempts,
+and a fifteen-minute run deadline. Uncertain queue dispatch remains visible as
+pending until completion or timeout. No heartbeat, additional cron, source-fetch
+cadence change, or GET-side reconciliation is introduced.
+
+The freshness target is completion detection within ten seconds plus request
+latency while visible and healthy. One initial activity read plus ten-second
+polls before the deadline is at most 90 reads per run. A manual start and a
+terminal response each refresh coverage once. Requests never overlap, have a
+fifteen-second network timeout, and stop on terminal status, unmount, or
+deadline. Hidden tabs do not poll; focus events share the same clock. Failures
+back off at 60, 120, 240, then 300 seconds, with at most six reads including the
+initial request before the fifteen-minute deadline. An idle page makes one
+initial read and no recurring requests for the rest of a day. An explicit page
+change, refresh, or check is separately user initiated.
+
+Both activity endpoints use the normal browser proxy and current Access
+verification on every request. `GET /api/watch/activity` takes five D1 round
+trips and zero writes. Its 120-company holdout stays below 5,000 rows read as
+history exceeds 19,000 checks across two households, including repeated
+timestamps and both ordering keys. Filling all fifty source slots for every
+company creates a 6,000-source holdout: the full page reads 22,806 rows against
+a 30,000-row ceiling. This full coverage read happens on entry, explicit
+actions, and completion.
+
+Recurring requests use `GET /api/watch/activity/progress?runId=…`, which reads
+only the selected run's forty sources and twenty recent runs. It takes three D1
+round trips, zero writes and at most 3,000 rows read, even with 6,000 sources
+and the history holdout. One full active day reserves 450,000 reads, 450 D1
+round trips, zero writes and 200 proxy/API invocations, including up to three
+full coverage reads and 89 progress polls. The measured active case uses 263,491
+rows and 180 invocations; completion is detected within ten seconds. The
+existing Alpha projection is refreshed once on completion, within the existing
+foreground-session allowance. Source fetches, DNS, queue deliveries and R2
+writes remain in the public-source workload above and do not multiply with
+browser polls.
+
+`scripts/portfolio-watch-activity.test.ts` advances a full virtual day through
+the real browser helper, web proxy, API authentication and D1. Healthy, hidden,
+expired-credential and terminal cases enforce these independent ceilings and
+ten-second detection. Browser tests additionally exercise the actual hook,
+reload, failed reads, empty results and pagination. The former enqueue-only UI
+cannot pass the completion/readback assertions. Polling full coverage instead of
+progress exceeds the unchanged 450,000-read daily ceiling in the 6,000-source
+holdout. No auth caching or weaker cost limit is used to accept the new
+runtime-call inventory.
 
 ### Useful-work reserve
 
@@ -255,7 +308,8 @@ setup sessions, the daily source batch and three 120-position accepted captures,
 reserve 480,000 D1 reads for agents/source work plus captures (150,000 +
 150,000 + 3 × 60,000, before UI/other reads), and at most 76,000 writes (2,000 +
 50,000 + 3 × 8,000). The cash allowance below adds 500,000 reads and 800 writes
-across two cash-enabled deployments. Reserve at least 20,000 writes and 3
+across two cash-enabled deployments. Portfolio Watch progress adds the
+450,000-read foreground reserve above. Reserve at least 20,000 writes and 3
 million reads for other useful work, historical-growth allowance and operations.
 The remaining Worker-request headroom is over 70,000 using the conservative
 two-hop invocation count plus bounded UI/setup/source activity. Invocation

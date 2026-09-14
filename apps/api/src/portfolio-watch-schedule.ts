@@ -27,20 +27,26 @@ export async function enqueueDuePortfolioWatchSources(input: {
     return 0;
   }
   const requestedAt = input.scheduledAt.toISOString();
-  const jobs = await input.dependencies.repository.listDueSourceJobs(
+  const dueJobs = await input.dependencies.repository.listDueSourceJobs(
     requestedAt,
     MAX_DAILY_PORTFOLIO_WATCH_JOBS,
   );
-  if (jobs.length === 0) {
+  if (dueJobs.length === 0) {
     return 0;
   }
+  const jobs = await input.dependencies.repository.admitSourceJobs(
+    dueJobs,
+    "scheduled",
+    requestedAt,
+  );
+  if (jobs.length === 0) return 0;
   const randomUuid =
     input.dependencies.randomUuid ?? (() => crypto.randomUUID());
   await input.dependencies.queue.sendBatch(
     jobs.map((job) => ({
       body: PortfolioWatchSourceJobMessageSchema.parse({
         ...job,
-        messageId: randomUuid(),
+        messageId: job.messageId ?? randomUuid(),
         requestedAt,
       }),
     })),

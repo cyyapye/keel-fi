@@ -66,6 +66,7 @@ const migrationFiles = [
   "packages/database/migrations/0053_connected_investment_reviews.sql",
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
   syntheticSeedFile,
+  "packages/database/migrations/0061_portfolio_watch_activity.sql",
 ] as const;
 
 class TestD1Statement {
@@ -662,7 +663,7 @@ describe("Portfolio Watch exposure universe", () => {
       )
       .all("hh_demo") as { detail: string }[];
     const details = queryPlan.map((row) => row.detail).join("\n");
-    expect(details).toContain("portfolio_watch_targets_household_idx");
+    expect(details).toContain("portfolio_watch_targets_page_idx");
     expect(details).toContain("portfolio_watch_sources_target_status_idx");
     expect(details).toContain("public_source_observations_company_idx");
     expect(details).not.toMatch(/SCAN (source|observation)/u);

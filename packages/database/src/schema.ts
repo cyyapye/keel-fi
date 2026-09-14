@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import {
   check,
   foreignKey,
@@ -486,6 +486,11 @@ export const portfolioWatchTargets = sqliteTable(
       table.householdId,
       table.status,
     ),
+    index("portfolio_watch_targets_page_idx").on(
+      table.householdId,
+      table.status,
+      table.id,
+    ),
     uniqueIndex("portfolio_watch_targets_household_company_unique").on(
       table.householdId,
       table.companyId,
@@ -526,6 +531,11 @@ export const portfolioWatchSources = sqliteTable(
     index("portfolio_watch_sources_target_status_idx").on(
       table.watchTargetId,
       table.status,
+    ),
+    index("portfolio_watch_sources_page_idx").on(
+      table.householdId,
+      table.watchTargetId,
+      table.canonicalUrl,
     ),
     index("portfolio_watch_sources_company_idx").on(
       table.householdId,
@@ -608,6 +618,71 @@ export const portfolioWatchSourceVerificationEvents = sqliteTable(
   ],
 );
 
+export const portfolioWatchRuns = sqliteTable(
+  "portfolio_watch_runs",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    triggerKind: text("trigger_kind").notNull(),
+    requestedAt: timestamp("requested_at"),
+    deadlineAt: timestamp("deadline_at"),
+  },
+  (table) => [
+    index("portfolio_watch_runs_recent_idx").on(
+      table.householdId,
+      desc(table.requestedAt),
+      desc(table.id),
+    ),
+    check(
+      "portfolio_watch_runs_trigger_check",
+      sql`${table.triggerKind} IN ('manual', 'scheduled')`,
+    ),
+  ],
+);
+export const portfolioWatchChecks = sqliteTable(
+  "portfolio_watch_checks",
+  {
+    id: id("id"),
+    runId: text("run_id")
+      .notNull()
+      .references(() => portfolioWatchRuns.id, { onDelete: "restrict" }),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => portfolioWatchSources.id, { onDelete: "restrict" }),
+    state: text("state").notNull(),
+    requestedAt: timestamp("requested_at"),
+    startedAt: text("started_at"),
+    completedAt: text("completed_at"),
+    leaseToken: text("lease_token"),
+    leaseUntil: text("lease_until"),
+    attempts: integer("attempts").notNull().default(0),
+    errorCode: text("error_code"),
+    signalCount: integer("signal_count").notNull().default(0),
+  },
+  (table) => [
+    index("portfolio_watch_checks_run_idx").on(table.runId, table.state),
+    uniqueIndex("portfolio_watch_checks_run_source_unique").on(
+      table.runId,
+      table.sourceId,
+    ),
+    uniqueIndex("portfolio_watch_checks_active_source_idx")
+      .on(table.sourceId)
+      .where(sql`${table.state} IN ('queued', 'running')`),
+    check(
+      "portfolio_watch_checks_state_check",
+      sql`${table.state} IN ('queued', 'running', 'succeeded', 'failed', 'skipped')`,
+    ),
+    check(
+      "portfolio_watch_checks_attempts_check",
+      sql`${table.attempts} BETWEEN 0 AND 4`,
+    ),
+    check(
+      "portfolio_watch_checks_signal_count_check",
+      sql`${table.signalCount} BETWEEN 0 AND 160`,
+    ),
+  ],
+);
+
 export const portfolioWatchSourceSyncState = sqliteTable(
   "portfolio_watch_source_sync_state",
   {
@@ -617,6 +692,12 @@ export const portfolioWatchSourceSyncState = sqliteTable(
     etag: text("etag"),
     lastModified: text("last_modified"),
     lastContentSha256: text("last_content_sha256"),
+    lastCompletedAt: text("last_completed_at"),
+    lastCompletedSuccessAt: text("last_completed_success_at"),
+    lastCheckRequestedAt: text("last_check_requested_at"),
+    lastCheckOutcome: text("last_check_outcome"),
+    lastCheckErrorCode: text("last_check_error_code"),
+    lastSignalCount: integer("last_signal_count").notNull().default(0),
     lastAttemptAt: text("last_attempt_at"),
     lastSuccessAt: text("last_success_at"),
     nextCheckAt: timestamp("next_check_at"),
@@ -640,6 +721,10 @@ export const publicSourceObservations = sqliteTable(
   "public_source_observations",
   {
     id: id("id"),
+    watchCheckId: text("watch_check_id").references(
+      () => portfolioWatchChecks.id,
+      { onDelete: "restrict" },
+    ),
     householdId: householdReference(),
     companyId: text("company_id")
       .notNull()
@@ -671,6 +756,7 @@ export const publicSourceObservations = sqliteTable(
     createdAt: timestamp("created_at"),
   },
   (table) => [
+    index("public_source_observations_check_idx").on(table.watchCheckId),
     index("public_source_observations_household_idx").on(
       table.householdId,
       table.retrievedAt,

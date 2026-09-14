@@ -28,6 +28,7 @@ import {
   D1PlanActualMonitoringRepository,
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
+  D1PortfolioWatchActivityRepository,
   D1ProviderPortfolioAgentRepository,
   PrivateExposureReviewError,
   ProviderPortfolioAgentRepositoryError,
@@ -3552,6 +3553,47 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.get("/api/watch/activity/progress", async (context) => {
+    const runId = context.req.query("runId");
+    if (runId === undefined || runId.length === 0 || runId.length > 200)
+      return context.json({ error: "Invalid watch run." }, 400);
+    try {
+      return context.json(
+        await new D1PortfolioWatchActivityRepository(
+          context.env.DB,
+        ).readProgress(context.get("identity").subject, runId),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch {
+      return context.json(
+        { error: "Couldn’t refresh source activity. Try again." },
+        503,
+      );
+    }
+  });
+
+  app.get("/api/watch/activity", async (context) => {
+    const cursor = context.req.query("cursor") ?? null;
+    if (cursor !== null && (cursor.length === 0 || cursor.length > 200))
+      return context.json({ error: "Invalid watch page." }, 400);
+    try {
+      return context.json(
+        await new D1PortfolioWatchActivityRepository(context.env.DB).read(
+          context.get("identity").subject,
+          cursor,
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch {
+      return context.json(
+        { error: "Couldn’t load source activity. Try again." },
+        503,
+      );
+    }
+  });
+
   app.post("/api/watch/scan", async (context) => {
     try {
       const preparation = await repositoryFor(
@@ -3562,7 +3604,7 @@ export function createApp(options: AppOptions = {}) {
           preparation.jobs.map((job) => ({
             body: {
               ...job,
-              messageId: crypto.randomUUID(),
+              messageId: job.messageId ?? crypto.randomUUID(),
               requestedAt: preparation.checkedAt,
             },
           })),
