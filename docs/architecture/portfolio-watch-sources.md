@@ -60,6 +60,11 @@ allows at most four attempts, and saves a terminal outcome only after parsing
 and any new observations are durably stored. Duplicate terminal deliveries do
 not fetch sources, write objects, or update the database.
 
+Signal totals include observations committed before an interrupted completion. A
+changed feed can contribute up to forty new observations on each of the four
+allowed attempts, so a check can retain 160 signals and a forty-check run can
+retain 6,400. These receipt bounds do not add fetches, attempts, or writes.
+
 Runs have a fifteen-minute deadline. The read projection displays an unfinished
 run and its sources as timed out without writing state. A later explicit or
 scheduled admission expires the old check before admitting replacement work; a

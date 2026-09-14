@@ -678,7 +678,7 @@ export const portfolioWatchChecks = sqliteTable(
     ),
     check(
       "portfolio_watch_checks_signal_count_check",
-      sql`${table.signalCount} BETWEEN 0 AND 40`,
+      sql`${table.signalCount} BETWEEN 0 AND 160`,
     ),
   ],
 );

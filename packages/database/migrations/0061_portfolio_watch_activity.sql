@@ -22,7 +22,7 @@ CREATE TABLE portfolio_watch_checks (
   lease_until TEXT,
   attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 4),
   error_code TEXT,
-  signal_count INTEGER NOT NULL DEFAULT 0 CHECK (signal_count BETWEEN 0 AND 40),
+  signal_count INTEGER NOT NULL DEFAULT 0 CHECK (signal_count BETWEEN 0 AND 160),
   UNIQUE(run_id, source_id)
 );
 CREATE INDEX portfolio_watch_checks_run_idx ON portfolio_watch_checks(run_id, state);

@@ -298,6 +298,98 @@ describe("saved Portfolio Watch activity", () => {
     }
   }, 120_000);
 
+  it("counts changing feed contents across interrupted attempts without blocking later checks", async () => {
+    const f = await setup();
+    try {
+      const due = (await f.repository.listDueSourceJobs(start, 40)).slice(0, 1);
+      const [job] = await f.activity.admit(due, "manual", start);
+      let revision = 0;
+      const changingFeed: NonNullable<
+        Parameters<typeof __portfolioWatchTest.processSourceJob>[2]
+      >["fetchSource"] = (source) => {
+        revision++;
+        const text = `<rss version="2.0"><channel><title>${source.companyName}</title>${Array.from(
+          { length: 40 },
+          (_, index) =>
+            `<item><title>${source.companyName} acquires Synthetic Group ${revision}-${index}</title><link>${source.allowedOrigin}/news/acquisition-${revision}-${index}</link><pubDate>Tue, 01 Sep 2026 12:00:00 GMT</pubDate></item>`,
+        ).join("")}</channel></rss>`;
+        expect(
+          __portfolioWatchTest.extractedEvents(
+            source,
+            text,
+            "application/rss+xml",
+          ),
+        ).toHaveLength(40);
+        return Promise.resolve({
+          ok: true,
+          bytes: new TextEncoder().encode(text),
+          text,
+          contentType: "application/rss+xml",
+          status: 200,
+          sha256: createHash("sha256").update(text).digest("hex"),
+          etag: null,
+          lastModified: null,
+        });
+      };
+      // Each capture commits before completion fails. A retry can see a newer
+      // feed, so its receipt must retain all four bounded captures' signals.
+      vi.spyOn(D1PortfolioWatchActivityRepository.prototype, "finish")
+        .mockRejectedValueOnce(new Error("synthetic completion outage"))
+        .mockRejectedValueOnce(new Error("synthetic completion outage"))
+        .mockRejectedValueOnce(new Error("synthetic completion outage"));
+      f.measured.reset();
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const pending = __portfolioWatchTest.processSourceJob(
+          { ...job!, requestedAt: start },
+          f.env,
+          { fetchSource: changingFeed, now: () => finish },
+        );
+        if (attempt < 3) await expect(pending).rejects.toThrow();
+        else await expect(pending).resolves.toBeUndefined();
+      }
+      expect(f.put).toHaveBeenCalledTimes(4);
+      expect(
+        await f.database
+          .prepare(
+            "SELECT state, signal_count, attempts FROM portfolio_watch_checks WHERE id = ?",
+          )
+          .bind(job!.messageId)
+          .first(),
+      ).toEqual({ state: "succeeded", signal_count: 160, attempts: 4 });
+      expect(
+        await f.database
+          .prepare(
+            "SELECT COUNT(*) AS count FROM public_source_observations WHERE watch_check_id = ?",
+          )
+          .bind(job!.messageId)
+          .first("count"),
+      ).toBe(160);
+      const activity = await f.activity.read(
+        "synthetic-access-subject",
+        null,
+        finish,
+      );
+      expect(activity.runs[0]).toMatchObject({
+        status: "succeeded",
+        signalCount: 160,
+        succeededCount: 1,
+      });
+      expect(f.measured.cost.rowsRead).toBeLessThanOrEqual(15_000);
+      expect(f.measured.cost.rowsWritten).toBeLessThanOrEqual(5_000);
+      expect(f.measured.cost.roundTrips).toBeLessThanOrEqual(80);
+      console.info(JSON.stringify({ changingFeedRecovery: f.measured.cost }));
+      const fresh = await f.activity.admit(
+        due,
+        "manual",
+        "2026-09-12T13:16:00.000Z",
+      );
+      expect(fresh).toHaveLength(1);
+    } finally {
+      vi.restoreAllMocks();
+      await f.close();
+    }
+  }, 120_000);
+
   it("projects timeouts without writes and rejects a late completion after explicit recovery", async () => {
     const f = await setup();
     try {

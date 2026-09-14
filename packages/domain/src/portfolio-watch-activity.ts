@@ -44,7 +44,8 @@ export const WatchRunSchema = z.object({
   succeededCount: count.max(40),
   failedCount: count.max(40),
   skippedCount: count.max(40),
-  signalCount: count.max(1600),
+  // Forty checks can each retain forty new observations on four attempts.
+  signalCount: count.max(6400),
 });
 export const PortfolioWatchActivitySchema = z.object({
   asOf: timestamp,

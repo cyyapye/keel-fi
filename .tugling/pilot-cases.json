@@ -916,6 +916,7 @@
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > validates text output, errors, page counts and decoded byte budgets",
     "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > admits racing scans once, persists signals before success, and reloads the household projection",
     "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > bounds a full day through the client, proxy, authentication and D1, and detects completion within ten seconds",
+    "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > counts changing feed contents across interrupted attempts without blocking later checks",
     "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > keeps 120-company reads bounded as same-date history grows",
     "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > projects timeouts without writes and rejects a late completion after explicit recovery",
     "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > recovers an interrupted completion without losing attribution, and bounds retry exhaustion",
