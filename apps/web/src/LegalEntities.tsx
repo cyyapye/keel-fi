@@ -1432,25 +1432,15 @@ function ExactBatchReview({
 
   return (
     <div className="legal-entity-exact-batch">
-      <div>
-        <p className="eyebrow">Source-reported names</p>
+      <div className="legal-entity-exact-batch__summary">
         <h3>
-          {batch.sourceCount} source-reported{" "}
-          {batch.sourceCount === 1 ? "name can" : "names can"} be reviewed
-          together
+          {batch.entityCount} source-reported{" "}
+          {batch.entityCount === 1 ? "name" : "names"} ready to add or link
         </h3>
         <p>
-          {typeSummary} {batch.entityCount === 1 ? "comes" : "come"} directly
-          from source records. {batch.entityCount} exact legal{" "}
-          {batch.entityCount === 1 ? "name" : "names"} will be added or linked;
-          duplicate source rows share one record.{existingCopy}
-          {remainingCopy}
+          {typeSummary}. Review individually below, or apply these names
+          together.
         </p>
-        {error !== null && (
-          <FormMessage className="legal-entity-exact-batch__error" tone="error">
-            {error}
-          </FormMessage>
-        )}
       </div>
       <Button disabled={working} onClick={() => void onApply()} tone="primary">
         {working
@@ -1459,6 +1449,31 @@ function ExactBatchReview({
               batch.sourceCount === 1 ? "source" : "sources"
             }`}
       </Button>
+      <Collapsible className="legal-entity-exact-batch__details">
+        <CollapsibleTrigger
+          render={
+            <TextLink>
+              <span>Batch details</span>
+              <DisclosureIndicator />
+            </TextLink>
+          }
+        />
+        <CollapsibleContent>
+          <p>
+            {batch.sourceCount} source{" "}
+            {batch.sourceCount === 1 ? "record contains" : "records contain"}{" "}
+            {batch.entityCount} exact legal{" "}
+            {batch.entityCount === 1 ? "name" : "names"}; duplicate source rows
+            share one record.{existingCopy}
+            {remainingCopy}
+          </p>
+        </CollapsibleContent>
+      </Collapsible>
+      {error !== null && (
+        <FormMessage className="legal-entity-exact-batch__error" tone="error">
+          {error}
+        </FormMessage>
+      )}
     </div>
   );
 }
@@ -1618,11 +1633,11 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
       onOpenChange={setExpanded}
     >
       <PageHeader
+        className="legal-entities__header"
         title="Legal entities"
-        eyebrow="Holdings"
-        description="Prepare an entity and interest list for counsel. This inventory does not transfer anything to a trust."
+        description="For counsel. This inventory does not transfer interests to a trust."
         actions={
-          <CollapsibleTrigger render={<Button tone="primary" />}>
+          <CollapsibleTrigger render={<Button tone="secondary" />}>
             <span>Export</span>
             <DisclosureIndicator />
           </CollapsibleTrigger>
@@ -2143,48 +2158,48 @@ export function LegalEntities({
         />
       )}
       <div hidden={location.target !== null} className="legal-entities">
-        <ExportWorkspace inventory={inventory} />
-        <p className="legal-entities__notice" role="status">
-          {automaticWorking
-            ? "Checking source details automatically…"
-            : "Matching source details are accepted automatically. You can edit any record."}
-        </p>
-        {automaticError !== null && (
-          <Notice tone="error">
-            {automaticError}{" "}
-            <TextLink
-              onClick={() => void resolveAutomatically(automaticCursor)}
-            >
-              Retry automatic review
-            </TextLink>
-          </Notice>
-        )}
-        {!automaticWorking &&
-          automaticError === null &&
-          automaticCursor !== null && (
-            <Button
-              tone="secondary"
-              onClick={() => void resolveAutomatically(automaticCursor)}
-            >
-              Continue automatic review
-            </Button>
+        <div className="legal-entities__intro">
+          <ExportWorkspace inventory={inventory} />
+          {automaticWorking && (
+            <p className="legal-entities__notice" role="status">
+              Checking source details automatically…
+            </p>
           )}
-        {notice !== null && (
-          <FormMessage className="legal-entities__notice" tone="success">
-            {notice}
-          </FormMessage>
-        )}
-        {loadError !== null && <Notice tone="error">{loadError}</Notice>}
+          {automaticError !== null && (
+            <Notice tone="error">
+              {automaticError}{" "}
+              <TextLink
+                onClick={() => void resolveAutomatically(automaticCursor)}
+              >
+                Retry automatic review
+              </TextLink>
+            </Notice>
+          )}
+          {!automaticWorking &&
+            automaticError === null &&
+            automaticCursor !== null && (
+              <Button
+                tone="secondary"
+                onClick={() => void resolveAutomatically(automaticCursor)}
+              >
+                Continue automatic review
+              </Button>
+            )}
+          {notice !== null && (
+            <FormMessage className="legal-entities__notice" tone="success">
+              {notice}
+            </FormMessage>
+          )}
+          {loadError !== null && <Notice tone="error">{loadError}</Notice>}
+        </div>
         {candidates.length > 0 && (
           <section
             aria-labelledby="legal-entity-candidates-title"
             className="legal-entities__candidates"
           >
             <SectionHeader
-              description="Only missing, conflicting, or unsupported details need your attention."
-              eyebrow="Review queue"
               headingProps={{ id: "legal-entity-candidates-title" }}
-              title="Needs your review"
+              title={`Needs your review · ${candidates.length}`}
             />
             {inventory.exactBatch.sourceCount > 0 && (
               <ExactBatchReview
@@ -2219,8 +2234,7 @@ export function LegalEntities({
                 Add entity
               </Button>
             }
-            description="Reviewed records are included in your inventory. Missing values stay visible instead of becoming zero."
-            eyebrow="Reviewed inventory"
+            description="Matching source updates are accepted automatically. Records remain editable."
             headingProps={{ id: "known-legal-entities-title" }}
             title="Known legal entities"
           />

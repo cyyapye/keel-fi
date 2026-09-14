@@ -226,7 +226,7 @@ test("automatically resolves 120 sources, shows only the missing term and preser
 }) => {
   const fixture = await setup(page);
   await expect(
-    page.getByRole("heading", { name: "Needs your review" }),
+    page.getByRole("heading", { name: /Needs your review/u }),
   ).toBeVisible();
   await expect(page.locator(".legal-entity-candidate")).toHaveCount(1);
   expect(fixture.resolves()).toBe(1);
@@ -280,7 +280,7 @@ test("automatically resolves 120 sources, shows only the missing term and preser
     .getByRole("button", { name: "Back to legal entities", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Needs your review" }),
+    page.getByRole("heading", { name: /Needs your review/u }),
   ).toHaveCount(0);
   const row = page.locator(".legal-entity-row").filter({
     has: page.getByRole("heading", {
