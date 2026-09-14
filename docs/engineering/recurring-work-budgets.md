@@ -124,7 +124,11 @@ separately.
 Real Chrome tests model one-hour access and twelve-hour refresh expiry across
 cold starts. The former close-only behavior loses authentication after a day;
 normal provider refresh at hours 6/12/18 preserves the following daily capture.
-This synthetic proof must be followed by a deployed renewal event and the next
+The browser suite also invokes renewal through the service's production `tsx`
+entrypoint, checking valid, missing, malformed and expired session metadata in
+real Chromium. Playwright's own transpiler does not cover that serialization
+boundary; browser callbacks must not depend on Node-side transform helpers. This
+synthetic proof must be followed by a deployed renewal event and the next
 scheduled live capture without another sign-in. Account revocation, changed
 provider policy or downtime beyond the refresh deadline can still need
 reconnect.

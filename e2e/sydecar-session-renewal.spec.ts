@@ -1,7 +1,8 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { chromium, expect, test, type BrowserContext } from "@playwright/test";
 import { controlledChromeArguments } from "../scripts/browser-agent-runtime";
 import { providerAgreementCollector } from "../scripts/provider-legal-document-capture";
@@ -21,6 +22,50 @@ const start = Date.parse("2026-09-01T00:00:00.000Z");
 const table =
   '<table data-testid="investments-table"><tr><td>Synthetic portfolio</td></tr></table>';
 const login = '<input type="password"><button>Sign in</button>';
+
+test("Sydecar renewal verifies expiry through the production tsx runner", async () => {
+  test.setTimeout(60_000);
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [
+      path.resolve("node_modules/tsx/dist/cli.mjs"),
+      path.resolve("scripts/test-support/sydecar-renewal-runtime-smoke.ts"),
+    ],
+    { timeout: 50_000, maxBuffer: 128 * 1024 },
+  );
+  const records: unknown[] = stdout
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as unknown);
+  expect(records).toEqual([
+    {
+      event: "provider_session_renewal_verified",
+      provider: "sydecar",
+      admittedRequests: 1,
+      refreshRemainingSeconds: 43_200,
+    },
+    {
+      cases: [
+        { name: "renewed", outcome: "verified", requests: 1 },
+        { name: "missing access", outcome: "unexpected_failure", requests: 1 },
+        { name: "missing refresh", outcome: "unexpected_failure", requests: 1 },
+        {
+          name: "malformed refresh",
+          outcome: "unexpected_failure",
+          requests: 1,
+        },
+        { name: "invalid expiry", outcome: "unexpected_failure", requests: 1 },
+        { name: "expired access", outcome: "unexpected_failure", requests: 1 },
+        {
+          name: "expired refresh",
+          outcome: "provider_sign_in_required",
+          requests: 1,
+        },
+        { name: "short refresh", outcome: "unexpected_failure", requests: 1 },
+      ],
+    },
+  ]);
+});
 
 function syntheticToken(expires: number) {
   return [

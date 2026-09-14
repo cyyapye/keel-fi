@@ -1840,12 +1840,21 @@ async function renewSavedSydecarSession(
   await requireProviderPageReady(page, "sydecar");
   const expiry = SessionExpirySchema.parse(
     await page.evaluate(() => {
-      const expires = (key: string) => {
+      // Keep this callback self-contained: tsx adds a Node-side __name helper
+      // to nested named functions, which is unavailable in the provider page.
+      const result: { access: number | null; refresh: number | null } = {
+        access: null,
+        refresh: null,
+      };
+      for (const [kind, key] of [
+        ["access", "auth_token"],
+        ["refresh", "refresh_token"],
+      ] as const) {
         try {
           const token = localStorage.getItem(key);
-          if (token === null) return null;
+          if (token === null) continue;
           const encoded = token.split(".")[1];
-          if (encoded === undefined) return null;
+          if (encoded === undefined) continue;
           const payload: unknown = JSON.parse(
             atob(encoded.replaceAll("-", "+").replaceAll("_", "/")),
           );
@@ -1854,21 +1863,18 @@ async function renewSavedSydecarSession(
             payload === null ||
             !("exp" in payload)
           )
-            return null;
-          return typeof payload.exp === "number" &&
-            Number.isSafeInteger(payload.exp)
-            ? payload.exp
-            : null;
+            continue;
+          result[kind] =
+            typeof payload.exp === "number" && Number.isSafeInteger(payload.exp)
+              ? payload.exp
+              : null;
         } catch {
-          return null;
+          // Missing or malformed expiry stays unverified.
         }
-      };
+      }
       // Only expiry metadata crosses the browser boundary. Tokens and other
       // account claims stay inside the existing dedicated Chrome profile.
-      return {
-        access: expires("auth_token"),
-        refresh: expires("refresh_token"),
-      };
+      return result;
     }),
   );
   const timestamp = now() / 1_000;

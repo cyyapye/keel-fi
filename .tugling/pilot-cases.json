@@ -1319,10 +1319,12 @@
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar loses a twelve-hour refresh session despite closing Chrome",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar page ownership preserves Keel setup and bounded agreement popups",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal fails closed at its provider-request admission bound",
+    "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal verifies expiry through the production tsx runner",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar survives the next daily capture with bounded renewal",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar loses a twelve-hour refresh session despite closing Chrome",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar page ownership preserves Keel setup and bounded agreement popups",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar renewal fails closed at its provider-request admission bound",
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar renewal verifies expiry through the production tsx runner",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar survives the next daily capture with bounded renewal"
   ],
   "python": [
