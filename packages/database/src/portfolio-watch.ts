@@ -11,6 +11,10 @@ import {
   IsoTimestampSchema,
 } from "@keel/domain";
 import { z } from "zod";
+import {
+  D1PortfolioWatchActivityRepository,
+  type TrackedWatchJob,
+} from "./portfolio-watch-activity";
 
 const SourceKindSchema = z.enum([
   "official_company_web",
@@ -24,6 +28,8 @@ const SourceJobSchema = z.object({
     "portfolio_watch_source_scan",
   ]),
   sourceId: z.string().min(1),
+  messageId: z.uuid().optional(),
+  runId: z.uuid().optional(),
 });
 
 const DUE_PORTFOLIO_WATCH_SOURCE_JOBS_SQL = `
@@ -182,6 +188,11 @@ export type PortfolioWatchObservationInput = z.infer<
 >;
 
 export interface ScheduledPortfolioWatchRepository {
+  admitSourceJobs(
+    jobs: PortfolioWatchScanPreparation["jobs"],
+    trigger: "manual" | "scheduled",
+    requestedAt: string,
+  ): Promise<TrackedWatchJob[]>;
   listDueSourceJobs(
     dueAt: string,
     limit: number,
@@ -269,6 +280,18 @@ function nextCheckAt(checkedAt: string, succeeded: boolean): string {
 export class D1PortfolioWatchRepository {
   public constructor(private readonly db: D1Database) {}
 
+  public admitSourceJobs(
+    jobs: PortfolioWatchScanPreparation["jobs"],
+    trigger: "manual" | "scheduled",
+    requestedAt: string,
+  ): Promise<TrackedWatchJob[]> {
+    return new D1PortfolioWatchActivityRepository(this.db).admit(
+      jobs,
+      trigger,
+      requestedAt,
+    );
+  }
+
   public async listDueSourceJobs(
     rawDueAt: string,
     rawLimit: number,
@@ -298,7 +321,8 @@ export class D1PortfolioWatchRepository {
   ): Promise<PortfolioWatchScanPreparation> {
     const checkedAt = new Date().toISOString();
     // Accepted exposure changes already register homepages in the canonical
-    // database transaction. Preparing a scan only selects a bounded job batch.
+    // database transaction. Selection itself stays read-only; the explicit scan
+    // action admits this bounded batch before dispatching it.
     const sources = await all<{
       id: string;
       status: z.infer<typeof OfficialCompanySourceStatusSchema>;
@@ -675,6 +699,7 @@ export class D1PortfolioWatchRepository {
 
   public async recordObservations(
     rawInputs: readonly PortfolioWatchObservationInput[],
+    checkId: string | null = null,
   ): Promise<number> {
     const inputs = z
       .array(PortfolioWatchObservationInputSchema)
@@ -800,7 +825,7 @@ export class D1PortfolioWatchRepository {
         id, household_id, company_id, evidence_event_id, source_document_id, source_class,
         source_url, source_title, published_at, retrieved_at, observed_fact, inference,
         source_reliability_ppm, model_confidence_ppm, valuation_low_minor, valuation_middle_minor,
-        valuation_high_minor, limitations, fingerprint, created_at, source_id)
+        valuation_high_minor, limitations, fingerprint, created_at, source_id, watch_check_id)
         SELECT json_extract(value, '$.observationId'), ?, ?, json_extract(value, '$.eventId'),
           json_extract(value, '$.documentId'), 'official_company', json_extract(value, '$.sourceUrl'),
           json_extract(value, '$.sourceTitle'), json_extract(value, '$.publishedAt'),
@@ -809,12 +834,13 @@ export class D1PortfolioWatchRepository {
           ?, json_extract(value, '$.modelConfidencePpm'), NULL, NULL, NULL,
           'Public company information does not establish security terms, ownership, dilution, fees, taxes, or liquidity for this holding.',
           json_extract(value, '$.fingerprint'), json_extract(value, '$.retrievedAt'),
-          json_extract(value, '$.sourceId') FROM json_each(?)`,
+          json_extract(value, '$.sourceId'), ? FROM json_each(?)`,
         )
         .bind(
           source.householdId,
           source.companyId,
           source.grade.authorityPpm,
+          checkId,
           encoded,
         ),
       this.db

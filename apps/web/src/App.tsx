@@ -1,3 +1,5 @@
+import { PortfolioWatchMonitor } from "./PortfolioWatchMonitor";
+import { formatWatchTime } from "./portfolio-watch-format";
 import {
   addMinorUnits,
   createGoalPreview,
@@ -6767,129 +6769,34 @@ function ReportedFinancingTerms({
   );
 }
 
-function watchCoverageStatusLabel(
-  status: "active" | "discovering" | "degraded" | "unavailable",
-  lastCheckedAt: string | null,
-  monitoringStatus: "active" | "paused",
-) {
-  if (monitoringStatus === "paused") {
-    return "Monitoring paused";
-  }
-  if (status === "active") {
-    return lastCheckedAt === null
-      ? "Monitoring active"
-      : `Monitoring active · Checked ${formatDate(lastCheckedAt)}`;
-  }
-
-  return {
-    discovering: "Finding sources",
-    degraded: "Temporarily unavailable · Will retry",
-    unavailable: "No verified public source yet",
-  }[status];
-}
-
 function PortfolioWatch({
   data,
   onReview,
   onScan,
+  onRefresh,
 }: {
   data: AlphaData;
   onReview: (eventId: string) => void;
-  onScan: () => Promise<{
-    discoveredCount: number;
-    proposedCount: number;
-    queuedCount: number;
-  }>;
+  onScan: () => Promise<{ queuedCount: number }>;
+  onRefresh: () => Promise<void>;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const runScan = () => {
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    void onScan()
-      .then((result) => {
-        setMessage(
-          result.queuedCount > 0
-            ? "Source checks started."
-            : result.discoveredCount === 0
-              ? "You’re up to date."
-              : `${result.proposedCount} ${result.proposedCount === 1 ? "update is" : "updates are"} ready to review.`,
-        );
-      })
-      .catch(() => setError("Couldn’t check for updates. Try again."))
-      .finally(() => setBusy(false));
-  };
-
   return (
-    <ScreenLayout className="watch-screen">
-      <PageHeader
-        actions={
-          <Badge data-testid="portfolio-watch-status" tone="neutral">
-            Public sources only
-          </Badge>
-        }
-        className="watch-intro"
-        description="Follow public signals across your private holdings. A signal never changes a holding on its own; a value changes only after you review and apply it."
-        title="Portfolio Watch"
-      />
-
-      <Panel
-        className="watch-control-panel"
-        data-testid="portfolio-watch-control"
-      >
-        <div>
-          <h2>Check for updates</h2>
-          <p>
-            Keel finds company sources and sends new evidence to review. Company
-            financing terms do not determine what your position is worth.
-          </p>
-          <small data-testid="portfolio-watch-data-profile">
-            {isRealCompanyAcceptanceProfile
-              ? "Real public sources · Demo portfolio figures"
-              : "Demo sources in this preview"}
-          </small>
-        </div>
-        <Button disabled={busy} onClick={runScan} tone="primary">
-          {busy ? "Checking…" : "Check now"}
-        </Button>
-      </Panel>
-
-      {error !== null && <Notice tone="error">{error}</Notice>}
-      {message !== null && <FormMessage tone="success">{message}</FormMessage>}
-
-      <section>
-        <SectionHeader
-          title={`Monitoring ${data.portfolioWatch.targets.length} companies`}
-        />
-        <div className="watch-target-grid">
-          {data.portfolioWatch.targets.map((target) => (
-            <article data-testid={`watch-target-${target.id}`} key={target.id}>
-              <strong>{target.companyName}</strong>
-              <small data-testid="watch-target-coverage">
-                {watchCoverageStatusLabel(
-                  target.coverageStatus,
-                  target.lastCheckedAt,
-                  target.status,
-                )}
-              </small>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <SectionHeader title="Recent signals" />
-
-        {data.portfolioWatch.observations.length === 0 ? (
-          <EmptyState title="No updates yet">
-            Check now to look for new public signals.
-          </EmptyState>
-        ) : (
-          <div className="watch-observation-list">
-            {data.portfolioWatch.observations.map((observation) => (
+    <PortfolioWatchMonitor
+      onScan={onScan}
+      onRefresh={onRefresh}
+      signalCount={data.portfolioWatch.observations.length}
+      sourceLabel={
+        isRealCompanyAcceptanceProfile
+          ? "Real public sources · Demo portfolio figures"
+          : import.meta.env.DEV
+            ? "Demo sources"
+            : "Official company websites and feeds"
+      }
+      renderSignals={(start, end) => (
+        <div className="watch-observation-list">
+          {data.portfolioWatch.observations
+            .slice(start, end)
+            .map((observation) => (
               <article key={observation.id}>
                 <header>
                   <div>
@@ -6899,7 +6806,9 @@ function PortfolioWatch({
                     </p>
                     <h2>{observation.sourceTitle}</h2>
                     <small>
-                      Published {formatDate(observation.publishedAt)}
+                      Published {formatWatchTime(observation.publishedAt)}
+                      <br />
+                      Found by Keel {formatWatchTime(observation.retrievedAt)}
                     </small>
                   </div>
                   <Badge
@@ -6995,10 +6904,9 @@ function PortfolioWatch({
                 </footer>
               </article>
             ))}
-          </div>
-        )}
-      </section>
-    </ScreenLayout>
+        </div>
+      )}
+    />
   );
 }
 
@@ -8331,13 +8239,12 @@ export function App() {
       case "watch":
         return (
           <PortfolioWatch
+            onRefresh={async () => {
+              setData(await loadAlphaData());
+            }}
             data={data}
             onReview={() => navigateToScreen("evidence")}
-            onScan={async () => {
-              const result = await scanPortfolioWatch();
-              setData(await loadAlphaData());
-              return result;
-            }}
+            onScan={scanPortfolioWatch}
           />
         );
       case "evidence":

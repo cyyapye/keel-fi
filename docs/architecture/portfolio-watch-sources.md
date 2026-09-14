@@ -46,9 +46,49 @@ source lookup for Portfolio Watch. A successful source check becomes eligible
 again after seven days, so healthy official sources are fetched weekly rather
 than daily. A failed check becomes eligible again after one hour and is picked
 up by the next daily sweep; unexpected Queue failures retain the Queue's bounded
-retry policy. The scheduled lookup queues at most 100 opaque source-ID jobs per
+retry policy. The scheduled lookup admits at most 40 opaque source-ID jobs per
 run. **Check now** remains an explicit on-demand scan and does not wait for the
 scheduled eligibility window.
+
+## Saved activity and coverage
+
+Manual and scheduled producers atomically admit a durable run and at most 40
+source checks before queue dispatch. A unique active-source index prevents
+racing producers from checking the same source concurrently. Each message keeps
+its admitted check ID across retries. The consumer claims a two-minute lease,
+allows at most four attempts, and saves a terminal outcome only after parsing
+and any new observations are durably stored. Duplicate terminal deliveries do
+not fetch sources, write objects, or update the database.
+
+Runs have a fifteen-minute deadline. The read projection displays an unfinished
+run and its sources as timed out without writing state. A later explicit or
+scheduled admission expires the old check before admitting replacement work; a
+stale completion cannot replace the newer outcome. Queue dispatch errors may
+leave an admitted check pending because delivery is uncertain. The UI exposes
+that pending state and the deadline instead of claiming success or silently
+retrying dispatch. Pre-migration queue messages remain compatible; historical
+activity is not invented for checks that were never recorded.
+
+`GET /api/watch/activity` reads only D1 projections under the current Access
+identity. It returns twenty companies per cursor page, at most fifty source
+records per company, and twenty recent runs with at most forty checks each. The
+read takes five database round trips independent of page size. Completion and
+successful completion have separate timestamps from an attempted fetch. Signals
+retain both the publisher's timestamp and Keel's retrieval timestamp.
+
+`GET /api/watch/activity/progress?runId=…` returns the selected run's forty
+sources and twenty recent runs in three database round trips. It drives active
+progress updates without repeatedly scanning full household coverage. A terminal
+response refreshes coverage once so newly discovered sources also appear.
+
+Coverage shows the approved URL, source kind, last successful check, last
+attempt, next scheduled attempt, and any unavailable or unfinished result. The
+screen distinguishes a completed check with no new signals from no source, no
+completed check, failure, or timeout. Activity survives reloads. Visible active
+runs refresh progress every ten seconds until completion or the server deadline;
+idle pages and hidden tabs do not continuously poll. The full request and
+storage envelope is documented in
+[recurring work budgets](../engineering/recurring-work-budgets.md#portfolio-watch-progress).
 
 ## Evidence boundary
 

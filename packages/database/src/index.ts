@@ -62,6 +62,7 @@ import {
 export * from "./plan-inputs";
 export * from "./investment-connections";
 export * from "./portfolio-watch";
+export * from "./portfolio-watch-activity";
 export * from "./cash-accounts";
 export * from "./cash-flow";
 export * from "./liabilities";
@@ -1361,9 +1362,16 @@ export class D1AlphaRepository implements AlphaRepository {
     accessSubject: string,
   ): Promise<PortfolioWatchScanPreparation> {
     const identity = await this.findIdentity(accessSubject);
-    return new D1PortfolioWatchRepository(this.db).prepareScan(
-      identity.household_id,
-    );
+    const repository = new D1PortfolioWatchRepository(this.db);
+    const preparation = await repository.prepareScan(identity.household_id);
+    return {
+      ...preparation,
+      jobs: await repository.admitSourceJobs(
+        preparation.jobs,
+        "manual",
+        preparation.checkedAt,
+      ),
+    };
   }
 
   public async stageHoldingImport(

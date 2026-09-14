@@ -22,7 +22,12 @@ function dependencies(
     listDueSourceJobs,
     sendBatch,
     value: {
-      repository: { listDueSourceJobs },
+      repository: {
+        listDueSourceJobs,
+        admitSourceJobs: vi
+          .fn()
+          .mockImplementation((jobs) => Promise.resolve(jobs)),
+      },
       queue: { sendBatch },
       randomUuid: () => messageIds.shift() ?? crypto.randomUUID(),
     },

@@ -14,6 +14,7 @@
     "./legal-entities": "./src/legal-entities.ts",
     "./plan-actual-monitoring": "./src/plan-actual-monitoring.ts",
     "./portfolio-dashboard": "./src/portfolio-dashboard.ts",
+    "./portfolio-watch-activity": "./src/portfolio-watch-activity.ts",
     "./private-position-value-estimate": "./src/private-position-value-estimate.ts",
     "./position-economics": "./src/position-economics.ts",
     "./position-read-model": "./src/position-read-model.ts",

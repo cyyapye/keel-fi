@@ -1,4 +1,8 @@
 import {
+  PortfolioWatchActivitySchema,
+  PortfolioWatchProgressSchema,
+} from "@keel/domain/portfolio-watch-activity";
+import {
   CreateDocumentInvestmentInputSchema,
   CreateDocumentInvestmentResultSchema,
   InvestmentCompanyReceiptSchema,
@@ -1010,6 +1014,34 @@ export async function savePlanInputs(
     );
   }
   return PlanInputSaveResultSchema.parse(await response.json());
+}
+
+export async function loadPortfolioWatchActivity(cursor: string | null = null) {
+  const response = await fetch(
+    `/api/watch/activity${cursor === null ? "" : `?cursor=${encodeURIComponent(cursor)}`}`,
+    {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok)
+    throw await responseError(response, "Couldn’t load source activity.");
+  return PortfolioWatchActivitySchema.parse(await response.json());
+}
+
+export async function loadPortfolioWatchProgress(runId: string) {
+  const response = await fetch(
+    `/api/watch/activity/progress?runId=${encodeURIComponent(runId)}`,
+    {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok)
+    throw await responseError(response, "Couldn’t refresh source activity.");
+  return PortfolioWatchProgressSchema.parse(await response.json());
 }
 
 export async function scanPortfolioWatch(): Promise<PortfolioWatchScanResult> {

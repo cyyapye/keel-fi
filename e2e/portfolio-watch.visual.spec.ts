@@ -86,6 +86,92 @@ const portfolioWatchFixture = {
   ],
 };
 
+const watchSourceFixture = {
+  id: "source_harbor",
+  targetId: "watch_harbor",
+  url: "https://harbor-health.example/news",
+  kind: "official_company_web",
+  status: "active",
+  lastAttemptAt: "2026-08-02T12:00:00.000Z",
+  lastCompletedAt: "2026-08-02T12:00:00.000Z",
+  lastSuccessAt: "2026-08-02T12:00:00.000Z",
+  nextCheckAt: "2026-08-09T12:00:00.000Z",
+  pendingState: null,
+  outcome: "succeeded",
+  errorCode: null,
+  signalCount: 1,
+};
+const watchActivityFixture = {
+  asOf: "2026-08-02T12:00:00.000Z",
+  summary: {
+    companyCount: 3,
+    sourceCount: 3,
+    unavailableCount: 1,
+    neverCheckedCount: 0,
+    nextCheckAt: "2026-08-02T13:00:00.000Z",
+  },
+  companies: [
+    {
+      id: "watch_harbor",
+      companyName: "Harbor Health Systems",
+      sources: [
+        watchSourceFixture,
+        {
+          ...watchSourceFixture,
+          id: "source_harbor_feed",
+          url: "https://harbor-health.example/feed.xml",
+          kind: "official_rss",
+          signalCount: 0,
+        },
+      ],
+    },
+    {
+      id: "watch_lattice",
+      companyName: "Lattice Grove Energy",
+      sources: [
+        {
+          ...watchSourceFixture,
+          id: "source_lattice",
+          targetId: "watch_lattice",
+          url: "https://lattice-grove.example/news",
+          status: "degraded",
+          outcome: "failed",
+          errorCode: "source_timeout",
+          lastSuccessAt: "2026-07-26T12:00:00.000Z",
+          nextCheckAt: "2026-08-02T13:00:00.000Z",
+          signalCount: 0,
+        },
+      ],
+    },
+    { id: "watch_northstar", companyName: "Northstar Robotics", sources: [] },
+  ],
+  nextCursor: null,
+  runs: [
+    {
+      id: "run_watch",
+      trigger: "scheduled",
+      requestedAt: "2026-08-02T11:59:00.000Z",
+      startedAt: "2026-08-02T11:59:10.000Z",
+      completedAt: "2026-08-02T12:00:00.000Z",
+      deadlineAt: "2026-08-02T12:14:00.000Z",
+      status: "partial",
+      totalCount: 3,
+      completedCount: 3,
+      succeededCount: 2,
+      failedCount: 1,
+      skippedCount: 0,
+      signalCount: 1,
+    },
+  ],
+};
+
+test.use({ timezoneId: "America/Los_Angeles" });
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/watch/activity**", async (route) => {
+    await route.fulfill({ json: watchActivityFixture });
+  });
+});
+
 test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   page,
 }, testInfo) => {
@@ -101,7 +187,53 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
   });
+  await page.clock.install({ time: new Date("2026-08-02T12:00:00.000Z") });
+  let checking = false;
+  let completed = false;
+  await page.route("**/api/watch/activity**", async (route) => {
+    const state =
+      !checking || completed
+        ? watchActivityFixture
+        : {
+            ...watchActivityFixture,
+            companies: watchActivityFixture.companies.map((company) => ({
+              ...company,
+              sources: company.sources.map((source) => ({
+                ...source,
+                pendingState: "queued",
+              })),
+            })),
+            runs: [
+              {
+                ...watchActivityFixture.runs[0],
+                id: "run_manual",
+                trigger: "manual",
+                status: "queued",
+                requestedAt: "2026-08-02T12:00:00.000Z",
+                startedAt: null,
+                completedAt: null,
+                deadlineAt: "2026-08-02T12:15:00.000Z",
+                completedCount: 0,
+                succeededCount: 0,
+                failedCount: 0,
+                signalCount: 0,
+              },
+            ],
+          };
+    await route.fulfill({
+      json: route.request().url().includes("/progress?")
+        ? {
+            asOf: state.asOf,
+            runs: state.runs,
+            sources: state.companies.flatMap<unknown>(
+              (company) => company.sources,
+            ),
+          }
+        : state,
+    });
+  });
   await page.route("**/api/watch/scan", async (route) => {
+    checking = true;
     await route.fulfill({
       json: {
         checkedAt: "2026-08-02T12:00:00.000Z",
@@ -111,37 +243,63 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
       },
     });
   });
-
   await page.goto("/");
-
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Watch/);
-  await expect(page.locator(".watch-screen")).toContainText(
-    "A signal never changes a holding on its own; a value changes only after you review and apply it.",
+  const checkButton = page.getByRole("button", {
+    name: "Check now",
+    exact: true,
+  });
+  await expect(checkButton).toBeEnabled();
+  await checkButton.click();
+  await expect(
+    page.getByRole("heading", { name: "Waiting to check sources" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Checking…", exact: true }),
+  ).toBeDisabled();
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await page.mouse.move(0, 0);
+  await expect(page.locator(".watch-screen")).toHaveScreenshot(
+    "portfolio-watch-running.png",
+    { animations: "disabled" },
   );
-  const checkButton = page.locator(".watch-control-panel .button");
-  await expect(checkButton).toHaveText("Check now");
+  completed = true;
+  await page.clock.fastForward(10_000);
+  await expect(checkButton).toBeEnabled();
   await expect(page.getByTestId("portfolio-watch-control")).toContainText(
-    "Keel finds company sources and sends new evidence to review. Company financing terms do not determine what your position is worth.",
+    "2 of 3 sources read",
   );
-  await expect(page.getByTestId("watch-target-watch_harbor")).toContainText(
-    "Monitoring active · Checked Aug 2, 2026",
-  );
-  await expect(page.getByTestId("watch-target-watch_lattice")).toContainText(
-    "Temporarily unavailable · Will retry",
-  );
+  await page.getByTestId("watch-target-watch_lattice").click();
+  await expect(
+    page.getByText("The site did not respond. Keel will retry."),
+  ).toBeVisible();
+  await expect(page.getByText(/Last successful check: Jul 26/)).toBeVisible();
   await expect(page.getByTestId("watch-target-watch_northstar")).toContainText(
     "No verified public source yet",
   );
-  await checkButton.click();
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await page.mouse.move(0, 0);
+  await expect(page.locator(".watch-screen")).toHaveScreenshot(
+    "portfolio-watch.png",
+    { animations: "disabled" },
+  );
+  await page.getByRole("tab", { name: "Activity", exact: true }).click();
   await expect(
     page.getByRole("heading", {
-      name: "Synthetic Series C financing announcement",
+      name: "Scheduled check · Completed with unavailable sources",
     }),
   ).toBeVisible();
-  await expect(checkButton).toBeEnabled();
-  await expect(checkButton).toHaveText("Check now");
-  await expect(page.getByText("Source checks started.")).toBeVisible();
+  await expect(page.locator(".watch-screen")).toHaveScreenshot(
+    "portfolio-watch-activity.png",
+    { animations: "disabled" },
+  );
+  await page.getByRole("tab", { name: "Signals (1)", exact: true }).click();
+  await expect(page.getByText(/Found by Keel Aug 2, 2026/)).toBeVisible();
   await expect(page.getByText("Reported financing")).toBeVisible();
   await expect(page.getByText("Series C · Equity")).toBeVisible();
   await expect(page.getByText("USD 62M")).toBeVisible();
@@ -158,10 +316,6 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   await expect(meaningSection).toContainText("Classification confidence 61.0%");
   await expect(page.getByText(/Retained parsing context/)).toHaveCount(0);
   await expect(page.getByText("Estimated range")).toHaveCount(0);
-  await page.getByTestId("portfolio-watch-data-profile").evaluate((element) => {
-    element.textContent = "Demo sources in this preview";
-  });
-
   await page.addStyleTag({
     content: `
       .topbar,
@@ -179,12 +333,180 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   }));
   expect(watchWidths.scroll).toBeLessThanOrEqual(watchWidths.client);
 
-  await expect(watchScreen).toHaveScreenshot("portfolio-watch.png", {
+  await expect(watchScreen).toHaveScreenshot("portfolio-watch-signals.png", {
     animations: "disabled",
     caret: "hide",
     maxDiffPixelRatio: 0.025,
     threshold: 0.25,
   });
+});
+
+test("keeps empty, failed and timed-out checks distinct and restores saved history after reload", async ({
+  page,
+}, testInfo) => {
+  let state = {
+    ...watchActivityFixture,
+    runs: [
+      {
+        ...watchActivityFixture.runs[0]!,
+        status: "succeeded",
+        totalCount: 3,
+        completedCount: 3,
+        succeededCount: 3,
+        failedCount: 0,
+        signalCount: 0,
+      },
+    ],
+  };
+  await page.route("**/api/watch/activity**", async (route) =>
+    route.fulfill({ json: state }),
+  );
+  await page.goto("/");
+  await navigateToScreen(
+    page,
+    testInfo.project.name === "mobile-chromium",
+    /Watch/,
+  );
+  const summary = page.getByTestId("portfolio-watch-control");
+  await expect(summary).toContainText("No new signals from those sources");
+  await page.reload();
+  await navigateToScreen(
+    page,
+    testInfo.project.name === "mobile-chromium",
+    /Watch/,
+  );
+  await expect(summary).toContainText("Last check completed Aug 2, 2026");
+  state = {
+    ...state,
+    runs: [
+      {
+        ...state.runs[0]!,
+        status: "failed",
+        succeededCount: 0,
+        failedCount: 3,
+      },
+    ],
+  };
+  await page.reload();
+  await navigateToScreen(
+    page,
+    testInfo.project.name === "mobile-chromium",
+    /Watch/,
+  );
+  await expect(summary).toContainText("0 of 3 sources read · 3 unavailable");
+  await expect(summary).not.toContainText("No new signals");
+  state = {
+    ...state,
+    runs: [
+      {
+        ...state.runs[0]!,
+        status: "timed_out",
+        completedCount: 0,
+        failedCount: 0,
+      },
+    ],
+  };
+  await page.reload();
+  await navigateToScreen(
+    page,
+    testInfo.project.name === "mobile-chromium",
+    /Watch/,
+  );
+  await expect(summary).toContainText("This check did not finish");
+  await expect(
+    page.getByRole("button", { name: "Check now", exact: true }),
+  ).toBeEnabled();
+  await page.route("**/api/watch/scan", async (route) =>
+    route.fulfill({
+      json: {
+        checkedAt: state.asOf,
+        discoveredCount: 0,
+        proposedCount: 0,
+        queuedCount: 0,
+      },
+    }),
+  );
+  await page.getByRole("button", { name: "Check now", exact: true }).click();
+  await expect(
+    page.getByText(
+      "No eligible sources were available to check. See coverage below.",
+    ),
+  ).toBeVisible();
+});
+
+test("bounds the company list and recovers an activity read failure", async ({
+  page,
+}, testInfo) => {
+  const companies = Array.from({ length: 120 }, (_, index) => ({
+    id: `synthetic-company-${index}`,
+    companyName:
+      index === 0
+        ? "SyntheticCompany".repeat(8)
+        : `Synthetic company ${index + 1}`,
+    sources: Array.from({ length: 50 }, (_, sourceIndex) => ({
+      ...watchSourceFixture,
+      id: `source-${index}-${sourceIndex}`,
+      targetId: `synthetic-company-${index}`,
+      url: `https://synthetic-company-${index}.example/source-${sourceIndex}`,
+    })),
+  }));
+  let unavailable = true;
+  await page.route("**/api/watch/activity**", async (route) => {
+    if (unavailable)
+      return route.fulfill({
+        status: 503,
+        json: { error: "Synthetic unavailable response" },
+      });
+    const start = Number(
+      new URL(route.request().url()).searchParams.get("cursor") ?? 0,
+    );
+    await route.fulfill({
+      json: {
+        ...watchActivityFixture,
+        companies: companies.slice(start, start + 20),
+        summary: {
+          ...watchActivityFixture.summary,
+          companyCount: 120,
+          sourceCount: 6000,
+        },
+        nextCursor: start + 20 < companies.length ? String(start + 20) : null,
+      },
+    });
+  });
+  await page.goto("/");
+  await navigateToScreen(
+    page,
+    testInfo.project.name === "mobile-chromium",
+    /Watch/,
+  );
+  await expect(
+    page.getByText("Couldn’t load source activity. Try again."),
+  ).toBeVisible();
+  unavailable = false;
+  await page.getByRole("button", { name: "Refresh activity" }).click();
+  await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
+  await expect(
+    page.getByRole("heading", { name: "120 companies · 6000 sources" }),
+  ).toBeVisible();
+  await page.getByTestId("watch-target-synthetic-company-0").click();
+  await expect(page.locator(".watch-source-detail")).toHaveCount(50);
+  const widths = await page.locator(".watch-screen").evaluate((element) => ({
+    client: element.clientWidth,
+    scroll: element.scrollWidth,
+  }));
+  expect(widths.scroll).toBeLessThanOrEqual(widths.client);
+  await page.getByRole("button", { name: "Next companies" }).click();
+  await expect(
+    page.getByTestId("watch-target-synthetic-company-20"),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("watch-target-synthetic-company-0"),
+  ).toHaveCount(0);
+  await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
+  await page.getByRole("button", { name: "First companies" }).click();
+  await expect(
+    page.getByTestId("watch-target-synthetic-company-0"),
+  ).toBeVisible();
 });
 
 test("keeps a financing review focused on reported company terms", async ({
@@ -853,6 +1175,7 @@ test("keeps the legacy estimated range when financing facts are absent", async (
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Watch/);
+  await page.getByRole("tab", { name: "Signals (1)", exact: true }).click();
 
   await expect(page.getByText("Estimated range")).toBeVisible();
   await expect(page.getByText("$930k – $1.4M")).toBeVisible();

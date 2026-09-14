@@ -148,7 +148,12 @@ it("bounds the complete source job graph for a daily maximum discovery, replay, 
       for (const job of jobs) {
         await __portfolioWatchTest.processSourceJob(
           {
-            ...job,
+            // Legacy messages can still arrive during the rolling deployment.
+            // Exercise their conservative four-attempt outage ceiling separately
+            // from the tracked duplicate replay above.
+            messageId: job.messageId,
+            sourceId: job.sourceId,
+            requestedAt: job.requestedAt,
             type:
               attempt === 0
                 ? "portfolio_watch_source_scan"

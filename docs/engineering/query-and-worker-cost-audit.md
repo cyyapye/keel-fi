@@ -111,6 +111,15 @@ Per-position evidence admission is also measured in bytes, not characters.
 - `scripts/portfolio-watch-d1-cost.test.ts` drives a full scheduled day, maximum
   discovery/event payloads, duplicate delivery and a four-attempt outage
   envelope.
+- `scripts/portfolio-watch-activity.test.ts` verifies saved run admission,
+  duplicate and interrupted delivery, timeout recovery, 120-company pagination,
+  growing same-date history and unrelated households. Filling all fifty source
+  slots per company produces a 6,000-source holdout: full coverage reads take
+  five round trips, while progress reads take three and remain below 3,000
+  scanned rows. Its virtual-clock cases traverse the browser helper, proxy,
+  authentication and D1 with a full-day request budget and ten-second completion
+  detection. Polling full coverage instead fails the unchanged daily read
+  ceiling.
 - `scripts/runtime-work-inventory.test.ts` follows static and literal dynamic
   imports from the runtime entrypoints. Its snapshot flags changed network,
   storage, queue and timer call sites. Review the caller's loop and retry bounds

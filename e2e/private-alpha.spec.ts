@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { PortfolioWatchScanResultSchema } from "../packages/domain/src/index";
+import { PortfolioWatchActivitySchema } from "../packages/domain/src/portfolio-watch-activity";
 
 import { navigateToScreen } from "./navigation";
 
@@ -78,24 +80,44 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(
     page.getByRole("heading", { name: "Portfolio Watch" }),
   ).toBeVisible();
-  await expect(page.getByText("Public sources only")).toBeVisible();
-  await expect(page.getByText("Check for updates")).toBeVisible();
+  await expect(page.getByText(/Healthy sources checked weekly/)).toBeVisible();
   await expect(
-    page.getByText(
-      "Keel finds company sources and sends new evidence to review. Company financing terms do not determine what your position is worth.",
-    ),
+    page.getByText("Public signals never change a holding on their own."),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();
   await expect(
     page.getByRole("button", { name: /manage sources|add source/i }),
   ).toHaveCount(0);
   if (!mobile) {
-    await page.getByRole("button", { name: "Check now" }).click();
-    await expect(page.getByRole("status")).toHaveText(
-      /^(Source checks started\.|You’re up to date\.)$/,
+    const scanResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/watch/scan") &&
+        response.request().method() === "POST",
     );
+    await page.getByRole("button", { name: "Check now" }).click();
+    const response = await scanResponse;
+    expect(response.status()).toBe(202);
+    const scan = PortfolioWatchScanResultSchema.parse(await response.json());
+    const storedResponse = await page.request.get("/api/watch/activity");
+    expect(storedResponse.ok()).toBe(true);
+    const stored = PortfolioWatchActivitySchema.parse(
+      await storedResponse.json(),
+    );
+    if (scan.queuedCount === 0) {
+      await expect(page.getByRole("status")).toHaveText(
+        "No eligible sources were available to check. See coverage below.",
+      );
+    } else {
+      expect(stored.runs[0]?.trigger).toBe("manual");
+      expect(stored.runs[0]?.totalCount).toBe(scan.queuedCount);
+      await page.getByRole("tab", { name: "Activity", exact: true }).click();
+      await expect(page.locator(".watch-run-list")).toContainText(
+        "Manual check",
+      );
+    }
+    await page.getByRole("tab", { name: "Signals (0)", exact: true }).click();
     await expect(
-      page.getByRole("heading", { name: "No updates yet" }),
+      page.getByRole("heading", { name: "No signals found yet" }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", {
