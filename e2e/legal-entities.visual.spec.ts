@@ -243,6 +243,63 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
+test("keeps the initial review action and first source in the viewport", async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  if (isMobile) await page.setViewportSize({ width: 393, height: 680 });
+  await page.clock.setFixedTime(new Date("2026-09-01T12:00:00.000Z"));
+  await routeHoldingsPage(page, {
+    householdName: "Demo Household",
+    holdings: [],
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.route("**/api/legal-entities", (route) =>
+    route.fulfill({ json: initialInventory }),
+  );
+  await page.route("**/api/legal-entity-export/options", (route) =>
+    route.fulfill({ json: { googleSheetsClientId: null } }),
+  );
+  await page.goto("/holdings/entities");
+  const batchAction = page.getByRole("button", {
+    name: "Add or link 3 sources",
+    exact: true,
+  });
+  await expect(batchAction).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("initial-viewport.png") });
+  await expect(batchAction).toBeInViewport({ ratio: 1 });
+  await expect(
+    page.locator(".legal-entity-candidate h3").first(),
+  ).toBeInViewport({ ratio: 1 });
+  await expectNoHorizontalOverflow(page);
+  await expect(page).toHaveScreenshot("legal-entities-initial.png");
+
+  const details = page.getByRole("button", { name: "Batch details" });
+  expect((await details.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  await expect(details).toHaveAttribute("aria-expanded", "false");
+  await details.click();
+  await expect(details).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    page.getByText(/duplicate source rows share one record/u),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/2 source records remain outside this batch/u),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".legal-entity-exact-batch")).toHaveScreenshot(
+    "legal-entities-batch-details.png",
+  );
+  if (isMobile) {
+    await details.click();
+    await page.setViewportSize({ width: 320, height: 680 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(batchAction).toBeInViewport({ ratio: 1 });
+    await expectNoHorizontalOverflow(page);
+  }
+});
+
 test("reviews legal entities and exports selected counsel fields", async ({
   page,
 }) => {
@@ -417,7 +474,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page.getByRole("heading", { level: 1, name: "Legal entities" }),
   ).toBeVisible();
   await expect(page.locator(".page-intro")).toContainText(
-    "This inventory does not transfer anything to a trust.",
+    "This inventory does not transfer interests to a trust.",
   );
   const exportButton = page.getByRole("button", {
     name: "Export",
