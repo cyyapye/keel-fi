@@ -507,6 +507,101 @@ beforeEach(async () => {
 afterEach(() => d1.sqlite.close());
 
 describe("connected investment review", () => {
+  it("links an exact agreement citation to an existing portfolio company without creating a duplicate", async () => {
+    const context = await repository.getContext(subject, positionId);
+    const siblingId = context.otherPositions[0]!.id;
+    const sibling = await repository.getContext(subject, siblingId);
+    const canonical = await repository.reviewCompany(subject, siblingId, {
+      requestId: crypto.randomUUID(),
+      expectedSnapshotId: sibling.snapshotId,
+      expectedEvidenceRevision: sibling.evidenceRevision,
+      expectedMappingIds: sibling.mappings.map((mapping) => mapping.id),
+      company: { mode: "new", legalName: "Synthetic Robotics" },
+      basis: "user_confirmed",
+      citation: null,
+      reason: null,
+    });
+    const before = await repository.getContext(subject, positionId);
+    const request = {
+      requestId: crypto.randomUUID(),
+      expectedSnapshotId: before.snapshotId,
+      expectedEvidenceRevision: before.evidenceRevision,
+      expectedMappingIds: before.mappings.map((mapping) => mapping.id),
+      company: { mode: "existing" as const, companyId: canonical.companyId },
+      basis: "document_link" as const,
+      citation: before.companyChoices[0]!,
+      reason: null,
+    };
+    const receipt = await repository.reviewCompany(
+      subject,
+      positionId,
+      request,
+    );
+    expect(
+      await repository.reviewCompany(subject, positionId, request),
+    ).toEqual(receipt);
+    const after = await repository.getContext(subject, positionId);
+    expect(after.companyReceipt).toMatchObject({
+      basis: "document_link",
+      companyId: canonical.companyId,
+      companyName: "Synthetic Robotics",
+      citation: { ...request.citation, companyName: "Synthetic Robotics Inc." },
+      sourceDocument: {
+        id: request.citation.documentId,
+        sha256: request.citation.sha256,
+      },
+    });
+    expect(after.companies).toHaveLength(before.companies.length);
+    expect(after.snapshotId).toBe(before.snapshotId);
+    expect(after.committedMinor).toBe(before.committedMinor);
+    expect(after.fundedMinor).toBe(before.fundedMinor);
+    expect(
+      after.mappings.filter((mapping) => mapping.status === "active"),
+    ).toMatchObject([{ companyId: canonical.companyId }]);
+    expect(
+      (await repository.getContext(subject, siblingId)).companyReceipt,
+    ).toEqual(canonical);
+    const positionView = await new D1InvestmentPositionViewRepository(
+      d1.asD1(),
+    ).list(subject, now);
+    const inventory = await new D1LegalEntityRepository(d1.asD1()).getState(
+      subject,
+      positionView,
+    );
+    const exported = legalEntityExportRows(inventory, {
+      fields: ["legal_name"],
+      includeNeedsReview: true,
+      includeHistorical: true,
+      includeOtherEntityTypes: true,
+    });
+    expect(
+      exported.some((row) =>
+        row.company_evidence.includes(
+          "User-confirmed company link to Synthetic Robotics; agreement names Synthetic Robotics Inc.",
+        ),
+      ),
+    ).toBe(true);
+    const current = {
+      ...request,
+      requestId: crypto.randomUUID(),
+      expectedMappingIds: after.mappings.map((mapping) => mapping.id),
+    };
+    await expect(
+      repository.reviewCompany(subject, positionId, {
+        ...current,
+        citation: {
+          ...request.citation,
+          quote: "Forged Synthetic Robotics Inc. quote",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_evidence" });
+    await expect(
+      repository.reviewCompany(subject, positionId, {
+        ...current,
+        company: { mode: "existing", companyId: "company_other_household" },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_evidence" });
+  });
   it("loads existing amounts with bounded projection-only queries and needs no K-1", async () => {
     d1.queries.length = 0;
     const context = await repository.getContext(subject, positionId);

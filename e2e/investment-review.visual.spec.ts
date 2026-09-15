@@ -463,7 +463,8 @@ test("distinguishes an earlier company mapping from agreement evidence and never
 test("opens a company conflict, preserves a failed correction and reads back the saved agreement choice", async ({
   page,
 }) => {
-  const { context, source, row, rejectWrites, writes } = await setup(page);
+  const { context, source, row, rejectWrites, writes, reads } =
+    await setup(page);
   context.mappings = [
     {
       id: "mapping_demo_old",
@@ -476,6 +477,11 @@ test("opens a company conflict, preserves a failed correction and reads back the
   ];
   context.companies = [
     { id: "company_demo_old", legalName: "Demo Legacy Company" },
+    ...Array.from({ length: 120 }, (_, index) => ({
+      id: `company_demo_search_${index}`,
+      legalName: `Demo Search Company ${index}`,
+    })),
+    { id: "company_demo_canonical", legalName: "Demo Robotics" },
   ];
   const choice = context.companyChoices[0]!;
   choice.quote =
@@ -521,6 +527,44 @@ test("opens a company conflict, preserves a failed correction and reads back the
     .getByRole("option", { name: "Demo Robotics Inc. · page 2", exact: true })
     .click();
   await expect(row.getByText(choice.quote, { exact: true })).toBeVisible();
+  const companyPicker = row.getByRole("combobox", {
+    name: "Company",
+    exact: true,
+  });
+  await companyPicker.click();
+  const search = page.getByPlaceholder("Search companies…", { exact: true });
+  await expect(search).toBeFocused();
+  await expect(page.getByRole("option")).toHaveCount(100);
+  const readsBeforeSearch = reads();
+  await search.fill("no such synthetic company");
+  await expect(
+    page.getByText("No companies found. Clear search to add one.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole("option")).toHaveCount(0);
+  await search.press("Escape");
+  await expect(companyPicker).toBeFocused();
+  await expect(companyPicker).toContainText("Add a company");
+  await companyPicker.click();
+  await expect(search).toHaveValue("");
+  await search.fill("rÓbOtics");
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole("listbox").locator("..")).toHaveScreenshot(
+    "investment-company-search.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await search.press("ArrowDown");
+  await search.press("Enter");
+  await expect(companyPicker).toContainText("Demo Robotics");
+  expect(reads()).toBe(readsBeforeSearch);
+  await expect(
+    row.getByText(
+      "Group this investment under Demo Robotics. The agreement’s name, Demo Robotics Inc., stays with the evidence.",
+      { exact: true },
+    ),
+  ).toBeVisible();
   await page.mouse.move(0, 0);
   await expect(row).toHaveScreenshot("investment-company-conflict.png", {
     animations: "disabled",
@@ -536,24 +580,26 @@ test("opens a company conflict, preserves a failed correction and reads back the
   await expect(
     row.getByRole("combobox", { name: "Company evidence", exact: true }),
   ).toContainText("Demo Robotics Inc.");
+  await expect(companyPicker).toContainText("Demo Robotics");
   rejectWrites(false);
   await row
     .getByRole("button", { name: "Save company mapping", exact: true })
     .click();
   await expect(
-    row.getByText("Currently mapped to Demo Robotics Inc.", { exact: true }),
+    row.getByText("Currently mapped to Demo Robotics", { exact: true }),
   ).toBeVisible();
   await expect(
     row.getByRole("button", { name: "Save company mapping", exact: true }),
   ).toBeDisabled();
   expect(writes).toHaveLength(2);
   expect(writes[1]).toMatchObject({
-    basis: "document_choice",
+    basis: "document_link",
+    company: { mode: "existing", companyId: "company_demo_canonical" },
     citation: choice,
   });
   await page.reload();
   await expect(
-    row.getByText("Currently mapped to Demo Robotics Inc.", { exact: true }),
+    row.getByText("Currently mapped to Demo Robotics", { exact: true }),
   ).toBeVisible();
   await expect(
     row.getByText(/An agreement names a different company/),
@@ -564,6 +610,10 @@ test("opens a company conflict, preserves a failed correction and reads back the
   await expect(
     row.getByRole("button", { name: "Save company mapping", exact: true }),
   ).toBeDisabled();
+  await expect(companyPicker).toContainText("Demo Robotics");
+  await expect(
+    row.getByRole("combobox", { name: "Company evidence", exact: true }),
+  ).toContainText("Demo Robotics Inc.");
   // A later explicit confirmation is a new decision and is read back independently.
   await row
     .getByRole("combobox", { name: "Company evidence", exact: true })
@@ -663,6 +713,15 @@ test("reviews company evidence and keeps ownership drafts across independent sav
     company: { mode: "new", legalName: "Demo Robotics Inc." },
     citation: { documentId: "11111111-1111-4111-8111-111111111111", page: 2 },
   });
+  await expect(
+    review.getByRole("combobox", { name: "Company", exact: true }),
+  ).toContainText("Demo Robotics Inc.");
+  await expect(
+    review.getByText(
+      "This company already exists. Choose it from the company list.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,

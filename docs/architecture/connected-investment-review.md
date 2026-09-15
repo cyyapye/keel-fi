@@ -70,6 +70,18 @@ decision; its company receipt is stored with that policy, without manufacturing
 a second human review. Existing mappings remain visible in the review form;
 earlier mappings are not retroactively presented as v5 document citations.
 
+The company picker remains available after choosing an agreement citation and
+searches the loaded household companies. An explicit `document_link` decision
+can associate the exact reported name with a differently named portfolio
+company. For example, an agreement naming Synthetic Robotics Global LLC can
+support a reviewed link to Synthetic Robotics. The receipt preserves both names,
+the original citation and document, and the chosen company ID. It does not
+rewrite the source, merge legal vehicles, or establish a global name-matching
+rule. Reusing an existing company also reuses its exposure rather than creating
+a duplicate. The server verifies the original choice, household, assignment and
+scan state under the existing stale-write guards. Search is local to the loaded
+projection, with at most 100 options rendered and no new requests while typing.
+
 A new supporting citation that contradicts an earlier manual mapping creates a
 company-review exception while preserving that mapping. The company section
 remains incomplete and opens with the conflict. A subsequent explicit company

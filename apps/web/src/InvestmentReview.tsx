@@ -37,6 +37,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SearchSelect,
   TextLink,
   Tabs,
   SectionNavigation,
@@ -620,10 +621,21 @@ function CompanyReview({
   const active = context.mappings.filter(
     (m) => m.status === "active" && m.companyId !== null,
   );
+  const targetForChoice = (value: string) => {
+    const selected = context.companyChoices[Number(value)];
+    const matches = context.companies.filter(
+      (company) => company.legalName === selected?.companyName,
+    );
+    return {
+      existing: matches.length === 1 ? matches[0]!.id : "new",
+      name: selected?.companyName ?? "",
+    };
+  };
+  const initialTarget = targetForChoice(choice);
   const [existing, setExisting] = useState(
-    active.length === 1 ? active[0]!.companyId! : "new",
+    active.length === 1 ? active[0]!.companyId! : initialTarget.existing,
   );
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialTarget.name);
   const requestId = useInvestmentRequest(context, [choice, existing, name]);
   const companyIssue = context.automaticReview?.issues.find(
     (issue) => issue.section === "company",
@@ -632,25 +644,32 @@ function CompanyReview({
     choice === "manual"
       ? null
       : (context.companyChoices[Number(choice)] ?? null);
-  const exactMatches =
-    citation === null
-      ? []
-      : context.companies.filter((c) => c.legalName === citation.companyName);
   const company =
+    existing === "new"
+      ? { mode: "new", legalName: name }
+      : { mode: "existing", companyId: existing };
+  const companyName =
+    existing === "new"
+      ? name.trim()
+      : context.companies.find((item) => item.id === existing)?.legalName;
+  const basis =
     citation === null
-      ? existing === "new"
-        ? { mode: "new", legalName: name }
-        : { mode: "existing", companyId: existing }
-      : exactMatches.length === 1
-        ? { mode: "existing", companyId: exactMatches[0]?.id }
-        : { mode: "new", legalName: citation.companyName };
+      ? "user_confirmed"
+      : companyName === citation.companyName
+        ? "document_choice"
+        : "document_link";
+  const duplicateName =
+    existing === "new" &&
+    context.companies.some(
+      (item) => item.legalName.toLowerCase() === name.trim().toLowerCase(),
+    );
   const input = InvestmentCompanyReviewInputSchema.safeParse({
     requestId,
     expectedSnapshotId: context.snapshotId,
     expectedEvidenceRevision: context.evidenceRevision,
     expectedMappingIds: context.mappings.map((m) => m.id),
     company,
-    basis: citation === null ? "user_confirmed" : "document_choice",
+    basis,
     citation,
     reason: null,
   });
@@ -658,14 +677,12 @@ function CompanyReview({
     companyIssue === undefined &&
     context.companyReceipt !== null &&
     active.length === 1 &&
-    (citation === null
-      ? context.companyReceipt.basis === "user_confirmed" &&
-        (existing === active[0]?.companyId ||
-          (existing === "new" &&
-            name.trim() === context.companyReceipt.companyName))
-      : context.companyReceipt.basis === "document_choice" &&
-        JSON.stringify(context.companyReceipt.citation) ===
-          JSON.stringify(citation));
+    (existing === active[0]?.companyId ||
+      (existing === "new" &&
+        companyName === context.companyReceipt.companyName)) &&
+    context.companyReceipt.basis === basis &&
+    JSON.stringify(context.companyReceipt.citation) ===
+      JSON.stringify(citation);
   return (
     <ReviewSection
       title="Underlying company"
@@ -687,13 +704,15 @@ function CompanyReview({
                 : null;
             return (
               <p key={mapping.id}>
-                {receipt?.basis === "document_choice"
-                  ? "Confirmed from an agreement"
-                  : receipt?.basis === "user_confirmed"
-                    ? "Confirmed by you"
-                    : mapping.decisionSource === "review"
-                      ? "Earlier reviewed mapping"
-                      : "Existing mapping"}
+                {receipt?.basis === "document_link"
+                  ? `Linked by you · Agreement names ${receipt.citation?.companyName}`
+                  : receipt?.basis === "document_choice"
+                    ? "Confirmed from an agreement"
+                    : receipt?.basis === "user_confirmed"
+                      ? "Confirmed by you"
+                      : mapping.decisionSource === "review"
+                        ? "Earlier reviewed mapping"
+                        : "Existing mapping"}
                 {(receipt?.recordedAt ?? mapping.acceptedAt)
                   ? ` · ${formatDate(receipt?.recordedAt ?? mapping.acceptedAt ?? "")}`
                   : ""}
@@ -719,10 +738,19 @@ function CompanyReview({
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          if (input.success && !unchanged)
-            void submit(() =>
-              saveInvestmentCompany(context.positionId, input.data),
-            );
+          if (input.success && !duplicateName && !unchanged) {
+            let savedCompanyId: string | null = null;
+            void submit(async () => {
+              const receipt = await saveInvestmentCompany(
+                context.positionId,
+                input.data,
+              );
+              savedCompanyId = receipt.companyId;
+            }).then((accepted) => {
+              if (accepted && savedCompanyId !== null)
+                setExisting(savedCompanyId);
+            });
+          }
         }}
       >
         <ReviewSelect
@@ -735,9 +763,22 @@ function CompanyReview({
               label: `${item.companyName} · page ${item.page}`,
             })),
           ]}
-          onChange={setChoice}
+          onChange={(value) => {
+            const target = targetForChoice(value);
+            // A different citation for the same reported name keeps the chosen
+            // portfolio company. A different company starts a fresh proposal.
+            if (
+              value !== "manual" &&
+              context.companyChoices[Number(value)]?.companyName !==
+                citation?.companyName
+            ) {
+              setExisting(target.existing);
+              setName(target.name);
+            }
+            setChoice(value);
+          }}
         />
-        {citation !== null ? (
+        {citation !== null && (
           <>
             <p>
               {
@@ -748,39 +789,56 @@ function CompanyReview({
             </p>
             <blockquote>{citation.quote}</blockquote>
           </>
-        ) : (
-          <>
-            <ReviewSelect
-              label="Company"
-              value={existing}
-              items={[
-                { value: "new", label: "Add a company" },
-                ...context.companies.map((c) => ({
-                  value: c.id,
-                  label: c.legalName,
-                })),
-              ]}
-              onChange={setExisting}
+        )}
+        <Field label="Company" variant="filled">
+          <SearchSelect
+            label="Company"
+            searchLabel="Search companies"
+            emptyMessage="No companies found. Clear search to add one."
+            value={existing}
+            items={[
+              { value: "new", label: "Add a company" },
+              ...context.companies.map((c) => ({
+                value: c.id,
+                label: c.legalName,
+              })),
+            ]}
+            onChange={setExisting}
+          />
+        </Field>
+        {existing === "new" && (
+          <Field label="Company name" variant="filled">
+            <Input
+              maxLength={1_000}
+              value={name}
+              onChange={(event) => setName(event.currentTarget.value)}
             />
-            {existing === "new" && (
-              <Field label="Company name" variant="filled">
-                <Input
-                  maxLength={1_000}
-                  value={name}
-                  onChange={(event) => setName(event.currentTarget.value)}
-                />
-              </Field>
-            )}
+          </Field>
+        )}
+        {duplicateName && (
+          <FormMessage tone="neutral">
+            This company already exists. Choose it from the company list.
+          </FormMessage>
+        )}
+        {citation === null ? (
+          <p>Recorded as your confirmation, not a provider-reported company.</p>
+        ) : (
+          companyName && (
             <p>
-              Recorded as your confirmation, not a provider-reported company.
+              {basis === "document_link"
+                ? `Group this investment under ${companyName}. The agreement’s name, ${citation.companyName}, stays with the evidence.`
+                : `Use ${companyName} for this investment’s company.`}
             </p>
-          </>
+          )
         )}
         {active.length > 0 && (
           <p>Changes only this investment’s company, not its amounts.</p>
         )}
         <ActionGroup align="end">
-          <Button type="submit" disabled={busy || !input.success || unchanged}>
+          <Button
+            type="submit"
+            disabled={busy || !input.success || duplicateName || unchanged}
+          >
             {saving ? "Saving…" : "Save company mapping"}
           </Button>
         </ActionGroup>
