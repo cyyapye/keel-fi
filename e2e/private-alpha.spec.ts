@@ -80,6 +80,13 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(
     page.getByRole("heading", { name: "Portfolio Watch" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("tab", { name: "Updates (0)", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByRole("searchbox", { name: "Search companies" }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
   await expect(page.getByText(/Healthy sources checked weekly/)).toBeVisible();
   await expect(
     page.getByText("Public signals never change a holding on their own."),
@@ -105,7 +112,7 @@ test("loads the database-backed dashboard and primary views", async ({
     );
     if (scan.queuedCount === 0) {
       await expect(page.getByRole("status")).toHaveText(
-        "No eligible sources were available to check. See coverage below.",
+        "No eligible sources were available to check. Open Coverage for details.",
       );
     } else {
       expect(stored.runs[0]?.trigger).toBe("manual");
@@ -115,9 +122,9 @@ test("loads the database-backed dashboard and primary views", async ({
         "Manual check",
       );
     }
-    await page.getByRole("tab", { name: "Signals (0)", exact: true }).click();
+    await page.getByRole("tab", { name: "Updates (0)", exact: true }).click();
     await expect(
-      page.getByRole("heading", { name: "No signals found yet" }),
+      page.getByRole("heading", { name: "No updates need review" }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", {

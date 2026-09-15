@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   PortfolioWatchActivitySchema,
   PortfolioWatchProgressSchema,
+  WatchCompanySearchSchema,
   type PortfolioWatchProgress,
   type PortfolioWatchActivity,
   type WatchRun,
@@ -42,6 +43,7 @@ const WATCH_SOURCE_FIELDS_SQL = `SELECT source.id, source.watch_target_id AS tar
       CASE WHEN source.status IN ('discovered', 'verified', 'active', 'degraded') THEN sync.next_check_at END AS nextCheckAt,
       CASE WHEN run.deadline_at <= ? THEN 'timed_out' ELSE checks.state END AS pendingState,
       sync.last_check_outcome AS outcome, COALESCE(sync.last_check_error_code, sync.last_error_code) AS errorCode,
+      sync.last_http_status AS httpStatus,
       COALESCE(sync.last_signal_count, 0) AS signalCount
 `;
 const WATCH_SOURCE_JOINS_SQL = `LEFT JOIN portfolio_watch_source_sync_state sync ON sync.source_id = source.id
@@ -350,32 +352,44 @@ export class D1PortfolioWatchActivityRepository {
     accessSubject: string,
     cursor: string | null = null,
     now = new Date().toISOString(),
+    query = "",
   ): Promise<PortfolioWatchActivity> {
     iso.parse(now);
+    query = WatchCompanySearchSchema.parse(query);
     const householdId = await this.householdId(accessSubject);
     const [summaryResult, companyResult, runResult] = await Promise.all([
       this.db
         .prepare(
           `SELECT COUNT(DISTINCT target.id) AS companyCount, COUNT(source.id) AS sourceCount,
+        COUNT(DISTINCT CASE WHEN company.website_host IS NULL THEN target.id END) AS companiesWithoutWebsite,
+        COUNT(DISTINCT CASE WHEN source.status IN ('verified', 'active') THEN target.id END) AS companiesWithVerifiedSources,
+        COUNT(DISTINCT CASE WHEN instr(lower(company.legal_name), lower(?)) > 0 THEN target.id END) AS matchingCompanyCount,
         COALESCE(SUM(source.status IN ('degraded', 'quarantined', 'revoked') OR sync.last_check_outcome IN ('failed', 'skipped') OR run.deadline_at <= ?), 0) AS unavailableCount,
         COALESCE(SUM(source.id IS NOT NULL AND sync.last_completed_at IS NULL), 0) AS neverCheckedCount,
         MIN(CASE WHEN source.status IN ('discovered', 'verified', 'active', 'degraded') THEN sync.next_check_at END) AS nextCheckAt
-        FROM portfolio_watch_targets target LEFT JOIN portfolio_watch_sources source ON source.watch_target_id = target.id
+        FROM portfolio_watch_targets target JOIN companies company ON company.id = target.company_id AND company.household_id = target.household_id
+        LEFT JOIN portfolio_watch_sources source ON source.watch_target_id = target.id
         LEFT JOIN portfolio_watch_source_sync_state sync ON sync.source_id = source.id
         LEFT JOIN portfolio_watch_checks checks ON checks.source_id = source.id AND checks.state IN ('queued', 'running')
         LEFT JOIN portfolio_watch_runs run ON run.id = checks.run_id
         WHERE target.household_id = ? AND target.status = 'active'`,
         )
-        .bind(now, householdId)
-        .first(),
+        .bind(query.trim(), now, householdId)
+        .first<{ matchingCompanyCount: number }>(),
       this.db
         .prepare(
-          `SELECT target.id, company.legal_name AS companyName FROM portfolio_watch_targets target
-        JOIN companies company ON company.id = target.company_id
-        WHERE target.household_id = ? AND target.status = 'active' AND target.id > ? ORDER BY target.id LIMIT 21`,
+          `SELECT target.id, company.legal_name AS companyName, company.website_host AS officialHost FROM portfolio_watch_targets target
+        JOIN companies company ON company.id = target.company_id AND company.household_id = target.household_id
+        WHERE target.household_id = ? AND target.status = 'active' AND target.id > ?
+          AND instr(lower(company.legal_name), lower(?)) > 0
+        ORDER BY target.id LIMIT 21`,
         )
-        .bind(householdId, cursor ?? "")
-        .all<{ id: string; companyName: string }>(),
+        .bind(householdId, cursor ?? "", query.trim())
+        .all<{
+          id: string;
+          companyName: string;
+          officialHost: string | null;
+        }>(),
       this.recentRuns(householdId, now),
     ]);
     const companies = companyResult.results.slice(0, 20);
@@ -395,6 +409,7 @@ export class D1PortfolioWatchActivityRepository {
     return PortfolioWatchActivitySchema.parse({
       asOf: now,
       summary: summaryResult,
+      matchingCompanyCount: summaryResult?.matchingCompanyCount ?? 0,
       companies: companies.map((company) => ({
         ...company,
         sources: sources.filter((source) => source.targetId === company.id),

@@ -17,6 +17,7 @@ import {
   loadPortfolioWatchActivity,
   loadPortfolioWatchProgress,
 } from "../apps/web/src/api";
+import { watchSourceProblem } from "../apps/web/src/portfolio-watch-format";
 import {
   startBoundedPolling,
   type PollingEnvironment,
@@ -124,9 +125,9 @@ describe("saved Portfolio Watch activity", () => {
           fetchSource: (): Promise<ApprovedSourceFetchResult> =>
             Promise.resolve({
               ok: false,
-              reason: "source_timeout",
+              reason: "non_success_status",
               permanent: false,
-              status: null,
+              status: 403,
               contentType: null,
               redirectUrl: null,
             }),
@@ -158,6 +159,16 @@ describe("saved Portfolio Watch activity", () => {
         signalCount: 1,
         completedAt: finish,
       });
+      const blockedSource = after.companies
+        .flatMap((company) => company.sources)
+        .find((source) => source.id === jobs[1]!.sourceId);
+      expect(blockedSource).toMatchObject({
+        errorCode: "non_success_status",
+        httpStatus: 403,
+      });
+      expect(
+        watchSourceProblem(blockedSource!.errorCode, blockedSource!.httpStatus),
+      ).toBe("The website denied access to this page.");
       expect(
         await f.database
           .prepare(
@@ -617,6 +628,94 @@ describe("saved Portfolio Watch activity", () => {
       // unchanged daily budget even though each individual read is indexed.
       expect(f.measured.cost.rowsRead * 90).toBeGreaterThan(450_000);
       console.info(JSON.stringify({ watchFullCoverageRead: f.measured.cost }));
+      // Search the complete household before applying the twenty-company page.
+      // Keep summary coverage global, and treat search punctuation literally.
+      f.measured.reset();
+      const searched = await f.activity.read(
+        "synthetic-access-subject",
+        null,
+        finish,
+        "COST COMPANY 119",
+      );
+      expect(searched.companies.map((company) => company.companyName)).toEqual([
+        "Synthetic cost company 119",
+      ]);
+      expect(searched.matchingCompanyCount).toBe(1);
+      expect(searched.summary).toEqual(full.summary);
+      expect(searched.companies[0]?.officialHost).toBe(
+        "synthetic-cost-119.example.com",
+      );
+      expect(f.measured.cost.roundTrips).toBe(5);
+      expect(f.measured.cost.rowsRead).toBeLessThan(30_000);
+      expect(f.measured.cost.rowsWritten).toBe(0);
+      const companyQuery = [...f.measured.queries].find((query) =>
+        query.includes("AS officialHost"),
+      )!;
+      const companyPlan = (
+        await f.database
+          .prepare(`EXPLAIN QUERY PLAN ${companyQuery}`)
+          .bind("hh_demo", "", "cost company 119")
+          .all<{ detail: string }>()
+      ).results
+        .map((row) => row.detail)
+        .join("\n");
+      expect(companyPlan).not.toMatch(
+        /CORRELATED|SCAN (?:companies|company|portfolio_watch_targets|target)(?:\s|$)/,
+      );
+      const searchFirst = await f.activity.read(
+        "synthetic-access-subject",
+        null,
+        finish,
+        "cost company 1",
+      );
+      const searchNext = await f.activity.read(
+        "synthetic-access-subject",
+        searchFirst.nextCursor,
+        finish,
+        "cost company 1",
+      );
+      expect(searchFirst.matchingCompanyCount).toBe(31);
+      expect(
+        new Set(
+          [...searchFirst.companies, ...searchNext.companies].map(
+            (company) => company.id,
+          ),
+        ).size,
+      ).toBe(31);
+      const literal = await f.activity.read(
+        "synthetic-access-subject",
+        null,
+        finish,
+        "%_",
+      );
+      expect(literal.companies).toEqual([]);
+      expect(literal.matchingCompanyCount).toBe(0);
+      const emptySearch = await f.activity.read(
+        "watch-empty-subject",
+        null,
+        finish,
+        "Synthetic",
+      );
+      expect(emptySearch.matchingCompanyCount).toBe(0);
+      const searchResponse = await createApp().request(
+        "/api/watch/activity?q=COST%20COMPANY%20119",
+        undefined,
+        f.env,
+      );
+      expect(searchResponse.status).toBe(200);
+      expect(
+        PortfolioWatchActivitySchema.parse(await searchResponse.json())
+          .matchingCompanyCount,
+      ).toBe(1);
+      expect(
+        (
+          await createApp().request(
+            `/api/watch/activity?q=${"a".repeat(201)}`,
+            undefined,
+            f.env,
+          )
+        ).status,
+      ).toBe(400);
       f.measured.reset();
       const progress = await f.activity.readProgress(
         "synthetic-access-subject",

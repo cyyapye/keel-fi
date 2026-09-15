@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const timestamp = z.iso.datetime({ offset: true });
 const count = z.number().int().nonnegative();
+export const WatchCompanySearchSchema = z.string().trim().max(200);
 export const WatchSourceActivitySchema = z.object({
   id: z.string().min(1),
   targetId: z.string().min(1),
@@ -22,6 +23,7 @@ export const WatchSourceActivitySchema = z.object({
   pendingState: z.enum(["queued", "running", "timed_out"]).nullable(),
   outcome: z.enum(["succeeded", "failed", "skipped"]).nullable(),
   errorCode: z.string().nullable(),
+  httpStatus: z.number().int().min(100).max(599).nullable(),
   signalCount: count,
 });
 export const WatchRunSchema = z.object({
@@ -51,6 +53,8 @@ export const PortfolioWatchActivitySchema = z.object({
   asOf: timestamp,
   summary: z.object({
     companyCount: count,
+    companiesWithoutWebsite: count,
+    companiesWithVerifiedSources: count,
     sourceCount: count,
     unavailableCount: count,
     neverCheckedCount: count,
@@ -61,11 +65,13 @@ export const PortfolioWatchActivitySchema = z.object({
       z.object({
         id: z.string().min(1),
         companyName: z.string().min(1),
+        officialHost: z.string().nullable(),
         sources: z.array(WatchSourceActivitySchema).max(50),
       }),
     )
     .max(20),
   nextCursor: z.string().nullable(),
+  matchingCompanyCount: count,
   runs: z.array(WatchRunSchema).max(20),
 });
 export type PortfolioWatchActivity = z.infer<

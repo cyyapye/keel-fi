@@ -6780,11 +6780,19 @@ function PortfolioWatch({
   onScan: () => Promise<{ queuedCount: number }>;
   onRefresh: () => Promise<void>;
 }) {
+  const supersededIds = new Set(
+    data.signalReconciliations.flatMap((group) =>
+      group.reports
+        .filter((report) => report.relationship === "superseded")
+        .map((report) => report.observationId),
+    ),
+  );
   return (
     <PortfolioWatchMonitor
       onScan={onScan}
       onRefresh={onRefresh}
-      signalCount={data.portfolioWatch.observations.length}
+      observations={data.portfolioWatch.observations}
+      supersededIds={supersededIds}
       sourceLabel={
         isRealCompanyAcceptanceProfile
           ? "Real public sources · Demo portfolio figures"
@@ -6792,118 +6800,129 @@ function PortfolioWatch({
             ? "Demo sources"
             : "Official company websites and feeds"
       }
-      renderSignals={(start, end) => (
+      renderSignals={(observations) => (
         <div className="watch-observation-list">
-          {data.portfolioWatch.observations
-            .slice(start, end)
-            .map((observation) => (
-              <article key={observation.id}>
-                <header>
-                  <div>
-                    <p className="eyebrow">
-                      {observation.companyName} ·{" "}
-                      {sourceClassLabel(observation.sourceClass)}
-                    </p>
-                    <h2>{observation.sourceTitle}</h2>
-                    <small>
-                      Published {formatWatchTime(observation.publishedAt)}
-                      <br />
-                      Found by Keel {formatWatchTime(observation.retrievedAt)}
-                    </small>
-                  </div>
+          {observations.map((observation) => (
+            <article key={observation.id}>
+              <header>
+                <div>
+                  <p className="eyebrow">
+                    {observation.companyName} ·{" "}
+                    {sourceClassLabel(observation.sourceClass)}
+                  </p>
+                  <h2>{observation.sourceTitle}</h2>
+                  <small>
+                    Published {formatWatchTime(observation.publishedAt)}
+                    <br />
+                    Found by Keel {formatWatchTime(observation.retrievedAt)}
+                  </small>
+                </div>
+                <ActionGroup className="watch-observation-actions" wrap>
                   <Badge
                     tone={
-                      observation.evidenceStatus === "pending_review"
+                      observation.evidenceStatus === "pending_review" &&
+                      !supersededIds.has(observation.id)
                         ? "accent"
                         : "neutral"
                     }
                   >
-                    {evidenceStatusLabel(observation.evidenceStatus)}
+                    {supersededIds.has(observation.id)
+                      ? "Superseded"
+                      : evidenceStatusLabel(observation.evidenceStatus)}
                   </Badge>
-                </header>
-
-                <div className="watch-observation-body">
-                  {observation.financingFacts === null && (
-                    <section>
-                      <span>Observed</span>
-                      <p>{observation.observedFact}</p>
-                      <small>
-                        Source reliability{" "}
-                        {formatProbability(observation.sourceReliabilityPpm)}
-                      </small>
-                    </section>
-                  )}
-                  <section>
-                    <span>
-                      {observation.financingFacts === null
-                        ? "Keel estimate"
-                        : "What it means"}
-                    </span>
-                    <p>{observation.inference}</p>
-                    <small>
-                      {observation.financingFacts === null ? (
-                        <>
-                          Model confidence{" "}
-                          {formatProbability(observation.modelConfidencePpm)}
-                        </>
-                      ) : (
-                        <>
-                          Source reliability{" "}
-                          {formatProbability(observation.sourceReliabilityPpm)}{" "}
-                          · Classification confidence{" "}
-                          {formatProbability(observation.modelConfidencePpm)}
-                        </>
-                      )}
-                    </small>
-                  </section>
-                  {observation.financingFacts === null ? (
-                    <section>
-                      <span>Estimated range</span>
-                      {observation.valuationLowMinor !== null &&
-                      observation.valuationMiddleMinor !== null &&
-                      observation.valuationHighMinor !== null ? (
-                        <strong>
-                          {formatCompactMoney(observation.valuationLowMinor)} –{" "}
-                          {formatCompactMoney(observation.valuationHighMinor)}
-                        </strong>
-                      ) : (
-                        <strong>Not estimated</strong>
-                      )}
-                      {observation.valuationMiddleMinor !== null && (
-                        <small>
-                          Middle estimate{" "}
-                          {formatCompactMoney(observation.valuationMiddleMinor)}
-                        </small>
-                      )}
-                    </section>
-                  ) : (
-                    <section className="watch-reported-financing">
-                      <ReportedFinancingTerms
-                        facts={observation.financingFacts}
-                        sourceExcerpt={financingSourceExcerpt(
-                          observation.financingFacts,
-                          observation.observedFact,
-                        )}
-                      />
-                    </section>
-                  )}
-                </div>
-
-                <footer>
-                  <div>
-                    <span>What&apos;s missing</span>
-                    <p>{observation.limitations}</p>
-                    <small>{sourceHost(observation.sourceUrl)}</small>
-                  </div>
                   <Button
                     onClick={() => onReview(observation.evidenceEventId)}
-                    tone="primary"
+                    tone={
+                      observation.evidenceStatus === "pending_review" &&
+                      !supersededIds.has(observation.id)
+                        ? "primary"
+                        : "secondary"
+                    }
                   >
-                    Review
+                    {observation.evidenceStatus === "pending_review" &&
+                    !supersededIds.has(observation.id)
+                      ? "Review"
+                      : "View evidence"}
                   </Button>
-                </footer>
-              </article>
-            ))}
+                </ActionGroup>
+              </header>
+
+              <div className="watch-observation-body">
+                {observation.financingFacts === null && (
+                  <section>
+                    <span>Observed</span>
+                    <p>{observation.observedFact}</p>
+                    <small>
+                      Source reliability{" "}
+                      {formatProbability(observation.sourceReliabilityPpm)}
+                    </small>
+                  </section>
+                )}
+                <section>
+                  <span>
+                    {observation.financingFacts === null
+                      ? "Keel estimate"
+                      : "What it means"}
+                  </span>
+                  <p>{observation.inference}</p>
+                  <small>
+                    {observation.financingFacts === null ? (
+                      <>
+                        Model confidence{" "}
+                        {formatProbability(observation.modelConfidencePpm)}
+                      </>
+                    ) : (
+                      <>
+                        Source reliability{" "}
+                        {formatProbability(observation.sourceReliabilityPpm)} ·
+                        Classification confidence{" "}
+                        {formatProbability(observation.modelConfidencePpm)}
+                      </>
+                    )}
+                  </small>
+                </section>
+                {observation.financingFacts === null ? (
+                  <section>
+                    <span>Estimated range</span>
+                    {observation.valuationLowMinor !== null &&
+                    observation.valuationMiddleMinor !== null &&
+                    observation.valuationHighMinor !== null ? (
+                      <strong>
+                        {formatCompactMoney(observation.valuationLowMinor)} –{" "}
+                        {formatCompactMoney(observation.valuationHighMinor)}
+                      </strong>
+                    ) : (
+                      <strong>Not estimated</strong>
+                    )}
+                    {observation.valuationMiddleMinor !== null && (
+                      <small>
+                        Middle estimate{" "}
+                        {formatCompactMoney(observation.valuationMiddleMinor)}
+                      </small>
+                    )}
+                  </section>
+                ) : (
+                  <section className="watch-reported-financing">
+                    <ReportedFinancingTerms
+                      facts={observation.financingFacts}
+                      sourceExcerpt={financingSourceExcerpt(
+                        observation.financingFacts,
+                        observation.observedFact,
+                      )}
+                    />
+                  </section>
+                )}
+              </div>
+
+              <footer>
+                <div>
+                  <span>What&apos;s missing</span>
+                  <p>{observation.limitations}</p>
+                  <small>{sourceHost(observation.sourceUrl)}</small>
+                </div>
+              </footer>
+            </article>
+          ))}
         </div>
       )}
     />
