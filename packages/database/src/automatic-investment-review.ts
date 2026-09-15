@@ -3,6 +3,7 @@ import {
   AutomaticInvestmentReviewSchema,
   INVESTMENT_REVIEW_POLICY,
   automaticCompanyChoice,
+  automaticCompanyChoices,
   automaticEconomics,
   automaticLegalName,
   issue,
@@ -14,6 +15,7 @@ import {
   InvestmentCompanyReceiptSchema,
   InvestmentReviewStateSchema,
   investmentEvidenceRevision,
+  investmentCompanyEvidenceRevision,
 } from "@keel/domain/investment-review";
 import { exactLegalEntityTypeFromName } from "@keel/domain/legal-entities";
 import {
@@ -319,6 +321,9 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
           (candidateNames.get(value.legalName) ?? 0) + 1,
         );
     const companiesByName = new Map<string, Company[]>();
+    const companiesById = new Map(
+      companies.results.map((company) => [company.id, company]),
+    );
     for (const company of companies.results)
       companiesByName.set(company.legal_name, [
         ...(companiesByName.get(company.legal_name) ?? []),
@@ -383,6 +388,8 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         legalName !== row.accepted_legal_name;
       const companyChoice = automaticCompanyChoice(supportedDocuments);
       const guard = {
+        // Re-evaluate old receipts once after fixing missed company conflicts.
+        evaluationVersion: 2,
         applicationId: row.application_id,
         observationId: row.observation_id,
         reviewId: row.review_id,
@@ -552,7 +559,37 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
       const activeMappings = currentMappings.filter(
         (mapping) => mapping.status === "active",
       );
-      if (manualCompany || row.position_kind === "fund_interest")
+      const companyEvidence = automaticCompanyChoices(supportedDocuments);
+      const companyEvidenceRevision =
+        await investmentCompanyEvidenceRevision(companyEvidence);
+      const savedCompanyNames = new Set(
+        activeMappings.map(
+          (mapping) =>
+            (mapping.company_id === null
+              ? null
+              : companiesById.get(mapping.company_id)?.legal_name) ??
+            mapping.canonical_name,
+        ),
+      );
+      const manualCompanyConflict =
+        manualCompany &&
+        row.position_kind === "spv_interest" &&
+        activeMappings.length > 0 &&
+        guard.incoming.length === 0 &&
+        currentEvidence.state !== "unavailable" &&
+        companyEvidence.some(
+          (citation) => !savedCompanyNames.has(citation.companyName),
+        ) &&
+        companyReceipt?.companyEvidenceRevision !== companyEvidenceRevision;
+      if (manualCompanyConflict)
+        issues.push(
+          issue(
+            "company",
+            "conflicting",
+            "An agreement names a different company from your saved mapping. Review the company link.",
+          ),
+        );
+      else if (manualCompany || row.position_kind === "fund_interest")
         resolved.push("company");
       else if (
         row.position_kind === "spv_interest" &&

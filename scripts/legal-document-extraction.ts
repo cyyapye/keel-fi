@@ -21,6 +21,54 @@ const entitySuffix =
 const seriesQualification =
   /, established as a Series under the Parent LLC(?: Agreement\.)?$/u;
 
+// A bounded definition paragraph, not a mention in risks, a manager's name,
+// a list of possible investments, or a company guessed from the deal label.
+function portfolioInvestmentDefinition(
+  lines: readonly string[],
+  start: number,
+) {
+  if (!/^\s*["“]?Portfolio Investment["”]?\s*:/iu.test(lines[start] ?? ""))
+    return null;
+  const paragraph = [lines[start]!];
+  let end = start + 1;
+  for (; end < lines.length && paragraph.length < 4; end++) {
+    const next = lines[end]!;
+    if (compact(next) === "" || /^\s*["“]?[^:\n]{1,100}["”]?\s*:/u.test(next))
+      break;
+    paragraph.push(next);
+  }
+  // Never accept a truncated paragraph after reaching the line budget.
+  if (
+    paragraph.length === 4 &&
+    compact(lines[end] ?? "") !== "" &&
+    !/^\s*["“]?[^:\n]{1,100}["”]?\s*:/u.test(lines[end]!)
+  )
+    return null;
+  const quote = compact(paragraph.join(" "));
+  const match =
+    /^["“]?Portfolio Investment["”]?\s*:\s*The entity referred to as (.{1,1000})\.$/iu.exec(
+      quote,
+    );
+  if (match === null || quote.length > 2_000) return null;
+  let companyName = match[1]!;
+  // The abbreviation's full stop belongs to the exact name; the sentence's
+  // full stop after LLC/Corporation does not.
+  if (/\b(?:Inc|Corp|Ltd|Co)$/u.test(companyName)) companyName += ".";
+  if (
+    !/\b(?:LLC|LP|Inc\.?|Corp\.?|Ltd\.?|Co\.?|Corporation|Limited|PBC)$/iu.test(
+      companyName,
+    ) ||
+    /\b(?:manager|subscriber|investor|representative|either|or|through|including|comparable)\b/iu.test(
+      companyName,
+    ) ||
+    (companyName.match(
+      /\b(?:LLC|LP|Inc\.?|Corp\.?|Ltd\.?|Co\.?|Corporation|Limited|PBC)\b/giu,
+    )?.length ?? 0) !== 1
+  )
+    return null;
+  return { companyName, quote };
+}
+
 function failed(
   problem: LegalDocumentProblem,
   pageCount = 0,
@@ -80,6 +128,13 @@ export function extractLegalNameFromPages(
   pages.forEach((text, index) => {
     const lines = text.split(/\r?\n/u);
     lines.forEach((line, lineIndex) => {
+      const investment = portfolioInvestmentDefinition(lines, lineIndex);
+      if (investment !== null)
+        companyCitations.push({
+          ...investment,
+          role: "portfolio_investment",
+          page: index + 1,
+        });
       const company =
         /^\s*["“]?(Underlying Company|Target Company|Portfolio Company)["”]?\s*:\s*([^\n]{1,1000}?)\s*$/iu.exec(
           line,

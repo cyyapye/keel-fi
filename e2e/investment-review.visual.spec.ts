@@ -460,6 +460,133 @@ test("distinguishes an earlier company mapping from agreement evidence and never
   });
 });
 
+test("opens a company conflict, preserves a failed correction and reads back the saved agreement choice", async ({
+  page,
+}) => {
+  const { context, source, row, rejectWrites, writes } = await setup(page);
+  context.mappings = [
+    {
+      id: "mapping_demo_old",
+      companyId: "company_demo_old",
+      companyName: "Demo Legacy Company",
+      status: "active",
+      decisionSource: "review",
+      acceptedAt: "2026-08-01T12:00:00.000Z",
+    },
+  ];
+  context.companies = [
+    { id: "company_demo_old", legalName: "Demo Legacy Company" },
+  ];
+  const choice = context.companyChoices[0]!;
+  choice.quote =
+    "“Portfolio Investment”: The entity referred to as Demo Robotics Inc.";
+  context.documents[0]!.companyCitations = [
+    {
+      companyName: choice.companyName,
+      page: choice.page,
+      quote: choice.quote,
+      role: "portfolio_investment",
+    },
+  ];
+  context.automaticReview = {
+    id: "22222222-2222-4222-8222-222222222222",
+    policyVersion: "investment-review-auto-v1",
+    snapshotId: context.snapshotId!,
+    evaluatedAt: "2026-09-01T12:00:00.000Z",
+    resolved: ["participation", "documents"],
+    issues: [
+      {
+        section: "company",
+        code: "conflicting",
+        message:
+          "An agreement names a different company from your saved mapping. Review the company link.",
+      },
+    ],
+  };
+  source.automaticReview = context.automaticReview;
+  await page.reload();
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await expect(
+    row.getByRole("button", { name: "Underlying company", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    row.getByText(context.automaticReview.issues[0]!.message, { exact: true }),
+  ).toBeVisible();
+  await row
+    .getByRole("combobox", { name: "Company evidence", exact: true })
+    .click();
+  await page
+    .getByRole("option", { name: "Demo Robotics Inc. · page 2", exact: true })
+    .click();
+  await expect(row.getByText(choice.quote, { exact: true })).toBeVisible();
+  await page.mouse.move(0, 0);
+  await expect(row).toHaveScreenshot("investment-company-conflict.png", {
+    animations: "disabled",
+    caret: "hide",
+  });
+  rejectWrites(true);
+  await row
+    .getByRole("button", { name: "Save company mapping", exact: true })
+    .click();
+  await expect(row.getByRole("alert")).toContainText(
+    "This investment changed. Reload details before saving.",
+  );
+  await expect(
+    row.getByRole("combobox", { name: "Company evidence", exact: true }),
+  ).toContainText("Demo Robotics Inc.");
+  rejectWrites(false);
+  await row
+    .getByRole("button", { name: "Save company mapping", exact: true })
+    .click();
+  await expect(
+    row.getByText("Currently mapped to Demo Robotics Inc.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    row.getByRole("button", { name: "Save company mapping", exact: true }),
+  ).toBeDisabled();
+  expect(writes).toHaveLength(2);
+  expect(writes[1]).toMatchObject({
+    basis: "document_choice",
+    citation: choice,
+  });
+  await page.reload();
+  await expect(
+    row.getByText("Currently mapped to Demo Robotics Inc.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    row.getByText(/An agreement names a different company/),
+  ).toHaveCount(0);
+  await row
+    .getByRole("button", { name: "Underlying company", exact: true })
+    .click();
+  await expect(
+    row.getByRole("button", { name: "Save company mapping", exact: true }),
+  ).toBeDisabled();
+  // A later explicit confirmation is a new decision and is read back independently.
+  await row
+    .getByRole("combobox", { name: "Company evidence", exact: true })
+    .click();
+  await page
+    .getByRole("option", { name: "Confirm a company yourself", exact: true })
+    .click();
+  await row
+    .getByRole("button", { name: "Save company mapping", exact: true })
+    .click();
+  await expect(
+    row.getByRole("button", { name: "Save company mapping", exact: true }),
+  ).toBeDisabled();
+  expect(writes).toHaveLength(3);
+  await page.reload();
+  await expect(row.getByText(/Confirmed by you/)).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
+});
+
 test("reviews company evidence and keeps ownership drafts across independent saves", async ({
   page,
 }) => {

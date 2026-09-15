@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   InvestmentOwnershipInputSchema,
   ReviewInvestmentInputSchema,
+  investmentCompanyEvidenceRevision,
 } from "./investment-review";
 
 const emptyOwnership = {
@@ -24,6 +25,33 @@ const emptyOwnership = {
 };
 
 describe("connected investment review", () => {
+  it("acknowledges stable company evidence across repeat captures but detects new evidence", async () => {
+    const citation = {
+      documentId: crypto.randomUUID(),
+      sha256: "a".repeat(64),
+      companyName: "Synthetic Orchard Global, LLC",
+      page: 4,
+      quote:
+        "“Portfolio Investment”: The entity referred to as Synthetic Orchard Global, LLC.",
+    };
+    const revision = await investmentCompanyEvidenceRevision([citation]);
+    expect(
+      await investmentCompanyEvidenceRevision([
+        { ...citation, documentId: crypto.randomUUID() },
+        citation,
+      ]),
+    ).toBe(revision);
+    for (const changes of [
+      { sha256: "b".repeat(64) },
+      { companyName: "Synthetic New Company LLC" },
+      { page: 5 },
+      { quote: "Portfolio Company: Synthetic Orchard Global, LLC" },
+    ])
+      expect(
+        await investmentCompanyEvidenceRevision([{ ...citation, ...changes }]),
+      ).not.toBe(revision);
+    expect(await investmentCompanyEvidenceRevision([])).not.toBe(revision);
+  });
   it("can confirm participation while ownership remains unreported", () => {
     expect(
       ReviewInvestmentInputSchema.safeParse({

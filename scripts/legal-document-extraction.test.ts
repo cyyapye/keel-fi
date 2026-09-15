@@ -6,6 +6,45 @@ import {
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
 
 describe("local legal document extraction", () => {
+  it.each([
+    "“Portfolio Investment”: The entity referred to as Synthetic Orchard Global, LLC.",
+    '"Portfolio Investment": The entity referred to as\nSynthetic Orchard Global, LLC.',
+    "Portfolio Investment:\nThe entity referred to as Synthetic Orchard\nGlobal, LLC.",
+  ])(
+    "reads a defined portfolio investment and keeps its exact citation: %s",
+    (definition) => {
+      expect(
+        extractLegalNameFromPages([
+          "Subscription Agreement",
+          `“Fund”: Synthetic Growth V, a Series of Synthetic Parent LLC\n\n${definition}\n\nPlease refer to the Platform for further information.`,
+        ]),
+      ).toMatchObject({
+        companyCitations: [
+          {
+            companyName: "Synthetic Orchard Global, LLC",
+            role: "portfolio_investment",
+            page: 2,
+            quote: definition.replace(/\s+/gu, " "),
+          },
+        ],
+      });
+    },
+  );
+  it.each([
+    "Risk factors: “Portfolio Investment”: The entity referred to as Synthetic Orchard Global, LLC.",
+    "“Portfolio Investment”: The entity referred to as Synthetic Orchard LLC or Synthetic Other LLC.",
+    "“Portfolio Investment”: The entity referred to as\n“Manager”: Synthetic Manager LLC.",
+    "“Portfolio Investment”: The entity referred to as Synthetic Orchard\fGlobal, LLC.",
+    "“Portfolio Investment”: The entity referred to as the manager Synthetic Manager LLC.",
+    "“Portfolio Investment”: The entity referred to as Synthetic Orchard LLC, subject to selection.",
+  ])(
+    "does not turn a mention, alternative, or incomplete definition into a company: %s",
+    (text) => {
+      expect(
+        extractLegalNameFromPages(text.split("\f")).companyCitations,
+      ).toEqual([]);
+    },
+  );
   it("keeps an explicitly reported underlying company separate from its vehicle", () => {
     expect(
       extractLegalNameFromPages([
@@ -180,7 +219,7 @@ describe("local legal document extraction", () => {
       const prefix = ending === "Parent" ? "under the Parent" : "under the";
       const definition = `“Fund”: ${name}, established as a Series ${prefix}\n${nextLine}`;
       expect(extractLegalNameFromPages([definition])).toMatchObject({
-        version: 6,
+        version: 7,
         problem: null,
         citations: [
           {

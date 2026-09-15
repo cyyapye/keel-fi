@@ -13,7 +13,7 @@ export const MAX_LEGAL_DOCUMENTS_PER_POSITION = 6;
 export const MAX_LEGAL_DOCUMENTS_PER_RUN = 24;
 export const MAX_LEGAL_DOCUMENT_RUN_BYTES = 64 * 1024 * 1024;
 export const MAX_LEGAL_DOCUMENT_POSITION_BYTES = 16 * 1024 * 1024;
-export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 6;
+export const LEGAL_DOCUMENT_EXTRACTOR_VERSION = 7;
 export const MAX_LEGAL_NAME_CITATIONS_PER_DOCUMENT = 8;
 export const LEGAL_DOCUMENT_RECHECK_MS = 7 * 24 * 60 * 60 * 1_000;
 export const LEGAL_DOCUMENT_SCANNER_VERSION = 2;
@@ -142,7 +142,12 @@ export const LegalDocumentCitationSchema =
 export const UnderlyingCompanyCitationSchema = z
   .object({
     companyName: z.string().trim().min(1).max(1_000),
-    role: z.enum(["underlying_company", "target_company", "portfolio_company"]),
+    role: z.enum([
+      "underlying_company",
+      "target_company",
+      "portfolio_company",
+      "portfolio_investment",
+    ]),
     page: z.number().int().min(1).max(MAX_LEGAL_DOCUMENT_PAGES),
     quote: z.string().trim().min(1).max(2_000),
   })
@@ -189,6 +194,7 @@ export const LegalDocumentExtractionSchema = z
       z.literal(3),
       z.literal(4),
       z.literal(5),
+      z.literal(6),
       z.literal(LEGAL_DOCUMENT_EXTRACTOR_VERSION),
     ]),
     pageCount: z.number().int().min(0).max(MAX_LEGAL_DOCUMENT_PAGES),
@@ -234,7 +240,9 @@ export const LegalDocumentExtractionSchema = z
           value.problem === "security_blocked" ||
           value.problem === "scanner_unavailable" ||
           value.companyCitations?.some(
-            (citation) => citation.page > value.pageCount,
+            (citation) =>
+              citation.page > value.pageCount ||
+              (citation.role === "portfolio_investment" && value.version < 7),
           ))) ||
       value.citations.some((citation) => citation.page > value.pageCount) ||
       (value.structure !== undefined &&

@@ -237,6 +237,9 @@ export const InvestmentCompanyReceiptSchema =
     recordedAt: z.iso.datetime({ offset: true }),
     sourceDocument: LegalNameDocumentReferenceSchema.nullable(),
     decisionSource: z.enum(["review", "deterministic_policy"]).optional(),
+    // Server-recorded evidence acknowledged by this decision. Stable across
+    // repeated captures and rescans of identical company citations.
+    companyEvidenceRevision: Digest.optional(),
   });
 
 export const InvestmentReviewContextSchema = z
@@ -316,4 +319,23 @@ export async function investmentEvidenceRevision(
   return [...new Uint8Array(bytes)]
     .map((part) => part.toString(16).padStart(2, "0"))
     .join("");
+}
+
+export function investmentCompanyEvidenceRevision(
+  choices: readonly z.infer<typeof UnderlyingCompanyChoiceSchema>[],
+): Promise<string> {
+  return investmentEvidenceRevision(
+    [
+      ...new Set(
+        choices.map((choice) =>
+          JSON.stringify([
+            choice.sha256,
+            choice.companyName,
+            choice.page,
+            choice.quote,
+          ]),
+        ),
+      ),
+    ].sort(),
+  );
 }

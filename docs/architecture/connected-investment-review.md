@@ -54,12 +54,30 @@ version, observation time, provider, and association. A user confirmation is
 labelled separately. Disagreement remains reviewable; the extractor does not
 choose a winner.
 
+Extraction v7 also reads a bounded
+`Portfolio Investment: The entity referred to as …` definition, including short
+line wraps on one page. It preserves the exact company name and definition
+quote. Risk-factor mentions, lists of possible companies, manager roles and
+incomplete definitions do not become citations. Versions 1–6 remain readable;
+deploy the API before upgrading agents. The next bounded capture reprocesses
+cached older extraction versions even when the PDF bytes are unchanged. This
+does not add document reads to a GET endpoint.
+
 Company reviews replace the position's current exposure mapping through the
 existing versioned mapping history. A source update never silently overwrites a
 human decision. Exact cited matches can receive a recorded automatic policy
 decision; its company receipt is stored with that policy, without manufacturing
 a second human review. Existing mappings remain visible in the review form;
 earlier mappings are not retroactively presented as v5 document citations.
+
+A new supporting citation that contradicts an earlier manual mapping creates a
+company-review exception while preserving that mapping. The company section
+remains incomplete and opens with the conflict. A subsequent explicit company
+decision records a stable fingerprint of the company evidence considered.
+Repeated captures of identical evidence do not reopen that decision; changed
+evidence can. The fingerprint excludes observation times and document IDs, and
+includes the PDF hash, exact name, page and quote. Automatic review evaluation
+version 2 rechecks older cached summaries once without rewriting their history.
 
 Provider IDs are retained for association, not used to re-key existing accepted
 financial positions in this migration. Legacy ambiguous financial natural keys

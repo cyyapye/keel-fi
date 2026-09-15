@@ -139,6 +139,13 @@ export async function routeInvestmentReview(
         route.request().postDataJSON(),
       );
       writes.push(input);
+      if (reject)
+        return route.fulfill({
+          status: 409,
+          json: {
+            error: "This investment changed. Reload details before saving.",
+          },
+        });
       context.companyReceipt = InvestmentCompanyReceiptSchema.parse({
         ...input,
         positionId: context.positionId,
@@ -169,6 +176,13 @@ export async function routeInvestmentReview(
         });
       }
       source.companyReview = context.companyReceipt;
+      if (context.automaticReview != null) {
+        context.automaticReview.issues = context.automaticReview.issues.filter(
+          (issue) => issue.section !== "company",
+        );
+        if (!context.automaticReview.resolved.includes("company"))
+          context.automaticReview.resolved.push("company");
+      }
       return route.fulfill({ status: 201, json: context.companyReceipt });
     },
   );

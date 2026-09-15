@@ -446,7 +446,7 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
           ...document,
           extraction: {
             ...document.extraction,
-            version: 1,
+            version: 6,
             problem: "name_not_found",
             citations: [],
           },
@@ -457,7 +457,7 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     await previousVersion.flush();
     expect(downloads).toBe(2);
     expect(saved.at(-1)?.documents[0]?.extraction).toMatchObject({
-      version: 6,
+      version: 7,
       problem: null,
       citations: [{ legalName: "Synthetic Atlas SPV LLC" }],
     });
