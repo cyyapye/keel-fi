@@ -275,16 +275,22 @@ verification on every request. `GET /api/watch/activity` takes five D1 round
 trips and zero writes. Its 120-company holdout stays below 5,000 rows read as
 history exceeds 19,000 checks across two households, including repeated
 timestamps and both ordering keys. Filling all fifty source slots for every
-company creates a 6,000-source holdout: the full page reads 22,806 rows against
+company creates a 6,000-source holdout: the full page reads 22,926 rows against
 a 30,000-row ceiling. This full coverage read happens on entry, explicit
-actions, and completion.
+actions, and completion. Company search is a user-initiated activity read with a
+250-millisecond debounce, a 200-character limit, cancellation of obsolete reads,
+and the same fifteen-second timeout. It filters the full household before the
+twenty-company page and keeps the five-round-trip, zero-write budget. Positive,
+empty, literal-punctuation, paginated and unrelated-household searches run
+against the 120-company, 6,000-source history holdout within the unchanged
+30,000-row cap.
 
 Recurring requests use `GET /api/watch/activity/progress?runId=…`, which reads
 only the selected run's forty sources and twenty recent runs. It takes three D1
 round trips, zero writes and at most 3,000 rows read, even with 6,000 sources
 and the history holdout. One full active day reserves 450,000 reads, 450 D1
 round trips, zero writes and 200 proxy/API invocations, including up to three
-full coverage reads and 89 progress polls. The measured active case uses 263,491
+full coverage reads and 89 progress polls. The measured active case uses 263,611
 rows and 180 invocations; completion is detected within ten seconds. The
 existing Alpha projection is refreshed once on completion, within the existing
 foreground-session allowance. Source fetches, DNS, queue deliveries and R2

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { PublicSourceObservation } from "@keel/domain";
 import type {
   PortfolioWatchActivity,
   WatchRun,
@@ -16,6 +17,8 @@ import {
   Notice,
   PageHeader,
   Screen,
+  SearchField,
+  SearchHighlight,
   SectionHeader,
   Tabs,
   TabsContent,
@@ -27,6 +30,7 @@ import {
   formatWatchTime,
   nextWatchAttempt,
   watchSourceProblem,
+  watchUpdatesForReview,
 } from "./portfolio-watch-format";
 import { useBoundedPolling } from "./use-bounded-polling";
 
@@ -51,7 +55,8 @@ function runTitle(run: WatchRun): string {
   if (run.status === "queued") return "Waiting to check sources";
   if (run.status === "running") return "Checking sources…";
   if (run.status === "timed_out") return "This check did not finish";
-  if (run.status === "failed") return "Source check failed";
+  if (run.status === "failed")
+    return `Source check failed · ${formatWatchTime(run.completedAt ?? run.requestedAt)}`;
   return `Last check completed ${formatWatchTime(run.completedAt)}`;
 }
 
@@ -78,8 +83,7 @@ function SourceDetails({
           ? "Official RSS feed"
           : source.kind === "official_atom"
             ? "Official Atom feed"
-            : "Company website"}{" "}
-        ↗
+            : "Company website"}
       </ButtonLink>
       <p className="watch-source-url">{source.url}</p>
       <p>
@@ -90,7 +94,7 @@ function SourceDetails({
             : source.pendingState === "queued"
               ? "Waiting to check this source"
               : unavailable
-                ? watchSourceProblem(source.errorCode)
+                ? watchSourceProblem(source.errorCode, source.httpStatus)
                 : source.lastCompletedAt === null
                   ? "Waiting for a completed check"
                   : source.signalCount > 0
@@ -116,14 +120,18 @@ function SourceDetails({
 export function PortfolioWatchMonitor({
   onScan,
   onRefresh,
-  signalCount,
+  observations,
+  supersededIds,
   renderSignals,
   sourceLabel,
 }: {
   onScan: () => Promise<{ queuedCount: number }>;
   onRefresh: () => Promise<void>;
-  signalCount: number;
-  renderSignals: (start: number, end: number) => ReactNode;
+  observations: readonly PublicSourceObservation[];
+  supersededIds: ReadonlySet<string>;
+  renderSignals: (
+    observations: readonly PublicSourceObservation[],
+  ) => ReactNode;
   sourceLabel: string;
 }) {
   const [activity, setActivity] = useState<PortfolioWatchActivity | null>(null);
@@ -134,9 +142,24 @@ export function PortfolioWatchMonitor({
   const [cursor, setCursor] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [signalPage, setSignalPage] = useState(0);
-  const [tab, setTab] = useState("coverage");
+  const [tab, setTab] = useState("updates");
+  const [query, setQuery] = useState("");
+  const [reviewOnly, setReviewOnly] = useState(true);
+  const [loadedPage, setLoadedPage] = useState<string | null>(null);
+  const pageKey = JSON.stringify([cursor, query]);
+  const pageReady = !loading && loadedPage === pageKey;
+  const updates = watchUpdatesForReview(observations, query, supersededIds);
+  const reviewCount = updates.filter((item) => item.needsReview).length;
+  const visibleUpdates = updates.filter(
+    (item) => !reviewOnly || item.needsReview,
+  );
+  const signalCount = visibleUpdates.length;
+  const currentSignalPage = Math.min(
+    signalPage,
+    Math.max(0, Math.ceil(signalCount / 20) - 1),
+  );
   const mounted = useRef(true);
-  const pageCursor = useRef(cursor);
+  const pageRequest = useRef({ cursor, query });
   const readSequence = useRef(0);
   useEffect(() => {
     mounted.current = true;
@@ -146,36 +169,50 @@ export function PortfolioWatchMonitor({
   }, []);
   useEffect(() => {
     let current = true;
-    pageCursor.current = cursor;
+    const controller = new AbortController();
+    pageRequest.current = { cursor, query };
     const sequence = ++readSequence.current;
-    void loadPortfolioWatchActivity(cursor)
-      .then((value) => {
-        if (current && sequence === readSequence.current) {
-          setActivity(value);
-          setError(null);
-        }
-      })
-      .catch(() => {
-        if (current) setError("Couldn’t load source activity. Try again.");
-      })
-      .finally(() => {
-        if (current) setLoading(false);
-      });
+    const timer = window.setTimeout(
+      () => {
+        void loadPortfolioWatchActivity(cursor, query, controller.signal)
+          .then((value) => {
+            if (current && sequence === readSequence.current) {
+              setActivity(value);
+              setLoadedPage(JSON.stringify([cursor, query]));
+              setError(null);
+            }
+          })
+          .catch(() => {
+            if (current && sequence === readSequence.current)
+              setError("Couldn’t load source activity. Try again.");
+          })
+          .finally(() => {
+            if (current && sequence === readSequence.current) setLoading(false);
+          });
+      },
+      query.trim().length > 0 ? 250 : 0,
+    );
     return () => {
       current = false;
+      window.clearTimeout(timer);
+      controller.abort();
     };
-  }, [cursor]);
+  }, [cursor, query]);
   const running = activity?.runs.find(activeRun);
   const reload = async () => {
     const sequence = ++readSequence.current;
-    const value = await loadPortfolioWatchActivity(cursor);
+    const { cursor: currentCursor, query: currentQuery } = pageRequest.current;
+    const value = await loadPortfolioWatchActivity(currentCursor, currentQuery);
     if (
       mounted.current &&
-      pageCursor.current === cursor &&
+      pageRequest.current.cursor === currentCursor &&
+      pageRequest.current.query === currentQuery &&
       sequence === readSequence.current
     ) {
       setActivity(value);
+      setLoadedPage(JSON.stringify([currentCursor, currentQuery]));
       setError(null);
+      setLoading(false);
     }
     return value;
   };
@@ -269,7 +306,7 @@ export function PortfolioWatchMonitor({
         await refreshSignals();
       if (result.queuedCount === 0 && !value.runs.some(activeRun))
         setMessage(
-          "No eligible sources were available to check. See coverage below.",
+          "No eligible sources were available to check. Open Coverage for details.",
         );
     } catch {
       setError(
@@ -288,7 +325,7 @@ export function PortfolioWatchMonitor({
         description="Public news and updates for your private holdings."
         actions={
           <Button
-            tone="primary"
+            tone="quiet"
             disabled={
               busy || running !== undefined || loading || activity === null
             }
@@ -300,12 +337,37 @@ export function PortfolioWatchMonitor({
           </Button>
         }
       />
+      {tab !== "activity" && (
+        <SearchField
+          className="watch-search"
+          label="Search companies"
+          placeholder="Search companies…"
+          value={query}
+          onValueChange={(value) => {
+            if (value === query) return;
+            setQuery(value);
+            setCursor(null);
+            setExpanded(null);
+            setSignalPage(0);
+            setLoading(true);
+          }}
+          resultLabel={
+            query.trim().length === 0
+              ? undefined
+              : loading
+                ? "Searching companies…"
+                : !pageReady
+                  ? "Company search unavailable"
+                  : `${activity?.matchingCompanyCount ?? 0} ${(activity?.matchingCompanyCount ?? 0) === 1 ? "company matches" : "companies match"} · ${updates.length} updates`
+          }
+        />
+      )}
       <section
         className="watch-activity-summary"
         aria-live="polite"
         data-testid="portfolio-watch-control"
       >
-        <h2>
+        <p className="watch-check-title">
           {latest === undefined
             ? loading
               ? "Loading source activity…"
@@ -313,7 +375,7 @@ export function PortfolioWatchMonitor({
                 ? "Source activity unavailable"
                 : "No completed checks recorded yet"
             : runTitle(running ?? latest)}
-        </h2>
+        </p>
         {latest !== undefined && <p>{runOutcome(running ?? latest)}</p>}
         {running !== undefined && (
           <progress
@@ -323,17 +385,24 @@ export function PortfolioWatchMonitor({
           />
         )}
         <small>
-          {sourceLabel} · Healthy sources checked weekly
-          {activity?.summary.nextCheckAt != null
-            ? ` · Next scheduled attempt ${formatWatchTime(nextWatchAttempt(activity.summary.nextCheckAt, activity.asOf))}`
-            : ""}
+          {sourceLabel}
+          {tab !== "updates" && (
+            <>
+              {" · Healthy sources checked weekly"}
+              {activity?.summary.nextCheckAt != null
+                ? ` · Next scheduled attempt ${formatWatchTime(nextWatchAttempt(activity.summary.nextCheckAt, activity.asOf))}`
+                : ""}
+            </>
+          )}
         </small>
-        {activity !== null && activity.summary.sourceCount > 40 && (
-          <small>
-            Each check covers up to 40 sources. Additional sources remain
-            scheduled.
-          </small>
-        )}
+        {tab !== "updates" &&
+          activity !== null &&
+          activity.summary.sourceCount > 40 && (
+            <small>
+              Each check covers up to 40 sources. Additional sources remain
+              scheduled.
+            </small>
+          )}
       </section>
       {error !== null && (
         <Notice tone="error">
@@ -359,109 +428,207 @@ export function PortfolioWatchMonitor({
           variant="line"
           aria-label="Watch information"
         >
+          <TabsTrigger value="updates">
+            Updates ({observations.length})
+          </TabsTrigger>
           <TabsTrigger value="coverage">Coverage</TabsTrigger>
-          <TabsTrigger value="signals">Signals ({signalCount})</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
+        <TabsContent value="updates">
+          <SectionHeader
+            className="watch-updates-heading"
+            title={
+              reviewOnly
+                ? `${reviewCount} ${reviewCount === 1 ? "update needs" : "updates need"} review`
+                : "All updates"
+            }
+            action={
+              <ActionGroup wrap>
+                <Button
+                  tone="secondary"
+                  aria-pressed={reviewOnly}
+                  onClick={() => {
+                    setReviewOnly(true);
+                    setSignalPage(0);
+                  }}
+                >
+                  Needs review ({reviewCount})
+                </Button>
+                <Button
+                  tone="secondary"
+                  aria-pressed={!reviewOnly}
+                  onClick={() => {
+                    setReviewOnly(false);
+                    setSignalPage(0);
+                  }}
+                >
+                  All updates ({updates.length})
+                </Button>
+              </ActionGroup>
+            }
+          />
+          {signalCount === 0 ? (
+            <EmptyState
+              title={reviewOnly ? "No updates need review" : "No updates found"}
+            >
+              {query.trim().length > 0
+                ? "Try another company or clear your search."
+                : reviewOnly && updates.length > 0
+                  ? "Reviewed updates are available under All updates."
+                  : "Check Coverage to see which companies have verified sources. Missing coverage can mean updates were not found."}
+            </EmptyState>
+          ) : (
+            renderSignals(
+              visibleUpdates
+                .slice(currentSignalPage * 20, currentSignalPage * 20 + 20)
+                .map((item) => item.observation),
+            )
+          )}
+          <ActionGroup className="watch-page-actions" wrap>
+            {currentSignalPage > 0 && (
+              <Button onClick={() => setSignalPage(currentSignalPage - 1)}>
+                Previous updates
+              </Button>
+            )}
+            {(currentSignalPage + 1) * 20 < signalCount && (
+              <Button onClick={() => setSignalPage(currentSignalPage + 1)}>
+                Next updates
+              </Button>
+            )}
+          </ActionGroup>
+        </TabsContent>
         <TabsContent value="coverage">
           <SectionHeader
             title={
               activity === null
                 ? "Source coverage"
-                : `${plural(activity.summary.companyCount, "company").replace("companys", "companies")} · ${plural(activity.summary.sourceCount, "source")}`
+                : `${plural(activity.summary.companyCount, "company").replace("companys", "companies")} · ${activity.summary.sourceCount} pages and feeds`
             }
           />
-          {activity?.companies.length === 0 && (
-            <EmptyState title="No companies to monitor">
-              Companies appear here once a current private holding has a
-              confirmed company identity.
+          {activity !== null && (
+            <div className="watch-coverage-summary">
+              <p>
+                {activity.summary.companiesWithVerifiedSources} of{" "}
+                {activity.summary.companyCount} companies have a verified source
+                · {activity.summary.companiesWithoutWebsite} without a confirmed
+                website
+              </p>
+              <small>
+                Keel checks official company websites and feeds. Company imports
+                can supply a name without a website; finding that website is not
+                automated yet.
+              </small>
+            </div>
+          )}
+          {loading && <p role="status">Loading companies…</p>}
+          {pageReady && activity?.companies.length === 0 && (
+            <EmptyState
+              title={
+                query.trim().length > 0
+                  ? "No matching companies"
+                  : "No companies to monitor"
+              }
+            >
+              {query.trim().length > 0
+                ? "Try another company or clear your search."
+                : "Companies appear here once a current private holding has a confirmed company identity."}
             </EmptyState>
           )}
           <div className="watch-coverage-list">
-            {activity?.companies.map((company) => {
-              const sources = company.sources;
-              const failed = sources.filter(
-                (source) =>
-                  source.outcome === "failed" ||
-                  source.outcome === "skipped" ||
-                  source.pendingState === "timed_out" ||
-                  ["degraded", "quarantined", "revoked"].includes(
-                    source.status,
-                  ),
-              ).length;
-              const checked = sources.filter(
-                (source) => source.outcome === "succeeded",
-              ).length;
-              const waiting = sources.filter(
-                (source) => source.lastCompletedAt === null,
-              ).length;
-              const pending = sources.filter(
-                (source) =>
-                  source.pendingState === "queued" ||
-                  source.pendingState === "running",
-              ).length;
-              const lastCompletedAt =
-                sources
-                  .map((source) => source.lastCompletedAt)
-                  .filter((value) => value !== null)
-                  .sort()
-                  .at(-1) ?? null;
-              const signals = sources.reduce(
-                (count, source) => count + source.signalCount,
-                0,
-              );
-              return (
-                <Collapsible
-                  key={company.id}
-                  open={expanded === company.id}
-                  onOpenChange={(open) => setExpanded(open ? company.id : null)}
-                >
-                  <CollapsibleTrigger
-                    className="watch-company-trigger"
-                    data-testid={`watch-target-${company.id}`}
+            {pageReady &&
+              activity?.companies.map((company) => {
+                const sources = company.sources;
+                const failed = sources.filter(
+                  (source) =>
+                    source.outcome === "failed" ||
+                    source.outcome === "skipped" ||
+                    source.pendingState === "timed_out" ||
+                    ["degraded", "quarantined", "revoked"].includes(
+                      source.status,
+                    ),
+                ).length;
+                const checked = sources.filter(
+                  (source) => source.outcome === "succeeded",
+                ).length;
+                const waiting = sources.filter(
+                  (source) => source.lastCompletedAt === null,
+                ).length;
+                const pending = sources.filter(
+                  (source) =>
+                    source.pendingState === "queued" ||
+                    source.pendingState === "running",
+                ).length;
+                const lastCompletedAt =
+                  sources
+                    .map((source) => source.lastCompletedAt)
+                    .filter((value) => value !== null)
+                    .sort()
+                    .at(-1) ?? null;
+                const signals = sources.reduce(
+                  (count, source) => count + source.signalCount,
+                  0,
+                );
+                return (
+                  <Collapsible
+                    key={company.id}
+                    open={expanded === company.id}
+                    onOpenChange={(open) =>
+                      setExpanded(open ? company.id : null)
+                    }
                   >
-                    <span>
-                      <strong>{company.companyName}</strong>
-                      <small>
-                        {sources.length === 0
-                          ? "No verified public source yet"
-                          : pending > 0
-                            ? `${pending} of ${sources.length} source checks pending`
-                            : failed > 0
-                              ? `${failed} of ${sources.length} sources unavailable`
-                              : checked === 0
-                                ? "Waiting for first completed check"
-                                : `${plural(checked, "source")} checked${waiting > 0 ? ` · ${waiting} not checked yet` : ` · ${signals === 0 ? "No new signals" : plural(signals, "new signal")}`}`}
-                      </small>
-                      {lastCompletedAt !== null && (
+                    <CollapsibleTrigger
+                      className="watch-company-trigger"
+                      data-testid={`watch-target-${company.id}`}
+                    >
+                      <span>
+                        <strong>
+                          <SearchHighlight query={query}>
+                            {company.companyName}
+                          </SearchHighlight>
+                        </strong>
                         <small>
-                          Last check {formatWatchTime(lastCompletedAt)}
+                          {sources.length === 0
+                            ? company.officialHost === null
+                              ? "Official website not identified"
+                              : "Waiting for website verification"
+                            : pending > 0
+                              ? `${pending} of ${sources.length} source checks pending`
+                              : failed > 0
+                                ? `${failed} of ${sources.length} sources unavailable`
+                                : checked === 0
+                                  ? "Waiting for first completed check"
+                                  : `${plural(checked, "source")} checked${waiting > 0 ? ` · ${waiting} not checked yet` : ` · ${signals === 0 ? "No new signals" : plural(signals, "new signal")}`}`}
                         </small>
-                      )}
-                    </span>
-                    <DisclosureIndicator />
-                  </CollapsibleTrigger>
-                  {expanded === company.id && (
-                    <CollapsibleContent>
-                      {sources.length === 0 ? (
-                        <p className="watch-coverage-missing">
-                          A reviewed official company website is needed before
-                          monitoring can begin.
-                        </p>
-                      ) : (
-                        sources.map((source) => (
-                          <SourceDetails
-                            key={source.id}
-                            source={source}
-                            asOf={activity.asOf}
-                          />
-                        ))
-                      )}
-                    </CollapsibleContent>
-                  )}
-                </Collapsible>
-              );
-            })}
+                        {lastCompletedAt !== null && (
+                          <small>
+                            Last check {formatWatchTime(lastCompletedAt)}
+                          </small>
+                        )}
+                      </span>
+                      <DisclosureIndicator />
+                    </CollapsibleTrigger>
+                    {expanded === company.id && (
+                      <CollapsibleContent>
+                        {sources.length === 0 ? (
+                          <p className="watch-coverage-missing">
+                            {company.officialHost === null
+                              ? "This company has no confirmed website in Keel, so monitoring has not started. A company name alone does not establish its official website."
+                              : `Keel has ${company.officialHost} on record. Monitoring starts after the website passes verification.`}
+                          </p>
+                        ) : (
+                          sources.map((source) => (
+                            <SourceDetails
+                              key={source.id}
+                              source={source}
+                              asOf={activity.asOf}
+                            />
+                          ))
+                        )}
+                      </CollapsibleContent>
+                    )}
+                  </Collapsible>
+                );
+              })}
           </div>
           <ActionGroup className="watch-page-actions" wrap>
             {cursor !== null && (
@@ -477,7 +644,7 @@ export function PortfolioWatchMonitor({
             )}
             {activity?.nextCursor != null && (
               <Button
-                disabled={loading}
+                disabled={!pageReady}
                 onClick={() => {
                   setExpanded(null);
                   setLoading(true);
@@ -485,28 +652,6 @@ export function PortfolioWatchMonitor({
                 }}
               >
                 Next companies
-              </Button>
-            )}
-          </ActionGroup>
-        </TabsContent>
-        <TabsContent value="signals">
-          <SectionHeader title="Recent signals" />
-          {signalCount === 0 ? (
-            <EmptyState title="No signals found yet">
-              Source coverage and activity show which checks have completed.
-            </EmptyState>
-          ) : (
-            renderSignals(signalPage * 20, signalPage * 20 + 20)
-          )}
-          <ActionGroup className="watch-page-actions" wrap>
-            {signalPage > 0 && (
-              <Button onClick={() => setSignalPage((page) => page - 1)}>
-                Previous signals
-              </Button>
-            )}
-            {(signalPage + 1) * 20 < signalCount && (
-              <Button onClick={() => setSignalPage((page) => page + 1)}>
-                Next signals
               </Button>
             )}
           </ActionGroup>

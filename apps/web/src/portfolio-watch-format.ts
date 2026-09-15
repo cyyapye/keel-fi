@@ -23,8 +23,23 @@ export function nextWatchAttempt(
   return scheduled.toISOString();
 }
 
-export function watchSourceProblem(code: string | null): string {
+export function watchSourceProblem(
+  code: string | null,
+  httpStatus: number | null = null,
+): string {
   if (code === null) return "Source is not ready for monitoring.";
+  if (
+    code === "non_success_status" &&
+    (httpStatus === 401 || httpStatus === 403)
+  )
+    return "The website denied access to this page.";
+  if (
+    code === "non_success_status" &&
+    (httpStatus === 404 || httpStatus === 410)
+  )
+    return "This page is no longer available at this address.";
+  if (code === "non_success_status" && httpStatus === 429)
+    return "The website is limiting requests. Keel will retry later.";
   if (/timeout|network|fetch_failed|dns|http_5/.test(code))
     return "The site did not respond. Keel will retry.";
   if (/identity/.test(code)) return "Company identity could not be confirmed.";
@@ -39,4 +54,28 @@ export function watchSourceProblem(code: string | null): string {
   if (/not_monitored|not_ready/.test(code))
     return "This source is no longer ready for monitoring.";
   return "The source could not be checked. Keel will retry eligible sources.";
+}
+import type { PublicSourceObservation } from "@keel/domain";
+
+export function watchUpdatesForReview(
+  observations: readonly PublicSourceObservation[],
+  query: string,
+  supersededIds: ReadonlySet<string>,
+) {
+  const search = query.trim().toLowerCase();
+  return observations
+    .filter((item) => item.companyName.toLowerCase().includes(search))
+    .map((observation) => ({
+      observation,
+      needsReview:
+        observation.evidenceStatus === "pending_review" &&
+        !supersededIds.has(observation.id),
+    }))
+    .sort(
+      (left, right) =>
+        Number(right.needsReview) - Number(left.needsReview) ||
+        Date.parse(right.observation.retrievedAt) -
+          Date.parse(left.observation.retrievedAt) ||
+        right.observation.id.localeCompare(left.observation.id),
+    );
 }

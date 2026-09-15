@@ -1016,13 +1016,23 @@ export async function savePlanInputs(
   return PlanInputSaveResultSchema.parse(await response.json());
 }
 
-export async function loadPortfolioWatchActivity(cursor: string | null = null) {
+export async function loadPortfolioWatchActivity(
+  cursor: string | null = null,
+  query = "",
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams();
+  if (cursor !== null) params.set("cursor", cursor);
+  if (query.trim().length > 0) params.set("q", query.trim());
   const response = await fetch(
-    `/api/watch/activity${cursor === null ? "" : `?cursor=${encodeURIComponent(cursor)}`}`,
+    `/api/watch/activity${params.size === 0 ? "" : `?${params}`}`,
     {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(15_000),
+      signal:
+        signal === undefined
+          ? AbortSignal.timeout(15_000)
+          : AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
     },
   );
   if (!response.ok)

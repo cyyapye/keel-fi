@@ -1,3 +1,4 @@
+import { WatchCompanySearchSchema } from "@keel/domain/portfolio-watch-activity";
 import {
   AngelListCsvParseError,
   parseAngelListInvestmentsCsv,
@@ -3577,11 +3578,21 @@ export function createApp(options: AppOptions = {}) {
     const cursor = context.req.query("cursor") ?? null;
     if (cursor !== null && (cursor.length === 0 || cursor.length > 200))
       return context.json({ error: "Invalid watch page." }, 400);
+    const search = WatchCompanySearchSchema.safeParse(
+      context.req.query("q") ?? "",
+    );
+    if (!search.success)
+      return context.json(
+        { error: "Company search must be 200 characters or fewer." },
+        400,
+      );
     try {
       return context.json(
         await new D1PortfolioWatchActivityRepository(context.env.DB).read(
           context.get("identity").subject,
           cursor,
+          undefined,
+          search.data,
         ),
         200,
         { "Cache-Control": "private, no-store" },

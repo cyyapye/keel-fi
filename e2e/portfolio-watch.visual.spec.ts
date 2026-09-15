@@ -99,12 +99,15 @@ const watchSourceFixture = {
   pendingState: null,
   outcome: "succeeded",
   errorCode: null,
+  httpStatus: 200,
   signalCount: 1,
 };
 const watchActivityFixture = {
   asOf: "2026-08-02T12:00:00.000Z",
   summary: {
     companyCount: 3,
+    companiesWithoutWebsite: 1,
+    companiesWithVerifiedSources: 1,
     sourceCount: 3,
     unavailableCount: 1,
     neverCheckedCount: 0,
@@ -114,6 +117,7 @@ const watchActivityFixture = {
     {
       id: "watch_harbor",
       companyName: "Harbor Health Systems",
+      officialHost: "harbor-health.example",
       sources: [
         watchSourceFixture,
         {
@@ -128,6 +132,7 @@ const watchActivityFixture = {
     {
       id: "watch_lattice",
       companyName: "Lattice Grove Energy",
+      officialHost: "lattice-grove.example",
       sources: [
         {
           ...watchSourceFixture,
@@ -143,8 +148,14 @@ const watchActivityFixture = {
         },
       ],
     },
-    { id: "watch_northstar", companyName: "Northstar Robotics", sources: [] },
+    {
+      id: "watch_northstar",
+      companyName: "Northstar Robotics",
+      officialHost: null,
+      sources: [],
+    },
   ],
+  matchingCompanyCount: 3,
   nextCursor: null,
   runs: [
     {
@@ -253,7 +264,7 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   await expect(checkButton).toBeEnabled();
   await checkButton.click();
   await expect(
-    page.getByRole("heading", { name: "Waiting to check sources" }),
+    page.getByText("Waiting to check sources", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Checking…", exact: true }),
@@ -272,13 +283,14 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   await expect(page.getByTestId("portfolio-watch-control")).toContainText(
     "2 of 3 sources read",
   );
+  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
   await page.getByTestId("watch-target-watch_lattice").click();
   await expect(
     page.getByText("The site did not respond. Keel will retry."),
   ).toBeVisible();
   await expect(page.getByText(/Last successful check: Jul 26/)).toBeVisible();
   await expect(page.getByTestId("watch-target-watch_northstar")).toContainText(
-    "No verified public source yet",
+    "Official website not identified",
   );
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
@@ -298,7 +310,7 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
     "portfolio-watch-activity.png",
     { animations: "disabled" },
   );
-  await page.getByRole("tab", { name: "Signals (1)", exact: true }).click();
+  await page.getByRole("tab", { name: "Updates (1)", exact: true }).click();
   await expect(page.getByText(/Found by Keel Aug 2, 2026/)).toBeVisible();
   await expect(page.getByText("Reported financing")).toBeVisible();
   await expect(page.getByText("Series C · Equity")).toBeVisible();
@@ -429,7 +441,7 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
   await page.getByRole("button", { name: "Check now", exact: true }).click();
   await expect(
     page.getByText(
-      "No eligible sources were available to check. See coverage below.",
+      "No eligible sources were available to check. Open Coverage for details.",
     ),
   ).toBeVisible();
 });
@@ -439,6 +451,7 @@ test("bounds the company list and recovers an activity read failure", async ({
 }, testInfo) => {
   const companies = Array.from({ length: 120 }, (_, index) => ({
     id: `synthetic-company-${index}`,
+    officialHost: `synthetic-company-${index}.example`,
     companyName:
       index === 0
         ? "SyntheticCompany".repeat(8)
@@ -451,27 +464,42 @@ test("bounds the company list and recovers an activity read failure", async ({
     })),
   }));
   let unavailable = true;
+  let releaseOldSearch: (() => void) | undefined;
+  let oldSearchSettled = false;
   await page.route("**/api/watch/activity**", async (route) => {
     if (unavailable)
       return route.fulfill({
         status: 503,
         json: { error: "Synthetic unavailable response" },
       });
-    const start = Number(
-      new URL(route.request().url()).searchParams.get("cursor") ?? 0,
+    const params = new URL(route.request().url()).searchParams;
+    const start = Number(params.get("cursor") ?? 0);
+    const query = (params.get("q") ?? "").toLowerCase();
+    const matching = companies.filter((company) =>
+      company.companyName.toLowerCase().includes(query),
     );
-    await route.fulfill({
+    if (query === "syntheticcompany")
+      await new Promise<void>((resolve) => {
+        releaseOldSearch = resolve;
+      });
+    const response = route.fulfill({
       json: {
         ...watchActivityFixture,
-        companies: companies.slice(start, start + 20),
+        companies: matching.slice(start, start + 20),
+        matchingCompanyCount: matching.length,
         summary: {
           ...watchActivityFixture.summary,
           companyCount: 120,
           sourceCount: 6000,
         },
-        nextCursor: start + 20 < companies.length ? String(start + 20) : null,
+        nextCursor: start + 20 < matching.length ? String(start + 20) : null,
       },
     });
+    if (query === "syntheticcompany") {
+      // Aborted requests may discard their mocked response entirely.
+      await response.catch(() => undefined);
+      oldSearchSettled = true;
+    } else await response;
   });
   await page.goto("/");
   await navigateToScreen(
@@ -484,9 +512,10 @@ test("bounds the company list and recovers an activity read failure", async ({
   ).toBeVisible();
   unavailable = false;
   await page.getByRole("button", { name: "Refresh activity" }).click();
+  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
   await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
   await expect(
-    page.getByRole("heading", { name: "120 companies · 6000 sources" }),
+    page.getByRole("heading", { name: "120 companies · 6000 pages and feeds" }),
   ).toBeVisible();
   await page.getByTestId("watch-target-synthetic-company-0").click();
   await expect(page.locator(".watch-source-detail")).toHaveCount(50);
@@ -507,6 +536,127 @@ test("bounds the company list and recovers an activity read failure", async ({
   await expect(
     page.getByTestId("watch-target-synthetic-company-0"),
   ).toBeVisible();
+  const search = page.getByRole("searchbox", { name: "Search companies" });
+  await search.fill("SyntheticCompany");
+  await expect.poll(() => releaseOldSearch !== undefined).toBe(true);
+  await search.fill("COMPANY 120");
+  await expect(
+    page.getByTestId("watch-target-synthetic-company-119"),
+  ).toBeVisible();
+  await expect(page.locator(".watch-company-trigger")).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Next companies" }),
+  ).toHaveCount(0);
+  await expect(page.getByText(/1 company matches/)).toBeVisible();
+  releaseOldSearch!();
+  await expect.poll(() => oldSearchSettled).toBe(true);
+  await expect(
+    page.getByTestId("watch-target-synthetic-company-0"),
+  ).toHaveCount(0);
+  await search.fill("Missing synthetic company");
+  await expect(
+    page.getByRole("heading", { name: "No matching companies" }),
+  ).toBeVisible();
+  await search.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(search).toBeFocused();
+  await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
+  await search.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "Check now", exact: true }),
+  ).toBeEnabled();
+  unavailable = true;
+  await search.fill("company 120");
+  await expect(
+    page.getByText("Company search unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".watch-company-trigger")).toHaveCount(0);
+  unavailable = false;
+  await page
+    .getByRole("button", { name: "Refresh activity", exact: true })
+    .click();
+  await expect(
+    page.getByTestId("watch-target-synthetic-company-119"),
+  ).toBeVisible();
+});
+
+test("puts pending updates first and searches the full history before paging", async ({
+  page,
+}, testInfo) => {
+  const alpha = (await (await page.request.get("/api/alpha")).json()) as Record<
+    string,
+    unknown
+  >;
+  const observations = Array.from({ length: 125 }, (_, index) => ({
+    ...portfolioWatchFixture.observations[0]!,
+    id: `attention-${index}`,
+    evidenceEventId: `attention-event-${index}`,
+    companyName:
+      index === 124 ? "Distant Synthetic Company" : "Harbor Health Systems",
+    evidenceStatus:
+      index >= 122
+        ? "pending_review"
+        : index % 3 === 0
+          ? "accepted"
+          : index % 3 === 1
+            ? "rejected"
+            : "scenario_only",
+    sourceTitle: `Synthetic update ${index}`,
+    retrievedAt:
+      index === 124
+        ? "2026-07-01T06:02:00.000-07:00"
+        : index >= 122
+          ? "2026-07-01T12:00:00.000Z"
+          : "2026-08-02T12:00:00.000Z",
+  }));
+  await page.route("**/api/alpha", (route) =>
+    route.fulfill({
+      json: {
+        ...alpha,
+        signalReconciliations: [],
+        portfolioWatch: { ...portfolioWatchFixture, observations },
+      },
+    }),
+  );
+  await page.goto("/watch");
+  await navigateToScreen(
+    page,
+    testInfo.project.name === "mobile-chromium",
+    /Watch/,
+  );
+  await expect(
+    page.getByRole("tab", { name: "Updates (125)" }),
+  ).toHaveAttribute("aria-selected", "true");
+  const cards = page.locator(".watch-observation-list > article");
+  await expect(cards).toHaveCount(3);
+  await expect(cards.first()).toContainText("Synthetic update 124");
+  await expect(
+    page.getByRole("heading", { name: "3 updates need review" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "All updates (125)", exact: true })
+    .click();
+  await expect(cards).toHaveCount(20);
+  await expect(cards.first()).toContainText("Synthetic update 124");
+  await page.getByRole("button", { name: "Next updates", exact: true }).click();
+  await expect(cards.first()).not.toContainText("Synthetic update 124");
+  await page
+    .getByRole("searchbox", { name: "Search companies" })
+    .fill("distant synthetic");
+  await expect(cards).toHaveCount(1);
+  await expect(cards.first()).toContainText("Synthetic update 124");
+  await page
+    .getByRole("button", { name: "Needs review (1)", exact: true })
+    .click();
+  await expect(cards).toHaveCount(1);
+  // Persisted review status, not whether this browser has opened the article,
+  // determines which updates need attention after a reload.
+  observations[124]!.evidenceStatus = "accepted";
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "2 updates need review" }),
+  ).toBeVisible();
+  await expect(cards).toHaveCount(2);
 });
 
 test("keeps a financing review focused on reported company terms", async ({
@@ -1175,7 +1325,7 @@ test("keeps the legacy estimated range when financing facts are absent", async (
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Watch/);
-  await page.getByRole("tab", { name: "Signals (1)", exact: true }).click();
+  await page.getByRole("tab", { name: "Updates (1)", exact: true }).click();
 
   await expect(page.getByText("Estimated range")).toBeVisible();
   await expect(page.getByText("$930k – $1.4M")).toBeVisible();

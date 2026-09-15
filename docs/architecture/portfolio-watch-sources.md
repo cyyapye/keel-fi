@@ -14,6 +14,36 @@ When a current private-company exposure has no reviewed official host, its
 target remains visible with unavailable coverage. Keel does not guess a URL;
 monitoring begins automatically once a reviewed official host is available.
 
+Company identification from imported investment evidence currently records the
+name with a null website host. There is no general web-search step to find and
+verify the official host. Company-name variants are separate reviewed
+identities; name similarity alone must not transfer an approved host. Once a
+host is known, the existing same-origin discovery rules apply. Pages and feeds
+on one domain are source records, not independent publishers.
+
+## Attention and company search
+
+Watch opens on Updates with the Needs review filter. Pending, non-superseded
+evidence appears first; All updates includes accepted, rejected, scenario-only
+and superseded history. Review state is persisted evidence state, not a browser
+read/unread marker. Both views sort by retrieval time with an ID tie-break and
+render at most twenty updates. Published and found timestamps remain separate.
+
+The shared company search filters updates before paging and sends a debounced,
+bounded `q` to the coverage projection. Coverage searches the whole household
+before its twenty-company cursor limit, uses a literal case-insensitive company
+name match, and keeps global coverage totals separate from matching-company
+counts. Changing the search resets pagination, aborts the obsolete request, and
+does not display stale matches after a failed or out-of-order response. Check
+now still checks the household's eligible sources; search does not alter
+admission.
+
+Coverage distinguishes a missing official host from a known website awaiting
+verification and a failed source read. It shows the saved HTTP response where
+available to explain denied access or an unavailable page without inferring that
+the company has no public news. Checks and source verification do not change
+accepted financial records.
+
 ## Automatic lifecycle
 
 1. An active watch target supplies only the company's configured official host.

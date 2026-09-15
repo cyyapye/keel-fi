@@ -4021,13 +4021,36 @@ h1,
   gap: 32px;
 }
 
-.watch-activity-summary h2 {
-  margin: 0 0 10px;
-  font-size: 20px;
-  letter-spacing: -0.025em;
+.watch-activity-summary .watch-check-title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
 }
 .watch-activity-summary p {
-  margin: 0 0 10px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.watch-coverage-summary {
+  margin-bottom: 24px;
+}
+.watch-updates-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.watch-coverage-summary p {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.watch-coverage-summary small {
+  display: block;
+  max-width: 760px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
 }
 .watch-activity-summary small,
 .watch-source-detail small,
@@ -4226,6 +4249,9 @@ h1,
   align-items: start;
   gap: 28px;
   padding: 0;
+}
+.watch-observation-actions {
+  justify-content: flex-end;
 }
 
 .watch-observation-list h2 {
