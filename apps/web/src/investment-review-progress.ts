@@ -7,15 +7,18 @@ export function investmentReviewSections(
   identitySaved: boolean,
 ) {
   const companyConfirmed =
-    context?.automaticReview?.resolved.includes("company") === true ||
-    (context?.mappings.some(
-      (mapping) =>
-        mapping.status === "active" &&
-        mapping.companyId !== null &&
-        (mapping.decisionSource === "review" ||
-          context.companyReceipt?.mappingId === mapping.id),
-    ) ??
-      false);
+    !context?.automaticReview?.issues.some(
+      (issue) => issue.section === "company",
+    ) &&
+    (context?.automaticReview?.resolved.includes("company") === true ||
+      (context?.mappings.some(
+        (mapping) =>
+          mapping.status === "active" &&
+          mapping.companyId !== null &&
+          (mapping.decisionSource === "review" ||
+            context.companyReceipt?.mappingId === mapping.id),
+      ) ??
+        false));
   const investmentReviewed =
     context?.automaticReview?.resolved.includes("participation") === true ||
     (context?.review !== null &&

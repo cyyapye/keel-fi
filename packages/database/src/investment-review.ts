@@ -8,6 +8,7 @@ import {
   InvestmentReviewStateSchema,
   ReviewInvestmentInputSchema,
   investmentEvidenceRevision,
+  investmentCompanyEvidenceRevision,
   type CreateDocumentInvestmentInput,
   type InvestmentCompanyReceipt,
   type InvestmentCompanyReviewInput,
@@ -751,6 +752,9 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     const recordedAt = new Date().toISOString();
     const receipt = InvestmentCompanyReceiptSchema.parse({
       ...input,
+      companyEvidenceRevision: await investmentCompanyEvidenceRevision(
+        context.companyChoices,
+      ),
       positionId,
       companyId: company.id,
       companyName: company.legalName,

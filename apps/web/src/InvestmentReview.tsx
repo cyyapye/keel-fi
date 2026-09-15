@@ -625,6 +625,9 @@ function CompanyReview({
   );
   const [name, setName] = useState("");
   const requestId = useInvestmentRequest(context, [choice, existing, name]);
+  const companyIssue = context.automaticReview?.issues.find(
+    (issue) => issue.section === "company",
+  );
   const citation =
     choice === "manual"
       ? null
@@ -652,6 +655,7 @@ function CompanyReview({
     reason: null,
   });
   const unchanged =
+    companyIssue === undefined &&
     context.companyReceipt !== null &&
     active.length === 1 &&
     (citation === null
@@ -665,9 +669,10 @@ function CompanyReview({
   return (
     <ReviewSection
       title="Underlying company"
-      defaultOpen={false}
+      defaultOpen={companyIssue !== undefined}
       summary={
         <div className="investment-review__company-basis">
+          {companyIssue !== undefined && <p>{companyIssue.message}</p>}
           <p>
             <strong>
               {active.length === 0

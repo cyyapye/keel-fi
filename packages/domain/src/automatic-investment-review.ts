@@ -124,18 +124,26 @@ export function automaticCompanyChoice(
   documents: readonly LegalNameDocumentReference[],
 ): InvestmentReviewContext["companyChoices"][number] | null {
   if (documents.some((doc) => doc.scan?.outcome !== "clean")) return null;
-  const choices = documents.flatMap((doc) =>
-    (doc.companyCitations ?? []).map((citation) => ({
-      documentId: doc.id,
-      sha256: doc.sha256,
-      companyName: citation.companyName,
-      page: citation.page,
-      quote: citation.quote,
-    })),
-  );
+  const choices = automaticCompanyChoices(documents);
   return new Set(choices.map((choice) => choice.companyName)).size === 1
     ? choices[0]!
     : null;
+}
+
+export function automaticCompanyChoices(
+  documents: readonly LegalNameDocumentReference[],
+): InvestmentReviewContext["companyChoices"] {
+  return documents
+    .filter((doc) => doc.scan?.outcome === "clean")
+    .flatMap((doc) =>
+      (doc.companyCitations ?? []).map((citation) => ({
+        documentId: doc.id,
+        sha256: doc.sha256,
+        companyName: citation.companyName,
+        page: citation.page,
+        quote: citation.quote,
+      })),
+    );
 }
 
 /** Missing fields remain missing; only a complete, reconciled contract changes capital. */

@@ -35,6 +35,131 @@ const receipt = (id: string) =>
   ) as { resolved: string[]; issues: { section: string; code: string }[] };
 
 describe("exception-based investment review", () => {
+  it("re-evaluates legacy cached summaries once and then returns to a write-free retry", async () => {
+    await seed();
+    const originalBatch = d1.batch.bind(d1);
+    d1.batch = (statements) =>
+      originalBatch(
+        statements.map((statement) => {
+          if (
+            !statement.sql.startsWith(
+              "INSERT INTO automatic_investment_reviews",
+            )
+          )
+            return statement;
+          const values = [...statement.values];
+          if (typeof values[0] !== "string")
+            throw new Error("Expected a synthetic automatic-review batch.");
+          const records = JSON.parse(values[0]) as {
+            result_guard_json: string;
+          }[];
+          for (const record of records) {
+            const guard = JSON.parse(record.result_guard_json) as Record<
+              string,
+              unknown
+            >;
+            delete guard.evaluationVersion;
+            record.result_guard_json = JSON.stringify(guard);
+          }
+          values[0] = JSON.stringify(records);
+          return statement.bind(...values);
+        }),
+      );
+    const automatic = new D1AutomaticInvestmentReviewRepository(d1.asD1());
+    await automatic.resolve(subject);
+    d1.batch = originalBatch;
+    expect((await automatic.resolve(subject)).changedCount).toBe(1);
+    d1.queries.length = 0;
+    expect((await automatic.resolve(subject)).changedCount).toBe(0);
+    expect(d1.queries.every((sql) => sql.startsWith("SELECT"))).toBe(true);
+  });
+  it.each(["confirm", "correct"] as const)(
+    "flags evidence that contradicts an earlier company decision and honors an explicit %s decision",
+    async (decision) => {
+      const [id] = await seed();
+      const reviews = new D1InvestmentReviewRepository(d1.asD1());
+      const initial = await reviews.getContext(subject, id!);
+      const originalBatch = d1.batch.bind(d1);
+      // Reproduce a receipt written before company-evidence acknowledgements existed.
+      d1.batch = (statements) =>
+        originalBatch(
+          statements.map((statement) => {
+            if (
+              !statement.sql.startsWith(
+                "INSERT INTO investment_company_reviews",
+              )
+            )
+              return statement;
+            const values = [...statement.values];
+            if (typeof values[5] !== "string")
+              throw new Error("Expected a synthetic company-review receipt.");
+            const legacy = JSON.parse(values[5]) as Record<string, unknown>;
+            delete legacy.companyEvidenceRevision;
+            values[5] = JSON.stringify(legacy);
+            return statement.bind(...values);
+          }),
+        );
+      const earlier = await reviews.reviewCompany(subject, id!, {
+        requestId: crypto.randomUUID(),
+        expectedSnapshotId: initial.snapshotId,
+        expectedEvidenceRevision: initial.evidenceRevision,
+        expectedMappingIds: initial.mappings.map((mapping) => mapping.id),
+        company: { mode: "new", legalName: "Synthetic Earlier Company Inc." },
+        basis: "user_confirmed",
+        citation: null,
+        reason: null,
+      });
+      d1.batch = originalBatch;
+      const automatic = new D1AutomaticInvestmentReviewRepository(d1.asD1());
+      await automatic.resolve(subject);
+      expect(receipt(id!).issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ section: "company", code: "conflicting" }),
+        ]),
+      );
+      const conflicted = await reviews.getContext(subject, id!);
+      expect(
+        conflicted.mappings.filter((mapping) => mapping.status === "active"),
+      ).toMatchObject([{ companyName: "Synthetic Earlier Company Inc." }]);
+      await reviews.reviewCompany(subject, id!, {
+        requestId: crypto.randomUUID(),
+        expectedSnapshotId: conflicted.snapshotId,
+        expectedEvidenceRevision: conflicted.evidenceRevision,
+        expectedMappingIds: conflicted.mappings.map((mapping) => mapping.id),
+        company:
+          decision === "confirm"
+            ? { mode: "existing", companyId: earlier.companyId }
+            : {
+                mode: "new",
+                legalName: conflicted.companyChoices[0]!.companyName,
+              },
+        basis: decision === "confirm" ? "user_confirmed" : "document_choice",
+        citation: decision === "confirm" ? null : conflicted.companyChoices[0]!,
+        reason: null,
+      });
+      await automatic.resolve(subject);
+      expect(
+        receipt(id!).issues.filter((item) => item.section === "company"),
+      ).toEqual([]);
+      const confirmed = await reviews.getContext(subject, id!);
+      expect(confirmed.companyReceipt?.companyEvidenceRevision).toMatch(
+        /^[a-f0-9]{64}$/u,
+      );
+      expect(
+        confirmed.mappings.filter((mapping) => mapping.status === "active"),
+      ).toMatchObject([
+        {
+          companyName:
+            decision === "confirm"
+              ? "Synthetic Earlier Company Inc."
+              : "Synthetic Orchard Inc.",
+        },
+      ]);
+      d1.queries.length = 0;
+      await automatic.resolve(subject);
+      expect(d1.queries.every((sql) => sql.startsWith("SELECT"))).toBe(true);
+    },
+  );
   it("keeps large UTF-8 citation bindings below D1's string limit without losing records", () => {
     const records = Array.from({ length: 8 }, (_, index) => ({
       index,

@@ -112,6 +112,37 @@ describe("review progress and source-only suggestions", () => {
     expect(investmentReviewSections(value, true)[0]?.complete).toBe(true);
     expect(investmentReviewSections(value, false)[0]?.complete).toBe(false);
   });
+  it("reopens company review when agreement evidence contradicts a saved mapping", () => {
+    const value = context();
+    value.mappings = [
+      {
+        id: "demo-mapping",
+        companyId: "demo-company",
+        companyName: "Demo Earlier Company",
+        status: "active",
+        decisionSource: "review",
+      },
+    ];
+    value.automaticReview = {
+      id: "11111111-1111-4111-8111-111111111111",
+      policyVersion: "investment-review-auto-v1",
+      snapshotId: "demo-snapshot",
+      evaluatedAt: "2026-09-01T12:00:00.000Z",
+      resolved: ["identity", "participation", "economics", "documents"],
+      issues: [
+        {
+          section: "company",
+          code: "conflicting",
+          message: "Review the conflicting company evidence.",
+        },
+      ],
+    };
+    expect(investmentReviewSections(value, true)[0]).toMatchObject({
+      complete: false,
+      status: "Confirm company",
+      next: "Confirm the underlying company",
+    });
+  });
   it("nudges conflicting agreements and never marks explicitly unassigned documents reviewed", () => {
     const value = context();
     value.documents = [

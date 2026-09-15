@@ -99,6 +99,36 @@ describe("document security reasons", () => {
 });
 
 describe("conflicting legal-document evidence", () => {
+  it("requires v7 for portfolio-investment definitions and retains v6 label citations", () => {
+    const citation = {
+      companyName: "Synthetic Orchard Global, LLC",
+      page: 1,
+      quote:
+        "“Portfolio Investment”: The entity referred to as Synthetic Orchard Global, LLC.",
+      role: "portfolio_investment",
+    };
+    const extraction = {
+      pageCount: 1,
+      problem: "name_not_found",
+      citations: [],
+      companyCitations: [citation],
+    };
+    expect(
+      LegalDocumentExtractionSchema.safeParse({ ...extraction, version: 7 })
+        .success,
+    ).toBe(true);
+    expect(
+      LegalDocumentExtractionSchema.safeParse({ ...extraction, version: 6 })
+        .success,
+    ).toBe(false);
+    expect(
+      LegalDocumentExtractionSchema.safeParse({
+        ...extraction,
+        version: 6,
+        companyCitations: [{ ...citation, role: "underlying_company" }],
+      }).success,
+    ).toBe(true);
+  });
   const first = {
     legalName: "Synthetic Vehicle LLC",
     page: 1,
@@ -204,7 +234,7 @@ describe("source-reported compartment structures", () => {
   it("rejects forged excerpts, invalid pages, unsafe states and unsupported versions", () => {
     for (const candidate of [
       { ...extraction, version: 3 },
-      { ...extraction, version: 7 },
+      { ...extraction, version: 8 },
       { ...extraction, problem: null },
       { ...extraction, problem: "security_blocked" },
       { ...extraction, pageCount: 1 },
