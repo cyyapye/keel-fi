@@ -200,7 +200,12 @@ export const InvestmentCompanyReviewInputSchema = z
         })
         .strict(),
     ]),
-    basis: z.enum(["document_choice", "document_correction", "user_confirmed"]),
+    basis: z.enum([
+      "document_choice",
+      "document_link",
+      "document_correction",
+      "user_confirmed",
+    ]),
     citation: UnderlyingCompanyChoiceSchema.nullable(),
     reason: OptionalText(1_000),
   })

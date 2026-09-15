@@ -1314,6 +1314,43 @@ h3 {
   scroll-padding-block: 4px;
 }
 
+.search-select {
+  display: flex;
+  flex-direction: column;
+  width: var(--anchor-width);
+  max-width: calc(100vw - 32px);
+  max-height: min(28rem, var(--available-height));
+}
+
+.search-select__input {
+  flex: none;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  color: var(--ink);
+  background: var(--wash);
+  border: 0;
+  border-radius: 0;
+}
+
+.search-select__list {
+  min-height: 0;
+  max-height: none;
+  margin-top: 4px;
+}
+
+.search-select__item {
+  padding-block: 8px;
+  overflow-wrap: anywhere;
+}
+
+.search-select__message {
+  margin: 0;
+  padding: 12px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
 .select-item {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);

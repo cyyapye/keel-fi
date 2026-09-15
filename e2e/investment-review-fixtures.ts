@@ -146,14 +146,19 @@ export async function routeInvestmentReview(
             error: "This investment changed. Reload details before saving.",
           },
         });
+      const companyId =
+        input.company.mode === "existing"
+          ? input.company.companyId
+          : "demo_company";
       context.companyReceipt = InvestmentCompanyReceiptSchema.parse({
         ...input,
         positionId: context.positionId,
-        companyId: "demo_company",
+        companyId,
         companyName:
           input.company.mode === "new"
             ? input.company.legalName
-            : "Demo Robotics Inc.",
+            : context.companies.find((company) => company.id === companyId)!
+                .legalName,
         mappingId: "demo_mapping",
         recordedAt: "2026-09-01T12:00:00.000Z",
         sourceDocument:
@@ -164,14 +169,14 @@ export async function routeInvestmentReview(
       context.mappings = [
         {
           id: "demo_mapping",
-          companyId: "demo_company",
+          companyId,
           companyName: context.companyReceipt.companyName,
           status: "active",
         },
       ];
-      if (!context.companies.some((company) => company.id === "demo_company")) {
+      if (!context.companies.some((company) => company.id === companyId)) {
         context.companies.push({
-          id: "demo_company",
+          id: companyId,
           legalName: context.companyReceipt.companyName,
         });
       }

@@ -726,11 +726,18 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       )
         throw invalid("This document is not assigned to this investment.");
       if (
-        input.basis === "document_choice" &&
-        (!context.companyChoices.some(
+        (input.basis === "document_choice" ||
+          input.basis === "document_link") &&
+        !context.companyChoices.some(
           (choice) => JSON.stringify(choice) === JSON.stringify(input.citation),
-        ) ||
-          company.legalName !== input.citation.companyName)
+        )
+      )
+        throw invalid(
+          "Choose an available company citation from this investment.",
+        );
+      if (
+        input.basis === "document_choice" &&
+        company.legalName !== input.citation.companyName
       )
         throw invalid(
           "Choose the exact company reported in the document, or record a correction.",

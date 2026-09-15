@@ -27,6 +27,7 @@ export { DisclosureIndicator } from "./components/disclosure-indicator";
 export { EmptyState, FormMessage, Notice } from "./components/feedback";
 export { Field, Input, InputGroup, Textarea } from "./components/field";
 export { SearchField, SearchHighlight } from "./components/search";
+export { SearchSelect } from "./components/search-select";
 export {
   ActionGroup,
   PageHeader,

@@ -152,7 +152,8 @@ export function selectedDocumentName(
 
 export function initialCompanyChoice(context: InvestmentReviewContext): string {
   const acceptedChoice =
-    context.companyReceipt?.basis === "document_choice"
+    context.companyReceipt?.basis === "document_choice" ||
+    context.companyReceipt?.basis === "document_link"
       ? context.companyChoices.findIndex(
           (choice) =>
             choice.documentId ===

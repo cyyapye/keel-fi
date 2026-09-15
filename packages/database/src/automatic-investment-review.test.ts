@@ -73,7 +73,7 @@ describe("exception-based investment review", () => {
     expect((await automatic.resolve(subject)).changedCount).toBe(0);
     expect(d1.queries.every((sql) => sql.startsWith("SELECT"))).toBe(true);
   });
-  it.each(["confirm", "correct"] as const)(
+  it.each(["confirm", "correct", "link"] as const)(
     "flags evidence that contradicts an earlier company decision and honors an explicit %s decision",
     async (decision) => {
       const [id] = await seed();
@@ -127,13 +127,18 @@ describe("exception-based investment review", () => {
         expectedEvidenceRevision: conflicted.evidenceRevision,
         expectedMappingIds: conflicted.mappings.map((mapping) => mapping.id),
         company:
-          decision === "confirm"
+          decision !== "correct"
             ? { mode: "existing", companyId: earlier.companyId }
             : {
                 mode: "new",
                 legalName: conflicted.companyChoices[0]!.companyName,
               },
-        basis: decision === "confirm" ? "user_confirmed" : "document_choice",
+        basis:
+          decision === "confirm"
+            ? "user_confirmed"
+            : decision === "link"
+              ? "document_link"
+              : "document_choice",
         citation: decision === "confirm" ? null : conflicted.companyChoices[0]!,
         reason: null,
       });
@@ -150,7 +155,7 @@ describe("exception-based investment review", () => {
       ).toMatchObject([
         {
           companyName:
-            decision === "confirm"
+            decision !== "correct"
               ? "Synthetic Earlier Company Inc."
               : "Synthetic Orchard Inc.",
         },
