@@ -67,6 +67,7 @@ const migrationFiles = [
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
   syntheticSeedFile,
   "packages/database/migrations/0061_portfolio_watch_activity.sql",
+  "packages/database/migrations/0062_reviewed_company_aliases.sql",
 ] as const;
 
 class TestD1Statement {

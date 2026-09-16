@@ -7,7 +7,7 @@ import {
 } from "../lib/text-search";
 import { DisclosureIndicator } from "./disclosure-indicator";
 
-type Item = { value: string; label: string };
+type Item = { value: string; label: string; searchText?: string };
 const visibleLimit = 100;
 
 /** A searchable single selection with a bounded list, backed by loaded items. */
@@ -15,6 +15,8 @@ export function SearchSelect({
   label,
   searchLabel,
   emptyMessage = "No matches found.",
+  placeholder = "Choose a company",
+  disabled = false,
   items,
   value,
   onChange,
@@ -22,6 +24,8 @@ export function SearchSelect({
   label: string;
   searchLabel: string;
   emptyMessage?: string;
+  placeholder?: string;
+  disabled?: boolean;
   items: readonly Item[];
   value: string;
   onChange: (value: string) => void;
@@ -29,7 +33,10 @@ export function SearchSelect({
   const [query, setQuery] = useState("");
   const prepared = useMemo(
     () =>
-      items.map((item) => ({ item, text: normalizeSearchText(item.label) })),
+      items.map((item) => ({
+        item,
+        text: normalizeSearchText(`${item.label} ${item.searchText ?? ""}`),
+      })),
     [items],
   );
   const matches = useMemo(() => {
@@ -40,6 +47,7 @@ export function SearchSelect({
   }, [prepared, query]);
   return (
     <Combobox.Root
+      disabled={disabled}
       items={items}
       filteredItems={matches.slice(0, visibleLimit)}
       value={items.find((item) => item.value === value) ?? null}
@@ -53,8 +61,7 @@ export function SearchSelect({
     >
       <Combobox.Trigger className="select-trigger" aria-label={label}>
         <span className="select-value">
-          {items.find((item) => item.value === value)?.label ??
-            "Choose a company"}
+          {items.find((item) => item.value === value)?.label ?? placeholder}
         </span>
         <DisclosureIndicator className="select-trigger__icon" />
       </Combobox.Trigger>

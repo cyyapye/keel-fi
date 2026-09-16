@@ -40,6 +40,7 @@ import {
   SelectValue,
   SectionHeader,
   SearchHighlight,
+  SearchSelect,
   Stat,
   TextLink,
 } from "@keel/ui";
@@ -1024,6 +1025,7 @@ function PrivateExposureAssignmentForm({
       company.websiteHost ?? companyStatusLabel(company.status)
     }`,
     value: company.id,
+    searchText: company.aliases?.join(" ") ?? "",
   }));
   const canSubmit =
     !busy &&
@@ -1083,25 +1085,15 @@ function PrivateExposureAssignmentForm({
         {mode === "existing" && companies.length > 0 && (
           <label>
             Company
-            <Select
+            <SearchSelect
+              label="Company"
+              searchLabel="Search companies"
+              placeholder="Select a company"
               disabled={busy}
               items={companyOptions}
-              onValueChange={(value) =>
-                setCompanyId(typeof value === "string" ? value : "")
-              }
-              value={companyId.length === 0 ? null : companyId}
-            >
-              <SelectTrigger aria-label="Company">
-                <SelectValue placeholder="Select a company" />
-              </SelectTrigger>
-              <SelectContent>
-                {companyOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={setCompanyId}
+              value={companyId}
+            />
           </label>
         )}
         <label className="private-exposure-review__choice">

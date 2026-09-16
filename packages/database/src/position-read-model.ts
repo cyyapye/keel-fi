@@ -497,7 +497,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              accepted_import.provider AS import_provider,
              legal_observation.evidence_json AS legal_name_evidence_json,
              investment_review.state_json AS investment_review_json,
-             COALESCE(company_review.receipt_json, json_extract(automatic.details_json, '$.company.receipt')) AS company_review_json,
+             COALESCE(alias_receipt.receipt_json, company_review.receipt_json, json_extract(automatic.details_json, '$.company.receipt')) AS company_review_json,
              CASE WHEN automatic.snapshot_id = snapshot.id
                AND json_extract(automatic.result_guard_json, '$.observationId') IS legal_observation.id
                AND json_extract(automatic.result_guard_json, '$.reviewId') IS investment_review.id
@@ -596,7 +596,8 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            LEFT JOIN holding_investment_reviews investment_review ON investment_review.id = (
              SELECT id FROM holding_investment_reviews WHERE household_id = position.household_id AND position_id = position.id ORDER BY version DESC LIMIT 1
            )
-           LEFT JOIN investment_company_reviews company_review ON company_review.id = (
+           LEFT JOIN company_alias_current_receipts alias_receipt ON alias_receipt.position_id = position.id
+  LEFT JOIN investment_company_reviews company_review ON company_review.id = (
              SELECT id FROM investment_company_reviews WHERE household_id = position.household_id AND position_id = position.id ORDER BY version DESC LIMIT 1
            )
            JOIN source_documents document

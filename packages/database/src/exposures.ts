@@ -1,4 +1,10 @@
 import {
+  companyNameKey,
+  companySuggestionKey,
+  matchingCompanies,
+} from "@keel/domain/company-identity";
+import { loadCompanyIdentityChoices, identityChoice } from "./company-identity";
+import {
   CanonicalExposureSchema,
   IsoTimestampSchema,
   PositionExposureMappingSchema,
@@ -368,6 +374,7 @@ type PrivateExposureReviewPositionRow = {
 };
 
 type PrivateExposureCompanyRow = {
+  aliases?: string[];
   id: string;
   legal_name: string;
   website_host: string | null;
@@ -433,13 +440,7 @@ type PrivateExposureExactBatchPlan = {
   preview: PrivateExposureExactBatchPreview;
 };
 
-function exactCompanyKey(value: string): string {
-  return value
-    .normalize("NFKC")
-    .trim()
-    .replace(/\s+/gu, " ")
-    .toLocaleLowerCase("en-US");
-}
+const exactCompanyKey = companyNameKey;
 
 function exactCompanyName(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ");
@@ -460,13 +461,26 @@ async function buildPrivateExposureExactBatchPlan(
   companies: readonly PrivateExposureCompanyRow[],
 ): Promise<PrivateExposureExactBatchPlan> {
   const companiesByKey = new Map<string, PrivateExposureCompanyRow[]>();
+  const suggestionKeys = new Set(
+    companies.map((company) => companySuggestionKey(company.legal_name)),
+  );
   for (const company of companies) {
-    const key = exactCompanyKey(company.legal_name);
-    const matches = companiesByKey.get(key) ?? [];
-    matches.push(company);
-    companiesByKey.set(key, matches);
+    for (const key of new Set(
+      [company.legal_name, ...(company.aliases ?? [])].map(exactCompanyKey),
+    )) {
+      companiesByKey.set(key, [...(companiesByKey.get(key) ?? []), company]);
+    }
   }
 
+  const reportedVariants = new Map<string, Set<string>>();
+  for (const position of positions) {
+    if (position.reported_exposure_name === null) continue;
+    const name = position.reported_exposure_name;
+    const key = companySuggestionKey(name);
+    const variants = reportedVariants.get(key) ?? new Set<string>();
+    variants.add(companyNameKey(name));
+    reportedVariants.set(key, variants);
+  }
   const groupsByKey = new Map<string, PrivateExposureExactBatchGroup>();
   for (const position of positions) {
     // These providers' investment labels can name a vehicle/deal rather than
@@ -488,17 +502,24 @@ async function buildPrivateExposureExactBatchPlan(
       continue;
     }
     const companyMatches = companiesByKey.get(key) ?? [];
-    if (companyMatches.length > 1) {
+    if (
+      companyMatches.length > 1 ||
+      (companyMatches.length === 0 &&
+        (suggestionKeys.has(companySuggestionKey(companyName)) ||
+          (reportedVariants.get(companySuggestionKey(companyName))?.size ?? 0) >
+            1))
+    ) {
       continue;
     }
-    const group = groupsByKey.get(key) ?? {
-      key,
+    const groupKey = companyMatches[0]?.id ?? key;
+    const group = groupsByKey.get(groupKey) ?? {
+      key: groupKey,
       company: companyMatches[0] ?? null,
-      companyName,
+      companyName: companyMatches[0]?.legal_name ?? companyName,
       positions: [],
     };
     group.positions.push(position);
-    groupsByKey.set(key, group);
+    groupsByKey.set(groupKey, group);
   }
 
   const groups = [...groupsByKey.values()].sort((left, right) =>
@@ -519,7 +540,11 @@ async function buildPrivateExposureExactBatchPlan(
         position.reported_exposure_count,
         position.position_kind,
       ]),
-      companies: companies.map((company) => [company.id, company.legal_name]),
+      companies: companies.map((company) => [
+        company.id,
+        company.legal_name,
+        company.aliases,
+      ]),
     }),
   );
   const existingCompanyCount = groups.filter(
@@ -912,6 +937,7 @@ export class D1ExposureRepository {
       companies: companies.map((company) => ({
         id: company.id,
         legalName: company.legal_name,
+        aliases: company.aliases ?? [],
         websiteHost: company.website_host,
         status: company.status,
       })),
@@ -1018,47 +1044,34 @@ export class D1ExposureRepository {
       );
     }
 
+    const choices = await loadCompanyIdentityChoices(
+      this.db,
+      identity.household_id,
+    );
     let company: PrivateExposureCompanyRow;
     let createCompany = false;
     if (input.company.mode === "existing") {
-      const existing = await this.db
-        .prepare(
-          `SELECT id, legal_name, website_host, status
-           FROM companies
-           WHERE id = ? AND household_id = ?`,
-        )
-        .bind(input.company.companyId, identity.household_id)
-        .first<PrivateExposureCompanyRow>();
-      if (existing === null) {
+      const selectedId = input.company.companyId;
+      const existing = choices.find((choice) => choice.id === selectedId);
+      if (!existing)
         throw new PrivateExposureReviewError(
           "invalid_company",
-          "Reviewed company was not found for this household.",
+          "Choose the current reviewed company for this household.",
         );
-      }
       company = existing;
     } else {
-      const conflicting = await this.db
-        .prepare(
-          `SELECT id
-           FROM companies
-           WHERE household_id = ?
-             AND trim(legal_name) = trim(?) COLLATE NOCASE`,
-        )
-        .bind(identity.household_id, input.company.legalName)
-        .first<{ id: string }>();
-      if (conflicting !== null) {
+      if (
+        matchingCompanies(choices.map(identityChoice), input.company.legalName)
+          .length
+      )
         throw new PrivateExposureReviewError(
           "company_conflict",
-          "A reviewed company with this name already exists.",
+          "This name already maps to a reviewed company. Choose that company.",
         );
-      }
       company = {
         id: crypto.randomUUID(),
         legal_name: input.company.legalName,
-        website_host:
-          input.company.websiteHost === null
-            ? null
-            : input.company.websiteHost.toLowerCase(),
+        website_host: input.company.websiteHost?.toLowerCase() ?? null,
         status: "active",
       };
       createCompany = true;
@@ -1275,7 +1288,7 @@ export class D1ExposureRepository {
         .prepare(
           `SELECT id
            FROM companies
-           WHERE id = ? AND household_id = ?`,
+           WHERE id = ? AND household_id = ? AND NOT EXISTS (SELECT 1 FROM company_redirects WHERE source_company_id = companies.id)`,
         )
         .bind(input.companyId, identity.household_id)
         .first<{ id: string }>();
@@ -2460,16 +2473,11 @@ export class D1ExposureRepository {
           )
           .bind(householdId, importId, importId),
       ),
-      all<PrivateExposureCompanyRow>(
-        this.db
-          .prepare(
-            `SELECT id, legal_name, website_host, status
-             FROM companies
-             WHERE household_id = ?
-             ORDER BY lower(legal_name), id
-             LIMIT 1000`,
-          )
-          .bind(householdId),
+      loadCompanyIdentityChoices(this.db, householdId).then((rows) =>
+        rows.map((row) => ({
+          ...row,
+          aliases: identityChoice(row).aliases ?? [],
+        })),
       ),
     ]);
     return { positions, companies };

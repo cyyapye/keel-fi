@@ -838,6 +838,7 @@ export const PrivateExposureCompanySchema = z
   .object({
     id: z.string().min(1),
     legalName: z.string().trim().min(1).max(1_000),
+    aliases: z.array(z.string().min(1).max(1_000)).max(10_000).optional(),
     websiteHost: PrivateExposureWebsiteHostSchema.nullable(),
     status: z.enum(["active", "exited", "written_off"]),
   })
@@ -882,7 +883,7 @@ export const PrivateExposureReviewStateSchema = z
   .object({
     version: z.literal(2),
     positions: z.array(PrivateExposureReviewPositionSchema).max(500),
-    companies: z.array(PrivateExposureCompanySchema).max(1_000),
+    companies: z.array(PrivateExposureCompanySchema).max(5_000),
     exactBatch: PrivateExposureExactBatchPreviewSchema,
   })
   .strict();

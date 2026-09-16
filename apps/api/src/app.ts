@@ -1,3 +1,15 @@
+import {
+  CompanyIdentityCatalogSchema,
+  CompanyAliasProposalSchema,
+  CompanyAliasPreviewSchema,
+  CompanyAliasReviewInputSchema,
+  CompanyAliasReceiptSchema,
+} from "@keel/domain/company-identity";
+import {
+  D1CompanyIdentityRepository,
+  CompanyIdentityError,
+  type CompanyIdentityRepository,
+} from "@keel/database";
 import { WatchCompanySearchSchema } from "@keel/domain/portfolio-watch-activity";
 import {
   AngelListCsvParseError,
@@ -244,6 +256,7 @@ type AppOptions = {
   investmentPositionViewRepository?: InvestmentPositionViewRepository;
   legalEntityRepository?: LegalEntityRepository;
   investmentReviewRepository?: InvestmentReviewRepository;
+  companyIdentityRepository?: CompanyIdentityRepository;
   automaticInvestmentReviewRepository?: AutomaticInvestmentReviewRepository;
   positionEconomicsRepository?: PositionEconomicsRepository;
   positionValueAdjustmentRepository?: PositionValueAdjustmentRepository;
@@ -862,6 +875,9 @@ export function createApp(options: AppOptions = {}) {
     new D1InvestmentExposureViewRepository(env.DB);
   const legalEntityRepositoryFor = (env: Env) =>
     options.legalEntityRepository ?? new D1LegalEntityRepository(env.DB);
+  const companyIdentityRepositoryFor = (env: Env) =>
+    options.companyIdentityRepository ??
+    new D1CompanyIdentityRepository(env.DB);
   const investmentReviewRepositoryFor = (env: Env) =>
     options.investmentReviewRepository ??
     new D1InvestmentReviewRepository(env.DB);
@@ -2052,6 +2068,82 @@ export function createApp(options: AppOptions = {}) {
         503,
         { "Cache-Control": "private, no-store" },
       );
+    }
+  });
+
+  const companyIdentityErrorResponse = (
+    context: Context<AppEnvironment>,
+    error: unknown,
+  ) => {
+    if (error instanceof CompanyIdentityError)
+      return context.json(
+        { error: error.message },
+        error.code === "not_found" ? 404 : error.code === "stale" ? 409 : 400,
+        { "Cache-Control": "private, no-store" },
+      );
+    throw error;
+  };
+  app.get("/api/companies/identity", async (context) => {
+    try {
+      return context.json(
+        CompanyIdentityCatalogSchema.parse(
+          await companyIdentityRepositoryFor(context.env).getCatalog(
+            context.get("identity").subject,
+          ),
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return companyIdentityErrorResponse(context, error);
+    }
+  });
+  app.post("/api/companies/aliases/preview", async (context) => {
+    const input = CompanyAliasProposalSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!input.success)
+      return context.json(
+        { error: "Choose a valid company and alternative name." },
+        400,
+      );
+    try {
+      return context.json(
+        CompanyAliasPreviewSchema.parse(
+          await companyIdentityRepositoryFor(context.env).preview(
+            context.get("identity").subject,
+            input.data,
+          ),
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return companyIdentityErrorResponse(context, error);
+    }
+  });
+  app.post("/api/companies/aliases", async (context) => {
+    const input = CompanyAliasReviewInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!input.success)
+      return context.json(
+        { error: "Review the company grouping and explain the name match." },
+        400,
+      );
+    try {
+      return context.json(
+        CompanyAliasReceiptSchema.parse(
+          await companyIdentityRepositoryFor(context.env).review(
+            context.get("identity").subject,
+            input.data,
+          ),
+        ),
+        201,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return companyIdentityErrorResponse(context, error);
     }
   });
 

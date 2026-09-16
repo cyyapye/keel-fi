@@ -1,4 +1,13 @@
 import {
+  CompanyIdentityCatalogSchema,
+  CompanyAliasProposalSchema,
+  CompanyAliasPreviewSchema,
+  CompanyAliasReviewInputSchema,
+  CompanyAliasReceiptSchema,
+  type CompanyAliasProposal,
+  type CompanyAliasReviewInput,
+} from "@keel/domain/company-identity";
+import {
   PortfolioWatchActivitySchema,
   PortfolioWatchProgressSchema,
 } from "@keel/domain/portfolio-watch-activity";
@@ -1899,4 +1908,49 @@ export async function saveScenarioVersion(
       result?.error ?? `Scenario save returned ${response.status}.`,
     );
   }
+}
+
+async function companyIdentityRequest(
+  path: string,
+  input?: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const response = await fetch(`/api/companies/${path}`, {
+    method: input === undefined ? "GET" : "POST",
+    credentials: "same-origin",
+    signal: signal ?? null,
+    headers: {
+      Accept: "application/json",
+      ...(input === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    ...(input === undefined ? {} : { body: JSON.stringify(input) }),
+  });
+  if (!response.ok)
+    throw await responseError(
+      response,
+      "Company names are unavailable. Try again.",
+    );
+  const body: unknown = await response.json();
+  return body;
+}
+export async function loadCompanyIdentities(signal?: AbortSignal) {
+  return CompanyIdentityCatalogSchema.parse(
+    await companyIdentityRequest("identity", undefined, signal),
+  );
+}
+export async function previewCompanyAlias(input: CompanyAliasProposal) {
+  return CompanyAliasPreviewSchema.parse(
+    await companyIdentityRequest(
+      "aliases/preview",
+      CompanyAliasProposalSchema.parse(input),
+    ),
+  );
+}
+export async function reviewCompanyAlias(input: CompanyAliasReviewInput) {
+  return CompanyAliasReceiptSchema.parse(
+    await companyIdentityRequest(
+      "aliases",
+      CompanyAliasReviewInputSchema.parse(input),
+    ),
+  );
 }

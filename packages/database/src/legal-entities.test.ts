@@ -490,6 +490,15 @@ describe("legal entity repository", () => {
           "utf8",
         ),
       );
+      prior.exec(
+        readFileSync(
+          resolve(
+            process.cwd(),
+            "packages/database/migrations/0062_reviewed_company_aliases.sql",
+          ),
+          "utf8",
+        ),
+      );
       const state = await priorRepository.getState(
         "synthetic-access-subject",
         view,

@@ -296,7 +296,7 @@ function investmentExportFields(
     const receipt = source.companyReview;
     if (receipt == null) return [];
     return [
-      `${source.sourceDisplayName}: ${receipt.basis === "user_confirmed" ? "User confirmation" : receipt.basis === "document_link" ? `User-confirmed company link to ${receipt.companyName}; agreement names ${receipt.citation?.companyName}` : "Document review"}; ${receipt.recordedAt}${receipt.citation === null ? "" : `; ${receipt.sourceDocument?.fileName ?? receipt.citation.documentId}, page ${receipt.citation.page}; SHA-256 ${receipt.citation.sha256}; ${receipt.citation.quote}; extractor ${receipt.sourceDocument?.extractorVersion ?? "not recorded"}`}`,
+      `${source.sourceDisplayName}: ${receipt.basis === "user_confirmed" ? "User confirmation" : receipt.basis === "document_link" ? `${receipt.decisionSource === "deterministic_policy" ? "Matched using a reviewed company name" : "User-confirmed company link"} to ${receipt.companyName}; agreement names ${receipt.citation?.companyName}` : "Document review"}; ${receipt.recordedAt}${receipt.citation === null ? "" : `; ${receipt.sourceDocument?.fileName ?? receipt.citation.documentId}, page ${receipt.citation.page}; SHA-256 ${receipt.citation.sha256}; ${receipt.citation.quote}; extractor ${receipt.sourceDocument?.extractorVersion ?? "not recorded"}`}`,
     ];
   });
   const ownership = sources.flatMap((source) => {
