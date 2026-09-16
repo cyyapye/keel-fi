@@ -87,11 +87,13 @@ still requires reconnecting. Tokenfolio keeps its existing browser lifetime.
 
 Sydecar's refresh authorization currently lasts twelve hours. While scheduled
 updates are enabled, the agent leases a separate session check six hours after
-the last verified capture, reconnect or renewal. It briefly opens the ordinary
-provider page, lets the provider renew its own session, checks expiry metadata,
-and closes Chrome. This does not import holdings or change the capture interval.
-Transient errors retry hourly, at most three times; an expired sign-in stops
-until recovery. See the
+verified renewal or reconnect. Healthy captures keep any earlier check deadline;
+a capture that recovers from an attempted renewal restarts the six-hour window
+and retry counter together. The check briefly opens the ordinary provider page,
+lets the provider renew its own session, checks expiry metadata, and closes
+Chrome. This does not import holdings or change the capture interval. Transient
+errors retry hourly, at most three times; an expired sign-in stops until
+recovery. See the
 [operating budget](../engineering/recurring-work-budgets.md#sydecar-session-maintenance)
 for admission, deadlines and full-day costs. Upgrade both the API/web and the
 existing worker; reinstall a macOS job to apply its hourly wake interval.
