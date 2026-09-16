@@ -456,6 +456,7 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
         identity.household_id,
         provider,
         now,
+        true,
       ),
     ]);
     return toSession(

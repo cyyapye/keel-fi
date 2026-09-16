@@ -64,6 +64,8 @@ import {
   type ConnectOverCDPOptions,
   type Locator,
   type Page,
+  type Request as BrowserRequest,
+  type Response as BrowserResponse,
   type Route,
 } from "@playwright/test";
 import { z } from "zod";
@@ -1815,9 +1817,97 @@ const SessionExpirySchema = z
   })
   .strict();
 
+function observeSydecarRefresh(context: BrowserContext) {
+  let requests = 0;
+  let status: number | null = null;
+  let transport: "dns" | "timeout" | "blocked" | "connection" | "other" | null =
+    null;
+  const matches = (request: BrowserRequest) => {
+    try {
+      const url = new URL(request.url());
+      return (
+        request.method() === "POST" &&
+        url.origin === "https://api-backend.sydecar.io" &&
+        url.pathname === "/authenticate/refresh_tokens" &&
+        controlledPages.get(context)?.pages.has(request.frame().page()) === true
+      );
+    } catch {
+      return false;
+    }
+  };
+  const requested = (request: BrowserRequest) => {
+    if (matches(request)) requests++;
+  };
+  const responded = (response: BrowserResponse) => {
+    if (matches(response.request())) status = response.status();
+  };
+  const failed = (request: BrowserRequest) => {
+    if (!matches(request)) return;
+    const error = request.failure()?.errorText ?? "";
+    transport = /NAME_NOT_RESOLVED|DNS/u.test(error)
+      ? "dns"
+      : /TIMED_OUT|TIMEOUT/u.test(error)
+        ? "timeout"
+        : /BLOCKED_BY/u.test(error)
+          ? "blocked"
+          : /CONNECTION|INTERNET_DISCONNECTED/u.test(error)
+            ? "connection"
+            : "other";
+  };
+  context.on("request", requested);
+  context.on("response", responded);
+  context.on("requestfailed", failed);
+  return {
+    reportFailure: (error: unknown) => {
+      // The provider clears its saved login on any refresh exception, including
+      // transport failures. A visible sign-in page alone cannot identify why.
+      // Never log URLs, headers, bodies, token values or raw browser errors.
+      console.error(
+        JSON.stringify({
+          event: "provider_session_renewal_failed",
+          provider: "sydecar",
+          code:
+            error instanceof AgentFailure ? error.code : "unexpected_failure",
+          refreshRequests: requests,
+          refreshStatus: status,
+          refreshTransport: transport,
+          reason:
+            status === 401 || status === 403
+              ? "refresh_rejected"
+              : transport !== null
+                ? "refresh_transport_failed"
+                : status !== null && status >= 500
+                  ? "refresh_unavailable"
+                  : "refresh_not_confirmed",
+        }),
+      );
+    },
+    dispose: () => {
+      context.off("request", requested);
+      context.off("response", responded);
+      context.off("requestfailed", failed);
+    },
+  };
+}
+
 async function renewSavedSydecarSession(
   context: BrowserContext,
   now = Date.now,
+): Promise<void> {
+  const observation = observeSydecarRefresh(context);
+  try {
+    await verifySydecarSessionRenewal(context, now);
+  } catch (error) {
+    observation.reportFailure(error);
+    throw error;
+  } finally {
+    observation.dispose();
+  }
+}
+
+async function verifySydecarSessionRenewal(
+  context: BrowserContext,
+  now: () => number,
 ): Promise<void> {
   let admittedRequests = 0;
   let exhausted = false;

@@ -75,7 +75,10 @@ function syntheticToken(expires: number) {
   ].join(".");
 }
 
-async function fixture(flood = false) {
+async function fixture(
+  flood = false,
+  refreshFailure: "rejected" | "service" | "dns" | null = null,
+) {
   const profile = await mkdtemp(
     path.join(os.tmpdir(), "keel-synthetic-renewal-"),
   );
@@ -149,23 +152,47 @@ async function fixture(flood = false) {
         });
         return;
       }
+      if (
+        url.origin === "https://api-backend.sydecar.io" &&
+        url.pathname === "/authenticate/refresh_tokens"
+      ) {
+        const headers = {
+          "access-control-allow-origin": origin,
+          "access-control-allow-methods": "POST, OPTIONS",
+          "access-control-allow-headers": "Authorization",
+        };
+        if (route.request().method() === "OPTIONS") {
+          await route.fulfill({ status: 204, headers });
+          return;
+        }
+        state.refreshes++;
+        if (refreshFailure === "dns") {
+          await route.abort("namenotresolved");
+          return;
+        }
+        const allowed = authorized(
+          (await route.request().allHeaders()).authorization,
+        );
+        const status =
+          refreshFailure === "service"
+            ? 503
+            : refreshFailure === "rejected" || !allowed
+              ? 401
+              : 200;
+        await route.fulfill({
+          status,
+          headers,
+          json:
+            status === 200 ? tokens() : { error: "SYNTHETIC_REFRESH_SECRET" },
+        });
+        return;
+      }
       if (url.origin !== origin)
         throw new Error(
           `Unexpected synthetic request origin: ${url.origin}${url.pathname}`,
         );
       if (url.pathname === "/__fixture__/ping") {
         await route.fulfill({ status: 204 });
-        return;
-      }
-      if (url.pathname === "/__fixture__/refresh") {
-        state.refreshes++;
-        const allowed = authorized(
-          (await route.request().allHeaders()).authorization,
-        );
-        await route.fulfill({
-          status: allowed ? 200 : 401,
-          json: allowed ? tokens() : { error: "expired" },
-        });
         return;
       }
       if (url.pathname === "/__fixture__/portfolio") {
@@ -184,11 +211,17 @@ async function fixture(flood = false) {
           const portfolio = () => fetch('/__fixture__/portfolio', {headers: {Authorization: 'Bearer ' + localStorage.getItem('auth_token')}});
           let response = await portfolio();
           if (response.status === 401) {
-            const refresh = await fetch('/__fixture__/refresh', {method: 'POST', headers: {Authorization: 'Bearer ' + localStorage.getItem('refresh_token')}});
-            if (!refresh.ok) { localStorage.clear(); document.body.innerHTML = ${JSON.stringify(login)}; return; }
-            const tokens = await refresh.json();
-            localStorage.setItem('auth_token', tokens.access_token);
-            localStorage.setItem('refresh_token', tokens.refresh_token);
+            try {
+              const refresh = await fetch('https://api-backend.sydecar.io/authenticate/refresh_tokens', {method: 'POST', headers: {Authorization: 'Bearer ' + localStorage.getItem('refresh_token')}});
+              if (!refresh.ok) throw new Error('Synthetic refresh failure');
+              const tokens = await refresh.json();
+              localStorage.setItem('auth_token', tokens.access_token);
+              localStorage.setItem('refresh_token', tokens.refresh_token);
+            } catch {
+              localStorage.clear();
+              document.body.innerHTML = ${JSON.stringify(refreshFailure === null ? login : table + login)};
+              return;
+            }
             response = await portfolio();
           }
           ${flood ? "await Promise.allSettled(Array.from({length: 180}, () => fetch('/__fixture__/ping')));" : ""}
@@ -228,6 +261,56 @@ async function ordinaryCapture(context: BrowserContext) {
   const page = await portfolioPage(context, "sydecar");
   await requireProviderPageReady(page, "sydecar", 2_000);
   return page;
+}
+
+for (const failure of ["rejected", "service", "dns"] as const) {
+  test(`Sydecar identifies ${failure} refresh failures without logging credentials`, async ({
+    isMobile,
+  }) => {
+    test.skip(isMobile, "The provider worker uses desktop Chrome.");
+    test.setTimeout(60_000);
+    const runtime = await fixture(false, failure);
+    const messages: string[] = [];
+    const original = console.error;
+    try {
+      const first = await runtime.launch(true);
+      await ordinaryCapture(first.context);
+      await first.close();
+      runtime.state.now += 6 * hour;
+      const next = await runtime.launch();
+      console.error = (message: unknown) => {
+        messages.push(String(message));
+      };
+      await expect(
+        renewSavedSydecarSession(next.context, () => runtime.state.now),
+      ).rejects.toThrow("provider_sign_in_required");
+      expect(messages.map((message) => JSON.parse(message) as unknown)).toEqual(
+        [
+          {
+            event: "provider_session_renewal_failed",
+            provider: "sydecar",
+            code: "provider_sign_in_required",
+            refreshRequests: 1,
+            refreshStatus:
+              failure === "rejected" ? 401 : failure === "service" ? 503 : null,
+            refreshTransport: failure === "dns" ? "dns" : null,
+            reason:
+              failure === "rejected"
+                ? "refresh_rejected"
+                : failure === "service"
+                  ? "refresh_unavailable"
+                  : "refresh_transport_failed",
+          },
+        ],
+      );
+      expect(messages.join("\n")).not.toContain("SYNTHETIC_REFRESH_SECRET");
+      expect(messages.join("\n")).not.toContain("api-backend.sydecar.io");
+      expect(runtime.state.refreshes).toBe(1);
+    } finally {
+      console.error = original;
+      await runtime.cleanup();
+    }
+  });
 }
 
 for (const maintain of [false, true]) {

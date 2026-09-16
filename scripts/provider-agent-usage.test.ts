@@ -10,6 +10,7 @@ import { D1AngelListMacAgentRepository } from "../packages/database/src/angellis
 import { D1MacAgentCredentialRepository } from "../packages/database/src/mac-agent-credentials";
 import { D1ProviderBrowserSessionRepository } from "../packages/database/src/provider-browser-sessions";
 import { D1ProviderPortfolioAgentRepository } from "../packages/database/src/provider-portfolio-agent";
+import { recordProviderSessionVerification } from "../packages/database/src/provider-session-renewals";
 import type {
   MacAgentAuthorization,
   MacAgentTarget,
@@ -178,6 +179,7 @@ async function fixture() {
     },
   );
   return {
+    d1,
     measured,
     clock,
     credentials,
@@ -198,6 +200,97 @@ async function leaseUpdate(authorization: MacAgentAuthorization) {
 }
 
 describe("provider agent operating budget", () => {
+  it("keeps recovery captures inside the renewal retry budget through the authenticated client path", async () => {
+    const { d1, clock, portfolios, authorizations, traffic, measured } =
+      await fixture();
+    await portfolios.configure(SUBJECT, "sydecar", { interval: "daily" });
+    const authorization = authorizations.get("sydecar")!;
+    const renew = vi
+      .fn(() => Promise.resolve())
+      .mockRejectedValueOnce(new Error("Synthetic renewal failure"));
+    const useBrowser: Parameters<
+      typeof __providerPortfolioMacAgentTest.checkSessionRenewal
+    >[2] = (_provider, _origin, operation) => operation({} as never);
+    const check = () =>
+      __providerPortfolioMacAgentTest.checkSessionRenewal(
+        new URL(ORIGIN),
+        authorization,
+        useBrowser,
+        renew,
+      );
+    const capture = () =>
+      d1.batch(
+        recordProviderSessionVerification(
+          d1,
+          "hh_demo",
+          "sydecar",
+          new Date(clock.now),
+        ),
+      );
+    const before = measured.changes();
+    await capture();
+    clock.now = START + 6 * 3_600_000;
+    await expect(check()).rejects.toThrow("unexpected_failure");
+    clock.now += 10 * 60_000;
+    await capture();
+    for (const hours of [7, 12]) {
+      clock.now = START + hours * 3_600_000;
+      await check();
+      expect(renew).toHaveBeenCalledOnce();
+    }
+    clock.now = START + 13 * 3_600_000;
+    await check();
+    expect(renew).toHaveBeenCalledTimes(2);
+    expect(traffic.http).toBe(6);
+    expect(traffic.workerInvocations).toBe(12);
+    expect(traffic.maxRoundTrips).toBeLessThanOrEqual(10);
+    expect(measured.changes() - before).toBeLessThanOrEqual(20);
+  });
+
+  it("keeps renewal due after intervening captures through the authenticated client path", async () => {
+    const { d1, clock, portfolios, authorizations, traffic, measured } =
+      await fixture();
+    await portfolios.configure(SUBJECT, "sydecar", { interval: "daily" });
+    const authorization = authorizations.get("sydecar")!;
+    const renew = vi.fn(() => Promise.resolve());
+    const useBrowser: Parameters<
+      typeof __providerPortfolioMacAgentTest.checkSessionRenewal
+    >[2] = (_provider, _origin, operation) => operation({} as never);
+    const check = () =>
+      __providerPortfolioMacAgentTest.checkSessionRenewal(
+        new URL(ORIGIN),
+        authorization,
+        useBrowser,
+        renew,
+      );
+    const before = measured.changes();
+    // Use the production completion statements between real client/API/auth/SQL
+    // maintenance checks. Repository tests exercise complete() itself.
+    for (const hours of [0, 4, 5]) {
+      clock.now = START + hours * 3_600_000;
+      await d1.batch(
+        recordProviderSessionVerification(
+          d1,
+          "hh_demo",
+          "sydecar",
+          new Date(clock.now),
+        ),
+      );
+      await check();
+      expect(renew).not.toHaveBeenCalled();
+    }
+    clock.now = START + 6 * 3_600_000;
+    await check();
+    expect(renew).toHaveBeenCalledOnce();
+    clock.now += 3_600_000;
+    await check();
+    expect(renew).toHaveBeenCalledOnce();
+    expect(traffic.http).toBe(6);
+    expect(traffic.workerInvocations).toBe(12);
+    expect(traffic.maxRoundTrips).toBeLessThanOrEqual(10);
+    expect(measured.changes() - before).toBeLessThanOrEqual(20);
+  });
+
   it("requires current Sydecar authorization before any session maintenance", async () => {
     const { measured, authorizations } = await fixture();
     const otherAuthorization = authorizations.get("tokenfolio");

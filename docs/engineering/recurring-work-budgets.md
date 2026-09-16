@@ -76,7 +76,12 @@ lifetime is twelve hours; its open-page idle logout is earlier still. Closing
 Chrome prevents that idle logout but cannot preserve server authorization across
 a daily capture interval. The existing Sydecar process checks for a maintenance
 lease once per hour (24 additional authenticated requests per day). D1 admits
-maintenance six hours after the last verified capture, reconnect or renewal. The
+maintenance six hours after initial capture, fresh reconnect or verified
+renewal. Later healthy captures retain an earlier maintenance deadline: a
+working access token does not prove fresh refresh-token lifetime. A fresh
+reconnect can restart the six-hour window. A capture recovering from a failed or
+crashed renewal also restarts that window together with its retry counter,
+preserving the existing recovery policy without admitting hourly failures. The
 macOS Sydecar job also wakes hourly; capture scheduling remains in D1.
 
 One atomic five-minute lease excludes competing maintenance, capture and managed
@@ -106,7 +111,9 @@ remain unchanged. Maintenance does not add a second status-polling loop.
 After a transient error or crashed lease, the next attempt is at least an hour
 later. Three consecutive attempts stop maintenance and expose an error; a
 provider sign-in rejection stops immediately. A verified reconnect or successful
-capture resets this state. Turning scheduled updates off disables maintenance.
+capture resets this state. Turning scheduled updates off disables maintenance. A
+healthy capture does not postpone an already due renewal. Recovery after a
+failed or crashed attempt resets the six-hour window and retries together.
 Authorization and revocation remain current on every request. Maintenance never
 creates an import or advances the portfolio's last/next capture time.
 
@@ -120,6 +127,29 @@ starts and exactly 24 discovery calls, and keeps the existing 2,000
 index-inclusive write ceiling. No Keel object reads, imports or financial writes
 are part of maintenance. Existing useful-capture reserves still apply
 separately.
+
+Intervening manual captures at hours four and five must leave renewal due at
+hour six. A virtual-clock regression follows the production completion
+statements through the real client, web proxy, API authentication and repository
+lease; the former deadline reset fails it. Repository tests also exercise full
+capture completion and fresh reconnect separately. No producer, timer, query,
+index or retry bound is added by retaining the earlier deadline. The idle,
+failure and useful-work envelopes and independent D1 ceilings remain unchanged.
+An additional day holdout completes captures hourly after reported failures or
+expired leases. Resetting retries without the recovery window admits 24 failed
+maintenance operations; the guarded recovery path admits four, at hours 0, 7, 14
+and 21 with hourly discovery. The authenticated client holdout also rejects a
+retry one hour after recovery. This remains inside the existing nine-attempt
+rolling-day ceiling and does not raise any workload limit.
+
+One bounded failure event records the refresh request count, HTTP status and a
+fixed transport-error category. It observes only the operation's owned page and
+the provider's exact refresh endpoint; it makes no extra requests and does not
+record URLs, headers, bodies, credentials or raw error messages. Real-browser
+tests distinguish a rejected refresh, provider-service failure and DNS failure
+while keeping authentication fail-closed. A sign-in page alone cannot
+distinguish those causes: the provider client may clear its session after any
+refresh error.
 
 Real Chrome tests model one-hour access and twelve-hour refresh expiry across
 cold starts. The former close-only behavior loses authentication after a day;

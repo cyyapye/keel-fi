@@ -1,10 +1,12 @@
-// A successful capture already proves the ordinary saved-browser path. Keep
-// renewal scheduling outside the financial run/import history.
+// A healthy capture proves access, not fresh refresh-token lifetime, so keep an
+// earlier renewal. Recovery after an attempted renewal must restart the window
+// with its retry counter; clearing retries alone would admit hourly failures.
 export function recordProviderSessionVerification(
   db: D1Database,
   householdId: string,
   provider: string,
   now: Date,
+  freshReconnect = false,
 ): D1PreparedStatement[] {
   if (provider !== "sydecar") return [];
   return [
@@ -16,7 +18,9 @@ export function recordProviderSessionVerification(
     WHERE household_id = ? AND provider = 'sydecar'
     ON CONFLICT(agent_id) DO UPDATE SET
       last_verified_at = excluded.last_verified_at,
-      next_check_at = excluded.next_check_at,
+      next_check_at = CASE WHEN ? OR provider_session_renewals.attempts > 0
+        THEN excluded.next_check_at
+        ELSE MIN(provider_session_renewals.next_check_at, excluded.next_check_at) END,
       attempts = 0, lease_token_sha256 = NULL, lease_expires_at = NULL,
       last_outcome_token_sha256 = NULL, last_error_code = NULL`,
       )
@@ -24,6 +28,7 @@ export function recordProviderSessionVerification(
         now.toISOString(),
         new Date(now.getTime() + 6 * 60 * 60_000).toISOString(),
         householdId,
+        freshReconnect ? 1 : 0,
       ),
   ];
 }

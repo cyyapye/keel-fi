@@ -161,6 +161,93 @@ describe("Sydecar session renewal admission", () => {
   const subject = "synthetic-access-subject";
   const hour = 3_600_000;
 
+  it.each(["reported failure", "expired lease"] as const)(
+    "bounds renewal attempts across recovery captures after %s",
+    async (outcome) => {
+      const { clock, repository } = await fixture();
+      const start = clock.now + 6 * hour;
+      const attemptedHours: number[] = [];
+      for (let elapsed = 0; elapsed < 24; elapsed++) {
+        clock.now = start + elapsed * hour;
+        const { renewal } = await repository.leaseSessionRenewal(subject);
+        if (renewal !== null) {
+          attemptedHours.push(elapsed);
+          if (outcome === "reported failure") {
+            await repository.finishSessionRenewal(subject, renewal.leaseToken, {
+              errorCode: "unexpected_failure",
+            });
+          }
+        }
+        // Recover through the real capture completion path after any five-minute
+        // maintenance lease has expired. Repeated captures must not admit an
+        // hourly stream of failed browser work by clearing its attempt counter.
+        clock.now += 10 * 60_000;
+        await repository.requestRun(subject, "sydecar");
+        const run = (await repository.lease(subject, "sydecar")).run!;
+        await repository.complete(
+          subject,
+          "sydecar",
+          run.id,
+          run.leaseToken,
+          "import_sydecar_agent_test",
+        );
+      }
+      expect(attemptedHours).toEqual([0, 7, 14, 21]);
+    },
+  );
+
+  it("does not postpone an earlier renewal after successful manual captures", async () => {
+    const { clock, repository } = await fixture();
+    const start = clock.now;
+    for (const offset of [4 * hour, 5 * hour]) {
+      clock.now = start + offset;
+      await repository.requestRun(subject, "sydecar");
+      const run = (await repository.lease(subject, "sydecar")).run!;
+      await repository.complete(
+        subject,
+        "sydecar",
+        run.id,
+        run.leaseToken,
+        "import_sydecar_agent_test",
+      );
+    }
+    clock.now = start + 6 * hour;
+    const lease = await repository.leaseSessionRenewal(subject);
+    expect(lease.renewal).not.toBeNull();
+    await repository.finishSessionRenewal(
+      subject,
+      lease.renewal!.leaseToken,
+      null,
+    );
+    clock.now = start + 7 * hour;
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    clock.now = start + 12 * hour;
+    expect(
+      (await repository.leaseSessionRenewal(subject)).renewal,
+    ).not.toBeNull();
+  });
+
+  it("starts a new renewal window after a completed fresh reconnect", async () => {
+    const { clock, repository, reconnects } = await fixture();
+    const start = clock.now;
+    clock.now = start + 5 * hour;
+    const session = await reconnects.create(subject, "sydecar");
+    const leaseToken = (await reconnects.lease(subject, "sydecar")).session!
+      .leaseToken;
+    await reconnects.ready(subject, "sydecar", session.id, {
+      leaseToken,
+      liveUrl: `https://synthetic-reconnect.trycloudflare.com/${"c".repeat(43)}.html`,
+    });
+    await reconnects.consume(subject, session.id);
+    await reconnects.complete(subject, "sydecar", session.id, { leaseToken });
+    clock.now = start + 6 * hour;
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    clock.now = start + 11 * hour;
+    expect(
+      (await repository.leaseSessionRenewal(subject)).renewal,
+    ).not.toBeNull();
+  });
+
   it("does not write before due, admits one racing caller, and keeps the financial schedule unchanged", async () => {
     const { sql, clock, repository } = await fixture();
     const before = await repository.getOverview(subject, "sydecar");
