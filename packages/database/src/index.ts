@@ -2930,3 +2930,5 @@ export const __alphaRepositoryTest = {
 };
 
 export * from "./schema";
+
+export * from "./company-identity";

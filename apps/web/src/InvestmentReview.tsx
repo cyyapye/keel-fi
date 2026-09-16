@@ -1,4 +1,8 @@
 import {
+  matchingCompanies,
+  companySuggestionKey,
+} from "@keel/domain/company-identity";
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -623,8 +627,9 @@ function CompanyReview({
   );
   const targetForChoice = (value: string) => {
     const selected = context.companyChoices[Number(value)];
-    const matches = context.companies.filter(
-      (company) => company.legalName === selected?.companyName,
+    const matches = matchingCompanies(
+      context.companies,
+      selected?.companyName ?? "",
     );
     return {
       existing: matches.length === 1 ? matches[0]!.id : "new",
@@ -660,9 +665,7 @@ function CompanyReview({
         : "document_link";
   const duplicateName =
     existing === "new" &&
-    context.companies.some(
-      (item) => item.legalName.toLowerCase() === name.trim().toLowerCase(),
-    );
+    matchingCompanies(context.companies, name.trim()).length > 0;
   const input = InvestmentCompanyReviewInputSchema.safeParse({
     requestId,
     expectedSnapshotId: context.snapshotId,
@@ -704,15 +707,17 @@ function CompanyReview({
                 : null;
             return (
               <p key={mapping.id}>
-                {receipt?.basis === "document_link"
-                  ? `Linked by you · Agreement names ${receipt.citation?.companyName}`
-                  : receipt?.basis === "document_choice"
-                    ? "Confirmed from an agreement"
-                    : receipt?.basis === "user_confirmed"
-                      ? "Confirmed by you"
-                      : mapping.decisionSource === "review"
-                        ? "Earlier reviewed mapping"
-                        : "Existing mapping"}
+                {receipt?.companyAliasReviewId
+                  ? `Company name reviewed · ${receipt.citation ? `Agreement names ${receipt.citation.companyName}` : receipt.companyName}`
+                  : receipt?.basis === "document_link"
+                    ? `${receipt.decisionSource === "deterministic_policy" ? "Matched using a reviewed company name" : "Linked by you"} · Agreement names ${receipt.citation?.companyName}`
+                    : receipt?.basis === "document_choice"
+                      ? "Confirmed from an agreement"
+                      : receipt?.basis === "user_confirmed"
+                        ? "Confirmed by you"
+                        : mapping.decisionSource === "review"
+                          ? "Earlier reviewed mapping"
+                          : "Existing mapping"}
                 {(receipt?.recordedAt ?? mapping.acceptedAt)
                   ? ` · ${formatDate(receipt?.recordedAt ?? mapping.acceptedAt ?? "")}`
                   : ""}
@@ -801,6 +806,7 @@ function CompanyReview({
               ...context.companies.map((c) => ({
                 value: c.id,
                 label: c.legalName,
+                searchText: c.aliases?.join(" ") ?? "",
               })),
             ]}
             onChange={setExisting}
@@ -831,6 +837,19 @@ function CompanyReview({
             </p>
           )
         )}
+        {existing === "new" &&
+          !duplicateName &&
+          name.trim() &&
+          context.companies.some(
+            (item) =>
+              companySuggestionKey(item.legalName) ===
+              companySuggestionKey(name),
+          ) && (
+            <FormMessage tone="neutral">
+              A similar company name exists. Check the company list before
+              adding another.
+            </FormMessage>
+          )}
         {active.length > 0 && (
           <p>Changes only this investment’s company, not its amounts.</p>
         )}
@@ -843,6 +862,11 @@ function CompanyReview({
           </Button>
         </ActionGroup>
       </form>
+      <TextLink
+        href={`/holdings/entities?companies=1${existing === "new" ? "" : `&company=${encodeURIComponent(existing)}`}${citation ? `&name=${encodeURIComponent(citation.companyName)}` : ""}`}
+      >
+        Review company names across investments
+      </TextLink>
     </ReviewSection>
   );
 }

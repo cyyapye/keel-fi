@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CompanyIdentityChoiceSchema } from "./company-identity";
 
 import { PositionEconomicsContextSchema } from "./position-economics";
 import { AutomaticInvestmentReviewSchema } from "./automatic-investment-review";
@@ -245,6 +246,7 @@ export const InvestmentCompanyReceiptSchema =
     // Server-recorded evidence acknowledged by this decision. Stable across
     // repeated captures and rescans of identical company citations.
     companyEvidenceRevision: Digest.optional(),
+    companyAliasReviewId: z.string().uuid().optional(),
   });
 
 export const InvestmentReviewContextSchema = z
@@ -265,11 +267,7 @@ export const InvestmentReviewContextSchema = z
     documents: z.array(LegalNameDocumentReferenceSchema).max(100),
     evidenceRevision: Digest,
     companyChoices: z.array(UnderlyingCompanyChoiceSchema).max(800),
-    companies: z
-      .array(
-        z.object({ id: Id, legalName: z.string().min(1).max(1_000) }).strict(),
-      )
-      .max(5_000),
+    companies: z.array(CompanyIdentityChoiceSchema).max(5_000),
     mappings: z
       .array(
         z

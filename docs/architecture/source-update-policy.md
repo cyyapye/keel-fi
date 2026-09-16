@@ -136,3 +136,46 @@ completed refresh is a no-op.
 for accepted cash or holding changes, including updates accepted before this
 policy shipped. GETs remain projections. Failures leave a retry action visible;
 they do not imply that an automatic update succeeded.
+
+## Reviewed company names
+
+Company names share one household-scoped identity after an explicit review in
+**Legal entities → Company names**. Case and surrounding spaces support exact
+matching; punctuation and legal suffixes only suggest possible duplicates. Names
+with unrelated wording can also be reviewed. No company-specific names or rules
+are embedded in the application.
+
+The reviewer chooses the alternative name and the existing company, previews all
+affected investments, and records why they belong together. Existing company
+duplicates receive redirects to that company. The operation appends replacement
+exposure mappings, preserving each legal position, financial snapshot, source
+citation and prior decision. Original legal names remain in agreement evidence
+and legal-entity records. Aliases do not assert that distinct legal entities are
+legally identical. Subsequent position reviews supersede the grouping receipt
+for that position.
+
+Manual review, exact private-company import matching and automatic agreement
+review all use the same canonical company choices and approved aliases. An
+unfamiliar legal suffix that resembles an existing company remains an identity
+exception. An alias never makes a provider deal label or an unscanned or
+ambiguously associated document sufficient evidence. Search matches approved
+aliases while displaying one current company choice.
+
+`GET /api/companies/identity` is a projection-only read: three database round
+trips for up to 5,000 current companies and 10,000 alternative names. Candidate
+formation runs over that bounded set and the browser renders at most 100 search
+options or 20 suggested groups initially. Preview is an explicit POST, with four
+reads. A review handles up to 500 affected positions, at most 10,000 current
+source/target mapping heads and 1.5 MB per evidence binding, in one atomic
+batch. It rejects changed catalogs or mappings and replays identical request IDs
+without additional writes. Neither endpoint reads source objects or providers.
+
+Migrations `0062` and `0063` precede the API/web release. Alias decisions are
+append-only; names, redirects and current receipt tables are projections. The
+current exposure-head projection also keeps allocation checks and Portfolio
+Watch target maintenance independent of mapping history. The 120-position D1
+holdout measures actual reads/writes with repeated tied-date history and an
+unrelated household, checks empty results and retries, and enforces at most six
+review round trips, 18,000 rows read and 5,000 rows written. In that holdout,
+the catalog and preview budgets are 1,000 and 4,000 rows read respectively;
+reads write nothing.

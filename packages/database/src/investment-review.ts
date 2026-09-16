@@ -1,3 +1,5 @@
+import { matchingCompanies } from "@keel/domain/company-identity";
+import { loadCompanyIdentityChoices, identityChoice } from "./company-identity";
 import { automaticEconomics } from "@keel/domain/automatic-investment-review";
 import {
   CreateDocumentInvestmentInputSchema,
@@ -156,7 +158,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status,
       observation.evidence_json, observation.id observation_id, origin.source_json origin_json, review.state_json,
       reported_terms.management_fee_ppm reported_management_fee_ppm, reported_terms.carry_ppm reported_carry_ppm, s.observed_at,
-      COALESCE(company_review.receipt_json, json_extract(automatic.details_json, '$.company.receipt')) receipt_json,
+      COALESCE(alias_receipt.receipt_json, company_review.receipt_json, json_extract(automatic.details_json, '$.company.receipt')) receipt_json,
       CASE WHEN automatic.snapshot_id = s.id
         AND json_extract(automatic.result_guard_json, '$.observationId') IS observation.id
         AND json_extract(automatic.result_guard_json, '$.reviewId') IS review.id
@@ -181,6 +183,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         AND (provider_identity.provider_investment_id IS NULL OR json_extract(observation.capture_json, '$.sourceInvestment.id') = provider_identity.provider_investment_id)
       LEFT JOIN document_investment_origins origin ON origin.position_id = p.id
       LEFT JOIN holding_investment_reviews review ON review.id = (SELECT id FROM holding_investment_reviews WHERE household_id = p.household_id AND position_id = p.id ORDER BY version DESC LIMIT 1)
+      LEFT JOIN company_alias_current_receipts alias_receipt ON alias_receipt.position_id = p.id
       LEFT JOIN investment_company_reviews company_review ON company_review.id = (SELECT id FROM investment_company_reviews WHERE household_id = p.household_id AND position_id = p.id ORDER BY version DESC LIMIT 1)
       LEFT JOIN automatic_investment_reviews automatic ON automatic.id = (SELECT id FROM automatic_investment_reviews WHERE household_id = p.household_id AND position_id = p.id ORDER BY version DESC LIMIT 1)
       LEFT JOIN holding_position_economics_proposals terms ON terms.id = (
@@ -209,12 +212,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         )
         .bind(identity.household_id, positionId)
         .all<Mapping>(),
-      this.db
-        .prepare(
-          `SELECT id, legal_name legalName FROM companies WHERE household_id = ? ORDER BY legal_name, id LIMIT 5001`,
-        )
-        .bind(identity.household_id)
-        .all<{ id: string; legalName: string }>(),
+      loadCompanyIdentityChoices(this.db, identity.household_id),
       this.db
         .prepare(
           `SELECT p.id, COALESCE(v.legal_name, p.legal_vehicle_name) label FROM holding_positions p
@@ -371,7 +369,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         observationId: position.observation_id,
       }),
       companyChoices: choices,
-      companies: companies.results,
+      companies: companies.map(identityChoice),
       mappings: mappings.results.map((m) => ({
         id: m.id,
         companyId: m.company_id,
@@ -700,13 +698,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     const createCompany = input.company.mode === "new";
     if (input.company.mode === "new") {
       if (
-        context.companies.some(
-          (c) =>
-            c.legalName.toLowerCase() ===
-            (input.company.mode === "new"
-              ? input.company.legalName.toLowerCase()
-              : ""),
-        )
+        matchingCompanies(context.companies, input.company.legalName).length > 0
       )
         throw invalid(
           "This company already exists. Choose the existing company.",

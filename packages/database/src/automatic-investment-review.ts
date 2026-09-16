@@ -1,4 +1,9 @@
 import {
+  companyNameKey,
+  companySuggestionKey,
+} from "@keel/domain/company-identity";
+import { loadCompanyIdentityChoices, identityChoice } from "./company-identity";
+import {
   AUTOMATIC_INVESTMENT_BATCH_SIZE,
   AutomaticInvestmentReviewSchema,
   INVESTMENT_REVIEW_POLICY,
@@ -83,7 +88,12 @@ type Mapping = {
   effective_at: string;
   relationship_kind: string;
 };
-type Company = { id: string; legal_name: string; exposure_id: string | null };
+type Company = {
+  id: string;
+  legal_name: string;
+  exposure_id: string | null;
+  aliases_json?: string;
+};
 type JsonRow = Record<string, string | number | null>;
 
 // D1 caps each bound string at 2 MB. Keep JSON bindings below that limit,
@@ -119,7 +129,7 @@ const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_
   provider_identity.provider_investment_id, observation.id observation_id,
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) <= 131072 THEN observation.evidence_json ELSE NULL END evidence_json,
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) > 131072 THEN 1 ELSE 0 END evidence_oversized,
-  review.id review_id, review.state_json, company_review.id company_review_id, company_review.receipt_json,
+  review.id review_id, review.state_json, company_review.id company_review_id, COALESCE(alias_receipt.receipt_json, company_review.receipt_json) receipt_json,
   terms.decision_source economics_source,
   reported.management_fee_ppm reported_management_fee_ppm, reported.carry_ppm reported_carry_ppm,
   decision.id entity_decision_id, decision.decision entity_decision, decision.legal_entity_id entity_id,
@@ -145,6 +155,7 @@ const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_
   LEFT JOIN provider_legal_document_observations observation ON observation.id = latest.observation_id
     AND (provider_identity.provider_investment_id IS NULL OR json_extract(observation.capture_json, '$.sourceInvestment.id') = provider_identity.provider_investment_id)
   LEFT JOIN holding_investment_reviews review ON review.id = (SELECT id FROM holding_investment_reviews WHERE household_id = p.household_id AND position_id = p.id ORDER BY version DESC LIMIT 1)
+  LEFT JOIN company_alias_current_receipts alias_receipt ON alias_receipt.position_id = p.id
   LEFT JOIN investment_company_reviews company_review ON company_review.id = (SELECT id FROM investment_company_reviews WHERE household_id = p.household_id AND position_id = p.id ORDER BY version DESC LIMIT 1)
   LEFT JOIN legal_entity_source_decisions decision ON decision.id = (SELECT id FROM legal_entity_source_decisions WHERE household_id = p.household_id AND source_kind = 'holding_position' AND source_reference = p.id ORDER BY version DESC LIMIT 1)
   LEFT JOIN legal_entity_versions entity_version ON entity_version.id = (SELECT id FROM legal_entity_versions WHERE household_id = p.household_id AND legal_entity_id = decision.legal_entity_id ORDER BY version DESC LIMIT 1)
@@ -257,12 +268,9 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         )
         .bind(identity.household_id, JSON.stringify(names))
         .all<{ legal_name: string; legal_entity_id: string | null }>(),
-      this.db
-        .prepare(
-          `SELECT c.id, c.legal_name, e.id exposure_id FROM companies c LEFT JOIN canonical_exposures e ON e.household_id = c.household_id AND e.company_id = c.id WHERE c.household_id = ? ORDER BY c.id LIMIT 5001`,
-        )
-        .bind(identity.household_id)
-        .all<Company>(),
+      loadCompanyIdentityChoices(this.db, identity.household_id).then(
+        (results) => ({ results }),
+      ),
       this.db
         .prepare(
           `SELECT m.id, m.position_id, m.exposure_id, m.status, m.decision_source, m.version, m.effective_at, m.relationship_kind, e.company_id, e.canonical_name FROM holding_position_exposure_mappings root INDEXED BY holding_position_exposure_mapping_roots_unique JOIN holding_position_exposure_mappings m ON m.id = (SELECT id FROM holding_position_exposure_mappings WHERE position_id = root.position_id AND exposure_id = root.exposure_id ORDER BY version DESC LIMIT 1) JOIN canonical_exposures e ON e.id = m.exposure_id WHERE root.household_id = ? AND root.position_id IN (SELECT value FROM json_each(?)) AND root.supersedes_mapping_id IS NULL ORDER BY m.position_id, m.id`,
@@ -324,11 +332,24 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
     const companiesById = new Map(
       companies.results.map((company) => [company.id, company]),
     );
-    for (const company of companies.results)
-      companiesByName.set(company.legal_name, [
-        ...(companiesByName.get(company.legal_name) ?? []),
+    const companiesBySuggestion = new Map<string, Company[]>();
+    for (const company of companies.results) {
+      for (const name of new Set(
+        [company.legal_name, ...(identityChoice(company).aliases ?? [])].map(
+          companyNameKey,
+        ),
+      )) {
+        companiesByName.set(name, [
+          ...(companiesByName.get(name) ?? []),
+          company,
+        ]);
+      }
+      const key = companySuggestionKey(company.legal_name);
+      companiesBySuggestion.set(key, [
+        ...(companiesBySuggestion.get(key) ?? []),
         company,
       ]);
+    }
     const plannedCompanies = new Map<string, Company>();
     const batches = new Map<string, JsonRow[]>();
     const add = (table: string, row: JsonRow) => {
@@ -386,10 +407,19 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         row.entity_version === 1 &&
         legalName !== null &&
         legalName !== row.accepted_legal_name;
-      const companyChoice = automaticCompanyChoice(supportedDocuments);
+      const resolvedName = (name: string) => {
+        const matches = companiesByName.get(companyNameKey(name)) ?? [];
+        return matches.length === 1
+          ? `company:${matches[0]!.id}`
+          : `name:${companyNameKey(name)}`;
+      };
+      const companyChoice = automaticCompanyChoice(
+        supportedDocuments,
+        resolvedName,
+      );
       const guard = {
         // Re-evaluate old receipts once after fixing missed company conflicts.
-        evaluationVersion: 2,
+        evaluationVersion: 3,
         applicationId: row.application_id,
         observationId: row.observation_id,
         reviewId: row.review_id,
@@ -418,7 +448,11 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         namedCompanyIds:
           companyChoice === null
             ? []
-            : (companiesByName.get(companyChoice.companyName) ?? [])
+            : (
+                companiesByName.get(
+                  companyNameKey(companyChoice.companyName),
+                ) ?? []
+              )
                 .map((company) => company.id)
                 .sort(),
       };
@@ -578,7 +612,11 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         guard.incoming.length === 0 &&
         currentEvidence.state !== "unavailable" &&
         companyEvidence.some(
-          (citation) => !savedCompanyNames.has(citation.companyName),
+          (citation) =>
+            ![...savedCompanyNames].some(
+              (name) =>
+                resolvedName(name) === resolvedName(citation.companyName),
+            ),
         ) &&
         companyReceipt?.companyEvidenceRevision !== companyEvidenceRevision;
       if (manualCompanyConflict)
@@ -599,20 +637,30 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         activeMappings.length <= 1 &&
         (activeMappings.length === 0 ||
           activeMappings[0]!.company_id === null ||
-          activeMappings[0]!.canonical_name === companyChoice.companyName) &&
-        (companiesByName.get(companyChoice.companyName)?.length ?? 0) <= 1 &&
-        currentEvidence.state !== "unavailable"
+          resolvedName(activeMappings[0]!.canonical_name) ===
+            resolvedName(companyChoice.companyName)) &&
+        (companiesByName.get(companyNameKey(companyChoice.companyName))
+          ?.length ?? 0) <= 1 &&
+        currentEvidence.state !== "unavailable" &&
+        ((companiesByName.get(companyNameKey(companyChoice.companyName))
+          ?.length ?? 0) === 1 ||
+          plannedCompanies.has(companyNameKey(companyChoice.companyName)) ||
+          !companiesBySuggestion.has(
+            companySuggestionKey(companyChoice.companyName),
+          ))
       ) {
         const name = companyChoice.companyName;
+        const nameKey = companyNameKey(name);
         let company =
-          companiesByName.get(name)?.[0] ?? plannedCompanies.get(name);
+          companiesByName.get(nameKey)?.[0] ?? plannedCompanies.get(nameKey);
         if (company === undefined) {
           company = {
             id: crypto.randomUUID(),
             legal_name: name,
             exposure_id: crypto.randomUUID(),
           };
-          plannedCompanies.set(name, company);
+          plannedCompanies.set(nameKey, company);
+          companiesBySuggestion.set(companySuggestionKey(name), [company]);
           add("companies", {
             id: company.id,
             household_id: identity.household_id,
@@ -627,7 +675,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         const exposureId = company.exposure_id ?? crypto.randomUUID();
         if (
           company.exposure_id === null ||
-          (!companiesByName.has(name) &&
+          (!companiesByName.has(nameKey) &&
             !batches
               .get("canonical_exposures")
               ?.some((item) => item.id === exposureId))
@@ -637,7 +685,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
             id: exposureId,
             household_id: identity.household_id,
             exposure_kind: "private_company",
-            canonical_name: name,
+            canonical_name: company.legal_name,
             protected_identity_key: null,
             company_id: company.id,
             resolution_method: "reviewed_company",
@@ -721,12 +769,15 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
                 await investmentEvidenceRevision(documents),
               expectedMappingIds: guard.mappingIds,
               company: { mode: "existing", companyId: company.id },
-              basis: "document_choice",
+              basis:
+                company.legal_name === name
+                  ? "document_choice"
+                  : "document_link",
               citation: companyChoice,
               reason: null,
               positionId: row.id,
               companyId: company.id,
-              companyName: name,
+              companyName: company.legal_name,
               mappingId,
               recordedAt,
               sourceDocument: supportedDocuments.find(

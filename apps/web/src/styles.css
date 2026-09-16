@@ -8032,3 +8032,41 @@ h1,
     margin-top: 4px;
   }
 }
+
+.company-names__suggestions,
+.company-names__review,
+.company-names__review form,
+.company-names__confirmation {
+  display: grid;
+  gap: 1.5rem;
+}
+.company-names__suggestions,
+.company-names__review {
+  margin-top: 3rem;
+}
+.company-names__candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.company-names__candidate p {
+  overflow-wrap: anywhere;
+}
+.company-names__fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 1.5rem;
+  min-width: 0;
+}
+.company-names__confirmation {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 767px) {
+  .company-names__candidate {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

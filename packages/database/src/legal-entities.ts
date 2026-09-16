@@ -648,10 +648,11 @@ type DocumentSourceRow = {
   receipt_json: string | null;
   incoming_json: string;
 };
-const documentSourcesSql = `SELECT origin.source_json, review.state_json, company_review.receipt_json,
+const documentSourcesSql = `SELECT origin.source_json, review.state_json, COALESCE(alias_receipt.receipt_json, company_review.receipt_json) receipt_json,
   (SELECT json_group_array(json(assignment.document_json)) FROM investment_document_assignments assignment WHERE assignment.household_id = origin.household_id AND assignment.target_position_id = origin.position_id) incoming_json
   FROM document_investment_origins origin
   LEFT JOIN holding_investment_reviews review ON review.id = (SELECT id FROM holding_investment_reviews WHERE household_id = origin.household_id AND position_id = origin.position_id ORDER BY version DESC LIMIT 1)
+  LEFT JOIN company_alias_current_receipts alias_receipt ON alias_receipt.position_id = origin.position_id
   LEFT JOIN investment_company_reviews company_review ON company_review.id = (SELECT id FROM investment_company_reviews WHERE household_id = origin.household_id AND position_id = origin.position_id ORDER BY version DESC LIMIT 1)`;
 function documentSourceFromRow(
   row: DocumentSourceRow,

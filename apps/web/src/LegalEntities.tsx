@@ -1,3 +1,4 @@
+import { CompanyNames } from "./CompanyNames";
 import {
   DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS,
   LEGAL_ENTITY_EXPORT_FIELD_LABELS,
@@ -1903,7 +1904,15 @@ function ProgressiveRows<T>({
   );
 }
 
-export function LegalEntities({
+export function LegalEntities(props: { navigationVersion: number }) {
+  return new URLSearchParams(window.location.search).get("companies") ===
+    "1" ? (
+    <CompanyNames />
+  ) : (
+    <LegalEntitiesInventory {...props} />
+  );
+}
+function LegalEntitiesInventory({
   navigationVersion,
 }: {
   navigationVersion: number;
@@ -2230,6 +2239,9 @@ export function LegalEntities({
       <div hidden={location.target !== null} className="legal-entities">
         <div className="legal-entities__intro">
           <ExportWorkspace inventory={inventory} />
+          <TextLink href="/holdings/entities?companies=1">
+            Company names
+          </TextLink>
           <SearchField
             className="legal-entities__search"
             label="Search legal entities"

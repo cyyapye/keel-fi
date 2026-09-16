@@ -19,7 +19,8 @@
     "./position-economics": "./src/position-economics.ts",
     "./position-read-model": "./src/position-read-model.ts",
     "./position-value": "./src/position-value.ts",
-    "./provider-legal-documents": "./src/provider-legal-documents.ts"
+    "./provider-legal-documents": "./src/provider-legal-documents.ts",
+    "./company-identity": "./src/company-identity.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

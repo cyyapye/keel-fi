@@ -122,10 +122,12 @@ export function automaticLegalName(
 
 export function automaticCompanyChoice(
   documents: readonly LegalNameDocumentReference[],
+  identity: (name: string) => string = (name) => name,
 ): InvestmentReviewContext["companyChoices"][number] | null {
   if (documents.some((doc) => doc.scan?.outcome !== "clean")) return null;
   const choices = automaticCompanyChoices(documents);
-  return new Set(choices.map((choice) => choice.companyName)).size === 1
+  return new Set(choices.map((choice) => identity(choice.companyName))).size ===
+    1
     ? choices[0]!
     : null;
 }
