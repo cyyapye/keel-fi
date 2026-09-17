@@ -37,6 +37,12 @@ finite maintenance queue lives in
   high on mobile, and horizontal scrolling must be intentional and local.
 - Prefer the shared shell, page and section headers, buttons, badges, panels,
   metrics, fields, feedback, and tabs before adding another variant.
+- Match the component's variant to its role: toggle filters use outlined buttons
+  with a filled selected state; quiet buttons are link-like actions. Empty
+  collection results use compact, left-aligned feedback without an icon. Check
+  the rendered spacing and mobile targets as well as component usage; broad
+  screen selectors must not erase a component's padding. These layout assertions
+  remain required when screenshot baselines are updated.
 - Keep the primary action in the current section. Do not add a separate step,
   modal, or confirmation unless it protects an irreversible or trust-sensitive
   action.
