@@ -39,6 +39,7 @@ function environment(root: string): NodeJS.ProcessEnv {
     KEEL_PREVIEW_PLAID_REDIRECT_URI:
       "https://keel-preview.example.com/holdings",
     KEEL_PREVIEW_PLAID_SECRET: "synthetic-plaid-secret",
+    KEEL_PREVIEW_BRAVE_SEARCH_API_KEY: "synthetic-website-search-key",
     KEEL_PREVIEW_QUEUE: "keel-preview-ingestion",
     KEEL_PREVIEW_QUEUE_DLQ: "keel-preview-ingestion-dlq",
     KEEL_PREVIEW_R2_BUCKET: "keel-preview-private-documents",
@@ -113,6 +114,7 @@ describe("preview deployment configuration", () => {
           "ACCESS_AUD",
           "ACCESS_TEAM_DOMAIN",
           "DEPLOYMENT_SMOKE_TOKEN",
+          "BRAVE_SEARCH_API_KEY",
           "CONNECTOR_CREDENTIAL_KEY",
           "PLAID_CLIENT_ID",
           "PLAID_ENVIRONMENT",
@@ -155,7 +157,11 @@ describe("preview deployment configuration", () => {
       PLAID_ENVIRONMENT: "sandbox",
       PLAID_REDIRECT_URI: "https://keel-preview.example.com/holdings",
       PLAID_SECRET: "synthetic-plaid-secret",
+      BRAVE_SEARCH_API_KEY: "synthetic-website-search-key",
     });
+    expect(JSON.stringify(apiConfig)).not.toContain(
+      "synthetic-website-search-key",
+    );
     expect(JSON.stringify(apiConfig)).not.toContain(
       "synthetic-preview-service-secret-for-tests",
     );

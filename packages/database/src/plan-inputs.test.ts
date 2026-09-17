@@ -54,6 +54,7 @@ const migrationFiles = [
   "packages/database/migrations/0053_connected_investment_reviews.sql",
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
   "packages/database/migrations/0062_reviewed_company_aliases.sql",
+  "packages/database/migrations/0064_watch_read_receipts.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

@@ -10,7 +10,13 @@ import {
 import {
   PortfolioWatchActivitySchema,
   PortfolioWatchProgressSchema,
+  WatchReadReceiptSchema,
 } from "@keel/domain/portfolio-watch-activity";
+import {
+  WatchWebsiteReceiptSchema,
+  WatchWebsiteSearchSchema,
+  type WatchWebsiteInput,
+} from "@keel/domain/watch-website";
 import {
   CreateDocumentInvestmentInputSchema,
   CreateDocumentInvestmentResultSchema,
@@ -1061,6 +1067,65 @@ export async function loadPortfolioWatchProgress(runId: string) {
   if (!response.ok)
     throw await responseError(response, "Couldn’t refresh source activity.");
   return PortfolioWatchProgressSchema.parse(await response.json());
+}
+
+export async function confirmWatchWebsite(
+  targetId: string,
+  input: WatchWebsiteInput,
+) {
+  const response = await fetch(
+    `/api/watch/targets/${encodeURIComponent(targetId)}/website`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok)
+    throw await responseError(response, "Couldn’t confirm the website.");
+  return WatchWebsiteReceiptSchema.parse(await response.json());
+}
+export async function findWatchWebsite(targetId: string) {
+  const response = await fetch(
+    `/api/watch/targets/${encodeURIComponent(targetId)}/website-search`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok)
+    throw await responseError(response, "Couldn’t find websites.");
+  return WatchWebsiteSearchSchema.parse(await response.json());
+}
+
+export async function setPortfolioWatchRead(
+  observationId: string,
+  read: boolean,
+  expectedVersion: number,
+) {
+  const response = await fetch(
+    `/api/watch/observations/${encodeURIComponent(observationId)}/read`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ read, expectedVersion }),
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok)
+    throw await responseError(response, "Couldn’t save read status.");
+  return WatchReadReceiptSchema.parse(await response.json());
 }
 
 export async function scanPortfolioWatch(): Promise<PortfolioWatchScanResult> {

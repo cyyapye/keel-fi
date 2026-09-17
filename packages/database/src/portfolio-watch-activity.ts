@@ -124,13 +124,18 @@ export class D1PortfolioWatchActivityRepository {
         ),
       this.db
         .prepare(
-          `INSERT INTO portfolio_watch_checks (id, run_id, source_id, state, requested_at)
-        SELECT json_extract(value, '$.messageId'), run.id, json_extract(value, '$.sourceId'), 'queued', ?
-        FROM json_each(?) JOIN portfolio_watch_runs run ON run.id = json_extract(value, '$.runId')
-        WHERE NOT EXISTS (SELECT 1 FROM portfolio_watch_checks checks
-          WHERE checks.source_id = json_extract(value, '$.sourceId') AND checks.state IN ('queued', 'running'))`,
+          `WITH eligible AS (
+          SELECT json_extract(value, '$.messageId') AS message_id, run.id AS admitted_run_id, source.id AS admitted_source_id,
+            ROW_NUMBER() OVER (PARTITION BY run.id, source.watch_target_id ORDER BY CAST(input.key AS INTEGER)) AS company_rank
+          FROM json_each(?) input JOIN portfolio_watch_runs run ON run.id = json_extract(value, '$.runId')
+          JOIN portfolio_watch_sources source ON source.id = json_extract(value, '$.sourceId')
+          JOIN portfolio_watch_targets target ON target.id = source.watch_target_id AND target.household_id = source.household_id AND target.company_id = source.company_id
+          WHERE source.status IN ('discovered', 'verified', 'active', 'degraded') AND target.status = 'active'
+            AND NOT EXISTS (SELECT 1 FROM portfolio_watch_checks checks WHERE checks.source_id = source.id AND checks.state IN ('queued', 'running'))
+        ) INSERT INTO portfolio_watch_checks (id, run_id, source_id, state, requested_at)
+          SELECT message_id, admitted_run_id, admitted_source_id, 'queued', ? FROM eligible WHERE company_rank <= 2`,
         )
-        .bind(requestedAt, encoded),
+        .bind(encoded, requestedAt),
     ]);
     const admitted = (
       await this.db
@@ -366,7 +371,8 @@ export class D1PortfolioWatchActivityRepository {
         COUNT(DISTINCT CASE WHEN instr(lower(company.legal_name), lower(?)) > 0 THEN target.id END) AS matchingCompanyCount,
         COALESCE(SUM(source.status IN ('degraded', 'quarantined', 'revoked') OR sync.last_check_outcome IN ('failed', 'skipped') OR run.deadline_at <= ?), 0) AS unavailableCount,
         COALESCE(SUM(source.id IS NOT NULL AND sync.last_completed_at IS NULL), 0) AS neverCheckedCount,
-        MIN(CASE WHEN source.status IN ('discovered', 'verified', 'active', 'degraded') THEN sync.next_check_at END) AS nextCheckAt
+        MIN(CASE WHEN source.status IN ('discovered', 'verified', 'active', 'degraded') THEN sync.next_check_at END) AS nextCheckAt,
+        MAX(sync.last_completed_success_at) AS lastSuccessAt
         FROM portfolio_watch_targets target JOIN companies company ON company.id = target.company_id AND company.household_id = target.household_id
         LEFT JOIN portfolio_watch_sources source ON source.watch_target_id = target.id
         LEFT JOIN portfolio_watch_source_sync_state sync ON sync.source_id = source.id

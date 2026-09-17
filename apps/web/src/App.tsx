@@ -1,5 +1,5 @@
 import { PortfolioWatchMonitor } from "./PortfolioWatchMonitor";
-import { formatWatchTime } from "./portfolio-watch-format";
+import { formatWatchTime, mergeWatchReadState } from "./portfolio-watch-format";
 import {
   addMinorUnits,
   createGoalPreview,
@@ -131,6 +131,7 @@ import {
   saveGoalVersion,
   saveScenarioVersion,
   scanPortfolioWatch,
+  setPortfolioWatchRead,
   startAngelListSignInRefresh,
   startProviderBrowserReconnect,
   submitAngelListHandoffInput,
@@ -6596,17 +6597,6 @@ function sourceClassLabel(sourceClass: PublicSourceObservation["sourceClass"]) {
   }[sourceClass];
 }
 
-function evidenceStatusLabel(
-  status: PublicSourceObservation["evidenceStatus"],
-) {
-  return {
-    pending_review: "Needs review",
-    accepted: "Reviewed",
-    rejected: "Dismissed",
-    scenario_only: "Scenario only",
-  }[status];
-}
-
 function sourceHost(sourceUrl: string) {
   try {
     return new URL(sourceUrl).hostname;
@@ -6769,16 +6759,142 @@ function ReportedFinancingTerms({
   );
 }
 
+function WatchNewsRow({
+  observation,
+  needsDecision,
+  onReview,
+  onRead,
+}: {
+  observation: AlphaData["portfolioWatch"]["observations"][number];
+  needsDecision: boolean;
+  onReview: (eventId: string) => void;
+  onRead: (id: string, read: boolean, version: number) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const unread = observation.readAt == null;
+  const fullSummary =
+    observation.financingFacts === null
+      ? observation.observedFact.trim()
+      : financingScenarioTermsLabel(observation.financingFacts);
+  const summary =
+    fullSummary.length > 240
+      ? fullSummary.slice(0, 240).replace(/\s+\S*$/, "") + "…"
+      : fullSummary;
+  return (
+    <article className="watch-news-row" aria-label={observation.sourceTitle}>
+      <div className="watch-news-content">
+        <p className="watch-news-meta">
+          <strong>{observation.companyName}</strong> ·{" "}
+          {sourceHost(observation.sourceUrl)}
+          {needsDecision && (
+            <span className="watch-decision-label">Decision needed</span>
+          )}
+        </p>
+        <h3>
+          <ButtonLink
+            href={observation.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            tone="plain"
+          >
+            {observation.sourceTitle}
+          </ButtonLink>
+        </h3>
+        {fullSummary !== observation.sourceTitle.trim() && (
+          <p className="watch-news-summary">{summary}</p>
+        )}
+        <p className="watch-news-dates">
+          Published{" "}
+          {observation.publishedAt === null
+            ? "date unavailable"
+            : formatWatchTime(observation.publishedAt)}{" "}
+          · Found {formatWatchTime(observation.retrievedAt)}
+        </p>
+        <Collapsible>
+          <CollapsibleTrigger className="watch-news-details-trigger">
+            Details <DisclosureIndicator />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="watch-news-details">
+            <p>
+              {sourceClassLabel(observation.sourceClass)} ·{" "}
+              {sourceHost(observation.sourceUrl)}
+            </p>
+            {observation.financingFacts !== null && (
+              <ReportedFinancingTerms
+                facts={observation.financingFacts}
+                sourceExcerpt={financingSourceExcerpt(
+                  observation.financingFacts,
+                  observation.observedFact,
+                )}
+              />
+            )}
+            {observation.financingFacts !== null && (
+              <p>{observation.inference}</p>
+            )}
+            {observation.financingFacts === null &&
+              observation.valuationLowMinor !== null &&
+              observation.valuationMiddleMinor !== null &&
+              observation.valuationHighMinor !== null && (
+                <p>
+                  <strong>Estimated range</strong>{" "}
+                  {formatCompactMoney(observation.valuationLowMinor)} –{" "}
+                  {formatCompactMoney(observation.valuationHighMinor)}
+                </p>
+              )}
+            <p>{observation.limitations}</p>
+            <Button
+              tone="quiet"
+              onClick={() => onReview(observation.evidenceEventId)}
+            >
+              View evidence
+            </Button>
+          </CollapsibleContent>
+        </Collapsible>
+        {error !== null && <Notice tone="error">{error}</Notice>}
+      </div>
+      <ActionGroup className="watch-news-actions" wrap>
+        {needsDecision && (
+          <Button onClick={() => onReview(observation.evidenceEventId)}>
+            Review decision
+          </Button>
+        )}
+        <Button
+          tone="quiet"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setError(null);
+            void onRead(observation.id, unread, observation.readVersion ?? 0)
+              .catch((caught: unknown) =>
+                setError(
+                  caught instanceof Error
+                    ? caught.message
+                    : "Couldn’t save read status.",
+                ),
+              )
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy ? "Saving…" : unread ? "Mark read" : "Mark unread"}
+        </Button>
+      </ActionGroup>
+    </article>
+  );
+}
+
 function PortfolioWatch({
   data,
   onReview,
   onScan,
   onRefresh,
+  onRead,
 }: {
   data: AlphaData;
   onReview: (eventId: string) => void;
   onScan: () => Promise<{ queuedCount: number }>;
   onRefresh: () => Promise<void>;
+  onRead: (id: string, read: boolean, version: number) => Promise<void>;
 }) {
   const supersededIds = new Set(
     data.signalReconciliations.flatMap((group) =>
@@ -6787,12 +6903,27 @@ function PortfolioWatch({
         .map((report) => report.observationId),
     ),
   );
+  const evidenceById = new Map(
+    data.evidenceInbox.map((item) => [item.id, item]),
+  );
+  const decisionIds = new Set(
+    data.portfolioWatch.observations
+      .filter((observation) => {
+        const evidence = evidenceById.get(observation.evidenceEventId);
+        return (
+          observation.evidenceStatus === "pending_review" &&
+          !supersededIds.has(observation.id) &&
+          (observation.financingFacts !== null || evidence?.application != null)
+        );
+      })
+      .map((item) => item.id),
+  );
   return (
     <PortfolioWatchMonitor
       onScan={onScan}
       onRefresh={onRefresh}
       observations={data.portfolioWatch.observations}
-      supersededIds={supersededIds}
+      decisionIds={decisionIds}
       sourceLabel={
         isRealCompanyAcceptanceProfile
           ? "Real public sources · Demo portfolio figures"
@@ -6801,127 +6932,15 @@ function PortfolioWatch({
             : "Official company websites and feeds"
       }
       renderSignals={(observations) => (
-        <div className="watch-observation-list">
+        <div className="watch-news-list">
           {observations.map((observation) => (
-            <article key={observation.id}>
-              <header>
-                <div>
-                  <p className="eyebrow">
-                    {observation.companyName} ·{" "}
-                    {sourceClassLabel(observation.sourceClass)}
-                  </p>
-                  <h2>{observation.sourceTitle}</h2>
-                  <small>
-                    Published {formatWatchTime(observation.publishedAt)}
-                    <br />
-                    Found by Keel {formatWatchTime(observation.retrievedAt)}
-                  </small>
-                </div>
-                <ActionGroup className="watch-observation-actions" wrap>
-                  <Badge
-                    tone={
-                      observation.evidenceStatus === "pending_review" &&
-                      !supersededIds.has(observation.id)
-                        ? "accent"
-                        : "neutral"
-                    }
-                  >
-                    {supersededIds.has(observation.id)
-                      ? "Superseded"
-                      : evidenceStatusLabel(observation.evidenceStatus)}
-                  </Badge>
-                  <Button
-                    onClick={() => onReview(observation.evidenceEventId)}
-                    tone={
-                      observation.evidenceStatus === "pending_review" &&
-                      !supersededIds.has(observation.id)
-                        ? "primary"
-                        : "secondary"
-                    }
-                  >
-                    {observation.evidenceStatus === "pending_review" &&
-                    !supersededIds.has(observation.id)
-                      ? "Review"
-                      : "View evidence"}
-                  </Button>
-                </ActionGroup>
-              </header>
-
-              <div className="watch-observation-body">
-                {observation.financingFacts === null && (
-                  <section>
-                    <span>Observed</span>
-                    <p>{observation.observedFact}</p>
-                    <small>
-                      Source reliability{" "}
-                      {formatProbability(observation.sourceReliabilityPpm)}
-                    </small>
-                  </section>
-                )}
-                <section>
-                  <span>
-                    {observation.financingFacts === null
-                      ? "Keel estimate"
-                      : "What it means"}
-                  </span>
-                  <p>{observation.inference}</p>
-                  <small>
-                    {observation.financingFacts === null ? (
-                      <>
-                        Model confidence{" "}
-                        {formatProbability(observation.modelConfidencePpm)}
-                      </>
-                    ) : (
-                      <>
-                        Source reliability{" "}
-                        {formatProbability(observation.sourceReliabilityPpm)} ·
-                        Classification confidence{" "}
-                        {formatProbability(observation.modelConfidencePpm)}
-                      </>
-                    )}
-                  </small>
-                </section>
-                {observation.financingFacts === null ? (
-                  <section>
-                    <span>Estimated range</span>
-                    {observation.valuationLowMinor !== null &&
-                    observation.valuationMiddleMinor !== null &&
-                    observation.valuationHighMinor !== null ? (
-                      <strong>
-                        {formatCompactMoney(observation.valuationLowMinor)} –{" "}
-                        {formatCompactMoney(observation.valuationHighMinor)}
-                      </strong>
-                    ) : (
-                      <strong>Not estimated</strong>
-                    )}
-                    {observation.valuationMiddleMinor !== null && (
-                      <small>
-                        Middle estimate{" "}
-                        {formatCompactMoney(observation.valuationMiddleMinor)}
-                      </small>
-                    )}
-                  </section>
-                ) : (
-                  <section className="watch-reported-financing">
-                    <ReportedFinancingTerms
-                      facts={observation.financingFacts}
-                      sourceExcerpt={financingSourceExcerpt(
-                        observation.financingFacts,
-                        observation.observedFact,
-                      )}
-                    />
-                  </section>
-                )}
-              </div>
-
-              <footer>
-                <div>
-                  <span>What&apos;s missing</span>
-                  <p>{observation.limitations}</p>
-                  <small>{sourceHost(observation.sourceUrl)}</small>
-                </div>
-              </footer>
-            </article>
+            <WatchNewsRow
+              key={observation.id}
+              observation={observation}
+              needsDecision={decisionIds.has(observation.id)}
+              onReview={onReview}
+              onRead={onRead}
+            />
           ))}
         </div>
       )}
@@ -6961,7 +6980,7 @@ function EvidenceCard({
     ? "accepted & applied"
     : item.status.replaceAll("_", " ");
   return (
-    <article className="evidence-card">
+    <article className="evidence-card" id={`evidence-${item.id}`} tabIndex={-1}>
       <header>
         <div className="evidence-icon">E</div>
         <div>
@@ -7437,7 +7456,9 @@ function EvidenceInbox({
   onApply,
   onCreateProposal,
   onReview,
+  focusedEventId,
 }: {
+  focusedEventId: string | null;
   busyEvent: string | null;
   data: AlphaData;
   error: string | null;
@@ -7451,6 +7472,15 @@ function EvidenceInbox({
     decision: "accepted" | "rejected" | "scenario_only",
   ) => void;
 }) {
+  useEffect(() => {
+    if (focusedEventId === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      const element = document.getElementById(`evidence-${focusedEventId}`);
+      element?.focus({ preventScroll: true });
+      element?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusedEventId]);
   return (
     <ScreenLayout className="evidence-screen">
       <PageHeader
@@ -7468,6 +7498,12 @@ function EvidenceInbox({
         eyebrow="Review before change"
         title="Evidence Inbox"
       />
+      {focusedEventId !== null &&
+        !data.evidenceInbox.some((item) => item.id === focusedEventId) && (
+          <Notice tone="error">
+            This update is no longer available in the inbox.
+          </Notice>
+        )}
       {error !== null && <Notice tone="error">{error}</Notice>}
       <SignalReconciliationList
         busyEvent={busyEvent}
@@ -7980,6 +8016,9 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>(
     () => routeFromLocation().screen,
   );
+  const [focusedEventId, setFocusedEventId] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("event"),
+  );
   const [requestedGoalId, setRequestedGoalId] = useState<string | null>(null);
   const [holdingImportId, setHoldingImportId] = useState<string | null>(
     () => routeFromLocation().holdingImportId,
@@ -8017,7 +8056,7 @@ export function App() {
       try {
         const next = await request;
         if (alphaRequestRef.current === request) {
-          setData(next);
+          setData((current) => mergeWatchReadState(next, current));
           setLoadError(null);
         }
         return next;
@@ -8076,6 +8115,7 @@ export function App() {
     if (`${window.location.pathname}${window.location.search}` !== path) {
       window.history.pushState(null, "", path);
     }
+    setFocusedEventId(null);
     setActiveScreen(screen);
     setHoldingImportId(null);
     setHoldingsDrilldown(null);
@@ -8146,6 +8186,9 @@ export function App() {
   useEffect(() => {
     const updateRoute = () => {
       const route = routeFromLocation();
+      setFocusedEventId(
+        new URLSearchParams(window.location.search).get("event"),
+      );
       setActiveScreen(route.screen);
       setHoldingImportId(route.holdingImportId);
       setHoldingsDrilldown(route.holdingsDrilldown);
@@ -8259,16 +8302,49 @@ export function App() {
         return (
           <PortfolioWatch
             onRefresh={async () => {
-              setData(await loadAlphaData());
+              await refreshAlphaData();
             }}
             data={data}
-            onReview={() => navigateToScreen("evidence")}
+            onRead={async (id, read, version) => {
+              const receipt = await setPortfolioWatchRead(id, read, version);
+              setData((current) =>
+                current === null
+                  ? null
+                  : {
+                      ...current,
+                      portfolioWatch: {
+                        ...current.portfolioWatch,
+                        observations: current.portfolioWatch.observations.map(
+                          (item) =>
+                            item.id === receipt.observationId &&
+                            (item.readVersion ?? 0) <= receipt.version
+                              ? {
+                                  ...item,
+                                  readAt: receipt.readAt,
+                                  readVersion: receipt.version,
+                                }
+                              : item,
+                        ),
+                      },
+                    },
+              );
+            }}
+            onReview={(eventId) => {
+              window.history.pushState(
+                null,
+                "",
+                `/evidence?event=${encodeURIComponent(eventId)}`,
+              );
+              setFocusedEventId(eventId);
+              setActiveScreen("evidence");
+            }}
             onScan={scanPortfolioWatch}
           />
         );
       case "evidence":
         return (
           <EvidenceInbox
+            focusedEventId={focusedEventId}
             busyEvent={busyEvent}
             data={data}
             error={reviewError}
@@ -8361,6 +8437,7 @@ export function App() {
     navigateToHoldingImport,
     navigateToGoal,
     navigateToPortfolioDrilldown,
+    focusedEventId,
     navigateToScreen,
     refreshAlphaData,
     refreshHoldingsPage,

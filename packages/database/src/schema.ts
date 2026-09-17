@@ -4,6 +4,7 @@ import {
   foreignKey,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -780,6 +781,50 @@ export const publicSourceObservations = sqliteTable(
     check(
       "public_source_observations_model_confidence_check",
       sql`${table.modelConfidencePpm} BETWEEN 0 AND 1000000`,
+    ),
+  ],
+);
+
+export const portfolioWatchReadReceipts = sqliteTable(
+  "portfolio_watch_read_receipts",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    observationId: text("observation_id")
+      .notNull()
+      .references(() => publicSourceObservations.id, { onDelete: "restrict" }),
+    householdId: householdReference(),
+    readAt: text("read_at"),
+    version: integer("version").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.observationId] }),
+    check("watch_read_version_positive", sql`${table.version} > 0`),
+  ],
+);
+
+export const portfolioWatchWebsiteDecisions = sqliteTable(
+  "portfolio_watch_website_decisions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "restrict" }),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    companyName: text("company_name").notNull(),
+    websiteHost: text("website_host").notNull(),
+    reviewedUrl: text("reviewed_url").notNull(),
+    rationale: text("rationale").notNull(),
+    decidedAt: timestamp("decided_at"),
+  },
+  (table) => [
+    index("portfolio_watch_website_decisions_company_idx").on(
+      table.companyId,
+      table.decidedAt,
     ),
   ],
 );
