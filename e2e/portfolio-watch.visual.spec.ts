@@ -184,6 +184,124 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test("keeps failed monitoring and an empty news inbox consistent with shared UI", async ({
+  page,
+}, testInfo) => {
+  const alpha = await (await page.request.get("/api/alpha")).json();
+  const readNews = {
+    ...portfolioWatchFixture.observations[0]!,
+    sourceTitle: "Harbor opens a new clinic",
+    observedFact: "Harbor opens a new clinic",
+    financingFacts: null,
+    valuationLowMinor: null,
+    valuationMiddleMinor: null,
+    valuationHighMinor: null,
+    readAt: "2026-08-02T12:30:00.000Z",
+    readVersion: 1,
+  };
+  await page.route("**/api/alpha", (route) =>
+    route.fulfill({
+      json: {
+        ...alpha,
+        signalReconciliations: [],
+        portfolioWatch: { ...portfolioWatchFixture, observations: [readNews] },
+      },
+    }),
+  );
+  await page.route("**/api/watch/activity**", (route) =>
+    route.fulfill({
+      json: {
+        ...watchActivityFixture,
+        summary: { ...watchActivityFixture.summary, unavailableCount: 3 },
+        runs: [
+          {
+            ...watchActivityFixture.runs[0],
+            status: "failed",
+            succeededCount: 0,
+            failedCount: 3,
+            signalCount: 0,
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto("/watch");
+  const monitor = page.getByTestId("portfolio-watch-control");
+  const empty = page
+    .getByRole("heading", { name: "No unread updates", exact: true })
+    .locator("..");
+  const filters = page.getByRole("group", { name: "Filter updates" });
+  await expect(
+    monitor.getByText("Monitoring limited", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    monitor.getByRole("button", { name: "Check now", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    monitor.getByText("0 of 3 pages and feeds read · 3 unavailable"),
+  ).toBeVisible();
+  await expect(
+    empty.getByText("Previously read news is available under All updates."),
+  ).toBeVisible();
+  await expect(
+    filters.getByRole("button", { name: "Unread (0)" }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  const viewport = page.viewportSize()!;
+  const widths =
+    testInfo.project.name === "mobile-chromium"
+      ? [320, viewport.width]
+      : [viewport.width];
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: viewport.height });
+    // These layout contracts remain required even when someone updates a screenshot.
+    const insets = await monitor.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return [style.paddingTop, style.paddingBottom, style.paddingLeft].map(
+        Number.parseFloat,
+      );
+    });
+    for (const inset of insets) expect(inset).toBeGreaterThanOrEqual(16);
+    await expect(empty).toHaveCSS("text-align", "left");
+    await expect(empty).toHaveCSS("padding", "0px");
+    await expect(empty).toHaveCSS("min-height", "0px");
+    await expect(empty.locator('[aria-hidden="true"]')).toHaveCount(0);
+    const screenBounds = (await page.locator(".watch-screen").boundingBox())!;
+    for (const button of await filters.getByRole("button").all()) {
+      await expect(button).toHaveCSS("text-decoration-line", "none");
+      await expect(button).toHaveCSS("border-top-style", "solid");
+      const bounds = (await button.boundingBox())!;
+      expect(bounds.height).toBeGreaterThanOrEqual(width <= 620 ? 44 : 34);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(
+        screenBounds.x + screenBounds.width + 1,
+      );
+    }
+    const emptyBounds = (await empty.boundingBox())!;
+    expect(emptyBounds.x).toBeCloseTo(screenBounds.x, 0);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+  }
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await page.mouse.move(0, 0);
+  await expect(page.locator(".watch-screen")).toHaveScreenshot(
+    "portfolio-watch-empty-limited.png",
+    { animations: "disabled" },
+  );
+  await filters
+    .getByRole("button", { name: "All updates", exact: true })
+    .click();
+  await expect(
+    page.getByRole("article", { name: readNews.sourceTitle, exact: true }),
+  ).toBeVisible();
+  await monitor.getByRole("button", { name: "View coverage & issues" }).click();
+  await expect(
+    page.getByRole("tab", { name: "Coverage", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+});
+
 test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   page,
 }, testInfo) => {

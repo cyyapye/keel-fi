@@ -408,19 +408,6 @@ export function PortfolioWatchMonitor({
         className="watch-intro"
         title="Portfolio Watch"
         description="Public news and updates for your private holdings."
-        actions={
-          <Button
-            tone="quiet"
-            disabled={
-              busy || running !== undefined || loading || activity === null
-            }
-            onClick={() => {
-              void scan();
-            }}
-          >
-            {busy || running !== undefined ? "Checking…" : "Check now"}
-          </Button>
-        }
       />
       <section
         className={`watch-activity-summary${latest !== undefined && ["failed", "partial", "timed_out"].includes(latest.status) ? " watch-activity-summary--limited" : ""}`}
@@ -464,9 +451,21 @@ export function PortfolioWatchMonitor({
             />
           )}
         </div>
-        <Button tone="quiet" onClick={() => setTab("coverage")}>
-          View coverage & issues
-        </Button>
+        <ActionGroup className="watch-monitoring-actions" wrap>
+          <Button
+            disabled={
+              busy || running !== undefined || loading || activity === null
+            }
+            onClick={() => {
+              void scan();
+            }}
+          >
+            {busy || running !== undefined ? "Checking…" : "Check now"}
+          </Button>
+          <Button tone="quiet" onClick={() => setTab("coverage")}>
+            View coverage & issues
+          </Button>
+        </ActionGroup>
       </section>
       {
         <SearchField
@@ -531,7 +530,7 @@ export function PortfolioWatchMonitor({
                   : "Unread news"
             }
             action={
-              <ActionGroup wrap>
+              <ActionGroup aria-label="Filter updates" role="group" wrap>
                 {(
                   [
                     ["unread", `Unread (${unreadCount})`],
@@ -541,7 +540,7 @@ export function PortfolioWatchMonitor({
                 ).map(([value, label]) => (
                   <Button
                     key={value}
-                    tone="quiet"
+                    size="compact"
                     aria-pressed={updateFilter === value}
                     onClick={() => {
                       setUpdateFilter(value);
@@ -556,6 +555,10 @@ export function PortfolioWatchMonitor({
           />
           {signalCount === 0 ? (
             <EmptyState
+              className="watch-updates-empty"
+              compact
+              headingAs="h3"
+              icon={null}
               title={
                 updateFilter === "decisions"
                   ? "No decisions needed"
@@ -577,18 +580,20 @@ export function PortfolioWatchMonitor({
                 .map((item) => item.observation),
             )
           )}
-          <ActionGroup className="watch-page-actions" wrap>
-            {currentSignalPage > 0 && (
-              <Button onClick={() => setSignalPage(currentSignalPage - 1)}>
-                Previous updates
-              </Button>
-            )}
-            {(currentSignalPage + 1) * 20 < signalCount && (
-              <Button onClick={() => setSignalPage(currentSignalPage + 1)}>
-                Next updates
-              </Button>
-            )}
-          </ActionGroup>
+          {signalCount > 20 && (
+            <ActionGroup className="watch-page-actions" wrap>
+              {currentSignalPage > 0 && (
+                <Button onClick={() => setSignalPage(currentSignalPage - 1)}>
+                  Previous updates
+                </Button>
+              )}
+              {(currentSignalPage + 1) * 20 < signalCount && (
+                <Button onClick={() => setSignalPage(currentSignalPage + 1)}>
+                  Next updates
+                </Button>
+              )}
+            </ActionGroup>
+          )}
         </TabsContent>
         <TabsContent value="coverage">
           <SectionHeader

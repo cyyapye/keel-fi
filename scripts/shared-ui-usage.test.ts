@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const webSourceDirectory = resolve(import.meta.dirname, "../apps/web/src");
@@ -13,6 +14,45 @@ function reactSourceFiles(directory: string): string[] {
     }
     return entry.isFile() && /\.tsx$/u.test(entry.name) ? [path] : [];
   });
+}
+
+function jsxElements(source: string) {
+  const elements: {
+    component: string;
+    attributes: Map<string, string>;
+  }[] = [];
+  const file = ts.createSourceFile(
+    "screen.tsx",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  function visit(node: ts.Node) {
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const attributes = new Map<string, string>();
+      for (const attribute of node.attributes.properties) {
+        if (!ts.isJsxAttribute(attribute)) continue;
+        const value = attribute.initializer;
+        attributes.set(
+          attribute.name.getText(file),
+          value === undefined
+            ? "true"
+            : ts.isStringLiteral(value)
+              ? value.text
+              : ts.isJsxExpression(value)
+                ? value.expression && ts.isStringLiteral(value.expression)
+                  ? value.expression.text
+                  : (value.expression?.getText(file) ?? "")
+                : value.getText(file),
+        );
+      }
+      elements.push({ component: node.tagName.getText(file), attributes });
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return elements;
 }
 
 describe("shared UI usage", () => {
@@ -103,6 +143,21 @@ describe("shared UI usage", () => {
     expect(violations).toEqual([]);
   });
 
+  it("keeps toggle filters from using link-styled buttons", () => {
+    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) =>
+      jsxElements(readFileSync(path, "utf8")).flatMap(
+        ({ component, attributes }) =>
+          component === "Button" &&
+          attributes.has("aria-pressed") &&
+          attributes.get("tone") === "quiet"
+            ? [`${relative(webSourceDirectory, path)}: quiet toggle button`]
+            : [],
+      ),
+    );
+
+    expect(violations).toEqual([]);
+  });
+
   it("routes approved structural headings through SectionHeader", () => {
     const structuralHeadingClassesByFile: Record<string, readonly string[]> = {
       "InvestmentHoldings.tsx": [
@@ -144,23 +199,27 @@ describe("shared UI usage", () => {
       ],
       "Obligations.tsx": ["reviewed-obligations__empty"],
       "PortfolioSnapshot.tsx": ["portfolio-movers__empty"],
+      "PortfolioWatchMonitor.tsx": ["watch-updates-empty"],
     };
     const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
       const relativePath = relative(webSourceDirectory, path);
       const emptyStateClasses = emptyStateClassesByFile[relativePath] ?? [];
-      const source = readFileSync(path, "utf8");
-      const elements = source.matchAll(
-        /<([A-Za-z][\w.]*)\b[^>]*\bclassName="([^"]+)"/gsu,
+      return jsxElements(readFileSync(path, "utf8")).flatMap(
+        ({ component, attributes }) => {
+          const className = attributes.get("className") ?? "";
+          const isAuditedEmptyState = className
+            .split(/\s+/u)
+            .some((token) => emptyStateClasses.includes(token));
+          return isAuditedEmptyState &&
+            (component !== "EmptyState" ||
+              attributes.get("compact") !== "true" ||
+              attributes.get("icon") !== "null")
+            ? [
+                `${relativePath}: ${className} requires compact EmptyState without an icon`,
+              ]
+            : [];
+        },
       );
-      return Array.from(elements).flatMap((match) => {
-        const [, component = "", className = ""] = match;
-        const isAuditedEmptyState = className
-          .split(/\s+/u)
-          .some((token) => emptyStateClasses.includes(token));
-        return isAuditedEmptyState && component !== "EmptyState"
-          ? [`${relativePath}: <${component} className="${className}">`]
-          : [];
-      });
     });
 
     expect(violations).toEqual([]);
