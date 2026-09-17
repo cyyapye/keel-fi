@@ -6,28 +6,54 @@ including direct and look-through holdings. Adding the first current mapping
 activates the company; removing the last current mapping pauses and hides it
 without deleting historical sources or observations. Public instruments and
 funds remain exposure records, but they do not enter this official-company
-source pipeline without a reviewed company identity and host. The UI does not
-ask the user to curate a separate watch list, URLs, or feeds, or to run an
-initial scan before monitoring begins.
+source pipeline without a reviewed company identity and host. The watch list
+follows accepted holdings. Sources are discovered after an official company
+website is confirmed; an initial manual scan is optional.
 
 When a current private-company exposure has no reviewed official host, its
 target remains visible with unavailable coverage. Keel does not guess a URL;
 monitoring begins automatically once a reviewed official host is available.
 
-Company identification from imported investment evidence currently records the
-name with a null website host. There is no general web-search step to find and
-verify the official host. Company-name variants are separate reviewed
-identities; name similarity alone must not transfer an approved host. Once a
-host is known, the existing same-origin discovery rules apply. Pages and feeds
-on one domain are source records, not independent publishers.
+Company identification from imported investment evidence can record a name
+without a website. Coverage now accepts a reviewed official website with the
+company's exact name and the user's matching rationale. A scoped append-only
+`portfolio_watch_website_decisions` record applies that identity decision and
+registers a homepage for verification in the same transaction. Confirming a
+website does not claim a successful fetch. Stale names, an existing host,
+unrelated households and unsafe URLs fail closed; retries reuse a decision ID.
+Company-name similarity alone never transfers an approved host.
+
+An optional Brave Search connection supplies up to five website suggestions when
+the user chooses Find website. Suggestions remain unconfirmed; the user checks
+the company identity before confirming. Search sends only the company name,
+performs one ten-second request with a 256 KiB response limit, and never fetches
+candidate sites or writes company records. There is no background search or
+automatic website acceptance. Without a provider key, Coverage still accepts a
+known official website and does not display an inactive search button. Set the
+optional `KEEL_PREVIEW_BRAVE_SEARCH_API_KEY` environment secret for the preview
+deployment; it becomes the API's `BRAVE_SEARCH_API_KEY`. The key never enters
+the browser or generated public configuration. Provider API:
+[Brave web search](https://api-dashboard.search.brave.com/app/documentation/web-search).
 
 ## Attention and company search
 
-Watch opens on Updates with the Needs review filter. Pending, non-superseded
-evidence appears first; All updates includes accepted, rejected, scenario-only
-and superseded history. Review state is persisted evidence state, not a browser
-read/unread marker. Both views sort by retrieval time with an ID tie-break and
-render at most twenty updates. Published and found timestamps remain separate.
+Watch opens on unread news. Compact rows link directly to the article and show
+published and found times. Ordinary news has no inferred financial impact or
+fixed confidence percentage. Reported financing terms and any existing value
+range remain available in Details. Decisions filters pending, non-superseded
+financing evidence or an actual financial application; ordinary news does not
+create an attention requirement merely because its evidence is pending. Review
+decision opens and focuses the exact evidence item with its related reports
+intact, including after reload.
+
+Reading news uses `portfolio_watch_read_receipts`, scoped to user and household.
+The authenticated read-state POST is idempotent and version checked; it cannot
+accept evidence or alter financial records. A failed save leaves the item
+unread. The Alpha projection joins receipts using the user/observation primary
+key in its existing read, and a stale refresh cannot overwrite a newer receipt
+in the browser. Unread, Decisions and All updates filter before the twenty-row
+page; decisions sort first, then unread, retrieval time and ID. Activity is a
+Check history disclosure within Coverage.
 
 The shared company search filters updates before paging and sends a debounced,
 bounded `q` to the coverage projection. Coverage searches the whole household
@@ -38,11 +64,21 @@ does not display stale matches after a failed or out-of-order response. Check
 now still checks the household's eligible sources; search does not alter
 admission.
 
-Coverage distinguishes a missing official host from a known website awaiting
-verification and a failed source read. It shows the saved HTTP response where
-available to explain denied access or an unavailable page without inferring that
-the company has no public news. Checks and source verification do not change
-accepted financial records.
+Coverage groups pages and feeds by publisher, with URL diagnostics behind a
+disclosure that initially shows five pages. It distinguishes a missing official
+host from a known website awaiting verification and a failed source read. It
+shows the saved HTTP response where available to explain denied access or an
+unavailable page without inferring that the company has no public news. Checks
+and source verification do not change accepted financial records.
+
+Manual and scheduled selection take one page per company before a second, up to
+forty checks per run and two per company. Admission enforces the company limit
+in its transaction, including direct callers. Due feeds are preferred, then
+homepages and other pages; manual selection rotates by last attempt. Discovery
+prioritizes feeds and newsrooms, and omits language-prefixed versions when the
+same default route is present. Unique regional routes remain eligible. Existing
+observations and source history are retained; publisher grouping does not assert
+that different articles report identical financial facts.
 
 ## Automatic lifecycle
 

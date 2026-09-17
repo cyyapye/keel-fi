@@ -111,6 +111,7 @@ const watchActivityFixture = {
     sourceCount: 3,
     unavailableCount: 1,
     neverCheckedCount: 0,
+    lastSuccessAt: "2026-08-02T12:00:00.000Z",
     nextCheckAt: "2026-08-02T13:00:00.000Z",
   },
   companies: [
@@ -281,14 +282,14 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   await page.clock.fastForward(10_000);
   await expect(checkButton).toBeEnabled();
   await expect(page.getByTestId("portfolio-watch-control")).toContainText(
-    "2 of 3 sources read",
+    "2 of 3 pages and feeds read",
   );
   await page.getByRole("tab", { name: "Coverage", exact: true }).click();
   await page.getByTestId("watch-target-watch_lattice").click();
   await expect(
     page.getByText("The site did not respond. Keel will retry."),
   ).toBeVisible();
-  await expect(page.getByText(/Last successful check: Jul 26/)).toBeVisible();
+  await expect(page.getByText(/Last successful read: Jul 26/)).toBeVisible();
   await expect(page.getByTestId("watch-target-watch_northstar")).toContainText(
     "Official website not identified",
   );
@@ -300,7 +301,9 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
     "portfolio-watch.png",
     { animations: "disabled" },
   );
-  await page.getByRole("tab", { name: "Activity", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Check history", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", {
       name: "Scheduled check · Completed with unavailable sources",
@@ -310,24 +313,30 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
     "portfolio-watch-activity.png",
     { animations: "disabled" },
   );
-  await page.getByRole("tab", { name: "Updates (1)", exact: true }).click();
-  await expect(page.getByText(/Found by Keel Aug 2, 2026/)).toBeVisible();
+  await page.getByRole("tab", { name: "Updates", exact: true }).click();
+  await expect(page.getByText(/Found Aug 2, 2026/)).toBeVisible();
+  await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.getByText("Reported financing")).toBeVisible();
-  await expect(page.getByText("Series C · Equity")).toBeVisible();
-  await expect(page.getByText("USD 62M")).toBeVisible();
   await expect(
-    page.getByText("USD 310M · post-money company valuation"),
+    page.getByText("Series C · Equity", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("USD 62M", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("USD 310M · post-money company valuation", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText(
       "Source wording: “announced a US$62 million Series C financing at a US$310 million post-money company valuation”",
     ),
   ).toBeVisible();
-  const meaningSection = page.getByText("What it means").locator("..");
-  await expect(meaningSection).toBeVisible();
-  await expect(meaningSection).toContainText("Classification confidence 61.0%");
+  await expect(
+    page.getByText(
+      /Classification confidence|Model confidence|Source reliability/,
+    ),
+  ).toHaveCount(0);
   await expect(page.getByText(/Retained parsing context/)).toHaveCount(0);
   await expect(page.getByText("Estimated range")).toHaveCount(0);
+  await page.getByRole("button", { name: "Details", exact: true }).click();
   await page.addStyleTag({
     content: `
       .topbar,
@@ -380,14 +389,14 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
     /Watch/,
   );
   const summary = page.getByTestId("portfolio-watch-control");
-  await expect(summary).toContainText("No new signals from those sources");
+  await expect(summary).toContainText("No new updates from those sources");
   await page.reload();
   await navigateToScreen(
     page,
     testInfo.project.name === "mobile-chromium",
     /Watch/,
   );
-  await expect(summary).toContainText("Last check completed Aug 2, 2026");
+  await expect(summary).toContainText("Last attempt Aug 2, 2026");
   state = {
     ...state,
     runs: [
@@ -405,8 +414,10 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
     testInfo.project.name === "mobile-chromium",
     /Watch/,
   );
-  await expect(summary).toContainText("0 of 3 sources read · 3 unavailable");
-  await expect(summary).not.toContainText("No new signals");
+  await expect(summary).toContainText(
+    "0 of 3 pages and feeds read · 3 unavailable",
+  );
+  await expect(summary).not.toContainText("No new updates");
   state = {
     ...state,
     runs: [
@@ -518,7 +529,15 @@ test("bounds the company list and recovers an activity read failure", async ({
     page.getByRole("heading", { name: "120 companies · 6000 pages and feeds" }),
   ).toBeVisible();
   await page.getByTestId("watch-target-synthetic-company-0").click();
-  await expect(page.locator(".watch-source-detail")).toHaveCount(50);
+  await expect(page.locator(".watch-source-detail")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Pages and check details (50)" })
+    .click();
+  await expect(page.locator(".watch-source-detail")).toHaveCount(5);
+  await page
+    .getByRole("button", { name: "Show more pages", exact: true })
+    .click();
+  await expect(page.locator(".watch-source-detail")).toHaveCount(10);
   const widths = await page.locator(".watch-screen").evaluate((element) => ({
     client: element.clientWidth,
     scroll: element.scrollWidth,
@@ -624,18 +643,20 @@ test("puts pending updates first and searches the full history before paging", a
     testInfo.project.name === "mobile-chromium",
     /Watch/,
   );
-  await expect(
-    page.getByRole("tab", { name: "Updates (125)" }),
-  ).toHaveAttribute("aria-selected", "true");
-  const cards = page.locator(".watch-observation-list > article");
+  await expect(page.getByRole("tab", { name: "Updates" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  const cards = page.locator(".watch-news-row");
+  await page
+    .getByRole("button", { name: "Decisions (3)", exact: true })
+    .click();
   await expect(cards).toHaveCount(3);
   await expect(cards.first()).toContainText("Synthetic update 124");
   await expect(
-    page.getByRole("heading", { name: "3 updates need review" }),
+    page.getByRole("heading", { name: "Decisions needed" }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "All updates (125)", exact: true })
-    .click();
+  await page.getByRole("button", { name: "All updates", exact: true }).click();
   await expect(cards).toHaveCount(20);
   await expect(cards.first()).toContainText("Synthetic update 124");
   await page.getByRole("button", { name: "Next updates", exact: true }).click();
@@ -646,15 +667,17 @@ test("puts pending updates first and searches the full history before paging", a
   await expect(cards).toHaveCount(1);
   await expect(cards.first()).toContainText("Synthetic update 124");
   await page
-    .getByRole("button", { name: "Needs review (1)", exact: true })
+    .getByRole("button", { name: "Decisions (1)", exact: true })
     .click();
   await expect(cards).toHaveCount(1);
-  // Persisted review status, not whether this browser has opened the article,
-  // determines which updates need attention after a reload.
+  // Reading an update and accepting its financial evidence remain separate.
   observations[124]!.evidenceStatus = "accepted";
   await page.reload();
+  await page
+    .getByRole("button", { name: "Decisions (2)", exact: true })
+    .click();
   await expect(
-    page.getByRole("heading", { name: "2 updates need review" }),
+    page.getByRole("heading", { name: "Decisions needed" }),
   ).toBeVisible();
   await expect(cards).toHaveCount(2);
 });
@@ -1325,9 +1348,199 @@ test("keeps the legacy estimated range when financing facts are absent", async (
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
   await navigateToScreen(page, mobile, /Watch/);
-  await page.getByRole("tab", { name: "Updates (1)", exact: true }).click();
+  await page.getByRole("tab", { name: "Updates", exact: true }).click();
 
+  await expect(page.getByText("Estimated range")).toHaveCount(0);
+  await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.getByText("Estimated range")).toBeVisible();
   await expect(page.getByText("$930k – $1.4M")).toBeVisible();
   await expect(page.getByText("Reported financing")).toHaveCount(0);
+});
+
+test("reads news independently of decisions, restores read state, and opens the selected evidence", async ({
+  page,
+}) => {
+  const alpha = await (await page.request.get("/api/alpha")).json();
+  const selected = alpha.evidenceInbox[0];
+  const financing = {
+    ...portfolioWatchFixture.observations[0]!,
+    evidenceEventId: selected.id,
+    readAt: null,
+    readVersion: 0,
+  };
+  const news = {
+    ...financing,
+    id: "synthetic-news",
+    evidenceEventId: "synthetic-news-event",
+    financingFacts: null,
+    valuationLowMinor: null,
+    valuationMiddleMinor: null,
+    valuationHighMinor: null,
+    sourceTitle:
+      "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
+    observedFact:
+      "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
+    readAt: null as string | null,
+  };
+  const fixture = {
+    ...alpha,
+    signalReconciliations: [],
+    portfolioWatch: {
+      ...portfolioWatchFixture,
+      observations: [news, financing],
+    },
+  };
+  await page.route("**/api/alpha", (route) => route.fulfill({ json: fixture }));
+  await page.route("**/api/watch/activity**", (route) =>
+    route.fulfill({ json: watchActivityFixture }),
+  );
+  let fail = true;
+  let evidenceWrites = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && /\/api\/evidence/.test(request.url()))
+      evidenceWrites++;
+  });
+  await page.route(
+    "**/api/watch/observations/synthetic-news/read",
+    async (route) => {
+      if (fail)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Couldn’t save read status. Try again." },
+        });
+      const body = route.request().postDataJSON();
+      expect(body.expectedVersion).toBe(news.readVersion);
+      news.readAt = body.read ? "2026-08-02T12:30:00.000Z" : null;
+      news.readVersion++;
+      await route.fulfill({
+        json: {
+          observationId: news.id,
+          readAt: news.readAt,
+          version: news.readVersion,
+        },
+      });
+    },
+  );
+  await page.goto("/watch");
+  const row = page.getByRole("article", {
+    name: news.sourceTitle,
+    exact: true,
+  });
+  await expect(
+    row.getByRole("link", { name: news.sourceTitle }),
+  ).toHaveAttribute("href", news.sourceUrl);
+  await expect(row.getByRole("button", { name: /Review/ })).toHaveCount(0);
+  await expect(
+    row.getByText(/Not estimated|Model confidence|Keel estimate/),
+  ).toHaveCount(0);
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await page.mouse.move(0, 0);
+  await expect(page.locator(".watch-screen")).toHaveScreenshot(
+    "portfolio-watch-news.png",
+    { animations: "disabled" },
+  );
+  await row.getByRole("button", { name: "Mark read", exact: true }).click();
+  await expect(
+    row.getByText("Couldn’t save read status. Try again."),
+  ).toBeVisible();
+  await expect(row).toBeVisible();
+  fail = false;
+  await row.getByRole("button", { name: "Mark read", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Unread (1)", exact: true }),
+  ).toBeVisible();
+  await expect(row).toHaveCount(0);
+  await page.getByRole("button", { name: "All updates", exact: true }).click();
+  await expect(
+    row.getByRole("button", { name: "Mark unread", exact: true }),
+  ).toBeVisible();
+  expect(evidenceWrites).toBe(0);
+  await page
+    .getByRole("button", { name: "Review decision", exact: true })
+    .click();
+  await expect(page).toHaveURL(
+    new RegExp(`/evidence\\?event=${encodeURIComponent(selected.id)}`),
+  );
+  await expect(page.locator(`[id="evidence-${selected.id}"]`)).toBeFocused();
+  await page.reload();
+  await expect(page.locator(`[id="evidence-${selected.id}"]`)).toBeFocused();
+});
+
+test("confirms a missing website while keeping source verification pending", async ({
+  page,
+}) => {
+  let activity = structuredClone(watchActivityFixture);
+  await page.route("**/api/watch/activity**", (route) =>
+    route.fulfill({ json: activity }),
+  );
+  let submitted: Record<string, string> | undefined;
+  await page.route(
+    "**/api/watch/targets/watch_northstar/website",
+    async (route) => {
+      submitted = route.request().postDataJSON();
+      expect(submitted?.companyName).toBe("Northstar Robotics");
+      activity = {
+        ...activity,
+        companies: activity.companies.map((company) =>
+          company.id === "watch_northstar"
+            ? {
+                ...company,
+                officialHost: "northstar-robotics.example",
+                sources: [
+                  {
+                    ...watchSourceFixture,
+                    id: "source_new",
+                    targetId: company.id,
+                    url: "https://northstar-robotics.example/",
+                    status: "discovered",
+                    lastAttemptAt: null,
+                    lastCompletedAt: null,
+                    lastSuccessAt: null,
+                    outcome: null,
+                    signalCount: 0,
+                  },
+                ],
+              }
+            : company,
+        ),
+      } as typeof activity;
+      await route.fulfill({
+        json: {
+          decisionId: submitted!.decisionId,
+          officialHost: "northstar-robotics.example",
+          decidedAt: "2026-08-02T12:00:00.000Z",
+        },
+      });
+    },
+  );
+  await page.goto("/watch");
+  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
+  const company = page.getByTestId("watch-target-watch_northstar");
+  await company.click();
+  await expect(
+    page.getByRole("button", { name: "Confirm website", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByLabel("Official website URL", { exact: true })
+    .fill("https://northstar-robotics.example/");
+  await page
+    .getByLabel("Why this is the same company", { exact: true })
+    .fill(
+      "The website identifies Northstar Robotics and its robotics business.",
+    );
+  await page
+    .getByRole("button", { name: "Confirm website", exact: true })
+    .click();
+  await expect(company).toContainText("Waiting for first completed check");
+  await expect(
+    page.getByText("Last successful read: None recorded", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
+  await expect(company).toContainText("Waiting for first completed check");
+  expect(submitted?.rationale).toContain("Northstar Robotics");
 });

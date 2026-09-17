@@ -600,6 +600,46 @@ const HTML_TAG_PATTERN = /<(?:a|link)\b[^>]*>/gi;
 const ATTRIBUTE_PATTERN =
   /([A-Za-z_:][A-Za-z0-9:_.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 
+/** Prefer feeds and default-language routes. Equivalent URL paths are monitoring
+ * alternatives, not proof that two articles contain identical financial facts. */
+function selectDiscoveryCandidates(
+  candidates: CompanyWebDiscoveryCandidate[],
+): CompanyWebDiscoveryCandidate[] {
+  const priority = { feed: 0, newsroom: 1, sitemap: 2, article: 3 };
+  const localePath =
+    /^\/(?:[a-z]{2}(?:-[A-Za-z]{2})?)(?=\/(?:news|newsroom|press|blog|updates|stories|insights)(?:\/|$))/;
+  const ordered = [...candidates].sort((left, right) => {
+    const leftUrl = new URL(left.url),
+      rightUrl = new URL(right.url);
+    return (
+      priority[left.kind] - priority[right.kind] ||
+      Number(localePath.test(leftUrl.pathname)) -
+        Number(localePath.test(rightUrl.pathname)) ||
+      Number(!EVENT_PATH_PATTERN.test(leftUrl.pathname)) -
+        Number(!EVENT_PATH_PATTERN.test(rightUrl.pathname)) ||
+      left.url.localeCompare(right.url)
+    );
+  });
+  const defaultRoutes = new Set(
+    candidates
+      .filter((candidate) => !localePath.test(new URL(candidate.url).pathname))
+      .map((candidate) => candidate.url),
+  );
+  return z
+    .array(CompanyWebDiscoveryCandidateSchema)
+    .max(MAX_COMPANY_WEB_DISCOVERY_CANDIDATES)
+    .parse(
+      ordered
+        .filter((candidate) => {
+          const url = new URL(candidate.url);
+          if (!localePath.test(url.pathname)) return true;
+          url.pathname = url.pathname.replace(localePath, "");
+          return !defaultRoutes.has(url.href);
+        })
+        .slice(0, MAX_COMPANY_WEB_DISCOVERY_CANDIDATES),
+    );
+}
+
 /**
  * Discovers safe, same-origin newsroom, feed, and article links from bounded
  * HTML. It ignores document <base> elements and resolves every link relative
@@ -636,27 +676,7 @@ export function discoverCompanyWebCandidatesFromHtml(
     }
   }
 
-  const kindPriority: Record<
-    z.infer<typeof CompanyWebCandidateKindSchema>,
-    number
-  > = { article: 1, feed: 2, sitemap: 2, newsroom: 3 };
-  candidates.sort((left, right) => {
-    const leftEvent = EVENT_PATH_PATTERN.test(new URL(left.url).pathname)
-      ? 0
-      : 1;
-    const rightEvent = EVENT_PATH_PATTERN.test(new URL(right.url).pathname)
-      ? 0
-      : 1;
-    return (
-      leftEvent - rightEvent ||
-      kindPriority[left.kind] - kindPriority[right.kind] ||
-      left.url.localeCompare(right.url)
-    );
-  });
-  return z
-    .array(CompanyWebDiscoveryCandidateSchema)
-    .max(MAX_COMPANY_WEB_DISCOVERY_CANDIDATES)
-    .parse(candidates.slice(0, MAX_COMPANY_WEB_DISCOVERY_CANDIDATES));
+  return selectDiscoveryCandidates(candidates);
 }
 
 /** Discovers safe same-origin newsroom, feed, and article links from Markdown. */
@@ -700,19 +720,7 @@ export function discoverCompanyWebCandidatesFromMarkdown(
     seen.add(candidate.url);
   }
 
-  candidates.sort((left, right) => {
-    const leftEvent = EVENT_PATH_PATTERN.test(new URL(left.url).pathname)
-      ? 0
-      : 1;
-    const rightEvent = EVENT_PATH_PATTERN.test(new URL(right.url).pathname)
-      ? 0
-      : 1;
-    return leftEvent - rightEvent || left.url.localeCompare(right.url);
-  });
-  return z
-    .array(CompanyWebDiscoveryCandidateSchema)
-    .max(MAX_COMPANY_WEB_DISCOVERY_CANDIDATES)
-    .parse(candidates.slice(0, MAX_COMPANY_WEB_DISCOVERY_CANDIDATES));
+  return selectDiscoveryCandidates(candidates);
 }
 
 /**
@@ -801,19 +809,7 @@ export function discoverCompanyWebCandidatesFromSitemap(
     seen.add(candidate.url);
   }
 
-  candidates.sort((left, right) => {
-    const leftEvent = EVENT_PATH_PATTERN.test(new URL(left.url).pathname)
-      ? 0
-      : 1;
-    const rightEvent = EVENT_PATH_PATTERN.test(new URL(right.url).pathname)
-      ? 0
-      : 1;
-    return leftEvent - rightEvent || left.url.localeCompare(right.url);
-  });
-  return z
-    .array(CompanyWebDiscoveryCandidateSchema)
-    .max(MAX_COMPANY_WEB_DISCOVERY_CANDIDATES)
-    .parse(candidates.slice(0, MAX_COMPANY_WEB_DISCOVERY_CANDIDATES));
+  return selectDiscoveryCandidates(candidates);
 }
 
 /**

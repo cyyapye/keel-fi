@@ -280,6 +280,25 @@ queue call. Ceilings: busy day 150,000 reads / 50,000 writes; failure day 20,000
 reads / 8,000 writes. The test asserts the queue retry config and rejects
 recursive sends.
 
+Manual and scheduled source selection now spread the batch across companies,
+with at most two checks per company enforced again during atomic admission. The
+120-company, 6,000-page holdout measures 72,722 D1 rows read for both selections
+together (two round trips, zero writes; combined ceiling 80,000). The scheduled
+share stays within the existing 150,000-row busy-day allowance; no source-fetch,
+retry, queue, or object-write budget is increased. The empty 6,000-page case
+retains one due-index lookup and at most ten rows read. Query plans have no
+correlated subqueries.
+
+Website search is a separate explicit user action: one provider request, no
+pagination or automatic retry, at most five suggestions, a ten-second deadline
+and 256 KiB response cap. It does not fetch suggested sites or run on a cadence.
+Website confirmation records one scoped identity decision and registers its
+homepage through the existing bounded target triggers. Read/unread actions use
+one D1 round trip on change, two on an idempotent replay or conflict, at most 30
+rows read and three writes including the primary-key index. Neither action
+changes source polling or financial acceptance. Receipt reads use the existing
+Alpha query and a primary-key join, without another repository round trip.
+
 ### Portfolio Watch progress
 
 The owner is one foreground Portfolio Watch page observing one admitted run.

@@ -7,6 +7,7 @@ import {
 } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { D1WatchWebsiteRepository } from "./watch-website";
 import { __alphaRepositoryTest, D1AlphaRepository } from "./index";
 import {
   __portfolioWatchTest,
@@ -68,6 +69,8 @@ const migrationFiles = [
   syntheticSeedFile,
   "packages/database/migrations/0061_portfolio_watch_activity.sql",
   "packages/database/migrations/0062_reviewed_company_aliases.sql",
+  "packages/database/migrations/0064_watch_read_receipts.sql",
+  "packages/database/migrations/0065_watch_website_confirmation.sql",
 ] as const;
 
 class TestD1Statement {
@@ -671,8 +674,142 @@ describe("Portfolio Watch exposure universe", () => {
   });
 });
 
+describe("reviewed Watch websites", () => {
+  it("keeps the source limit atomic when a company already has a full source list", async () => {
+    database = createTestDatabase();
+    seedPrivateExposureUniverse(database, 125, { withWebsiteHosts: false });
+    const target = database
+      .prepare(
+        "SELECT id FROM portfolio_watch_targets WHERE company_id = 'co_watch_scale_001'",
+      )
+      .get() as { id: string };
+    database
+      .prepare(
+        `WITH RECURSIVE pages(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM pages WHERE n < 50)
+         INSERT INTO portfolio_watch_sources (
+           id, household_id, watch_target_id, company_id, source_kind, source_class,
+           canonical_url, allowed_origin, allowed_path_prefix, status, authority_ppm,
+           identity_confidence_ppm, operational_health_ppm, coverage_json, created_at, updated_at
+         ) SELECT 'website-limit-' || n, 'hh_demo', ?, 'co_watch_scale_001',
+           'official_company_web', 'official_company', 'https://watch-scale-001.example/news/' || n,
+           'https://watch-scale-001.example', '/', 'discovered', 1000000, 1000000, 0, '{}',
+           '2026-09-16T13:00:00.000Z', '2026-09-16T13:00:00.000Z' FROM pages`,
+      )
+      .run(target.id);
+    const repository = new D1WatchWebsiteRepository(
+      new TestD1Database(database) as unknown as D1Database,
+    );
+    await expect(
+      repository.confirm("synthetic-access-subject", target.id, {
+        decisionId: crypto.randomUUID(),
+        companyName: "Synthetic Watch Company 001",
+        websiteUrl: "https://watch-scale-001.example/",
+        rationale:
+          "The official website identifies Synthetic Watch Company 001.",
+      }),
+    ).rejects.toThrow("Watch source limit reached");
+    expect(
+      database
+        .prepare(
+          "SELECT website_host FROM companies WHERE id = 'co_watch_scale_001'",
+        )
+        .get(),
+    ).toEqual({ website_host: null });
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM portfolio_watch_website_decisions",
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM portfolio_watch_sources WHERE watch_target_id = ?",
+        )
+        .get(target.id),
+    ).toEqual({ count: 50 });
+  });
+
+  it("records an identity decision before scheduling verification and rejects stale or unrelated writes", async () => {
+    database = createTestDatabase();
+    seedPrivateExposureUniverse(database, 125, { withWebsiteHosts: false });
+    const measured = new TestD1Database(database);
+    const repository = new D1WatchWebsiteRepository(
+      measured as unknown as D1Database,
+    );
+    const target = database
+      .prepare(
+        "SELECT id FROM portfolio_watch_targets WHERE company_id = 'co_watch_scale_001'",
+      )
+      .get() as { id: string };
+    expect(target).toBeDefined();
+    const input = {
+      decisionId: crypto.randomUUID(),
+      companyName: "Synthetic Watch Company 001",
+      websiteUrl: "https://watch-scale-001.example/",
+      rationale: "The official website identifies Synthetic Watch Company 001.",
+    };
+    const receipt = await repository.confirm(
+      "synthetic-access-subject",
+      target.id,
+      input,
+      "2026-09-16T13:00:00.000Z",
+    );
+    expect(receipt.officialHost).toBe("watch-scale-001.example");
+    expect(measured.roundTripCount).toBe(3);
+    expect(
+      await repository.confirm("synthetic-access-subject", target.id, input),
+    ).toEqual(receipt);
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM portfolio_watch_website_decisions",
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database
+        .prepare(
+          "SELECT status, operational_health_ppm FROM portfolio_watch_sources WHERE watch_target_id = ?",
+        )
+        .get(target.id),
+    ).toEqual({ status: "discovered", operational_health_ppm: 0 });
+    expect(
+      database
+        .prepare(
+          "SELECT last_completed_success_at FROM portfolio_watch_source_sync_state WHERE source_id IN (SELECT id FROM portfolio_watch_sources WHERE watch_target_id = ?)",
+        )
+        .get(target.id),
+    ).toEqual({ last_completed_success_at: null });
+    await expect(
+      repository.confirm("synthetic-access-subject", target.id, {
+        ...input,
+        decisionId: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow("watch_website_changed");
+    await expect(
+      repository.confirm("unrelated-user", target.id, input),
+    ).rejects.toThrow("watch_target_not_found");
+    await expect(
+      repository.confirm("synthetic-access-subject", target.id, {
+        ...input,
+        websiteUrl: "https://127.0.0.1/",
+      }),
+    ).rejects.toThrow("not eligible");
+    expect(() =>
+      database!.exec(
+        "UPDATE portfolio_watch_website_decisions SET rationale = 'changed'",
+      ),
+    ).toThrow("append-only");
+    expect(() =>
+      database!.exec("DELETE FROM portfolio_watch_website_decisions"),
+    ).toThrow("append-only");
+  });
+});
+
 describe("Portfolio Watch scheduling", () => {
-  it("lists a bounded batch from more than 120 due sources with an indexed query", async () => {
+  it("keeps a company with more than 120 pages within its two-check budget", async () => {
     database = createTestDatabase();
     const insertSource = database.prepare(
       `INSERT INTO portfolio_watch_sources (
@@ -715,8 +852,8 @@ describe("Portfolio Watch scheduling", () => {
       "2026-08-28T13:00:00Z",
       100,
     );
-    expect(firstBatch).toHaveLength(40);
-    expect(new Set(firstBatch.map((job) => job.sourceId)).size).toBe(40);
+    expect(firstBatch).toHaveLength(2);
+    expect(new Set(firstBatch.map((job) => job.sourceId)).size).toBe(2);
     expect(firstBatch).toContainEqual({
       type: "portfolio_watch_source_verify",
       sourceId: "source_scale_001",

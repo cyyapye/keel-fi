@@ -313,11 +313,6 @@ describe("official-company-web bounded document discovery", () => {
 
     expect(candidates).toEqual([
       {
-        url: "https://example.com/newsroom/example-raises-series-b",
-        kind: "article",
-        discoveryMethod: "homepage_link",
-      },
-      {
         url: "https://example.com/feed.xml",
         kind: "feed",
         discoveryMethod: "feed_autodiscovery",
@@ -325,6 +320,11 @@ describe("official-company-web bounded document discovery", () => {
       {
         url: "https://example.com/newsroom",
         kind: "newsroom",
+        discoveryMethod: "homepage_link",
+      },
+      {
+        url: "https://example.com/newsroom/example-raises-series-b",
+        kind: "article",
         discoveryMethod: "homepage_link",
       },
     ]);
@@ -371,6 +371,31 @@ describe("official-company-web bounded document discovery", () => {
         kind: "article",
         discoveryMethod: "homepage_link",
       },
+    ]);
+  });
+
+  it("prefers feeds and default routes without discarding unique localized news", () => {
+    const document = `<a href="/news">News</a><a href="/ar/news">Arabic</a><a href="/am-ET/news">Amharic</a><a href="/en-US/news">English</a>
+      <a href="/news/series-c">Funding</a><a href="/ar/news/series-c">Funding translation</a>
+      <a href="/fr/news/regional-launch">Unique regional news</a><link type="application/rss+xml" rel="alternate" href="/feed.xml">`;
+    const result = discoverCompanyWebCandidatesFromHtml({ source, document });
+    expect(result[0]?.url).toBe("https://example.com/feed.xml");
+    expect(result.map((item) => item.url)).toEqual(
+      expect.arrayContaining([
+        "https://example.com/news",
+        "https://example.com/news/series-c",
+        "https://example.com/fr/news/regional-launch",
+      ]),
+    );
+    expect(result.some((item) => /\/(ar|am-ET|en-US)\//.test(item.url))).toBe(
+      false,
+    );
+    const sitemap = discoverCompanyWebCandidatesFromSitemap({
+      source,
+      document: `<urlset><url><loc>https://example.com/news</loc></url><url><loc>https://example.com/ar/news</loc></url></urlset>`,
+    });
+    expect(sitemap.map((item) => item.url)).toEqual([
+      "https://example.com/news",
     ]);
   });
 

@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+export const WatchReadInputSchema = z
+  .object({
+    read: z.boolean(),
+    expectedVersion: z.number().int().nonnegative(),
+  })
+  .strict();
+export const WatchReadReceiptSchema = z.object({
+  observationId: z.string().min(1).max(200),
+  readAt: z.iso.datetime({ offset: true }).nullable(),
+  version: z.number().int().nonnegative(),
+});
+export type WatchReadReceipt = z.infer<typeof WatchReadReceiptSchema>;
+
 const timestamp = z.iso.datetime({ offset: true });
 const count = z.number().int().nonnegative();
 export const WatchCompanySearchSchema = z.string().trim().max(200);
@@ -51,6 +64,7 @@ export const WatchRunSchema = z.object({
 });
 export const PortfolioWatchActivitySchema = z.object({
   asOf: timestamp,
+  websiteSearchAvailable: z.boolean().optional(),
   summary: z.object({
     companyCount: count,
     companiesWithoutWebsite: count,
@@ -58,6 +72,7 @@ export const PortfolioWatchActivitySchema = z.object({
     sourceCount: count,
     unavailableCount: count,
     neverCheckedCount: count,
+    lastSuccessAt: timestamp.nullable().optional(),
     nextCheckAt: timestamp.nullable(),
   }),
   companies: z

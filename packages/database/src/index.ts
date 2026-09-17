@@ -63,6 +63,8 @@ export * from "./plan-inputs";
 export * from "./investment-connections";
 export * from "./portfolio-watch";
 export * from "./portfolio-watch-activity";
+export * from "./portfolio-watch-inbox";
+export * from "./watch-website";
 export * from "./cash-accounts";
 export * from "./cash-flow";
 export * from "./liabilities";
@@ -267,6 +269,8 @@ const PORTFOLIO_WATCH_TARGETS_SQL = `SELECT
 
 type PublicSourceObservationRow = {
   id: string;
+  read_at: string | null;
+  read_version: number | null;
   company_id: string;
   company_name: string;
   evidence_event_id: string;
@@ -552,6 +556,12 @@ function publicSourceObservationFromRow(
 ): PublicSourceObservation {
   return {
     id: row.id,
+    ...(row.read_version == null
+      ? {}
+      : {
+          readAt: row.read_at,
+          readVersion: row.read_version,
+        }),
     companyId: row.company_id,
     companyName: row.company_name,
     evidenceEventId: row.evidence_event_id,
@@ -1037,7 +1047,7 @@ export class D1AlphaRepository implements AlphaRepository {
       all<PortfolioWatchTargetRow>(
         this.db.prepare(PORTFOLIO_WATCH_TARGETS_SQL).bind(householdId),
       ),
-      this.getPublicSourceObservationRows(householdId),
+      this.getPublicSourceObservationRows(householdId, identity.user_id),
       all<ScenarioRow>(
         this.db
           .prepare(
@@ -2532,12 +2542,15 @@ export class D1AlphaRepository implements AlphaRepository {
 
   private async getPublicSourceObservationRows(
     householdId: string,
+    userId: string | null = null,
   ): Promise<readonly PublicSourceObservationRow[]> {
     return all<PublicSourceObservationRow>(
       this.db
         .prepare(
           `SELECT
               observation.id,
+              receipt.read_at,
+              receipt.version AS read_version,
               company.id AS company_id,
               company.legal_name AS company_name,
               observation.evidence_event_id,
@@ -2567,10 +2580,13 @@ export class D1AlphaRepository implements AlphaRepository {
             FROM public_source_observations observation
             JOIN companies company ON company.id = observation.company_id
             JOIN evidence_events event ON event.id = observation.evidence_event_id
+            LEFT JOIN portfolio_watch_read_receipts receipt
+              ON receipt.user_id = ? AND receipt.observation_id = observation.id
+              AND receipt.household_id = observation.household_id
             WHERE observation.household_id = ?
             ORDER BY observation.retrieved_at DESC`,
         )
-        .bind(householdId),
+        .bind(userId, householdId),
     );
   }
 
