@@ -137,6 +137,8 @@ jobs:
           KEEL_PREVIEW_PLAID_REDIRECT_URI:
             ${{ secrets.KEEL_PREVIEW_PLAID_REDIRECT_URI }}
           KEEL_PREVIEW_PLAID_SECRET: ${{ secrets.KEEL_PREVIEW_PLAID_SECRET }}
+          KEEL_PREVIEW_BRAVE_SEARCH_API_KEY:
+            ${{ secrets.KEEL_PREVIEW_BRAVE_SEARCH_API_KEY }}
           KEEL_PREVIEW_QUEUE: ${{ secrets.KEEL_PREVIEW_QUEUE }}
           KEEL_PREVIEW_QUEUE_DLQ: ${{ secrets.KEEL_PREVIEW_QUEUE_DLQ }}
           KEEL_PREVIEW_R2_BUCKET: ${{ secrets.KEEL_PREVIEW_R2_BUCKET }}
@@ -218,6 +220,8 @@ jobs:
           KEEL_PREVIEW_PLAID_REDIRECT_URI:
             ${{ secrets.KEEL_PREVIEW_PLAID_REDIRECT_URI }}
           KEEL_PREVIEW_PLAID_SECRET: ${{ secrets.KEEL_PREVIEW_PLAID_SECRET }}
+          KEEL_PREVIEW_BRAVE_SEARCH_API_KEY:
+            ${{ secrets.KEEL_PREVIEW_BRAVE_SEARCH_API_KEY }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ env.KEEL_API_WRANGLER_OUTPUT_PATH }}
         run: |
           cleanup_api_secrets() {

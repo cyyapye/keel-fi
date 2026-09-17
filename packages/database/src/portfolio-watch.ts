@@ -32,20 +32,20 @@ const SourceJobSchema = z.object({
   runId: z.uuid().optional(),
 });
 
+const SOURCE_PRIORITY_SQL = `CASE WHEN source.source_kind IN ('official_rss', 'official_atom') THEN 0
+  WHEN source.canonical_url = source.allowed_origin || '/' THEN 1 ELSE 2 END`;
 const DUE_PORTFOLIO_WATCH_SOURCE_JOBS_SQL = `
-  SELECT source.id, source.status
-  FROM portfolio_watch_source_sync_state sync
-    INDEXED BY portfolio_watch_source_sync_due_idx
-  JOIN portfolio_watch_sources source ON source.id = sync.source_id
-  JOIN portfolio_watch_targets target
-    ON target.id = source.watch_target_id
-   AND target.household_id = source.household_id
-   AND target.company_id = source.company_id
-  WHERE sync.next_check_at <= ?
-    AND target.status = 'active'
-    AND source.status IN ('discovered', 'verified', 'active', 'degraded')
-  ORDER BY sync.next_check_at, source.id
-  LIMIT ?`;
+  WITH eligible AS (
+    SELECT source.id, source.status, source.watch_target_id, sync.next_check_at AS due_at,
+      ROW_NUMBER() OVER (PARTITION BY source.watch_target_id ORDER BY ${SOURCE_PRIORITY_SQL}, sync.next_check_at, source.id) AS source_rank
+    FROM portfolio_watch_source_sync_state sync INDEXED BY portfolio_watch_source_sync_due_idx
+    JOIN portfolio_watch_sources source ON source.id = sync.source_id
+    JOIN portfolio_watch_targets target ON target.id = source.watch_target_id
+      AND target.household_id = source.household_id AND target.company_id = source.company_id
+    WHERE sync.next_check_at <= ? AND target.status = 'active'
+      AND source.status IN ('discovered', 'verified', 'active', 'degraded')
+  ) SELECT id, status FROM eligible WHERE source_rank <= 2
+  ORDER BY source_rank, due_at, watch_target_id, id LIMIT ?`;
 
 export const PortfolioWatchScanPreparationSchema = z.object({
   checkedAt: IsoTimestampSchema,
@@ -329,15 +329,16 @@ export class D1PortfolioWatchRepository {
     }>(
       this.db
         .prepare(
-          `SELECT source.id, source.status
-           FROM portfolio_watch_sources source
-           JOIN portfolio_watch_targets target ON target.id = source.watch_target_id
-           LEFT JOIN portfolio_watch_source_sync_state sync ON sync.source_id = source.id
-           WHERE source.household_id = ?
-             AND target.status = 'active'
-             AND source.status IN ('discovered', 'verified', 'active', 'degraded')
-           ORDER BY COALESCE(sync.last_attempt_at, ''), source.id
-           LIMIT ?`,
+          `WITH eligible AS (
+             SELECT source.id, source.status, source.watch_target_id, COALESCE(sync.last_attempt_at, '') AS attempted_at,
+               ROW_NUMBER() OVER (PARTITION BY source.watch_target_id ORDER BY COALESCE(sync.last_attempt_at, ''), ${SOURCE_PRIORITY_SQL}, source.id) AS source_rank
+             FROM portfolio_watch_sources source
+             JOIN portfolio_watch_targets target ON target.id = source.watch_target_id
+             LEFT JOIN portfolio_watch_source_sync_state sync ON sync.source_id = source.id
+             WHERE source.household_id = ? AND target.status = 'active'
+               AND source.status IN ('discovered', 'verified', 'active', 'degraded')
+           ) SELECT id, status FROM eligible WHERE source_rank <= 2
+           ORDER BY source_rank, attempted_at, watch_target_id, id LIMIT ?`,
         )
         .bind(householdId, MAX_PORTFOLIO_WATCH_JOB_BATCH),
     );

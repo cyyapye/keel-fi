@@ -80,6 +80,11 @@ to `main`, and configure the following environment value:
   `KEEL_PREVIEW_ACCESS_CLIENT_SECRET`, `KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN`,
   and `KEEL_PREVIEW_BACKUP_PASSPHRASE`.
 
+Portfolio Watch website suggestions are optional. Set
+`KEEL_PREVIEW_BRAVE_SEARCH_API_KEY` to enable the Find website action. Without
+that secret, users can confirm a known official website directly in Coverage.
+Search results require a recorded company-identity decision before monitoring.
+
 Robinhood sync is optional. To enable it in preview, configure the complete
 secret group `KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY`,
 `KEEL_PREVIEW_PLAID_CLIENT_ID`, `KEEL_PREVIEW_PLAID_ENVIRONMENT`,

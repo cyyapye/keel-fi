@@ -48,6 +48,11 @@ const OptionalEnvironmentValue = <T extends z.ZodTypeAny>(schema: T) =>
     (value) => (value === "" ? undefined : value),
     schema.optional(),
   );
+const OptionalWatchEnvironmentShape = {
+  KEEL_PREVIEW_BRAVE_SEARCH_API_KEY: OptionalEnvironmentValue(
+    z.string().trim().min(1).max(512),
+  ),
+};
 const OptionalPlaidEnvironmentShape = {
   KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY: OptionalEnvironmentValue(
     z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
@@ -109,6 +114,7 @@ export const PreviewDeploymentEnvironmentSchema = z
     KEEL_PREVIEW_WEB_WORKER: CloudflareResourceNameSchema,
     RUNNER_TEMP: z.string().min(1),
     ...OptionalPlaidEnvironmentShape,
+    ...OptionalWatchEnvironmentShape,
   })
   .superRefine(validateCompletePlaidEnvironment);
 
@@ -119,6 +125,7 @@ const PreviewApiSecretsEnvironmentSchema = z
     KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN: z.string().min(32).max(1024),
     RUNNER_TEMP: z.string().min(1),
     ...OptionalPlaidEnvironmentShape,
+    ...OptionalWatchEnvironmentShape,
   })
   .superRefine(validateCompletePlaidEnvironment);
 
@@ -189,6 +196,9 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
         "ACCESS_AUD",
         "ACCESS_TEAM_DOMAIN",
         "DEPLOYMENT_SMOKE_TOKEN",
+        ...(configuration.KEEL_PREVIEW_BRAVE_SEARCH_API_KEY === undefined
+          ? []
+          : ["BRAVE_SEARCH_API_KEY"]),
         ...(configuration.KEEL_PREVIEW_PLAID_CLIENT_ID === undefined
           ? []
           : [
@@ -362,6 +372,12 @@ export async function writePreviewApiSecrets(
         ACCESS_TEAM_DOMAIN: configuration.KEEL_PREVIEW_ACCESS_TEAM_DOMAIN,
         DEPLOYMENT_SMOKE_TOKEN:
           configuration.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN,
+        ...(configuration.KEEL_PREVIEW_BRAVE_SEARCH_API_KEY === undefined
+          ? {}
+          : {
+              BRAVE_SEARCH_API_KEY:
+                configuration.KEEL_PREVIEW_BRAVE_SEARCH_API_KEY,
+            }),
         ...(configuration.KEEL_PREVIEW_PLAID_CLIENT_ID === undefined
           ? {}
           : {

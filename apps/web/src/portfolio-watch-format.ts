@@ -1,3 +1,5 @@
+import type { AlphaData, PublicSourceObservation } from "@keel/domain";
+
 export function formatWatchTime(value: string | null): string {
   return value === null
     ? "Not checked yet"
@@ -55,27 +57,48 @@ export function watchSourceProblem(
     return "This source is no longer ready for monitoring.";
   return "The source could not be checked. Keel will retry eligible sources.";
 }
-import type { PublicSourceObservation } from "@keel/domain";
-
 export function watchUpdatesForReview(
   observations: readonly PublicSourceObservation[],
   query: string,
-  supersededIds: ReadonlySet<string>,
+  decisionIds: ReadonlySet<string>,
 ) {
   const search = query.trim().toLowerCase();
   return observations
     .filter((item) => item.companyName.toLowerCase().includes(search))
     .map((observation) => ({
       observation,
-      needsReview:
-        observation.evidenceStatus === "pending_review" &&
-        !supersededIds.has(observation.id),
+      needsReview: decisionIds.has(observation.id),
+      unread: observation.readAt == null,
     }))
     .sort(
       (left, right) =>
         Number(right.needsReview) - Number(left.needsReview) ||
+        Number(right.unread) - Number(left.unread) ||
         Date.parse(right.observation.retrievedAt) -
           Date.parse(left.observation.retrievedAt) ||
         right.observation.id.localeCompare(left.observation.id),
     );
+}
+
+/** A scan response that began before a read action must not undo that action. */
+export function mergeWatchReadState(
+  next: AlphaData,
+  current: AlphaData | null,
+) {
+  const saved = new Map(
+    current?.portfolioWatch.observations.map((item) => [item.id, item]) ?? [],
+  );
+  return {
+    ...next,
+    portfolioWatch: {
+      ...next.portfolioWatch,
+      observations: next.portfolioWatch.observations.map((item) => {
+        const prior = saved.get(item.id);
+        return prior !== undefined &&
+          (prior.readVersion ?? 0) > (item.readVersion ?? 0)
+          ? { ...item, readAt: prior.readAt, readVersion: prior.readVersion }
+          : item;
+      }),
+    },
+  };
 }

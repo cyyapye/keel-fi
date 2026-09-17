@@ -10,7 +10,12 @@ import {
   CompanyIdentityError,
   type CompanyIdentityRepository,
 } from "@keel/database";
-import { WatchCompanySearchSchema } from "@keel/domain/portfolio-watch-activity";
+import {
+  WatchCompanySearchSchema,
+  WatchReadInputSchema,
+} from "@keel/domain/portfolio-watch-activity";
+import { WatchWebsiteInputSchema } from "@keel/domain/watch-website";
+import { searchWatchWebsite } from "./watch-website-search";
 import {
   AngelListCsvParseError,
   parseAngelListInvestmentsCsv,
@@ -42,6 +47,8 @@ import {
   D1PlanInputsRepository,
   D1PortfolioBaselineRepository,
   D1PortfolioWatchActivityRepository,
+  D1PortfolioWatchInboxRepository,
+  D1WatchWebsiteRepository,
   D1ProviderPortfolioAgentRepository,
   PrivateExposureReviewError,
   ProviderPortfolioAgentRepositoryError,
@@ -3680,18 +3687,156 @@ export function createApp(options: AppOptions = {}) {
       );
     try {
       return context.json(
-        await new D1PortfolioWatchActivityRepository(context.env.DB).read(
-          context.get("identity").subject,
-          cursor,
-          undefined,
-          search.data,
-        ),
+        {
+          ...(await new D1PortfolioWatchActivityRepository(context.env.DB).read(
+            context.get("identity").subject,
+            cursor,
+            undefined,
+            search.data,
+          )),
+          websiteSearchAvailable: Boolean(context.env.BRAVE_SEARCH_API_KEY),
+        },
         200,
         { "Cache-Control": "private, no-store" },
       );
     } catch {
       return context.json(
         { error: "Couldn’t load source activity. Try again." },
+        503,
+      );
+    }
+  });
+
+  app.post("/api/watch/targets/:targetId/website-search", async (context) => {
+    try {
+      const target = await new D1WatchWebsiteRepository(context.env.DB).target(
+        context.get("identity").subject,
+        context.req.param("targetId"),
+      );
+      if (!context.env.BRAVE_SEARCH_API_KEY)
+        return context.json(
+          {
+            error:
+              "Website search is not connected. Enter the company’s official website below.",
+          },
+          503,
+        );
+      return context.json(
+        await searchWatchWebsite(
+          target.companyName,
+          context.env.BRAVE_SEARCH_API_KEY,
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return context.json(
+        {
+          error:
+            "Couldn’t find websites. Enter a known official website or try again.",
+        },
+        errorMessage(error) === "watch_target_not_found" ? 404 : 503,
+      );
+    }
+  });
+
+  app.post("/api/watch/targets/:targetId/website", async (context) => {
+    const input = WatchWebsiteInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!input.success)
+      return context.json(
+        {
+          error:
+            "Enter an HTTPS website and a reason for matching it to this company.",
+        },
+        400,
+      );
+    try {
+      return context.json(
+        await new D1WatchWebsiteRepository(context.env.DB).confirm(
+          context.get("identity").subject,
+          context.req.param("targetId"),
+          input.data,
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message === "watch_target_not_found")
+        return context.json(
+          { error: "This company is no longer monitored." },
+          404,
+        );
+      if (
+        message === "watch_website_changed" ||
+        message.includes("Company website changed")
+      )
+        return context.json(
+          {
+            error:
+              "The company or website changed. Refresh coverage before confirming.",
+          },
+          409,
+        );
+      if (message.includes("Watch source limit reached"))
+        return context.json(
+          {
+            error:
+              "This company’s source list is full. Existing sources need correction before adding a website.",
+          },
+          409,
+        );
+      if (message.includes("Company homepage"))
+        return context.json(
+          {
+            error:
+              "Use the company’s public HTTPS website, without a port, credentials, or fragment.",
+          },
+          400,
+        );
+      return context.json(
+        { error: "Couldn’t confirm the website. Try again." },
+        503,
+      );
+    }
+  });
+
+  app.post("/api/watch/observations/:observationId/read", async (context) => {
+    const input = WatchReadInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    const observationId = context.req.param("observationId");
+    if (!input.success || observationId.length > 200)
+      return context.json({ error: "Invalid news read state." }, 400);
+    try {
+      return context.json(
+        await new D1PortfolioWatchInboxRepository(context.env.DB).setRead(
+          context.get("identity").subject,
+          observationId,
+          input.data,
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      const message = errorMessage(error);
+      if (message === "watch_observation_not_found")
+        return context.json(
+          { error: "This update is no longer available." },
+          404,
+        );
+      if (message === "watch_read_state_changed")
+        return context.json(
+          {
+            error:
+              "Read status changed in another window. Refresh updates and try again.",
+          },
+          409,
+        );
+      return context.json(
+        { error: "Couldn’t save read status. Try again." },
         503,
       );
     }

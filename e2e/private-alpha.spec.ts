@@ -81,15 +81,22 @@ test("loads the database-backed dashboard and primary views", async ({
     page.getByRole("heading", { name: "Portfolio Watch" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("tab", { name: "Updates (0)", exact: true }),
+    page.getByRole("tab", { name: "Updates", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await expect(
     page.getByRole("searchbox", { name: "Search companies" }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Coverage", exact: true }).click();
-  await expect(page.getByText(/Healthy sources checked weekly/)).toBeVisible();
+  await page
+    .getByRole("button", { name: "Check history", exact: true })
+    .click();
   await expect(
-    page.getByText("Public signals never change a holding on their own."),
+    page.getByText(/Healthy sources are checked weekly/),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Reading news does not change a holding. Financial changes have their own review.",
+    ),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();
   await expect(
@@ -117,14 +124,14 @@ test("loads the database-backed dashboard and primary views", async ({
     } else {
       expect(stored.runs[0]?.trigger).toBe("manual");
       expect(stored.runs[0]?.totalCount).toBe(scan.queuedCount);
-      await page.getByRole("tab", { name: "Activity", exact: true }).click();
+
       await expect(page.locator(".watch-run-list")).toContainText(
         "Manual check",
       );
     }
-    await page.getByRole("tab", { name: "Updates (0)", exact: true }).click();
+    await page.getByRole("tab", { name: "Updates", exact: true }).click();
     await expect(
-      page.getByRole("heading", { name: "No updates need review" }),
+      page.getByRole("heading", { name: "No unread updates" }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", {

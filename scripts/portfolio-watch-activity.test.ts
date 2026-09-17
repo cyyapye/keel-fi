@@ -4,6 +4,8 @@ import {
   D1PortfolioWatchActivityRepository,
   WATCH_RECENT_RUNS_SQL,
 } from "../packages/database/src/portfolio-watch-activity";
+import { D1AlphaRepository } from "../packages/database/src/index";
+import { D1PortfolioWatchInboxRepository } from "../packages/database/src/portfolio-watch-inbox";
 import { D1PortfolioWatchRepository } from "../packages/database/src/portfolio-watch";
 import {
   __portfolioWatchTest,
@@ -92,6 +94,192 @@ async function fillSourceCoverage(db: D1Database) {
 }
 
 describe("saved Portfolio Watch activity", () => {
+  it("persists personal read state with conflict protection and no financial decisions", async () => {
+    const f = await setup();
+    try {
+      const due = (await f.repository.listDueSourceJobs(start, 40)).slice(0, 4);
+      const jobs = await f.activity.admit(due, "manual", start);
+      const historyFetch: typeof fetchSource = (source) => {
+        const text = `<rss><channel><title>${source.companyName}</title>${Array.from({ length: 40 }, (_, index) => `<item><title>${source.companyName} acquires Synthetic business ${index}</title><link>${source.allowedOrigin}/news/acquisition-${index}</link><pubDate>Tue, 01 Sep 2026 12:00:00 GMT</pubDate></item>`).join("")}</channel></rss>`;
+        return Promise.resolve({
+          ok: true,
+          bytes: new TextEncoder().encode(text),
+          text,
+          contentType: "application/rss+xml",
+          status: 200,
+          sha256: createHash("sha256").update(text).digest("hex"),
+          etag: null,
+          lastModified: null,
+        });
+      };
+      await Promise.all(
+        jobs.map((job) =>
+          __portfolioWatchTest.processSourceJob(
+            { ...job, requestedAt: start },
+            f.env,
+            { fetchSource: historyFetch, now: () => finish },
+          ),
+        ),
+      );
+      const alphaRepo = new D1AlphaRepository(f.measured.database);
+      const before = await alphaRepo.getAlphaData("synthetic-access-subject");
+      const observation = before.portfolioWatch.observations[0]!;
+      expect(observation).toBeDefined();
+      expect(before.portfolioWatch.observations).toHaveLength(160);
+      const inbox = new D1PortfolioWatchInboxRepository(f.measured.database);
+      f.measured.reset();
+      const read = await inbox.setRead(
+        "synthetic-access-subject",
+        observation.id,
+        { read: true, expectedVersion: 0 },
+        finish,
+      );
+      expect(read).toMatchObject({ readAt: finish, version: 1 });
+      expect(f.measured.cost.roundTrips).toBe(1);
+      expect(f.measured.cost.rowsRead).toBeLessThanOrEqual(30);
+      expect(f.measured.cost.rowsWritten).toBeLessThanOrEqual(3);
+      f.measured.reset();
+      expect(
+        await inbox.setRead(
+          "synthetic-access-subject",
+          observation.id,
+          { read: true, expectedVersion: 0 },
+          finish,
+        ),
+      ).toEqual(read);
+      expect(f.measured.cost.rowsWritten).toBe(0);
+      await expect(
+        inbox.setRead(
+          "synthetic-access-subject",
+          observation.id,
+          { read: false, expectedVersion: 0 },
+          finish,
+        ),
+      ).rejects.toThrow("watch_read_state_changed");
+      await expect(
+        inbox.setRead(
+          "unrelated-user",
+          observation.id,
+          { read: true, expectedVersion: 0 },
+          finish,
+        ),
+      ).rejects.toThrow("watch_observation_not_found");
+      const after = await alphaRepo.getAlphaData("synthetic-access-subject");
+      expect(after.portfolioWatch.observations[0]).toMatchObject({
+        readAt: finish,
+        readVersion: 1,
+      });
+      expect(after.evidenceInbox).toEqual(before.evidenceInbox);
+      expect(after.forecastHistory).toEqual(before.forecastHistory);
+      expect(after.scenarios).toEqual(before.scenarios);
+      const response = await createApp().request(
+        `/api/watch/observations/${observation.id}/read`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ read: false, expectedVersion: 1 }),
+        },
+        f.env,
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ readAt: null, version: 2 });
+      const stale = await createApp().request(
+        `/api/watch/observations/${observation.id}/read`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ read: true, expectedVersion: 1 }),
+        },
+        f.env,
+      );
+      expect(stale.status).toBe(409);
+      expect(
+        (await alphaRepo.getAlphaData("synthetic-access-subject"))
+          .portfolioWatch.observations[0],
+      ).toMatchObject({ readAt: null, readVersion: 2 });
+      const query = [...f.measured.queries].find(
+        (sql) =>
+          sql.includes("receipt.read_at") && sql.includes("source_title"),
+      )!;
+      const plan = (
+        await f.database
+          .prepare(`EXPLAIN QUERY PLAN ${query}`)
+          .bind("usr_demo", "hh_demo")
+          .all<{ detail: string }>()
+      ).results
+        .map((row) => row.detail)
+        .join("\n");
+      expect(plan).toMatch(/SEARCH receipt USING INDEX/);
+      expect(plan).not.toMatch(/SCAN receipt/);
+    } finally {
+      await f.close();
+    }
+  }, 120_000);
+
+  it("shares a 40-check budget across companies even with 6000 eligible pages", async () => {
+    const f = await setup();
+    try {
+      await fillSourceCoverage(f.database);
+      f.measured.reset();
+      const scheduled = await f.repository.listDueSourceJobs(start, 40);
+      const manual = await f.repository.prepareScan("hh_demo");
+      expect(scheduled).toHaveLength(40);
+      expect(manual.jobs).toHaveLength(40);
+      expect(f.measured.cost.roundTrips).toBe(2);
+      expect(f.measured.cost.rowsWritten).toBe(0);
+      expect(f.measured.cost.rowsRead).toBeLessThanOrEqual(80_000);
+      const selectionCost = { ...f.measured.cost };
+      for (const sql of f.measured.queries) {
+        const manualQuery = sql.includes("attempted_at");
+        const plan = (
+          await f.database
+            .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+            .bind(manualQuery ? "hh_demo" : start, 40)
+            .all<{ detail: string }>()
+        ).results
+          .map((row) => row.detail)
+          .join("\n");
+        expect(plan).not.toMatch(/CORRELATED/);
+        if (!manualQuery)
+          expect(plan).toContain("portfolio_watch_source_sync_due_idx");
+      }
+      for (const jobs of [scheduled, manual.jobs]) {
+        const companies = (
+          await f.database
+            .prepare(
+              `SELECT DISTINCT company_id FROM portfolio_watch_sources WHERE id IN (SELECT value FROM json_each(?))`,
+            )
+            .bind(JSON.stringify(jobs.map((job) => job.sourceId)))
+            .all()
+        ).results;
+        expect(companies).toHaveLength(40);
+      }
+      const flooded = (
+        await f.database
+          .prepare(
+            "SELECT id FROM portfolio_watch_sources WHERE company_id = 'cost-company-0' ORDER BY id LIMIT 40",
+          )
+          .all<{ id: string }>()
+      ).results.map((source) => ({
+        type: "portfolio_watch_source_verify" as const,
+        sourceId: source.id,
+      }));
+      expect(await f.activity.admit(flooded, "manual", start)).toHaveLength(2);
+      console.info(JSON.stringify({ watchFairSelection: selectionCost }));
+      await f.database
+        .prepare(
+          "UPDATE portfolio_watch_source_sync_state SET next_check_at = '2099-01-01T00:00:00.000Z'",
+        )
+        .run();
+      f.measured.reset();
+      expect(await f.repository.listDueSourceJobs(start, 40)).toEqual([]);
+      expect(f.measured.cost).toMatchObject({ roundTrips: 1, rowsWritten: 0 });
+      expect(f.measured.cost.rowsRead).toBeLessThanOrEqual(10);
+    } finally {
+      await f.close();
+    }
+  }, 120_000);
+
   it("admits racing scans once, persists signals before success, and reloads the household projection", async () => {
     const f = await setup();
     try {

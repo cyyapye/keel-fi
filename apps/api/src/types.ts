@@ -5,6 +5,7 @@ export type Environment = "local" | "preview" | "production";
 export interface Env {
   ACCESS_AUD?: string;
   ACCESS_TEAM_DOMAIN?: string;
+  BRAVE_SEARCH_API_KEY?: string;
   ANGELLIST_ACCESS_SUBJECT?: string;
   ANGELLIST_AUTOMATION?: KVNamespace;
   ANGELLIST_AUTOMATION_ENABLED?: string;
