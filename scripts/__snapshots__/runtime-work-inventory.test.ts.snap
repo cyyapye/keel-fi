@@ -77,7 +77,6 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "apps/web/src/InvestmentHoldings.tsx | InvestmentHoldings | timer | globalThis.setTimeout | 43346369c8c033ce",
   "apps/web/src/InvestmentHoldings.tsx | InvestmentHoldings | timer | window.setTimeout | ad953f298c92cb24",
   "apps/web/src/InvestmentHoldings.tsx | InvestmentHoldings | timer | window.setTimeout | cda21735292efa48",
-  "apps/web/src/InvestmentReview.tsx | DocumentReview | timer | setTimeout | 8ea4d33fb50ee33f",
   "apps/web/src/LegalEntities.tsx | LegalEntitiesInventory | timer | window.setTimeout | 436f2021fc732bf1",
   "apps/web/src/LegalEntities.tsx | LegalEntitiesInventory | timer | window.setTimeout | ccd80ebc2ceaec78",
   "apps/web/src/Obligations.tsx | Obligations | timer | window.setTimeout | c3ce0a356b0d7b56",
