@@ -359,7 +359,7 @@ test("compares exact alternatives without preselecting and saves a reviewed enti
   ).toHaveAttribute("readonly", "");
   await editor.getByRole("button", { name: "Add entity", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Edit legal entity", exact: true }),
+    page.getByRole("button", { name: "Edit legal entity", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
   await page
@@ -471,7 +471,7 @@ test("reviews source parties on the dedicated page without offering the represen
   ).toHaveCount(1);
   await editor.getByRole("button", { name: "Add entity", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Edit legal entity", exact: true }),
+    page.getByRole("button", { name: "Edit legal entity", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
   await page
@@ -758,7 +758,10 @@ test("gates manual creation and editing on all profile fields without browser va
   await editor.getByRole("button", { name: "Cancel", exact: true }).click();
   await page
     .locator(".legal-entity-row")
-    .getByRole("button", { name: "Edit", exact: true })
+    .getByRole("button", { name: "Review details", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Edit legal entity", exact: true })
     .click();
   const save = editor.getByRole("button", {
     name: "Save version",
@@ -931,7 +934,7 @@ test("supports a document-backed correction for a legacy conflict with no saved 
     reason: "The executed subscription names the invested series.",
   });
   await expect(
-    page.getByRole("heading", { name: "Edit legal entity", exact: true }),
+    page.getByRole("button", { name: "Edit legal entity", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
   await page
@@ -979,7 +982,7 @@ test("keeps a stale resolution unsaved, reloads evidence, then links the exact e
     .getByRole("button", { name: "Link entity", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Edit legal entity", exact: true }),
+    page.getByRole("button", { name: "Edit legal entity", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
   await page

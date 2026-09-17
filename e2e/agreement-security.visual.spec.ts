@@ -126,9 +126,7 @@ async function setup(page: Page, candidates: LegalEntitySourceSummary[]) {
         exact: true,
       }),
     ).toBeVisible();
-    await workspace
-      .getByRole("button", { name: "Agreement evidence · 1", exact: true })
-      .click();
+    await expect(workspace.getByRole("article")).toHaveCount(1);
   };
   return { rows, workspace, open, downloads };
 }

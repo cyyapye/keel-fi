@@ -24,7 +24,10 @@ import {
   LEGAL_DOCUMENT_SCAN_REASON_COPY,
 } from "@keel/domain/provider-legal-documents";
 import { LegalNameResolver } from "./LegalNameResolver";
-import { InvestmentReview } from "./InvestmentReview";
+import {
+  InvestmentReview,
+  type ReviewDocumentRenderer,
+} from "./InvestmentReview";
 import {
   ActionGroup,
   Badge,
@@ -261,8 +264,18 @@ function sourceSummary(source: LegalEntitySourceSummary): string {
 
 function AgreementEvidence({
   sources,
+  assignment,
+  documents: providedDocuments,
 }: {
   sources: readonly LegalEntitySourceSummary[];
+  documents?:
+    | Readonly<
+        NonNullable<
+          LegalEntitySourceSummary["legalEntityNameEvidence"]["documents"]
+        >
+      >
+    | undefined;
+  assignment?: (id: string, fileName: string) => ReactNode;
 }) {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -309,7 +322,10 @@ function AgreementEvidence({
       setWorking(false);
     }
   };
-  const documents = [
+  // Investment review includes agreements assigned elsewhere; the name
+  // projection intentionally omits those. Use the complete, freshly scanned
+  // review documents when supplied, retaining source evidence as the fallback.
+  const documents = providedDocuments ?? [
     ...new Map(
       sources.flatMap((source) =>
         (source.legalEntityNameEvidence.documents ?? []).map(
@@ -325,7 +341,14 @@ function AgreementEvidence({
         source.legalEntityNameEvidence.problem ?? "",
       )
         ? (source.legalEntityNameEvidence.documents ?? [])
-            .filter((document) => document.scan === undefined)
+            .filter(
+              (document) =>
+                document.scan === undefined &&
+                !providedDocuments?.some(
+                  (current) =>
+                    current.id === document.id && current.scan !== undefined,
+                ),
+            )
             .map((document) => document.id)
         : [],
     ),
@@ -335,34 +358,36 @@ function AgreementEvidence({
       source.legalEntityNameEvidence.state === "unavailable" &&
       source.legalEntityNameEvidence.problem === "scanner_unavailable"
         ? (source.legalEntityNameEvidence.documents ?? [])
-            .filter((document) => document.scan === undefined)
+            .filter(
+              (document) =>
+                document.scan === undefined &&
+                !providedDocuments?.some(
+                  (current) =>
+                    current.id === document.id && current.scan !== undefined,
+                ),
+            )
             .map((document) => document.id)
         : [],
     ),
   );
   if (documents.length === 0) return null;
-  return (
-    <Collapsible className="legal-entity-documents">
-      <CollapsibleTrigger>
-        <span>Agreement evidence · {documents.length}</span>
-        <DisclosureIndicator />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <ul>
-          {documents.map((document) => {
-            const blocked =
-              document.scan?.outcome === "blocked" ||
-              unavailableIds.has(document.id) ||
-              denied.has(document.id);
-            const findings =
-              document.scan?.version === 2 &&
-              document.scan.outcome === "blocked"
-                ? document.scan.findings
-                : blocked && !incompleteIds.has(document.id)
-                  ? [{ reason: "unknown_alert" as const, signature: null }]
-                  : [];
-            return (
-              <li key={document.id}>
+  const content = (
+    <>
+      <ul>
+        {documents.map((document) => {
+          const blocked =
+            document.scan?.outcome === "blocked" ||
+            unavailableIds.has(document.id) ||
+            denied.has(document.id);
+          const findings =
+            document.scan?.version === 2 && document.scan.outcome === "blocked"
+              ? document.scan.findings
+              : blocked && !incompleteIds.has(document.id)
+                ? [{ reason: "unknown_alert" as const, signature: null }]
+                : [];
+          return (
+            <li key={document.id}>
+              <article aria-label={document.fileName}>
                 {blocked ? (
                   <p className="legal-entity-documents__name">
                     {document.fileName}
@@ -375,16 +400,50 @@ function AgreementEvidence({
                     }
                   >
                     {document.fileName}
-                    {document.page === null
+                    {assignment || document.page === null
                       ? ""
                       : ` · page ${document.page.toString()}`}
                   </TextLink>
                 )}
-                {document.quote !== null && <p>{document.quote}</p>}
-                {document.structure !== undefined && !blocked && (
-                  <p>
-                    {document.structure.quote} · page {document.structure.page}
-                  </p>
+                {!blocked && assignment?.(document.id, document.fileName)}
+                {assignment ? (
+                  <Collapsible className="investment-review__evidence">
+                    <CollapsibleTrigger>
+                      <span>
+                        Source evidence
+                        {document.page !== null
+                          ? ` · page ${document.page}`
+                          : ""}
+                      </span>
+                      <DisclosureIndicator />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      {document.quote !== null && <p>{document.quote}</p>}
+                      {document.structure !== undefined && !blocked && (
+                        <p>
+                          {document.structure.quote} · page{" "}
+                          {document.structure.page}
+                        </p>
+                      )}
+                      {document.quote === null &&
+                        document.structure === undefined && (
+                          <p>
+                            No excerpt is available. Review the agreement for
+                            the named parties.
+                          </p>
+                        )}
+                    </CollapsibleContent>
+                  </Collapsible>
+                ) : (
+                  <>
+                    {document.quote !== null && <p>{document.quote}</p>}
+                    {document.structure !== undefined && !blocked && (
+                      <p>
+                        {document.structure.quote} · page{" "}
+                        {document.structure.page}
+                      </p>
+                    )}
+                  </>
                 )}
                 {incompleteIds.has(document.id) && (
                   <div className="legal-entity-documents__finding">
@@ -452,12 +511,25 @@ function AgreementEvidence({
                     View source progress
                   </TextLink>
                 )}
-              </li>
-            );
-          })}
-        </ul>
-        {error !== null && <FormMessage tone="error">{error}</FormMessage>}
-      </CollapsibleContent>
+              </article>
+            </li>
+          );
+        })}
+      </ul>
+      {error !== null && <FormMessage tone="error">{error}</FormMessage>}
+    </>
+  );
+  return assignment ? (
+    <div className="legal-entity-documents legal-entity-documents--review">
+      {content}
+    </div>
+  ) : (
+    <Collapsible className="legal-entity-documents">
+      <CollapsibleTrigger>
+        <span>Agreement evidence · {documents.length}</span>
+        <DisclosureIndicator />
+      </CollapsibleTrigger>
+      <CollapsibleContent>{content}</CollapsibleContent>
     </Collapsible>
   );
 }
@@ -1011,7 +1083,7 @@ function EntityRow({
               );
             })}
         </div>
-        <TextLink onClick={onOpen}>Edit</TextLink>
+        <TextLink onClick={onOpen}>Review details</TextLink>
       </footer>
     </article>
   );
@@ -1119,6 +1191,7 @@ function EntityReviewWorkspace({
   onOpenSource: (source: LegalEntitySourceSummary) => void;
 }) {
   const [resolution, setResolution] = useState<LegalNameResolutionInput>();
+  const [editingEntity, setEditingEntity] = useState(false);
   const [mode, setMode] = useState("new");
   const [selectedEntityId, setSelectedEntityId] = useState("");
   const [selectedPositionId, setSelectedPositionId] = useState("");
@@ -1260,15 +1333,55 @@ function EntityReviewWorkspace({
             onReload={onSaved}
           />
         )}
-      {editor !== null && (entity !== undefined || mode === "new") && (
-        <LegalEntityEditor
-          key={entity?.versionId ?? resolution?.legalName ?? "new"}
-          editor={editor}
-          onCancel={onBack}
-          onSaved={saved}
-          onReload={onSaved}
-        />
+      {entity !== undefined && !editingEntity && (
+        <section className="investment-review__section entity-review__identity">
+          <SectionHeader
+            title="Legal vehicle"
+            headingAs="h3"
+            action={
+              <Button tone="secondary" onClick={() => setEditingEntity(true)}>
+                Edit legal entity
+              </Button>
+            }
+          />
+          <p className="entity-review__legal-name">{entity.legalName}</p>
+          <DataList className="entity-review__identity-details">
+            <DataItem
+              label="Entity type"
+              value={entityTypeLabels[entity.entityType]}
+            />
+            <DataItem
+              label="Relationship"
+              value={relationshipLabels[entity.relationship]}
+            />
+          </DataList>
+          <p className="entity-review__provenance">
+            Reviewed record · {formatDate(entity.recordedAt)}
+          </p>
+          {source?.legalEntityNameEvidence.documents?.some(
+            (document) => document.page !== null,
+          ) && (
+            <TextLink onClick={() => onTabChange("documents")}>
+              View supporting agreement
+            </TextLink>
+          )}
+        </section>
       )}
+      {editor !== null &&
+        (entity !== undefined ? editingEntity : mode === "new") && (
+          <LegalEntityEditor
+            key={entity?.versionId ?? resolution?.legalName ?? "new"}
+            editor={editor}
+            onCancel={
+              entity !== undefined ? () => setEditingEntity(false) : onBack
+            }
+            onSaved={async () => {
+              await saved();
+              setEditingEntity(false);
+            }}
+            onReload={onSaved}
+          />
+        )}
       {entity === undefined && editor !== null && mode === "existing" && (
         <section className="entity-review__link">
           <h2>Link existing entity</h2>
@@ -1327,10 +1440,14 @@ function EntityReviewWorkspace({
       )}
     </>
   );
-  const documents =
+  const renderDocuments: ReviewDocumentRenderer = (assignment, documents) =>
     source === undefined ? null : (
       <>
-        <AgreementEvidence sources={[source]} />
+        <AgreementEvidence
+          sources={[source]}
+          assignment={assignment}
+          documents={documents}
+        />
         {source.legalEntityNameEvidence.state === "unavailable" &&
           source.legalEntityNameEvidence.problem !== undefined && (
             <p>
@@ -1341,18 +1458,18 @@ function EntityReviewWorkspace({
               }
             </p>
           )}
-        <TextLink href="/holdings/sources">Source options</TextLink>
       </>
     );
+  const nextReviewAction = nextCandidate && (
+    <TextLink onClick={() => onOpenSource(nextCandidate)}>
+      Next needing review
+    </TextLink>
+  );
   return (
-    <div className="entity-review">
+    <div className="entity-review entity-review--investment">
       <div className="entity-review__navigation">
         <TextLink onClick={onBack}>Back to legal entities</TextLink>
-        {nextCandidate && (
-          <TextLink onClick={() => onOpenSource(nextCandidate)}>
-            Next needing review
-          </TextLink>
-        )}
+        {source?.source.kind !== "holding_position" && nextReviewAction}
       </div>
       <PageHeader
         eyebrow="Investment review"
@@ -1362,11 +1479,20 @@ function EntityReviewWorkspace({
           (target.kind === "new" ? "New legal entity" : "Review unavailable")
         }
         description={
-          source
-            ? `Provider record · ${source.sourceLabel} · ${formatDate(source.sourceAsOf)}`
-            : "Your legal entity inventory"
+          entity?.legalName ??
+          (source
+            ? "Legal vehicle not yet confirmed"
+            : "Your legal entity inventory")
         }
       />
+      {source && (
+        <div className="entity-review__source">
+          <span>
+            {source.sourceLabel} · {formatDate(source.sourceAsOf)}
+          </span>
+          <TextLink href="/holdings/sources">View source</TextLink>
+        </div>
+      )}
       {error !== null && <FormMessage tone="error">{error}</FormMessage>}
       {linkedPositions.length > 1 && target.kind === "entity" && (
         <Field label="Investment to review" variant="filled">
@@ -1400,7 +1526,9 @@ function EntityReviewWorkspace({
           sourceLabel={source.sourceLabel}
           identity={identity}
           identitySaved={entity !== undefined}
-          documents={documents}
+          renderDocuments={renderDocuments}
+          legalName={entity?.legalName ?? null}
+          nextReviewAction={nextReviewAction}
           tab={tab}
           onTabChange={onTabChange}
           onSaved={saved}
@@ -1408,7 +1536,7 @@ function EntityReviewWorkspace({
       ) : (
         <div className="entity-review__panel">
           {identity}
-          {documents}
+          {renderDocuments(() => null)}
         </div>
       )}
       {entity === undefined && source !== undefined && (

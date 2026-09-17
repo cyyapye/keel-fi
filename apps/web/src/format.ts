@@ -28,6 +28,20 @@ export function formatMoney(minorUnits: number): string {
     .padStart(2, "0")}`;
 }
 
+/** Format exact minor units without compacting or floating-point conversion. */
+export function formatCurrency(minorUnits: number, currency: string): string {
+  const code = currency.toUpperCase();
+  const digits = currencyFractionDigits(code);
+  const amount = BigInt(minorUnits);
+  const absolute = amount < 0n ? -amount : amount;
+  const unit = 10n ** BigInt(digits);
+  const fraction =
+    digits === 0
+      ? ""
+      : `.${(absolute % unit).toString().padStart(digits, "0")}`;
+  return `${amount < 0n ? "-" : ""}${code} ${integerFormatter.format(absolute / unit)}${fraction}`;
+}
+
 export function formatCompactMoney(minorUnits: number): string {
   const amount = BigInt(minorUnits);
   const sign = amount < 0 ? "-" : "";

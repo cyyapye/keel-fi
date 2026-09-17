@@ -25,13 +25,9 @@ import {
 import {
   ActionGroup,
   Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
   DataItem,
   DataList,
   DatePicker,
-  DisclosureIndicator,
   Field,
   FormMessage,
   Input,
@@ -45,11 +41,11 @@ import {
   TextLink,
   Tabs,
   SectionNavigation,
+  SectionHeader,
   TabsContent,
 } from "@keel/ui";
 import {
   createDocumentInvestment,
-  downloadLegalEntityDocument,
   loadInvestmentReview,
   saveInvestmentCompany,
   saveInvestmentReview,
@@ -101,27 +97,27 @@ function ReviewSection({
   title,
   children,
   summary,
-  defaultOpen = true,
+  action,
 }: {
   title: string;
   children: ReactNode;
   summary?: ReactNode;
-  defaultOpen?: boolean;
+  action?: ReactNode;
 }) {
   return (
-    <Collapsible
-      className="investment-review__section"
-      defaultOpen={defaultOpen}
-    >
-      <CollapsibleTrigger>
-        <span>{title}</span>
-        <DisclosureIndicator />
-      </CollapsibleTrigger>
+    <section className="investment-review__section">
+      <SectionHeader title={title} headingAs="h3" action={action} />
       {summary}
-      <CollapsibleContent>{children}</CollapsibleContent>
-    </Collapsible>
+      {children}
+    </section>
   );
 }
+
+export type ReviewDocumentRenderer = (
+  assignment: (id: string, fileName: string) => ReactNode,
+  documents?: InvestmentReviewContext["documents"],
+) => ReactNode;
+
 const participation = [
   { value: "current", label: "Current" },
   { value: "pending", label: "Pending" },
@@ -296,6 +292,13 @@ function ParticipationReview({
   const [status, setStatus] = useState(
     context.review?.participationStatus ?? context.defaultParticipationStatus,
   );
+  const acceptedStatus =
+    context.review?.participationStatus ?? context.defaultParticipationStatus;
+  const confirmed =
+    context.automaticReview?.resolved.includes("participation") === true ||
+    (context.review !== null &&
+      context.review.participationStatus !== "unknown");
+  const [editing, setEditing] = useState(!confirmed);
   const requestId = useInvestmentRequest(context, status);
   const input = ReviewInvestmentInputSchema.safeParse({
     requestId,
@@ -309,6 +312,19 @@ function ParticipationReview({
   return (
     <ReviewSection
       title="Participation"
+      action={
+        !editing && (
+          <Button
+            tone="secondary"
+            onClick={() => {
+              setStatus(acceptedStatus);
+              setEditing(true);
+            }}
+          >
+            Change status
+          </Button>
+        )
+      }
       summary={
         <p>
           {
@@ -323,37 +339,48 @@ function ParticipationReview({
         </p>
       }
     >
-      <form
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (input.success && changed)
-            void submit(() =>
-              saveInvestmentReview(context.positionId, input.data),
-            );
-        }}
-      >
-        <ReviewSelect
-          label="This investment’s status"
-          value={status}
-          items={participation}
-          onChange={(value) => {
-            const item = participation.find((item) => item.value === value);
-            if (item !== undefined) setStatus(value as typeof status);
+      {editing && (
+        <form
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (input.success && changed)
+              void submit(() =>
+                saveInvestmentReview(context.positionId, input.data),
+              ).then((saved) => {
+                if (saved) setEditing(false);
+              });
           }}
-        />
-        {status === "cancelled" && (
-          <p>
-            Marks this investment as cancelled, not the entity as dissolved.
-            Reported amounts are preserved.
-          </p>
-        )}
-        <ActionGroup align="end">
-          <Button type="submit" disabled={busy || !input.success || !changed}>
-            {saving ? "Saving…" : "Save participation"}
-          </Button>
-        </ActionGroup>
-      </form>
+        >
+          <ReviewSelect
+            label="This investment’s status"
+            value={status}
+            items={participation}
+            onChange={(value) => {
+              const item = participation.find((item) => item.value === value);
+              if (item !== undefined) setStatus(value as typeof status);
+            }}
+          />
+          {status === "cancelled" && (
+            <p>
+              Marks this investment as cancelled, not the entity as dissolved.
+              Reported amounts are preserved.
+            </p>
+          )}
+          <ActionGroup align="end">
+            <Button
+              tone="quiet"
+              disabled={busy}
+              onClick={() => setEditing(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || !input.success || !changed}>
+              {saving ? "Saving…" : "Save participation"}
+            </Button>
+          </ActionGroup>
+        </form>
+      )}
     </ReviewSection>
   );
 }
@@ -362,10 +389,12 @@ function OwnershipReview({
   context,
   save,
   busy,
+  legalName,
 }: {
   context: InvestmentReviewContext;
   save: Save;
   busy: boolean;
+  legalName: string | null;
 }) {
   const [editing, setEditing] = useState(false);
   const { saving, submit } = useReviewSave(save);
@@ -406,6 +435,11 @@ function OwnershipReview({
     (item) =>
       !observations.some((later) => later.supersedesObservationId === item.id),
   );
+  const amendable = current.filter(
+    (item) =>
+      item.sourceKind === draft.sourceKind &&
+      (draft.sourceKind !== "k1" || item.taxYear === Number(year)),
+  );
   const documents = context.documents.filter(
     (doc) => doc.scan?.outcome === "clean",
   );
@@ -413,12 +447,17 @@ function OwnershipReview({
     <ReviewSection
       title="Ownership evidence"
       summary={
-        observations.length === 0 && (
+        <div className="investment-review__ownership-subject">
           <p>
-            Optional. Add ownership when your first K-1 or an agreement reports
-            it. You can add and export this entity without it.
+            <strong>{context.holderLabel}</strong> ·{" "}
+            {legalName ?? "Legal vehicle not yet confirmed"}
           </p>
-        )
+          <p>
+            {observations.length === 0
+              ? "No ownership evidence recorded. This is optional and does not block the investment review."
+              : "Recorded ownership in this legal vehicle. Each source and effective date stays separate."}
+          </p>
+        </div>
       }
     >
       {observations.length > 0 && (
@@ -488,29 +527,40 @@ function OwnershipReview({
                     inputMode="numeric"
                     maxLength={4}
                     value={year}
-                    onChange={(event) => setYear(event.currentTarget.value)}
+                    onChange={(event) => {
+                      setYear(event.currentTarget.value);
+                      setDraft({ ...draft, supersedesObservationId: null });
+                    }}
                   />
                 </Field>
                 <p className="investment-review__field-note">
                   Keep profit, loss, and capital shares separate. Blank means
                   not reported, not zero.
                 </p>
-                {shareFields.map(([key, label]) => (
-                  <Field key={key} label={label} variant="filled">
-                    <InputGroup suffix="%">
-                      <Input
-                        inputMode="decimal"
-                        value={shares[key] ?? ""}
-                        onChange={(event) =>
-                          setShares({
-                            ...shares,
-                            [key]: event.currentTarget.value,
-                          })
-                        }
-                      />
-                    </InputGroup>
-                  </Field>
-                ))}
+                <div className="ownership-share-pairs">
+                  {["Profit", "Loss", "Capital"].map((share, index) => (
+                    <div className="ownership-share-pair" key={share}>
+                      {shareFields
+                        .slice(index * 2, index * 2 + 2)
+                        .map(([key, label]) => (
+                          <Field key={key} label={label} variant="filled">
+                            <InputGroup suffix="%">
+                              <Input
+                                inputMode="decimal"
+                                value={shares[key] ?? ""}
+                                onChange={(event) =>
+                                  setShares({
+                                    ...shares,
+                                    [key]: event.currentTarget.value,
+                                  })
+                                }
+                              />
+                            </InputGroup>
+                          </Field>
+                        ))}
+                    </div>
+                  ))}
+                </div>
               </>
             ) : (
               <>
@@ -563,30 +613,25 @@ function OwnershipReview({
                 />
               </Field>
             )}
-            <ReviewSelect
-              label="Amends an earlier observation"
-              value={draft.supersedesObservationId ?? "none"}
-              items={[
-                { value: "none", label: "New observation" },
-                ...current
-                  .filter(
-                    (item) =>
-                      item.sourceKind === draft.sourceKind &&
-                      (draft.sourceKind !== "k1" ||
-                        item.taxYear === Number(year)),
-                  )
-                  .map((item) => ({
+            {amendable.length > 0 && (
+              <ReviewSelect
+                label="Amends an earlier observation"
+                value={draft.supersedesObservationId ?? "none"}
+                items={[
+                  { value: "none", label: "New observation" },
+                  ...amendable.map((item) => ({
                     value: item.id,
                     label: `${item.taxYear ?? item.effectiveDate} · ${item.sourceLabel}`,
                   })),
-              ]}
-              onChange={(value) =>
-                setDraft({
-                  ...draft,
-                  supersedesObservationId: value === "none" ? null : value,
-                })
-              }
-            />
+                ]}
+                onChange={(value) =>
+                  setDraft({
+                    ...draft,
+                    supersedesObservationId: value === "none" ? null : value,
+                  })
+                }
+              />
+            )}
           </div>
           {!input.success && (percent !== "" || year !== "" || page !== "") && (
             <FormMessage tone="neutral">
@@ -621,6 +666,8 @@ function CompanyReview({
   busy: boolean;
 }) {
   const { saving, submit } = useReviewSave(save);
+  const confirmed = investmentReviewSections(context, true)[0]!.complete;
+  const [editing, setEditing] = useState(!confirmed);
   const [choice, setChoice] = useState(() => initialCompanyChoice(context));
   const active = context.mappings.filter(
     (m) => m.status === "active" && m.companyId !== null,
@@ -689,7 +736,13 @@ function CompanyReview({
   return (
     <ReviewSection
       title="Underlying company"
-      defaultOpen={companyIssue !== undefined}
+      action={
+        !editing && (
+          <Button tone="secondary" onClick={() => setEditing(true)}>
+            Edit company
+          </Button>
+        )
+      }
       summary={
         <div className="investment-review__company-basis">
           {companyIssue !== undefined && <p>{companyIssue.message}</p>}
@@ -731,137 +784,164 @@ function CompanyReview({
               </p>
             );
           })}
-          <p>
-            {context.companyChoices.length === 0
-              ? "No supporting company citation was extracted from these agreements. The provider’s deal label alone does not confirm the underlying company."
-              : `${context.companyChoices.length} company ${context.companyChoices.length === 1 ? "citation is" : "citations are"} available. Confirm the supporting evidence before saving.`}
-          </p>
+          {editing && (
+            <p>
+              {context.companyChoices.length === 0
+                ? "No supporting company citation was extracted from these agreements. The provider’s deal label alone does not confirm the underlying company."
+                : `${context.companyChoices.length} company ${context.companyChoices.length === 1 ? "citation is" : "citations are"} available. Confirm the supporting evidence before saving.`}
+            </p>
+          )}
         </div>
       }
     >
-      <form
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (input.success && !duplicateName && !unchanged) {
-            let savedCompanyId: string | null = null;
-            void submit(async () => {
-              const receipt = await saveInvestmentCompany(
-                context.positionId,
-                input.data,
-              );
-              savedCompanyId = receipt.companyId;
-            }).then((accepted) => {
-              if (accepted && savedCompanyId !== null)
-                setExisting(savedCompanyId);
-            });
-          }
-        }}
-      >
-        <ReviewSelect
-          label="Company evidence"
-          value={choice}
-          items={[
-            { value: "manual", label: "Confirm a company yourself" },
-            ...context.companyChoices.map((item, index) => ({
-              value: index.toString(),
-              label: `${item.companyName} · page ${item.page}`,
-            })),
-          ]}
-          onChange={(value) => {
-            const target = targetForChoice(value);
-            // A different citation for the same reported name keeps the chosen
-            // portfolio company. A different company starts a fresh proposal.
-            if (
-              value !== "manual" &&
-              context.companyChoices[Number(value)]?.companyName !==
-                citation?.companyName
-            ) {
-              setExisting(target.existing);
-              setName(target.name);
+      {editing && (
+        <form
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (input.success && !duplicateName && !unchanged) {
+              let savedCompanyId: string | null = null;
+              void submit(async () => {
+                const receipt = await saveInvestmentCompany(
+                  context.positionId,
+                  input.data,
+                );
+                savedCompanyId = receipt.companyId;
+              }).then((accepted) => {
+                if (accepted && savedCompanyId !== null) {
+                  setExisting(savedCompanyId);
+                  setEditing(false);
+                }
+              });
             }
-            setChoice(value);
           }}
-        />
-        {citation !== null && (
-          <>
-            <p>
-              {
-                context.documents.find((doc) => doc.id === citation.documentId)
-                  ?.fileName
-              }{" "}
-              · page {citation.page}
-            </p>
-            <blockquote>{citation.quote}</blockquote>
-          </>
-        )}
-        <Field label="Company" variant="filled">
-          <SearchSelect
-            label="Company"
-            searchLabel="Search companies"
-            emptyMessage="No companies found. Clear search to add one."
-            value={existing}
+        >
+          <ReviewSelect
+            label="Company evidence"
+            value={choice}
             items={[
-              { value: "new", label: "Add a company" },
-              ...context.companies.map((c) => ({
-                value: c.id,
-                label: c.legalName,
-                searchText: c.aliases?.join(" ") ?? "",
+              { value: "manual", label: "Confirm a company yourself" },
+              ...context.companyChoices.map((item, index) => ({
+                value: index.toString(),
+                label: `${item.companyName} · page ${item.page}`,
               })),
             ]}
-            onChange={setExisting}
+            onChange={(value) => {
+              const target = targetForChoice(value);
+              // A different citation for the same reported name keeps the chosen
+              // portfolio company. A different company starts a fresh proposal.
+              if (
+                value !== "manual" &&
+                context.companyChoices[Number(value)]?.companyName !==
+                  citation?.companyName
+              ) {
+                setExisting(target.existing);
+                setName(target.name);
+              }
+              setChoice(value);
+            }}
           />
-        </Field>
-        {existing === "new" && (
-          <Field label="Company name" variant="filled">
-            <Input
-              maxLength={1_000}
-              value={name}
-              onChange={(event) => setName(event.currentTarget.value)}
+          {citation !== null && (
+            <>
+              <p>
+                {
+                  context.documents.find(
+                    (doc) => doc.id === citation.documentId,
+                  )?.fileName
+                }{" "}
+                · page {citation.page}
+              </p>
+              <blockquote>{citation.quote}</blockquote>
+            </>
+          )}
+          <Field label="Company" variant="filled">
+            <SearchSelect
+              label="Company"
+              searchLabel="Search companies"
+              emptyMessage="No companies found. Clear search to add one."
+              value={existing}
+              items={[
+                { value: "new", label: "Add a company" },
+                ...context.companies.map((c) => ({
+                  value: c.id,
+                  label: c.legalName,
+                  searchText: c.aliases?.join(" ") ?? "",
+                })),
+              ]}
+              onChange={setExisting}
             />
           </Field>
-        )}
-        {duplicateName && (
-          <FormMessage tone="neutral">
-            This company already exists. Choose it from the company list.
-          </FormMessage>
-        )}
-        {citation === null ? (
-          <p>Recorded as your confirmation, not a provider-reported company.</p>
-        ) : (
-          companyName && (
-            <p>
-              {basis === "document_link"
-                ? `Group this investment under ${companyName}. The agreement’s name, ${citation.companyName}, stays with the evidence.`
-                : `Use ${companyName} for this investment’s company.`}
-            </p>
-          )
-        )}
-        {existing === "new" &&
-          !duplicateName &&
-          name.trim() &&
-          context.companies.some(
-            (item) =>
-              companySuggestionKey(item.legalName) ===
-              companySuggestionKey(name),
-          ) && (
+          {existing === "new" && (
+            <Field label="Company name" variant="filled">
+              <Input
+                maxLength={1_000}
+                value={name}
+                onChange={(event) => setName(event.currentTarget.value)}
+              />
+            </Field>
+          )}
+          {duplicateName && (
             <FormMessage tone="neutral">
-              A similar company name exists. Check the company list before
-              adding another.
+              This company already exists. Choose it from the company list.
             </FormMessage>
           )}
-        {active.length > 0 && (
-          <p>Changes only this investment’s company, not its amounts.</p>
-        )}
-        <ActionGroup align="end">
-          <Button
-            type="submit"
-            disabled={busy || !input.success || duplicateName || unchanged}
-          >
-            {saving ? "Saving…" : "Save company mapping"}
-          </Button>
-        </ActionGroup>
-      </form>
+          {citation === null ? (
+            <p>
+              Recorded as your confirmation, not a provider-reported company.
+            </p>
+          ) : (
+            companyName && (
+              <p>
+                {basis === "document_link"
+                  ? `Group this investment under ${companyName}. The agreement’s name, ${citation.companyName}, stays with the evidence.`
+                  : `Use ${companyName} for this investment’s company.`}
+              </p>
+            )
+          )}
+          {existing === "new" &&
+            !duplicateName &&
+            name.trim() &&
+            context.companies.some(
+              (item) =>
+                companySuggestionKey(item.legalName) ===
+                companySuggestionKey(name),
+            ) && (
+              <FormMessage tone="neutral">
+                A similar company name exists. Check the company list before
+                adding another.
+              </FormMessage>
+            )}
+          {active.length > 0 && (
+            <p>Changes only this investment’s company, not its amounts.</p>
+          )}
+          <ActionGroup align="end">
+            <Button
+              tone="quiet"
+              disabled={busy}
+              onClick={() => {
+                const savedChoice = initialCompanyChoice(context);
+                const savedTarget = targetForChoice(savedChoice);
+                setChoice(savedChoice);
+                setExisting(
+                  active.length === 1
+                    ? active[0]!.companyId!
+                    : savedTarget.existing,
+                );
+                setName(savedTarget.name);
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={busy || !input.success || duplicateName || unchanged}
+            >
+              {saving ? "Saving…" : "Save company mapping"}
+            </Button>
+          </ActionGroup>
+        </form>
+      )}
       <TextLink
         href={`/holdings/entities?companies=1${existing === "new" ? "" : `&company=${encodeURIComponent(existing)}`}${citation ? `&name=${encodeURIComponent(citation.companyName)}` : ""}`}
       >
@@ -875,12 +955,19 @@ function DocumentReview({
   context,
   save,
   busy,
+  legalName,
+  identitySaved,
+  renderDocuments,
 }: {
   context: InvestmentReviewContext;
   save: Save;
   busy: boolean;
+  legalName: string | null;
+  identitySaved: boolean;
+  renderDocuments: ReviewDocumentRenderer;
 }) {
   const { saving, submit } = useReviewSave(save);
+  const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [target, setTarget] = useState("supports");
   const [label, setLabel] = useState<string | null>(null);
@@ -892,7 +979,6 @@ function DocumentReview({
     investmentLabel,
     status,
   ]);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
   const clean = context.documents.filter(
     (doc) => doc.scan?.outcome === "clean",
   );
@@ -904,6 +990,10 @@ function DocumentReview({
     return saved !== undefined && saved.relationship !== "unassigned";
   }).length;
   const remainingCount = clean.length - assignedCount;
+  const identityLinked = investmentReviewSections(context, identitySaved).find(
+    (section) => section.value === "documents",
+  )!.complete;
+
   const base = {
     requestId,
     expectedReviewId: context.review?.id ?? null,
@@ -942,28 +1032,17 @@ function DocumentReview({
         saved.targetPositionId !== item.targetPositionId
       );
     });
-  const download = async (id: string, fileName: string) => {
-    try {
-      const blob = await downloadLegalEntityDocument(id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1_000);
-    } catch (error) {
-      setDownloadError(
-        error instanceof Error
-          ? error.message
-          : "The document could not be downloaded.",
-      );
-    }
-  };
-  if (clean.length === 0)
-    return <p>No agreements are available for assignment yet.</p>;
   return (
     <ReviewSection
-      title="Assign agreements"
+      title="Agreements"
+      action={
+        !editing &&
+        clean.length > 1 && (
+          <Button tone="secondary" onClick={() => setEditing(true)}>
+            Change assignments
+          </Button>
+        )
+      }
       summary={
         <p>
           Different vehicles are separate investments, even when they invest in
@@ -981,6 +1060,7 @@ function DocumentReview({
               await createDocumentInvestment(context.positionId, related.data);
             }).then((saved) => {
               if (!saved) return;
+              setEditing(false);
               setSelected([]);
               setLabel(null);
             });
@@ -989,135 +1069,153 @@ function DocumentReview({
               await saveInvestmentReview(context.positionId, assignment.data);
             }).then((saved) => {
               if (!saved) return;
+              setEditing(false);
               setSelected([]);
             });
         }}
       >
-        <p className="investment-review__assignment-count" aria-live="polite">
-          {assignedCount} of {clean.length} assigned
-          {remainingCount > 0
-            ? ` · ${remainingCount} still to assign`
-            : " · All agreements assigned"}
-        </p>
-        <div className="investment-review__documents">
-          {clean.map((doc) => {
-            const saved = savedAssignments.get(doc.id);
-            const assignmentLabel =
-              saved?.relationship === "supports"
-                ? "This investment"
-                : saved?.relationship === "general"
-                  ? "General or parent agreement"
-                  : saved?.relationship === "other_investment"
-                    ? `Other investment: ${context.otherPositions.find((p) => p.id === saved.targetPositionId)?.label ?? "Another investment"}`
-                    : saved?.relationship === "unassigned"
-                      ? "Not yet determined"
-                      : "Not assigned";
-            const assigned =
-              saved !== undefined && saved.relationship !== "unassigned";
-            return (
-              <article
-                key={doc.id}
-                className="investment-review__document"
-                aria-label={doc.fileName}
-              >
+        {clean.length > 0 && (
+          <p className="investment-review__assignment-count" aria-live="polite">
+            {assignedCount === 0 && identityLinked
+              ? `${clean.length} ${clean.length === 1 ? "agreement" : "agreements"} · Linked through reviewed identity`
+              : `${assignedCount} of ${clean.length} explicitly assigned${remainingCount > 0 ? ` · ${remainingCount} still to assign` : " · All agreements assigned"}`}
+          </p>
+        )}
+        {renderDocuments((id, fileName) => {
+          if (!clean.some((doc) => doc.id === id)) return null;
+          const saved = savedAssignments.get(id);
+          const assignmentLabel =
+            saved?.relationship === "supports"
+              ? `Assigned to ${legalName ?? context.positionLabel}`
+              : saved?.relationship === "general"
+                ? "General or parent agreement"
+                : saved?.relationship === "other_investment"
+                  ? `Assigned to ${context.otherPositions.find((p) => p.id === saved.targetPositionId)?.label ?? "Another investment"}`
+                  : saved?.relationship === "unassigned"
+                    ? "Not yet determined"
+                    : identityLinked
+                      ? `Supports ${legalName ?? context.positionLabel} · linked through reviewed identity`
+                      : "No explicit assignment";
+          return (
+            <div className="investment-review__document-assignment">
+              <p className="investment-review__assignment" aria-live="polite">
+                {assignmentLabel}
+              </p>
+              {editing ? (
                 <label>
                   <Input
                     type="checkbox"
-                    checked={selected.includes(doc.id)}
+                    aria-label={fileName}
+                    checked={selected.includes(id)}
                     onChange={(event) =>
                       setSelected(
                         event.currentTarget.checked
-                          ? [...selected, doc.id]
-                          : selected.filter((id) => id !== doc.id),
+                          ? [...selected, id]
+                          : selected.filter((item) => item !== id),
                       )
                     }
                   />
-                  <span>{doc.fileName}</span>
+                  Select agreement
                 </label>
-                <TextLink onClick={() => void download(doc.id, doc.fileName)}>
-                  Download PDF
-                </TextLink>
-                <div className="investment-review__document-details">
-                  <p>
-                    {doc.citations
-                      ?.map(
-                        (citation) =>
-                          `${citation.legalName} · page ${citation.page}`,
-                      )
-                      .join("; ") ?? "Review the PDF for its legal name."}
-                  </p>
-                  <p
-                    className="investment-review__assignment"
-                    aria-live="polite"
-                  >
-                    {assigned && <span aria-hidden="true">✓ </span>}
-                    {assignmentLabel}
-                  </p>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-        <ReviewSelect
-          label="These agreements belong to"
-          value={target}
-          items={[
-            { value: "new", label: "A separate investment" },
-            { value: "supports", label: "This investment" },
-            { value: "general", label: "General or parent agreement" },
-            { value: "unassigned", label: "Not yet determined" },
-            ...context.otherPositions.map((p) => ({
-              value: p.id,
-              label: p.label,
-            })),
-          ]}
-          onChange={setTarget}
-        />
-        {target === "new" && (
-          <>
-            <Field label="Investment label" variant="filled">
-              <Input
-                value={investmentLabel}
-                maxLength={1_000}
-                onChange={(event) => setLabel(event.currentTarget.value)}
-                placeholder="Name from the agreement"
-              />
-            </Field>
-            <ReviewSelect
-              label="New investment’s status"
-              value={status}
-              onChange={setStatus}
-              items={participation.filter((item) =>
-                ["pending", "cancelled", "unknown"].includes(item.value),
+              ) : (
+                <Button
+                  tone="quiet"
+                  disabled={busy}
+                  onClick={() => {
+                    setSelected([id]);
+                    setTarget(
+                      saved?.relationship === "other_investment"
+                        ? saved.targetPositionId!
+                        : (saved?.relationship ?? "supports"),
+                    );
+                    setEditing(true);
+                  }}
+                >
+                  Change assignment
+                </Button>
               )}
+            </div>
+          );
+        }, context.documents)}
+        {clean.length === 0 && (
+          <p>No agreements are available for assignment yet.</p>
+        )}
+        {editing && (
+          <>
+            <ReviewSelect
+              label="These agreements belong to"
+              value={target}
+              items={[
+                { value: "new", label: "A separate investment" },
+                {
+                  value: "supports",
+                  label: legalName ?? context.positionLabel,
+                },
+                { value: "general", label: "General or parent agreement" },
+                { value: "unassigned", label: "Not yet determined" },
+                ...context.otherPositions.map((p) => ({
+                  value: p.id,
+                  label: p.label,
+                })),
+              ]}
+              onChange={setTarget}
             />
-            <p>
-              This status applies only to the new investment. This investment’s
-              status and amounts stay unchanged; no fee or carry is copied.
-            </p>
+            {target === "new" && (
+              <>
+                <Field label="Investment label" variant="filled">
+                  <Input
+                    value={investmentLabel}
+                    maxLength={1_000}
+                    onChange={(event) => setLabel(event.currentTarget.value)}
+                    placeholder="Name from the agreement"
+                  />
+                </Field>
+                <ReviewSelect
+                  label="New investment’s status"
+                  value={status}
+                  onChange={setStatus}
+                  items={participation.filter((item) =>
+                    ["pending", "cancelled", "unknown"].includes(item.value),
+                  )}
+                />
+                <p>
+                  This status applies only to the new investment. This
+                  investment’s status and amounts stay unchanged; no fee or
+                  carry is copied.
+                </p>
+              </>
+            )}
+            <ActionGroup align="end">
+              <Button
+                tone="quiet"
+                disabled={busy}
+                onClick={() => {
+                  setEditing(false);
+                  setSelected([]);
+                  setLabel(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  busy ||
+                  selected.length === 0 ||
+                  (target === "new"
+                    ? !related.success
+                    : !assignment.success || !assignmentChanged)
+                }
+              >
+                {saving
+                  ? "Saving…"
+                  : target === "new"
+                    ? "Create separate investment"
+                    : "Save document assignment"}
+              </Button>
+            </ActionGroup>
           </>
         )}
-        {downloadError !== null && (
-          <FormMessage tone="error">{downloadError}</FormMessage>
-        )}
-        <ActionGroup align="end">
-          <Button
-            type="submit"
-            disabled={
-              busy ||
-              selected.length === 0 ||
-              (target === "new"
-                ? !related.success
-                : !assignment.success || !assignmentChanged)
-            }
-          >
-            {saving
-              ? "Saving…"
-              : target === "new"
-                ? "Create separate investment"
-                : "Save document assignment"}
-          </Button>
-        </ActionGroup>
       </form>
     </ReviewSection>
   );
@@ -1128,7 +1226,9 @@ export function InvestmentReview({
   sourceLabel,
   identity,
   identitySaved,
-  documents,
+  renderDocuments,
+  legalName,
+  nextReviewAction,
   tab,
   onTabChange,
   onSaved,
@@ -1137,7 +1237,9 @@ export function InvestmentReview({
   sourceLabel: string;
   identity: ReactNode;
   identitySaved: boolean;
-  documents: ReactNode;
+  renderDocuments: ReviewDocumentRenderer;
+  legalName: string | null;
+  nextReviewAction?: ReactNode;
   tab: EntityReviewTab;
   onTabChange: (tab: EntityReviewTab) => void;
   onSaved: () => Promise<void>;
@@ -1189,20 +1291,38 @@ export function InvestmentReview({
     [busy, onSaved, positionId],
   );
   const sections = investmentReviewSections(context, identitySaved);
-  const nextSection =
-    context === null
-      ? undefined
-      : sections.find(
-          (section) => section.value !== tab && section.next !== null,
-        );
+  const required = sections.filter((section) => section.value !== "ownership");
+  const outstanding = required.filter((section) => !section.complete);
+  const nextSection = outstanding.find((section) => section.next !== null);
   return (
     <section className="investment-review" aria-label="Investment review">
-      {context?.automaticReview && (
-        <p className="entity-review__next">
-          {context.automaticReview.issues.length === 0
-            ? "Source details accepted automatically. You can edit any section."
-            : "Matching source details are filled in. Review the remaining questions; you can edit any section."}
-        </p>
+      {context !== null && (
+        <div className="investment-review__summary">
+          <div>
+            <strong>
+              {outstanding.length === 0
+                ? "Review complete"
+                : "Review in progress"}
+            </strong>
+            <p>
+              {outstanding.length === 0
+                ? "Required details are reviewed. Ownership evidence is optional."
+                : (nextSection?.next ??
+                  "Document evidence is not yet reviewed.")}
+            </p>
+          </div>
+          <ActionGroup>
+            {nextReviewAction}
+            {nextSection && nextSection.value !== tab && (
+              <Button
+                tone="secondary"
+                onClick={() => onTabChange(nextSection.value)}
+              >
+                Continue review
+              </Button>
+            )}
+          </ActionGroup>
+        </div>
       )}
       {error !== null && (
         <FormMessage tone="error">
@@ -1218,17 +1338,11 @@ export function InvestmentReview({
       >
         <SectionNavigation
           label="Review sections"
+          mobilePresentation="tabs"
           items={sections}
           value={tab}
           onValueChange={(value) => onTabChange(value as EntityReviewTab)}
         />
-        {nextSection && (
-          <p className="entity-review__next">
-            <TextLink onClick={() => onTabChange(nextSection.value)}>
-              Next: {nextSection.next}
-            </TextLink>
-          </p>
-        )}
         <TabsContent
           value="identity"
           keepMounted
@@ -1249,6 +1363,7 @@ export function InvestmentReview({
               <ParticipationReview context={context} save={save} busy={busy} />
               {context.economics !== null ? (
                 <PositionEconomicsEditor
+                  presentation="review"
                   holding={{
                     id: positionId,
                     sourceLabel,
@@ -1293,9 +1408,17 @@ export function InvestmentReview({
           keepMounted
           className="entity-review__panel"
         >
-          {documents}
-          {context !== null && (
-            <DocumentReview context={context} save={save} busy={busy} />
+          {context === null ? (
+            renderDocuments(() => null)
+          ) : (
+            <DocumentReview
+              context={context}
+              save={save}
+              busy={busy}
+              legalName={legalName}
+              identitySaved={identitySaved}
+              renderDocuments={renderDocuments}
+            />
           )}
         </TabsContent>
         <TabsContent
@@ -1304,7 +1427,12 @@ export function InvestmentReview({
           className="entity-review__panel"
         >
           {context !== null && (
-            <OwnershipReview context={context} save={save} busy={busy} />
+            <OwnershipReview
+              context={context}
+              save={save}
+              busy={busy}
+              legalName={legalName}
+            />
           )}
         </TabsContent>
       </Tabs>
