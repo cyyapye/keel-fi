@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatCompactCurrency,
+  formatCurrency,
   formatMagnitudeRoundedCurrency,
   formatRoundedCompactCurrency,
 } from "./format";
@@ -59,5 +60,18 @@ describe("formatMagnitudeRoundedCurrency", () => {
     expect(formatMagnitudeRoundedCurrency(31_098_034, "USD")).toBe("USD 310k");
     expect(formatMagnitudeRoundedCurrency(2_339_805, "USD")).toBe("USD 23k");
     expect(formatMagnitudeRoundedCurrency(99_950, "USD")).toBe("USD 999.5");
+  });
+});
+
+describe("formatCurrency", () => {
+  it("shows complete amounts with each currency's precision, including negative and large values", () => {
+    expect(formatCurrency(123_456_789, "usd")).toBe("USD 1,234,567.89");
+    expect(formatCurrency(-120, "USD")).toBe("-USD 1.20");
+    expect(formatCurrency(0, "USD")).toBe("USD 0.00");
+    expect(formatCurrency(1_234, "JPY")).toBe("JPY 1,234");
+    expect(formatCurrency(1_234, "KWD")).toBe("KWD 1.234");
+    expect(formatCurrency(Number.MAX_SAFE_INTEGER, "USD")).toBe(
+      "USD 90,071,992,547,409.91",
+    );
   });
 });

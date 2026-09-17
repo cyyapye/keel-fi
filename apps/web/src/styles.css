@@ -6490,7 +6490,7 @@ h1,
 .investment-review {
   grid-column: 1 / -1;
   min-width: 0;
-  padding-block: 28px;
+  padding-block: 20px;
 }
 
 .legal-entities[hidden],
@@ -6506,9 +6506,20 @@ h1,
   gap: 24px;
   margin-bottom: 32px;
 }
+.entity-review--investment .entity-review__navigation {
+  margin-bottom: 24px;
+}
+.entity-review--investment .page-intro {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
 .entity-review .page-intro h1 {
   font-size: clamp(28px, 4vw, 44px);
   overflow-wrap: anywhere;
+}
+.entity-review--investment .page-intro h1 {
+  font-size: clamp(28px, 3vw, 36px);
 }
 .entity-review__next {
   margin-block: 16px 0;
@@ -6516,9 +6527,149 @@ h1,
 }
 .entity-review__panel {
   display: grid;
-  gap: 40px;
-  padding-block: 32px;
+  gap: 36px;
+  padding-block: 28px;
 }
+.entity-review__source,
+.investment-review__summary,
+.investment-review__document-assignment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.entity-review__source {
+  justify-content: start;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.investment-review__summary {
+  margin-bottom: 16px;
+  padding-block: 16px;
+  border-block: 1px solid var(--line-soft);
+}
+.investment-review__summary p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.entity-review__identity-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  max-width: 640px;
+}
+.entity-review__identity .entity-review__legal-name {
+  margin: 0;
+  font-size: 23px;
+  font-weight: 600;
+}
+.entity-review__provenance {
+  margin: 0;
+  color: var(--muted);
+}
+.entity-review__identity > .keel-link {
+  justify-self: start;
+}
+.investment-review__section .section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+}
+.investment-review__section .section-heading h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.investment-review__section > p,
+.investment-review__section form > p {
+  margin-block: 0;
+}
+.investment-review__section .action-group {
+  margin-top: 4px;
+}
+.investment-review__company-basis strong {
+  font-size: 18px;
+}
+.investment-review__ownership-subject p {
+  margin: 0 0 8px;
+}
+.legal-entity-documents--review {
+  margin: 0;
+  font-size: 14px;
+}
+.legal-entity-documents--review ul {
+  gap: 24px;
+  margin: 0;
+}
+.legal-entity-documents--review article {
+  display: grid;
+  gap: 12px;
+}
+.legal-entity-documents--review article > .keel-link {
+  justify-self: start;
+  text-align: left;
+  font-size: 16px;
+}
+.investment-review__document-assignment p {
+  margin: 0;
+}
+.investment-review__document-assignment label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.investment-review__document-assignment input[type="checkbox"] {
+  accent-color: var(--ink);
+  width: 18px;
+  height: 18px;
+}
+.investment-review__evidence > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ownership-share-pairs {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 20px;
+}
+.ownership-share-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.position-economics--review .position-economics__primary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.position-economics--review .position-economics__secondary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+.position-economics--review .position-economics__values span {
+  font-size: 11px;
+}
+.position-economics--review .position-economics__values small,
+.position-economics--review .position-economics__heading p:last-child {
+  max-width: 100%;
+  font-size: 12px;
+}
+.position-economics--review .position-economics__primary strong {
+  font-size: clamp(22px, 2.5vw, 32px);
+}
+.position-economics--review .position-economics__secondary strong {
+  font-size: 20px;
+}
+.position-economics--review .position-economics__primary .is-not-set {
+  font-size: 18px;
+}
+
 .entity-review__panel .legal-entity-editor {
   padding: 0;
   border: 0;
@@ -6739,8 +6890,28 @@ h1,
   .investment-review__fields {
     grid-template-columns: minmax(0, 1fr);
   }
-  .investment-review .position-economics__values {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .investment-review .position-economics__primary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .investment-review .position-economics__primary article {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 0 12px;
+  }
+  .investment-review .position-economics__primary article small {
+    grid-column: 1 / -1;
+  }
+  .investment-review .position-economics__values article:last-child {
+    grid-column: auto;
+  }
+  .position-economics--review .position-economics__heading {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .position-economics--review .position-economics__heading > .button {
+    justify-self: start;
   }
 }
 

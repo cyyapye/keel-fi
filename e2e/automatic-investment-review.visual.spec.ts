@@ -237,13 +237,16 @@ test("automatically resolves 120 sources, shows only the missing term and preser
     ),
   ).toBeVisible();
   await expect(page).toHaveScreenshot("automatic-investment-exceptions.png");
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
   await page.getByRole("button", { name: "Review terms", exact: true }).click();
   const review = page.getByRole("region", {
     name: "Investment review",
     exact: true,
   });
   await expect(
-    review.getByRole("heading", { name: "SPV economics" }),
+    review.getByRole("heading", { name: "Investment amounts and fees" }),
   ).toBeVisible();
   await review
     .getByRole("button", { name: "Review fee & carry", exact: true })

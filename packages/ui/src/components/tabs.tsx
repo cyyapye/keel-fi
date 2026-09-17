@@ -35,14 +35,18 @@ export function SectionNavigation({
   value,
   onValueChange,
   label,
+  mobilePresentation = "select",
 }: {
   items: readonly SectionTab[];
   value: string;
   onValueChange: (value: string) => void;
   label: string;
+  mobilePresentation?: "select" | "tabs";
 }) {
   return (
-    <div className="section-navigation">
+    <div
+      className={`section-navigation section-navigation--mobile-${mobilePresentation}`}
+    >
       <TabsList
         variant="line"
         aria-label={label}

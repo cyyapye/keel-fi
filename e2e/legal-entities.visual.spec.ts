@@ -465,7 +465,7 @@ test("searches the full legal inventory, reveals historical matches and refreshe
   await search.fill("cafe horizon");
   await page
     .locator(".legal-entities__known .legal-entity-row")
-    .getByRole("button", { name: "Edit", exact: true })
+    .getByRole("button", { name: "Review details", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Back to legal entities", exact: true })
@@ -473,15 +473,18 @@ test("searches the full legal inventory, reveals historical matches and refreshe
   await expect(search).toHaveValue("cafe horizon");
   await page
     .locator(".legal-entities__known .legal-entity-row")
-    .getByRole("button", { name: "Edit", exact: true })
+    .getByRole("button", { name: "Review details", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Edit legal entity", exact: true })
     .click();
   await page
     .getByRole("textbox", { name: "Legal name", exact: true })
     .fill("Demo Aurora Holdings LLC");
   await page.getByRole("button", { name: "Save version", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Save version", exact: true }),
-  ).toBeDisabled();
+    page.getByRole("button", { name: "Edit legal entity", exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Back to legal entities", exact: true })
     .click();
@@ -794,11 +797,11 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await selectReviewSection(page, "Documents");
   const evidence = page.locator(".entity-review");
   await evidence
-    .getByRole("button", { name: "Agreement evidence · 1" })
+    .getByRole("button", { name: "Source evidence · page 2" })
     .click();
   await expect(evidence).toContainText("Issuer: Demo Venture SPV LLC");
   const agreement = evidence.getByRole("button", {
-    name: "demo-subscription-agreement.pdf · page 2",
+    name: "demo-subscription-agreement.pdf",
   });
   let agreementAvailable = false;
   let agreementBlocked = false;
@@ -863,7 +866,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   // download action that suggests the original can be opened while blocked.
   await page.reload();
   await evidence
-    .getByRole("button", { name: "Agreement evidence · 1" })
+    .getByRole("button", { name: "Source evidence · page 2" })
     .click();
   const agreementDownload = page.waitForEvent("download");
   await agreement.click();
@@ -943,6 +946,9 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expectNoHorizontalOverflow(page);
 
   await editor.getByRole("button", { name: "Add entity" }).click();
+  await page
+    .getByRole("button", { name: "Edit legal entity", exact: true })
+    .click();
   await expect(
     editor.getByRole("heading", { name: "Edit legal entity" }),
   ).toBeVisible();

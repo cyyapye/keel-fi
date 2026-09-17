@@ -132,6 +132,14 @@ async function setup(
       remainingCandidateCount: 0,
     },
   };
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      const style = document.createElement("style");
+      style.textContent =
+        ".topbar, .mobile-nav { visibility: hidden !important; }";
+      document.head.appendChild(style);
+    });
+  });
   await routeHoldingsPage(page, {
     householdName: "Demo Household",
     holdings: [],
@@ -271,7 +279,7 @@ test("continues after a saved review leaves the queue and hides Next for its onl
   await expect(title).toHaveText("Demo A 1 LLC");
   await row.getByRole("button", { name: "Add entity", exact: true }).click();
   await expect(
-    row.getByRole("button", { name: "Save version", exact: true }),
+    row.getByRole("button", { name: "Edit legal entity", exact: true }),
   ).toBeVisible();
   await next.click();
   await expect(title).toHaveText("Demo A 2 LLC");
@@ -345,6 +353,9 @@ test("opens the supported entity name after moving a different investment's agre
     },
   );
   await selectReviewSection(page, "Documents");
+  await review
+    .getByRole("button", { name: "Change assignments", exact: true })
+    .click();
   await review
     .getByRole("combobox", { name: "These agreements belong to" })
     .click();
@@ -429,6 +440,9 @@ test("distinguishes an earlier company mapping from agreement evidence and never
   await expect(workspace.getByText(/Earlier reviewed mapping/)).toBeVisible();
   await expect(
     workspace.getByText(/No supporting company citation was extracted/),
+  ).toHaveCount(0);
+  await expect(
+    workspace.getByRole("button", { name: "Edit company", exact: true }),
   ).toBeVisible();
   await workspace
     .getByRole("radio", { name: "Link existing entity", exact: true })
@@ -515,8 +529,8 @@ test("opens a company conflict, preserves a failed correction and reads back the
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
   await expect(
-    row.getByRole("button", { name: "Underlying company", exact: true }),
-  ).toHaveAttribute("aria-expanded", "true");
+    row.getByRole("combobox", { name: "Company evidence", exact: true }),
+  ).toBeVisible();
   await expect(
     row.getByText(context.automaticReview.issues[0]!.message, { exact: true }),
   ).toBeVisible();
@@ -589,8 +603,8 @@ test("opens a company conflict, preserves a failed correction and reads back the
     row.getByText("Currently mapped to Demo Robotics", { exact: true }),
   ).toBeVisible();
   await expect(
-    row.getByRole("button", { name: "Save company mapping", exact: true }),
-  ).toBeDisabled();
+    row.getByRole("button", { name: "Edit company", exact: true }),
+  ).toBeVisible();
   expect(writes).toHaveLength(2);
   expect(writes[1]).toMatchObject({
     basis: "document_link",
@@ -604,9 +618,7 @@ test("opens a company conflict, preserves a failed correction and reads back the
   await expect(
     row.getByText(/An agreement names a different company/),
   ).toHaveCount(0);
-  await row
-    .getByRole("button", { name: "Underlying company", exact: true })
-    .click();
+  await row.getByRole("button", { name: "Edit company", exact: true }).click();
   await expect(
     row.getByRole("button", { name: "Save company mapping", exact: true }),
   ).toBeDisabled();
@@ -625,8 +637,8 @@ test("opens a company conflict, preserves a failed correction and reads back the
     .getByRole("button", { name: "Save company mapping", exact: true })
     .click();
   await expect(
-    row.getByRole("button", { name: "Save company mapping", exact: true }),
-  ).toBeDisabled();
+    row.getByRole("button", { name: "Edit company", exact: true }),
+  ).toBeVisible();
   expect(writes).toHaveLength(3);
   await page.reload();
   await expect(row.getByText(/Confirmed by you/)).toBeVisible();
@@ -666,6 +678,12 @@ test("reviews company evidence and keeps ownership drafts across independent sav
   await page.getByRole("option", { name: "Pending", exact: true }).click();
   await review.getByRole("button", { name: "Save participation" }).click();
   await expect(
+    review.getByRole("button", { name: "Change status", exact: true }),
+  ).toBeVisible();
+  await review
+    .getByRole("button", { name: "Change status", exact: true })
+    .click();
+  await expect(
     review.getByRole("button", { name: "Save participation", exact: true }),
   ).toBeDisabled();
   await expect(
@@ -678,9 +696,6 @@ test("reviews company evidence and keeps ownership drafts across independent sav
   expect(writes[0]).toMatchObject({ participationStatus: "pending" });
   await selectReviewSection(page, "Ownership");
   await selectReviewSection(page, "Identity");
-  await review
-    .getByRole("button", { name: "Underlying company", exact: true })
-    .click();
   await expect(
     review.getByRole("button", { name: "Save company mapping" }),
   ).toBeEnabled();
@@ -713,6 +728,12 @@ test("reviews company evidence and keeps ownership drafts across independent sav
     company: { mode: "new", legalName: "Demo Robotics Inc." },
     citation: { documentId: "11111111-1111-4111-8111-111111111111", page: 2 },
   });
+  await expect(
+    review.getByText("Currently mapped to Demo Robotics Inc.", { exact: true }),
+  ).toBeVisible();
+  await review
+    .getByRole("button", { name: "Edit company", exact: true })
+    .click();
   await expect(
     review.getByRole("combobox", { name: "Company", exact: true }),
   ).toContainText("Demo Robotics Inc.");
@@ -826,6 +847,15 @@ test("creates a separate cancelled investment with selected agreements, not copi
     },
   );
   await selectReviewSection(page, "Documents");
+  await review
+    .getByRole("button", { name: "Change assignment", exact: true })
+    .click();
+  await review
+    .getByRole("checkbox", {
+      name: "demo-growth-subscription.pdf",
+      exact: true,
+    })
+    .uncheck();
   await expect(
     review.getByRole("combobox", { name: "New investment’s status" }),
   ).toHaveCount(0);
@@ -886,35 +916,23 @@ test("uses responsive section navigation, keeps focus rings visible, and leaves 
   const { review, writes } = await setup(page);
   const navigation = review.locator(".section-navigation");
   await expect(navigation).toContainText("Optional");
+  await expect(
+    review.getByRole("combobox", { name: "Review sections" }),
+  ).toBeHidden();
+  for (const label of ["Identity", "Investment", "Documents", "Ownership"]) {
+    await expect(
+      review.getByRole("tab", { name: label, exact: true }),
+    ).toBeVisible();
+  }
   if (isMobile) {
-    await expect(
-      review.getByRole("tab", { name: "Identity", exact: true }),
-    ).toBeHidden();
-    const dropdown = review.getByRole("combobox", { name: "Review sections" });
-    await dropdown.click();
-    await expect(
-      page.getByRole("option", { name: /^Ownership Optional/u }),
-    ).toBeVisible();
-    await expect(page).toHaveScreenshot("investment-section-menu.png", {
+    await expect(navigation).toHaveScreenshot("investment-section-tabs.png", {
       animations: "disabled",
-      caret: "hide",
     });
-    await page.keyboard.press("Escape");
-  } else {
-    await expect(
-      review.getByRole("combobox", { name: "Review sections" }),
-    ).toBeHidden();
-    await expect(
-      review.getByRole("tab", { name: "Identity", exact: true }),
-    ).toBeVisible();
   }
   await expect(review.locator(".legal-entity-editor__actions")).toHaveCSS(
     "border-top-width",
     "0px",
   );
-  await review
-    .getByRole("button", { name: "Underlying company", exact: true })
-    .click();
   await review.getByRole("combobox", { name: "Company evidence" }).click();
   await page
     .getByRole("option", { name: "Confirm a company yourself", exact: true })
@@ -995,6 +1013,12 @@ test("uses responsive section navigation, keeps focus rings visible, and leaves 
     .getByRole("button", { name: "Save company mapping", exact: true })
     .click();
   await expect(
+    review.getByRole("button", { name: "Edit company", exact: true }),
+  ).toBeVisible();
+  await review
+    .getByRole("button", { name: "Edit company", exact: true })
+    .click();
+  await expect(
     review.getByRole("button", { name: "Save company mapping", exact: true }),
   ).toBeDisabled();
   expect(writes).toHaveLength(1);
@@ -1012,7 +1036,10 @@ test("uses responsive section navigation, keeps focus rings visible, and leaves 
 test("shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection", async ({
   page,
 }) => {
-  const { review, writes, context, rejectWrites } = await setup(page, true);
+  const { review, writes, context, rejectWrites, source } = await setup(
+    page,
+    true,
+  );
   await selectReviewSection(page, "Documents");
   let first = review.getByRole("article", {
     name: "demo-growth-subscription.pdf",
@@ -1022,8 +1049,10 @@ test("shows saved document destinations after reload, preserves earlier assignme
     name: "Save document assignment",
     exact: true,
   });
-  await expect(first).toContainText("Not assigned");
-  await first.getByRole("checkbox").check();
+  await expect(first).toContainText("No explicit assignment");
+  await first
+    .getByRole("button", { name: "Change assignment", exact: true })
+    .click();
   rejectWrites(true);
   await save.click();
   await expect(
@@ -1032,17 +1061,17 @@ test("shows saved document destinations after reload, preserves earlier assignme
   await expect(first.getByRole("checkbox")).toBeChecked();
   rejectWrites(false);
   await save.click();
-  await expect(first.getByRole("checkbox")).not.toBeChecked();
+  await expect(first.getByRole("checkbox")).toHaveCount(0);
   await expect(first.locator(".investment-review__assignment")).toContainText(
-    "This investment",
+    "Assigned to Demo Growth IV",
   );
   await expect(
     review.locator(".investment-review__assignment-count"),
-  ).toHaveText("1 of 2 assigned · 1 still to assign");
+  ).toHaveText("1 of 2 explicitly assigned · 1 still to assign");
   await expect(review.locator(".section-navigation")).toContainText(
     "Assign agreements",
   );
-  await expect(save).toBeDisabled();
+  await expect(save).toHaveCount(0);
   expect(context.review?.documentAssignments).toHaveLength(1);
   await page.reload();
   await selectReviewSection(page, "Documents");
@@ -1051,13 +1080,15 @@ test("shows saved document destinations after reload, preserves earlier assignme
     exact: true,
   });
   await expect(first.locator(".investment-review__assignment")).toContainText(
-    "This investment",
+    "Assigned to Demo Growth IV",
   );
-  await first.getByRole("checkbox").check();
+  await first
+    .getByRole("button", { name: "Change assignment", exact: true })
+    .click();
   await expect(save).toBeDisabled();
   await first.getByRole("checkbox").uncheck();
   await expect(
-    review.locator("form:has(.investment-review__documents)"),
+    review.locator("form:has(.legal-entity-documents--review)"),
   ).toHaveScreenshot("investment-document-assignment-saved.png", {
     animations: "disabled",
     caret: "hide",
@@ -1078,13 +1109,27 @@ test("shows saved document destinations after reload, preserves earlier assignme
     "General or parent agreement",
   );
   await expect(first.locator(".investment-review__assignment")).toContainText(
-    "This investment",
+    "Assigned to Demo Growth IV",
   );
   await expect(
     review.locator(".investment-review__assignment-count"),
-  ).toHaveText("2 of 2 assigned · All agreements assigned");
+  ).toHaveText("2 of 2 explicitly assigned · All agreements assigned");
   expect(context.review?.documentAssignments).toHaveLength(2);
   expect(writes).toHaveLength(3);
+  // The legal-name projection excludes the parent agreement after review.
+  // The Documents tab must still expose its saved assignment after reload.
+  source.legalEntityNameEvidence.documents = [context.documents[0]!];
+  await page.reload();
+  await selectReviewSection(page, "Documents");
+  await expect(second).toBeVisible();
+  await expect(second).toContainText("General or parent agreement");
+  await second
+    .getByRole("button", { name: "Change assignment", exact: true })
+    .click();
+  await expect(
+    review.getByRole("combobox", { name: "These agreements belong to" }),
+  ).toContainText("General or parent agreement");
+  await expect(save).toBeDisabled();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
@@ -1169,6 +1214,12 @@ test("shows saving on the clicked button then disables unchanged submission with
   ).toBeDisabled();
   release();
   await expect(
+    review.getByRole("button", { name: "Change status", exact: true }),
+  ).toBeVisible();
+  await review
+    .getByRole("button", { name: "Change status", exact: true })
+    .click();
+  await expect(
     review.getByRole("button", { name: "Save participation", exact: true }),
   ).toBeDisabled();
   await expect.poll(() => writes.length).toBe(1);
@@ -1241,7 +1292,7 @@ test("reviews fees already included in an imported amount and preserves the net 
   await gross.fill("29000");
   await expect(
     review.getByText(
-      "Gross commitment less management and setup fees must equal the imported net amount of $27.3k.",
+      "Gross commitment less management and setup fees must equal the imported net amount of $27,300.00.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -1258,10 +1309,10 @@ test("reviews fees already included in an imported amount and preserves the net 
     .click();
   const preview = review.locator(".position-economics__review");
   for (const amount of [
-    "$30k",
-    "8.0% · $2.4k",
-    "1.0% · $300",
-    "$27.3k",
+    "$30,000.00",
+    "8.0% · $2,400.00",
+    "1.0% · $300.00",
+    "$27,300.00",
     "15.0%",
   ])
     await expect(preview.getByText(amount, { exact: true })).toBeVisible();
@@ -1303,10 +1354,10 @@ test("reviews fees already included in an imported amount and preserves the net 
   await page.reload();
   await selectReviewSection(page, "Investment");
   const values = review.locator(".position-economics__values");
-  await expect(values.getByText("$30k", { exact: true })).toBeVisible();
-  await expect(values.getByText("$27.3k", { exact: true })).toHaveCount(2);
+  await expect(values.getByText("$30,000.00", { exact: true })).toBeVisible();
+  await expect(values.getByText("$27,300.00", { exact: true })).toHaveCount(2);
   await expect(
-    values.getByText("Management: $2.4k. Setup: $300.", { exact: true }),
+    values.getByText("Management: $2,400.00. Setup: $300.00.", { exact: true }),
   ).toBeVisible();
   await expect(review.locator(".position-economics")).toHaveScreenshot(
     "investment-net-fees-accepted.png",
@@ -1323,15 +1374,162 @@ test("reviews fees already included in an imported amount and preserves the net 
   await review
     .getByRole("button", { name: "Review terms", exact: true })
     .click();
-  await expect(preview.getByText("$27.3k", { exact: true })).toBeVisible();
+  await expect(preview.getByText("$27,300.00", { exact: true })).toBeVisible();
   await review
     .getByRole("button", { name: "Accept terms", exact: true })
     .click();
   await expect(values.getByText("18.0%", { exact: true })).toBeVisible();
-  await expect(values.getByText("$27.3k", { exact: true })).toHaveCount(2);
+  await expect(values.getByText("$27,300.00", { exact: true })).toHaveCount(2);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
     ),
   ).toBe(false);
+});
+
+test("shows reviewed facts before editing and keeps optional ownership out of completion", async ({
+  page,
+  isMobile,
+}) => {
+  const { inventory, source, context, row, review, writes } = await setup(page);
+  inventory.entities = [
+    {
+      id: "entity_demo_reviewed",
+      versionId: "entity_demo_reviewed_v1",
+      version: 1,
+      legalName: "Demo Growth IV LLC",
+      entityType: "llc",
+      relationship: "investment_vehicle",
+      currentOwner: null,
+      jurisdiction: null,
+      formedOn: null,
+      einLastFour: null,
+      ownershipInterestPpm: null,
+      interestStatus: "current",
+      taxClassification: null,
+      notes: null,
+      recordedAt: inventory.asOf,
+      sources: [source],
+    },
+  ];
+  inventory.candidates = [];
+  context.mappings = [
+    {
+      id: "mapping_demo_reviewed",
+      companyId: "company_demo_reviewed",
+      companyName: "Demo Robotics Inc.",
+      status: "active",
+      decisionSource: "review",
+      acceptedAt: inventory.asOf,
+    },
+  ];
+  context.companies = [
+    { id: "company_demo_reviewed", legalName: "Demo Robotics Inc." },
+  ];
+  context.companyChoices = [];
+  context.review = {
+    id: "33333333-3333-4333-8333-333333333333",
+    positionId: context.positionId,
+    version: 1,
+    participationStatus: "current",
+    documentAssignments: [],
+    ownershipObservations: [],
+    recordedAt: inventory.asOf,
+  };
+  context.economics!.acceptedTerms = PositionEconomicsTermsSchema.parse({
+    id: "terms_demo_reviewed",
+    positionId: context.positionId,
+    acceptedAgainstSnapshotId: context.snapshotId,
+    commitmentMinorAtAcceptance: context.committedMinor,
+    fundedMinorAtAcceptance: context.fundedMinor,
+    capitalBasis: "gross_commitment",
+    grossCommitmentMinor: null,
+    setupFeePpm: 0,
+    annualAdminFeePpm: 20_000,
+    adminFeeYears: 1,
+    carryPpm: 150_000,
+    note: "Synthetic reviewed agreement",
+    acceptedAt: inventory.asOf,
+  });
+  await page.reload();
+  await expect(
+    review.getByText("Review complete", { exact: true }),
+  ).toBeVisible();
+  await expect(review.getByText(/Review the remaining questions/u)).toHaveCount(
+    0,
+  );
+  await expect(review.getByRole("textbox")).toHaveCount(0);
+  await expect(review.getByText(/Earlier reviewed mapping/u)).toBeVisible();
+  await expect(row).toHaveScreenshot("investment-reviewed-identity.png", {
+    animations: "disabled",
+  });
+  await row
+    .getByRole("button", { name: "Edit legal entity", exact: true })
+    .click();
+  await expect(row.getByLabel("Legal name", { exact: true })).toHaveValue(
+    "Demo Growth IV LLC",
+  );
+  await row.getByLabel("Legal name", { exact: true }).fill("Demo Unsaved LLC");
+  await row
+    .locator(".legal-entity-editor")
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  await expect(row.locator(".entity-review__legal-name")).toHaveText(
+    "Demo Growth IV LLC",
+  );
+  await selectReviewSection(page, "Investment");
+  await expect(
+    review.getByRole("combobox", { name: "This investment’s status" }),
+  ).toHaveCount(0);
+  await expect(review.locator(".position-economics__primary")).toContainText(
+    "$9,800.00",
+  );
+  await expect(row).toHaveScreenshot("investment-reviewed-amounts.png", {
+    animations: "disabled",
+  });
+  await selectReviewSection(page, "Documents");
+  await expect(
+    review.getByRole("article", {
+      name: "demo-growth-subscription.pdf",
+      exact: true,
+    }),
+  ).toHaveCount(1);
+  await expect(review.getByRole("checkbox")).toHaveCount(0);
+  await expect(
+    review.getByRole("button", { name: "Save document assignment" }),
+  ).toHaveCount(0);
+  await expect(review.getByText(/still to assign/u)).toHaveCount(0);
+  await expect(row).toHaveScreenshot("investment-reviewed-documents.png", {
+    animations: "disabled",
+  });
+  await review
+    .getByRole("button", { name: "Source evidence · page 1", exact: true })
+    .click();
+  await expect(
+    review.getByText("Fund: Demo Growth IV LLC", { exact: true }),
+  ).toBeVisible();
+  await selectReviewSection(page, "Ownership");
+  await expect(
+    review
+      .getByRole("tabpanel", { name: "Ownership", exact: true })
+      .getByText("Demo Family LLC", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    review.getByText(/Legal vehicle not yet confirmed/u),
+  ).toHaveCount(0);
+  await expect(row).toHaveScreenshot("investment-reviewed-ownership.png", {
+    animations: "disabled",
+  });
+  expect(writes).toHaveLength(0);
+  if (isMobile) {
+    await page.setViewportSize({ width: 320, height: 740 });
+    for (const label of ["Identity", "Investment", "Documents", "Ownership"]) {
+      await selectReviewSection(page, label);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    }
+  }
 });

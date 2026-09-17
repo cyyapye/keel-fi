@@ -24,6 +24,7 @@ import { acceptPositionEconomics } from "./api";
 import {
   currencyFractionDigits,
   formatCompactCurrency,
+  formatCurrency,
   formatProbability,
 } from "./format";
 
@@ -84,9 +85,11 @@ function parseMoneyInput(value: string, currency: string): number | null {
 export function PositionEconomicsEditor({
   holding,
   onAccepted,
+  presentation = "holding",
 }: {
   holding: Pick<Holding, "id" | "sourceLabel" | "positionEconomicsContext">;
   onAccepted: () => Promise<void>;
+  presentation?: "holding" | "review";
 }) {
   const headingId = useId();
   const context = holding.positionEconomicsContext ?? null;
@@ -184,7 +187,10 @@ export function PositionEconomicsEditor({
   }
 
   const money = (minor: number) =>
-    formatCompactCurrency(minor, context.currency).replace(/^USD /u, "$");
+    (presentation === "review"
+      ? formatCurrency(minor, context.currency)
+      : formatCompactCurrency(minor, context.currency)
+    ).replace(/^USD /u, "$");
   const annualAdminFeePpm = parsePercentageInput(annualFee);
   const setupFeePpm = parsePercentageInput(setupFee);
   const adminFeeYears = /^\d+$/u.test(feeYears.trim())
@@ -281,12 +287,132 @@ export function PositionEconomicsEditor({
   };
 
   const displayedEconomics = acceptedEconomics;
+  const commitmentStat = (
+    <Stat
+      detail={
+        displayedEconomics !== null && terms?.capitalBasis === "net_invested"
+          ? `Imported net: ${money(context.committedMinor)} from ${holding.sourceLabel}.`
+          : `Accepted from ${holding.sourceLabel}.`
+      }
+      label={
+        displayedEconomics === null
+          ? "Imported amount"
+          : terms?.capitalBasis === "net_invested"
+            ? "Gross commitment"
+            : "Commitment"
+      }
+      value={money(
+        displayedEconomics?.committedMinor ?? context.committedMinor,
+      )}
+    />
+  );
+  const fundedStat = (
+    <Stat
+      detail={
+        terms?.capitalBasis === "net_invested" && displayedEconomics !== null
+          ? "Reported after fees."
+          : "Amount reported by the source."
+      }
+      label={
+        terms?.capitalBasis === "net_invested" && displayedEconomics !== null
+          ? "Imported funded capital"
+          : "Funded capital"
+      }
+      value={money(context.fundedMinor)}
+    />
+  );
+  const feesStat = (
+    <Stat
+      detail={
+        reportedFeeDiffers && reportedTerms !== null
+          ? `${reportedTerms.sourceLabel} now reports ${reportedFeeLabel}; accepted terms remain in use until review.`
+          : hasReportedFee &&
+              reportedTerms !== null &&
+              (terms === null || termsNeedReview)
+            ? `${reportedTerms.sourceLabel} reports ${reportedFeeLabel}; confirm the fee term.`
+            : terms === null
+              ? reportedTerms !== null
+                ? "Management fee is not included in this source."
+                : "Add the fee rate and term."
+              : termsNeedReview
+                ? "Commitment or funded capital changed after acceptance."
+                : `Management: ${money(displayedEconomics!.upfrontAdminFeeMinor)}. Setup: ${terms.setupFeePpm == null ? "not recorded" : money(displayedEconomics!.setupFeeMinor)}.`
+      }
+      label="Upfront fees"
+      value={
+        displayedEconomics === null
+          ? termsNeedReview
+            ? "Needs review"
+            : reportedManagementFeePpm === null
+              ? "Not set"
+              : "Not accepted"
+          : money(
+              Number(
+                BigInt(displayedEconomics.upfrontAdminFeeMinor) +
+                  BigInt(displayedEconomics.setupFeeMinor),
+              ),
+            )
+      }
+      valueClassName={displayedEconomics === null ? "is-not-set" : ""}
+    />
+  );
+  const netStat = (
+    <Stat
+      detail="Gross commitment less fees. Not tax basis."
+      label="Net invested"
+      value={
+        displayedEconomics === null
+          ? termsNeedReview
+            ? "Needs review"
+            : "Not set"
+          : money(displayedEconomics.positionCostBasisMinor)
+      }
+      valueClassName={displayedEconomics === null ? "is-not-set" : ""}
+    />
+  );
+  const carryStat = (
+    <Stat
+      detail={
+        reportedCarryDiffers && reportedTerms !== null
+          ? `${reportedTerms.sourceLabel} now reports ${reportedCarryLabel}; accepted carry remains in use.`
+          : hasReportedCarryTerm &&
+              reportedTerms !== null &&
+              (terms === null || termsNeedReview)
+            ? `Reported by ${reportedTerms.sourceLabel}; accept before use.`
+            : terms === null && reportedTerms !== null
+              ? "Carry is not included in this source."
+              : termsNeedReview
+                ? "Review against the current source before applying carry."
+                : "Applied to gains when an exit is recorded."
+      }
+      label="Carry"
+      value={
+        terms === null
+          ? reportedCarryPpm === null
+            ? "Not set"
+            : formatProbability(reportedCarryPpm)
+          : termsNeedReview
+            ? reportedCarryPpm === null
+              ? "Needs review"
+              : formatProbability(reportedCarryPpm)
+            : formatProbability(terms.carryPpm)
+      }
+      valueClassName={terms === null || termsNeedReview ? "is-not-set" : ""}
+    />
+  );
   return (
-    <section aria-labelledby={headingId} className="position-economics">
+    <section
+      aria-labelledby={headingId}
+      className={`position-economics position-economics--${presentation}`}
+    >
       <div className="position-economics__heading">
         <div>
           <p className="eyebrow">Investment terms</p>
-          <h3 id={headingId}>SPV economics</h3>
+          <h3 id={headingId}>
+            {presentation === "review"
+              ? "Investment amounts and fees"
+              : "SPV economics"}
+          </h3>
           <p>Review how fees relate to the imported investment amount.</p>
         </div>
         {!open && (
@@ -309,114 +435,27 @@ export function PositionEconomicsEditor({
         )}
       </div>
 
-      <StatGroup className="position-economics__values">
-        <Stat
-          detail={
-            displayedEconomics !== null &&
-            terms?.capitalBasis === "net_invested"
-              ? `Imported net: ${money(context.committedMinor)} from ${holding.sourceLabel}.`
-              : `Accepted from ${holding.sourceLabel}.`
-          }
-          label={
-            displayedEconomics === null
-              ? "Imported amount"
-              : terms?.capitalBasis === "net_invested"
-                ? "Gross commitment"
-                : "Commitment"
-          }
-          value={money(
-            displayedEconomics?.committedMinor ?? context.committedMinor,
-          )}
-        />
-        <Stat
-          detail={
-            terms?.capitalBasis === "net_invested" &&
-            displayedEconomics !== null
-              ? "Reported after fees."
-              : "Amount reported by the source."
-          }
-          label={
-            terms?.capitalBasis === "net_invested" &&
-            displayedEconomics !== null
-              ? "Imported funded capital"
-              : "Funded capital"
-          }
-          value={money(context.fundedMinor)}
-        />
-        <Stat
-          detail={
-            reportedFeeDiffers && reportedTerms !== null
-              ? `${reportedTerms.sourceLabel} now reports ${reportedFeeLabel}; accepted terms remain in use until review.`
-              : hasReportedFee &&
-                  reportedTerms !== null &&
-                  (terms === null || termsNeedReview)
-                ? `${reportedTerms.sourceLabel} reports ${reportedFeeLabel}; confirm the fee term.`
-                : terms === null
-                  ? reportedTerms !== null
-                    ? "Management fee is not included in this source."
-                    : "Add the fee rate and term."
-                  : termsNeedReview
-                    ? "Commitment or funded capital changed after acceptance."
-                    : `Management: ${money(displayedEconomics!.upfrontAdminFeeMinor)}. Setup: ${terms.setupFeePpm == null ? "not recorded" : money(displayedEconomics!.setupFeeMinor)}.`
-          }
-          label="Upfront fees"
-          value={
-            displayedEconomics === null
-              ? termsNeedReview
-                ? "Needs review"
-                : reportedManagementFeePpm === null
-                  ? "Not set"
-                  : "Not accepted"
-              : money(
-                  Number(
-                    BigInt(displayedEconomics.upfrontAdminFeeMinor) +
-                      BigInt(displayedEconomics.setupFeeMinor),
-                  ),
-                )
-          }
-          valueClassName={displayedEconomics === null ? "is-not-set" : ""}
-        />
-        <Stat
-          detail="Gross commitment less fees. Not tax basis."
-          label="Net invested"
-          value={
-            displayedEconomics === null
-              ? termsNeedReview
-                ? "Needs review"
-                : "Not set"
-              : money(displayedEconomics.positionCostBasisMinor)
-          }
-          valueClassName={displayedEconomics === null ? "is-not-set" : ""}
-        />
-        <Stat
-          detail={
-            reportedCarryDiffers && reportedTerms !== null
-              ? `${reportedTerms.sourceLabel} now reports ${reportedCarryLabel}; accepted carry remains in use.`
-              : hasReportedCarryTerm &&
-                  reportedTerms !== null &&
-                  (terms === null || termsNeedReview)
-                ? `Reported by ${reportedTerms.sourceLabel}; accept before use.`
-                : terms === null && reportedTerms !== null
-                  ? "Carry is not included in this source."
-                  : termsNeedReview
-                    ? "Review against the current source before applying carry."
-                    : "Applied to gains when an exit is recorded."
-          }
-          label="Carry"
-          value={
-            terms === null
-              ? reportedCarryPpm === null
-                ? "Not set"
-                : formatProbability(reportedCarryPpm)
-              : termsNeedReview
-                ? reportedCarryPpm === null
-                  ? "Needs review"
-                  : formatProbability(reportedCarryPpm)
-                : formatProbability(terms.carryPpm)
-          }
-          valueClassName={terms === null || termsNeedReview ? "is-not-set" : ""}
-        />
-      </StatGroup>
+      {presentation === "review" ? (
+        <>
+          <StatGroup className="position-economics__values position-economics__primary">
+            {commitmentStat}
+            {feesStat}
+            {netStat}
+          </StatGroup>
+          <StatGroup className="position-economics__values position-economics__secondary">
+            {fundedStat}
+            {carryStat}
+          </StatGroup>
+        </>
+      ) : (
+        <StatGroup className="position-economics__values">
+          {commitmentStat}
+          {fundedStat}
+          {feesStat}
+          {netStat}
+          {carryStat}
+        </StatGroup>
+      )}
 
       {open && !reviewing && (
         <form
