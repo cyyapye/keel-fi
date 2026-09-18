@@ -386,19 +386,52 @@ async function stopProfileChrome(
 async function closeControlledChrome(
   provider: ProviderPortfolioAgentProvider,
   keelOrigin: URL,
+  runtime = {
+    activeDevToolsPort,
+    chromeExecutable,
+    connectOverCDP: (endpoint: string) =>
+      chromium.connectOverCDP(endpoint, { noDefaults: true }),
+    profileChromeProcessIds,
+    waitForProfileChromeExit,
+    removeStaleChromeProfileLocks,
+    stopProfileChrome,
+  },
 ): Promise<void> {
-  const port = await activeDevToolsPort(provider, keelOrigin);
+  const paths = providerPaths(provider, keelOrigin);
+  const chromePath = await runtime.chromeExecutable();
+  const remaining = () =>
+    runtime.profileChromeProcessIds(paths.profileDirectory, chromePath);
+  if (remaining().length === 0) {
+    await runtime.removeStaleChromeProfileLocks(paths.profileDirectory);
+    return;
+  }
+  const port = await runtime.activeDevToolsPort(provider, keelOrigin);
+  let requested = false;
   if (port !== null) {
-    const browser = await chromium
-      .connectOverCDP(`http://127.0.0.1:${port.toString()}`, {
-        noDefaults: true,
-      })
+    const browser = await runtime
+      .connectOverCDP(`http://127.0.0.1:${port.toString()}`)
       .catch(() => null);
     const session = await browser?.newBrowserCDPSession().catch(() => null);
-    await session?.send("Browser.close").catch(() => undefined);
+    if (session !== null && session !== undefined) {
+      requested = true;
+      await session.send("Browser.close").catch(() => undefined);
+    }
     await browser?.close().catch(() => undefined);
   }
-  await stopProfileChrome(provider, keelOrigin, await chromeExecutable());
+  // Browser.close acknowledges the request before Chrome finishes flushing its
+  // profile. Sending SIGTERM immediately can lose a newly rotated refresh token
+  // even though the in-page verification already passed. Wait for normal exit;
+  // forced termination is cleanup only and must not publish renewal success.
+  if (
+    !requested ||
+    !(await runtime.waitForProfileChromeExit(remaining, sleep))
+  ) {
+    await runtime.stopProfileChrome(provider, keelOrigin, chromePath);
+    throw new Error(
+      "The provider browser could not finish saving its session.",
+    );
+  }
+  await runtime.removeStaleChromeProfileLocks(paths.profileDirectory);
 }
 
 async function waitForProviderSignInConfirmation(
@@ -1817,9 +1850,22 @@ const SessionExpirySchema = z
   })
   .strict();
 
+const SydecarRefreshErrorSchema = z.object({
+  error_key: z.enum([
+    "EXPIRED_REFRESH_TOKEN",
+    "INVALID_REFRESH_TOKEN",
+    "UNKNOWN_REFRESH_TOKEN",
+  ]),
+});
+
 function observeSydecarRefresh(context: BrowserContext) {
   let requests = 0;
   let status: number | null = null;
+  let refreshErrorCode:
+    z.infer<typeof SydecarRefreshErrorSchema>["error_key"] | null = null;
+  let refreshResponseKind: "json" | "html" | "other" | null = null;
+  let responseSequence = 0;
+  const pendingResponses: Promise<void>[] = [];
   let transport: "dns" | "timeout" | "blocked" | "connection" | "other" | null =
     null;
   const matches = (request: BrowserRequest) => {
@@ -1839,7 +1885,46 @@ function observeSydecarRefresh(context: BrowserContext) {
     if (matches(request)) requests++;
   };
   const responded = (response: BrowserResponse) => {
-    if (matches(response.request())) status = response.status();
+    if (!matches(response.request())) return;
+    status = response.status();
+    const sequence = ++responseSequence;
+    refreshErrorCode = null;
+    const headers = response.headers();
+    const contentType = headers["content-type"] ?? "";
+    refreshResponseKind = /\b(?:application\/(?:[a-z0-9.+-]+\+)?json)\b/iu.test(
+      contentType,
+    )
+      ? "json"
+      : /\btext\/html\b/iu.test(contentType)
+        ? "html"
+        : "other";
+    if (status < 400 || refreshResponseKind !== "json") return;
+    // Bound the extra diagnostic read before materializing its body. Encoded
+    // or unbounded responses still retain their HTTP status and content kind.
+    const length = headers["content-length"] ?? "";
+    if (
+      !/^\d{1,4}$/u.test(length) ||
+      Number(length) > 4_096 ||
+      ![undefined, "identity"].includes(headers["content-encoding"])
+    )
+      return;
+    pendingResponses.push(
+      (async () => {
+        try {
+          // Only a fixed public error category survives this boundary. Never
+          // retain or emit provider messages, account fields, or token values.
+          const body = await response.body();
+          if (body.byteLength > 4_096) return;
+          const parsed = SydecarRefreshErrorSchema.safeParse(
+            JSON.parse(body.toString("utf8")) as unknown,
+          );
+          if (sequence === responseSequence && parsed.success)
+            refreshErrorCode = parsed.data.error_key;
+        } catch {
+          // Missing, malformed and unreadable bodies remain unclassified.
+        }
+      })(),
+    );
   };
   const failed = (request: BrowserRequest) => {
     if (!matches(request)) return;
@@ -1858,7 +1943,18 @@ function observeSydecarRefresh(context: BrowserContext) {
   context.on("response", responded);
   context.on("requestfailed", failed);
   return {
-    reportFailure: (error: unknown) => {
+    reportFailure: async (error: unknown) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          Promise.allSettled(pendingResponses),
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, 1_000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
       // The provider clears its saved login on any refresh exception, including
       // transport failures. A visible sign-in page alone cannot identify why.
       // Never log URLs, headers, bodies, token values or raw browser errors.
@@ -1871,6 +1967,8 @@ function observeSydecarRefresh(context: BrowserContext) {
           refreshRequests: requests,
           refreshStatus: status,
           refreshTransport: transport,
+          refreshErrorCode,
+          refreshResponseKind,
           reason:
             status === 401 || status === 403
               ? "refresh_rejected"
@@ -1898,7 +1996,7 @@ async function renewSavedSydecarSession(
   try {
     await verifySydecarSessionRenewal(context, now);
   } catch (error) {
-    observation.reportFailure(error);
+    await observation.reportFailure(error);
     throw error;
   } finally {
     observation.dispose();
@@ -2440,6 +2538,7 @@ export const __providerPortfolioMacAgentTest = {
   lease,
   keelPage,
   pollOnce,
+  closeControlledChrome,
   withProviderBrowser,
   checkSessionRenewal,
   renewSavedSydecarSession,

@@ -1061,6 +1061,10 @@
     "scripts/provider-portfolio-mac-agent.test.ts :: provider browser lifetime > disconnects from Tokenfolio without shutting its browser down",
     "scripts/provider-portfolio-mac-agent.test.ts :: provider browser lifetime > keeps Sydecar open until the complete sync settles, then closes only its profile",
     "scripts/provider-portfolio-mac-agent.test.ts :: provider browser lifetime > surfaces shutdown failures and preserves an earlier capture failure",
+    "scripts/provider-portfolio-mac-agent.test.ts :: provider browser profile persistence > cleans stale locks without starting or signaling an absent browser",
+    "scripts/provider-portfolio-mac-agent.test.ts :: provider browser profile persistence > fails closed after forced cleanup for deadline shutdown",
+    "scripts/provider-portfolio-mac-agent.test.ts :: provider browser profile persistence > fails closed after forced cleanup for unreachable shutdown",
+    "scripts/provider-portfolio-mac-agent.test.ts :: provider browser profile persistence > waits for Chrome to finish saving instead of signaling after the close acknowledgement",
     "scripts/provider-portfolio-mac-agent.test.ts :: provider portfolio Mac agent > accepts Sydecar's attached data model at responsive reconnect widths",
     "scripts/provider-portfolio-mac-agent.test.ts :: provider portfolio Mac agent > accepts only known statuses inside Tokenfolio active holdings",
     "scripts/provider-portfolio-mac-agent.test.ts :: provider portfolio Mac agent > builds a parseable Tokenfolio capture without floating-point money",
@@ -1395,21 +1399,35 @@
     "e2e/provider-session.spec.ts :: mobile-chromium :: tokenfolio accepts a saved sign-in after a real Chrome restart",
     "e2e/provider-session.spec.ts :: mobile-chromium :: tokenfolio rejects a lost sign-in after a real Chrome restart",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies dns refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies expired refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies html refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies invalid refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies oversized refresh failures without logging credentials",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies rejected refresh failures without logging credentials",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies service refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies unknown refresh failures without logging credentials",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar loses a twelve-hour refresh session despite closing Chrome",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar page ownership preserves Keel setup and bounded agreement popups",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal fails closed at its provider-request admission bound",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal verifies expiry through the production tsx runner",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar survives the next daily capture with bounded renewal",
+    "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
+    "e2e/sydecar-session-renewal.spec.ts :: chromium :: a working Sydecar access token does not prove a refresh token survived another login",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies dns refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies expired refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies html refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies invalid refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies oversized refresh failures without logging credentials",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies rejected refresh failures without logging credentials",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies service refresh failures without logging credentials",
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies unknown refresh failures without logging credentials",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar loses a twelve-hour refresh session despite closing Chrome",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar page ownership preserves Keel setup and bounded agreement popups",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar renewal fails closed at its provider-request admission bound",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar renewal verifies expiry through the production tsx runner",
-    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar survives the next daily capture with bounded renewal"
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar survives the next daily capture with bounded renewal",
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: a working Sydecar access token does not prove a refresh token survived another login"
   ],
   "python": [
     "test_linux_test_run.RunnerTests.test_signal_cleans_checkout",
@@ -1653,6 +1671,54 @@
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies service refresh failures without logging credentials",
       "platforms": ["darwin", "linux"],
       "reason": "The Sydecar provider worker uses desktop Chrome; the matching chromium diagnostic case is required."
+    },
+    {
+      "runner": "playwright",
+      "id": "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
+      "platforms": ["darwin"],
+      "reason": "The production worker shutdown path uses Linux process ownership; the matching Linux chromium case remains required."
+    },
+    {
+      "runner": "playwright",
+      "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies expired refresh failures without logging credentials",
+      "platforms": ["darwin", "linux"],
+      "reason": "The Sydecar provider worker uses desktop Chrome; the matching Linux chromium case remains required."
+    },
+    {
+      "runner": "playwright",
+      "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies html refresh failures without logging credentials",
+      "platforms": ["darwin", "linux"],
+      "reason": "The Sydecar provider worker uses desktop Chrome; the matching Linux chromium case remains required."
+    },
+    {
+      "runner": "playwright",
+      "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies invalid refresh failures without logging credentials",
+      "platforms": ["darwin", "linux"],
+      "reason": "The Sydecar provider worker uses desktop Chrome; the matching Linux chromium case remains required."
+    },
+    {
+      "runner": "playwright",
+      "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies oversized refresh failures without logging credentials",
+      "platforms": ["darwin", "linux"],
+      "reason": "The Sydecar provider worker uses desktop Chrome; the matching Linux chromium case remains required."
+    },
+    {
+      "runner": "playwright",
+      "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies unknown refresh failures without logging credentials",
+      "platforms": ["darwin", "linux"],
+      "reason": "The Sydecar provider worker uses desktop Chrome; the matching Linux chromium case remains required."
+    },
+    {
+      "runner": "playwright",
+      "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
+      "platforms": ["darwin", "linux"],
+      "reason": "The Sydecar provider worker uses desktop Chrome; the matching Linux chromium case remains required."
+    },
+    {
+      "runner": "playwright",
+      "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: a working Sydecar access token does not prove a refresh token survived another login",
+      "platforms": ["darwin", "linux"],
+      "reason": "The Sydecar provider worker uses desktop Chrome; the matching Linux chromium case remains required."
     }
   ]
 }

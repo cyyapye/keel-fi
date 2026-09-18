@@ -5,6 +5,7 @@ import { __providerPortfolioMacAgentTest } from "./provider-portfolio-mac-agent"
 
 const {
   buildLaunchAgentPlist,
+  closeControlledChrome,
   chromeProcessIdsForProfile,
   formatPercentagePpm,
   formatUsdMinor,
@@ -24,6 +25,80 @@ const {
 } = __providerPortfolioMacAgentTest;
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("provider browser profile persistence", () => {
+  const origin = new URL("https://keel.example.com");
+  const fixture = () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const disconnect = vi.fn().mockResolvedValue(undefined);
+    return {
+      send,
+      disconnect,
+      runtime: {
+        activeDevToolsPort: vi.fn().mockResolvedValue(9222),
+        chromeExecutable: vi.fn().mockResolvedValue("/synthetic/chrome"),
+        connectOverCDP: vi.fn().mockResolvedValue({
+          newBrowserCDPSession: () => Promise.resolve({ send }),
+          close: disconnect,
+        }),
+        profileChromeProcessIds: vi.fn().mockReturnValue([1234]),
+        waitForProfileChromeExit: vi.fn().mockResolvedValue(true),
+        removeStaleChromeProfileLocks: vi.fn().mockResolvedValue(undefined),
+        stopProfileChrome: vi.fn().mockResolvedValue(undefined),
+      },
+    };
+  };
+
+  it("waits for Chrome to finish saving instead of signaling after the close acknowledgement", async () => {
+    const { send, runtime } = fixture();
+    let exited!: (value: boolean) => void;
+    runtime.waitForProfileChromeExit.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        exited = resolve;
+      }),
+    );
+    const settled = vi.fn();
+    const closing = closeControlledChrome("sydecar", origin, runtime);
+    void closing.then(settled);
+    await vi.waitFor(() =>
+      expect(runtime.waitForProfileChromeExit).toHaveBeenCalledOnce(),
+    );
+    expect(send).toHaveBeenCalledExactlyOnceWith("Browser.close");
+    expect(settled).not.toHaveBeenCalled();
+    expect(runtime.stopProfileChrome).not.toHaveBeenCalled();
+    exited(true);
+    await closing;
+    expect(runtime.stopProfileChrome).not.toHaveBeenCalled();
+    expect(runtime.removeStaleChromeProfileLocks).toHaveBeenCalledOnce();
+  });
+
+  it.each(["deadline", "unreachable"])(
+    "fails closed after forced cleanup for %s shutdown",
+    async (failure) => {
+      const { runtime } = fixture();
+      if (failure === "deadline")
+        runtime.waitForProfileChromeExit.mockResolvedValue(false);
+      else runtime.activeDevToolsPort.mockResolvedValue(null);
+      await expect(
+        closeControlledChrome("sydecar", origin, runtime),
+      ).rejects.toThrow("could not finish saving its session");
+      expect(runtime.stopProfileChrome).toHaveBeenCalledExactlyOnceWith(
+        "sydecar",
+        origin,
+        "/synthetic/chrome",
+      );
+    },
+  );
+
+  it("cleans stale locks without starting or signaling an absent browser", async () => {
+    const { runtime } = fixture();
+    runtime.profileChromeProcessIds.mockReturnValue([]);
+    await closeControlledChrome("sydecar", origin, runtime);
+    expect(runtime.activeDevToolsPort).not.toHaveBeenCalled();
+    expect(runtime.stopProfileChrome).not.toHaveBeenCalled();
+    expect(runtime.removeStaleChromeProfileLocks).toHaveBeenCalledOnce();
+  });
+});
 
 describe("provider browser lifetime", () => {
   const origin = new URL("https://keel.example.com");

@@ -151,6 +151,29 @@ while keeping authentication fail-closed. A sign-in page alone cannot
 distinguish those causes: the provider client may clear its session after any
 refresh error.
 
+The observer also records a fixed response-content category and, for bounded
+uncompressed JSON error responses of at most 4 KiB, one of the provider's three
+public refresh-error codes (expired, invalid, or unknown token). Unrecognized,
+oversized, encoded, malformed or unavailable bodies remain unclassified; no
+provider message or extra field is logged. It waits at most one second for
+diagnostic response reads within the existing two-minute renewal deadline. This
+adds no provider requests, D1 calls or writes, browser launches, timers between
+operations, or retries, so the idle, outage and useful-work day budgets remain
+unchanged. An invalid refresh token does not by itself prove that another login
+caused the rejection. A synthetic revocation case demonstrates why a successful
+capture using a still-valid access token cannot establish refresh-token health.
+
+Chrome's close-command acknowledgement precedes completion of profile writes.
+The worker waits for the exact profile's processes to exit normally before
+reporting success; it does not send a termination signal immediately after that
+acknowledgement. Normal exit has a 30-second bound. If it cannot be confirmed,
+the existing termination path can take another 30 seconds and runs only as
+cleanup; the operation fails instead of reporting a saved session. Both waits
+remain inside the five-minute lease alongside the two-minute renewal and browser
+startup. Cold-start Linux tests use this actual worker shutdown path and enforce
+token rotation across successive renewals and the following daily capture. They
+do not substitute the reconnect flow's different graceful-shutdown helper.
+
 Real Chrome tests model one-hour access and twelve-hour refresh expiry across
 cold starts. The former close-only behavior loses authentication after a day;
 normal provider refresh at hours 6/12/18 preserves the following daily capture.

@@ -61,11 +61,12 @@ snapshot update, test filtering or model judging happens during execution.
 
 Native cases are recorded individually in `.tugling/pilot-cases.json`, including
 parameterized titles and both Playwright projects. The only existing exclusions
-are the Linux systemd parser on macOS and 34 desktop-provider cases in the
-mobile project. Their identities and reasons are explicit; their counterparts
-remain required. Every other missing, additional, duplicate, skipped, failed,
-expected-failure or flaky case fails accounting. A total count or a nonempty
-test file is insufficient. Native exit codes and runner errors also must pass.
+cover the Linux systemd parser and actual Linux worker shutdown on macOS, and
+desktop-provider cases in the mobile project. Their identities and reasons are
+explicit; their Linux desktop counterparts remain required. Every other missing,
+additional, duplicate, skipped, failed, expected-failure or flaky case fails
+accounting. A total count or a nonempty test file is insufficient. Native exit
+codes and runner errors also must pass.
 
 When adding or intentionally renaming native tests, review their assertions and
 update the inventory in the same change. Use `vitest list --json=...` and
