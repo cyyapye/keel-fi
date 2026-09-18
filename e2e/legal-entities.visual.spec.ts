@@ -836,6 +836,9 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expect
     .poll(() => agreement.evaluate((element) => element.matches(":hover")))
     .toBe(false);
+  const reviewSnapshotStyle = await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
   await expect(evidence).toHaveScreenshot(
     "legal-agreement-download-error.png",
     {
@@ -859,6 +862,9 @@ test("reviews legal entities and exports selected counsel fields", async ({
     "legal-agreement-security-check.png",
     { animations: "disabled", caret: "hide" },
   );
+  await reviewSnapshotStyle.evaluate((style) => {
+    style.parentNode?.removeChild(style);
+  });
   await expectNoHorizontalOverflow(page);
   agreementBlocked = false;
   agreementAvailable = true;

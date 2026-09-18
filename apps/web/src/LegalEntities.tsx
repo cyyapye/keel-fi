@@ -1233,7 +1233,15 @@ function EntityReviewWorkspace({
       item.source.id !== source?.source.id,
   );
   // Keep moving in the list's attention order even after saving removes the
-  // current source from the queue. Only wrap after reaching the end.
+  // current source from the queue. Wrap only at either end.
+  const previousCandidate =
+    (source === undefined
+      ? undefined
+      : otherCandidates
+          .slice()
+          .reverse()
+          .find((item) => compareLegalEntityAttention(item, source) < 0)) ??
+    otherCandidates.at(-1);
   const nextCandidate =
     (source === undefined
       ? undefined
@@ -1460,16 +1468,39 @@ function EntityReviewWorkspace({
           )}
       </>
     );
-  const nextReviewAction = nextCandidate && (
-    <TextLink onClick={() => onOpenSource(nextCandidate)}>
-      Next needing review
-    </TextLink>
-  );
   return (
     <div className="entity-review entity-review--investment">
       <div className="entity-review__navigation">
         <TextLink onClick={onBack}>Back to legal entities</TextLink>
-        {source?.source.kind !== "holding_position" && nextReviewAction}
+        {previousCandidate && nextCandidate && (
+          <nav
+            className="entity-review__queue-navigation"
+            aria-label="Investments needing review"
+          >
+            <Button
+              size="icon"
+              tone="quiet"
+              aria-label="Previous needing review"
+              title="Previous needing review"
+              onClick={() => onOpenSource(previousCandidate)}
+            >
+              <svg aria-hidden="true" fill="none" viewBox="0 0 16 16">
+                <path d="m10.5 3.5-4.5 4.5 4.5 4.5" />
+              </svg>
+            </Button>
+            <Button
+              size="icon"
+              tone="quiet"
+              aria-label="Next needing review"
+              title="Next needing review"
+              onClick={() => onOpenSource(nextCandidate)}
+            >
+              <svg aria-hidden="true" fill="none" viewBox="0 0 16 16">
+                <path d="m5.5 3.5 4.5 4.5-4.5 4.5" />
+              </svg>
+            </Button>
+          </nav>
+        )}
       </div>
       <PageHeader
         eyebrow="Investment review"
@@ -1528,7 +1559,6 @@ function EntityReviewWorkspace({
           identitySaved={entity !== undefined}
           renderDocuments={renderDocuments}
           legalName={entity?.legalName ?? null}
-          nextReviewAction={nextReviewAction}
           tab={tab}
           onTabChange={onTabChange}
           onSaved={saved}
