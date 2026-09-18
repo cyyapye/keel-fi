@@ -410,7 +410,7 @@ export function PortfolioWatchMonitor({
         description="Public news and updates for your private holdings."
       />
       <section
-        className={`watch-activity-summary${latest !== undefined && ["failed", "partial", "timed_out"].includes(latest.status) ? " watch-activity-summary--limited" : ""}`}
+        className="watch-activity-summary"
         aria-live="polite"
         data-testid="portfolio-watch-control"
       >
