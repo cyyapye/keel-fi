@@ -4031,11 +4031,6 @@ h1,
   justify-content: space-between;
   gap: 16px;
   padding: 16px 0;
-  border-block: 1px solid var(--line);
-}
-.watch-activity-summary--limited {
-  border-left: 3px solid var(--ink);
-  padding-left: 16px;
 }
 .watch-activity-summary > :first-child {
   flex: 1 1 320px;

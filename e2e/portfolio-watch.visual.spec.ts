@@ -187,6 +187,8 @@ test.beforeEach(async ({ page }) => {
 test("keeps failed monitoring and an empty news inbox consistent with shared UI", async ({
   page,
 }, testInfo) => {
+  // This cold-start case checks multiple viewport layouts, then both navigation actions.
+  test.setTimeout(60_000);
   const alpha = await (await page.request.get("/api/alpha")).json();
   const readNews = {
     ...portfolioWatchFixture.observations[0]!,
@@ -226,6 +228,10 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
     }),
   );
   await page.goto("/watch");
+  // Wait for the lazy page to mount before asserting its loaded-state layout.
+  await page
+    .getByRole("heading", { name: "Portfolio Watch", exact: true })
+    .waitFor();
   const monitor = page.getByTestId("portfolio-watch-control");
   const empty = page
     .getByRole("heading", { name: "No unread updates", exact: true })
@@ -257,16 +263,22 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
     // These layout contracts remain required even when someone updates a screenshot.
     const insets = await monitor.evaluate((element) => {
       const style = getComputedStyle(element);
-      return [style.paddingTop, style.paddingBottom, style.paddingLeft].map(
-        Number.parseFloat,
-      );
+      return [style.paddingTop, style.paddingBottom].map(Number.parseFloat);
     });
     for (const inset of insets) expect(inset).toBeGreaterThanOrEqual(16);
+    // Status copy communicates the limitation; a frame adds no information.
+    for (const side of ["top", "right", "bottom", "left"]) {
+      await expect(monitor).toHaveCSS(`border-${side}-width`, "0px");
+    }
     await expect(empty).toHaveCSS("text-align", "left");
     await expect(empty).toHaveCSS("padding", "0px");
     await expect(empty).toHaveCSS("min-height", "0px");
     await expect(empty.locator('[aria-hidden="true"]')).toHaveCount(0);
     const screenBounds = (await page.locator(".watch-screen").boundingBox())!;
+    const statusBounds = (await monitor
+      .getByText("Monitoring limited", { exact: true })
+      .boundingBox())!;
+    expect(statusBounds.x).toBeCloseTo(screenBounds.x, 0);
     for (const button of await filters.getByRole("button").all()) {
       await expect(button).toHaveCSS("text-decoration-line", "none");
       await expect(button).toHaveCSS("border-top-style", "solid");
@@ -1478,6 +1490,8 @@ test("keeps the legacy estimated range when financing facts are absent", async (
 test("reads news independently of decisions, restores read state, and opens the selected evidence", async ({
   page,
 }) => {
+  // Includes cold navigation plus saved-state reloads in both Watch and Evidence Inbox.
+  test.setTimeout(60_000);
   const alpha = await (await page.request.get("/api/alpha")).json();
   const selected = alpha.evidenceInbox[0];
   const financing = {
@@ -1540,6 +1554,9 @@ test("reads news independently of decisions, restores read state, and opens the 
     },
   );
   await page.goto("/watch");
+  await page
+    .getByRole("heading", { name: "Portfolio Watch", exact: true })
+    .waitFor();
   const row = page.getByRole("article", {
     name: news.sourceTitle,
     exact: true,
@@ -1568,6 +1585,9 @@ test("reads news independently of decisions, restores read state, and opens the 
   await row.getByRole("button", { name: "Mark read", exact: true }).click();
   await expect(row).toHaveCount(0);
   await page.reload();
+  await page
+    .getByRole("heading", { name: "Portfolio Watch", exact: true })
+    .waitFor();
   await expect(
     page.getByRole("button", { name: "Unread (1)", exact: true }),
   ).toBeVisible();
@@ -1585,6 +1605,7 @@ test("reads news independently of decisions, restores read state, and opens the 
   );
   await expect(page.locator(`[id="evidence-${selected.id}"]`)).toBeFocused();
   await page.reload();
+  await page.getByRole("heading", { name: "Evidence Inbox" }).waitFor();
   await expect(page.locator(`[id="evidence-${selected.id}"]`)).toBeFocused();
 });
 
