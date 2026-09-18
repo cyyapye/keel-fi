@@ -1429,342 +1429,229 @@
     {
       "runner": "vitest",
       "id": "scripts/browser-agent-runtime.test.ts :: portfolio agent platform runtime > emits a unit accepted by the installed systemd parser",
-      "platforms": [
-        "darwin"
-      ],
+      "platforms": ["darwin"],
       "reason": "Existing Linux-only systemd parser integration; required on Linux."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar associates same-label investments by source IDs and reads their linked memos",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: does not read a document drawer belonging to a different source investment ID",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: preserves original bytes without PDF extraction when scanner_unavailable",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: preserves original bytes without PDF extraction when security_blocked",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar central documents work through the production tsx runner",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: sydecar: rechecks only the selected agreement among 120 positions and preserves sibling evidence",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: sydecar: follows the provider popup, reads locally, caches original bytes and never persists signed URLs",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: tokenfolio: rechecks only the selected agreement among 120 positions and preserves sibling evidence",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: tokenfolio: follows the provider popup, reads locally, caches original bytes and never persists signed URLs",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar uses an exact reconciled legacy page only after central controls finish",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar central Documents association fails closed for duplicate position labels",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar central agreement backfill resumes after the 24-download run budget",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: backfill reaches later positions before rechecking expired cached agreements",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: inaccessible or untrusted document locations become explicit gaps",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: legacy Tokenfolio detail pages are checked and restored without guessing an external platform match",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: captures and reconciles the supported Tokenfolio page contract",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio waits for each drawer URL to open and clear before associating agreements",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: fails closed when the Tokenfolio visible count does not reconcile",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: recovers from a Tokenfolio drawer left open by an interrupted run",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: waits for asynchronously rendered Tokenfolio drawer details",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: waits for the Tokenfolio active count after navigation",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: fails closed for an unknown Tokenfolio active-row status",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: captures the visible funded Sydecar position and leaves value unreported",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: defers Sydecar agreement capture to one central Documents pass after snapshot reconciliation",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: keeps equal-amount Sydecar rows distinct by row and destination",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-session.spec.ts :: mobile-chromium :: tokenfolio accepts a saved sign-in after a real Chrome restart",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-session.spec.ts :: mobile-chromium :: tokenfolio rejects a lost sign-in after a real Chrome restart",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-session.spec.ts :: mobile-chromium :: sydecar accepts a saved sign-in after a real Chrome restart",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/provider-session.spec.ts :: mobile-chromium :: sydecar rejects a lost sign-in after a real Chrome restart",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar loses a twelve-hour refresh session despite closing Chrome",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "The existing Sydecar provider worker tests use desktop Chrome; matching chromium cases remain required."
     },
     {
       "runner": "playwright",
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar page ownership preserves Keel setup and bounded agreement popups",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "The existing Sydecar provider worker tests use desktop Chrome; matching chromium cases remain required."
     },
     {
       "runner": "playwright",
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar renewal fails closed at its provider-request admission bound",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "The existing Sydecar provider worker tests use desktop Chrome; matching chromium cases remain required."
     },
     {
       "runner": "playwright",
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar survives the next daily capture with bounded renewal",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "The existing Sydecar provider worker tests use desktop Chrome; matching chromium cases remain required."
     },
     {
       "runner": "playwright",
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies dns refresh failures without logging credentials",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "The Sydecar provider worker uses desktop Chrome; the matching chromium diagnostic case is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies rejected refresh failures without logging credentials",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "The Sydecar provider worker uses desktop Chrome; the matching chromium diagnostic case is required."
     },
     {
       "runner": "playwright",
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies service refresh failures without logging credentials",
-      "platforms": [
-        "darwin",
-        "linux"
-      ],
+      "platforms": ["darwin", "linux"],
       "reason": "The Sydecar provider worker uses desktop Chrome; the matching chromium diagnostic case is required."
     }
   ]
