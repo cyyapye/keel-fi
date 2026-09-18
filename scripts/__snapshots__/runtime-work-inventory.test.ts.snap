@@ -239,6 +239,7 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "scripts/provider-portfolio-mac-agent.ts | keelPage | network | page.goto | e9a1be81301b0b89",
   "scripts/provider-portfolio-mac-agent.ts | lease | network | macAgentApi | f6c21790221eb1c5",
   "scripts/provider-portfolio-mac-agent.ts | newControlledPage | network | route.fallback | 52451a74adaa5f2c",
+  "scripts/provider-portfolio-mac-agent.ts | observeSydecarRefresh | timer | setTimeout | ae9dff560ed8c9c0",
   "scripts/provider-portfolio-mac-agent.ts | pageApi | network | fetch | bcba190f096d633c",
   "scripts/provider-portfolio-mac-agent.ts | portfolioPage | network | page.goto | 56b44e251cf1b203",
   "scripts/provider-portfolio-mac-agent.ts | readSydecarDetail | timer | sleep | fd8c3d853c45aa18",

@@ -11,8 +11,10 @@ import { __providerPortfolioMacAgentTest } from "../scripts/provider-portfolio-m
 
 const { closeChromeGracefully, stopChild } = __providerBrowserReconnectTest;
 const {
+  closeControlledChrome,
   keelPage,
   portfolioPage,
+  providerPaths,
   renewSavedSydecarSession,
   requireProviderPageReady,
 } = __providerPortfolioMacAgentTest;
@@ -67,27 +69,56 @@ test("Sydecar renewal verifies expiry through the production tsx runner", async 
   ]);
 });
 
-function syntheticToken(expires: number) {
+function syntheticToken(expires: number, generation = 0) {
   return [
     Buffer.from('{"alg":"none"}').toString("base64url"),
-    Buffer.from(JSON.stringify({ exp: expires / 1_000 })).toString("base64url"),
+    Buffer.from(JSON.stringify({ exp: expires / 1_000, generation })).toString(
+      "base64url",
+    ),
     "synthetic",
   ].join(".");
 }
 
 async function fixture(
   flood = false,
-  refreshFailure: "rejected" | "service" | "dns" | null = null,
+  refreshFailure:
+    | "rejected"
+    | "invalid"
+    | "expired"
+    | "unknown"
+    | "html"
+    | "oversized"
+    | "service"
+    | "dns"
+    | null = null,
+  productionShutdown = false,
 ) {
-  const profile = await mkdtemp(
+  const profileRoot = await mkdtemp(
     path.join(os.tmpdir(), "keel-synthetic-renewal-"),
   );
+  const originalStateRoot = process.env.XDG_STATE_HOME;
+  const originalChromePath = process.env.KEEL_CHROME_PATH;
+  const syntheticKeelOrigin = new URL("https://keel.example.com");
+  if (productionShutdown) {
+    process.env.XDG_STATE_HOME = profileRoot;
+    process.env.KEEL_CHROME_PATH = chromium.executablePath();
+  }
+  const profile = productionShutdown
+    ? providerPaths("sydecar", syntheticKeelOrigin).profileDirectory
+    : profileRoot;
   const processes: Array<{ child: ChildProcess; endpoint: string }> = [];
   const state = { now: start, requests: 0, refreshes: 0, documents: 0 };
-  const tokens = () => ({
-    access_token: syntheticToken(state.now + hour),
-    refresh_token: syntheticToken(state.now + 12 * hour),
-  });
+  let currentRefreshToken = "";
+  let generation = 0;
+  const tokens = () => {
+    generation++;
+    const pair = {
+      access_token: syntheticToken(state.now + hour, generation),
+      refresh_token: syntheticToken(state.now + 12 * hour, generation),
+    };
+    currentRefreshToken = pair.refresh_token;
+    return pair;
+  };
   const authorized = (header: string | undefined) => {
     try {
       const encoded = header?.replace(/^Bearer /u, "").split(".")[1];
@@ -170,20 +201,58 @@ async function fixture(
           await route.abort("namenotresolved");
           return;
         }
-        const allowed = authorized(
-          (await route.request().allHeaders()).authorization,
-        );
+        const authorization = (await route.request().allHeaders())
+          .authorization;
+        const allowed =
+          authorized(authorization) &&
+          authorization === `Bearer ${currentRefreshToken}`;
         const status =
           refreshFailure === "service"
             ? 503
-            : refreshFailure === "rejected" || !allowed
-              ? 401
-              : 200;
+            : ["invalid", "expired", "unknown", "html", "oversized"].includes(
+                  refreshFailure ?? "",
+                )
+              ? 403
+              : refreshFailure === "rejected"
+                ? 401
+                : !allowed
+                  ? 403
+                  : 200;
+        if (refreshFailure === "html") {
+          await route.fulfill({
+            status,
+            headers,
+            contentType: "text/html",
+            body: "<html>SYNTHETIC_REFRESH_SECRET</html>",
+          });
+          return;
+        }
         await route.fulfill({
           status,
           headers,
           json:
-            status === 200 ? tokens() : { error: "SYNTHETIC_REFRESH_SECRET" },
+            status === 200
+              ? tokens()
+              : {
+                  error_key:
+                    refreshFailure === "invalid" ||
+                    refreshFailure === "oversized" ||
+                    (refreshFailure === null &&
+                      authorized(authorization) &&
+                      !allowed)
+                      ? "INVALID_REFRESH_TOKEN"
+                      : refreshFailure === "expired" ||
+                          (refreshFailure === null &&
+                            !authorized(authorization))
+                        ? "EXPIRED_REFRESH_TOKEN"
+                        : refreshFailure === "unknown"
+                          ? "UNKNOWN_REFRESH_TOKEN"
+                          : "SYNTHETIC_REFRESH_SECRET",
+                  message: "SYNTHETIC_REFRESH_SECRET",
+                  ...(refreshFailure === "oversized"
+                    ? { extra: "SYNTHETIC_REFRESH_SECRET".repeat(300) }
+                    : {}),
+                },
         });
         return;
       }
@@ -232,12 +301,18 @@ async function fixture(
     });
     return {
       context,
-      close: () => closeChromeGracefully(child, owned.endpoint),
+      close: () =>
+        productionShutdown
+          ? closeControlledChrome("sydecar", syntheticKeelOrigin)
+          : closeChromeGracefully(child, owned.endpoint),
     };
   };
   return {
     state,
     launch,
+    signInElsewhere: () => {
+      tokens();
+    },
     cleanup: async () => {
       for (const { child, endpoint } of processes) {
         if (child.exitCode === null && child.signalCode === null) {
@@ -247,15 +322,52 @@ async function fixture(
         }
         await stopChild(child);
       }
-      await rm(profile, {
+      await rm(profileRoot, {
         recursive: true,
         force: true,
         maxRetries: 5,
         retryDelay: 100,
       });
+      if (productionShutdown) {
+        if (originalStateRoot === undefined) delete process.env.XDG_STATE_HOME;
+        else process.env.XDG_STATE_HOME = originalStateRoot;
+        if (originalChromePath === undefined)
+          delete process.env.KEEL_CHROME_PATH;
+        else process.env.KEEL_CHROME_PATH = originalChromePath;
+      }
     },
   };
 }
+
+test("Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture", async ({
+  isMobile,
+}) => {
+  test.skip(
+    isMobile || process.platform !== "linux",
+    "The deployed worker uses Linux desktop Chrome.",
+  );
+  test.setTimeout(180_000);
+  const runtime = await fixture(false, null, true);
+  try {
+    const first = await runtime.launch(true);
+    await ordinaryCapture(first.context);
+    await first.close();
+    for (const hours of [6, 12, 18]) {
+      runtime.state.now = start + hours * hour;
+      const next = await runtime.launch();
+      await renewSavedSydecarSession(next.context, () => runtime.state.now);
+      await next.close();
+    }
+    runtime.state.now = start + 24 * hour;
+    const nextDay = await runtime.launch();
+    await ordinaryCapture(nextDay.context);
+    expect(runtime.state.refreshes).toBe(4);
+    expect(runtime.state.documents).toBe(5);
+    await nextDay.close();
+  } finally {
+    await runtime.cleanup();
+  }
+});
 
 async function ordinaryCapture(context: BrowserContext) {
   const page = await portfolioPage(context, "sydecar");
@@ -263,7 +375,56 @@ async function ordinaryCapture(context: BrowserContext) {
   return page;
 }
 
-for (const failure of ["rejected", "service", "dns"] as const) {
+test("a working Sydecar access token does not prove a refresh token survived another login", async ({
+  isMobile,
+}) => {
+  test.skip(isMobile, "The provider worker uses desktop Chrome.");
+  test.setTimeout(90_000);
+  const runtime = await fixture();
+  const messages: string[] = [];
+  const original = console.error;
+  try {
+    const first = await runtime.launch(true);
+    await ordinaryCapture(first.context);
+    await first.close();
+    runtime.signInElsewhere();
+    runtime.state.now = start + hour / 2;
+    const immediate = await runtime.launch();
+    await ordinaryCapture(immediate.context);
+    await immediate.close();
+    expect(runtime.state.refreshes).toBe(0);
+    runtime.state.now = start + 6 * hour;
+    const later = await runtime.launch();
+    console.error = (message: unknown) => {
+      messages.push(String(message));
+    };
+    await expect(
+      renewSavedSydecarSession(later.context, () => runtime.state.now),
+    ).rejects.toThrow("provider_sign_in_required");
+    expect(messages.map((message) => JSON.parse(message) as unknown)).toEqual([
+      expect.objectContaining({
+        refreshStatus: 403,
+        refreshErrorCode: "INVALID_REFRESH_TOKEN",
+        reason: "refresh_rejected",
+      }),
+    ]);
+    expect(runtime.state.refreshes).toBe(1);
+  } finally {
+    console.error = original;
+    await runtime.cleanup();
+  }
+});
+
+for (const failure of [
+  "rejected",
+  "invalid",
+  "expired",
+  "unknown",
+  "html",
+  "oversized",
+  "service",
+  "dns",
+] as const) {
   test(`Sydecar identifies ${failure} refresh failures without logging credentials`, async ({
     isMobile,
   }) => {
@@ -292,14 +453,29 @@ for (const failure of ["rejected", "service", "dns"] as const) {
             code: "provider_sign_in_required",
             refreshRequests: 1,
             refreshStatus:
-              failure === "rejected" ? 401 : failure === "service" ? 503 : null,
-            refreshTransport: failure === "dns" ? "dns" : null,
-            reason:
               failure === "rejected"
-                ? "refresh_rejected"
+                ? 401
                 : failure === "service"
-                  ? "refresh_unavailable"
-                  : "refresh_transport_failed",
+                  ? 503
+                  : failure === "dns"
+                    ? null
+                    : 403,
+            refreshTransport: failure === "dns" ? "dns" : null,
+            refreshErrorCode:
+              failure === "invalid"
+                ? "INVALID_REFRESH_TOKEN"
+                : failure === "expired"
+                  ? "EXPIRED_REFRESH_TOKEN"
+                  : failure === "unknown"
+                    ? "UNKNOWN_REFRESH_TOKEN"
+                    : null,
+            refreshResponseKind:
+              failure === "dns" ? null : failure === "html" ? "html" : "json",
+            reason: !["service", "dns"].includes(failure)
+              ? "refresh_rejected"
+              : failure === "service"
+                ? "refresh_unavailable"
+                : "refresh_transport_failed",
           },
         ],
       );
