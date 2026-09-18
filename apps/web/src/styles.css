@@ -6501,7 +6501,21 @@ h1,
   margin-bottom: 32px;
 }
 .entity-review--investment .entity-review__navigation {
+  align-items: center;
   margin-bottom: 24px;
+}
+.entity-review__queue-navigation {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+.entity-review__queue-navigation svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
 }
 .entity-review--investment .page-intro {
   min-height: 0;

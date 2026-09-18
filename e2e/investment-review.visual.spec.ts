@@ -191,11 +191,12 @@ async function setup(
     exact: true,
   });
   await expect(review.locator(".section-navigation")).toBeVisible();
-  await page.addStyleTag({
+  const snapshotStyle = await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
   return {
     ...fixture,
+    snapshotStyle,
     row: page.locator(".entity-review"),
     review,
     source,
@@ -203,17 +204,44 @@ async function setup(
   };
 }
 
-test("advances through every pending review before wrapping, including reload and browser history", async ({
+test("navigates both ways through pending reviews, including wrapping, reload and browser history", async ({
   page,
-}) => {
-  const { inventory, row } = await setup(page, false, 3);
+}, testInfo) => {
+  const { inventory, row, snapshotStyle } = await setup(page, false, 3);
+  await snapshotStyle.evaluate((style) => {
+    style.parentNode?.removeChild(style);
+  });
   for (const candidate of inventory.candidates.slice(1))
     await routeInvestmentReview(page, candidate);
-  const next = row.getByRole("button", {
+  const navigation = row.getByRole("navigation", {
+    name: "Investments needing review",
+  });
+  const previous = navigation.getByRole("button", {
+    name: "Previous needing review",
+    exact: true,
+  });
+  const next = navigation.getByRole("button", {
     name: "Next needing review",
     exact: true,
   });
   const title = row.getByRole("heading", { level: 1 });
+  await expect(previous).toBeInViewport();
+  await expect(next).toBeInViewport();
+  expect((await navigation.boundingBox())!.y).toBeLessThan(
+    (await title.boundingBox())!.y,
+  );
+  await expect(row.locator(".entity-review__navigation")).toHaveScreenshot(
+    "investment-review-queue-navigation.png",
+  );
+  for (const name of [
+    "Demo A 2 LLC",
+    "Demo A 1 LLC",
+    "Demo A 0 LLC",
+    "Demo Growth IV",
+  ]) {
+    await previous.click();
+    await expect(title).toHaveText(name);
+  }
   for (const name of [
     "Demo A 0 LLC",
     "Demo A 1 LLC",
@@ -235,9 +263,32 @@ test("advances through every pending review before wrapping, including reload an
   await expect(title).toHaveText("Demo A 1 LLC");
   await page.goForward();
   await expect(title).toHaveText("Demo A 2 LLC");
+  await next.press("Shift+Tab");
+  await expect(previous).toBeFocused();
+  await previous.press("Enter");
+  await expect(title).toHaveText("Demo A 1 LLC");
+  for (const section of ["Investment", "Documents", "Ownership", "Identity"])
+    await selectReviewSection(page, section);
+  await expect(previous).toBeVisible();
+  await expect(next).toBeVisible();
+  if (testInfo.project.name === "mobile-chromium") {
+    await page.setViewportSize({ width: 320, height: 740 });
+    for (const button of [previous, next]) {
+      await expect(button).toBeInViewport();
+      const bounds = (await button.boundingBox())!;
+      expect(bounds.width).toBeGreaterThanOrEqual(44);
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(320);
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+  }
 });
 
-test("continues after a saved review leaves the queue and hides Next for its only remaining item", async ({
+test("navigates after a saved review leaves the queue and hides arrows for its only remaining item", async ({
   page,
 }) => {
   const { inventory, row } = await setup(page, false, 3);
@@ -272,6 +323,10 @@ test("continues after a saved review leaves the queue and hides Next for its onl
     name: "Next needing review",
     exact: true,
   });
+  const previous = row.getByRole("button", {
+    name: "Previous needing review",
+    exact: true,
+  });
   const title = row.getByRole("heading", { level: 1 });
   await next.click();
   await expect(title).toHaveText("Demo A 0 LLC");
@@ -281,6 +336,10 @@ test("continues after a saved review leaves the queue and hides Next for its onl
   await expect(
     row.getByRole("button", { name: "Edit legal entity", exact: true }),
   ).toBeVisible();
+  await previous.click();
+  await expect(title).toHaveText("Demo A 0 LLC");
+  await page.goBack();
+  await expect(title).toHaveText("Demo A 1 LLC");
   await next.click();
   await expect(title).toHaveText("Demo A 2 LLC");
 
@@ -290,6 +349,7 @@ test("continues after a saved review leaves the queue and hides Next for its onl
   await page.reload();
   await expect(title).toHaveText("Demo A 2 LLC");
   await expect(next).toHaveCount(0);
+  await expect(previous).toHaveCount(0);
   await expect(
     row.getByRole("button", { name: "Back to legal entities", exact: true }),
   ).toBeVisible();
@@ -307,6 +367,7 @@ test("continues after a saved review leaves the queue and hides Next for its onl
   );
   await expect(title).toHaveText("Demo A 1 LLC");
   await expect(next).toHaveCount(0);
+  await expect(previous).toHaveCount(0);
 });
 
 test("opens the supported entity name after moving a different investment's agreement", async ({
@@ -573,12 +634,6 @@ test("opens a company conflict, preserves a failed correction and reads back the
   await search.press("Enter");
   await expect(companyPicker).toContainText("Demo Robotics");
   expect(reads()).toBe(readsBeforeSearch);
-  await expect(
-    row.getByText(
-      "Group this investment under Demo Robotics. The agreement’s name, Demo Robotics Inc., stays with the evidence.",
-      { exact: true },
-    ),
-  ).toBeVisible();
   await page.mouse.move(0, 0);
   await expect(row).toHaveScreenshot("investment-company-conflict.png", {
     animations: "disabled",

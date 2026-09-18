@@ -885,18 +885,10 @@ function CompanyReview({
               This company already exists. Choose it from the company list.
             </FormMessage>
           )}
-          {citation === null ? (
+          {citation === null && (
             <p>
               Recorded as your confirmation, not a provider-reported company.
             </p>
-          ) : (
-            companyName && (
-              <p>
-                {basis === "document_link"
-                  ? `Group this investment under ${companyName}. The agreement’s name, ${citation.companyName}, stays with the evidence.`
-                  : `Use ${companyName} for this investment’s company.`}
-              </p>
-            )
           )}
           {existing === "new" &&
             !duplicateName &&
@@ -911,9 +903,6 @@ function CompanyReview({
                 adding another.
               </FormMessage>
             )}
-          {active.length > 0 && (
-            <p>Changes only this investment’s company, not its amounts.</p>
-          )}
           <ActionGroup align="end">
             <Button
               tone="quiet"
@@ -1228,7 +1217,6 @@ export function InvestmentReview({
   identitySaved,
   renderDocuments,
   legalName,
-  nextReviewAction,
   tab,
   onTabChange,
   onSaved,
@@ -1239,7 +1227,6 @@ export function InvestmentReview({
   identitySaved: boolean;
   renderDocuments: ReviewDocumentRenderer;
   legalName: string | null;
-  nextReviewAction?: ReactNode;
   tab: EntityReviewTab;
   onTabChange: (tab: EntityReviewTab) => void;
   onSaved: () => Promise<void>;
@@ -1312,7 +1299,6 @@ export function InvestmentReview({
             </p>
           </div>
           <ActionGroup>
-            {nextReviewAction}
             {nextSection && nextSection.value !== tab && (
               <Button
                 tone="secondary"

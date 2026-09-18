@@ -104,7 +104,9 @@ async function setup(page: Page, candidates: LegalEntitySourceSummary[]) {
     downloads.push(route.request().url());
     return route.fulfill({ status: 423, json: { error: "Blocked" } });
   });
-  await page.goto("/holdings/entities");
+  await page.goto("/holdings");
+  await page.getByRole("link", { name: "Legal entities", exact: true }).click();
+  await expect(page).toHaveURL(/\/holdings\/entities$/u);
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
