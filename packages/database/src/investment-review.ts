@@ -316,6 +316,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     const context = InvestmentReviewContextSchema.parse({
       positionId,
       positionLabel: position.legal_vehicle_name,
+      openedOn: position.opened_on,
       automaticReview:
         position.automatic_review_json === null
           ? null
@@ -591,10 +592,40 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     );
     if (retry !== null)
       return InvestmentReviewStateSchema.parse(JSON.parse(retry.payload));
-    const { context, guard } = await this.load(identity, positionId);
+    const { context, guard, position } = await this.load(identity, positionId);
     this.check(context, input);
     if ((context.review?.id ?? null) !== input.expectedReviewId) throw stale();
     const recordedAt = new Date().toISOString();
+    const requestedClosure =
+      input.participationStatus === "historical"
+        ? input.closure === undefined
+          ? (context.review?.closure ?? null)
+          : input.closure
+        : null;
+    const replacement =
+      requestedClosure?.replacementPositionId == null
+        ? null
+        : context.otherPositions.find(
+            (item) => item.id === requestedClosure.replacementPositionId,
+          );
+    if (requestedClosure?.replacementPositionId != null && replacement == null)
+      throw invalid("Choose a different investment from this household.");
+    if (
+      requestedClosure?.endedOn != null &&
+      (requestedClosure.endedOn > recordedAt.slice(0, 10) ||
+        (position.opened_on !== null &&
+          requestedClosure.endedOn < position.opened_on))
+    )
+      throw invalid(
+        "Choose an ended date between the investment's opening date and today.",
+      );
+    const closure =
+      requestedClosure === null
+        ? null
+        : {
+            ...requestedClosure,
+            replacementPositionLabel: replacement?.label ?? null,
+          };
     const ownership = input.ownershipObservation;
     const observations = [...(context.review?.ownershipObservations ?? [])];
     if (ownership !== undefined) {
@@ -641,6 +672,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       positionId,
       version: (context.review?.version ?? 0) + 1,
       participationStatus: input.participationStatus,
+      closure,
       ownershipObservations: observations,
       documentAssignments: [...assignments.values()],
       recordedAt,

@@ -727,9 +727,7 @@ test("reviews company evidence and keeps ownership drafts across independent sav
     review.getByRole("button", { name: "Save ownership evidence" }),
   ).toBeDisabled();
   await selectReviewSection(page, "Investment");
-  await review
-    .getByRole("combobox", { name: "This investment’s status" })
-    .click();
+  await review.getByRole("combobox", { name: "Your participation" }).click();
   await page.getByRole("option", { name: "Pending", exact: true }).click();
   await review.getByRole("button", { name: "Save participation" }).click();
   await expect(
@@ -1534,7 +1532,7 @@ test("shows reviewed facts before editing and keeps optional ownership out of co
   );
   await selectReviewSection(page, "Investment");
   await expect(
-    review.getByRole("combobox", { name: "This investment’s status" }),
+    review.getByRole("combobox", { name: "Your participation" }),
   ).toHaveCount(0);
   await expect(review.locator(".position-economics__primary")).toContainText(
     "$9,800.00",
@@ -1587,4 +1585,131 @@ test("shows reviewed facts before editing and keeps optional ownership out of co
       ).toBe(true);
     }
   }
+});
+
+test("saves historical closure details, keeps failed drafts, and moves only ended participation into history", async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date("2026-09-18T12:00:00.000Z") });
+  const { context, inventory, source, review, rejectWrites, writes } =
+    await setup(page);
+  await selectReviewSection(page, "Investment");
+  await review
+    .getByRole("combobox", { name: "Your participation", exact: true })
+    .click();
+  await expect(
+    page.getByRole("option", { name: "Exited", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("option", { name: "Historical", exact: true }).click();
+  await expect(
+    review.getByText(/Excluded from current holdings and totals/u),
+  ).toBeVisible();
+  await review.getByRole("button", { name: "Ended date", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Friday, September 18, 2026", exact: true })
+    .click();
+  await review
+    .getByRole("combobox", { name: "Closure reason (optional)", exact: true })
+    .click();
+  await page.getByRole("option", { name: "Unwound", exact: true }).click();
+  const note = review.getByRole("textbox", {
+    name: "Closure note (optional)",
+    exact: true,
+  });
+  await note.pressSequentially("Fully refunded after unwind.");
+  await expect(note).toHaveValue("Fully refunded after unwind.");
+  await review
+    .getByRole("combobox", { name: "Related replacement", exact: true })
+    .click();
+  await page
+    .getByRole("option", { name: "Demo Growth V LLC", exact: true })
+    .click();
+  await expect(review).toHaveScreenshot(
+    "investment-historical-closure-form.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  rejectWrites(true);
+  await review
+    .getByRole("button", { name: "Save participation", exact: true })
+    .click();
+  await expect(review.getByText(/This investment changed/u)).toBeVisible();
+  await expect(note).toHaveValue("Fully refunded after unwind.");
+  rejectWrites(false);
+  await review
+    .getByRole("button", { name: "Save participation", exact: true })
+    .click();
+  await expect(
+    review.getByRole("button", { name: "Change status", exact: true }),
+  ).toBeVisible();
+  expect(writes.at(-1)).toMatchObject({
+    participationStatus: "historical",
+    closure: {
+      endedOn: "2026-09-18",
+      reason: "unwound",
+      note: "Fully refunded after unwind.",
+      replacementPositionId: "position_demo_growth_v",
+    },
+  });
+  await page.reload();
+  await selectReviewSection(page, "Investment");
+  await expect(
+    review.getByText("Fully refunded after unwind.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    review.getByRole("link", { name: "Demo Growth V LLC", exact: true }),
+  ).toHaveAttribute(
+    "href",
+    /review=holding_position%3Aposition_demo_growth_v/u,
+  );
+  await expect(review).toHaveScreenshot(
+    "investment-historical-closure-saved.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await review
+    .getByRole("button", { name: "Change status", exact: true })
+    .click();
+  await expect(
+    review.getByRole("button", { name: "Save participation", exact: true }),
+  ).toBeDisabled();
+  await note.fill("Transferred proceeds reviewed separately.");
+  await review
+    .getByRole("button", { name: "Save participation", exact: true })
+    .click();
+  await expect(
+    review.getByText("Transferred proceeds reviewed separately.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
+  inventory.entities = [
+    {
+      id: "entity_demo_history",
+      versionId: "entity_demo_history_v1",
+      version: 1,
+      legalName: "Demo Growth IV LLC",
+      entityType: "llc",
+      relationship: "investment_vehicle",
+      currentOwner: null,
+      jurisdiction: null,
+      formedOn: null,
+      einLastFour: null,
+      ownershipInterestPpm: null,
+      interestStatus: "current",
+      taxClassification: null,
+      notes: null,
+      recordedAt: inventory.asOf,
+      sources: [source],
+    },
+  ];
+  inventory.candidates = [];
+  await page.goto("/holdings/entities");
+  await expect(
+    page.getByRole("button", { name: /Historical interests · 1/u }),
+  ).toBeVisible();
+  expect(inventory.entities[0]!.interestStatus).toBe("current");
+  expect(context.committedMinor).toBe(1_000_000);
 });

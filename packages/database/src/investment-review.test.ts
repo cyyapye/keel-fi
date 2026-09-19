@@ -18,6 +18,9 @@ import { D1PositionEconomicsRepository } from "./position-economics";
 import { D1HoldingsPageRepository } from "./holdings-page";
 import { calculatePositionEconomics } from "@keel/domain/position-economics";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
+import { D1AlphaRepository } from "./index";
+import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
+import { createPortfolioDashboardSnapshot } from "@keel/domain/portfolio-dashboard";
 import { D1LegalEntityRepository } from "./legal-entities";
 import {
   type InvestmentReviewContext,
@@ -871,6 +874,12 @@ describe("connected investment review", () => {
     const saved = await repository.review(subject, positionId, {
       ...base(context),
       participationStatus: "historical",
+      closure: {
+        endedOn: "2026-08-25",
+        reason: "unwound",
+        note: "Synthetic closure survives a newer source",
+        replacementPositionId: context.otherPositions[0]!.id,
+      },
     });
     const imports = new D1HoldingImportRepository(d1.asD1());
     const staged = await imports.stageHoldingImport(subject, {
@@ -902,4 +911,247 @@ describe("connected investment review", () => {
       }),
     ).rejects.toMatchObject({ code: "stale" });
   });
+});
+
+it("reads historical closure back, excludes its value once, and preserves documents, distributions, snapshots and its replacement", async () => {
+  const imports = new D1HoldingImportRepository(d1.asD1());
+  const staged = await imports.stageHoldingImport(subject, {
+    ...input,
+    sha256: digest("synthetic distribution import"),
+    effectiveDate: "2026-09-02",
+    retrievedAt: "2026-09-02T12:00:00.000Z",
+    rows: input.rows.map((row) => ({ ...row, realizedValueMinor: 125_000 })),
+  });
+  await imports.applyHoldingImport(subject, staged.preview.id, {
+    currency: "USD",
+    decisions: staged.preview.rows.map((row) => ({
+      rowId: row.id,
+      decision: "accepted",
+      rationale: "Reviewed synthetic distribution.",
+    })),
+  });
+  const holdings = new D1HoldingsPageRepository(d1.asD1());
+  const baselines = new D1PortfolioBaselineRepository(d1.asD1());
+  const before = await holdings.getPage(subject, "available");
+  const beforeDashboard = createPortfolioDashboardSnapshot(
+    before.investmentHoldings,
+    await baselines.getState(subject),
+  );
+  const context = await repository.getContext(subject, positionId);
+  const replacement = context.otherPositions[0]!;
+  const original = d1.sqlite
+    .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+    .all();
+  const forecasts = d1.sqlite
+    .prepare("SELECT * FROM forecast_snapshots ORDER BY id")
+    .all();
+  const request = {
+    ...base(context),
+    participationStatus: "historical" as const,
+    closure: {
+      endedOn: "2026-08-25",
+      reason: "unwound" as const,
+      note: "Fully refunded (synthetic note)",
+      replacementPositionId: replacement.id,
+    },
+  };
+  const saved = await repository.review(subject, positionId, request);
+  expect(await repository.review(subject, positionId, request)).toEqual(saved);
+  const reloaded = await repository.getContext(subject, positionId);
+  expect(reloaded.review?.closure).toEqual({
+    ...request.closure,
+    replacementPositionLabel: replacement.label,
+  });
+  expect(reloaded.documents).toEqual(context.documents);
+  expect(reloaded.fundedMinor).toBe(context.fundedMinor);
+  const after = await holdings.getPage(subject, "available");
+  expect(after.holdings.some((item) => item.id === positionId)).toBe(false);
+  const legacy = await new D1AlphaRepository(d1.asD1()).getAlphaData(subject);
+  expect(legacy.holdings.some((item) => item.id === positionId)).toBe(false);
+  expect(legacy.holdings.some((item) => item.id === replacement.id)).toBe(true);
+  expect(after.holdings.some((item) => item.id === replacement.id)).toBe(true);
+  expect(
+    after.investmentHoldings.exposureView.positions.map((item) => item.id),
+  ).toEqual([replacement.id]);
+  const oldValue = before.investmentHoldings.exposureView.positions.find(
+    (item) => item.id === positionId,
+  )!.valueMinor!;
+  const afterDashboard = createPortfolioDashboardSnapshot(
+    after.investmentHoldings,
+    await baselines.getState(subject),
+  );
+  expect(
+    BigInt(beforeDashboard.knownPortfolioValueMinor) -
+      BigInt(afterDashboard.knownPortfolioValueMinor),
+  ).toBe(BigInt(oldValue));
+  const historical = after.investmentHoldings.positionView.connections
+    .flatMap((c) => c.containers.flatMap((item) => item.positions))
+    .find((item) => item.id === positionId)!;
+  expect(historical.investmentReview).toEqual(saved);
+  expect(historical.snapshot.realizedValueMinor).toBe(125_000);
+  expect(
+    d1.sqlite
+      .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+      .all(),
+  ).toEqual(original);
+  expect(
+    d1.sqlite.prepare("SELECT * FROM forecast_snapshots ORDER BY id").all(),
+  ).toEqual(forecasts);
+  const inventory = await new D1LegalEntityRepository(d1.asD1()).getState(
+    subject,
+    after.investmentHoldings.positionView,
+  );
+  const options = {
+    fields: ["legal_name", "closure_details", "current_value"] as const,
+    includeNeedsReview: true,
+    includeHistorical: true,
+    includeOtherEntityTypes: true,
+  };
+  const exported = legalEntityExportRows(inventory, {
+    ...options,
+    fields: [...options.fields],
+  });
+  const row = exported.find((item) =>
+    item.source_record.includes("Synthetic Growth 1"),
+  )!;
+  expect(row.closure_details).toContain(replacement.label);
+  expect(row.closure_details).toContain(request.closure.note);
+  expect(row.current_value).toContain("Excluded from current holdings");
+  expect(
+    legalEntityExportRows(inventory, {
+      ...options,
+      fields: [...options.fields],
+      includeHistorical: false,
+    }).some((item) => item.source_record.includes("Synthetic Growth 1")),
+  ).toBe(false);
+  // Independent ownership/document saves must retain the participation metadata.
+  const retained = await repository.review(subject, positionId, base(reloaded));
+  expect(retained.closure).toEqual(saved.closure);
+  const latest = await repository.getContext(subject, positionId);
+  await repository.review(subject, positionId, {
+    ...base(latest),
+    participationStatus: "current",
+  });
+  expect(
+    (await holdings.getPage(subject, "available")).investmentHoldings
+      .exposureView.positions,
+  ).toHaveLength(2);
+  expect(
+    (await repository.getContext(subject, positionId)).review?.closure,
+  ).toBeNull();
+  expect(
+    JSON.parse(
+      d1.sqlite
+        .prepare(
+          "SELECT state_json FROM holding_investment_reviews WHERE id = ?",
+        )
+        .get(saved.id)!.state_json as string,
+    ).closure,
+  ).toEqual(saved.closure);
+});
+
+it("rejects future or pre-opening closure dates and invalid replacement scope without saving", async () => {
+  const context = await repository.getContext(subject, positionId);
+  const closure = {
+    endedOn: null,
+    reason: null,
+    note: null,
+    replacementPositionId: null,
+  };
+  for (const patch of [
+    { endedOn: "2999-01-01" },
+    { endedOn: "2026-07-01" },
+    { replacementPositionId: positionId },
+    { replacementPositionId: "other-household-position" },
+  ]) {
+    await expect(
+      repository.review(subject, positionId, {
+        ...base(context),
+        participationStatus: "historical",
+        closure: { ...closure, ...patch },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_evidence" });
+  }
+  expect((await repository.getContext(subject, positionId)).review).toBeNull();
+});
+
+it("enforces replacement household scope at commit and keeps an all-historical portfolio out of current totals", async () => {
+  d1.sqlite.exec(
+    "INSERT INTO users VALUES ('closure-other-user','closure-other-subject','other@example.invalid','Synthetic Other','2026-09-01'); INSERT INTO households VALUES ('closure-other-household','closure-other-user','Synthetic Other','USD','2026-09-01')",
+  );
+  d1.sqlite
+    .prepare(
+      `INSERT INTO holding_positions (id,household_id,provider,position_fingerprint,legal_vehicle_name,owner_label,position_kind,instrument_type,opened_on,currency,created_by,created_at)
+    SELECT 'closure-other-position','closure-other-household',provider,position_fingerprint,legal_vehicle_name,owner_label,position_kind,instrument_type,opened_on,currency,'closure-other-user',created_at FROM holding_positions WHERE id = ?`,
+    )
+    .run(positionId);
+  const context = await repository.getContext(subject, positionId);
+  const replacement = context.otherPositions[0]!.id;
+  const saved = await repository.review(subject, positionId, {
+    ...base(context),
+    participationStatus: "historical",
+    closure: {
+      endedOn: null,
+      reason: null,
+      note: null,
+      replacementPositionId: replacement,
+    },
+  });
+  const stored = d1.sqlite
+    .prepare("SELECT * FROM holding_investment_reviews WHERE id = ?")
+    .get(saved.id)!;
+  for (const id of [positionId, "closure-other-position"]) {
+    const reviewId = crypto.randomUUID();
+    const record = {
+      ...stored,
+      id: reviewId,
+      request_id: crypto.randomUUID(),
+      request_sha256: digest(id),
+      supersedes_review_id: saved.id,
+      version: 2,
+      state_json: JSON.stringify({
+        ...saved,
+        id: reviewId,
+        version: 2,
+        closure: { ...saved.closure, replacementPositionId: id },
+      }),
+      evidence_guard_json: JSON.stringify({
+        ...JSON.parse(stored.evidence_guard_json as string),
+        reviewId: saved.id,
+      }),
+    };
+    expect(() =>
+      d1.sqlite
+        .prepare(
+          `INSERT INTO holding_investment_reviews (${Object.keys(record).join(",")}) VALUES (${Object.keys(
+            record,
+          )
+            .map(() => "?")
+            .join(",")})`,
+        )
+        .run(...Object.values(record)),
+    ).toThrow(/replacement scope mismatch/u);
+  }
+  const other = await repository.getContext(subject, replacement);
+  await repository.review(subject, replacement, {
+    ...base(other),
+    participationStatus: "historical",
+  });
+  const holdings = await new D1HoldingsPageRepository(d1.asD1()).getPage(
+    subject,
+    "available",
+  );
+  expect(holdings.investmentHoldings.exposureView.positions).toEqual([]);
+  expect(holdings.investmentHoldings.exposureView.exposures).toEqual([]);
+  const baseline = await new D1PortfolioBaselineRepository(d1.asD1()).getState(
+    subject,
+  );
+  expect(baseline.positions).toEqual([]);
+  expect(
+    createPortfolioDashboardSnapshot(holdings.investmentHoldings, baseline)
+      .knownExposureValueMinor,
+  ).toBe(0);
+  expect(
+    (await repository.getContext(subject, positionId)).documents.length,
+  ).toBeGreaterThan(0);
 });

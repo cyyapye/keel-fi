@@ -1,3 +1,4 @@
+import { includesCurrentInvestment } from "@keel/domain/investment-review";
 import { HoldingSchema, type Holding } from "@keel/domain";
 import type { InvestmentExposureView } from "@keel/domain/exposure-read-model";
 import {
@@ -174,7 +175,7 @@ function importedHoldings(
   );
   return positionView.connections.flatMap((connection) =>
     connection.containers.flatMap((container) =>
-      container.positions.map((position) => {
+      container.positions.filter(includesCurrentInvestment).map((position) => {
         const exposurePosition = exposurePositionById.get(position.id);
         if (exposurePosition === undefined) {
           throw new Error(

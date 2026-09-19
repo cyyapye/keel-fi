@@ -1,4 +1,6 @@
 import {
+  isHistoricalLegalEntity,
+  sourceParticipationStatus,
   formatOwnershipInterestPpm,
   LEGAL_ENTITY_EXPORT_FIELD_LABELS,
   LegalEntityExportInputSchema,
@@ -14,6 +16,11 @@ import {
   LEGAL_DOCUMENT_PROBLEM_COPY,
   LEGAL_DOCUMENT_SCAN_REASON_COPY,
 } from "@keel/domain/provider-legal-documents";
+
+import {
+  isEndedParticipation,
+  INVESTMENT_CLOSURE_REASONS,
+} from "@keel/domain/investment-review";
 
 type ExportRow = Record<LegalEntityExportField, string>;
 
@@ -173,9 +180,12 @@ function financialValues(
   field: "commitment" | "current_value" | "funded",
 ): string {
   const values = sources.flatMap((source) => {
-    if (source.financials === null) {
-      return [];
-    }
+    if (source.financials === null) return [];
+    if (
+      field === "current_value" &&
+      isEndedParticipation(sourceParticipationStatus(source))
+    )
+      return [`${source.sourceDisplayName}: Excluded from current holdings`];
     const prefix = `${source.sourceDisplayName}: `;
     if (field === "commitment") {
       if (
@@ -245,6 +255,30 @@ function missingInformation(input: {
   return missing.length === 0 ? "None noted" : missing.join("; ");
 }
 
+function closureDetails(sources: readonly LegalEntitySourceSummary[]): string {
+  return (
+    sources
+      .flatMap((source) => {
+        const closure = source.investmentReview?.closure;
+        if (closure == null) return [];
+        const details = [
+          closure.endedOn,
+          INVESTMENT_CLOSURE_REASONS.find(
+            (reason) => reason.value === closure.reason,
+          )?.label,
+          closure.note,
+          closure.replacementPositionLabel === null
+            ? null
+            : `Replacement: ${closure.replacementPositionLabel}`,
+        ].filter(Boolean);
+        return details.length === 0
+          ? []
+          : [`${source.sourceDisplayName}: ${details.join("; ")}`];
+      })
+      .join(" | ") || NOT_RECORDED
+  );
+}
+
 function participationLabels(
   sources: readonly LegalEntitySourceSummary[],
 ): string {
@@ -252,7 +286,7 @@ function participationLabels(
     sources
       .map(
         (source) =>
-          `${source.sourceDisplayName}: ${source.investmentReview?.participationStatus ?? source.interestStatus}`,
+          `${source.sourceDisplayName}: ${sourceParticipationStatus(source)}`,
       )
       .join("; ") || NOT_RECORDED
   );
@@ -352,6 +386,7 @@ function confirmedRow(entity: LegalEntityRecord): ExportRow {
         ) === true,
     );
   return {
+    closure_details: closureDetails(entity.sources),
     legal_name: entity.legalName,
     source_record: sourceRecords(entity.sources),
     name_evidence: nameEvidence(entity.sources),
@@ -404,6 +439,7 @@ function candidateRow(candidate: LegalEntitySourceSummary): ExportRow {
     candidate.legalEntityNameEvidence.problem === "conflicting";
   return {
     legal_name: legalName ?? "",
+    closure_details: closureDetails([candidate]),
     source_record: candidate.sourceDisplayName,
     name_evidence: nameEvidence([candidate]),
     entity_type: nameUnavailable ? "Not reported" : "Needs review",
@@ -450,31 +486,27 @@ export function legalEntityExportRows(
     .filter(
       (entity) =>
         (input.includeOtherEntityTypes || entity.entityType === "llc") &&
-        (input.includeHistorical ||
-          (entity.sources.some(
-            (source) =>
-              source.source.kind === "holding_position" &&
-              source.investmentReview != null,
-          )
-            ? entity.sources.some(
-                (source) =>
-                  !["historical", "cancelled"].includes(
-                    source.investmentReview?.participationStatus ??
-                      source.interestStatus,
-                  ),
-              )
-            : entity.interestStatus !== "historical")),
+        (input.includeHistorical || !isHistoricalLegalEntity(entity)),
     )
-    .map(confirmedRow);
+    .map((entity) =>
+      confirmedRow(
+        input.includeHistorical
+          ? entity
+          : {
+              ...entity,
+              sources: entity.sources.filter(
+                (source) =>
+                  !isEndedParticipation(sourceParticipationStatus(source)),
+              ),
+            },
+      ),
+    );
   const candidates = input.includeNeedsReview
     ? inventory.candidates
         .filter(
           (candidate) =>
             input.includeHistorical ||
-            !["historical", "cancelled"].includes(
-              candidate.investmentReview?.participationStatus ??
-                candidate.interestStatus,
-            ),
+            !isEndedParticipation(sourceParticipationStatus(candidate)),
         )
         .map(candidateRow)
     : [];

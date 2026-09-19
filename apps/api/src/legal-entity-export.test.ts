@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  LegalEntityInventory,
-  LegalEntitySourceSummary,
+import {
+  isHistoricalLegalEntity,
+  type LegalEntityInventory,
+  type LegalEntitySourceSummary,
 } from "@keel/domain/legal-entities";
 
 import {
@@ -523,4 +524,61 @@ describe("legal entity CSV export", () => {
       "Synthetic Corporation",
     ]);
   });
+});
+
+it("uses position participation for mixed-entity filters without changing legal-entity status", () => {
+  const historical: LegalEntitySourceSummary = {
+    ...source,
+    sourceDisplayName: "Synthetic Old Interest",
+    investmentReview: {
+      id: crypto.randomUUID(),
+      positionId: source.source.id,
+      version: 1,
+      participationStatus: "historical",
+      ownershipObservations: [],
+      documentAssignments: [],
+      recordedAt: inventory.asOf,
+    },
+  };
+  const current: LegalEntitySourceSummary = {
+    ...source,
+    source: { kind: "holding_position", id: "synthetic-replacement" },
+    sourceDisplayName: "Synthetic Replacement Interest",
+  };
+  const entity = { ...inventory.entities[0]!, sources: [historical, current] };
+  const data: LegalEntityInventory = {
+    ...inventory,
+    entities: [entity],
+    candidates: [],
+  };
+  const options = {
+    fields: ["legal_name"] as ["legal_name"],
+    includeNeedsReview: false,
+    includeHistorical: false,
+    includeOtherEntityTypes: true,
+  };
+  expect(isHistoricalLegalEntity(entity)).toBe(false);
+  const active = legalEntityExportRows(data, options);
+  expect(active).toHaveLength(1);
+  expect(active[0]!.source_record).toContain(current.sourceDisplayName);
+  expect(active[0]!.source_record).not.toContain(historical.sourceDisplayName);
+  expect(
+    legalEntityExportRows(data, { ...options, includeHistorical: true })[0]!
+      .source_record,
+  ).toContain(historical.sourceDisplayName);
+  entity.sources = [
+    historical,
+    {
+      ...current,
+      source: { kind: "ownership_container", id: "synthetic-active-owner" },
+      relationship: "ownership_entity",
+      financials: null,
+    },
+  ];
+  expect(isHistoricalLegalEntity(entity)).toBe(false);
+  expect(legalEntityExportRows(data, options)).toHaveLength(1);
+  entity.sources = [historical];
+  expect(isHistoricalLegalEntity(entity)).toBe(true);
+  expect(legalEntityExportRows(data, options)).toEqual([]);
+  expect(entity.interestStatus).toBe("current");
 });

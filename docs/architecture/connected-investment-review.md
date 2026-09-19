@@ -14,8 +14,18 @@ second store of investment amounts.
   multi-company mappings are shown before replacing them; fund portfolio
   allocation modeling is not inferred from a single memo.
 - Participation is current, pending, historical, cancelled, or unknown. A
-  cancellation does not declare the entity dissolved, zero a reported amount, or
-  erase its documents.
+  reviewed decision overrides the provider's live/realized default. Historical
+  and cancelled positions are excluded from current holdings, exposure totals,
+  and the current values used for net worth and baseline proposals. Their source
+  amounts, contributions, distributions, documents and prior forecast snapshots
+  remain intact. Pending and unconfirmed participation retain existing value
+  treatment; neither uncertainty nor a partial exit implies a completed closure.
+- Historical participation can record an optional ended date, closure reason,
+  note, and replacement investment. The replacement is a distinct position in
+  the same household; the link never merges investments or copies amounts. A
+  refund note does not create a cash transaction. Closure never declares a legal
+  entity dissolved. A later review can correct participation, while prior
+  decisions and closure details remain in history.
 - Ownership observations belong to the position and titled holder. K-1 profit,
   loss, and capital beginning/ending shares remain separate from a dated
   ownership percentage. Missing is not zero. K-1s are optional, and entering
@@ -183,3 +193,31 @@ The counsel export includes underlying company and dated ownership evidence by
 default. Fee/carry and detailed company citations are selectable. Historical
 scope includes cancelled investments. Exported inventory is not a conclusion
 about trust funding, tax basis, entity dissolution, or legal ownership.
+
+## Historical participation and closure details
+
+Migration `0066` adds a commit-time replacement scope guard before the API/web
+release. Optional closure metadata extends the existing versioned review JSON;
+older decisions remain readable and are never rewritten. Independent ownership
+or document reviews preserve closure details, and subsequent source imports do
+not replace a reviewed participation decision. Ended dates cannot precede a
+known opening date or be in the future. Selecting Current again clears the
+current closure details while preserving the earlier historical decision.
+
+Current financial projections omit ended positions before estimates and exposure
+allocations are calculated. The complete position projection remains available
+for legal-entity history and document review. A mixed entity stays in current
+inventory while any linked participation remains open. Current-only exports omit
+ended position sources; exports including history preserve closure details and
+label their current value as excluded. Entity-level lifecycle facts are not
+changed. Planning refresh retains the existing review boundary for removed
+baseline sources and never rewrites a previous forecast.
+
+The real D1 holdout uses 120 positions, 120 additional review versions per
+position with tied timestamps, and 120 unrelated-household positions. Current
+Holdings reads have an 11-round-trip, 3,500-row read budget with no writes; a
+closure save has a nine-round-trip, 500-row read, six-row write budget including
+index maintenance. Retries add no writes. Indexed query plans and the legacy
+read endpoint are checked alongside save/readback, newer imports, cancelled
+positions, mixed entities, an all-historical portfolio, and desktop/mobile
+flows.

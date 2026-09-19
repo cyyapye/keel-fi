@@ -1,3 +1,4 @@
+import { includesCurrentInvestment } from "@keel/domain/investment-review";
 import {
   addMinorUnits,
   multiplyMinorByScalePpm,
@@ -2545,6 +2546,7 @@ export function InvestmentHoldings({
           containerTotal +
           container.positions.filter(
             (position) =>
+              includesCurrentInvestment(position) &&
               position.snapshot.instrumentType.trim().toLowerCase() !== "cash",
           ).length,
         0,

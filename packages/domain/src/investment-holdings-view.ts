@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { includesCurrentInvestment } from "./investment-review";
 import { InvestmentExposureViewSchema } from "./exposure-read-model";
 import { InvestmentPositionViewSchema } from "./position-read-model";
 
@@ -32,9 +33,9 @@ export const InvestmentHoldingsViewSchema = z
     const positionSnapshots = value.positionView.connections.flatMap(
       (connection) =>
         connection.containers.flatMap((container) =>
-          container.positions.map(
-            (position) => `${position.id}:${position.snapshot.id}`,
-          ),
+          container.positions
+            .filter(includesCurrentInvestment)
+            .map((position) => `${position.id}:${position.snapshot.id}`),
         ),
     );
     const exposureSnapshots = value.exposureView.positions.map(
@@ -49,7 +50,7 @@ export const InvestmentHoldingsViewSchema = z
       context.addIssue({
         code: "custom",
         message:
-          "Investment position and exposure views must use the same accepted snapshots.",
+          "Current investment positions and exposure views must use the same accepted snapshots.",
         path: ["exposureView", "positions"],
       });
     }

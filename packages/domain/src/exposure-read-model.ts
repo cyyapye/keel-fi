@@ -18,6 +18,7 @@ import {
   type InvestmentPositionRecord,
   type InvestmentPositionView,
 } from "./position-read-model";
+import { includesCurrentInvestment } from "./investment-review";
 import { calculatePositionPerformance } from "./position-economics";
 import {
   estimatePrivatePositionValues,
@@ -299,7 +300,9 @@ export function createInvestmentExposureView(
   }
 
   const positionRecords = positionView.connections.flatMap((connection) =>
-    connection.containers.flatMap((container) => container.positions),
+    connection.containers.flatMap((container) =>
+      container.positions.filter(includesCurrentInvestment),
+    ),
   );
   const privateCompanyByPositionId = new Map<string, string>();
   for (const position of positionRecords) {
@@ -374,7 +377,7 @@ export function createInvestmentExposureView(
   >();
   const positions = positionView.connections.flatMap((connection) =>
     connection.containers.flatMap((container) =>
-      container.positions.map((position) => {
+      container.positions.filter(includesCurrentInvestment).map((position) => {
         const positionMappings = mappingsByPosition.get(position.id) ?? [];
         const knownAllocationPpm = positionMappings.reduce(
           (sum, mapping) => sum + (mapping.allocationPpm ?? 0),
@@ -527,42 +530,44 @@ export function createInvestmentExposureView(
   return InvestmentExposureViewSchema.parse({
     asOf: positionView.asOf,
     positions,
-    exposures: exposures.map((exposure) => {
-      const contributions = contributionsByExposure.get(exposure.id) ?? [];
-      const totalsByCurrency = new Map<
-        string,
-        {
-          allocatedValues: number[];
-          knownValuePositionCount: number;
-          unknownValuePositionCount: number;
+    exposures: exposures
+      .filter((exposure) => contributionsByExposure.has(exposure.id))
+      .map((exposure) => {
+        const contributions = contributionsByExposure.get(exposure.id) ?? [];
+        const totalsByCurrency = new Map<
+          string,
+          {
+            allocatedValues: number[];
+            knownValuePositionCount: number;
+            unknownValuePositionCount: number;
+          }
+        >();
+        for (const contribution of contributions) {
+          const total = totalsByCurrency.get(contribution.currency) ?? {
+            allocatedValues: [],
+            knownValuePositionCount: 0,
+            unknownValuePositionCount: 0,
+          };
+          if (contribution.allocatedValueMinor === null) {
+            total.unknownValuePositionCount += 1;
+          } else {
+            total.allocatedValues.push(contribution.allocatedValueMinor);
+            total.knownValuePositionCount += 1;
+          }
+          totalsByCurrency.set(contribution.currency, total);
         }
-      >();
-      for (const contribution of contributions) {
-        const total = totalsByCurrency.get(contribution.currency) ?? {
-          allocatedValues: [],
-          knownValuePositionCount: 0,
-          unknownValuePositionCount: 0,
+        return {
+          exposure,
+          contributions,
+          totals: [...totalsByCurrency.entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([currency, total]) => ({
+              currency,
+              allocatedValueMinor: safeMinorSum(total.allocatedValues),
+              knownValuePositionCount: total.knownValuePositionCount,
+              unknownValuePositionCount: total.unknownValuePositionCount,
+            })),
         };
-        if (contribution.allocatedValueMinor === null) {
-          total.unknownValuePositionCount += 1;
-        } else {
-          total.allocatedValues.push(contribution.allocatedValueMinor);
-          total.knownValuePositionCount += 1;
-        }
-        totalsByCurrency.set(contribution.currency, total);
-      }
-      return {
-        exposure,
-        contributions,
-        totals: [...totalsByCurrency.entries()]
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([currency, total]) => ({
-            currency,
-            allocatedValueMinor: safeMinorSum(total.allocatedValues),
-            knownValuePositionCount: total.knownValuePositionCount,
-            unknownValuePositionCount: total.unknownValuePositionCount,
-          })),
-      };
-    }),
+      }),
   });
 }

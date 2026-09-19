@@ -982,7 +982,17 @@ export class D1AlphaRepository implements AlphaRepository {
                LEFT JOIN holding_position_economics_reviews economics_review
                  ON economics_review.proposal_id = economics.id
                 AND economics_review.decision = 'accepted'
+               LEFT JOIN holding_investment_reviews participation
+                 ON participation.id = (
+                   SELECT review.id FROM holding_investment_reviews review
+                   WHERE review.household_id = position.household_id
+                     AND review.position_id = position.id
+                   ORDER BY review.version DESC LIMIT 1
+                 )
                WHERE position.household_id = ?
+                 AND COALESCE(json_extract(participation.state_json, '$.participationStatus'),
+                   CASE WHEN snapshot.provider_status = 'realized' THEN 'historical' ELSE 'current' END)
+                   NOT IN ('historical', 'cancelled')
              ) holdings
              ORDER BY exposure_name, position_name`,
           )
