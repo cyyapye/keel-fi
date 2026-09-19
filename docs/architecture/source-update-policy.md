@@ -127,10 +127,32 @@ additional append-only policy record identifies the prior baseline and rule.
 
 New cash that may overlap a manual amount, uncertain values used by the FI plan,
 possible holding overlaps, and removed baseline sources require review. Routine
-price and balance changes do not. Private paper remains outside FI liquid, so
-its value updates do not require another planning approval. The existing
-source-revision and forecast-version checks reject stale work. Repeating a
-completed refresh is a no-op.
+price and balance changes do not. `accepted-sources-auto-v2` refreshes eligible
+sources even when other sources need a decision. Each unresolved source keeps
+its exact prior baseline snapshot or cash decision; an uncertain new source
+stays outside the baseline. A new source appearing alongside a missing source in
+the same ownership scope or cash connection is held too, preventing double
+counting a possible replacement. It can be reviewed as separate, or become
+eligible after the missing source is explicitly removed. Retained values remain
+dated and visible in the exception review. A user reviews one source at a time,
+previews its FI-liquid effect, and explicitly includes the cash, excludes an
+unavailable value, or removes the missing source from the plan. Removing a
+source never records a sale. Other unresolved sources remain unchanged. No
+eligible changes means no new baseline or forecast, including repeated refresh
+requests. Private paper remains outside FI liquid, so its value updates do not
+require another planning approval. The existing source-revision and
+forecast-version checks reject stale work. Repeating a completed refresh is a
+no-op.
+
+Migration `0067` allows an explicitly reviewed empty baseline and adds the
+selective policy version without rewriting prior decisions. It must precede the
+API/web release. Reads remain 14 D1 round trips; a refresh including
+confirmation uses at most 46, independent of source count. The 120-source
+holdout covers retained exceptions, repeated observation dates, growing history,
+retries and an unrelated household; budgets are 18,000 rows read and 1,000 rows
+written per refresh, and 6,000 rows read with no writes for projection or no-op
+recovery. Existing refresh triggers and schedules are unchanged; no polling is
+added.
 
 `POST /api/portfolio-baseline/refresh` is the bounded refresh and recovery path
 for accepted cash or holding changes, including updates accepted before this

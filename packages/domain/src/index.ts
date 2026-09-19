@@ -2207,7 +2207,7 @@ export const PortfolioBaselineSourceChangesSchema = z.object({
 });
 
 export const PortfolioBaselineSummarySchema = z.object({
-  positionCount: z.number().int().positive(),
+  positionCount: z.number().int().nonnegative(),
   publicMarketValueMinor: NonNegativeMoneyMinorSchema,
   privatePaperValueMinor: NonNegativeMoneyMinorSchema,
   cashAccountCount: z.number().int().nonnegative(),
@@ -2309,6 +2309,21 @@ export const PortfolioBaselineRecordSchema = z.object({
   createdBy: z.string().min(1),
 });
 
+export const PortfolioBaselineExceptionSchema = z.object({
+  key: z.string().min(1),
+  kind: z.enum(["position", "cash"]),
+  name: z.string().min(1),
+  context: z.string().min(1),
+  reason: z.enum(["overlap", "cash_overlap", "unavailable", "removed"]),
+  previousValueMinor: NonNegativeMoneyMinorSchema.nullable(),
+  proposedValueMinor: NonNegativeMoneyMinorSchema.nullable(),
+  previousObservedAt: IsoTimestampSchema.nullable(),
+  fiEligibleChangeMinor: MoneyMinorSchema,
+});
+export type PortfolioBaselineException = z.infer<
+  typeof PortfolioBaselineExceptionSchema
+>;
+
 export const PortfolioBaselineStateSchema = z.object({
   status: z.enum(["waiting_for_reviewed_holdings", "ready", "current"]),
   sourceRevision: Sha256Schema.nullable(),
@@ -2319,6 +2334,8 @@ export const PortfolioBaselineStateSchema = z.object({
   positions: z.array(PortfolioBaselinePositionSchema),
   cashAccounts: z.array(PortfolioBaselineCashAccountSchema),
   changes: PortfolioBaselineSourceChangesSchema,
+  exceptions: z.array(PortfolioBaselineExceptionSchema).optional(),
+  automaticUpdateCount: z.number().int().nonnegative().optional(),
   planning: PortfolioBaselinePlanningContextSchema,
   suggestedOtherFiEligibleLiquidMinor: NonNegativeMoneyMinorSchema,
   currentImpact: PortfolioBaselineImpactSchema,
@@ -2331,6 +2348,7 @@ export const PortfolioBaselineStateSchema = z.object({
 });
 
 export const PortfolioBaselineConfirmInputSchema = z.object({
+  reviewedExceptionKeys: z.array(z.string().min(1)).max(500).optional(),
   sourceRevision: Sha256Schema,
   baseForecastSnapshotId: z.string().min(1),
   baseForecastSnapshotVersion: z.number().int().positive(),

@@ -644,7 +644,23 @@ test("keeps a 120-source baseline review DOM bounded", async ({ page }) => {
     pendingImports: [],
   });
   await page.route("**/api/portfolio-baseline", async (route) => {
-    await route.fulfill({ json: scaleReadyState });
+    await route.fulfill({
+      json: {
+        ...scaleReadyState,
+        automaticUpdateCount: 0,
+        exceptions: scalePositions.map((position) => ({
+          key: `position:${position.id}`,
+          kind: "position",
+          name: position.positionName,
+          context: position.ownerLabel,
+          reason: "removed",
+          previousValueMinor: position.valueMinor,
+          proposedValueMinor: null,
+          previousObservedAt: position.observedAt,
+          fiEligibleChangeMinor: -position.valueMinor,
+        })),
+      },
+    });
   });
   await page.route("**/api/holding-imports", async (route) => {
     await route.fulfill({ json: [] });
@@ -683,12 +699,10 @@ test("keeps a 120-source baseline review DOM bounded", async ({ page }) => {
 
   await page.goto("/holdings");
   await expect(
-    page.getByRole("heading", { name: "120 baseline changes are ready" }),
+    page.getByRole("heading", { name: "120 sources need your decision" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Review changes" }).click();
-  const rows = page.getByLabel("Baseline source changes").locator("article");
+  const rows = page.locator(".portfolio-baseline-review article");
   await expect(rows).toHaveCount(12);
-  await expect(page.getByText("Showing 12 of 120")).toBeVisible();
   await page.getByRole("button", { name: "Show more" }).click();
   await expect(rows).toHaveCount(24);
   await expectNoHorizontalOverflow(page);
@@ -860,4 +874,164 @@ test("retries an unavailable planning baseline", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Set the FI planning baseline" }),
   ).toBeVisible();
+});
+
+test("updates routine sources and reviews only one exception at a time", async ({
+  page,
+}) => {
+  const alphaFixture = await (await page.request.get("/api/alpha")).json();
+  const cashException = {
+    key: "cash:synthetic-new-cash",
+    kind: "cash",
+    name: "Synthetic reserve cash",
+    context: "Northstar Demo Bank · savings",
+    reason: "cash_overlap",
+    previousValueMinor: null,
+    proposedValueMinor: 500_000,
+    previousObservedAt: null,
+    fiEligibleChangeMinor: 500_000,
+  };
+  const removedException = {
+    key: "position:synthetic-removed",
+    kind: "position",
+    name: "Synthetic missing holding",
+    context: "Plaid Investments · Synthetic brokerage",
+    reason: "removed",
+    previousValueMinor: 100_000,
+    proposedValueMinor: null,
+    previousObservedAt: "2026-08-10T16:00:00.000Z",
+    fiEligibleChangeMinor: -100_000,
+  };
+  let baselineState = {
+    ...automaticReadyState,
+    exceptions: [cashException, removedException],
+    automaticUpdateCount: 1,
+    planning: {
+      ...automaticReadyState.planning,
+      currentFiEligibleLiquidMinor: 26_300_000,
+    },
+  } as Record<string, unknown>;
+  let refreshCount = 0;
+  let failNext = true;
+  const decisions: Record<string, unknown>[] = [];
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.route("**/api/alpha", (route) =>
+    route.fulfill({ json: alphaFixture }),
+  );
+  await page.route("**/api/portfolio-baseline", (route) =>
+    route.fulfill({ json: baselineState }),
+  );
+  await page.route("**/api/portfolio-baseline/refresh", (route) => {
+    refreshCount++;
+    baselineState = {
+      ...baselineState,
+      automaticUpdateCount: 0,
+      changes: { positions: [], cashAccounts: [] },
+      latestBaseline: {
+        ...automaticReadyState.latestBaseline,
+        id: "synthetic-partial-baseline",
+      },
+    };
+    return route.fulfill({ json: baselineState });
+  });
+  await page.route("**/api/portfolio-baselines", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (failNext) {
+      failNext = false;
+      await route.fulfill({
+        status: 409,
+        json: { error: "The portfolio changed. Reload before saving." },
+      });
+      return;
+    }
+    decisions.push(body);
+    const remaining = (
+      baselineState.exceptions as (typeof cashException)[]
+    ).filter(
+      (item) => !(body.reviewedExceptionKeys as string[]).includes(item.key),
+    );
+    baselineState = {
+      ...baselineState,
+      exceptions: remaining,
+      status: remaining.length === 0 ? "current" : "ready",
+      baseForecastSnapshotVersion: 5 + decisions.length,
+      suggestedOtherFiEligibleLiquidMinor: body.otherFiEligibleLiquidMinor,
+      latestBaseline: {
+        ...automaticConfirmationResult.baseline,
+        id: `synthetic-reviewed-${decisions.length}`,
+      },
+    };
+    await route.fulfill({ status: 201, json: automaticConfirmationResult });
+  });
+  await page.goto("/holdings");
+  await expect(
+    page.getByRole("heading", { name: "2 sources need your decision" }),
+  ).toBeVisible();
+  expect(refreshCount).toBe(1);
+  await expect(
+    page.getByText("Synthetic Public Company", { exact: true }),
+  ).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".portfolio-baseline-review")).toHaveScreenshot(
+    "portfolio-baseline-exceptions.png",
+    { animations: "disabled" },
+  );
+  await page
+    .getByRole("button", { name: "Review Synthetic reserve cash" })
+    .click();
+  await page
+    .getByLabel("Cash held elsewhere", { exact: true })
+    .fill("20,000.00");
+  await expect(
+    page.getByText("$263,000.00 → $263,000.00", { exact: true }),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".portfolio-baseline-review")).toHaveScreenshot(
+    "portfolio-baseline-exception-decision.png",
+    { animations: "disabled" },
+  );
+  await page
+    .getByRole("button", { name: "Include cash with this amount" })
+    .click();
+  await expect(
+    page.getByText("The portfolio changed. Reload before saving."),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Cash held elsewhere", { exact: true }),
+  ).toHaveValue("20,000.00");
+  await page
+    .getByRole("button", { name: "Include cash with this amount" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "1 source needs your decision" }),
+  ).toBeVisible();
+  expect(decisions[0]).toMatchObject({
+    reviewedExceptionKeys: [cashException.key],
+    otherFiEligibleLiquidMinor: 2_000_000,
+  });
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "1 source needs your decision" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Review Synthetic missing holding" })
+    .click();
+  await expect(page.getByText("$1,000.00", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Decide later" }).click();
+  expect(decisions).toHaveLength(1);
+  await page
+    .getByRole("button", { name: "Review Synthetic missing holding" })
+    .click();
+  await page.getByRole("button", { name: "Remove from plan" }).click();
+  await expect(page.locator(".portfolio-baseline-review")).toHaveCount(0);
+  expect(decisions[1]).toMatchObject({
+    reviewedExceptionKeys: [removedException.key],
+  });
+  expect(refreshCount).toBe(1);
 });

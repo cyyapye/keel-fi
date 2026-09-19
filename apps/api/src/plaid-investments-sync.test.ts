@@ -969,6 +969,7 @@ describe("Plaid Investments sync", () => {
     expect(confirm).toHaveBeenCalledWith(
       "synthetic-access-subject",
       {
+        reviewedExceptionKeys: [],
         sourceRevision: "c".repeat(64),
         baseForecastSnapshotId: "synthetic-forecast",
         baseForecastSnapshotVersion: 3,

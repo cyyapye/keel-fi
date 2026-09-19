@@ -8,6 +8,22 @@ export function portfolioBaselineReviewReasons(
   if (prior === null) {
     return ["Choose the holdings and cash entering your FI plan."];
   }
+  if (state.exceptions !== undefined) {
+    return [
+      ...new Set(
+        state.exceptions.map(
+          (exception) =>
+            ({
+              overlap: "Resolve the possible overlap between holdings.",
+              cash_overlap:
+                "Check whether newly linked cash is already included in cash held elsewhere.",
+              unavailable: "A value used by your FI plan is unavailable.",
+              removed: "Check which sources should remain in your FI plan.",
+            })[exception.reason],
+        ),
+      ),
+    ];
+  }
   const reasons: string[] = [];
   if (state.requiresDuplicateReview) {
     reasons.push("Resolve the possible overlap between holdings.");
