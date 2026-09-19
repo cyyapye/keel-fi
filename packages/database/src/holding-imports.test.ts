@@ -2616,10 +2616,16 @@ describe("reviewed portfolio baseline persistence", () => {
     ]);
     expect(pending.automaticUpdateCount).toBeGreaterThan(0);
     database.resetRoundTripCount();
-    expect(
-      await refreshAcceptedPortfolioBaseline(filtered, subject),
-    ).toMatchObject({ status: "refreshed" });
-    expect(database.roundTripCount).toBeLessThanOrEqual(46);
+    const racingRefreshes = await Promise.all([
+      refreshAcceptedPortfolioBaseline(filtered, subject),
+      refreshAcceptedPortfolioBaseline(filtered, subject),
+    ]);
+    expect(racingRefreshes.map((result) => result.status).sort()).toEqual([
+      "manual_required",
+      "refreshed",
+    ]);
+    // Two bounded attempts plus one projection read after the losing race.
+    expect(database.roundTripCount).toBeLessThanOrEqual(106);
     let partial = await filtered.getState(subject);
     expect(partial.status).toBe("ready");
     expect(partial.automaticUpdateCount).toBe(0);

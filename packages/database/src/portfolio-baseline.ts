@@ -714,6 +714,12 @@ export async function refreshAcceptedPortfolioBaseline(
     const latest = await repository.getState(accessSubject);
     if (latest.status === "current")
       return { status: "not_needed", baselineId: null };
+    if (
+      latest.status === "ready" &&
+      latest.automaticUpdateCount === 0 &&
+      latest.latestBaseline !== null
+    )
+      return { status: "manual_required", baselineId: null };
     throw error;
   }
 }
