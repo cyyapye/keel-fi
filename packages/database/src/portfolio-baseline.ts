@@ -213,6 +213,7 @@ async function sourceRevision(
         [
           "holding",
           row.position_id,
+          row.container_id,
           row.snapshot_id,
           row.snapshot_fingerprint,
           row.provider,
