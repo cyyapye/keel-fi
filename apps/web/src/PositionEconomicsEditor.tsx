@@ -386,6 +386,24 @@ export function PositionEconomicsEditor({
       valueClassName={terms === null || termsNeedReview ? "is-not-set" : ""}
     />
   );
+  const feeAction = !open && (
+    <Button
+      onClick={() => {
+        reset();
+        setOpen(true);
+      }}
+      tone="secondary"
+    >
+      {terms === null
+        ? reportedTerms === null
+          ? "Add fee & carry"
+          : "Review fee & carry"
+        : termsNeedReview ||
+            (terms.decisionSource === "policy" && reportedTermsDiffer)
+          ? "Review fee & carry"
+          : "Update fee & carry"}
+    </Button>
+  );
   return (
     <section
       aria-labelledby={headingId}
@@ -401,27 +419,14 @@ export function PositionEconomicsEditor({
           </h3>
           <p>Review how fees relate to the imported investment amount.</p>
         </div>
-        <ActionGroup>
-          {amountAction}
-          {!open && (
-            <Button
-              onClick={() => {
-                reset();
-                setOpen(true);
-              }}
-              tone="secondary"
-            >
-              {terms === null
-                ? reportedTerms === null
-                  ? "Add fee & carry"
-                  : "Review fee & carry"
-                : termsNeedReview ||
-                    (terms.decisionSource === "policy" && reportedTermsDiffer)
-                  ? "Review fee & carry"
-                  : "Update fee & carry"}
-            </Button>
-          )}
-        </ActionGroup>
+        {presentation === "review" ? (
+          <ActionGroup>
+            {amountAction}
+            {feeAction}
+          </ActionGroup>
+        ) : (
+          feeAction
+        )}
       </div>
       {amountEditor}
 
