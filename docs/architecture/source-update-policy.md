@@ -144,7 +144,7 @@ require another planning approval. The existing source-revision and
 forecast-version checks reject stale work. Repeating a completed refresh is a
 no-op.
 
-Migration `0067` allows an explicitly reviewed empty baseline and adds the
+Migration `0068` allows an explicitly reviewed empty baseline and adds the
 selective policy version without rewriting prior decisions. It must precede the
 API/web release. Reads remain 14 D1 round trips; a refresh including
 confirmation uses at most 46, independent of source count. The 120-source

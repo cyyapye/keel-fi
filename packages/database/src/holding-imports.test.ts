@@ -73,7 +73,7 @@ const migrationFiles = [
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
   "packages/database/migrations/0062_reviewed_company_aliases.sql",
   "packages/database/migrations/0064_watch_read_receipts.sql",
-  "packages/database/migrations/0067_exception_baseline_empty.sql",
+  "packages/database/migrations/0068_exception_baseline_empty.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -90,7 +90,7 @@ describe("nullable private investment date migration", () => {
         .filter(
           (file) =>
             ![
-              "packages/database/migrations/0067_exception_baseline_empty.sql",
+              "packages/database/migrations/0068_exception_baseline_empty.sql",
               "packages/database/migrations/0055_exception_based_source_updates.sql",
               "packages/database/migrations/0035_nullable_private_investment_date.sql",
               "packages/database/migrations/0036_exact_reviewed_private_exposures.sql",
@@ -2642,7 +2642,7 @@ describe("reviewed portfolio baseline persistence", () => {
     sqlite.exec(
       readFileSync(
         resolve(
-          "packages/database/migrations/0067_exception_baseline_empty.sql",
+          "packages/database/migrations/0068_exception_baseline_empty.sql",
         ),
         "utf8",
       ),

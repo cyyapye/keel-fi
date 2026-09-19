@@ -40,7 +40,7 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
     });
     await fixture.execute(
       readFileSync(
-        "packages/database/migrations/0067_exception_baseline_empty.sql",
+        "packages/database/migrations/0068_exception_baseline_empty.sql",
         "utf8",
       ),
     );
