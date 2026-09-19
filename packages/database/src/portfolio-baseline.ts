@@ -8,6 +8,7 @@ import {
   PortfolioBaselineStateSchema,
   portfolioBaselineReviewReasons,
   subtractMinorUnits,
+  type PortfolioBaselineException,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineConfirmResult,
   type PortfolioBaselineCashAccount,
@@ -36,6 +37,7 @@ type HouseholdIdentity = {
 
 type SourcePositionRow = {
   position_id: string;
+  container_id: string;
   snapshot_id: string;
   snapshot_fingerprint: string;
   provider: "angellist" | "tokenfolio" | "sydecar" | "plaid_investments";
@@ -54,6 +56,7 @@ type SourceCashAccountRow = AcceptedCashAccountHistoryRow & {
 };
 
 type BaselinePositionItemRow = {
+  source: SourcePositionRow;
   position_id: string;
   snapshot_id: string;
   value_minor: number | null;
@@ -62,6 +65,7 @@ type BaselinePositionItemRow = {
 };
 
 type BaselineCashItemRow = {
+  source: SourceCashAccountRow;
   natural_key_sha256: string;
   review_decision_id: string;
   value_minor: number | null;
@@ -70,6 +74,7 @@ type BaselineCashItemRow = {
 };
 
 type BaselineSourceItemRow = {
+  source_json: string;
   item_kind: "cash" | "position";
   source_key: string;
   revision_id: string;
@@ -208,6 +213,7 @@ async function sourceRevision(
         [
           "holding",
           row.position_id,
+          row.container_id,
           row.snapshot_id,
           row.snapshot_fingerprint,
           row.provider,
@@ -353,7 +359,12 @@ function sourceChanges(
         );
       }
       const previous = baselinePositionsById.get(row.position_id);
-      if (previous?.snapshot_id === row.snapshot_id) {
+      if (
+        previous?.snapshot_id === row.snapshot_id &&
+        previous.value_minor === row.unrealized_value_minor &&
+        previous.value_state === row.unrealized_value_state &&
+        previous.observed_at === row.observed_at
+      ) {
         return [];
       }
       return [
@@ -400,6 +411,152 @@ function sourceChanges(
   };
 }
 
+type BaselineSources = {
+  positions: readonly BaselinePositionItemRow[];
+  cashAccounts: readonly BaselineCashItemRow[];
+};
+
+function planningExceptions(
+  rows: readonly SourcePositionRow[],
+  cashRows: readonly SourceCashAccountRow[],
+  prior: BaselineSources,
+  manualCashMinor: number,
+): PortfolioBaselineException[] {
+  const exceptions: PortfolioBaselineException[] = [];
+  const currentPositions = new Map(rows.map((row) => [row.position_id, row]));
+  const currentCash = new Map(
+    cashRows.map((row) => [row.natural_key_sha256, row]),
+  );
+  const priorPositions = new Map(
+    prior.positions.map((row) => [row.position_id, row]),
+  );
+  const priorCash = new Map(
+    prior.cashAccounts.map((row) => [row.natural_key_sha256, row]),
+  );
+  const missingPositionScopes = new Set(
+    prior.positions
+      .filter((row) => !currentPositions.has(row.position_id))
+      .map((row) => row.source.container_id),
+  );
+  const missingCashConnections = new Set(
+    prior.cashAccounts
+      .filter((row) => !currentCash.has(row.natural_key_sha256))
+      .map((row) => row.source.connector_account_id),
+  );
+  for (const key of new Set([
+    ...currentPositions.keys(),
+    ...priorPositions.keys(),
+  ])) {
+    const current = currentPositions.get(key);
+    const previous = priorPositions.get(key);
+    if (
+      current !== undefined &&
+      previous !== undefined &&
+      current.snapshot_id === previous.snapshot_id &&
+      current.unrealized_value_minor === previous.value_minor &&
+      current.unrealized_value_state === previous.value_state &&
+      current.observed_at === previous.observed_at
+    )
+      continue;
+    const row = current ?? previous!.source;
+    const reason =
+      current === undefined
+        ? "removed"
+        : current.provider === "plaid_investments" &&
+            current.unrealized_value_state !== "reported"
+          ? "unavailable"
+          : previous === undefined &&
+              current.instrument_type.toLowerCase() === "cash" &&
+              manualCashMinor > 0
+            ? "cash_overlap"
+            : previous === undefined &&
+                missingPositionScopes.has(current.container_id)
+              ? "overlap"
+              : null;
+    if (reason === null) continue;
+    exceptions.push({
+      key: `position:${key}`,
+      kind: "position",
+      name: row.exposure_label ?? row.legal_vehicle_name,
+      context: `${row.provider === "plaid_investments" ? "Plaid Investments" : row.provider} · ${row.owner_label}`,
+      reason,
+      previousValueMinor: previous?.value_minor ?? null,
+      proposedValueMinor: current?.unrealized_value_minor ?? null,
+      previousObservedAt: previous?.observed_at ?? null,
+      fiEligibleChangeMinor: subtractMinorUnits(
+        current?.provider === "plaid_investments"
+          ? (current.unrealized_value_minor ?? 0)
+          : 0,
+        previous?.source.provider === "plaid_investments"
+          ? (previous.value_minor ?? 0)
+          : 0,
+      ),
+    });
+  }
+  for (const key of new Set([...currentCash.keys(), ...priorCash.keys()])) {
+    const current = currentCash.get(key);
+    const previous = priorCash.get(key);
+    if (current?.decision_id === previous?.review_decision_id) continue;
+    const row = current ?? previous!.source;
+    const reason =
+      current === undefined
+        ? "removed"
+        : current.value_state !== "reported"
+          ? "unavailable"
+          : previous === undefined && manualCashMinor > 0
+            ? "cash_overlap"
+            : previous === undefined &&
+                missingCashConnections.has(current.connector_account_id)
+              ? "overlap"
+              : null;
+    if (reason === null) continue;
+    exceptions.push({
+      key: `cash:${key}`,
+      kind: "cash",
+      name: row.account_label,
+      context: `${row.institution_label} · ${row.subtype}`,
+      reason,
+      previousValueMinor: previous?.value_minor ?? null,
+      proposedValueMinor: current?.value_minor ?? null,
+      previousObservedAt: previous?.observed_at ?? null,
+      fiEligibleChangeMinor: subtractMinorUnits(
+        current?.value_minor ?? 0,
+        previous?.value_minor ?? 0,
+      ),
+    });
+  }
+  return exceptions;
+}
+
+function selectPlanningSources(
+  rows: readonly SourcePositionRow[],
+  cashRows: readonly SourceCashAccountRow[],
+  prior: BaselineSources,
+  exceptions: readonly PortfolioBaselineException[],
+  reviewedKeys: readonly string[],
+) {
+  const reviewed = new Set(reviewedKeys);
+  const held = new Set(
+    exceptions
+      .filter((item) => !reviewed.has(item.key))
+      .map((item) => item.key),
+  );
+  return {
+    rows: [
+      ...rows.filter((row) => !held.has(`position:${row.position_id}`)),
+      ...prior.positions
+        .filter((row) => held.has(`position:${row.position_id}`))
+        .map((row) => row.source),
+    ],
+    cashRows: [
+      ...cashRows.filter((row) => !held.has(`cash:${row.natural_key_sha256}`)),
+      ...prior.cashAccounts
+        .filter((row) => held.has(`cash:${row.natural_key_sha256}`))
+        .map((row) => row.source),
+    ],
+  };
+}
+
 function sourcePositionRows(view: InvestmentExposureView): SourcePositionRow[] {
   return view.positions
     .flatMap((position): SourcePositionRow[] => {
@@ -423,6 +580,7 @@ function sourcePositionRows(view: InvestmentExposureView): SourcePositionRow[] {
       return [
         {
           position_id: position.id,
+          container_id: position.containerId,
           snapshot_id: position.snapshotId,
           snapshot_fingerprint: position.snapshotFingerprint,
           provider,
@@ -506,7 +664,7 @@ export interface PortfolioBaselineRepository {
   confirm(
     accessSubject: string,
     input: PortfolioBaselineConfirmInput,
-    policyVersion?: "accepted-sources-auto-v1",
+    policyVersion?: "accepted-sources-auto-v1" | "accepted-sources-auto-v2",
   ): Promise<PortfolioBaselineConfirmResult>;
 }
 
@@ -521,7 +679,9 @@ export async function refreshAcceptedPortfolioBaseline(
   if (state.status !== "ready")
     return { status: "not_needed", baselineId: null };
   if (
-    portfolioBaselineReviewReasons(state).length > 0 ||
+    (state.automaticUpdateCount === undefined
+      ? portfolioBaselineReviewReasons(state).length > 0
+      : state.automaticUpdateCount === 0) ||
     state.latestBaseline === null ||
     state.sourceRevision === null ||
     state.baseForecastSnapshotId === null ||
@@ -533,6 +693,7 @@ export async function refreshAcceptedPortfolioBaseline(
     const result = await repository.confirm(
       accessSubject,
       {
+        reviewedExceptionKeys: [],
         sourceRevision: state.sourceRevision,
         baseForecastSnapshotId: state.baseForecastSnapshotId,
         baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
@@ -544,13 +705,21 @@ export async function refreshAcceptedPortfolioBaseline(
         changeNote:
           "Accepted source values refreshed automatically. Planning choices are unchanged.",
       },
-      "accepted-sources-auto-v1",
+      (state.exceptions?.length ?? 0) > 0
+        ? "accepted-sources-auto-v2"
+        : "accepted-sources-auto-v1",
     );
     return { status: "refreshed", baselineId: result.baseline.id };
   } catch (error) {
     const latest = await repository.getState(accessSubject);
     if (latest.status === "current")
       return { status: "not_needed", baselineId: null };
+    if (
+      latest.status === "ready" &&
+      latest.automaticUpdateCount === 0 &&
+      latest.latestBaseline !== null
+    )
+      return { status: "manual_required", baselineId: null };
     throw error;
   }
 }
@@ -611,7 +780,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     );
     const hasCashAccountChanges = changes.cashAccounts.length > 0;
 
-    if (positions.length === 0) {
+    if (positions.length === 0 && latestBaseline === null) {
       return PortfolioBaselineStateSchema.parse({
         status: "waiting_for_reviewed_holdings",
         sourceRevision: null,
@@ -635,18 +804,53 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     }
 
     const currentSourceRevision = await sourceRevision(rows, cashRows);
-    const observedAt = [...positions, ...cashAccounts]
-      .map((item) => item.observedAt)
-      .sort((left, right) => right.localeCompare(left))[0];
+    const observedAt =
+      [...positions, ...cashAccounts]
+        .map((item) => item.observedAt)
+        .sort((left, right) => right.localeCompare(left))[0] ??
+      latestBaseline?.observedAt;
     if (observedAt === undefined) {
       throw new Error("Portfolio baseline has no observed source date.");
     }
     const summary = summarizePositions(positions, cashAccounts);
+    const exceptions =
+      latestBaseline === null
+        ? []
+        : planningExceptions(
+            rows,
+            cashRows,
+            baselineSources,
+            suggestedOtherFiEligibleLiquidMinor,
+          );
+    const selected = selectPlanningSources(
+      rows,
+      cashRows,
+      baselineSources,
+      exceptions,
+      [],
+    );
+    const automaticChanges = sourceChanges(
+      selected.rows,
+      sourcePositions(selected.rows),
+      selected.cashRows,
+      sourceCashAccounts(selected.cashRows),
+      baselineSources.positions,
+      baselineSources.cashAccounts,
+    );
+    const automaticUpdateCount =
+      latestBaseline === null
+        ? 0
+        : automaticChanges.positions.length +
+          automaticChanges.cashAccounts.length;
     const hasSourceChanges =
-      latestBaseline?.sourceRevision !== currentSourceRevision;
+      latestBaseline === null ||
+      automaticUpdateCount > 0 ||
+      exceptions.length > 0;
 
     return PortfolioBaselineStateSchema.parse({
       status: hasSourceChanges ? "ready" : "current",
+      exceptions,
+      automaticUpdateCount,
       sourceRevision: currentSourceRevision,
       observedAt,
       baseForecastSnapshotId: planning.forecast_snapshot_id,
@@ -676,13 +880,15 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
   public async confirm(
     accessSubject: string,
     rawInput: PortfolioBaselineConfirmInput,
-    policyVersion?: "accepted-sources-auto-v1",
+    policyVersion?: "accepted-sources-auto-v1" | "accepted-sources-auto-v2",
   ): Promise<PortfolioBaselineConfirmResult> {
     const input = PortfolioBaselineConfirmInputSchema.parse(rawInput);
     const state = await this.getState(accessSubject);
     if (
       policyVersion !== undefined &&
-      (portfolioBaselineReviewReasons(state).length > 0 ||
+      (state.latestBaseline === null ||
+        (state.automaticUpdateCount ?? 0) === 0 ||
+        (input.reviewedExceptionKeys?.length ?? 0) > 0 ||
         input.otherFiEligibleLiquidMinor !==
           state.latestBaseline?.otherFiEligibleLiquidMinor)
     ) {
@@ -704,6 +910,23 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     ) {
       throw new Error("Portfolio baseline proposal is stale.");
     }
+    const reviewedKeys = input.reviewedExceptionKeys ?? [];
+    if (
+      state.latestBaseline !== null &&
+      state.automaticUpdateCount === 0 &&
+      reviewedKeys.length === 0 &&
+      input.otherFiEligibleLiquidMinor ===
+        state.latestBaseline.otherFiEligibleLiquidMinor
+    ) {
+      throw new Error("Portfolio baseline requires a planning decision.");
+    }
+    const exceptionKeys = new Set(state.exceptions?.map((item) => item.key));
+    if (
+      reviewedKeys.some((key) => !exceptionKeys.has(key)) ||
+      new Set(reviewedKeys).size !== reviewedKeys.length
+    ) {
+      throw new Error("Portfolio baseline proposal is stale.");
+    }
     if (state.requiresDuplicateReview && !input.duplicateReviewConfirmed) {
       throw new Error("Possible portfolio overlaps must be reviewed.");
     }
@@ -713,7 +936,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
         state.summary.cashAccountValueMinor,
         input.otherFiEligibleLiquidMinor,
       ) &&
-      !input.cashOverlapReviewConfirmed
+      !input.cashOverlapReviewConfirmed &&
+      policyVersion === undefined
     ) {
       throw new Error("Possible cash overlaps must be reviewed.");
     }
@@ -767,20 +991,38 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       ),
       this.getFinancialIndependenceGoal(identity.household_id),
     ]);
-    const sourceRows = sourcePositionRows(exposureView);
-    const currentPositions = sourcePositions(sourceRows);
-    const currentCashAccounts = sourceCashAccounts(sourceCashRows);
+    const observedRows = sourcePositionRows(exposureView);
     const currentSourceRevision = await sourceRevision(
-      sourceRows,
+      observedRows,
       sourceCashRows,
     );
+    const priorSources =
+      state.latestBaseline === null
+        ? { positions: [], cashAccounts: [] }
+        : await this.getBaselineSourceItems(
+            identity.household_id,
+            state.latestBaseline.id,
+          );
+    const selected = selectPlanningSources(
+      observedRows,
+      sourceCashRows,
+      priorSources,
+      state.exceptions ?? [],
+      reviewedKeys,
+    );
+    const sourceRows = selected.rows;
+    const selectedCashRows = selected.cashRows;
+    const currentPositions = sourcePositions(sourceRows);
+    const currentCashAccounts = sourceCashAccounts(selectedCashRows);
     const currentSummary = summarizePositions(
       currentPositions,
       currentCashAccounts,
     );
-    const currentObservedAt = [...currentPositions, ...currentCashAccounts]
-      .map((item) => item.observedAt)
-      .sort((left, right) => right.localeCompare(left))[0];
+    const currentObservedAt =
+      [...currentPositions, ...currentCashAccounts]
+        .map((item) => item.observedAt)
+        .sort((left, right) => right.localeCompare(left))[0] ??
+      state.observedAt;
     if (
       planning.forecast_snapshot_id !== input.baseForecastSnapshotId ||
       planning.forecast_snapshot_version !==
@@ -802,7 +1044,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
         currentSummary.cashAccountValueMinor,
         input.otherFiEligibleLiquidMinor,
       ) &&
-      !input.cashOverlapReviewConfirmed
+      !input.cashOverlapReviewConfirmed &&
+      policyVersion === undefined
     ) {
       throw new Error("Possible cash overlaps must be reviewed.");
     }
@@ -1126,7 +1369,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           ),
       );
     });
-    sourceCashRows.forEach((row) => {
+    selectedCashRows.forEach((row) => {
       statements.push(
         this.db
           .prepare(
@@ -1352,25 +1595,38 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     const rows = await all<BaselineSourceItemRow>(
       this.db
         .prepare(
-          `SELECT
-             'position' AS item_kind,
-             position_id AS source_key,
-             snapshot_id AS revision_id,
-             value_minor,
-             value_state,
-             observed_at
-           FROM portfolio_baseline_items
-           WHERE household_id = ? AND baseline_id = ?
+          `SELECT 'position' AS item_kind, item.position_id AS source_key,
+             item.snapshot_id AS revision_id, item.value_minor, item.value_state,
+             item.observed_at,
+             json_object('position_id', item.position_id, 'snapshot_id', item.snapshot_id,
+               'container_id', (SELECT container_id FROM holding_position_ownerships
+                 WHERE position_id = item.position_id ORDER BY version DESC LIMIT 1),
+               'snapshot_fingerprint', snapshot.snapshot_fingerprint, 'provider', item.provider,
+               'legal_vehicle_name', position.legal_vehicle_name, 'owner_label', position.owner_label,
+               'exposure_label', NULL, 'unrealized_value_minor', item.value_minor,
+               'unrealized_value_state', item.value_state, 'observed_at', item.observed_at,
+               'ticker', NULL, 'instrument_type', snapshot.instrument_type) AS source_json
+           FROM portfolio_baseline_items item
+           JOIN holding_positions position ON position.id = item.position_id
+           JOIN holding_position_snapshots snapshot ON snapshot.id = item.snapshot_id
+           WHERE item.household_id = ? AND item.baseline_id = ?
            UNION ALL
-           SELECT
-             'cash' AS item_kind,
-             natural_key_sha256 AS source_key,
-             review_decision_id AS revision_id,
-             value_minor,
-             value_state,
-             observed_at
-           FROM portfolio_baseline_cash_items
-           WHERE household_id = ? AND baseline_id = ?
+           SELECT 'cash' AS item_kind, item.natural_key_sha256 AS source_key,
+             item.review_decision_id AS revision_id, item.value_minor, item.value_state,
+             item.observed_at,
+             json_object('decision_id', item.review_decision_id, 'proposal_row_id', item.proposal_row_id,
+               'natural_key_sha256', item.natural_key_sha256, 'value_minor', item.value_minor,
+               'value_state', item.value_state, 'observed_at', item.observed_at,
+               'institution_label', row.institution_label, 'account_label', row.account_label,
+               'subtype', row.subtype, 'refresh_kind', proposal.refresh_kind,
+               'proposal_id', proposal.id, 'connector_account_id', proposal.connector_account_id,
+               'item_account_key_sha256', row.item_account_key_sha256,
+               'balance_source', row.balance_source, 'decided_at', decision.decided_at) AS source_json
+           FROM portfolio_baseline_cash_items item
+           JOIN cash_balance_proposal_rows row ON row.id = item.proposal_row_id
+           JOIN cash_balance_review_decisions decision ON decision.id = item.review_decision_id
+           JOIN cash_balance_proposals proposal ON proposal.id = decision.proposal_id
+           WHERE item.household_id = ? AND item.baseline_id = ?
            ORDER BY item_kind, source_key`,
         )
         .bind(householdId, baselineId, householdId, baselineId),
@@ -1379,6 +1635,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       positions: rows
         .filter((row) => row.item_kind === "position")
         .map((row) => ({
+          source: JSON.parse(row.source_json) as SourcePositionRow,
           position_id: row.source_key,
           snapshot_id: row.revision_id,
           value_minor: row.value_minor,
@@ -1392,6 +1649,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
             throw new Error("Portfolio baseline cash state is invalid.");
           }
           return {
+            source: JSON.parse(row.source_json) as SourceCashAccountRow,
             natural_key_sha256: row.source_key,
             review_decision_id: row.revision_id,
             value_minor: row.value_minor,

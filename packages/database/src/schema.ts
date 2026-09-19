@@ -3036,7 +3036,7 @@ export const portfolioBaselinePolicyDecisions = sqliteTable(
       .notNull()
       .references(() => portfolioBaselines.id, { onDelete: "restrict" }),
     policyVersion: text("policy_version", {
-      enum: ["accepted-sources-auto-v1"],
+      enum: ["accepted-sources-auto-v1", "accepted-sources-auto-v2"],
     }).notNull(),
   },
 );

@@ -11,6 +11,7 @@ import {
 import { D1AlphaRepository } from "./index";
 import { D1CashAccountsRepository } from "./cash-accounts";
 import { D1ExposureRepository } from "./exposures";
+import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import {
   D1PortfolioBaselineRepository,
   refreshAcceptedPortfolioBaseline,
@@ -72,6 +73,7 @@ const migrationFiles = [
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
   "packages/database/migrations/0062_reviewed_company_aliases.sql",
   "packages/database/migrations/0064_watch_read_receipts.sql",
+  "packages/database/migrations/0068_exception_baseline_empty.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -88,6 +90,7 @@ describe("nullable private investment date migration", () => {
         .filter(
           (file) =>
             ![
+              "packages/database/migrations/0068_exception_baseline_empty.sql",
               "packages/database/migrations/0055_exception_based_source_updates.sql",
               "packages/database/migrations/0035_nullable_private_investment_date.sql",
               "packages/database/migrations/0036_exact_reviewed_private_exposures.sql",
@@ -2486,6 +2489,253 @@ describe("reviewed portfolio baseline persistence", () => {
   afterEach(() => {
     vi.useRealTimers();
     sqlite.close();
+  });
+
+  it("refreshes 120 sources around exceptions, retains their values, and resolves only the selected source", async () => {
+    const subject = "synthetic-access-subject";
+    const initialInput = robinhoodStageInput();
+    initialInput.rows = Array.from({ length: 120 }, (_, index) => ({
+      ...initialInput.rows[0]!,
+      rowNumber: index + 1,
+      naturalKeySha256: (index + 1).toString(16).padStart(64, "0"),
+      securityName: `Synthetic Plan Holding ${index}`,
+      ticker: `S${index}`,
+      marketValueMinor: 100_000,
+    }));
+    initialInput.canonicalScope.rows = initialInput.rows.map((row) => ({
+      sourceRowNumber: row.rowNumber,
+      protectedAccountKey: robinhoodAccountKey,
+      protectedPositionKey: row.naturalKeySha256,
+      publicExposureIdentityKind: "cusip",
+      protectedExposureKey: row.naturalKeySha256,
+    }));
+    const applyImport = async (
+      input: PlaidInvestmentsHoldingImportStageInput,
+    ) => {
+      const staged = await holdingImports.stagePlaidInvestmentsHoldingImport(
+        subject,
+        input,
+      );
+      await holdingImports.applyHoldingImport(subject, staged.preview.id, {
+        currency: "USD",
+        decisions: staged.preview.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted",
+          rationale: "Reviewed synthetic source.",
+        })),
+      });
+    };
+    await applyImport(initialInput);
+    const inputFor = (
+      state: Awaited<ReturnType<typeof baselines.getState>>,
+    ) => ({
+      sourceRevision: state.sourceRevision!,
+      baseForecastSnapshotId: state.baseForecastSnapshotId!,
+      baseForecastSnapshotVersion: state.baseForecastSnapshotVersion!,
+      otherFiEligibleLiquidMinor: state.suggestedOtherFiEligibleLiquidMinor,
+      duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: true,
+      changeNote: "Reviewed synthetic planning exception.",
+    });
+    const initialState = await baselines.getState(subject);
+    await baselines.confirm(subject, {
+      ...inputFor(initialState),
+      otherFiEligibleLiquidMinor: 50_000,
+    });
+    const nextInput = structuredClone(initialInput);
+    nextInput.sha256 = "ab".repeat(32);
+    nextInput.normalizedFingerprint = "b".repeat(64);
+    nextInput.effectiveDate = "2026-08-09";
+    nextInput.rows = nextInput.rows.map((row) => ({
+      ...row,
+      observedOn: "2026-08-09",
+      marketValueMinor: row.rowNumber === 1 ? 110_000 : row.marketValueMinor,
+    }));
+    nextInput.rows.push({
+      ...nextInput.rows[0]!,
+      rowNumber: 121,
+      naturalKeySha256: "c".repeat(64),
+      securityName: "Synthetic Brokerage Cash",
+      ticker: null,
+      securityType: "cash",
+      marketValueMinor: 50_000,
+    });
+    nextInput.canonicalScope.rows.push({
+      sourceRowNumber: 121,
+      protectedAccountKey: robinhoodAccountKey,
+      protectedPositionKey: "c".repeat(64),
+    });
+    nextInput.rows.push({
+      ...nextInput.rows[0]!,
+      rowNumber: 122,
+      naturalKeySha256: "d".repeat(64),
+      securityName: "Synthetic Separate Holding",
+      ticker: "NEW",
+      marketValueMinor: 75_000,
+    });
+    nextInput.canonicalScope.rows.push({
+      sourceRowNumber: 122,
+      protectedAccountKey: robinhoodAccountKey,
+      protectedPositionKey: "d".repeat(64),
+      publicExposureIdentityKind: "cusip",
+      protectedExposureKey: "d".repeat(64),
+    });
+    await applyImport(nextInput);
+    const exposures = new D1InvestmentExposureViewRepository(
+      database as unknown as D1Database,
+    );
+    let removeAll = false;
+    let unavailable = false;
+    const filtered = new D1PortfolioBaselineRepository(
+      database as unknown as D1Database,
+      {
+        list: async (accessSubject) => {
+          const view = await exposures.list(accessSubject);
+          return {
+            ...view,
+            positions: view.positions
+              .filter((position) => !removeAll && position.ticker !== "S1")
+              .map((position) =>
+                unavailable && position.ticker === "S2"
+                  ? {
+                      ...position,
+                      valueMinor: null,
+                      valueState: "not_reported" as const,
+                    }
+                  : position,
+              ),
+          };
+        },
+      },
+    );
+    const pending = await filtered.getState(subject);
+    expect(pending.exceptions?.map((item) => item.reason).sort()).toEqual([
+      "cash_overlap",
+      "overlap",
+      "removed",
+    ]);
+    expect(pending.automaticUpdateCount).toBeGreaterThan(0);
+    database.resetRoundTripCount();
+    const racingRefreshes = await Promise.all([
+      refreshAcceptedPortfolioBaseline(filtered, subject),
+      refreshAcceptedPortfolioBaseline(filtered, subject),
+    ]);
+    expect(racingRefreshes.map((result) => result.status).sort()).toEqual([
+      "manual_required",
+      "refreshed",
+    ]);
+    // Two bounded attempts plus one projection read after the losing race.
+    expect(database.roundTripCount).toBeLessThanOrEqual(106);
+    let partial = await filtered.getState(subject);
+    expect(partial.status).toBe("ready");
+    expect(partial.automaticUpdateCount).toBe(0);
+    expect(partial.latestBaseline?.fiEligibleLiquidMinor).toBe(12_060_000);
+    expect(partial.latestBaseline?.summary.positionCount).toBe(120);
+    expect(partial.exceptions).toHaveLength(3);
+    const overlap = partial.exceptions!.find(
+      (item) => item.reason === "overlap",
+    )!;
+    await filtered.confirm(subject, {
+      ...inputFor(partial),
+      reviewedExceptionKeys: [overlap.key],
+      duplicateReviewConfirmed: true,
+    });
+    partial = await filtered.getState(subject);
+    expect(partial.exceptions).toHaveLength(2);
+    expect(partial.latestBaseline?.fiEligibleLiquidMinor).toBe(12_135_000);
+    // The forward migration preserves populated baselines and their child references.
+    sqlite.exec("BEGIN");
+    sqlite.exec(
+      readFileSync(
+        resolve(
+          "packages/database/migrations/0068_exception_baseline_empty.sql",
+        ),
+        "utf8",
+      ),
+    );
+    sqlite.exec("COMMIT");
+    expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    const countBefore = sqlite
+      .prepare("SELECT count(*) AS count FROM portfolio_baselines")
+      .get();
+    expect(
+      await refreshAcceptedPortfolioBaseline(filtered, subject),
+    ).toMatchObject({ status: "manual_required" });
+    expect(
+      sqlite.prepare("SELECT count(*) AS count FROM portfolio_baselines").get(),
+    ).toEqual(countBefore);
+    const removed = partial.exceptions!.find(
+      (item) => item.reason === "removed",
+    )!;
+    expect(removed).toMatchObject({
+      name: "Synthetic Plan Holding 1",
+      previousValueMinor: 100_000,
+      fiEligibleChangeMinor: -100_000,
+    });
+    await expect(
+      filtered.confirm(subject, {
+        ...inputFor(pending),
+        reviewedExceptionKeys: [removed.key],
+      }),
+    ).rejects.toThrow("stale");
+    await expect(
+      filtered.confirm(subject, {
+        ...inputFor(partial),
+        reviewedExceptionKeys: ["position:unknown"],
+      }),
+    ).rejects.toThrow("stale");
+    await filtered.confirm(subject, {
+      ...inputFor(partial),
+      reviewedExceptionKeys: [removed.key],
+    });
+    const oneLeft = await filtered.getState(subject);
+    expect(oneLeft.exceptions).toHaveLength(1);
+    expect(oneLeft.latestBaseline?.fiEligibleLiquidMinor).toBe(12_035_000);
+    await filtered.confirm(subject, {
+      ...inputFor(oneLeft),
+      reviewedExceptionKeys: [oneLeft.exceptions![0]!.key],
+      otherFiEligibleLiquidMinor: 0,
+    });
+    const complete = await filtered.getState(subject);
+    expect(complete.status).toBe("current");
+    expect(complete.latestBaseline?.fiEligibleLiquidMinor).toBe(12_035_000);
+    expect(complete.latestBaseline?.otherFiEligibleLiquidMinor).toBe(0);
+    unavailable = true;
+    const uncertain = await filtered.getState(subject);
+    expect(uncertain.exceptions).toHaveLength(1);
+    expect(uncertain.exceptions![0]).toMatchObject({
+      reason: "unavailable",
+      previousValueMinor: 100_000,
+    });
+    expect(
+      (await refreshAcceptedPortfolioBaseline(filtered, subject)).status,
+    ).toBe("manual_required");
+    await filtered.confirm(subject, {
+      ...inputFor(uncertain),
+      reviewedExceptionKeys: [uncertain.exceptions![0]!.key],
+    });
+    const excluded = await filtered.getState(subject);
+    expect(excluded.status).toBe("current");
+    expect(excluded.latestBaseline?.fiEligibleLiquidMinor).toBe(11_935_000);
+    unavailable = false;
+    expect(
+      (await refreshAcceptedPortfolioBaseline(filtered, subject)).status,
+    ).toBe("refreshed");
+    expect(
+      (await filtered.getState(subject)).latestBaseline?.fiEligibleLiquidMinor,
+    ).toBe(12_035_000);
+    removeAll = true;
+    const empty = await filtered.getState(subject);
+    expect(empty.exceptions).toHaveLength(121);
+    await filtered.confirm(subject, {
+      ...inputFor(empty),
+      reviewedExceptionKeys: empty.exceptions!.map((item) => item.key),
+    });
+    const emptyCurrent = await filtered.getState(subject);
+    expect(emptyCurrent.status).toBe("current");
+    expect(emptyCurrent.latestBaseline?.summary.positionCount).toBe(0);
+    expect(emptyCurrent.latestBaseline?.fiEligibleLiquidMinor).toBe(0);
+    expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
   it("atomically appends a reviewed FI baseline without treating unknown values as money", async () => {
