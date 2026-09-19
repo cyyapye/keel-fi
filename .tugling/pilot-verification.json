@@ -25,7 +25,7 @@
       "id": "native-unit-and-cost",
       "description": "Exercise all native domain, API, database, client, workflow, resource and billing assertions with exact individual case accounting.",
       "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest"],
-      "timeout_seconds": 900,
+      "timeout_seconds": 1800,
       "sources": [
         "vitest.config.ts",
         "scripts/pilot_native.py",

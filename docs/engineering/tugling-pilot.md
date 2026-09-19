@@ -44,6 +44,12 @@ Compose validation, local scenario verification and the existing Python
 temporary-run tests. Each suite runs once. No required inventory refresh,
 snapshot update, test filtering or model judging happens during execution.
 
+Native unit and cost verification uses two workers to bound workerd and GPG
+contention. Its overall watchdog allows 30 minutes for the complete suite: the
+15-minute budget from the four-worker configuration can terminate a progressing
+run on the shared CI host. Individual test deadlines, case accounting, and
+resource and D1 cost assertions remain unchanged.
+
 ## Accepted rules and native proof
 
 `.tugling/pilot-verification.json` maps the accepted rules to these checks:
