@@ -34,6 +34,7 @@
         "scripts/d1-query-cost.test.ts",
         "scripts/d1-read-budgets.test.ts",
         "scripts/holding-history-d1-cost.test.ts",
+        "scripts/portfolio-baseline-d1-cost.test.ts",
         "scripts/participation-d1-cost.test.ts",
         "scripts/provider-agent-d1-cost.test.ts",
         "scripts/provider-agent-usage.test.ts",
