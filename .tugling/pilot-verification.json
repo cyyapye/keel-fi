@@ -54,7 +54,7 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest owns workerd, synthetic D1, GPG and temporary fixture processes; maxWorkers remains four.",
+        "launch": "Vitest owns workerd, synthetic D1, GPG and temporary fixture processes; maxWorkers is two to bound native process contention.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       }
