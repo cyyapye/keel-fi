@@ -91,6 +91,7 @@ export const ReportedPositionEconomicsTermsSchema = z
 
 export const PositionEconomicsContextSchema = z.object({
   snapshotId: z.string().min(1),
+  amountCorrectionNote: z.string().max(500).nullable().optional(),
   currency: z.string().regex(/^[A-Z]{3}$/u),
   committedMinor: PositiveMoneyMinorSchema,
   fundedMinor: NonNegativeMoneyMinorSchema,
@@ -101,6 +102,7 @@ export const PositionEconomicsContextSchema = z.object({
 export const AcceptPositionEconomicsInputSchema = FeeTermsSchema.extend({
   setupFeePpm: ProbabilityPpmSchema.optional(),
   expectedSnapshotId: z.string().min(1),
+  expectedCommitmentMinor: PositiveMoneyMinorSchema.optional(),
   expectedTermsId: z.string().min(1).nullable(),
   note: z.string().trim().min(3).max(500),
 })

@@ -1713,3 +1713,89 @@ test("saves historical closure details, keeps failed drafts, and moves only ende
   expect(inventory.entities[0]!.interestStatus).toBe("current");
   expect(context.committedMinor).toBe(1_000_000);
 });
+
+test("corrects investment amounts with review, reload, second save, rejection and source reset", async ({
+  page,
+}) => {
+  const fixture = await setup(page);
+  await selectReviewSection(page, "Investment");
+  const panel = page.getByRole("region", {
+    name: "Investment review",
+    exact: true,
+  });
+  const open = async () =>
+    panel.getByRole("button", { name: "Correct amount", exact: true }).click();
+  await open();
+  await expect(
+    panel.getByRole("button", { name: "Review amount", exact: true }),
+  ).toBeDisabled();
+  await panel
+    .getByLabel("Correct investment amount", { exact: true })
+    .fill("6400");
+  await panel
+    .getByLabel("Reason for correction")
+    .fill("Personal commitment from the synthetic agreement");
+  await expect(
+    panel.locator('[aria-label="Investment amount correction"]'),
+  ).toHaveScreenshot("investment-amount-correction-form.png");
+  await panel
+    .getByRole("button", { name: "Review amount", exact: true })
+    .click();
+  expect(fixture.writes).toHaveLength(0);
+  await expect(
+    panel.locator('[aria-label="Investment amount correction"]'),
+  ).toHaveScreenshot("investment-amount-correction-review.png");
+  await panel.getByRole("button", { name: "Save amount", exact: true }).click();
+  await expect(panel.locator(".position-economics__primary")).toContainText(
+    "6,400.00",
+  );
+  await page.reload();
+  await selectReviewSection(page, "Investment");
+  await expect(panel.locator(".position-economics__primary")).toContainText(
+    "6,400.00",
+  );
+  await open();
+  await expect(
+    panel.getByLabel("Correct investment amount", { exact: true }),
+  ).toHaveValue("6400.00");
+  await panel
+    .getByLabel("Correct investment amount", { exact: true })
+    .fill("6800");
+  await panel
+    .getByLabel("Reason for correction")
+    .fill("Amended synthetic subscription");
+  await panel
+    .getByRole("button", { name: "Review amount", exact: true })
+    .click();
+  fixture.rejectWrites(true);
+  await panel.getByRole("button", { name: "Save amount", exact: true }).click();
+  await expect(panel).toContainText("This investment changed");
+  await panel.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(
+    panel.getByLabel("Correct investment amount", { exact: true }),
+  ).toHaveValue("6800");
+  fixture.rejectWrites(false);
+  await panel
+    .getByRole("button", { name: "Review amount", exact: true })
+    .click();
+  await panel.getByRole("button", { name: "Save amount", exact: true }).click();
+  await expect(panel.locator(".position-economics__primary")).toContainText(
+    "6,800.00",
+  );
+  await expect(panel.locator(".position-economics")).toHaveScreenshot(
+    "investment-amount-corrected.png",
+  );
+  await open();
+  await panel
+    .getByRole("button", { name: "Use source amount", exact: true })
+    .click();
+  await panel
+    .getByRole("button", { name: "Review amount", exact: true })
+    .click();
+  await panel.getByRole("button", { name: "Save amount", exact: true }).click();
+  await expect(panel.locator(".position-economics__primary")).toContainText(
+    "10,000.00",
+  );
+  expect(fixture.context.review?.amountCorrection).toBeNull();
+  expect(fixture.context.fundedMinor).toBe(1_000_000);
+});

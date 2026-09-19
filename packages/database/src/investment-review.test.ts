@@ -1,3 +1,4 @@
+import { D1AutomaticInvestmentReviewRepository } from "./automatic-investment-review";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -1154,4 +1155,281 @@ it("enforces replacement household scope at commit and keeps an all-historical p
   expect(
     (await repository.getContext(subject, positionId)).documents.length,
   ).toBeGreaterThan(0);
+});
+
+it("uses AngelList personal invested capital while preserving deal allocation evidence", async () => {
+  const imports = new D1HoldingImportRepository(d1.asD1());
+  const angelInput = {
+    ...input,
+    provider: "angellist" as const,
+    formatVersion: 1 as const,
+    sha256: digest("synthetic personal amount mapping"),
+    canonicalScope: {
+      ...input.canonicalScope,
+      connection: {
+        mode: "ensure" as const,
+        adapterType: "angellist-import" as const,
+        protectedSourceKey: digest("synthetic angel source"),
+        institutionKey: "angellist",
+        institutionLabel: "AngelList",
+        lifecycleState: "pending" as const,
+        credentialReference: null,
+      },
+      rows: input.canonicalScope.rows.map((row, index) => ({
+        ...row,
+        protectedPositionKey: digest(`synthetic angel position ${index}`),
+      })),
+    },
+    rows: input.rows.map((row) => ({
+      ...row,
+      investedMinor: 360_000,
+      dealMetadata: {
+        ...row.dealMetadata,
+        allocationMinor: 72_000_000,
+        managementFeePpm: null,
+      },
+    })),
+  };
+  const staged = await imports.stageHoldingImport(subject, angelInput);
+  await imports.applyHoldingImport(subject, staged.preview.id, {
+    currency: "USD",
+    decisions: staged.preview.rows.map((row) => ({
+      rowId: row.id,
+      decision: "accepted",
+      rationale: "Synthetic personal capital evidence.",
+    })),
+  });
+  const id = (
+    d1.sqlite
+      .prepare(
+        "SELECT id FROM holding_positions WHERE provider = 'angellist' LIMIT 1",
+      )
+      .get() as { id: string }
+  ).id;
+  const context = await repository.getContext(subject, id);
+  expect(context).toMatchObject({
+    committedMinor: 360_000,
+    sourceAmountMinor: 360_000,
+    fundedMinor: 360_000,
+  });
+  const page = await new D1HoldingsPageRepository(d1.asD1()).getPage(
+    subject,
+    "available",
+  );
+  expect(page.holdings.find((h) => h.id === id)?.committedMinor).toBe(360_000);
+  expect(
+    page.investmentHoldings.exposureView.positions.find((p) => p.id === id)
+      ?.committedMinor,
+  ).toBe(360_000);
+  expect(
+    (
+      await new D1AlphaRepository(d1.asD1()).getAlphaData(subject)
+    ).holdings.find((h) => h.id === id)?.committedMinor,
+  ).toBe(360_000);
+  expect(
+    d1.sqlite
+      .prepare(
+        "SELECT allocation_minor FROM holding_position_snapshots WHERE id = ?",
+      )
+      .get(context.snapshotId),
+  ).toEqual({ allocation_minor: 72_000_000 });
+  const terms = await new D1PositionEconomicsRepository(d1.asD1()).accept(
+    subject,
+    id,
+    {
+      expectedSnapshotId: context.snapshotId!,
+      expectedTermsId: null,
+      expectedCommitmentMinor: 360_000,
+      annualAdminFeePpm: 20_000,
+      adminFeeYears: 1,
+      carryPpm: 100_000,
+      note: "Synthetic personal capital fee review",
+    },
+  );
+  expect(terms.commitmentMinorAtAcceptance).toBe(360_000);
+  await expect(
+    new D1PositionEconomicsRepository(d1.asD1()).accept(subject, id, {
+      expectedSnapshotId: context.snapshotId!,
+      expectedTermsId: terms.id,
+      annualAdminFeePpm: 20_000,
+      adminFeeYears: 1,
+      carryPpm: 100_000,
+      note: "Synthetic outdated client review",
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+});
+
+it("records successive amount corrections, survives source updates, and resets without changing evidence", async () => {
+  const original = await repository.getContext(subject, positionId);
+  const snapshots = d1.sqlite
+    .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+    .all();
+  const economics = new D1PositionEconomicsRepository(d1.asD1());
+  const feeInput = {
+    expectedSnapshotId: original.snapshotId!,
+    expectedTermsId: null,
+    expectedCommitmentMinor: original.committedMinor!,
+    annualAdminFeePpm: 20_000,
+    adminFeeYears: 1,
+    carryPpm: 100_000,
+    note: "Synthetic fee review",
+  };
+  const oldTerms = await economics.accept(subject, positionId, feeInput);
+  const request = {
+    ...base(original),
+    amountCorrection: {
+      amountMinor: 420_000,
+      note: "Synthetic agreement personal commitment",
+    },
+  };
+  const first = await repository.review(subject, positionId, request);
+  expect(await repository.review(subject, positionId, request)).toEqual(first);
+  let context = await repository.getContext(subject, positionId);
+  expect(context).toMatchObject({
+    committedMinor: 420_000,
+    sourceAmountMinor: 1_000_000,
+    fundedMinor: 1_000_000,
+  });
+  expect(calculatePositionEconomics(context.economics!)).toBeNull();
+  await expect(
+    economics.accept(subject, positionId, {
+      ...feeInput,
+      expectedTermsId: oldTerms.id,
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  const newTerms = await economics.accept(subject, positionId, {
+    ...feeInput,
+    expectedTermsId: oldTerms.id,
+    expectedCommitmentMinor: 420_000,
+  });
+  expect(newTerms.commitmentMinorAtAcceptance).toBe(420_000);
+  await expect(
+    repository.review(subject, positionId, {
+      ...request,
+      requestId: crypto.randomUUID(),
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  const second = await repository.review(subject, positionId, {
+    ...base(context),
+    amountCorrection: {
+      amountMinor: 460_000,
+      note: "Synthetic amended commitment",
+    },
+  });
+  context = await repository.getContext(subject, positionId);
+  await repository.review(subject, positionId, {
+    ...base(context),
+    participationStatus: "pending",
+  });
+  context = await repository.getContext(subject, positionId);
+  expect(context.review?.amountCorrection).toEqual(second.amountCorrection);
+  expect(
+    d1.sqlite
+      .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+      .all(),
+  ).toEqual(snapshots);
+  const imports = new D1HoldingImportRepository(d1.asD1());
+  const staged = await imports.stageHoldingImport(subject, {
+    ...input,
+    sha256: digest("synthetic corrected source update"),
+    effectiveDate: "2026-09-02",
+    retrievedAt: "2026-09-02T12:00:00.000Z",
+    rows: input.rows.map((row) => ({
+      ...row,
+      investedMinor: row.investedMinor + 10_000,
+      dealMetadata: {
+        ...row.dealMetadata,
+        allocationMinor: row.dealMetadata.allocationMinor + 20_000,
+      },
+    })),
+  });
+  await imports.applyHoldingImport(subject, staged.preview.id, {
+    currency: "USD",
+    decisions: staged.preview.rows.map((row) => ({
+      rowId: row.id,
+      decision: "accepted",
+      rationale: "Synthetic updated source",
+    })),
+  });
+  context = await repository.getContext(subject, positionId);
+  expect(context).toMatchObject({
+    committedMinor: 460_000,
+    sourceAmountMinor: 1_020_000,
+    fundedMinor: 1_010_000,
+  });
+  await new D1AutomaticInvestmentReviewRepository(d1.asD1()).resolve(subject);
+  context = await repository.getContext(subject, positionId);
+  expect(context.committedMinor).toBe(460_000);
+  expect(context.economics?.acceptedTerms?.id).toBe(newTerms.id);
+  expect(calculatePositionEconomics(context.economics!)).toBeNull();
+  const page = await new D1HoldingsPageRepository(d1.asD1()).getPage(
+    subject,
+    "available",
+  );
+  expect(page.holdings.find((h) => h.id === positionId)?.committedMinor).toBe(
+    460_000,
+  );
+  const inventory = await new D1LegalEntityRepository(d1.asD1()).getState(
+    subject,
+    page.investmentHoldings.positionView,
+  );
+  expect(
+    inventory.candidates.find((s) => s.source.id === positionId)?.financials
+      ?.commitmentMinor,
+  ).toBe(460_000);
+  await repository.review(subject, positionId, {
+    ...base(context),
+    amountCorrection: null,
+  });
+  expect(await repository.getContext(subject, positionId)).toMatchObject({
+    committedMinor: 1_020_000,
+    review: { amountCorrection: null },
+  });
+  expect(
+    JSON.parse(
+      (
+        d1.sqlite
+          .prepare(
+            "SELECT state_json FROM holding_investment_reviews WHERE id = ?",
+          )
+          .get(first.id) as { state_json: string }
+      ).state_json,
+    ).amountCorrection.amountMinor,
+  ).toBe(420_000);
+});
+
+it("rejects a fee acceptance when an amount correction wins the commit race", async () => {
+  const context = await repository.getContext(subject, positionId);
+  const batch = d1.batch.bind(d1);
+  vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => {
+    await repository.review(subject, positionId, {
+      ...base(context),
+      amountCorrection: {
+        amountMinor: 520_000,
+        note: "Synthetic concurrent correction",
+      },
+    });
+    return batch(statements);
+  });
+  await expect(
+    new D1PositionEconomicsRepository(d1.asD1()).accept(subject, positionId, {
+      expectedSnapshotId: context.snapshotId!,
+      expectedTermsId: null,
+      expectedCommitmentMinor: context.committedMinor!,
+      annualAdminFeePpm: 20_000,
+      adminFeeYears: 1,
+      carryPpm: 100_000,
+      note: "Synthetic stale fee review",
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  expect(
+    d1.sqlite
+      .prepare(
+        "SELECT COUNT(*) count FROM holding_position_economics_proposals",
+      )
+      .get(),
+  ).toEqual({ count: 0 });
+  expect(
+    (await repository.getContext(subject, positionId)).committedMinor,
+  ).toBe(520_000);
 });

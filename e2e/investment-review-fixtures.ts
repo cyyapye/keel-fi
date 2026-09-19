@@ -110,6 +110,18 @@ export async function routeInvestmentReview(
                           item.id === input.closure?.replacementPositionId,
                       )?.label ?? null,
                   },
+        amountCorrection:
+          input.amountCorrection === undefined
+            ? (context.review?.amountCorrection ?? null)
+            : input.amountCorrection === null
+              ? null
+              : {
+                  ...input.amountCorrection,
+                  snapshotId: context.snapshotId,
+                  sourceAmountMinor:
+                    context.sourceAmountMinor ?? context.committedMinor,
+                  recordedAt: "2026-09-01T12:00:00.000Z",
+                },
         ownershipObservations: [
           ...(context.review?.ownershipObservations ?? []),
           ...(ownership === undefined
@@ -140,6 +152,17 @@ export async function routeInvestmentReview(
         ],
         recordedAt: "2026-09-01T12:00:00.000Z",
       });
+      if (input.amountCorrection !== undefined) {
+        context.sourceAmountMinor ??= context.committedMinor;
+        context.committedMinor =
+          context.review.amountCorrection?.amountMinor ??
+          context.sourceAmountMinor;
+        if (context.economics !== null) {
+          context.economics.committedMinor = context.committedMinor!;
+          context.economics.amountCorrectionNote =
+            context.review.amountCorrection?.note ?? null;
+        }
+      }
       source.investmentReview = context.review;
       context.evidenceRevision = await investmentEvidenceRevision(
         context.review.documentAssignments,

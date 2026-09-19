@@ -28,6 +28,10 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
         expectedSnapshotId: context.snapshotId,
         expectedEvidenceRevision: context.evidenceRevision,
         participationStatus: index < 60 ? "historical" : "current",
+        amountCorrection: {
+          amountMinor: 480_000,
+          note: "Synthetic personal commitment",
+        },
       });
     }
     const measured = measureD1(fixture.database);
@@ -36,6 +40,11 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
       measured.reset();
       const page = await holdings.getPage(subject, "available");
       expect(page.investmentHoldings.exposureView.positions).toHaveLength(60);
+      expect(
+        page.investmentHoldings.exposureView.positions.every(
+          (position) => position.committedMinor === 480_000,
+        ),
+      ).toBe(true);
       expect(
         page.investmentHoldings.positionView.connections.flatMap((c) =>
           c.containers.flatMap((item) => item.positions),
@@ -63,28 +72,37 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
     const legacyBefore = await readLegacy();
     // 120 versions per position share a timestamp: version ordering, not time,
     // must select the accepted decision. Every database guard remains enabled.
+    const historyStatements: D1PreparedStatement[] = [];
     for (let version = 2; version <= 121; version++) {
-      await fixture.database
-        .prepare(
-          `INSERT INTO holding_investment_reviews
+      historyStatements.push(
+        fixture.database
+          .prepare(
+            `INSERT INTO holding_investment_reviews
         (id,household_id,position_id,request_id,request_sha256,expected_snapshot_id,supersedes_review_id,version,state_json,reviewer_user_id,recorded_at,evidence_guard_json)
         SELECT printf('20000000-0000-4000-9000-%012x', ? * 1000 + keys.key), previous.household_id, previous.position_id,
           printf('30000000-0000-4000-9000-%012x', ? * 1000 + keys.key), printf('%064x', ? * 1000 + keys.key), previous.expected_snapshot_id, previous.id, ?,
           json_set(previous.state_json, '$.id', printf('20000000-0000-4000-9000-%012x', ? * 1000 + keys.key), '$.version', ?),
           previous.reviewer_user_id, previous.recorded_at, json_set(previous.evidence_guard_json, '$.reviewId', previous.id)
         FROM json_each(?) keys JOIN holding_investment_reviews previous ON previous.position_id = keys.value AND previous.version = ?`,
-        )
-        .bind(
-          version,
-          version,
-          version,
-          version,
-          version,
-          version,
-          JSON.stringify(ids),
-          version - 1,
-        )
-        .run();
+          )
+          .bind(
+            version,
+            version,
+            version,
+            version,
+            version,
+            version,
+            JSON.stringify(ids),
+            version - 1,
+          ),
+      );
+    }
+    // Setup is outside the measured requests. Bound transport batches while
+    // retaining statement order and every version/provenance trigger.
+    for (let offset = 0; offset < historyStatements.length; offset += 20) {
+      await fixture.database.batch(
+        historyStatements.slice(offset, offset + 20),
+      );
     }
     const history = await read();
     expect(history.rowsRead).toBeLessThanOrEqual(before.rowsRead + 1_000);
@@ -125,6 +143,10 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
       expectedSnapshotId: context.snapshotId,
       expectedEvidenceRevision: context.evidenceRevision,
       participationStatus: "historical" as const,
+      amountCorrection: {
+        amountMinor: 490_000,
+        note: "Synthetic revised commitment",
+      },
       closure: {
         endedOn: "2026-09-01",
         reason: "unwound" as const,
@@ -134,6 +156,7 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
     };
     measured.reset();
     const saved = await measuredReviews.review(subject, ids[0]!, request);
+    expect(saved.amountCorrection?.amountMinor).toBe(490_000);
     const save = { ...measured.cost };
     expect(save.roundTrips).toBeLessThanOrEqual(9);
     expect(save.rowsRead).toBeLessThanOrEqual(500);

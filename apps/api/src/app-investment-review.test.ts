@@ -100,6 +100,31 @@ describe("connected investment review API", () => {
       );
       expect(response.status).toBe(400);
     }
+    for (const amountCorrection of [
+      { amountMinor: -1, note: "Synthetic correction" },
+      { amountMinor: 1.5, note: "Synthetic correction" },
+      {
+        amountMinor: Number.MAX_SAFE_INTEGER + 1,
+        note: "Synthetic correction",
+      },
+      { amountMinor: 120_000, note: "" },
+      {
+        amountMinor: 120_000,
+        note: "Synthetic correction",
+        snapshotId: "forged",
+      },
+    ]) {
+      const response = await app.request(
+        `/api/investment-positions/${details.positionId}/review`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...request, amountCorrection }),
+        },
+        environment,
+      );
+      expect(response.status).toBe(400);
+    }
     expect(repository.review).not.toHaveBeenCalled();
     expect(repository.reviewCompany).not.toHaveBeenCalled();
     expect(repository.createRelated).not.toHaveBeenCalled();

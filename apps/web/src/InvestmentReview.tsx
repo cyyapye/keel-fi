@@ -1,3 +1,4 @@
+import { moneyInputValue, parseMoneyInput } from "./money-input";
 import {
   matchingCompanies,
   companySuggestionKey,
@@ -55,7 +56,7 @@ import {
   saveInvestmentReview,
 } from "./api";
 import { PositionEconomicsEditor } from "./PositionEconomicsEditor";
-import { formatCompactCurrency, formatDate } from "./format";
+import { formatCompactCurrency, formatCurrency, formatDate } from "./format";
 import {
   entityReviewUrl,
   type EntityReviewTab,
@@ -284,6 +285,179 @@ function useInvestmentRequest(
   ]);
   return useMemo(() => ({ signature, id: crypto.randomUUID() }), [signature])
     .id;
+}
+
+function InvestmentAmountReview({
+  context,
+  save,
+  busy,
+  children,
+}: {
+  context: InvestmentReviewContext;
+  save: Save;
+  busy: boolean;
+  children: (controls: {
+    action: ReactNode;
+    editor: ReactNode;
+    detail?: string | undefined;
+  }) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [useSource, setUseSource] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const { saving, submit } = useReviewSave(save);
+  const correction = context.review?.amountCorrection;
+  const sourceAmount = context.sourceAmountMinor ?? context.committedMinor;
+  const nextAmount = useSource
+    ? sourceAmount
+    : parseMoneyInput(amount, context.currency);
+  const draft = useSource
+    ? null
+    : { amountMinor: nextAmount, note: note.trim() };
+  const requestId = useInvestmentRequest(context, draft);
+  const parsed = ReviewInvestmentInputSchema.safeParse({
+    requestId,
+    expectedReviewId: context.review?.id ?? null,
+    expectedSnapshotId: context.snapshotId,
+    expectedEvidenceRevision: context.evidenceRevision,
+    participationStatus:
+      context.review?.participationStatus ?? context.defaultParticipationStatus,
+    amountCorrection: draft,
+  });
+  const changed = useSource
+    ? correction != null
+    : nextAmount !== context.committedMinor ||
+      (correction != null && note.trim() !== correction.note);
+  const valid = parsed.success && nextAmount !== null && changed;
+  const money = (value: number | null) =>
+    value === null ? "Not reported" : formatCurrency(value, context.currency);
+  const acceptAmount = async () => {
+    if (!parsed.success || !valid) return;
+    if (
+      await submit(() => saveInvestmentReview(context.positionId, parsed.data))
+    ) {
+      setOpen(false);
+      setReviewing(false);
+    }
+  };
+  const editor = !open ? null : (
+    <div
+      className="position-economics__form"
+      aria-label="Investment amount correction"
+    >
+      {reviewing ? (
+        <>
+          <DataList className="investment-review__amounts">
+            <DataItem
+              label="Current amount"
+              value={money(context.committedMinor)}
+            />
+            <DataItem label="New amount" value={money(nextAmount)} />
+          </DataList>
+          <p>{useSource ? "Use the source amount again." : note.trim()}</p>
+          <p>
+            {useSource
+              ? "Future imports will supply this amount again."
+              : "This correction stays in use until you change it or return to the source amount."}{" "}
+            Fee calculations will use this amount. Funded capital and reported
+            values stay separate.
+          </p>
+          <ActionGroup>
+            <Button
+              disabled={busy || !valid}
+              onClick={() => void acceptAmount()}
+            >
+              {saving ? "Saving…" : "Save amount"}
+            </Button>
+            <Button
+              tone="secondary"
+              disabled={busy}
+              onClick={() => setReviewing(false)}
+            >
+              Back
+            </Button>
+          </ActionGroup>
+        </>
+      ) : (
+        <>
+          <p>
+            Source amount: {money(sourceAmount)}. Enter your investment amount
+            in {context.currency}.
+          </p>
+          {!useSource && (
+            <>
+              <Field label="Correct investment amount" variant="filled">
+                <Input
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                />
+              </Field>
+              <Field label="Reason for correction" variant="filled">
+                <Textarea
+                  value={note}
+                  maxLength={500}
+                  onChange={(event) => setNote(event.target.value)}
+                />
+              </Field>
+            </>
+          )}
+          {useSource && <p>The source amount will replace your correction.</p>}
+          <ActionGroup>
+            <Button
+              disabled={busy || !valid}
+              onClick={() => setReviewing(true)}
+            >
+              Review amount
+            </Button>
+            {correction != null && (
+              <Button
+                tone="secondary"
+                disabled={busy}
+                onClick={() => setUseSource(!useSource)}
+              >
+                {useSource ? "Enter a correction" : "Use source amount"}
+              </Button>
+            )}
+            <Button
+              tone="secondary"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+          </ActionGroup>
+        </>
+      )}
+    </div>
+  );
+  return children({
+    action:
+      context.snapshotId === null || open ? null : (
+        <Button
+          tone="secondary"
+          disabled={busy}
+          onClick={() => {
+            setAmount(
+              moneyInputValue(context.committedMinor, context.currency),
+            );
+            setNote(correction?.note ?? "");
+            setUseSource(false);
+            setReviewing(false);
+            setOpen(true);
+          }}
+        >
+          Correct amount
+        </Button>
+      ),
+    editor,
+    detail:
+      correction == null
+        ? undefined
+        : `Corrected by you. Source amount: ${money(sourceAmount)}. ${correction.note}`,
+  });
 }
 
 function closureInput(
@@ -1514,45 +1688,56 @@ export function InvestmentReview({
           {context !== null && (
             <>
               <ParticipationReview context={context} save={save} busy={busy} />
-              {context.economics !== null ? (
-                <PositionEconomicsEditor
-                  presentation="review"
-                  holding={{
-                    id: positionId,
-                    sourceLabel,
-                    positionEconomicsContext: context.economics,
-                  }}
-                  onAccepted={async () => {
-                    await onSaved();
-                    setContext(await loadInvestmentReview(positionId));
-                  }}
-                />
-              ) : (
-                <DataList className="investment-review__amounts">
-                  <DataItem
-                    label="Commitment"
-                    value={
-                      context.committedMinor === null
-                        ? "Not reported"
-                        : formatCompactCurrency(
-                            context.committedMinor,
-                            context.currency,
-                          )
-                    }
-                  />
-                  <DataItem
-                    label="Funded capital"
-                    value={
-                      context.fundedMinor === null
-                        ? "Not reported"
-                        : formatCompactCurrency(
-                            context.fundedMinor,
-                            context.currency,
-                          )
-                    }
-                  />
-                </DataList>
-              )}
+              <InvestmentAmountReview context={context} save={save} busy={busy}>
+                {({ action, editor, detail }) =>
+                  context.economics !== null ? (
+                    <PositionEconomicsEditor
+                      presentation="review"
+                      amountAction={action}
+                      amountEditor={editor}
+                      amountDetail={detail}
+                      holding={{
+                        id: positionId,
+                        sourceLabel,
+                        positionEconomicsContext: context.economics,
+                      }}
+                      onAccepted={async () => {
+                        await onSaved();
+                        setContext(await loadInvestmentReview(positionId));
+                      }}
+                    />
+                  ) : (
+                    <ReviewSection title="Investment amount" action={action}>
+                      {editor}
+                      <DataList className="investment-review__amounts">
+                        <DataItem
+                          label="Commitment"
+                          value={
+                            context.committedMinor === null
+                              ? "Not reported"
+                              : formatCompactCurrency(
+                                  context.committedMinor,
+                                  context.currency,
+                                )
+                          }
+                        />
+                        <DataItem
+                          label="Funded capital"
+                          value={
+                            context.fundedMinor === null
+                              ? "Not reported"
+                              : formatCompactCurrency(
+                                  context.fundedMinor,
+                                  context.currency,
+                                )
+                          }
+                        />
+                      </DataList>
+                      {detail && <p>{detail}</p>}
+                    </ReviewSection>
+                  )
+                }
+              </InvestmentAmountReview>
             </>
           )}
         </TabsContent>

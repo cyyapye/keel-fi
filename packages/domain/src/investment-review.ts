@@ -161,6 +161,49 @@ export const InvestmentDocumentAssignmentSchema = z
     "Choose the other investment, or leave this agreement unassigned.",
   );
 
+export const InvestmentAmountCorrectionInputSchema = z
+  .object({
+    amountMinor: z.number().int().safe().positive(),
+    note: z.string().trim().min(3).max(500),
+  })
+  .strict();
+
+const InvestmentAmountCorrectionSchema =
+  InvestmentAmountCorrectionInputSchema.extend({
+    snapshotId: Id,
+    sourceAmountMinor: z.number().int().safe().nonnegative(),
+    recordedAt: z.iso.datetime({ offset: true }),
+  });
+
+// AngelList Allocation is deal metadata; Invested is the holder's amount.
+// Preserve both raw fields and resolve the personal amount at the projection boundary.
+export function sourceInvestmentAmount(
+  provider: string | undefined,
+  investedMinor: number,
+  allocationMinor: number,
+): number {
+  return provider === "angellist" ? investedMinor : allocationMinor;
+}
+
+export function investmentAmount(position: {
+  snapshot: {
+    investmentAmountMinor?: number | undefined;
+    allocationMinor: number;
+  };
+  investmentReview?:
+    | {
+        amountCorrection?: { amountMinor: number } | null | undefined;
+      }
+    | null
+    | undefined;
+}): number {
+  return (
+    position.investmentReview?.amountCorrection?.amountMinor ??
+    position.snapshot.investmentAmountMinor ??
+    position.snapshot.allocationMinor
+  );
+}
+
 export const InvestmentReviewStateSchema = z
   .object({
     id: z.string().uuid(),
@@ -168,6 +211,7 @@ export const InvestmentReviewStateSchema = z
     version: z.number().int().positive(),
     participationStatus: InvestmentParticipationSchema,
     closure: InvestmentClosureSchema.nullable().optional(),
+    amountCorrection: InvestmentAmountCorrectionSchema.nullable().optional(),
     ownershipObservations: z
       .array(InvestmentOwnershipObservationSchema)
       .max(100),
@@ -184,6 +228,8 @@ export const ReviewInvestmentInputSchema = z
     expectedEvidenceRevision: Digest,
     participationStatus: InvestmentParticipationSchema,
     closure: InvestmentClosureInputSchema.nullable().optional(),
+    amountCorrection:
+      InvestmentAmountCorrectionInputSchema.nullable().optional(),
     ownershipObservation: InvestmentOwnershipInputSchema.optional(),
     documentAssignments: z
       .array(InvestmentDocumentAssignmentSchema)
@@ -314,6 +360,13 @@ export const InvestmentReviewContextSchema = z
     holderLabel: z.string().min(1).max(1_000),
     snapshotId: Id.nullable(),
     committedMinor: z.number().int().safe().nonnegative().nullable(),
+    sourceAmountMinor: z
+      .number()
+      .int()
+      .safe()
+      .nonnegative()
+      .nullable()
+      .optional(),
     fundedMinor: z.number().int().safe().nonnegative().nullable(),
     currency: z.string().regex(/^[A-Z]{3}$/u),
     economics: PositionEconomicsContextSchema.nullable(),

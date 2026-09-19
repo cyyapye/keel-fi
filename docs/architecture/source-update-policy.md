@@ -179,3 +179,17 @@ unrelated household, checks empty results and retries, and enforces at most six
 review round trips, 18,000 rows read and 5,000 rows written. In that holdout,
 the catalog and preview budgets are 1,000 and 4,000 rows read respectively;
 reads write nothing.
+
+### Investment amount corrections
+
+AngelList's personal investment amount comes from `Invested`; `Allocation`
+remains source deal metadata. Other private sources retain their reported
+commitment semantics. Both original source fields remain unchanged.
+
+A reviewed amount correction overrides only the investment amount used for
+commitment and fee calculations. It records the original source amount,
+snapshot, reason and time in the investment review history. Later imports and
+unrelated review decisions preserve it. Returning to the source amount records a
+new decision and uses the latest source amount. Funded capital, distributions,
+reported values and earlier decisions are not rewritten. Fee terms whose
+accepted amount no longer matches require review.

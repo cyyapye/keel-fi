@@ -161,6 +161,7 @@ type HoldingRow = {
   cost_basis_minor: number | null;
   invested_minor: number | null;
   committed_minor: number | null;
+  amount_correction_note?: string | null;
   realized_value_minor: number | null;
   instrument_type: string | null;
   position_snapshot_id: string | null;
@@ -729,6 +730,7 @@ export class D1AlphaRepository implements AlphaRepository {
                  NULL AS cost_basis_minor,
                  NULL AS invested_minor,
                  NULL AS committed_minor,
+                 NULL AS amount_correction_note,
                  NULL AS realized_value_minor,
                  NULL AS instrument_type,
                  NULL AS position_snapshot_id,
@@ -873,7 +875,8 @@ export class D1AlphaRepository implements AlphaRepository {
                  snapshot.quantity_micros,
                  snapshot.cost_basis_minor,
                  snapshot.invested_minor,
-                 snapshot.allocation_minor AS committed_minor,
+                 COALESCE(json_extract(participation.state_json, '$.amountCorrection.amountMinor'), CASE position.provider WHEN 'angellist' THEN snapshot.invested_minor ELSE snapshot.allocation_minor END) AS committed_minor,
+                 json_extract(participation.state_json, '$.amountCorrection.note') AS amount_correction_note,
                  snapshot.realized_value_minor,
                  snapshot.instrument_type,
                  snapshot.id AS position_snapshot_id,
@@ -1225,6 +1228,7 @@ export class D1AlphaRepository implements AlphaRepository {
                 snapshotId: row.position_snapshot_id,
                 currency: row.position_currency,
                 committedMinor: row.committed_minor,
+                amountCorrectionNote: row.amount_correction_note ?? null,
                 fundedMinor: row.invested_minor,
                 reportedTerms:
                   row.reported_management_fee_ppm === null &&

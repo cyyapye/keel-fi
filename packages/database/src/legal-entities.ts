@@ -1,3 +1,4 @@
+import { investmentAmount } from "@keel/domain/investment-review";
 import {
   CreateLegalEntityInputSchema,
   LegalEntityExactBatchInputSchema,
@@ -166,7 +167,7 @@ function positionSourceSummary(
     openedOn: position.openedOn,
     financials: {
       currency: position.snapshot.currency,
-      commitmentMinor: position.snapshot.allocationMinor,
+      commitmentMinor: investmentAmount(position),
       fundedMinor: position.snapshot.investedMinor,
       capitalBasis: terms?.capitalBasis ?? null,
       grossCommitmentMinor: terms?.grossCommitmentMinor ?? null,

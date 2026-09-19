@@ -1,3 +1,4 @@
+import { moneyInputValue, parseMoneyInput } from "./money-input";
 import { type Holding } from "@keel/domain";
 import {
   AcceptPositionEconomicsInputSchema,
@@ -19,10 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@keel/ui";
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { acceptPositionEconomics } from "./api";
 import {
-  currencyFractionDigits,
   formatCompactCurrency,
   formatCurrency,
   formatProbability,
@@ -55,41 +55,20 @@ function percentageInputValueOrBlank(value: number | null): string {
   return value === null ? "" : percentageInputValue(value);
 }
 
-function moneyInputValue(
-  value: number | null | undefined,
-  currency: string,
-): string {
-  if (value == null) return "";
-  const amount = BigInt(value);
-  const digits = currencyFractionDigits(currency);
-  const unit = 10n ** BigInt(digits);
-  return digits === 0
-    ? amount.toString()
-    : `${amount / unit}.${(amount % unit).toString().padStart(digits, "0")}`;
-}
-
-function parseMoneyInput(value: string, currency: string): number | null {
-  const normalized = value.trim().replaceAll(",", "");
-  if (!/^\d+(?:\.\d*)?$/u.test(normalized)) return null;
-  const [whole = "0", decimal = ""] = normalized.split(".");
-  const digits = currencyFractionDigits(currency);
-  if (decimal.length > digits) return null;
-  const minor =
-    BigInt(whole) * 10n ** BigInt(digits) +
-    BigInt(decimal.padEnd(digits, "0") || "0");
-  return minor > 0n && minor <= BigInt(Number.MAX_SAFE_INTEGER)
-    ? Number(minor)
-    : null;
-}
-
 export function PositionEconomicsEditor({
   holding,
   onAccepted,
   presentation = "holding",
+  amountAction,
+  amountEditor,
+  amountDetail,
 }: {
   holding: Pick<Holding, "id" | "sourceLabel" | "positionEconomicsContext">;
   onAccepted: () => Promise<void>;
   presentation?: "holding" | "review";
+  amountAction?: ReactNode;
+  amountEditor?: ReactNode;
+  amountDetail?: string | undefined;
 }) {
   const headingId = useId();
   const context = holding.positionEconomicsContext ?? null;
@@ -199,6 +178,7 @@ export function PositionEconomicsEditor({
   const carryPpm = parsePercentageInput(carry);
   const parsedInput = AcceptPositionEconomicsInputSchema.safeParse({
     expectedSnapshotId: context.snapshotId,
+    expectedCommitmentMinor: context.committedMinor,
     expectedTermsId: terms?.id ?? null,
     capitalBasis,
     grossCommitmentMinor:
@@ -290,13 +270,19 @@ export function PositionEconomicsEditor({
   const commitmentStat = (
     <Stat
       detail={
-        displayedEconomics !== null && terms?.capitalBasis === "net_invested"
+        amountDetail ??
+        (context.amountCorrectionNote == null
+          ? undefined
+          : `Corrected by you. ${context.amountCorrectionNote}`) ??
+        (displayedEconomics !== null && terms?.capitalBasis === "net_invested"
           ? `Imported net: ${money(context.committedMinor)} from ${holding.sourceLabel}.`
-          : `Accepted from ${holding.sourceLabel}.`
+          : `Accepted from ${holding.sourceLabel}.`)
       }
       label={
         displayedEconomics === null
-          ? "Imported amount"
+          ? context.amountCorrectionNote != null
+            ? "Investment amount"
+            : "Imported amount"
           : terms?.capitalBasis === "net_invested"
             ? "Gross commitment"
             : "Commitment"
@@ -400,6 +386,24 @@ export function PositionEconomicsEditor({
       valueClassName={terms === null || termsNeedReview ? "is-not-set" : ""}
     />
   );
+  const feeAction = !open && (
+    <Button
+      onClick={() => {
+        reset();
+        setOpen(true);
+      }}
+      tone="secondary"
+    >
+      {terms === null
+        ? reportedTerms === null
+          ? "Add fee & carry"
+          : "Review fee & carry"
+        : termsNeedReview ||
+            (terms.decisionSource === "policy" && reportedTermsDiffer)
+          ? "Review fee & carry"
+          : "Update fee & carry"}
+    </Button>
+  );
   return (
     <section
       aria-labelledby={headingId}
@@ -415,25 +419,16 @@ export function PositionEconomicsEditor({
           </h3>
           <p>Review how fees relate to the imported investment amount.</p>
         </div>
-        {!open && (
-          <Button
-            onClick={() => {
-              reset();
-              setOpen(true);
-            }}
-            tone="secondary"
-          >
-            {terms === null
-              ? reportedTerms === null
-                ? "Add fee & carry"
-                : "Review fee & carry"
-              : termsNeedReview ||
-                  (terms.decisionSource === "policy" && reportedTermsDiffer)
-                ? "Review fee & carry"
-                : "Update fee & carry"}
-          </Button>
+        {presentation === "review" ? (
+          <ActionGroup>
+            {amountAction}
+            {feeAction}
+          </ActionGroup>
+        ) : (
+          feeAction
         )}
       </div>
+      {amountEditor}
 
       {presentation === "review" ? (
         <>
