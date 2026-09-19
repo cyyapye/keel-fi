@@ -411,6 +411,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     async (route) => {
       expect(route.request().postDataJSON()).toEqual({
         expectedSnapshotId: "snapshot_holding_demo_spv",
+        expectedCommitmentMinor: 10_000_000,
         expectedTermsId: null,
         capitalBasis: "gross_commitment",
         grossCommitmentMinor: null,

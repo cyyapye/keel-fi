@@ -28,6 +28,10 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
         expectedSnapshotId: context.snapshotId,
         expectedEvidenceRevision: context.evidenceRevision,
         participationStatus: index < 60 ? "historical" : "current",
+        amountCorrection: {
+          amountMinor: 480_000,
+          note: "Synthetic personal commitment",
+        },
       });
     }
     const measured = measureD1(fixture.database);
@@ -36,6 +40,11 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
       measured.reset();
       const page = await holdings.getPage(subject, "available");
       expect(page.investmentHoldings.exposureView.positions).toHaveLength(60);
+      expect(
+        page.investmentHoldings.exposureView.positions.every(
+          (position) => position.committedMinor === 480_000,
+        ),
+      ).toBe(true);
       expect(
         page.investmentHoldings.positionView.connections.flatMap((c) =>
           c.containers.flatMap((item) => item.positions),
@@ -134,6 +143,10 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
       expectedSnapshotId: context.snapshotId,
       expectedEvidenceRevision: context.evidenceRevision,
       participationStatus: "historical" as const,
+      amountCorrection: {
+        amountMinor: 490_000,
+        note: "Synthetic revised commitment",
+      },
       closure: {
         endedOn: "2026-09-01",
         reason: "unwound" as const,
@@ -143,6 +156,7 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
     };
     measured.reset();
     const saved = await measuredReviews.review(subject, ids[0]!, request);
+    expect(saved.amountCorrection?.amountMinor).toBe(490_000);
     const save = { ...measured.cost };
     expect(save.roundTrips).toBeLessThanOrEqual(9);
     expect(save.rowsRead).toBeLessThanOrEqual(500);

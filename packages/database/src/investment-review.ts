@@ -8,6 +8,7 @@ import {
   InvestmentOwnershipObservationSchema,
   InvestmentReviewContextSchema,
   InvestmentReviewStateSchema,
+  sourceInvestmentAmount,
   ReviewInvestmentInputSchema,
   investmentEvidenceRevision,
   investmentCompanyEvidenceRevision,
@@ -313,6 +314,16 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
           quote: citation.quote,
         })),
       );
+    const sourceAmountMinor =
+      position.snapshot_id === null
+        ? null
+        : sourceInvestmentAmount(
+            position.provider,
+            position.invested_minor!,
+            position.allocation_minor!,
+          );
+    const amountMinor =
+      review?.amountCorrection?.amountMinor ?? sourceAmountMinor;
     const context = InvestmentReviewContextSchema.parse({
       positionId,
       positionLabel: position.legal_vehicle_name,
@@ -323,18 +334,20 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
           : (JSON.parse(position.automatic_review_json) as unknown),
       holderLabel: position.owner_label,
       snapshotId: position.snapshot_id,
-      committedMinor: position.allocation_minor,
+      committedMinor: amountMinor,
+      sourceAmountMinor,
       fundedMinor: position.invested_minor,
       currency: position.currency,
       economics:
         position.snapshot_id === null ||
-        (position.allocation_minor ?? 0) <= 0 ||
+        (amountMinor ?? 0) <= 0 ||
         position.position_kind !== "spv_interest"
           ? null
           : {
               snapshotId: position.snapshot_id,
               currency: position.currency,
-              committedMinor: position.allocation_minor,
+              committedMinor: amountMinor,
+              amountCorrectionNote: review?.amountCorrection?.note ?? null,
               fundedMinor: position.invested_minor,
               acceptedTerms:
                 position.economics_json === null
@@ -626,6 +639,26 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
             ...requestedClosure,
             replacementPositionLabel: replacement?.label ?? null,
           };
+    if (
+      input.amountCorrection != null &&
+      (context.snapshotId === null ||
+        context.sourceAmountMinor == null ||
+        position.position_kind === "direct")
+    )
+      throw invalid(
+        "Choose an imported private investment to correct its amount.",
+      );
+    const amountCorrection =
+      input.amountCorrection === undefined
+        ? (context.review?.amountCorrection ?? null)
+        : input.amountCorrection === null
+          ? null
+          : {
+              ...input.amountCorrection,
+              snapshotId: context.snapshotId,
+              sourceAmountMinor: context.sourceAmountMinor,
+              recordedAt,
+            };
     const ownership = input.ownershipObservation;
     const observations = [...(context.review?.ownershipObservations ?? [])];
     if (ownership !== undefined) {
@@ -673,6 +706,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       version: (context.review?.version ?? 0) + 1,
       participationStatus: input.participationStatus,
       closure,
+      amountCorrection,
       ownershipObservations: observations,
       documentAssignments: [...assignments.values()],
       recordedAt,

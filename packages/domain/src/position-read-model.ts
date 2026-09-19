@@ -83,6 +83,7 @@ export const InvestmentPositionSnapshotSchema = z.object({
   providerStatus: z.enum(["live", "realized"]),
   investedMinor: NonNegativeIntegerSchema,
   allocationMinor: NonNegativeIntegerSchema,
+  investmentAmountMinor: NonNegativeIntegerSchema.optional(),
   unrealizedValue: NullableReportedValueSchema,
   realizedValueMinor: NonNegativeIntegerSchema,
   netValue: NullableReportedValueSchema,

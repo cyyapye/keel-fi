@@ -1,3 +1,4 @@
+import { investmentAmount } from "@keel/domain/investment-review";
 import { includesCurrentInvestment } from "@keel/domain/investment-review";
 import { HoldingSchema, type Holding } from "@keel/domain";
 import type { InvestmentExposureView } from "@keel/domain/exposure-read-model";
@@ -138,16 +139,18 @@ function importedHoldingFrom(
     quantityMicros: position.snapshot.quantityMicros,
     costBasisMinor: position.snapshot.costBasisMinor,
     investedMinor: position.snapshot.investedMinor,
-    committedMinor: position.snapshot.allocationMinor,
+    committedMinor: investmentAmount(position),
     realizedValueMinor: position.snapshot.realizedValueMinor,
     instrumentType: position.snapshot.instrumentType,
     positionEconomicsContext:
-      position.kind !== "spv_interest" || position.snapshot.allocationMinor <= 0
+      position.kind !== "spv_interest" || investmentAmount(position) <= 0
         ? undefined
         : {
             snapshotId: position.snapshot.id,
             currency: position.snapshot.currency,
-            committedMinor: position.snapshot.allocationMinor,
+            committedMinor: investmentAmount(position),
+            amountCorrectionNote:
+              position.investmentReview?.amountCorrection?.note ?? null,
             fundedMinor: position.snapshot.investedMinor,
             reportedTerms: position.reportedEconomicsTerms ?? null,
             acceptedTerms: position.acceptedEconomicsTerms ?? null,

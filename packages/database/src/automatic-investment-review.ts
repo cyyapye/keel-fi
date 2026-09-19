@@ -1,3 +1,4 @@
+import { sourceInvestmentAmount } from "@keel/domain/investment-review";
 import {
   companyNameKey,
   companySuggestionKey,
@@ -373,6 +374,13 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         row.state_json === null
           ? null
           : InvestmentReviewStateSchema.parse(JSON.parse(row.state_json));
+      const amountMinor =
+        review?.amountCorrection?.amountMinor ??
+        sourceInvestmentAmount(
+          row.provider,
+          row.invested_minor,
+          row.allocation_minor,
+        );
       const assigned = new Map(
         review?.documentAssignments.map((assignment) => [
           assignment.documentId,
@@ -802,11 +810,11 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
           ),
         );
 
-      if (row.position_kind === "spv_interest" && row.allocation_minor > 0) {
+      if (row.position_kind === "spv_interest" && amountMinor > 0) {
         const context = {
           snapshotId: row.snapshot_id,
           currency: row.currency,
-          committedMinor: row.allocation_minor,
+          committedMinor: amountMinor,
           fundedMinor: row.invested_minor,
           acceptedTerms: currentTerms,
           reportedTerms:
@@ -872,7 +880,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
                 position_id: row.id,
                 snapshot_id: row.snapshot_id,
                 supersedes_proposal_id: currentTerms?.id ?? null,
-                commitment_minor: row.allocation_minor,
+                commitment_minor: amountMinor,
                 funded_minor: row.invested_minor,
                 capital_basis: termInput.capitalBasis!,
                 gross_commitment_minor: termInput.grossCommitmentMinor ?? null,

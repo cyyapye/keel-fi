@@ -1,3 +1,4 @@
+import { investmentAmount } from "./investment-review";
 import { z } from "zod";
 
 import {
@@ -232,11 +233,13 @@ function privatePositionCostBasis(
     providerCostBasisMinor: position.snapshot.costBasisMinor,
     fundedMinor: position.snapshot.investedMinor,
     economicsContext:
-      position.kind === "spv_interest" && position.snapshot.allocationMinor > 0
+      position.kind === "spv_interest" && investmentAmount(position) > 0
         ? {
             snapshotId: position.snapshot.id,
             currency: position.snapshot.currency,
-            committedMinor: position.snapshot.allocationMinor,
+            committedMinor: investmentAmount(position),
+            amountCorrectionNote:
+              position.investmentReview?.amountCorrection?.note ?? null,
             fundedMinor: position.snapshot.investedMinor,
             acceptedTerms: position.acceptedEconomicsTerms ?? null,
             reportedTerms: position.reportedEconomicsTerms ?? null,
@@ -485,7 +488,7 @@ export function createInvestmentExposureView(
           ticker: position.snapshot.ticker,
           quantityMicros: position.snapshot.quantityMicros,
           investedMinor: position.snapshot.investedMinor,
-          committedMinor: position.snapshot.allocationMinor,
+          committedMinor: investmentAmount(position),
           realizedValueMinor: position.snapshot.realizedValueMinor,
           providerCostBasisMinor: position.snapshot.costBasisMinor,
           acceptedEconomicsTerms: position.acceptedEconomicsTerms ?? null,
