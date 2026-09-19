@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AutomaticInvestmentReviewSchema } from "./automatic-investment-review";
 import {
+  isEndedParticipation,
   InvestmentCompanyReceiptSchema,
   InvestmentReviewStateSchema,
 } from "./investment-review";
@@ -308,6 +309,21 @@ export const LegalEntityRecordSchema = LegalEntityProfileInputSchema.extend({
   sources: z.array(LegalEntitySourceSummarySchema),
 }).strict();
 
+export function sourceParticipationStatus(source: LegalEntitySourceSummary) {
+  return source.investmentReview?.participationStatus ?? source.interestStatus;
+}
+
+export function isHistoricalLegalEntity(entity: LegalEntityRecord): boolean {
+  const hasPositions = entity.sources.some(
+    (source) => source.source.kind === "holding_position",
+  );
+  return hasPositions
+    ? entity.sources.every((source) =>
+        isEndedParticipation(sourceParticipationStatus(source)),
+      )
+    : entity.interestStatus === "historical";
+}
+
 export const LegalEntityInventorySchema = z
   .object({
     version: z.literal(3),
@@ -426,6 +442,7 @@ export const LEGAL_ENTITY_EXPORT_FIELDS = [
   "jurisdiction",
   "ownership_interest",
   "interest_status",
+  "closure_details",
   "record_status",
   "source",
   "source_as_of",
@@ -456,6 +473,7 @@ export const DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS = [
   "jurisdiction",
   "ownership_interest",
   "interest_status",
+  "closure_details",
   "record_status",
   "source",
   "source_as_of",
@@ -476,6 +494,7 @@ export const LEGAL_ENTITY_EXPORT_FIELD_LABELS: Readonly<
   jurisdiction: "Formation jurisdiction",
   ownership_interest: "Ownership interest",
   interest_status: "Interest status",
+  closure_details: "Closure details",
   record_status: "Record status",
   source: "Source",
   source_as_of: "Source as of",

@@ -4,6 +4,8 @@ import {
   LEGAL_ENTITY_EXPORT_FIELD_LABELS,
   LEGAL_ENTITY_EXPORT_FIELDS,
   LegalEntityProfileInputSchema,
+  isHistoricalLegalEntity,
+  sourceParticipationStatus,
   formatOwnershipInterestPpm,
   exactLegalEntityTypeFromName,
   legalEntityReviewKind,
@@ -933,12 +935,7 @@ function EntityRow({
     ),
   ];
   const statuses = [
-    ...new Set(
-      positions.map(
-        (source) =>
-          source.investmentReview?.participationStatus ?? source.interestStatus,
-      ),
-    ),
+    ...new Set(positions.map((source) => sourceParticipationStatus(source))),
   ];
   const ownership = positions.flatMap((source) => {
     const observations = source.investmentReview?.ownershipObservations ?? [];
@@ -1734,8 +1731,7 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
     asOf: inventory.asOf,
   });
   const reviewedLlcCount = inventory.entities.filter(
-    (entity) =>
-      entity.entityType === "llc" && entity.interestStatus !== "historical",
+    (entity) => entity.entityType === "llc" && !isHistoricalLegalEntity(entity),
   ).length;
   const sourceNameReviewCount = inventory.candidates.filter(
     (candidate) => candidate.legalEntityNameEvidence.legalName !== null,
@@ -2246,7 +2242,7 @@ function LegalEntitiesInventory({
     () =>
       inventory?.entities.filter(
         (entity) =>
-          entity.interestStatus !== "historical" &&
+          !isHistoricalLegalEntity(entity) &&
           (searchMatches === null || searchMatches.entityIds.has(entity.id)),
       ) ?? [],
     [inventory, searchMatches],
@@ -2271,7 +2267,7 @@ function LegalEntitiesInventory({
     () =>
       inventory?.entities.filter(
         (entity) =>
-          entity.interestStatus === "historical" &&
+          isHistoricalLegalEntity(entity) &&
           (searchMatches === null || searchMatches.entityIds.has(entity.id)),
       ) ?? [],
     [inventory, searchMatches],

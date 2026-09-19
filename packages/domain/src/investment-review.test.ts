@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  includesCurrentInvestment,
   InvestmentOwnershipInputSchema,
   ReviewInvestmentInputSchema,
   investmentCompanyEvidenceRevision,
@@ -127,4 +128,55 @@ describe("connected investment review", () => {
       }).success,
     ).toBe(true);
   });
+});
+
+it("preserves unresolved participation and validates optional closure metadata without inferring money", () => {
+  const base = {
+    requestId: crypto.randomUUID(),
+    expectedReviewId: null,
+    expectedSnapshotId: null,
+    expectedEvidenceRevision: "a".repeat(64),
+  };
+  for (const participationStatus of [
+    "current",
+    "pending",
+    "unknown",
+    "historical",
+    "cancelled",
+  ] as const) {
+    expect(
+      includesCurrentInvestment({
+        snapshot: { providerStatus: "live" },
+        investmentReview: { participationStatus },
+      }),
+    ).toBe(!["historical", "cancelled"].includes(participationStatus));
+    const closure = {
+      endedOn: "2026-08-25",
+      reason: "unwound",
+      note: "Fully refunded (synthetic note)",
+      replacementPositionId: "synthetic-replacement",
+    };
+    expect(
+      ReviewInvestmentInputSchema.safeParse({
+        ...base,
+        participationStatus,
+        closure,
+      }).success,
+    ).toBe(participationStatus === "historical");
+  }
+  expect(
+    includesCurrentInvestment({ snapshot: { providerStatus: "realized" } }),
+  ).toBe(false);
+  expect(
+    ReviewInvestmentInputSchema.safeParse({
+      ...base,
+      participationStatus: "historical",
+      closure: {
+        endedOn: "2026-02-31",
+        reason: null,
+        note: null,
+        replacementPositionId: null,
+      },
+    }).success,
+  ).toBe(false);
 });

@@ -95,6 +95,21 @@ export async function routeInvestmentReview(
         positionId: context.positionId,
         version: (context.review?.version ?? 0) + 1,
         participationStatus: input.participationStatus,
+        closure:
+          input.participationStatus !== "historical"
+            ? null
+            : input.closure === undefined
+              ? (context.review?.closure ?? null)
+              : input.closure === null
+                ? null
+                : {
+                    ...input.closure,
+                    replacementPositionLabel:
+                      context.otherPositions.find(
+                        (item) =>
+                          item.id === input.closure?.replacementPositionId,
+                      )?.label ?? null,
+                  },
         ownershipObservations: [
           ...(context.review?.ownershipObservations ?? []),
           ...(ownership === undefined

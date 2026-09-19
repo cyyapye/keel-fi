@@ -450,16 +450,11 @@ describe("investment exposure read model", () => {
       ],
     );
 
+    expect(view.positions.some((item) => item.id === realized.id)).toBe(false);
     expect(view.positions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: missingCash.id,
-          valueState: "not_reported",
-          valueMinor: null,
-          valueSource: "provider",
-        }),
-        expect.objectContaining({
-          id: realized.id,
           valueState: "not_reported",
           valueMinor: null,
           valueSource: "provider",
@@ -484,3 +479,63 @@ describe("investment exposure read model", () => {
     ).toThrow(/authoritative accepted position/u);
   });
 });
+
+it.each(["historical", "cancelled"] as const)(
+  "excludes %s participation, including stale marks and estimates, while preserving the active replacement",
+  (status) => {
+    const closed = position("position_1", 1_250_000);
+    closed.kind = "spv_interest";
+    closed.investmentReview = {
+      id: crypto.randomUUID(),
+      positionId: closed.id,
+      version: 1,
+      participationStatus: status,
+      ownershipObservations: [],
+      documentAssignments: [],
+      recordedAt: asOf,
+    };
+    const replacement = position("position_2", 2_000_000);
+    const shared = exposure("exposure_1", "Synthetic shared company");
+    const source = positionView([closed, replacement]);
+    const rawSnapshot = structuredClone(closed.snapshot);
+    for (const value of [1_250_000, null]) {
+      closed.snapshot.unrealizedValue =
+        value === null
+          ? { state: "not_reported", minor: null }
+          : { state: "reported", minor: value };
+      closed.snapshot.netValue = closed.snapshot.unrealizedValue;
+      const result = createInvestmentExposureView(
+        source,
+        [shared],
+        [
+          mapping("mapping_1", closed.id, shared.id),
+          mapping("mapping_2", replacement.id, shared.id),
+        ],
+      );
+      expect(result.positions.map((item) => item.id)).toEqual([replacement.id]);
+      expect(result.exposures[0]?.totals).toEqual([
+        {
+          currency: "USD",
+          allocatedValueMinor: 2_000_000,
+          knownValuePositionCount: 1,
+          unknownValuePositionCount: 0,
+        },
+      ]);
+      expect(closed.snapshot.investedMinor).toBe(rawSnapshot.investedMinor);
+      expect(closed.snapshot.realizedValueMinor).toBe(
+        rawSnapshot.realizedValueMinor,
+      );
+    }
+    closed.investmentReview.participationStatus = "current";
+    expect(
+      createInvestmentExposureView(
+        source,
+        [shared],
+        [
+          mapping("mapping_1", closed.id, shared.id),
+          mapping("mapping_2", replacement.id, shared.id),
+        ],
+      ).positions,
+    ).toHaveLength(2);
+  },
+);

@@ -738,7 +738,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page.locator(
       '.legal-entity-export__field-grid input[type="checkbox"]:checked',
     ),
-  ).toHaveCount(15);
+  ).toHaveCount(16);
   await expect(
     page.getByLabel("Legal-name evidence", { exact: true }),
   ).toBeChecked();
@@ -1008,7 +1008,10 @@ test("reviews legal entities and exports selected counsel fields", async ({
     includeOtherEntityTypes: true,
   });
   expect((exportBody as unknown as { fields: unknown[] }).fields).toHaveLength(
-    15,
+    16,
+  );
+  expect((exportBody as unknown as { fields: unknown[] }).fields).toContain(
+    "closure_details",
   );
   await expect(page).toHaveURL(/\/holdings\/entities$/u);
 });
@@ -1176,7 +1179,7 @@ test("keeps export above 140 entities and preserves choices through collapse and
   await expect(download).toBeEnabled();
   await expect(
     page.locator(".legal-entity-export__field-grid input:checked"),
-  ).toHaveCount(15);
+  ).toHaveCount(16);
   await expectNoHorizontalOverflow(page);
 });
 
@@ -1293,7 +1296,7 @@ test("creates a Google Sheet from selected records and columns and prevents unch
   });
   const rows = googleBody!.sheets[0]!.data[0]!.rowData;
   expect(rows).toHaveLength(3);
-  expect(rows[0]!.values).toHaveLength(16);
+  expect(rows[0]!.values).toHaveLength(17);
   expect(rows[1]!.values[0]!.userEnteredValue).toEqual({
     stringValue: "Demo Family Holdings LLC",
   });

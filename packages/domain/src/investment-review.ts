@@ -20,6 +20,53 @@ export const InvestmentParticipationSchema = z.enum([
   "unknown",
 ]);
 
+export function isEndedParticipation(status: InvestmentParticipation): boolean {
+  return status === "historical" || status === "cancelled";
+}
+
+export function effectiveParticipation(position: {
+  investmentReview?:
+    Pick<InvestmentReviewState, "participationStatus"> | null | undefined;
+  snapshot: { providerStatus: "live" | "realized" };
+}): InvestmentParticipation {
+  return (
+    position.investmentReview?.participationStatus ??
+    (position.snapshot.providerStatus === "realized" ? "historical" : "current")
+  );
+}
+
+export function includesCurrentInvestment(
+  position: Parameters<typeof effectiveParticipation>[0],
+): boolean {
+  return !isEndedParticipation(effectiveParticipation(position));
+}
+
+export const INVESTMENT_CLOSURE_REASONS = [
+  { value: "sold", label: "Sold" },
+  { value: "unwound", label: "Unwound" },
+  { value: "transferred", label: "Transferred" },
+  { value: "written_off", label: "Written off" },
+  { value: "other", label: "Other" },
+] as const;
+
+export const InvestmentClosureInputSchema = z
+  .object({
+    endedOn: z.iso.date().nullable(),
+    reason: z
+      .enum(["sold", "unwound", "transferred", "written_off", "other"])
+      .nullable(),
+    note: OptionalText(1_000),
+    replacementPositionId: Id.nullable(),
+  })
+  .strict();
+
+const InvestmentClosureSchema = InvestmentClosureInputSchema.extend({
+  replacementPositionLabel: OptionalText(1_000),
+});
+export type InvestmentClosureInput = z.infer<
+  typeof InvestmentClosureInputSchema
+>;
+
 export const InvestmentOwnershipInputSchema = z
   .object({
     sourceKind: z.enum(["agreement", "k1", "user_reported"]),
@@ -120,6 +167,7 @@ export const InvestmentReviewStateSchema = z
     positionId: Id,
     version: z.number().int().positive(),
     participationStatus: InvestmentParticipationSchema,
+    closure: InvestmentClosureSchema.nullable().optional(),
     ownershipObservations: z
       .array(InvestmentOwnershipObservationSchema)
       .max(100),
@@ -135,6 +183,7 @@ export const ReviewInvestmentInputSchema = z
     expectedSnapshotId: Id.nullable(),
     expectedEvidenceRevision: Digest,
     participationStatus: InvestmentParticipationSchema,
+    closure: InvestmentClosureInputSchema.nullable().optional(),
     ownershipObservation: InvestmentOwnershipInputSchema.optional(),
     documentAssignments: z
       .array(InvestmentDocumentAssignmentSchema)
@@ -148,6 +197,14 @@ export const ReviewInvestmentInputSchema = z
       new Set(value.documentAssignments.map((item) => item.documentId)).size ===
         value.documentAssignments.length,
     "Review each agreement only once.",
+  )
+  .refine(
+    (value) =>
+      value.closure == null || value.participationStatus === "historical",
+    {
+      message: "Closure details belong to a historical investment.",
+      path: ["closure"],
+    },
   );
 
 export const UnderlyingCompanyChoiceSchema = z
@@ -253,6 +310,7 @@ export const InvestmentReviewContextSchema = z
   .object({
     positionId: Id,
     positionLabel: z.string().min(1).max(1_000),
+    openedOn: z.iso.date().nullable().optional(),
     holderLabel: z.string().min(1).max(1_000),
     snapshotId: Id.nullable(),
     committedMinor: z.number().int().safe().nonnegative().nullable(),

@@ -10,6 +10,9 @@ import {
   type ReactNode,
 } from "react";
 import {
+  INVESTMENT_CLOSURE_REASONS,
+  isEndedParticipation,
+  type InvestmentClosureInput,
   CreateDocumentInvestmentInputSchema,
   InvestmentCompanyReviewInputSchema,
   InvestmentOwnershipInputSchema,
@@ -32,6 +35,7 @@ import {
   FormMessage,
   Input,
   InputGroup,
+  Textarea,
   Select,
   SelectContent,
   SelectItem,
@@ -52,7 +56,10 @@ import {
 } from "./api";
 import { PositionEconomicsEditor } from "./PositionEconomicsEditor";
 import { formatCompactCurrency, formatDate } from "./format";
-import { type EntityReviewTab } from "./legal-entity-navigation";
+import {
+  entityReviewUrl,
+  type EntityReviewTab,
+} from "./legal-entity-navigation";
 import {
   initialCompanyChoice,
   investmentReviewSections,
@@ -279,6 +286,28 @@ function useInvestmentRequest(
     .id;
 }
 
+function closureInput(
+  context: InvestmentReviewContext,
+): InvestmentClosureInput {
+  const closure = context.review?.closure;
+  return {
+    endedOn: closure?.endedOn ?? null,
+    reason: closure?.reason ?? null,
+    note: closure?.note ?? null,
+    replacementPositionId: closure?.replacementPositionId ?? null,
+  };
+}
+
+const participationHelp = {
+  current: "You still hold an active interest.",
+  pending: "Your participation is awaiting completion.",
+  historical:
+    "You no longer hold an active interest. Excluded from current holdings and totals; history and documents remain available.",
+  cancelled:
+    "The subscription did not become a completed investment. Excluded from current holdings and totals; history and documents remain available.",
+  unknown: "Your participation has not been confirmed.",
+};
+
 function ParticipationReview({
   context,
   save,
@@ -289,26 +318,43 @@ function ParticipationReview({
   busy: boolean;
 }) {
   const { saving, submit } = useReviewSave(save);
-  const [status, setStatus] = useState(
-    context.review?.participationStatus ?? context.defaultParticipationStatus,
-  );
   const acceptedStatus =
     context.review?.participationStatus ?? context.defaultParticipationStatus;
+  const [status, setStatus] = useState(acceptedStatus);
+  const [draft, setDraft] = useState<InvestmentClosureInput>(() =>
+    closureInput(context),
+  );
   const confirmed =
     context.automaticReview?.resolved.includes("participation") === true ||
     (context.review !== null &&
       context.review.participationStatus !== "unknown");
   const [editing, setEditing] = useState(!confirmed);
-  const requestId = useInvestmentRequest(context, status);
+  const requestId = useInvestmentRequest(context, [status, draft]);
+  const closure =
+    status === "historical" &&
+    Object.values(draft).some((value) => value !== null)
+      ? draft
+      : null;
   const input = ReviewInvestmentInputSchema.safeParse({
     requestId,
     expectedReviewId: context.review?.id ?? null,
     expectedSnapshotId: context.snapshotId,
     expectedEvidenceRevision: context.evidenceRevision,
     participationStatus: status,
+    closure,
   });
+  const today = new Date().toISOString().slice(0, 10);
+  const invalidDate =
+    closure?.endedOn != null &&
+    (closure.endedOn > today ||
+      (context.openedOn != null && closure.endedOn < context.openedOn));
+  const savedClosure =
+    context.review?.closure == null ? null : closureInput(context);
   const changed =
-    context.review === null || status !== context.review.participationStatus;
+    context.review === null ||
+    status !== acceptedStatus ||
+    JSON.stringify(closure) !== JSON.stringify(savedClosure);
+  const acceptedClosure = context.review?.closure;
   return (
     <ReviewSection
       title="Participation"
@@ -318,6 +364,7 @@ function ParticipationReview({
             tone="secondary"
             onClick={() => {
               setStatus(acceptedStatus);
+              setDraft(closureInput(context));
               setEditing(true);
             }}
           >
@@ -326,17 +373,57 @@ function ParticipationReview({
         )
       }
       summary={
-        <p>
-          {
-            participation.find(
-              (item) =>
-                item.value ===
-                (context.review?.participationStatus ??
-                  context.defaultParticipationStatus),
-            )?.label
-          }{" "}
-          · {context.holderLabel}
-        </p>
+        <>
+          <p>
+            {participation.find((item) => item.value === acceptedStatus)?.label}{" "}
+            · {context.holderLabel}
+          </p>
+          {!editing && isEndedParticipation(acceptedStatus) && (
+            <p>{participationHelp[acceptedStatus]}</p>
+          )}
+          {!editing && acceptedClosure != null && (
+            <DataList className="investment-review__closure">
+              {acceptedClosure.endedOn !== null && (
+                <DataItem
+                  label="Ended"
+                  value={formatDate(acceptedClosure.endedOn)}
+                />
+              )}
+              {acceptedClosure.reason !== null && (
+                <DataItem
+                  label="Closure reason"
+                  value={
+                    INVESTMENT_CLOSURE_REASONS.find(
+                      (item) => item.value === acceptedClosure.reason,
+                    )?.label
+                  }
+                />
+              )}
+              {acceptedClosure.note !== null && (
+                <DataItem label="Closure note" value={acceptedClosure.note} />
+              )}
+              {acceptedClosure.replacementPositionId !== null && (
+                <DataItem
+                  label="Related replacement"
+                  value={
+                    <TextLink
+                      href={entityReviewUrl(
+                        {
+                          kind: "holding_position",
+                          id: acceptedClosure.replacementPositionId,
+                        },
+                        "investment",
+                      )}
+                    >
+                      {acceptedClosure.replacementPositionLabel ??
+                        "View investment"}
+                    </TextLink>
+                  }
+                />
+              )}
+            </DataList>
+          )}
+        </>
       }
     >
       {editing && (
@@ -344,7 +431,7 @@ function ParticipationReview({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (input.success && changed)
+            if (input.success && changed && !invalidDate)
               void submit(() =>
                 saveInvestmentReview(context.positionId, input.data),
               ).then((saved) => {
@@ -353,19 +440,96 @@ function ParticipationReview({
           }}
         >
           <ReviewSelect
-            label="This investment’s status"
+            label="Your participation"
             value={status}
             items={participation}
             onChange={(value) => {
-              const item = participation.find((item) => item.value === value);
-              if (item !== undefined) setStatus(value as typeof status);
+              if (participation.some((item) => item.value === value))
+                setStatus(value as typeof status);
             }}
           />
+          <p>{participationHelp[status]}</p>
+          {status === "historical" && (
+            <>
+              <div className="investment-review__fields">
+                <Field label="Ended date (optional)" variant="filled">
+                  <DatePicker
+                    aria-label="Ended date"
+                    value={draft.endedOn ?? ""}
+                    {...(context.openedOn == null
+                      ? {}
+                      : { min: context.openedOn })}
+                    max={today}
+                    onValueChange={(value) =>
+                      setDraft({ ...draft, endedOn: optional(value) })
+                    }
+                  />
+                </Field>
+                <ReviewSelect
+                  label="Closure reason (optional)"
+                  value={draft.reason ?? "none"}
+                  items={[
+                    { value: "none", label: "Not recorded" },
+                    ...INVESTMENT_CLOSURE_REASONS,
+                  ]}
+                  onChange={(value) =>
+                    setDraft({
+                      ...draft,
+                      reason:
+                        INVESTMENT_CLOSURE_REASONS.find(
+                          (item) => item.value === value,
+                        )?.value ?? null,
+                    })
+                  }
+                />
+              </div>
+              <Field label="Closure note (optional)" variant="filled">
+                <Textarea
+                  maxLength={1_000}
+                  value={draft.note ?? ""}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      note: event.currentTarget.value || null,
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Related replacement (optional)" variant="filled">
+                <SearchSelect
+                  label="Related replacement"
+                  searchLabel="Search investments"
+                  emptyMessage="No matching investments."
+                  value={draft.replacementPositionId ?? "none"}
+                  items={[
+                    { value: "none", label: "None" },
+                    ...context.otherPositions.map((item) => ({
+                      value: item.id,
+                      label: item.label,
+                    })),
+                  ]}
+                  onChange={(value) =>
+                    setDraft({
+                      ...draft,
+                      replacementPositionId: value === "none" ? null : value,
+                    })
+                  }
+                />
+              </Field>
+              <p>
+                Closure details do not record a refund or declare the legal
+                entity dissolved.
+              </p>
+            </>
+          )}
           {status === "cancelled" && (
-            <p>
-              Marks this investment as cancelled, not the entity as dissolved.
-              Reported amounts are preserved.
-            </p>
+            <p>This does not declare the legal entity dissolved.</p>
+          )}
+          {invalidDate && (
+            <FormMessage tone="error">
+              Choose an ended date between the investment’s opening date and
+              today.
+            </FormMessage>
           )}
           <ActionGroup align="end">
             <Button
@@ -375,7 +539,10 @@ function ParticipationReview({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || !input.success || !changed}>
+            <Button
+              type="submit"
+              disabled={busy || !input.success || !changed || invalidDate}
+            >
               {saving ? "Saving…" : "Save participation"}
             </Button>
           </ActionGroup>
