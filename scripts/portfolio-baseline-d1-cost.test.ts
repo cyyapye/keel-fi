@@ -38,6 +38,16 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
       cashOverlapReviewConfirmed: false,
       changeNote: "Set synthetic cost baseline.",
     });
+    await fixture.execute(
+      readFileSync(
+        "packages/database/migrations/0067_exception_baseline_empty.sql",
+        "utf8",
+      ),
+    );
+    expect(
+      (await fixture.database.prepare("PRAGMA foreign_key_check").all())
+        .results,
+    ).toEqual([]);
     const costs: (typeof measured.cost)[] = [];
     for (const revision of [2, 3, 4, 5]) {
       await seedCostHoldings(fixture.database, COST_SUBJECT, revision);
@@ -80,7 +90,9 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
       .all<{ detail: string }>();
     expect(
       plan.results.some((row) =>
-        /SCAN (?:item|snapshot|position)\b/.test(row.detail),
+        /SCAN (?:item|snapshot|position|holding_position_ownerships)\b/.test(
+          row.detail,
+        ),
       ),
     ).toBe(false);
     expect(

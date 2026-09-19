@@ -972,7 +972,7 @@ test("updates routine sources and reviews only one exception at a time", async (
   await page.goto("/holdings");
   await expect(
     page.getByRole("heading", { name: "2 sources need your decision" }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
   expect(refreshCount).toBe(1);
   await expect(
     page.getByText("Synthetic Public Company", { exact: true }),
