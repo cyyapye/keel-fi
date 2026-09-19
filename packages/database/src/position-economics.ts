@@ -1,4 +1,8 @@
 import {
+  sourceInvestmentAmount,
+  InvestmentReviewStateSchema,
+} from "@keel/domain/investment-review";
+import {
   AcceptPositionEconomicsInputSchema,
   PositionEconomicsTermsSchema,
   calculatePositionEconomics,
@@ -17,6 +21,8 @@ type CurrentPositionEconomicsRow = {
   snapshot_id: string;
   invested_minor: number;
   allocation_minor: number;
+  provider: string;
+  state_json: string | null;
   currency: string;
 };
 
@@ -71,7 +77,27 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
         "Fee and carry terms are available only for SPV positions.",
       );
     }
-    if (position.allocation_minor <= 0) {
+    const sourceAmountMinor = sourceInvestmentAmount(
+      position.provider,
+      position.invested_minor,
+      position.allocation_minor,
+    );
+    const review =
+      position.state_json == null
+        ? null
+        : InvestmentReviewStateSchema.parse(JSON.parse(position.state_json));
+    const amountMinor =
+      review?.amountCorrection?.amountMinor ?? sourceAmountMinor;
+    if (
+      (input.expectedCommitmentMinor === undefined &&
+        sourceAmountMinor !== position.allocation_minor) ||
+      (input.expectedCommitmentMinor ?? sourceAmountMinor) !== amountMinor
+    )
+      throw new PositionEconomicsError(
+        "stale",
+        "The investment amount changed. Reload before reviewing fees.",
+      );
+    if (amountMinor <= 0) {
       throw new PositionEconomicsError(
         "missing_commitment",
         "Fee and carry terms need a reported SPV commitment.",
@@ -102,7 +128,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
       id: proposalId,
       positionId,
       acceptedAgainstSnapshotId: position.snapshot_id,
-      commitmentMinorAtAcceptance: position.allocation_minor,
+      commitmentMinorAtAcceptance: amountMinor,
       fundedMinorAtAcceptance: position.invested_minor,
       capitalBasis: input.capitalBasis ?? "gross_commitment",
       grossCommitmentMinor: input.grossCommitmentMinor ?? null,
@@ -118,7 +144,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
       calculatePositionEconomics({
         snapshotId: position.snapshot_id,
         currency: position.currency,
-        committedMinor: position.allocation_minor,
+        committedMinor: amountMinor,
         fundedMinor: position.invested_minor,
         reportedTerms: null,
         acceptedTerms: terms,
@@ -147,7 +173,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
             positionId,
             position.snapshot_id,
             currentTerms?.id ?? null,
-            position.allocation_minor,
+            amountMinor,
             position.invested_minor,
             terms.capitalBasis,
             terms.grossCommitmentMinor,
@@ -179,7 +205,12 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
           ),
       ]);
     } catch (error) {
-      if (error instanceof Error && error.message.includes("UNIQUE")) {
+      if (
+        error instanceof Error &&
+        /UNIQUE|position economics proposal (?:provenance mismatch|snapshot is stale)/u.test(
+          error.message,
+        )
+      ) {
         throw new PositionEconomicsError(
           "stale",
           "Newer reviewed position economics are already available.",
@@ -223,6 +254,8 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
         `SELECT
            position.id AS position_id,
            position.position_kind,
+           position.provider,
+           review.state_json,
            position.currency,
            snapshot.id AS snapshot_id,
            snapshot.invested_minor,
@@ -242,6 +275,9 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
            )
          JOIN holding_position_snapshots snapshot
            ON snapshot.id = application.snapshot_id
+         LEFT JOIN holding_investment_reviews review ON review.id = (
+           SELECT id FROM holding_investment_reviews WHERE household_id = position.household_id AND position_id = position.id ORDER BY version DESC LIMIT 1
+         )
          WHERE position.id = ?
            AND position.household_id = ?
            AND NOT EXISTS (

@@ -17,6 +17,7 @@ import { PositionValueAdjustmentSchema } from "@keel/domain/position-value";
 import {
   InvestmentCompanyReceiptSchema,
   InvestmentReviewStateSchema,
+  sourceInvestmentAmount,
 } from "@keel/domain/investment-review";
 import { LegalNameDocumentReferenceSchema } from "@keel/domain/provider-legal-documents";
 import { z } from "zod";
@@ -279,6 +280,11 @@ function positionFromRow(
       providerStatus: row.provider_status,
       investedMinor: row.invested_minor,
       allocationMinor: row.allocation_minor,
+      investmentAmountMinor: sourceInvestmentAmount(
+        row.import_provider,
+        row.invested_minor,
+        row.allocation_minor,
+      ),
       unrealizedValue: {
         state: row.unrealized_value_state,
         minor: row.unrealized_value_minor,
