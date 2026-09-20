@@ -5,6 +5,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { D1ExposureRepository } from "./exposures";
+import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import { D1AlphaRepository } from "./index";
 import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
@@ -327,6 +328,7 @@ function seedAcceptedPosition(
     connectionId?: string;
     containerLabel?: string;
     observedAt?: string;
+    providerStatus?: "live" | "realized";
   },
 ): void {
   const containerId = `container_${input.id}`;
@@ -434,7 +436,7 @@ function seedAcceptedPosition(
          issue_codes_json, position_kind, quantity_micros, ticker,
          cost_basis_minor, public_exposure_identity_kind,
          protected_exposure_key, created_at
-       ) VALUES (?, 'hh_demo', ?, 1, ?, ?, ?, 'Synthetic owner', ?, 'live',
+       ) VALUES (?, 'hh_demo', ?, 1, ?, ?, ?, 'Synthetic owner', ?, ?,
          ?, ?, ?, ?, ?, 0, ?, ?, ?, 'USD', 'ready', '[]', ?,
          ?, ?, ?, ?, ?, ?)`,
     )
@@ -445,7 +447,8 @@ function seedAcceptedPosition(
       snapshotFingerprint,
       input.label,
       input.reportedExposureName ?? input.label,
-      input.openedOn ?? "2026-08-15",
+      input.providerStatus ?? "live",
+      input.openedOn === undefined ? "2026-08-15" : input.openedOn,
       input.investedMinor ?? 0,
       input.allocationMinor ?? input.investedMinor ?? 0,
       input.valueMinor,
@@ -543,7 +546,7 @@ function seedAcceptedPosition(
          unrealized_value_state, realized_value_minor, net_value_minor,
          net_value_state, instrument_type, currency, observed_at,
          quantity_micros, ticker, cost_basis_minor, created_at
-       ) VALUES (?, 'hh_demo', ?, ?, ?, ?, 'live', ?, ?, ?, ?, 0, ?, ?, ?,
+       ) VALUES (?, 'hh_demo', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?,
          'USD', ?, ?, ?, ?, ?)`,
     )
     .run(
@@ -552,6 +555,7 @@ function seedAcceptedPosition(
       `document_${input.id}`,
       rowId,
       snapshotFingerprint,
+      input.providerStatus ?? "live",
       input.investedMinor ?? 0,
       input.allocationMinor ?? input.investedMinor ?? 0,
       input.valueMinor,
@@ -600,6 +604,15 @@ describe("canonical exposure resolution and aggregation", () => {
         resolve(
           process.cwd(),
           "packages/database/migrations/0057_query_cost_bounds.sql",
+        ),
+        "utf8",
+      ),
+    );
+    sqlite.exec(
+      readFileSync(
+        resolve(
+          process.cwd(),
+          "packages/database/migrations/0069_historical_private_position_continuity.sql",
         ),
         "utf8",
       ),
@@ -1273,6 +1286,199 @@ describe("canonical exposure resolution and aggregation", () => {
         )
         .get(),
     ).toEqual({ count: 2 });
+  });
+
+  it.each([
+    { from: "realized", to: "realized", changedAmounts: false },
+    { from: "realized", to: "realized", changedAmounts: true },
+    { from: "live", to: "realized", changedAmounts: true },
+    { from: "live", to: "live", changedAmounts: true },
+  ] as const)(
+    "automatically reconciles $from to $to private history (changed amounts: $changedAmounts)",
+    async ({ from, to, changedAmounts }) => {
+      const historyConnectionId =
+        "reconciled-holding-connection-v1:hh_demo:angellist";
+      const currentConnectionId = "connection_synthetic_historical_angellist";
+      seedPrivateProviderConnection(sqlite, {
+        id: historyConnectionId,
+        label: "Synthetic reviewed history",
+        provider: "angellist",
+        lifecycle: "pending",
+      });
+      seedPrivateProviderConnection(sqlite, {
+        id: currentConnectionId,
+        label: "Synthetic provider",
+        provider: "angellist",
+      });
+      const shared = {
+        containerLabel: "Synthetic Family Trust",
+        label: "Synthetic Historical Access SPV",
+        positionKind: "spv_interest" as const,
+        provider: "angellist" as const,
+        reportedExposureName: "Synthetic Historical Systems",
+        openedOn: "2025-02-03",
+        investedMinor: 70_000,
+        allocationMinor: 90_000,
+        valueMinor: 0,
+        valueState: "reported" as const,
+      };
+      seedAcceptedPosition(sqlite, {
+        ...shared,
+        connectionId: historyConnectionId,
+        id: "synthetic_history",
+        providerStatus: from,
+        observedAt: "2026-08-01T00:00:00.000Z",
+      });
+      seedAcceptedPosition(sqlite, {
+        ...shared,
+        connectionId: currentConnectionId,
+        id: "synthetic_current",
+        providerStatus: to,
+        observedAt: "2026-09-01T00:00:00.000Z",
+        ...(changedAmounts
+          ? { investedMinor: 80_000, allocationMinor: 120_000 }
+          : {}),
+      });
+      const snapshots = sqlite
+        .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+        .all();
+      const documents = sqlite
+        .prepare("SELECT * FROM source_documents ORDER BY id")
+        .all();
+      const decisions = sqlite
+        .prepare("SELECT * FROM holding_import_row_decisions ORDER BY id")
+        .all();
+      // Exercise deployment recovery, then repeated sync recovery on the same rows.
+      sqlite.exec(
+        readFileSync(
+          resolve(
+            process.cwd(),
+            "packages/database/migrations/0069_historical_private_position_continuity.sql",
+          ),
+          "utf8",
+        ),
+      );
+      await repository.reconcileRetainedPositionContinuity(accessSubject);
+      await repository.reconcileRetainedPositionContinuity(accessSubject);
+      expect(
+        sqlite
+          .prepare(
+            "SELECT predecessor_position_id, successor_position_id FROM holding_position_continuities",
+          )
+          .all(),
+      ).toEqual([
+        {
+          predecessor_position_id: "synthetic_history",
+          successor_position_id: "synthetic_current",
+        },
+      ]);
+      const projection = await readModel.list(
+        accessSubject,
+        "2026-09-02T00:00:00.000Z",
+      );
+      expect(
+        projection.positions.filter((position) =>
+          position.id.startsWith("synthetic_"),
+        ),
+      ).toEqual(
+        to === "live"
+          ? [expect.objectContaining({ id: "synthetic_current" })]
+          : [],
+      );
+      const inventory = await new D1InvestmentPositionViewRepository(
+        database as unknown as D1Database,
+      ).listForHousehold("hh_demo");
+      expect(
+        inventory.connections
+          .flatMap((connection) =>
+            connection.containers.flatMap((container) => container.positions),
+          )
+          .filter((position) => position.id.startsWith("synthetic_")),
+      ).toEqual([
+        expect.objectContaining({
+          id: "synthetic_current",
+          snapshot: expect.objectContaining({ providerStatus: to }),
+        }),
+      ]);
+      expect(
+        sqlite
+          .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+          .all(),
+      ).toEqual(snapshots);
+      expect(
+        sqlite.prepare("SELECT * FROM source_documents ORDER BY id").all(),
+      ).toEqual(documents);
+      expect(
+        sqlite
+          .prepare("SELECT * FROM holding_import_row_decisions ORDER BY id")
+          .all(),
+      ).toEqual(decisions);
+    },
+  );
+
+  it.each([
+    {
+      label: "different owner",
+      override: { containerLabel: "Synthetic Other Trust" },
+    },
+    {
+      label: "different vehicle",
+      override: { label: "Synthetic Separate SPV" },
+    },
+    {
+      label: "different investment date",
+      override: { openedOn: "2025-02-04" },
+    },
+    {
+      label: "different company",
+      override: { reportedExposureName: "Synthetic Other Systems" },
+    },
+  ])("keeps $label separate even when historical", async ({ override }) => {
+    const historyConnectionId =
+      "reconciled-holding-connection-v1:hh_demo:angellist";
+    const currentConnectionId = "connection_synthetic_distinct_angellist";
+    seedPrivateProviderConnection(sqlite, {
+      id: historyConnectionId,
+      label: "Synthetic reviewed history",
+      provider: "angellist",
+      lifecycle: "pending",
+    });
+    seedPrivateProviderConnection(sqlite, {
+      id: currentConnectionId,
+      label: "Synthetic provider",
+      provider: "angellist",
+    });
+    const shared = {
+      containerLabel: "Synthetic Family Trust",
+      label: "Synthetic Historical Access SPV",
+      positionKind: "spv_interest" as const,
+      provider: "angellist" as const,
+      providerStatus: "realized" as const,
+      reportedExposureName: "Synthetic Historical Systems",
+      openedOn: "2025-02-03",
+      investedMinor: 70_000,
+      valueMinor: 0,
+      valueState: "reported" as const,
+    };
+    seedAcceptedPosition(sqlite, {
+      ...shared,
+      connectionId: historyConnectionId,
+      id: "synthetic_distinct_history",
+      observedAt: "2026-08-01T00:00:00.000Z",
+    });
+    seedAcceptedPosition(sqlite, {
+      ...shared,
+      ...override,
+      connectionId: currentConnectionId,
+      id: "synthetic_distinct_current",
+      observedAt: "2026-09-01T00:00:00.000Z",
+    });
+    await repository.reconcileRetainedPositionContinuity(accessSubject);
+    expect(
+      sqlite
+        .prepare("SELECT COUNT(*) count FROM holding_position_continuities")
+        .get(),
+    ).toEqual({ count: 0 });
   });
 
   it("leaves ambiguous private-provider continuity candidates separate", async () => {

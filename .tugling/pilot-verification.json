@@ -52,7 +52,10 @@
         "packages/database/src/holding-imports.test.ts",
         "packages/domain/src/index.test.ts",
         "scripts/pilot-vitest-reporter.ts",
-        "packages/database/src/investment-review.test.ts"
+        "packages/database/src/investment-review.test.ts",
+        "packages/database/src/exposures.test.ts",
+        "scripts/private-continuity-d1-cost.test.ts",
+        "packages/database/migrations/0069_historical_private_position_continuity.sql"
       ],
       "runtime": {
         "owner": "native-command",

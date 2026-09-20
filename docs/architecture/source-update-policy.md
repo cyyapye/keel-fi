@@ -215,3 +215,21 @@ unrelated review decisions preserve it. Returning to the source amount records a
 new decision and uses the latest source amount. Funded capital, distributions,
 reported values and earlier decisions are not rewritten. Fee terms whose
 accepted amount no longer matches require review.
+
+### Historical private-position continuity
+
+Migration `0069` and subsequent successful import reconciliation automatically
+link a retained-history position to its newer provider position when provider,
+adapter, owner, legal vehicle, reported company, investment date, instrument and
+currency uniquely match on both sides. Source export dates describe
+observations, not separate investments. Realized positions qualify, and a known
+matching investment date allows amounts to change without breaking identity.
+Undated legacy pairs still require matching invested and allocation amounts.
+Different owners, vehicles, investment dates and ambiguous lots stay separate.
+Public-security reconnect requirements remain unchanged.
+
+The deployment backfills existing matches; later ingestion uses the same rule.
+The existing continuity receipt records both position and snapshot IDs. Original
+snapshots, documents and review decisions remain unchanged. Only the successor
+appears in the position inventory; historical successors remain excluded from
+current holdings. Reads perform no reconciliation.
