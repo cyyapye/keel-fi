@@ -13,6 +13,11 @@ export async function seedCostHoldings(
   subject = COST_SUBJECT,
   revision = 1,
   legacy = false,
+  observations: {
+    status?: "Live" | "Realized";
+    investedMinor?: number;
+    allocationMinor?: number;
+  } = {},
 ) {
   const legacyConnectionId = "reconciled-holding-connection-v1:hh_demo:sydecar";
   if (legacy)
@@ -40,10 +45,10 @@ export async function seedCostHoldings(
       naturalKeySha256: syntheticDigest(index + 1),
       companyOrFund: `Synthetic cost company ${index}`,
       fundName: `Synthetic cost SPV ${index}`,
-      status: "Live",
+      status: observations.status ?? "Live",
       investDate: "2025-04-12",
       investDateState: "reported",
-      investedMinor: 100_000,
+      investedMinor: observations.investedMinor ?? 100_000,
       unrealizedValueMinor: 100_000 + revision,
       unrealizedValueState: "reported",
       realizedValueMinor: 0,
@@ -58,7 +63,7 @@ export async function seedCostHoldings(
       market: null,
       positionKind: "spv_interest",
       dealMetadata: {
-        allocationMinor: 100_000,
+        allocationMinor: observations.allocationMinor ?? 100_000,
         instrument: "Membership interest",
         roundSizeMinor: null,
         valuationOrCapType: null,
