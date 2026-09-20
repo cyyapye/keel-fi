@@ -6,7 +6,7 @@ const env = { ENVIRONMENT: "local" } as Env;
 const input = {
   expectedSnapshotId: "snapshot",
   expectedReceiptId: null,
-  details: { lots: [] },
+  details: { coversPosition: true, lots: [] },
 };
 it("validates optional purchase details and scopes accepted writes to the authenticated subject", async () => {
   const accept = vi.fn().mockResolvedValue({
@@ -14,7 +14,7 @@ it("validates optional purchase details and scopes accepted writes to the authen
     positionId: "position",
     snapshotId: "snapshot",
     currency: "USD",
-    details: { lots: [] },
+    details: { coversPosition: true, lots: [] },
     acceptedAt: "2026-09-01T00:00:00.000Z",
   });
   const app = createApp({ positionPurchaseRepository: { accept } });

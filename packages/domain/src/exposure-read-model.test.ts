@@ -550,6 +550,7 @@ it("uses a share estimate for missing values while preserving a provider mark al
     currency: "USD",
     acceptedAt: "2026-08-15T00:00:00.000Z",
     details: {
+      coversPosition: true,
       lots: [
         {
           id: "lot",

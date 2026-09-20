@@ -115,7 +115,7 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
     .fill("10");
   await section.getByRole("combobox", { name: "Fee basis" }).click();
   await page.getByRole("option", { name: "Added to share capital" }).click();
-  await section.getByRole("checkbox").check();
+  await section.getByRole("checkbox", { name: /No sales, splits/u }).check();
   await section.getByText("Valuation price evidence", { exact: true }).click();
   await section
     .getByRole("textbox", {
@@ -129,6 +129,9 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
   await section
     .getByRole("textbox", { name: "Valuation source", exact: true })
     .fill("Synthetic GP statement");
+  await section
+    .getByRole("checkbox", { name: /These purchases cover/u })
+    .check();
   // Use the shared accessible calendar.
   await section
     .getByRole("button", { name: "Valuation price as of", exact: true })

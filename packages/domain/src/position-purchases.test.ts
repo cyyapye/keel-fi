@@ -38,7 +38,7 @@ const receipt = () =>
     snapshotId: "s",
     currency: "USD",
     acceptedAt: "2026-09-01T00:00:00.000Z",
-    details: { lots: [lot()] },
+    details: { coversPosition: true, lots: [lot()] },
   });
 describe("purchase economics", () => {
   it("keeps price premium in capital, charges added fees once and derives fractional shares", () => {
@@ -85,6 +85,9 @@ describe("purchase economics", () => {
   });
   it("requires matching class and current reviewed source revision for every lot", () => {
     expect(estimatePurchaseValue(receipt(), "new-snapshot")).toBeNull();
+    const incomplete = receipt();
+    incomplete.details.coversPosition = false;
+    expect(estimatePurchaseValue(incomplete, "s")).toBeNull();
     const r = receipt();
     r.details.lots[0]!.mark!.shareClass = "Common";
     expect(estimatePurchaseValue(r, "s")).toBeNull();
@@ -120,7 +123,7 @@ describe("purchase economics", () => {
     expect(
       PurchaseReceiptSchema.safeParse({
         ...receipt(),
-        details: { lots: [lot(), lot()] },
+        details: { coversPosition: true, lots: [lot(), lot()] },
       }).success,
     ).toBe(false);
   });

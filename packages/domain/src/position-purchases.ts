@@ -73,6 +73,7 @@ export const PurchaseLotSchema = z
   });
 export const PurchaseDetailsSchema = z
   .object({
+    coversPosition: z.boolean().default(false),
     lots: z.array(PurchaseLotSchema).max(20),
   })
   .strict()
@@ -189,6 +190,7 @@ export function estimatePurchaseValue(
   if (
     !receipt ||
     receipt.snapshotId !== snapshotId ||
+    !receipt.details.coversPosition ||
     receipt.details.lots.length === 0
   )
     return null;

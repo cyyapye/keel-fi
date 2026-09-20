@@ -85,6 +85,7 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "apps/web/src/PlanActualMonitoring.tsx | PlanActualMonitoring | timer | window.setTimeout | 3fa7136c1c3f7f60",
   "apps/web/src/PortfolioSnapshot.tsx | PortfolioSnapshot | timer | window.setTimeout | 6b8940d0846cbf12",
   "apps/web/src/PortfolioWatchMonitor.tsx | PortfolioWatchMonitor | timer | window.setTimeout | 260250bd4d76a40b",
+  "apps/web/src/PositionPurchasesEditor.tsx | PositionPurchasesEditor | network | fetch | ea415800ac06a396",
   "apps/web/src/api.ts | acceptPositionEconomics | network | fetch | 49cb36952cadf5bc",
   "apps/web/src/api.ts | acceptPositionValueAdjustment | network | fetch | a78d612f2ee85a73",
   "apps/web/src/api.ts | applyAcceptedEvidence | network | fetch | def37d9a0f54bc26",

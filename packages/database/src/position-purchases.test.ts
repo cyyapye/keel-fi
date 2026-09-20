@@ -27,6 +27,7 @@ it("persists optional details, reads them through holdings, versions edits and r
     expectedSnapshotId: p.snapshot.id,
     expectedReceiptId: null,
     details: {
+      coversPosition: true,
       lots: [
         {
           id: "partial",

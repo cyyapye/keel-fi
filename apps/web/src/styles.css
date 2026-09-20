@@ -8493,6 +8493,7 @@ h1,
   line-height: 1.6;
   max-width: 70ch;
 }
+.purchase-coverage,
 .purchase-fields label:has(input[type="checkbox"]) {
   display: flex;
   align-items: center;
@@ -8500,6 +8501,7 @@ h1,
   min-height: 44px;
   font-size: 12px;
 }
+.purchase-coverage input,
 .purchase-fields input[type="checkbox"] {
   accent-color: var(--ink);
 }

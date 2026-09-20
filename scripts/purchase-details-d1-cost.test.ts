@@ -29,7 +29,7 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
         const r = await repo.accept(COST_SUBJECT, p.id, {
           expectedSnapshotId: p.snapshot.id,
           expectedReceiptId: heads.get(p.id) ?? null,
-          details: { lots: [] },
+          details: { coversPosition: true, lots: [] },
         });
         heads.set(p.id, r.id);
         expect(meter.cost.roundTrips).toBe(2);

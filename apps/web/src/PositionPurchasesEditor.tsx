@@ -128,6 +128,9 @@ export function PositionPurchasesEditor({
   const [receipt, setReceipt] = useState<PurchaseReceipt | null>(
     context?.receipt ?? null,
   );
+  const [coversPosition, setCoversPosition] = useState(
+    receipt?.details.coversPosition ?? false,
+  );
   const [open, setOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -159,13 +162,15 @@ export function PositionPurchasesEditor({
   const parsed = AcceptPurchasesSchema.safeParse({
     expectedSnapshotId: context.snapshotId,
     expectedReceiptId: receipt?.id ?? null,
-    details: { lots: drafts.map(lotFor) },
+    details: { coversPosition, lots: drafts.map(lotFor) },
   });
   const changed =
     parsed.success &&
     (receipt?.snapshotId !== context.snapshotId ||
       JSON.stringify(parsed.data.details) !==
-        JSON.stringify(receipt?.details ?? { lots: [] }));
+        JSON.stringify(
+          receipt?.details ?? { coversPosition: false, lots: [] },
+        ));
   const preview = parsed.success
     ? PurchaseReceiptSchema.parse({
         id: "preview",
@@ -253,6 +258,7 @@ export function PositionPurchasesEditor({
           <Button
             tone="secondary"
             onClick={() => {
+              setCoversPosition(receipt?.details.coversPosition ?? false);
               setDrafts(
                 receipt?.details.lots.length
                   ? receipt.details.lots.map(draftFor)
@@ -417,7 +423,8 @@ export function PositionPurchasesEditor({
               <p>
                 A share price estimate needs attributable shares, a matching
                 share class, and dated valuation evidence for every purchase.
-                Partial details remain saved.
+                Confirm that the purchases cover the whole position to use the
+                estimate. Partial details remain saved.
               </p>
             )
           )}
@@ -564,6 +571,16 @@ export function PositionPurchasesEditor({
               </Button>
             </fieldset>
           ))}
+          <label className="purchase-coverage">
+            <Input
+              type="checkbox"
+              checked={coversPosition}
+              onChange={(event) =>
+                setCoversPosition(event.currentTarget.checked)
+              }
+            />{" "}
+            These purchases cover all my remaining shares in this SPV.
+          </label>
           {!parsed.success && (
             <Notice tone="error">{parsed.error.issues[0]?.message}</Notice>
           )}

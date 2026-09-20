@@ -261,11 +261,13 @@ reference price, gross cash, net share capital, one-time fee and its gross/net
 basis, source reference, and remaining attributable shares with their date.
 Calculated original shares require explicit confirmation that there have been no
 sales, splits or conversions. A dated price and source for the identical share
-class must cover every purchase before a share estimate is available. A mismatch
-or incomplete evidence leaves the existing valuation fallback intact. A new
-source snapshot retains purchase history but requires a fresh review before
-using its share estimate. Reported or manually accepted marks retain precedence;
-the share estimate is shown separately, before carry and remaining expenses.
+class must cover every purchase before a share estimate is available. The
+reviewer must also confirm that the purchases cover the entire remaining
+position. A mismatch or incomplete evidence leaves the existing valuation
+fallback intact. A new source snapshot retains purchase history but requires a
+fresh review before using its share estimate. Reported or manually accepted
+marks retain precedence; the share estimate is shown separately, before carry
+and remaining expenses.
 
 Purchase reviews are append-only and atomically advance an indexed current head.
 The POST checks household ownership, position, snapshot and prior review in the
@@ -273,6 +275,9 @@ write transaction. Stale submissions fail without overwriting newer work. GETs
 join current heads and perform no writes or source reads. Migration `0070` must
 precede the API and web release. The 120-position holdout covers empty heads,
 repeated reviews and unrelated-household lookups, with fixed three-round-trip
-position reads and two-round-trip purchase writes. It counts actual D1 rows and
-index writes. Existing fee reviews and historical performance are unchanged;
-purchase-based return on gross cash is separately labeled before carry.
+position reads and two-round-trip purchase writes. Saving sends one POST per
+explicit confirmation, with the action disabled while saving. It adds no
+polling, automatic retry or idle request; the existing holdings reload follows
+success. It counts actual D1 rows and index writes. Existing fee reviews and
+historical performance are unchanged; purchase-based return on gross cash is
+separately labeled before carry.
