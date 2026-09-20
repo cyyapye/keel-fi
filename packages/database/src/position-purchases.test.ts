@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   legalDocumentTestDatabase,
   type LegalDocumentTestD1,
@@ -17,6 +18,15 @@ beforeEach(async () => {
 });
 afterEach(() => db.sqlite.close());
 it("persists optional details, reads them through holdings, versions edits and rejects stale or foreign writes", async () => {
+  // Local SQLite accepts this construct, but remote D1's statement parser
+  // does not: https://github.com/cloudflare/workers-sdk/issues/4727.
+  // Keep the deployment compatibility guard alongside the behavioral checks.
+  expect(
+    readFileSync(
+      "packages/database/migrations/0070_private_purchase_details.sql",
+      "utf8",
+    ),
+  ).not.toMatch(/\bSELECT\s+CASE\b/iu);
   const reader = new D1InvestmentPositionViewRepository(db.asD1());
   const view = await reader.list(COST_SUBJECT);
   const p = view.connections.flatMap((c) =>
