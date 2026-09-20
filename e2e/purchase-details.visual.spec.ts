@@ -11,6 +11,7 @@ import { navigateToScreen } from "./navigation";
 test("optional purchase details preserve drafts, review and reload shares", async ({
   page,
 }, info) => {
+  await page.clock.setFixedTime(new Date("2026-09-20T12:00:00.000Z"));
   let receipt: PurchaseReceipt | null = null;
   let reject = false;
   const holding = () =>
@@ -138,6 +139,13 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
   await section
     .getByRole("textbox", { name: "Valuation source", exact: true })
     .focus();
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page).toHaveScreenshot("purchase-form.png", {
     animations: "disabled",
@@ -149,6 +157,13 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
   await expect(
     section.getByText("80 shares × $20", { exact: false }),
   ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page).toHaveScreenshot("purchase-review.png", {
     animations: "disabled",
@@ -178,6 +193,13 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
   await expect(
     section.getByRole("button", { name: "Edit purchases" }),
   ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page).toHaveScreenshot("purchase-saved.png", {
     animations: "disabled",

@@ -543,7 +543,7 @@ export function PositionPurchasesEditor({
           {!parsed.success && (
             <Notice tone="error">{parsed.error.issues[0]?.message}</Notice>
           )}
-          <ActionGroup>
+          <ActionGroup wrap mobileLayout="stack">
             {drafts.length < 20 && (
               <Button
                 tone="secondary"
@@ -562,7 +562,7 @@ export function PositionPurchasesEditor({
         </form>
       )}
       {open && reviewing && (
-        <ActionGroup>
+        <ActionGroup wrap mobileLayout="stack">
           <Button disabled={busy} onClick={() => void save()}>
             {busy ? "Saving…" : "Save purchase details"}
           </Button>
