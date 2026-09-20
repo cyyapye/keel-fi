@@ -76,6 +76,17 @@ export const InvestmentEventInputSchema = z
           "Enter the successor security issuer, not an alias of the predecessor.",
       });
     if (
+      value.status === "completed" &&
+      value.components.length > 0 &&
+      value.components.every((component) => component.kind === "cash")
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: ["components"],
+        message:
+          "A cash-only acquisition does not create successor company exposure. Record this conversion only when the SPV retains successor securities or rights.",
+      });
+    if (
       new Set(value.expectedMappingIds).size !== value.expectedMappingIds.length
     )
       ctx.addIssue({

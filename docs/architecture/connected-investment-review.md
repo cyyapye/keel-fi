@@ -257,7 +257,9 @@ empty/positive history, the 100-revision bound, idempotent writes, and indexed
 query plans. A new-company conversion uses at most eleven round trips and 50
 billed row writes including indexes.
 
-Direct-owner distributions, partial exits, multiple successor issuers and legal
-SPV rollovers need separate workflows. They are not silently approximated by
-this full-conversion form. An existing completed conversion cannot be changed to
-a cancelled announcement; a corrective conversion records a reversal explicitly.
+Cash-only acquisitions are rejected because they do not create successor company
+exposure. Direct-owner distributions, partial exits, multiple successor issuers
+and legal SPV rollovers need separate workflows. They are not silently
+approximated by this full-conversion form. An existing completed conversion
+cannot be changed to a cancelled announcement; a corrective conversion records a
+reversal explicitly.

@@ -81,6 +81,27 @@ The SPV received 9,999 acquirer Series A shares.`;
       expectedMappingIds: [],
     };
     expect(InvestmentEventInputSchema.safeParse(valid).success).toBe(true);
+    const cash = {
+      kind: "cash",
+      label: "Synthetic cash consideration",
+      quantity: null,
+      status: "received",
+      amountMinor: 10_000,
+      unitPriceMinor: null,
+      currency: "USD",
+      note: null,
+    };
+    expect(
+      InvestmentEventInputSchema.safeParse({ ...valid, components: [cash] })
+        .success,
+    ).toBe(false);
+    expect(
+      InvestmentEventInputSchema.safeParse({
+        ...valid,
+        components: [cash, { ...cash, kind: "shares", quantity: "10" }],
+      }).success,
+    ).toBe(true);
+
     expect(
       InvestmentEventInputSchema.safeParse({ ...valid, kind: "merger" })
         .success,
