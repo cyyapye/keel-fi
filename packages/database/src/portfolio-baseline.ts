@@ -55,7 +55,15 @@ type SourceCashAccountRow = AcceptedCashAccountHistoryRow & {
   proposal_row_id: string;
 };
 
+type EndedPosition = {
+  positionId: string;
+  snapshotId: string;
+  reviewId: string | null;
+  participation: "historical" | "cancelled";
+};
+
 type BaselinePositionItemRow = {
+  participation: EndedPosition | null;
   source: SourcePositionRow;
   position_id: string;
   snapshot_id: string;
@@ -74,6 +82,7 @@ type BaselineCashItemRow = {
 };
 
 type BaselineSourceItemRow = {
+  participation_json: string | null;
   source_json: string;
   item_kind: "cash" | "position";
   source_key: string;
@@ -206,9 +215,19 @@ function normalizedDuplicateKey(name: string, ticker: string | null): string {
 async function sourceRevision(
   rows: readonly SourcePositionRow[],
   cashRows: readonly SourceCashAccountRow[],
+  endedPositions: readonly EndedPosition[],
 ): Promise<string> {
   return sha256(
     [
+      ...endedPositions.map((position) =>
+        [
+          "ended",
+          position.positionId,
+          position.snapshotId,
+          position.reviewId ?? "",
+          position.participation,
+        ].join(":"),
+      ),
       ...rows.map((row) =>
         [
           "holding",
@@ -421,8 +440,12 @@ function planningExceptions(
   cashRows: readonly SourceCashAccountRow[],
   prior: BaselineSources,
   manualCashMinor: number,
+  endedPositions: readonly EndedPosition[],
 ): PortfolioBaselineException[] {
   const exceptions: PortfolioBaselineException[] = [];
+  const endedIds = new Set(
+    endedPositions.map((position) => position.positionId),
+  );
   const currentPositions = new Map(rows.map((row) => [row.position_id, row]));
   const currentCash = new Map(
     cashRows.map((row) => [row.natural_key_sha256, row]),
@@ -435,7 +458,11 @@ function planningExceptions(
   );
   const missingPositionScopes = new Set(
     prior.positions
-      .filter((row) => !currentPositions.has(row.position_id))
+      .filter(
+        (row) =>
+          !currentPositions.has(row.position_id) &&
+          !endedIds.has(row.position_id),
+      )
       .map((row) => row.source.container_id),
   );
   const missingCashConnections = new Set(
@@ -449,6 +476,8 @@ function planningExceptions(
   ])) {
     const current = currentPositions.get(key);
     const previous = priorPositions.get(key);
+    // An accepted closure is already a decision, not an unexplained omission.
+    if (current === undefined && endedIds.has(key)) continue;
     if (
       current !== undefined &&
       previous !== undefined &&
@@ -803,7 +832,14 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       });
     }
 
-    const currentSourceRevision = await sourceRevision(rows, cashRows);
+    const endedPositions = baselineSources.positions.flatMap((position) =>
+      position.participation === null ? [] : [position.participation],
+    );
+    const currentSourceRevision = await sourceRevision(
+      rows,
+      cashRows,
+      endedPositions,
+    );
     const observedAt =
       [...positions, ...cashAccounts]
         .map((item) => item.observedAt)
@@ -821,6 +857,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
             cashRows,
             baselineSources,
             suggestedOtherFiEligibleLiquidMinor,
+            endedPositions,
           );
     const selected = selectPlanningSources(
       rows,
@@ -837,11 +874,17 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       baselineSources.positions,
       baselineSources.cashAccounts,
     );
+    const endedPositionIds = new Set(
+      endedPositions.map((position) => position.positionId),
+    );
     const automaticUpdateCount =
       latestBaseline === null
         ? 0
         : automaticChanges.positions.length +
-          automaticChanges.cashAccounts.length;
+          automaticChanges.cashAccounts.length +
+          baselineSources.positions.filter((position) =>
+            endedPositionIds.has(position.position_id),
+          ).length;
     const hasSourceChanges =
       latestBaseline === null ||
       automaticUpdateCount > 0 ||
@@ -992,10 +1035,6 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       this.getFinancialIndependenceGoal(identity.household_id),
     ]);
     const observedRows = sourcePositionRows(exposureView);
-    const currentSourceRevision = await sourceRevision(
-      observedRows,
-      sourceCashRows,
-    );
     const priorSources =
       state.latestBaseline === null
         ? { positions: [], cashAccounts: [] }
@@ -1003,6 +1042,13 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
             identity.household_id,
             state.latestBaseline.id,
           );
+    const currentSourceRevision = await sourceRevision(
+      observedRows,
+      sourceCashRows,
+      priorSources.positions.flatMap((position) =>
+        position.participation === null ? [] : [position.participation],
+      ),
+    );
     const selected = selectPlanningSources(
       observedRows,
       sourceCashRows,
@@ -1598,6 +1644,12 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           `SELECT 'position' AS item_kind, item.position_id AS source_key,
              item.snapshot_id AS revision_id, item.value_minor, item.value_state,
              item.observed_at,
+             CASE WHEN coalesce(json_extract(review.state_json, '$.participationStatus'),
+               CASE WHEN accepted_snapshot.provider_status = 'realized' THEN 'historical' ELSE 'current' END)
+               IN ('historical', 'cancelled') THEN
+               json_object('positionId', item.position_id, 'snapshotId', accepted_snapshot.id,
+                 'reviewId', review.id, 'participation', coalesce(json_extract(review.state_json, '$.participationStatus'), 'historical'))
+               ELSE NULL END AS participation_json,
              json_object('position_id', item.position_id, 'snapshot_id', item.snapshot_id,
                'container_id', (SELECT container_id FROM holding_position_ownerships
                  WHERE position_id = item.position_id ORDER BY version DESC LIMIT 1),
@@ -1609,11 +1661,23 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
            FROM portfolio_baseline_items item
            JOIN holding_positions position ON position.id = item.position_id
            JOIN holding_position_snapshots snapshot ON snapshot.id = item.snapshot_id
+           JOIN holding_import_applications application ON application.id = (
+             SELECT candidate.id FROM holding_import_applications candidate
+             JOIN holding_position_snapshots candidate_snapshot ON candidate_snapshot.id = candidate.snapshot_id
+             WHERE candidate.position_id = item.position_id
+             ORDER BY candidate.applied_at DESC, candidate_snapshot.observed_at DESC, candidate.id DESC LIMIT 1
+           )
+           JOIN holding_position_snapshots accepted_snapshot ON accepted_snapshot.id = application.snapshot_id
+           LEFT JOIN holding_investment_reviews review ON review.id = (
+             SELECT candidate.id FROM holding_investment_reviews candidate
+             WHERE candidate.household_id = item.household_id AND candidate.position_id = item.position_id
+             ORDER BY candidate.version DESC LIMIT 1
+           )
            WHERE item.household_id = ? AND item.baseline_id = ?
            UNION ALL
            SELECT 'cash' AS item_kind, item.natural_key_sha256 AS source_key,
              item.review_decision_id AS revision_id, item.value_minor, item.value_state,
-             item.observed_at,
+             item.observed_at, NULL AS participation_json,
              json_object('decision_id', item.review_decision_id, 'proposal_row_id', item.proposal_row_id,
                'natural_key_sha256', item.natural_key_sha256, 'value_minor', item.value_minor,
                'value_state', item.value_state, 'observed_at', item.observed_at,
@@ -1635,6 +1699,10 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       positions: rows
         .filter((row) => row.item_kind === "position")
         .map((row) => ({
+          participation:
+            row.participation_json === null
+              ? null
+              : (JSON.parse(row.participation_json) as EndedPosition),
           source: JSON.parse(row.source_json) as SourcePositionRow,
           position_id: row.source_key,
           snapshot_id: row.revision_id,

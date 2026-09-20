@@ -1,3 +1,4 @@
+import { D1InvestmentReviewRepository } from "../packages/database/src/investment-review";
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import {
@@ -90,7 +91,7 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
       .all<{ detail: string }>();
     expect(
       plan.results.some((row) =>
-        /SCAN (?:item|snapshot|position|holding_position_ownerships)\b/.test(
+        /SCAN (?:item|snapshot|position|holding_position_ownerships|candidate|candidate_snapshot|review|application|accepted_snapshot)\b/.test(
           row.detail,
         ),
       ),
@@ -113,6 +114,46 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
     expect(unchanged.exceptions).toEqual(current.exceptions);
     expect(measured.cost.rowsWritten).toBe(0);
     expect(measured.cost.rowsRead).toBeLessThanOrEqual(6_000);
+    // Accepted closures refresh around the one truly missing source, with the
+    // same fixed query and measured D1 budgets as ordinary value updates.
+    const reviewRepository = new D1InvestmentReviewRepository(fixture.database);
+    const active = await exposures.list(COST_SUBJECT);
+    for (const position of active.positions.slice(1)) {
+      const context = await reviewRepository.getContext(
+        COST_SUBJECT,
+        position.id,
+      );
+      await reviewRepository.review(COST_SUBJECT, position.id, {
+        requestId: crypto.randomUUID(),
+        expectedReviewId: context.review?.id ?? null,
+        expectedSnapshotId: context.snapshotId,
+        expectedEvidenceRevision: context.evidenceRevision,
+        participationStatus: "historical",
+      });
+    }
+    Object.assign(measured.cost, emptyD1Cost());
+    const closed = await baseline.getState(COST_SUBJECT);
+    expect(closed.exceptions).toHaveLength(1);
+    expect(closed.exceptions?.[0]?.reason).toBe("removed");
+    expect(closed.automaticUpdateCount).toBe(119);
+    expect(measured.cost.roundTrips).toBeLessThanOrEqual(14);
+    expect(measured.cost.rowsRead).toBeLessThanOrEqual(6_000);
+    expect(measured.cost.rowsWritten).toBe(0);
+    Object.assign(measured.cost, emptyD1Cost());
+    expect(
+      (await refreshAcceptedPortfolioBaseline(baseline, COST_SUBJECT)).status,
+    ).toBe("refreshed");
+    expect(measured.cost.roundTrips).toBeLessThanOrEqual(46);
+    expect(measured.cost.rowsRead).toBeLessThanOrEqual(18_000);
+    expect(measured.cost.rowsWritten).toBeLessThanOrEqual(1_000);
+    const retained = await baseline.getState(COST_SUBJECT);
+    expect(retained.latestBaseline?.summary.positionCount).toBe(1);
+    expect(retained.exceptions).toEqual(closed.exceptions);
+    Object.assign(measured.cost, emptyD1Cost());
+    expect(
+      (await refreshAcceptedPortfolioBaseline(baseline, COST_SUBJECT)).status,
+    ).toBe("manual_required");
+    expect(measured.cost.rowsWritten).toBe(0);
     console.info(
       JSON.stringify({
         baselineRefreshCosts: costs,

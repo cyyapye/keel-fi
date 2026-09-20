@@ -126,23 +126,34 @@ atomic confirmation transaction records the baseline and forecast history; an
 additional append-only policy record identifies the prior baseline and rule.
 
 New cash that may overlap a manual amount, uncertain values used by the FI plan,
-possible holding overlaps, and removed baseline sources require review. Routine
-price and balance changes do not. `accepted-sources-auto-v2` refreshes eligible
-sources even when other sources need a decision. Each unresolved source keeps
-its exact prior baseline snapshot or cash decision; an uncertain new source
-stays outside the baseline. A new source appearing alongside a missing source in
-the same ownership scope or cash connection is held too, preventing double
-counting a possible replacement. It can be reviewed as separate, or become
-eligible after the missing source is explicitly removed. Retained values remain
-dated and visible in the exception review. A user reviews one source at a time,
-previews its FI-liquid effect, and explicitly includes the cash, excludes an
-unavailable value, or removes the missing source from the plan. Removing a
-source never records a sale. Other unresolved sources remain unchanged. No
-eligible changes means no new baseline or forecast, including repeated refresh
-requests. Private paper remains outside FI liquid, so its value updates do not
-require another planning approval. The existing source-revision and
-forecast-version checks reject stale work. Repeating a completed refresh is a
-no-op.
+possible holding overlaps, and unexplained removed baseline sources require
+review. Routine price and balance changes do not. `accepted-sources-auto-v2`
+refreshes eligible sources even when other sources need a decision. Each
+unresolved source keeps its exact prior baseline snapshot or cash decision; an
+uncertain new source stays outside the baseline. A new source appearing
+alongside a missing source in the same ownership scope or cash connection is
+held too, preventing double counting a possible replacement. It can be reviewed
+as separate, or become eligible after the missing source is explicitly removed.
+Retained values remain dated and visible in the exception review. A user reviews
+one source at a time, previews its FI-liquid effect, and explicitly includes the
+cash, excludes an unavailable value, or removes the missing source from the
+plan. Removing a source never records a sale. Other unresolved sources remain
+unchanged. No eligible changes means no new baseline or forecast, including
+repeated refresh requests. Private paper remains outside FI liquid, so its value
+updates do not require another planning approval. Positions excluded because
+their accepted provider status is realized or their recorded participation is
+historical or cancelled also refresh automatically, including baselines created
+before those exclusions were projected. The baseline reads the latest accepted
+snapshot and participation review for its prior sources, including records
+hidden by a recorded continuity link, so it can distinguish an accepted closure
+from a missing source. These closures do not create possible-replacement
+warnings for other positions in the same ownership scope. Original holdings,
+source evidence, and participation decisions remain unchanged; the existing
+append-only baseline policy receipt records the refresh. A later participation
+change invalidates the source revision. The existing batched read resolves this
+evidence with indexed lookups; no additional database round trips or polling are
+needed. The existing source-revision and forecast-version checks reject stale
+work. Repeating a completed refresh is a no-op.
 
 Migration `0068` allows an explicitly reviewed empty baseline and adds the
 selective policy version without rewriting prior decisions. It must precede the
