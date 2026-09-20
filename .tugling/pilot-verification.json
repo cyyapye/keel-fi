@@ -58,7 +58,7 @@
         "packages/database/migrations/0069_historical_private_position_continuity.sql",
         "scripts/investment-events-d1-cost.test.ts",
         "packages/domain/src/investment-events.test.ts",
-        "packages/database/migrations/0070_investment_events.sql"
+        "packages/database/migrations/0071_investment_events.sql"
       ],
       "runtime": {
         "owner": "native-command",
