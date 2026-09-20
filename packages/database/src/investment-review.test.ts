@@ -1,3 +1,5 @@
+import { createInvestmentExposureView } from "@keel/domain/exposure-read-model";
+import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import { D1AutomaticInvestmentReviewRepository } from "./automatic-investment-review";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +22,10 @@ import { D1HoldingsPageRepository } from "./holdings-page";
 import { calculatePositionEconomics } from "@keel/domain/position-economics";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1AlphaRepository } from "./index";
-import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
+import {
+  D1PortfolioBaselineRepository,
+  refreshAcceptedPortfolioBaseline,
+} from "./portfolio-baseline";
 import { createPortfolioDashboardSnapshot } from "@keel/domain/portfolio-dashboard";
 import { D1LegalEntityRepository } from "./legal-entities";
 import {
@@ -1432,4 +1437,180 @@ it("rejects a fee acceptance when an amount correction wins the commit race", as
   expect(
     (await repository.getContext(subject, positionId)).committedMinor,
   ).toBe(520_000);
+});
+
+it.each(["historical", "cancelled", "realized"] as const)(
+  "refreshes an established baseline after accepted %s participation without another review",
+  async (status) => {
+    const baselines = new D1PortfolioBaselineRepository(d1.asD1());
+    const initial = await baselines.getState(subject);
+    const first = await baselines.confirm(subject, {
+      sourceRevision: initial.sourceRevision!,
+      baseForecastSnapshotId: initial.baseForecastSnapshotId!,
+      baseForecastSnapshotVersion: initial.baseForecastSnapshotVersion!,
+      otherFiEligibleLiquidMinor: 25_000,
+      duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
+      changeNote: "Synthetic initial planning decision.",
+    });
+    const sourceBefore = d1.sqlite
+      .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+      .all();
+    if (status === "realized") {
+      const imports = new D1HoldingImportRepository(d1.asD1());
+      const staged = await imports.stageHoldingImport(subject, {
+        ...input,
+        sha256: digest("synthetic realized portfolio"),
+        effectiveDate: "2026-09-02",
+        retrievedAt: "2026-09-02T12:00:00.000Z",
+        rows: input.rows.map((row) => ({ ...row, status: "Realized" })),
+      });
+      await imports.applyHoldingImport(subject, staged.preview.id, {
+        currency: "USD",
+        decisions: staged.preview.rows.map((row) => ({
+          rowId: row.id,
+          decision: "accepted",
+          rationale: "Accepted synthetic realized status.",
+        })),
+      });
+    } else {
+      const positions = await new D1InvestmentPositionViewRepository(
+        d1.asD1(),
+      ).list(subject);
+      for (const position of positions.connections.flatMap((c) =>
+        c.containers.flatMap((container) => container.positions),
+      )) {
+        const context = await repository.getContext(subject, position.id);
+        await repository.review(subject, position.id, {
+          ...base(context),
+          participationStatus: status,
+        });
+      }
+    }
+    const snapshots = d1.sqlite
+      .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+      .all();
+    const reviews = d1.sqlite
+      .prepare("SELECT * FROM holding_investment_reviews ORDER BY id")
+      .all();
+    if (status !== "realized") expect(snapshots).toEqual(sourceBefore);
+    const pending = await baselines.getState(subject);
+    expect(pending.positions).toEqual([]);
+    expect(pending.exceptions).toEqual([]);
+    expect(pending.automaticUpdateCount).toBe(initial.positions.length);
+    expect(
+      await refreshAcceptedPortfolioBaseline(baselines, subject),
+    ).toMatchObject({ status: "refreshed" });
+    const current = await baselines.getState(subject);
+    expect(current.status).toBe("current");
+    expect(current.latestBaseline?.summary.positionCount).toBe(0);
+    expect(current.latestBaseline?.fiEligibleLiquidMinor).toBe(
+      first.baseline.fiEligibleLiquidMinor,
+    );
+    expect(current.latestBaseline?.otherFiEligibleLiquidMinor).toBe(25_000);
+    const forecasts = d1.sqlite
+      .prepare("SELECT * FROM forecast_snapshots ORDER BY id")
+      .all();
+    expect(
+      await refreshAcceptedPortfolioBaseline(baselines, subject),
+    ).toMatchObject({ status: "not_needed" });
+    expect(
+      d1.sqlite.prepare("SELECT * FROM forecast_snapshots ORDER BY id").all(),
+    ).toEqual(forecasts);
+    expect(
+      d1.sqlite
+        .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+        .all(),
+    ).toEqual(snapshots);
+    expect(
+      d1.sqlite
+        .prepare("SELECT * FROM holding_investment_reviews ORDER BY id")
+        .all(),
+    ).toEqual(reviews);
+    // Reopening a reviewed holding invalidates a previously read source revision.
+    const context = await repository.getContext(subject, positionId);
+    await repository.review(subject, positionId, {
+      ...base(context),
+      participationStatus: "current",
+    });
+    const reopened = await baselines.getState(subject);
+    expect(reopened.sourceRevision).not.toBe(current.sourceRevision);
+    expect(reopened.exceptions).toEqual([]);
+    expect(
+      await refreshAcceptedPortfolioBaseline(baselines, subject),
+    ).toMatchObject({ status: "refreshed" });
+    expect(
+      (await baselines.getState(subject)).latestBaseline?.summary.positionCount,
+    ).toBe(1);
+  },
+);
+
+it("recovers a legacy baseline that already included realized snapshots without treating their exclusion as disappearance", async () => {
+  const imports = new D1HoldingImportRepository(d1.asD1());
+  const staged = await imports.stageHoldingImport(subject, {
+    ...input,
+    sha256: digest("synthetic legacy realized portfolio"),
+    effectiveDate: "2026-09-02",
+    retrievedAt: "2026-09-02T12:00:00.000Z",
+    rows: input.rows.map((row) => ({ ...row, status: "Realized" })),
+  });
+  await imports.applyHoldingImport(subject, staged.preview.id, {
+    currency: "USD",
+    decisions: staged.preview.rows.map((row) => ({
+      rowId: row.id,
+      decision: "accepted",
+      rationale: "Accepted synthetic realized source.",
+    })),
+  });
+  const positions = await new D1InvestmentPositionViewRepository(
+    d1.asD1(),
+  ).list(subject);
+  // Reproduce the older projection including realized sources, while keeping
+  // their actual accepted snapshot IDs and stored realized status intact.
+  const legacy = structuredClone(positions);
+  for (const position of legacy.connections.flatMap((c) =>
+    c.containers.flatMap((container) => container.positions),
+  )) {
+    expect(position.snapshot.providerStatus).toBe("realized");
+    position.snapshot.providerStatus = "live";
+  }
+  let useLegacy = true;
+  const exposures = new D1InvestmentExposureViewRepository(d1.asD1());
+  const baselines = new D1PortfolioBaselineRepository(d1.asD1(), {
+    list: async () =>
+      useLegacy
+        ? createInvestmentExposureView(legacy, [], [])
+        : exposures.list(subject),
+  });
+  const initial = await baselines.getState(subject);
+  await baselines.confirm(subject, {
+    sourceRevision: initial.sourceRevision!,
+    baseForecastSnapshotId: initial.baseForecastSnapshotId!,
+    baseForecastSnapshotVersion: initial.baseForecastSnapshotVersion!,
+    otherFiEligibleLiquidMinor: 25_000,
+    duplicateReviewConfirmed: false,
+    cashOverlapReviewConfirmed: false,
+    changeNote: "Synthetic legacy baseline.",
+  });
+  const snapshots = d1.sqlite
+    .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+    .all();
+  useLegacy = false;
+  const recovery = await baselines.getState(subject);
+  expect(recovery.exceptions).toEqual([]);
+  expect(recovery.automaticUpdateCount).toBe(2);
+  expect(
+    await refreshAcceptedPortfolioBaseline(baselines, subject),
+  ).toMatchObject({ status: "refreshed" });
+  expect(
+    (await baselines.getState(subject)).latestBaseline?.summary.positionCount,
+  ).toBe(0);
+  expect(
+    await refreshAcceptedPortfolioBaseline(baselines, subject),
+  ).toMatchObject({ status: "not_needed" });
+  expect(
+    d1.sqlite
+      .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+      .all(),
+  ).toEqual(snapshots);
 });
