@@ -539,3 +539,64 @@ it.each(["historical", "cancelled"] as const)(
     ).toHaveLength(2);
   },
 );
+
+it("uses a share estimate for missing values while preserving a provider mark alongside it", () => {
+  const p = position("position_1", null, "not_reported");
+  p.kind = "spv_interest";
+  p.purchaseReceipt = {
+    id: "purchase-review",
+    positionId: p.id,
+    snapshotId: p.snapshot.id,
+    currency: "USD",
+    acceptedAt: "2026-08-15T00:00:00.000Z",
+    details: {
+      coversPosition: true,
+      lots: [
+        {
+          id: "lot",
+          purchasedOn: "2026-01-01",
+          shareClass: "Series A",
+          priceMicros: 10_000_000,
+          referencePriceMicros: null,
+          grossCashMinor: 11_000,
+          netCapitalMinor: 10_000,
+          feePpm: 100_000,
+          feeBasis: "net_capital",
+          feeLabel: null,
+          remainingSharesMicros: 10_000_000,
+          sharesAsOf: "2026-08-01",
+          originalSharesUnchanged: false,
+          sourceLabel: "Synthetic subscription",
+          sourceUrl: null,
+          mark: {
+            priceMicros: 20_000_000,
+            effectiveDate: "2026-08-15",
+            shareClass: "Series A",
+            sourceLabel: "Synthetic GP statement",
+            sourceUrl: null,
+          },
+        },
+      ],
+    },
+  };
+  expect(
+    createInvestmentExposureView(positionView([p]), [], []).positions[0],
+  ).toMatchObject({
+    valueSource: "share_price_estimate",
+    valueMinor: 20_000,
+    shareValueEstimate: { valueMinor: 20_000 },
+  });
+  p.snapshot.unrealizedValue = { state: "reported", minor: 18_000 };
+  expect(
+    createInvestmentExposureView(positionView([p]), [], []).positions[0],
+  ).toMatchObject({
+    valueSource: "provider",
+    valueMinor: 18_000,
+    shareValueEstimate: { valueMinor: 20_000 },
+  });
+  p.snapshot.id = "new-snapshot";
+  expect(
+    createInvestmentExposureView(positionView([p]), [], []).positions[0]
+      ?.shareValueEstimate,
+  ).toBeNull();
+});

@@ -1,3 +1,7 @@
+import {
+  PurchaseContextSchema,
+  ShareValueEstimateSchema,
+} from "./position-purchases";
 import { z } from "zod";
 
 export { portfolioBaselineReviewReasons } from "./portfolio-baseline-policy";
@@ -385,6 +389,8 @@ export function createGoalPreview(
 }
 
 export const HoldingSchema = z.object({
+  purchaseContext: PurchaseContextSchema.nullable().optional(),
+  shareValueEstimate: ShareValueEstimateSchema.nullable().optional(),
   id: z.string().min(1),
   companyId: z.string().min(1).nullable(),
   positionName: z.string().min(1),

@@ -461,6 +461,8 @@ function exposureValueSourceLabel(
   if (position.valueSource === "invested_amount") {
     return "Invested amount estimate";
   }
+  if (position.valueSource === "share_price_estimate")
+    return "Share price estimate";
   if (position.valueSource === "portfolio_watch_estimate") {
     return "Portfolio Watch estimate";
   }
@@ -1543,7 +1545,8 @@ function ExposureView({
         const investedEstimateCount = positions.filter(
           (position) =>
             position.valueSource === "invested_amount" ||
-            position.valueSource === "portfolio_watch_estimate",
+            position.valueSource === "portfolio_watch_estimate" ||
+            position.valueSource === "share_price_estimate",
         ).length;
         const currentSharePrice = exposureSharePricePresentation(
           group,

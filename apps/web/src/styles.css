@@ -8452,6 +8452,60 @@ h1,
   }
 }
 
+.purchase-fields {
+  border: 0;
+  padding: 0;
+  margin: 1.5rem 0;
+  min-width: 0;
+}
+.purchase-fields legend,
+.purchase-summary h4 {
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+.purchase-fields > [data-slot="collapsible"] {
+  margin: 1rem 0;
+}
+.purchase-fields [data-slot="collapsible-trigger"] {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 0;
+  gap: 10px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.purchase-summary {
+  margin: 1.5rem 0;
+  overflow-wrap: anywhere;
+}
+
+.purchase-details > form > p,
+.purchase-fields p,
+.purchase-summary p,
+.purchase-details > p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 70ch;
+}
+.purchase-coverage,
+.purchase-fields label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 12px;
+}
+.purchase-coverage input,
+.purchase-fields input[type="checkbox"] {
+  accent-color: var(--ink);
+}
+
 .investment-events__entry {
   margin-block: var(--space-6, 1.5rem);
 }

@@ -1,3 +1,4 @@
+import { PurchaseReceiptSchema } from "./position-purchases";
 import { z } from "zod";
 import { AutomaticInvestmentReviewSchema } from "./automatic-investment-review";
 import {
@@ -113,6 +114,7 @@ export const InvestmentPositionRecordSchema = z.object({
     freshness: InvestmentSourceFreshnessSchema,
   }),
   snapshot: InvestmentPositionSnapshotSchema,
+  purchaseReceipt: PurchaseReceiptSchema.nullable().optional(),
   acceptedValueAdjustment: PositionValueAdjustmentSchema.nullable().optional(),
   acceptedEconomicsTerms: PositionEconomicsTermsSchema.nullable().optional(),
   reportedEconomicsTerms:

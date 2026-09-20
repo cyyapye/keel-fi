@@ -72,6 +72,7 @@ const migrationFiles = [
   "packages/database/migrations/0056_exception_based_cash_balances.sql",
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
   "packages/database/migrations/0062_reviewed_company_aliases.sql",
+  "packages/database/migrations/0070_private_purchase_details.sql",
   "packages/database/migrations/0064_watch_read_receipts.sql",
   "packages/database/migrations/0068_exception_baseline_empty.sql",
   "packages/database/seed/synthetic.sql",
@@ -100,6 +101,7 @@ describe("nullable private investment date migration", () => {
               "packages/database/migrations/0058_net_invested_position_economics.sql",
               "packages/database/migrations/0059_automatic_investment_reviews.sql",
               "packages/database/migrations/0062_reviewed_company_aliases.sql",
+              "packages/database/migrations/0070_private_purchase_details.sql",
               "packages/database/migrations/0040_holdings_read_performance.sql",
               "packages/database/migrations/0041_reported_position_economics.sql",
               "packages/database/migrations/0053_connected_investment_reviews.sql",
@@ -2736,7 +2738,9 @@ describe("reviewed portfolio baseline persistence", () => {
     expect(emptyCurrent.latestBaseline?.summary.positionCount).toBe(0);
     expect(emptyCurrent.latestBaseline?.fiEligibleLiquidMinor).toBe(0);
     expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-  });
+    // Full 120-source history and exception replay exceeds the default 5s on
+    // the shared CI runner; round-trip budgets above still gate database work.
+  }, 15_000);
 
   it("atomically appends a reviewed FI baseline without treating unknown values as money", async () => {
     const angelListInput = stageInput("4".repeat(64), {
