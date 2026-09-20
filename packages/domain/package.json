@@ -10,6 +10,7 @@
     "./exposure-read-model": "./src/exposure-read-model.ts",
     "./holdings-page": "./src/holdings-page.ts",
     "./investment-holdings-view": "./src/investment-holdings-view.ts",
+    "./investment-events": "./src/investment-events.ts",
     "./investment-review": "./src/investment-review.ts",
     "./legal-entities": "./src/legal-entities.ts",
     "./plan-actual-monitoring": "./src/plan-actual-monitoring.ts",

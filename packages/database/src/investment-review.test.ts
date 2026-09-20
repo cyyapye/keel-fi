@@ -271,7 +271,7 @@ it("keeps detail reads at seven indexed queries with 128 investment targets", as
   d1.queries.length = 0;
   const context = await repository.getContext(subject, positionId);
   expect(context.otherPositions.length).toBeGreaterThanOrEqual(128);
-  expect(d1.queries).toHaveLength(7);
+  expect(d1.queries).toHaveLength(8);
   const details = d1.queries.flatMap((sql) =>
     d1.sqlite
       .prepare(`EXPLAIN QUERY PLAN ${sql}`)
@@ -621,7 +621,7 @@ describe("connected investment review", () => {
       review: null,
     });
     expect(context.companyChoices).toHaveLength(3);
-    expect(d1.queries).toHaveLength(7);
+    expect(d1.queries).toHaveLength(8);
     expect(d1.queries.every((sql) => /^SELECT/u.test(sql))).toBe(true);
     const reviewed = await repository.review(
       subject,
@@ -1613,4 +1613,258 @@ it("recovers a legacy baseline that already included realized snapshots without 
       .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
       .all(),
   ).toEqual(snapshots);
+});
+
+const conversion = (context: InvestmentReviewContext) => ({
+  eventId: crypto.randomUUID(),
+  supersedesRevisionId: null,
+  kind: "merger" as const,
+  scope: "underlying_securities" as const,
+  participationContinues: true as const,
+  status: "completed" as const,
+  predecessor: "Synthetic Robotics Inc.",
+  successor: "Synthetic Successor Holdings Inc.",
+  noticeDate: "2026-09-01",
+  effectiveDate: null,
+  sourceLabel: "Synthetic GP notice",
+  sourceText:
+    "Synthetic merger completed. Securities remain at the SPV; no LP distribution.",
+  documentId: null,
+  lpDistribution: "none_reported" as const,
+  components: [
+    {
+      kind: "shares" as const,
+      label: "Series A",
+      quantity: "1200.125",
+      status: "received" as const,
+      amountMinor: null,
+      unitPriceMinor: 4231,
+      currency: "USD",
+      note: null,
+    },
+    {
+      kind: "earnout" as const,
+      label: "Conditional shares",
+      quantity: "300",
+      status: "conditional" as const,
+      amountMinor: null,
+      unitPriceMinor: null,
+      currency: "USD",
+      note: "Subject to release",
+    },
+  ],
+  note: null,
+  expectedMappingIds: context.mappings.map((mapping) => mapping.id),
+});
+
+it("records a continuing SPV conversion atomically without changing contributions cash or valuation", async () => {
+  const before = await repository.getContext(subject, positionId);
+  const snapshots = d1.sqlite
+    .prepare("SELECT * FROM holding_position_snapshots WHERE position_id = ?")
+    .all(positionId);
+  const request = {
+    ...base(before),
+    participationStatus: "current" as const,
+    investmentEvent: conversion(before),
+  };
+  await repository.review(subject, positionId, request);
+  const after = await repository.getContext(subject, positionId);
+  expect(after.review?.participationStatus).toBe("current");
+  expect(after.committedMinor).toBe(before.committedMinor);
+  expect(after.fundedMinor).toBe(before.fundedMinor);
+  expect(
+    d1.sqlite
+      .prepare("SELECT * FROM holding_position_snapshots WHERE position_id = ?")
+      .all(positionId),
+  ).toEqual(snapshots);
+  expect(
+    after.mappings.filter((mapping) => mapping.status === "active"),
+  ).toMatchObject([{ companyName: "Synthetic Successor Holdings Inc." }]);
+  expect(after.investmentEvents).toHaveLength(1);
+  expect(after.investmentEvents?.[0]?.components[1]?.status).toBe(
+    "conditional",
+  );
+  expect(await repository.review(subject, positionId, request)).toEqual(
+    after.review,
+  );
+  await repository.review(subject, positionId, {
+    ...base(after),
+    investmentEvent: {
+      ...request.investmentEvent,
+      eventId: crypto.randomUUID(),
+      expectedMappingIds: after.mappings.map((mapping) => mapping.id),
+    },
+  });
+  expect(
+    (await repository.getContext(subject, positionId)).investmentEvents,
+  ).toHaveLength(1);
+});
+
+it("amends earnout evidence on the same event and preserves earlier terms", async () => {
+  let context = await repository.getContext(subject, positionId);
+  await repository.review(subject, positionId, {
+    ...base(context),
+    investmentEvent: conversion(context),
+  });
+  context = await repository.getContext(subject, positionId);
+  const first = context.investmentEvents![0]!;
+  const next = {
+    ...conversion(context),
+    eventId: first.eventId,
+    supersedesRevisionId: first.revisionId,
+    sourceText: "Synthetic earnout released; securities remain at the SPV.",
+    components: first.components.map((item) =>
+      item.kind === "earnout" ? { ...item, status: "released" as const } : item,
+    ),
+  };
+  await repository.review(subject, positionId, {
+    ...base(context),
+    investmentEvent: next,
+  });
+  const after = await repository.getContext(subject, positionId);
+  expect(after.investmentEvents).toHaveLength(2);
+  expect(
+    after.investmentEvents?.find((event) => event.revision === 1)?.components[1]
+      ?.status,
+  ).toBe("conditional");
+  expect(
+    after.investmentEvents?.find((event) => event.revision === 2)?.components[1]
+      ?.status,
+  ).toBe("released");
+  await expect(
+    repository.review(subject, positionId, {
+      ...base(after),
+      investmentEvent: next,
+    }),
+  ).resolves.toEqual(after.review);
+  expect(
+    d1.sqlite
+      .prepare("SELECT COUNT(*) count FROM companies WHERE legal_name = ?")
+      .get(next.successor),
+  ).toMatchObject({ count: 1 });
+  const latest = after.investmentEvents!.find((event) => event.revision === 2)!;
+  await repository.review(subject, positionId, {
+    ...base(after),
+    investmentEvent: {
+      ...conversion(after),
+      eventId: first.eventId,
+      supersedesRevisionId: latest.revisionId,
+    },
+  });
+  const corrected = await repository.getContext(subject, positionId);
+  expect(corrected.investmentEvents).toHaveLength(3);
+  expect(
+    corrected.investmentEvents?.find((event) => event.revision === 3)
+      ?.components[1]?.status,
+  ).toBe("conditional");
+});
+
+it("keeps announced and cancelled events from changing company exposure", async () => {
+  const before = await repository.getContext(subject, positionId);
+  await repository.review(subject, positionId, {
+    ...base(before),
+    investmentEvent: { ...conversion(before), status: "announced" },
+  });
+  const announced = await repository.getContext(subject, positionId);
+  expect(announced.mappings).toEqual(before.mappings);
+  const first = announced.investmentEvents![0]!;
+  await repository.review(subject, positionId, {
+    ...base(announced),
+    investmentEvent: {
+      ...conversion(announced),
+      eventId: first.eventId,
+      supersedesRevisionId: first.revisionId,
+      status: "cancelled",
+    },
+  });
+  expect((await repository.getContext(subject, positionId)).mappings).toEqual(
+    before.mappings,
+  );
+});
+
+it("rejects stale mapping and cross-position amendments without partial event writes", async () => {
+  const context = await repository.getContext(subject, positionId);
+  const event = conversion(context);
+  await expect(
+    repository.review(subject, positionId, {
+      ...base(context),
+      investmentEvent: { ...event, expectedMappingIds: ["foreign-mapping"] },
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  await expect(
+    repository.review(subject, positionId, {
+      ...base(context),
+      investmentEvent: { ...event, supersedesRevisionId: crypto.randomUUID() },
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  await expect(
+    repository.review(subject, positionId, {
+      ...base(context),
+      participationStatus: "historical",
+      investmentEvent: event,
+    }),
+  ).rejects.toMatchObject({ code: "invalid_evidence" });
+  expect(
+    (await repository.getContext(subject, positionId)).investmentEvents,
+  ).toEqual([]);
+});
+
+it("keeps the accepted successor and current participation after another realized provider import", async () => {
+  const before = await repository.getContext(subject, positionId);
+  await repository.review(subject, positionId, {
+    ...base(before),
+    investmentEvent: conversion(before),
+  });
+  const imports = new D1HoldingImportRepository(d1.asD1());
+  const staged = await imports.stageHoldingImport(subject, {
+    ...input,
+    sha256: digest("synthetic later realized import"),
+    effectiveDate: "2026-09-02",
+    retrievedAt: "2026-09-02T12:00:00.000Z",
+    rows: input.rows.map((row) => ({ ...row, status: "Realized" })),
+  });
+  await imports.applyHoldingImport(subject, staged.preview.id, {
+    currency: "USD",
+    decisions: staged.preview.rows.map((row) => ({
+      rowId: row.id,
+      decision: "accepted",
+      rationale: "Reviewed synthetic source update",
+    })),
+  });
+  const after = await repository.getContext(subject, positionId);
+  expect(after.review?.participationStatus).toBe("current");
+  expect(after.investmentEvents).toHaveLength(1);
+  expect(
+    after.mappings.filter((mapping) => mapping.status === "active"),
+  ).toMatchObject([{ companyName: "Synthetic Successor Holdings Inc." }]);
+});
+
+it("rolls back successor identity and event when the review becomes stale during save", async () => {
+  const before = await repository.getContext(subject, positionId);
+  const originalBatch = d1.batch.bind(d1);
+  let raced = false;
+  vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => {
+    if (!raced) {
+      raced = true;
+      await repository.review(subject, positionId, {
+        ...base(before),
+        participationStatus: "historical",
+      });
+    }
+    return originalBatch(statements);
+  });
+  await expect(
+    repository.review(subject, positionId, {
+      ...base(before),
+      investmentEvent: conversion(before),
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  const after = await repository.getContext(subject, positionId);
+  expect(after.investmentEvents).toEqual([]);
+  expect(after.mappings).toEqual(before.mappings);
+  expect(
+    d1.sqlite
+      .prepare("SELECT COUNT(*) count FROM companies WHERE legal_name = ?")
+      .get("Synthetic Successor Holdings Inc."),
+  ).toMatchObject({ count: 0 });
 });

@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  InvestmentEventInputSchema,
+  InvestmentEventSchema,
+} from "./investment-events";
 import { CompanyIdentityChoiceSchema } from "./company-identity";
 
 import { PositionEconomicsContextSchema } from "./position-economics";
@@ -222,6 +226,7 @@ export const InvestmentReviewStateSchema = z
 
 export const ReviewInvestmentInputSchema = z
   .object({
+    investmentEvent: InvestmentEventInputSchema.optional(),
     requestId: z.string().uuid(),
     expectedReviewId: z.string().uuid().nullable(),
     expectedSnapshotId: Id.nullable(),
@@ -356,6 +361,9 @@ export const InvestmentReviewContextSchema = z
   .object({
     positionId: Id,
     positionLabel: z.string().min(1).max(1_000),
+    positionKind: z.enum(["spv_interest", "fund_interest"]).optional(),
+    investmentEvents: z.array(InvestmentEventSchema).max(100).optional(),
+    valuationAsOf: z.iso.datetime({ offset: true }).nullable().optional(),
     openedOn: z.iso.date().nullable().optional(),
     holderLabel: z.string().min(1).max(1_000),
     snapshotId: Id.nullable(),

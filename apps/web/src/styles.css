@@ -8505,3 +8505,24 @@ h1,
 .purchase-fields input[type="checkbox"] {
   accent-color: var(--ink);
 }
+
+.investment-events__entry {
+  margin-block: var(--space-6, 1.5rem);
+}
+
+.investment-events__component {
+  border: 0;
+  margin: 1.5rem 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.investment-events__component legend {
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.investment-events__source {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -162,9 +162,10 @@ documents can supply v6 fee citations.
 
 The entity collection remains projection-only: four position-view reads plus
 four inventory reads, independent of row count. Detail loads are lazy and use
-seven fixed reads. Neither GET reads PDFs/R2, synchronizes providers, backfills,
-or writes state. Synthetic regressions cover 120+ records and indexed query
-plans. Collections retain existing progressive rendering and complete exports.
+eight fixed reads, including bounded event history. Neither GET reads PDFs/R2,
+synchronizes providers, backfills, or writes state. Synthetic regressions cover
+120+ records and indexed query plans. Collections retain existing progressive
+rendering and complete exports.
 
 A detail review is bounded to 100 document references, 100 ownership
 observations, 100 exposure mappings, and 5,000 company/investment labels. These
@@ -216,8 +217,49 @@ baseline sources and never rewrites a previous forecast.
 The real D1 holdout uses 120 positions, 120 additional review versions per
 position with tied timestamps, and 120 unrelated-household positions. Current
 Holdings reads have an 11-round-trip, 3,500-row read budget with no writes; a
-closure save has a nine-round-trip, 500-row read, six-row write budget including
+closure save has a ten-round-trip, 500-row read, six-row write budget including
 index maintenance. Retries add no writes. Indexed query plans and the legacy
 read endpoint are checked alongside save/readback, newer imports, cancelled
 positions, mixed entities, an all-historical portfolio, and desktop/mobile
 flows.
+
+## Continuing-SPV investment events
+
+Investment → Investment events records a full underlying merger or conversion
+while the investor's SPV participation continues. The first release accepts a
+pasted notice, an optional clean supporting document, one predecessor/successor
+issuer, and up to 20 consideration components. Bounded deterministic extraction
+prefills explicit received-share, warrant and contingent-earnout terms,
+selecting only an exactly named vehicle section when a notice covers several
+vehicles. Unrecognized terms stay in the source text for review; extraction does
+not call an external model, infer personal ownership, or treat source text as
+instructions.
+
+A completed, reviewed event atomically records Current participation, a
+versioned company mapping, and its event evidence. Announced/cancelled events
+record only the event and continuing participation. Share quantities use exact
+decimal strings; money uses minor currency units. Cash components are SPV-level
+evidence, never personal cash-account writes. Contributions, distributions,
+amounts, valuations and forecasts are not copied, revalued or rewritten by an
+event. Notice and effective dates are separate; an unknown closing date is
+permitted. The UI retains the valuation observation date and explains that
+transaction prices are not a current LP valuation or a tax-basis determination.
+
+`investment_event_revisions` keeps evidence outside collection projection
+payloads. Investment detail reads at most 100 revisions through the household/
+position/date/id index in one extra bounded query, for eight round trips.
+Separate rows avoid D1's per-value limit when evidence history grows. Event
+writes use the existing request, snapshot, evidence and review guards plus
+expected mapping heads. Retries reuse the accepted receipt; identical event
+facts do not append another event. Amendments retain prior terms and cannot
+overwrite a subsequent successor exposure. A 120-position real-D1 test covers
+empty/positive history, the 100-revision bound, idempotent writes, and indexed
+query plans. A new-company conversion uses at most eleven round trips and 50
+billed row writes including indexes.
+
+Cash-only acquisitions are rejected because they do not create successor company
+exposure. Direct-owner distributions, partial exits, multiple successor issuers
+and legal SPV rollovers need separate workflows. They are not silently
+approximated by this full-conversion form. An existing completed conversion
+cannot be changed to a cancelled announcement; a corrective conversion records a
+reversal explicitly.

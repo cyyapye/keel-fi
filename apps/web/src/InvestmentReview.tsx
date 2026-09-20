@@ -1,3 +1,4 @@
+import { InvestmentEvents } from "./InvestmentEvents";
 import { moneyInputValue, parseMoneyInput } from "./money-input";
 import {
   matchingCompanies,
@@ -1738,6 +1739,9 @@ export function InvestmentReview({
                   )
                 }
               </InvestmentAmountReview>
+              {context.positionKind !== "fund_interest" && (
+                <InvestmentEvents context={context} save={save} busy={busy} />
+              )}
             </>
           )}
         </TabsContent>
