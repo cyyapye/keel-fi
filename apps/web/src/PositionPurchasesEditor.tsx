@@ -11,6 +11,10 @@ import {
 } from "@keel/domain/position-purchases";
 import { calculatePositionEconomics } from "@keel/domain/position-economics";
 import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+  DisclosureIndicator,
   ActionGroup,
   Button,
   DatePicker,
@@ -448,88 +452,108 @@ export function PositionPurchasesEditor({
                 {date(i, "sharesAsOf", "Shares as of")}
                 {field(i, "sourceLabel", "Purchase source")}
               </div>
-              <details>
-                <summary>Capital, one-time fee and reference price</summary>
-                <div className="position-economics__fields">
-                  {field(
-                    i,
-                    "grossCashMinor",
-                    "Gross cash contributed · USD",
-                    true,
-                  )}
-                  {field(
-                    i,
-                    "netCapitalMinor",
-                    "Capital used for shares · USD",
-                    true,
-                  )}
-                  {field(i, "feePpm", "One-time fee · %", true)}
-                  <Field label="Fee basis" variant="filled">
-                    <Select
-                      items={feeChoices}
-                      value={d.feeBasis || "unknown"}
-                      onValueChange={(v) =>
-                        update(i, "feeBasis", v === "unknown" ? "" : String(v))
+              <Collapsible>
+                <CollapsibleTrigger>
+                  <DisclosureIndicator />
+                  Capital, one-time fee and reference price
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="position-economics__fields">
+                    {field(
+                      i,
+                      "grossCashMinor",
+                      "Gross cash contributed · USD",
+                      true,
+                    )}
+                    {field(
+                      i,
+                      "netCapitalMinor",
+                      "Capital used for shares · USD",
+                      true,
+                    )}
+                    {field(i, "feePpm", "One-time fee · %", true)}
+                    <Field label="Fee basis" variant="filled">
+                      <Select
+                        items={feeChoices}
+                        value={d.feeBasis || "unknown"}
+                        onValueChange={(v) =>
+                          update(
+                            i,
+                            "feeBasis",
+                            v === "unknown" ? "" : String(v),
+                          )
+                        }
+                      >
+                        <SelectTrigger aria-label="Fee basis">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {feeChoices.map((choice) => (
+                            <SelectItem key={choice.value} value={choice.value}>
+                              {choice.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {field(i, "feeLabel", "Fee description")}
+                    {field(
+                      i,
+                      "referencePriceMicros",
+                      "Entry reference price / share · USD",
+                      true,
+                    )}
+                    {field(i, "sourceUrl", "Purchase source link")}
+                  </div>
+                  <label>
+                    <Input
+                      type="checkbox"
+                      checked={d.originalSharesUnchanged === "true"}
+                      onChange={(event) =>
+                        update(
+                          i,
+                          "originalSharesUnchanged",
+                          String(event.currentTarget.checked),
+                        )
                       }
-                    >
-                      <SelectTrigger aria-label="Fee basis">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {feeChoices.map((choice) => (
-                          <SelectItem key={choice.value} value={choice.value}>
-                            {choice.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  {field(i, "feeLabel", "Fee description")}
-                  {field(
-                    i,
-                    "referencePriceMicros",
-                    "Entry reference price / share · USD",
-                    true,
-                  )}
-                  {field(i, "sourceUrl", "Purchase source link")}
-                </div>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={d.originalSharesUnchanged === "true"}
-                    onChange={(event) =>
-                      update(
-                        i,
-                        "originalSharesUnchanged",
-                        String(event.currentTarget.checked),
-                      )
-                    }
-                  />{" "}
-                  No sales, splits or conversions; original shares are still
-                  held.
-                </label>
-                <p>
-                  Without a remaining share count, Keel can calculate original
-                  shares from share capital and purchase price. Only use that
-                  calculation if there have been no sales, splits or
-                  conversions. These details do not replace fee and carry terms.
-                </p>
-              </details>
-              <details>
-                <summary>Valuation price evidence</summary>
-                <div className="position-economics__fields">
-                  {field(i, "markPrice", "Valuation price / share · USD", true)}
-                  {date(i, "markDate", "Valuation price as of")}
-                  {field(i, "markClass", "Valuation share class")}
-                  {field(i, "markSource", "Valuation source")}
-                  {field(i, "markUrl", "Valuation source link")}
-                </div>
-                <p>
-                  Use a price for the same underlying share class. A company
-                  valuation or another preferred series is not a matching share
-                  price.
-                </p>
-              </details>
+                    />{" "}
+                    No sales, splits or conversions; original shares are still
+                    held.
+                  </label>
+                  <p>
+                    Without a remaining share count, Keel can calculate original
+                    shares from share capital and purchase price. Only use that
+                    calculation if there have been no sales, splits or
+                    conversions. These details do not replace fee and carry
+                    terms.
+                  </p>
+                </CollapsibleContent>
+              </Collapsible>
+              <Collapsible>
+                <CollapsibleTrigger>
+                  <DisclosureIndicator />
+                  Valuation price evidence
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="position-economics__fields">
+                    {field(
+                      i,
+                      "markPrice",
+                      "Valuation price / share · USD",
+                      true,
+                    )}
+                    {date(i, "markDate", "Valuation price as of")}
+                    {field(i, "markClass", "Valuation share class")}
+                    {field(i, "markSource", "Valuation source")}
+                    {field(i, "markUrl", "Valuation source link")}
+                  </div>
+                  <p>
+                    Use a price for the same underlying share class. A company
+                    valuation or another preferred series is not a matching
+                    share price.
+                  </p>
+                </CollapsibleContent>
+              </Collapsible>
               <Button
                 tone="secondary"
                 onClick={() =>

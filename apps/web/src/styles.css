@@ -2106,6 +2106,9 @@ h1,
 .cash-review__decision input {
   margin: 0;
   accent-color: var(--ink);
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
 }
 
 .cash-review__issue {
@@ -8463,10 +8466,17 @@ h1,
   font-weight: 600;
   margin-bottom: 1rem;
 }
-.purchase-fields details {
+.purchase-fields > [data-slot="collapsible"] {
   margin: 1rem 0;
 }
-.purchase-fields summary {
+.purchase-fields [data-slot="collapsible-trigger"] {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 0;
+  gap: 10px;
+  text-align: left;
+  font: inherit;
   cursor: pointer;
   min-height: 44px;
   display: flex;
@@ -8495,11 +8505,4 @@ h1,
 }
 .purchase-fields input[type="checkbox"] {
   accent-color: var(--ink);
-}
-.purchase-fields summary::before {
-  content: "+";
-  margin-right: 10px;
-}
-.purchase-fields details[open] > summary::before {
-  content: "−";
 }
