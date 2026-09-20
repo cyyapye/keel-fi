@@ -61,4 +61,7 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
   } finally {
     await fixture.close();
   }
-}, 60_000);
+  // This exercises 960 real D1 writes plus reads; allow the shared Linux runner
+  // the same fixture time as other large cost holdouts. Query/row budgets above
+  // remain the performance contract and are asserted for every operation.
+}, 180_000);
