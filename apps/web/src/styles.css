@@ -2106,9 +2106,6 @@ h1,
 .cash-review__decision input {
   margin: 0;
   accent-color: var(--ink);
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
 }
 
 .cash-review__issue {
