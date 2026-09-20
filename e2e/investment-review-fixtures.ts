@@ -1,3 +1,4 @@
+import { InvestmentEventSchema } from "../packages/domain/src/investment-events";
 import { expect, type Page } from "@playwright/test";
 
 export async function selectReviewSection(page: Page, name: string) {
@@ -162,6 +163,25 @@ export async function routeInvestmentReview(
           context.economics.amountCorrectionNote =
             context.review.amountCorrection?.note ?? null;
         }
+      }
+      if (input.investmentEvent !== undefined) {
+        const previous = context.investmentEvents?.find(
+          (event) =>
+            event.revisionId === input.investmentEvent?.supersedesRevisionId,
+        );
+        context.investmentEvents = [
+          ...(context.investmentEvents ?? []),
+          InvestmentEventSchema.parse({
+            ...input.investmentEvent,
+            revisionId: crypto.randomUUID(),
+            revision: (previous?.revision ?? 0) + 1,
+            recordedAt: "2026-09-01T12:00:00.000Z",
+            sourceSha256: "a".repeat(64),
+            contentSha256: "b".repeat(64),
+            documentSha256: null,
+            successorCompanyId: "demo_successor",
+          }),
+        ];
       }
       source.investmentReview = context.review;
       context.evidenceRevision = await investmentEvidenceRevision(

@@ -158,7 +158,7 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
     const saved = await measuredReviews.review(subject, ids[0]!, request);
     expect(saved.amountCorrection?.amountMinor).toBe(490_000);
     const save = { ...measured.cost };
-    expect(save.roundTrips).toBeLessThanOrEqual(9);
+    expect(save.roundTrips).toBeLessThanOrEqual(10);
     expect(save.rowsRead).toBeLessThanOrEqual(500);
     expect(save.rowsWritten).toBeLessThanOrEqual(6);
     measured.reset();

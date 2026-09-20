@@ -1799,3 +1799,87 @@ test("corrects investment amounts with review, reload, second save, rejection an
   expect(fixture.context.review?.amountCorrection).toBeNull();
   expect(fixture.context.fundedMinor).toBe(1_000_000);
 });
+
+test("records a continuing SPV conversion, retains rejected evidence and amends conditional rights", async ({
+  page,
+}) => {
+  const fixture = await setup(page);
+  await selectReviewSection(page, "Investment");
+  const section = page.getByRole("region", {
+    name: "Investment events",
+    exact: true,
+  });
+  await section
+    .getByRole("button", { name: "Record event", exact: true })
+    .click();
+  await section.getByLabel("Notice text", { exact: true })
+    .fill(`Synthetic Robotics has merged with Synthetic Successor Holdings.
+September 1, 2026
+This is not an exit that gives LPs liquidity.
+For Demo Growth IV, here are the transaction terms:
+The SPV received 1,234 acquirer Series A shares, valued at $42.31 per share.
+The SPV will receive an additional 321 shares upon release of earnout.
+The SPV received 88 closing warrant shares.`);
+  await section
+    .getByRole("button", { name: "Review extracted details" })
+    .click();
+  await expect(section.getByLabel("Successor company or issuer")).toHaveValue(
+    "Synthetic Successor Holdings",
+  );
+  await expect(
+    section.getByLabel("Component 2 quantity (optional)"),
+  ).toHaveValue("321");
+  await expect(section).toHaveScreenshot("investment-event-details.png", {
+    animations: "disabled",
+  });
+  await section
+    .getByRole("button", { name: "Review event", exact: true })
+    .click();
+  await expect(section).toHaveScreenshot("investment-event-review.png", {
+    animations: "disabled",
+  });
+  fixture.rejectWrites(true);
+  await section
+    .getByRole("button", { name: "Save event", exact: true })
+    .click();
+  await expect(
+    fixture.review.getByText(/This investment changed/u),
+  ).toBeVisible();
+  await expect(section.getByText("1234 units", { exact: false })).toBeVisible();
+  fixture.rejectWrites(false);
+  await section
+    .getByRole("button", { name: "Save event", exact: true })
+    .click();
+  await expect(
+    section.getByRole("button", { name: "Update event", exact: true }),
+  ).toBeVisible();
+  await expect(section).toHaveScreenshot("investment-event-saved.png", {
+    animations: "disabled",
+  });
+  await page.reload();
+  await expect(
+    section.getByRole("button", { name: "Update event", exact: true }),
+  ).toBeVisible();
+  await section
+    .getByRole("button", { name: "Update event", exact: true })
+    .click();
+  await section.getByRole("combobox", { name: "Component 2 status" }).click();
+  await page.getByRole("option", { name: "Released", exact: true }).click();
+  await section
+    .getByRole("button", { name: "Review event", exact: true })
+    .click();
+  await section
+    .getByRole("button", { name: "Save event", exact: true })
+    .click();
+  await expect(section.getByText(/Revision 2/u)).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: "Update event", exact: true }),
+  ).toHaveCount(1);
+  expect(fixture.context.investmentEvents).toHaveLength(2);
+  expect(fixture.context.committedMinor).toBe(1_000_000);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
