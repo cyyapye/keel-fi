@@ -147,7 +147,7 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
     ),
   ).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await expect(page).toHaveScreenshot("purchase-form.png", {
+  await expect.soft(page).toHaveScreenshot("purchase-form.png", {
     animations: "disabled",
     fullPage: true,
   });
@@ -165,7 +165,7 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
     ),
   ).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await expect(page).toHaveScreenshot("purchase-review.png", {
+  await expect.soft(page).toHaveScreenshot("purchase-review.png", {
     animations: "disabled",
     fullPage: true,
   });
@@ -201,7 +201,7 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
     ),
   ).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await expect(page).toHaveScreenshot("purchase-saved.png", {
+  await expect.soft(page).toHaveScreenshot("purchase-saved.png", {
     animations: "disabled",
     fullPage: true,
   });
