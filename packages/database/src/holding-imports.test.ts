@@ -2738,7 +2738,9 @@ describe("reviewed portfolio baseline persistence", () => {
     expect(emptyCurrent.latestBaseline?.summary.positionCount).toBe(0);
     expect(emptyCurrent.latestBaseline?.fiEligibleLiquidMinor).toBe(0);
     expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-  });
+    // Full 120-source history and exception replay exceeds the default 5s on
+    // the shared CI runner; round-trip budgets above still gate database work.
+  }, 15_000);
 
   it("atomically appends a reviewed FI baseline without treating unknown values as money", async () => {
     const angelListInput = stageInput("4".repeat(64), {
