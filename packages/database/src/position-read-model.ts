@@ -1,3 +1,4 @@
+import { PurchaseReceiptSchema } from "@keel/domain/position-purchases";
 import {
   investmentSourceFreshness,
   InvestmentPositionViewSchema,
@@ -53,6 +54,7 @@ type InvestmentContainerRow = {
 };
 
 type InvestmentPositionRow = {
+  purchase_receipt_json?: string | null;
   container_id: string;
   position_id: string;
   legal_vehicle_name: string;
@@ -300,6 +302,10 @@ function positionFromRow(
       ticker: row.ticker,
       costBasisMinor: row.cost_basis_minor,
     },
+    purchaseReceipt:
+      row.purchase_receipt_json == null
+        ? null
+        : PurchaseReceiptSchema.parse(JSON.parse(row.purchase_receipt_json)),
     acceptedValueAdjustment,
     acceptedEconomicsTerms,
     reportedEconomicsTerms,
@@ -462,6 +468,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
         this.db
           .prepare(
             `SELECT
+             purchase_review.receipt_json AS purchase_receipt_json,
              ownership.container_id,
              position.id AS position_id,
              position.legal_vehicle_name,
@@ -546,6 +553,8 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                AS reported_management_fee_ppm,
              economics_evidence.carry_ppm AS reported_carry_ppm
            FROM holding_positions position
+           LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id=position.id AND purchase_head.household_id=position.household_id
+           LEFT JOIN holding_purchase_reviews purchase_review ON purchase_review.id=purchase_head.review_id
            JOIN holding_position_ownerships ownership
              ON ownership.position_id = position.id
             AND NOT EXISTS (

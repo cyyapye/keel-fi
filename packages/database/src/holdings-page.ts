@@ -112,6 +112,16 @@ function importedHoldingFrom(
   const acceptedAdjustment = position.acceptedValueAdjustment ?? null;
 
   return HoldingSchema.parse({
+    purchaseContext:
+      position.kind === "spv_interest" && position.snapshot.currency === "USD"
+        ? {
+            snapshotId: position.snapshot.id,
+            currency: "USD",
+            openedOn: position.openedOn,
+            receipt: position.purchaseReceipt ?? null,
+          }
+        : null,
+    shareValueEstimate: exposurePosition.shareValueEstimate ?? null,
     id: position.id,
     companyId,
     positionName: position.legalVehicleName,

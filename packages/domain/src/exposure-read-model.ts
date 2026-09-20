@@ -1,3 +1,7 @@
+import {
+  estimatePurchaseValue,
+  ShareValueEstimateSchema,
+} from "./position-purchases";
 import { investmentAmount } from "./investment-review";
 import { z } from "zod";
 
@@ -132,6 +136,7 @@ export const InvestmentExposurePositionSchema = z
         "provider",
         "invested_amount",
         "portfolio_watch_estimate",
+        "share_price_estimate",
         "reviewed_adjustment",
       ])
       .optional(),
@@ -144,6 +149,7 @@ export const InvestmentExposurePositionSchema = z
     priorValueMinor: NonNegativeMoneyMinorSchema.nullable().optional(),
     priorValueObservedAt: IsoTimestampSchema.nullable().optional(),
     isPrivateCompanyPosition: z.boolean(),
+    shareValueEstimate: ShareValueEstimateSchema.nullable().optional(),
     privateValueEstimate: PrivatePositionValueEstimateSchema.nullable(),
     mappings: z.array(InvestmentExposureMappingViewSchema),
     mappedExposureIds: z.array(z.string().min(1)),
@@ -394,12 +400,25 @@ export function createInvestmentExposureView(
         const adjustment = position.acceptedValueAdjustment ?? null;
         const privateValueEstimate =
           privateValueEstimates.get(position.id) ?? null;
+        const shareValueEstimate =
+          position.snapshot.providerStatus === "live"
+            ? estimatePurchaseValue(
+                position.purchaseReceipt,
+                position.snapshot.id,
+              )
+            : null;
+        const useShareEstimate =
+          adjustment === null &&
+          position.snapshot.unrealizedValue.state === "not_reported" &&
+          shareValueEstimate !== null;
         const investedAmountFallback =
           adjustment === null &&
           privateValueEstimate === null &&
+          !useShareEstimate &&
           usesInvestedAmountFallback(position);
         const valueState =
           adjustment !== null ||
+          useShareEstimate ||
           privateValueEstimate !== null ||
           investedAmountFallback
             ? "reported"
@@ -407,11 +426,13 @@ export function createInvestmentExposureView(
         const valueMinor =
           adjustment !== null
             ? adjustment.valueMinor
-            : privateValueEstimate !== null
-              ? privateValueEstimate.valueMinor
-              : investedAmountFallback
-                ? position.snapshot.investedMinor
-                : position.snapshot.unrealizedValue.minor;
+            : useShareEstimate
+              ? shareValueEstimate.valueMinor
+              : privateValueEstimate !== null
+                ? privateValueEstimate.valueMinor
+                : investedAmountFallback
+                  ? position.snapshot.investedMinor
+                  : position.snapshot.unrealizedValue.minor;
         const allocatedValues: number[] = [];
         const mappingViews = positionMappings.map((mapping) => {
           const allocatedValueMinor =
@@ -496,17 +517,21 @@ export function createInvestmentExposureView(
           valueSource:
             adjustment !== null
               ? "reviewed_adjustment"
-              : privateValueEstimate !== null
-                ? "portfolio_watch_estimate"
-                : investedAmountFallback
-                  ? "invested_amount"
-                  : "provider",
+              : useShareEstimate
+                ? "share_price_estimate"
+                : privateValueEstimate !== null
+                  ? "portfolio_watch_estimate"
+                  : investedAmountFallback
+                    ? "invested_amount"
+                    : "provider",
           valueEffectiveDate:
             adjustment?.effectiveDate ??
+            (useShareEstimate ? shareValueEstimate.effectiveDate : null) ??
             privateValueEstimate?.effectiveDate ??
             position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length),
           valueSourceLabel:
             adjustment?.sourceLabel ??
+            (useShareEstimate ? "Reviewed underlying share prices" : null) ??
             (privateValueEstimate === null
               ? position.source.label
               : `Portfolio Watch + ${privateValueEstimate.referenceSourceLabel}`),
@@ -515,6 +540,7 @@ export function createInvestmentExposureView(
           priorValueObservedAt: position.priorValue?.observedAt ?? null,
           isPrivateCompanyPosition: privateCompanyByPositionId.has(position.id),
           privateValueEstimate,
+          shareValueEstimate,
           valueState,
           valueMinor,
           mappings: mappingViews,

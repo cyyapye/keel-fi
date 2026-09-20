@@ -495,6 +495,7 @@ describe("legal entity repository", () => {
           resolve(
             process.cwd(),
             "packages/database/migrations/0062_reviewed_company_aliases.sql",
+            "packages/database/migrations/0070_private_purchase_details.sql",
           ),
           "utf8",
         ),

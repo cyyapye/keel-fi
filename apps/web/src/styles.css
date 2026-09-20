@@ -8451,3 +8451,55 @@ h1,
     flex-direction: column;
   }
 }
+
+.purchase-fields {
+  border: 0;
+  padding: 0;
+  margin: 1.5rem 0;
+  min-width: 0;
+}
+.purchase-fields legend,
+.purchase-summary h4 {
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+.purchase-fields details {
+  margin: 1rem 0;
+}
+.purchase-fields summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.purchase-summary {
+  margin: 1.5rem 0;
+  overflow-wrap: anywhere;
+}
+
+.purchase-details > form > p,
+.purchase-fields p,
+.purchase-summary p,
+.purchase-details > p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 70ch;
+}
+.purchase-fields label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 12px;
+}
+.purchase-fields input[type="checkbox"] {
+  accent-color: var(--ink);
+}
+.purchase-fields summary::before {
+  content: "+";
+  margin-right: 10px;
+}
+.purchase-fields details[open] > summary::before {
+  content: "−";
+}

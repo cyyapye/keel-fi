@@ -69,6 +69,7 @@ const migrationFiles = [
   syntheticSeedFile,
   "packages/database/migrations/0061_portfolio_watch_activity.sql",
   "packages/database/migrations/0062_reviewed_company_aliases.sql",
+  "packages/database/migrations/0070_private_purchase_details.sql",
   "packages/database/migrations/0064_watch_read_receipts.sql",
   "packages/database/migrations/0065_watch_website_confirmation.sql",
 ] as const;

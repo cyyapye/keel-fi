@@ -1,3 +1,4 @@
+import { PositionPurchasesEditor } from "./PositionPurchasesEditor";
 import { PortfolioWatchMonitor } from "./PortfolioWatchMonitor";
 import { formatWatchTime, mergeWatchReadState } from "./portfolio-watch-format";
 import {
@@ -2758,6 +2759,12 @@ function HoldingDetailWorkspace({
       </section>
 
       <PositionPerformanceSummary holding={holding} />
+
+      <PositionPurchasesEditor
+        key={`${holding.id}:${holding.purchaseContext?.snapshotId}:${holding.purchaseContext?.receipt?.id}`}
+        holding={holding}
+        onAccepted={onValueAccepted}
+      />
 
       <PositionEconomicsEditor holding={holding} onAccepted={onValueAccepted} />
 
