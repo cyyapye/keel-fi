@@ -1,3 +1,7 @@
+import {
+  InvestmentEventSchema,
+  currentInvestmentEvents,
+} from "@keel/domain/investment-events";
 import { matchingCompanies } from "@keel/domain/company-identity";
 import { loadCompanyIdentityChoices, identityChoice } from "./company-identity";
 import { automaticEconomics } from "@keel/domain/automatic-investment-review";
@@ -203,41 +207,54 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       .first<Position>();
     if (position === null)
       throw new InvestmentReviewError("not_found", "Investment not found.");
-    const [mappings, companies, otherPositions, incoming] = await Promise.all([
-      this.db
-        .prepare(
-          `SELECT m.id, m.exposure_id, e.company_id, e.canonical_name, m.status, m.relationship_kind, m.version, m.effective_at, m.decision_source, m.accepted_at
+    const [mappings, companies, otherPositions, incoming, eventRows] =
+      await Promise.all([
+        this.db
+          .prepare(
+            `SELECT m.id, m.exposure_id, e.company_id, e.canonical_name, m.status, m.relationship_kind, m.version, m.effective_at, m.decision_source, m.accepted_at
         FROM holding_position_exposure_mappings m JOIN canonical_exposures e ON e.id = m.exposure_id
         WHERE m.household_id = ? AND m.position_id = ? AND NOT EXISTS (SELECT 1 FROM holding_position_exposure_mappings later WHERE later.supersedes_mapping_id = m.id)
         ORDER BY m.exposure_id LIMIT 101`,
-        )
-        .bind(identity.household_id, positionId)
-        .all<Mapping>(),
-      loadCompanyIdentityChoices(this.db, identity.household_id),
-      this.db
-        .prepare(
-          `SELECT p.id, COALESCE(v.legal_name, p.legal_vehicle_name) label FROM holding_positions p
+          )
+          .bind(identity.household_id, positionId)
+          .all<Mapping>(),
+        loadCompanyIdentityChoices(this.db, identity.household_id),
+        this.db
+          .prepare(
+            `SELECT p.id, COALESCE(v.legal_name, p.legal_vehicle_name) label FROM holding_positions p
         LEFT JOIN legal_entity_source_decisions d ON d.source_kind = 'holding_position' AND d.source_reference = p.id AND d.household_id = p.household_id AND d.decision = 'linked'
           AND NOT EXISTS (SELECT 1 FROM legal_entity_source_decisions later WHERE later.supersedes_decision_id = d.id)
         LEFT JOIN legal_entity_versions v ON v.legal_entity_id = d.legal_entity_id AND NOT EXISTS (SELECT 1 FROM legal_entity_versions later WHERE later.supersedes_version_id = v.id)
         WHERE p.household_id = ? AND p.id <> ? AND p.position_kind <> 'direct'
           AND NOT EXISTS (SELECT 1 FROM holding_position_continuities WHERE predecessor_position_id = p.id)
         ORDER BY label, p.id LIMIT 5001`,
-        )
-        .bind(identity.household_id, positionId)
-        .all<{ id: string; label: string }>(),
-      this.db
-        .prepare(
-          `SELECT position_id, document_id, review_id, document_json FROM investment_document_assignments WHERE household_id = ? AND target_position_id = ? ORDER BY document_id LIMIT 101`,
-        )
-        .bind(identity.household_id, positionId)
-        .all<{
-          position_id: string;
-          document_id: string;
-          review_id: string;
-          document_json: string;
-        }>(),
-    ]);
+          )
+          .bind(identity.household_id, positionId)
+          .all<{ id: string; label: string }>(),
+        this.db
+          .prepare(
+            `SELECT position_id, document_id, review_id, document_json FROM investment_document_assignments WHERE household_id = ? AND target_position_id = ? ORDER BY document_id LIMIT 101`,
+          )
+          .bind(identity.household_id, positionId)
+          .all<{
+            position_id: string;
+            document_id: string;
+            review_id: string;
+            document_json: string;
+          }>(),
+        this.db
+          .prepare(
+            `SELECT payload_json FROM investment_event_revisions WHERE household_id = ? AND position_id = ? ORDER BY recorded_at DESC, id DESC LIMIT 101`,
+          )
+          .bind(identity.household_id, positionId)
+          .all<{ payload_json: string }>(),
+      ]);
+    const events = z
+      .array(InvestmentEventSchema)
+      .max(100)
+      .parse(
+        eventRows.results.map((row) => JSON.parse(row.payload_json) as unknown),
+      );
     const review =
       position.state_json === null
         ? null
@@ -327,6 +344,9 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     const context = InvestmentReviewContextSchema.parse({
       positionId,
       positionLabel: position.legal_vehicle_name,
+      positionKind: position.position_kind,
+      investmentEvents: events,
+      valuationAsOf: position.observed_at,
       openedOn: position.opened_on,
       automaticReview:
         position.automatic_review_json === null
@@ -605,7 +625,10 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     );
     if (retry !== null)
       return InvestmentReviewStateSchema.parse(JSON.parse(retry.payload));
-    const { context, guard, position } = await this.load(identity, positionId);
+    const { context, guard, position, mappings } = await this.load(
+      identity,
+      positionId,
+    );
     this.check(context, input);
     if ((context.review?.id ?? null) !== input.expectedReviewId) throw stale();
     const recordedAt = new Date().toISOString();
@@ -711,6 +734,176 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       documentAssignments: [...assignments.values()],
       recordedAt,
     });
+    const eventStatements: D1PreparedStatement[] = [];
+    const companyStatements: D1PreparedStatement[] = [];
+    const eventInput = input.investmentEvent;
+    if (eventInput !== undefined) {
+      if (
+        position.position_kind !== "spv_interest" ||
+        input.participationStatus !== "current"
+      )
+        throw invalid(
+          "Record this event on a continuing, current SPV investment.",
+        );
+      if (
+        input.amountCorrection !== undefined ||
+        input.closure != null ||
+        input.ownershipObservation !== undefined ||
+        input.documentAssignments !== undefined
+      )
+        throw invalid(
+          "Save the investment event separately from other financial or document changes.",
+        );
+      const events = context.investmentEvents ?? [];
+      const { eventId, supersedesRevisionId, expectedMappingIds, ...facts } =
+        eventInput;
+      const contentSha256 = await investmentEvidenceRevision(facts);
+      const duplicate = events.find(
+        (event) =>
+          event.contentSha256 === contentSha256 &&
+          (supersedesRevisionId === null ||
+            event.revisionId === supersedesRevisionId ||
+            (event.eventId === eventId &&
+              currentInvestmentEvents(events).some(
+                (current) => current.revisionId === event.revisionId,
+              ))),
+      );
+      if (duplicate !== undefined && context.review !== null)
+        return context.review;
+      if (events.length >= 100)
+        throw invalid(
+          "This investment has reached its 100-event-revision limit.",
+        );
+      const previous = currentInvestmentEvents(events).find(
+        (event) => event.eventId === eventId,
+      );
+      if ((previous?.revisionId ?? null) !== supersedesRevisionId)
+        throw stale();
+      if (previous?.status === "completed" && eventInput.status !== "completed")
+        throw invalid(
+          "A completed conversion needs a corrective conversion event; it cannot be cancelled as an announcement.",
+        );
+      if (
+        previous !== undefined &&
+        currentInvestmentEvents(events).some(
+          (event) =>
+            event.status === "completed" &&
+            event.eventId !== eventId &&
+            event.recordedAt > previous.recordedAt,
+        )
+      )
+        throw invalid(
+          "Update the most recent conversion so an earlier event cannot replace its successor.",
+        );
+      if (
+        JSON.stringify([...expectedMappingIds].sort()) !==
+        JSON.stringify(mappings.map((m) => m.id).sort())
+      )
+        throw stale();
+      const today = recordedAt.slice(0, 10);
+      if (
+        (eventInput.noticeDate !== null && eventInput.noticeDate > today) ||
+        (eventInput.status === "completed" &&
+          eventInput.effectiveDate !== null &&
+          eventInput.effectiveDate > today)
+      )
+        throw invalid(
+          "A completed event or received notice cannot be dated in the future.",
+        );
+      if (
+        previous?.status === "completed" &&
+        mappings.some(
+          (mapping) =>
+            mapping.status === "active" &&
+            mapping.company_id !== previous.successorCompanyId,
+        )
+      )
+        throw invalid(
+          "The investment now has a different company exposure. Record its next conversion instead of replacing an earlier event.",
+        );
+      const doc =
+        eventInput.documentId === null
+          ? null
+          : this.document(context, eventInput.documentId);
+      if (
+        doc !== null &&
+        context.review?.documentAssignments.some(
+          (assignment) =>
+            assignment.documentId === doc.id &&
+            assignment.relationship !== "supports",
+        )
+      )
+        throw invalid("Choose evidence assigned to this investment.");
+      let successorCompanyId: string | null = null;
+      if (eventInput.status === "completed") {
+        if (
+          mappings.filter((mapping) => mapping.status === "active").length > 1
+        )
+          throw invalid(
+            "This investment has several company exposures. A full single-company conversion cannot replace them.",
+          );
+        const matches = matchingCompanies(
+          context.companies,
+          eventInput.successor,
+        );
+        if (matches.length > 1)
+          throw invalid(
+            "The successor matches multiple companies. Review the company identity before recording this event.",
+          );
+        const companyInput = InvestmentCompanyReviewInputSchema.parse({
+          requestId: input.requestId,
+          expectedSnapshotId: input.expectedSnapshotId,
+          expectedEvidenceRevision: input.expectedEvidenceRevision,
+          expectedMappingIds,
+          company:
+            matches.length === 1
+              ? { mode: "existing", companyId: matches[0]!.id }
+              : { mode: "new", legalName: eventInput.successor },
+          basis: "user_confirmed",
+          citation: null,
+          reason: `Reviewed ${eventInput.kind} event ${eventId}; underlying securities changed; SPV participation continues.`,
+        });
+        const plan = await this.companyStatements(
+          identity,
+          positionId,
+          companyInput,
+          context,
+          mappings,
+          guard,
+          hash,
+        );
+        successorCompanyId = plan.receipt.companyId;
+        companyStatements.push(...plan.statements);
+      }
+      const event = InvestmentEventSchema.parse({
+        ...eventInput,
+        revisionId: crypto.randomUUID(),
+        revision: (previous?.revision ?? 0) + 1,
+        recordedAt,
+        contentSha256,
+        sourceSha256: await investmentEvidenceRevision(eventInput.sourceText),
+        documentSha256: doc?.sha256 ?? null,
+        successorCompanyId,
+      });
+      eventStatements.push(
+        this.db
+          .prepare(
+            `INSERT INTO investment_event_revisions (id, household_id, position_id, event_id, revision, supersedes_revision_id, review_id, content_sha256, payload_json, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            event.revisionId,
+            identity.household_id,
+            positionId,
+            eventId,
+            event.revision,
+            supersedesRevisionId,
+            state.id,
+            contentSha256,
+            JSON.stringify(event),
+            recordedAt,
+          ),
+      );
+    }
     const committed = await this.commit(
       identity,
       positionId,
@@ -718,11 +911,13 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       hash,
       "review",
       [
+        ...companyStatements,
         this.reviewStatement(identity, context, input, hash, state, guard),
         ...this.assignmentStatements(identity, context, {
           ...state,
           documentAssignments: input.documentAssignments ?? [],
         }),
+        ...eventStatements,
       ],
     );
     return committed === null
@@ -753,6 +948,36 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       JSON.stringify(mappings.map((m) => m.id).sort())
     )
       throw stale();
+    const { receipt, statements } = await this.companyStatements(
+      identity,
+      positionId,
+      input,
+      context,
+      mappings,
+      guard,
+      hash,
+    );
+    const committed = await this.commit(
+      identity,
+      positionId,
+      input.requestId,
+      hash,
+      "company",
+      statements,
+    );
+    return committed === null
+      ? receipt
+      : InvestmentCompanyReceiptSchema.parse(JSON.parse(committed.payload));
+  }
+  private async companyStatements(
+    identity: Identity,
+    positionId: string,
+    input: InvestmentCompanyReviewInput,
+    context: InvestmentReviewContext,
+    mappings: Mapping[],
+    guard: string,
+    hash: string,
+  ) {
     let company =
       input.company.mode === "existing"
         ? context.companies.find(
@@ -920,17 +1145,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         true,
       ),
     );
-    const committed = await this.commit(
-      identity,
-      positionId,
-      input.requestId,
-      hash,
-      "company",
-      statements,
-    );
-    return committed === null
-      ? receipt
-      : InvestmentCompanyReceiptSchema.parse(JSON.parse(committed.payload));
+    return { receipt, statements };
   }
   public async createRelated(
     subject: string,
