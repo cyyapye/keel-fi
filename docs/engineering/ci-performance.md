@@ -43,6 +43,42 @@ independent D1 directories, servers, ports and cleanup. Do not increase
 Playwright workers until that isolation is proven. Prefer bounded parallelism to
 an unbounded matrix.
 
+## Test layers
+
+Use unit tests for pure scheduling and decision rules, fast SQLite integration
+for SQL-backed behavior, and real D1 for billing counters, index maintenance,
+migration compatibility and scale holdouts. SQLite changed-row counts cannot
+stand in for D1 billed writes. Keep browser coverage for actual user workflows
+and Worker runtime boundaries, without repeating every decision permutation.
+
+The provider full-day gate runs all five scenarios through the production
+client, web proxy, API, authentication and repositories using in-memory SQLite.
+It records every SQL operation, binding, result and atomic batch, then replays
+the complete trace inside workerd. Every D1 result must match. The original
+HTTP, Worker invocation, round-trip and actual D1 billing ceilings still apply;
+no averages, sampled requests or shorter virtual days replace them. The replay
+fixture rejects unsupported metadata-dependent behavior rather than supplying
+fake D1 metadata. Required browser tests continue to cover Worker HTTP behavior.
+
+`scripts/sql-replay.test.ts` checks result divergence, missing operations,
+missing metadata, transaction rollback, setup exclusion and real index-write
+billing. A negative-control experiment restoring one-minute heartbeat writes
+rejected 8,637 billed writes against the unchanged 2,000-write ceiling. The
+fixed idle day reads 77,165 rows and writes 1,725, matching the previous harness
+exactly. All five scenarios retained their previous measured billing totals.
+
+On the same local macOS checkout, the old idle case took 33.6 seconds and replay
+took 13.3 seconds. The complete five-scenario replay suite took 57.4 seconds.
+These local measurements do not establish OVH timings or the 15-minute target.
+Use the native timing receipt and Vitest artifact for the eventual OVH
+comparison.
+
+The 120-position baseline holdout retains one actual review transition and
+directly seeds the other 118 historical reviews using schema-validated states
+and normal database triggers. All history, unrelated-household, retained
+exception, query-plan and read/write ceilings remain. Review workflow and
+stale-evidence behavior remain covered by their dedicated integration tests.
+
 ## Failure and recovery
 
 Receipt consumers require the producer's success, the exact artifact name from

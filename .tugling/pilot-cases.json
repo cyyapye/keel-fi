@@ -1148,7 +1148,10 @@
     "scripts/shared-ui-usage.test.ts :: shared UI usage > routes reusable action rows through ActionGroup",
     "scripts/shared-ui-usage.test.ts :: shared UI usage > routes reusable metric groups through StatGroup",
     "scripts/shared-ui-usage.test.ts :: shared UI usage > uses Base UI measured-height motion for shared disclosures",
-    "scripts/shared-ui-usage.test.ts :: shared UI usage > uses DisclosureIndicator for the shared select popup"
+    "scripts/shared-ui-usage.test.ts :: shared UI usage > uses DisclosureIndicator for the shared select popup",
+    "scripts/sql-replay.test.ts :: rejects D1 result divergence instead of trusting the SQLite behavior oracle",
+    "scripts/sql-replay.test.ts :: rejects incomplete replay, missing billing metadata and failed SQL traces",
+    "scripts/sql-replay.test.ts :: replays setup, atomic batches, bindings and reads with actual D1 index-write costs"
   ],
   "playwright": [
     "e2e/agreement-security.visual.spec.ts :: chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads",

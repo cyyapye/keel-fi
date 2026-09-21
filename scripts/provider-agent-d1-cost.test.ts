@@ -1,5 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { build } from "esbuild";
+import { createApp } from "../apps/api/src/app";
+import { D1ProviderBrowserSessionRepository } from "../packages/database/src/provider-browser-sessions";
+import { createSqliteTrace } from "./test-support/sqlite-trace";
 import { handleRequest } from "../apps/web/src/worker";
 import { D1AngelListMacAgentRepository } from "../packages/database/src/angellist-mac-agent";
 import { D1MacAgentCredentialRepository } from "../packages/database/src/mac-agent-credentials";
@@ -9,7 +12,7 @@ import { __angellistMacAgentTest } from "./angellist-mac-agent";
 import { __providerPortfolioMacAgentTest } from "./provider-portfolio-mac-agent";
 import { leaseProviderBrowserSession } from "./provider-browser-reconnect";
 import { runProviderAgentPolling } from "./provider-agent-polling";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
+import { createCostDatabase } from "./test-support/d1-cost";
 
 const START = Date.parse("2026-09-01T00:00:00.000Z");
 const DAY = 86_400_000;
@@ -30,7 +33,7 @@ it.each([
   "measures a complete three-agent %s day with real D1 counters",
   async (scenario) => {
     const bundled = await build({
-      entryPoints: ["scripts/test-support/agent-cost-worker.ts"],
+      entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
       bundle: true,
       write: false,
       format: "esm",
@@ -42,16 +45,13 @@ it.each([
       logLevel: "silent",
     });
     const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
-    const measured = measureD1(fixture.database);
+    const trace = createSqliteTrace();
     let clock = START;
     const now = () => new Date(clock);
-    const credentials = new D1MacAgentCredentialRepository(
-      measured.database,
-      now,
-    );
-    const angellist = new D1AngelListMacAgentRepository(measured.database, now);
+    const credentials = new D1MacAgentCredentialRepository(trace.database, now);
+    const angellist = new D1AngelListMacAgentRepository(trace.database, now);
     const portfolios = new D1ProviderPortfolioAgentRepository(
-      measured.database,
+      trace.database,
       now,
     );
     const authorizations: MacAgentAuthorization[] = [];
@@ -74,7 +74,7 @@ it.each([
         });
       }
       // 120 retired records exercise the current authentication lookup at scale.
-      await fixture.database
+      await trace.database
         .prepare(
           `INSERT INTO mac_agent_credentials
       (id, household_id, target, token_sha256, issued_by_user_id, issued_at, last_used_at, revoked_at)
@@ -84,6 +84,13 @@ it.each([
         )
         .bind(JSON.stringify(Array.from({ length: 120 }, (_, n) => n)))
         .run();
+      const app = createApp({
+        macAgentCredentialRepository: credentials,
+        angelListMacAgentRepository: angellist,
+        providerPortfolioAgentRepository: portfolios,
+        providerBrowserSessionRepository:
+          new D1ProviderBrowserSessionRepository(trace.database, now),
+      });
       let http = 0;
       let workerInvocations = 0;
       let maxRoundTrips = 0;
@@ -94,33 +101,19 @@ it.each([
           expect(++http).toBeLessThanOrEqual(10_000);
           if (new Request(input, init).url.endsWith("/session-renewal/lease"))
             sessionLeaseRequests++;
-          const before = measured.cost.roundTrips;
+          const before = trace.roundTrips;
           workerInvocations++;
           const response = await handleRequest(new Request(input, init), {
             MAC_AGENT_API_HOST: new URL(ORIGIN).hostname,
             API: {
               fetch: async (request) => {
                 workerInvocations++;
-                const headers = new Headers(request.headers);
-                headers.set("x-synthetic-clock", String(clock));
-                const response = await fixture.dispatchFetch(request.url, {
-                  method: request.method,
-                  headers: Object.fromEntries(headers.entries()),
-                  body: await request.arrayBuffer(),
-                });
-                const cost = JSON.parse(
-                  response.headers.get("x-synthetic-d1-cost")!,
-                ) as typeof measured.cost;
-                for (const key of [
-                  "rowsRead",
-                  "rowsWritten",
-                  "roundTrips",
-                  "statements",
-                ] as const)
-                  measured.cost[key] += cost[key];
-                return new Response(await response.arrayBuffer(), {
-                  status: response.status,
-                  headers: Object.fromEntries(response.headers.entries()),
+                return app.fetch(request, {
+                  DB: trace.database,
+                  ENVIRONMENT: "preview",
+                  MAC_AGENT_API_ORIGIN: ORIGIN,
+                  DOCUMENTS: {} as R2Bucket,
+                  INGESTION_QUEUE: {} as Queue,
                 });
               },
             },
@@ -130,10 +123,7 @@ it.each([
               },
             },
           });
-          maxRoundTrips = Math.max(
-            maxRoundTrips,
-            measured.cost.roundTrips - before,
-          );
+          maxRoundTrips = Math.max(maxRoundTrips, trace.roundTrips - before);
           return response;
         },
       );
@@ -149,14 +139,14 @@ it.each([
       // retain future heartbeat timestamps and silently suppress their writes.
       if (renewals) {
         await portfolios.configure(SUBJECT, "sydecar", { interval: "daily" });
-        await fixture.database
+        await trace.database
           .prepare(
             `UPDATE provider_portfolio_agents SET last_completed_at = ?
           WHERE provider = 'sydecar'`,
           )
           .bind(new Date(lastVerifiedAt).toISOString())
           .run();
-        await fixture.database
+        await trace.database
           .prepare(
             `INSERT INTO provider_session_renewals (agent_id, last_verified_at, next_check_at)
           SELECT id, ?, ? FROM provider_portfolio_agents WHERE provider = 'sydecar'
@@ -171,12 +161,12 @@ it.each([
           .run();
       }
       if (rejected)
-        await fixture.database
+        await trace.database
           .prepare(
             "UPDATE mac_agent_credentials SET revoked_at = '2026-09-02T00:00:00.000Z' WHERE revoked_at IS NULL",
           )
           .run();
-      measured.reset();
+      trace.reset();
       http = 0;
       workerInvocations = 0;
       maxRoundTrips = 0;
@@ -252,13 +242,6 @@ it.each([
       }
       expect(http).toBeLessThanOrEqual(rejected ? 300 : 10_000);
       expect(workerInvocations).toBeLessThanOrEqual(rejected ? 600 : 20_000);
-      expect(measured.cost.rowsRead).toBeLessThanOrEqual(
-        rejected ? 1_000 : 150_000,
-      );
-      expect(measured.cost.rowsWritten).toBeLessThanOrEqual(
-        rejected ? 0 : 2_000,
-      );
-      if (!rejected) expect(measured.cost.rowsWritten).toBeGreaterThan(1_500);
       expect(maxRoundTrips).toBeLessThanOrEqual(10);
       expect(sessionLeaseRequests).toBe(rejected ? 0 : 24);
       expect(browserStarts).toBe(intermittentFailure ? 9 : renewals ? 3 : 0);
@@ -276,6 +259,15 @@ it.each([
           (await portfolios.getOverview(SUBJECT, "sydecar")).errorCode,
         ).toBe("unexpected_failure");
       }
+      const cost = await trace.replay((body) =>
+        fixture.dispatchFetch("https://synthetic-replay.invalid", {
+          method: "POST",
+          body,
+        }),
+      );
+      expect(cost.rowsRead).toBeLessThanOrEqual(rejected ? 1_000 : 150_000);
+      expect(cost.rowsWritten).toBeLessThanOrEqual(rejected ? 0 : 2_000);
+      if (!rejected) expect(cost.rowsWritten).toBeGreaterThan(1_500);
       log(
         JSON.stringify({
           actualD1AgentDay: {
@@ -286,11 +278,12 @@ it.each([
             http,
             workerInvocations,
             maxRoundTrips,
-            ...measured.cost,
+            ...cost,
           },
         }),
       );
     } finally {
+      trace.close();
       await fixture.close();
     }
   },

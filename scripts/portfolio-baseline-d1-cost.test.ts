@@ -1,4 +1,5 @@
 import { D1InvestmentReviewRepository } from "../packages/database/src/investment-review";
+import { InvestmentReviewStateSchema } from "../packages/domain/src/investment-review";
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import {
@@ -118,7 +119,9 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
     // same fixed query and measured D1 budgets as ordinary value updates.
     const reviewRepository = new D1InvestmentReviewRepository(fixture.database);
     const active = await exposures.list(COST_SUBJECT);
-    for (const position of active.positions.slice(1)) {
+    // Keep one real review transition here; the 118 remaining positions are
+    // fixture volume for the baseline projection, not separate workflow cases.
+    for (const position of active.positions.slice(1, 2)) {
       const context = await reviewRepository.getContext(
         COST_SUBJECT,
         position.id,
@@ -131,6 +134,59 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
         participationStatus: "historical",
       });
     }
+    const historical = active.positions.slice(2).map((position) =>
+      InvestmentReviewStateSchema.parse({
+        id: crypto.randomUUID(),
+        positionId: position.id,
+        version: 1,
+        participationStatus: "historical",
+        closure: null,
+        amountCorrection: null,
+        ownershipObservations: [],
+        documentAssignments: [],
+        recordedAt: "2026-09-01T00:00:00.000Z",
+      }),
+    );
+    await fixture.database
+      .prepare(
+        `
+      INSERT INTO holding_investment_reviews
+        (id, household_id, position_id, request_id, request_sha256,
+         expected_snapshot_id, supersedes_review_id, version, state_json,
+         reviewer_user_id, recorded_at, evidence_guard_json)
+      SELECT json_extract(item.value, '$.id'), p.household_id, p.id,
+        json_extract(item.value, '$.id'), printf('%064d', 0),
+        (SELECT candidate.snapshot_id FROM holding_import_applications candidate
+         JOIN holding_position_snapshots snapshot ON snapshot.id = candidate.snapshot_id
+         WHERE candidate.position_id = p.id
+         ORDER BY candidate.applied_at DESC, snapshot.observed_at DESC, candidate.id DESC LIMIT 1),
+        NULL, 1, item.value, household.owner_user_id,
+        json_extract(item.value, '$.recordedAt'),
+        '{"reviewId":null,"observationId":null,"scans":[],"incoming":[]}'
+      FROM json_each(?) item
+      JOIN holding_positions p ON p.id = json_extract(item.value, '$.positionId')
+      JOIN households household ON household.id = p.household_id
+      WHERE p.household_id = 'hh_demo'
+    `,
+      )
+      .bind(JSON.stringify(historical))
+      .run();
+    expect(historical).toHaveLength(118);
+    expect(
+      await fixture.database
+        .prepare(
+          `
+      SELECT COUNT(*) AS count FROM holding_investment_reviews
+      WHERE household_id = 'hh_demo'
+        AND json_extract(state_json, '$.participationStatus') = 'historical'
+    `,
+        )
+        .first("count"),
+    ).toBe(119);
+    expect(
+      (await fixture.database.prepare("PRAGMA foreign_key_check").all())
+        .results,
+    ).toEqual([]);
     Object.assign(measured.cost, emptyD1Cost());
     const closed = await baseline.getState(COST_SUBJECT);
     expect(closed.exceptions).toHaveLength(1);
