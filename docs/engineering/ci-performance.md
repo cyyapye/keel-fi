@@ -81,6 +81,14 @@ stale-evidence behavior remain covered by their dedicated integration tests.
 
 ## Failure and recovery
 
+Native CI uses loopback ports 31000/31001, outside local development ranges and
+OVH's Linux ephemeral range (32768-60999). A preflight checks both availability
+and the live kernel range before expensive verification. This avoids automatic
+outbound-port allocation colliding with browser startup after the unit suite; it
+does not reserve ports against unrelated explicit listeners. The browser server
+still fails closed on a later conflict and never reuses another server. Keep one
+native job per dedicated runner and do not kill an unknown port owner.
+
 Receipt consumers require the producer's success, the exact artifact name from
 the current run, and matching project/config/map/helper/environment/run/attempt
 identities. Missing, failed, partial, expired or stale evidence fails closed.
