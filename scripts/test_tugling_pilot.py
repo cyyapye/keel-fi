@@ -180,6 +180,7 @@ class NativeAccountingTests(unittest.TestCase):
         self.assertEqual(workflow.count("make pilot-verify"), 1)
         self.assertIn("scripts/ci-verification.py publish", workflow)
         self.assertEqual(ci.count("needs: native"), 3)
+        self.assertEqual(ci.count("if: ${{ !cancelled() }}"), 3)
         self.assertEqual(ci.count('test "$NATIVE_RESULT" = success'), 3)
         self.assertEqual(ci.count("./keel/.github/actions/verify-native-receipt"), 3)
         self.assertIn("uses: ./.github/workflows/native-verification.yml", post_merge)

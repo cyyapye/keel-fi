@@ -20,7 +20,7 @@ jobs:
   quality:
     name: Quality
     needs: native
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 5
     steps:
@@ -38,7 +38,7 @@ jobs:
   migrations:
     name: D1 migration and synthetic seed
     needs: native
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 5
     steps:
@@ -56,7 +56,7 @@ jobs:
   browser:
     name: Critical browser flows
     needs: native
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 5
     steps:
