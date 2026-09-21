@@ -23,22 +23,23 @@ CREATE TABLE holding_purchase_heads (
 );
 CREATE INDEX holding_purchase_heads_household ON holding_purchase_heads(household_id,position_id);
 CREATE TRIGGER holding_purchase_review_guard BEFORE INSERT ON holding_purchase_reviews BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  -- Remote D1 misparses unparenthesized CASE..END inside triggers (#4727).
+  SELECT RAISE(ABORT,'purchase provenance mismatch') WHERE NOT EXISTS (
     SELECT 1 FROM holding_positions p JOIN households h ON h.id=p.household_id
     JOIN holding_position_snapshots s ON s.position_id=p.id
     WHERE p.id=NEW.position_id AND p.household_id=NEW.household_id
       AND p.position_kind='spv_interest' AND p.currency='USD'
       AND h.owner_user_id=NEW.reviewer_user_id AND s.id=NEW.snapshot_id
       AND NOT EXISTS (SELECT 1 FROM holding_position_continuities c WHERE c.predecessor_position_id=p.id)
-  ) THEN RAISE(ABORT,'purchase provenance mismatch') END;
-  SELECT CASE WHEN NEW.prior_id IS NOT (SELECT review_id FROM holding_purchase_heads WHERE position_id=NEW.position_id)
-    THEN RAISE(ABORT,'purchase review stale') END;
-  SELECT CASE WHEN NEW.snapshot_id IS NOT (
+  );
+  SELECT RAISE(ABORT,'purchase review stale') WHERE NEW.prior_id IS NOT
+    (SELECT review_id FROM holding_purchase_heads WHERE position_id=NEW.position_id);
+  SELECT RAISE(ABORT,'purchase snapshot stale') WHERE NEW.snapshot_id IS NOT (
     SELECT a.snapshot_id FROM holding_import_applications a
     JOIN holding_position_snapshots s ON s.id=a.snapshot_id
     WHERE a.position_id=NEW.position_id
     ORDER BY a.applied_at DESC,s.observed_at DESC,a.id DESC LIMIT 1
-  ) THEN RAISE(ABORT,'purchase snapshot stale') END;
+  );
 END;
 CREATE TRIGGER holding_purchase_review_head AFTER INSERT ON holding_purchase_reviews BEGIN
   INSERT INTO holding_purchase_heads(position_id,household_id,review_id)
