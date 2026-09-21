@@ -209,6 +209,13 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
     fullPage: true,
   });
   await page.reload();
+  // The deferred loading shell also has navigation. Wait for the real app so
+  // replacing that shell cannot discard a just-opened mobile menu.
+  await expect(
+    page.getByRole("button", {
+      name: /Synthetic Purchase Company 1 position/u,
+    }),
+  ).toBeVisible();
   await navigateToScreen(
     page,
     info.project.name === "mobile-chromium",
