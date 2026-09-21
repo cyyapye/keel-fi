@@ -17,6 +17,9 @@ jobs:
     env:
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
       TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-v1
+      # Stay below Linux's ephemeral range and outside local development ranges.
+      KEEL_WEB_PORT: "31000"
+      KEEL_API_PORT: "31001"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -27,6 +30,24 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Check dedicated CI browser ports before expensive verification
+        run: |
+          python3 - <<'PY'
+          import os
+          import socket
+          from contextlib import ExitStack
+          from pathlib import Path
+
+          low, high = map(int, Path("/proc/sys/net/ipv4/ip_local_port_range").read_text().split())
+          with ExitStack() as sockets:
+              for name in ("KEEL_WEB_PORT", "KEEL_API_PORT"):
+                  port = int(os.environ[name])
+                  if low <= port <= high:
+                      raise SystemExit(f"{name}={port} overlaps the host ephemeral range {low}-{high}")
+                  probe = sockets.enter_context(socket.socket())
+                  probe.bind(("127.0.0.1", port))
+                  print(f"{name}={port} is available and outside the ephemeral range")
+          PY
       - uses: actions/checkout@v5
         with:
           repository: cyyapye/tugling
