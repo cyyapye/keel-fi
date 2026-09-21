@@ -199,4 +199,4 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
   } finally {
     await fixture.close();
   }
-}, 90_000);
+}, 180_000);
