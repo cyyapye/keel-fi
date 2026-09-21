@@ -1,14 +1,13 @@
 # GitHub verification and deployment workflows
 
 `ci.yml` runs before merge for pull requests and merge-queue candidates. Its
-four jobs are intentionally independent so failures are targeted. They run on
-the repository-scoped `keel-ci` lane and can run in parallel when more than one
-matching runner is online:
-
-- `Quality`
-- `D1 migration and synthetic seed`
-- `Critical browser flows`
-- `Secret scan`
+native verification runs once through `native-verification.yml` on the exact
+event SHA. The named Quality, D1 migration and synthetic seed, and Critical
+browser flows jobs validate its complete same-attempt required receipt. Secret
+scan remains independent. All checks fail closed, including if native execution
+is cancelled. The standalone Tugling candidate workflow is manual-only, so
+ordinary PRs no longer run a second full verification suite. See
+[CI performance](../../docs/engineering/ci-performance.md).
 
 `tugling.yml` separately verifies the project adapter, synthetic dogfood case,
 instruction routing, ignored local-learning ledger, and exact accepted Tugling
@@ -48,16 +47,17 @@ accepting untrusted contributors.
 
 The CI account needs the rootless prerequisites and delegated cgroup-v2 CPU,
 memory and process controllers described in the
-[PDF sandbox runbook](../../docs/deployment/pdf-sandbox.md). Quality and browser
-jobs build the sandbox images explicitly. Quality and post-merge verification
-run the real isolation probes; missing infrastructure fails the checks. Package
-installation happens inside the sandbox image build, not with `sudo` in the
-runner job. The deployment lane does not build or run PDFs.
+[PDF sandbox runbook](../../docs/deployment/pdf-sandbox.md). The native gate
+builds the sandbox images explicitly and runs the real isolation probes; missing
+infrastructure fails the checks. Package installation happens inside the sandbox
+image build, not with `sudo` in the runner job. The deployment lane does not
+build or run PDFs.
 
-`post-merge.yml` runs `make verify`, the exact pinned Tugling project contract,
-and a full-history secret scan on the exact commit pushed to `main`. After all
-three jobs pass, it automatically deploys that same SHA to the protected
-Cloudflare preview. A manual dispatch deploys only when it targets `main`.
+`post-merge.yml` runs the complete native required gate, the exact pinned
+Tugling project contract, and a full-history secret scan on the exact commit
+pushed to `main`. After all three jobs pass, it automatically deploys that same
+SHA to the protected Cloudflare preview. A manual dispatch deploys only when it
+targets `main`.
 
 The preview deployment is serialized and fail-closed. It exports, encrypts, and
 round-trip verifies D1 before applying forward-only migrations, deploys the API

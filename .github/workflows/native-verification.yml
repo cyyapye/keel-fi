@@ -1,0 +1,74 @@
+name: Native verification
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  required:
+    name: Complete native gate
+    runs-on: [self-hosted, Linux, X64, keel-ci]
+    timeout-minutes: 65
+    defaults:
+      run:
+        working-directory: keel
+    env:
+      TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
+      TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-v1
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: keel
+          persist-credentials: false
+      - name: Assert exact event revision
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/checkout@v5
+        with:
+          repository: cyyapye/tugling
+          ref: 7e88d56ea728a3d7aa4281d883c0d66f0e5fa251
+          path: tugling-candidate
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+          version: 11.9.0
+          package_json_file: keel/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.13.0
+          cache: pnpm
+          cache-dependency-path: keel/pnpm-lock.yaml
+      - run: make bootstrap
+      - run: make pdf-sandbox-build
+      - name: Execute each required native suite once
+        run: |
+          mkdir -p .tugling/local
+          make pilot-verify > .tugling/local/pilot-required.json
+      - name: Validate and publish the complete receipt
+        run: python3 -I scripts/ci-verification.py publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-required-${{ github.sha }}-${{ github.run_attempt }}
+          path: keel/.tugling/local/verification/required.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retain native diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            keel/.tugling/local/pilot-required.json
+            keel/.tugling/local/verification/managed-v1/*.json
+            keel/.tugling/local/pilot/vitest.json
+            keel/.tugling/local/pilot/playwright.json
+            keel/.tugling/local/pilot/browser-results/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7

@@ -12,7 +12,10 @@
         "scripts/test_linux_test_run.py",
         "scripts/linux-test-run.py",
         ".tugling/pilot-cases.json",
-        "scripts/tugling-pilot.py"
+        "scripts/tugling-pilot.py",
+        "scripts/ci-verification.py",
+        ".github/workflows/native-verification.yml",
+        ".github/actions/verify-native-receipt/action.yml"
       ],
       "runtime": {
         "owner": "native-command",

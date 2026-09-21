@@ -1,12 +1,10 @@
 # Isolated Tugling enforcement pilot
 
-This candidate pilot adds a complete native gate without accepting a new Tugling
-release or changing Keel's product rules. `.tugling/project.json`, its 0.4.0
-source pin, the synthetic dogfood case, `make verify`, focused developer
-commands, and existing CI/deployment workflows remain authoritative and intact.
-The candidate is 0.5.0 at `c5990a7f6827b3daa20e3d76a4d1fa017e41de3d`. Only
-`.tugling/pilot.json` selects it. Learning stays local; the ignored ledger is
-never read as instructions, used by CI, or uploaded.
+The native gate is the single CI execution owner for Keel's full verification
+suite. The project-approved source is pinned in `.tugling/pilot.json`; the
+accepted released adapter in `.tugling/project.json` remains separate. The pilot
+pin is an explicitly reviewed source integration, not a new stable plugin
+release. Learning stays local and is never a CI input or artifact.
 
 ## First setup and required execution
 
@@ -110,11 +108,24 @@ records the failed receipt, and restores the input revision. It does not push
 the mutation. A successful probe means the expected regression was rejected; the
 ordinary run supplies separate passing evidence for the unmodified PR head.
 
-`tugling-pilot.yml` uses Keel's ordinary unprivileged `keel-ci` lane, read-only
-permissions, sibling checkouts and repository-native bootstrap. It explicitly
-selects and asserts the PR head; merge-group runs assert that event's candidate.
-The original `ci.yml` default merge-commit checks remain separate evidence. No
-candidate workflow deploys, promotes a pin or uses protected credentials.
+`native-verification.yml` runs the complete gate once per ordinary PR merge
+candidate, merge-group candidate, or exact merged commit. All checkouts
+explicitly select `github.sha`. The Quality, Migration and Browser PR jobs
+validate the same complete receipt downloaded by its exact SHA/attempt artifact
+name. They fail when the producer fails, is cancelled, or supplies missing,
+expired, mismatched, or incomplete evidence. They do not rerun native suites.
+The standalone `tugling-pilot.yml` is manual-only for isolated head experiments
+and the regression rejection probe. No candidate workflow deploys or uses
+protected credentials.
+
+Receipts bind the project/map/helper, OS, architecture, Python version, declared
+pinned toolchain, and GitHub repository/workflow/run/attempt/event SHA. Rerun
+the whole workflow after a failed attempt; an earlier attempt's receipt is not
+reusable. The initial active-verification budget is 3,000 seconds, based on the
+observed 46-minute complete gate. Every native flow duration and the slowest
+flows appear in Actions summaries. Queue/setup time is excluded and must be
+assessed separately. See [CI performance](ci-performance.md) for baseline and
+remaining capacity work.
 
 Local proof does not establish remote availability of the candidate commit,
 hosted required-check settings, remote CI, merged success, deployed usage,
