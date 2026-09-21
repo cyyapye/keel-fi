@@ -52,6 +52,10 @@ Rerun the entire workflow: rerunning only a consumer in a new attempt correctly
 rejects evidence from the previous attempt. Receipt artifacts expire after seven
 days; learning ledgers and provider data are never uploaded.
 
+Receipt jobs skip cancelled workflows so obsolete runs release their concurrency
+slot instead of waiting for the shared runner. A failed native producer still
+runs the receipt jobs, which reject its unsuccessful result before downloading.
+
 The manual candidate workflow retains the synthetic polling-regression rejection
 experiment. Post-merge native verification, secret scanning, pinned released
 adapter validation, protected backup/migration/deployment and smoke checks
