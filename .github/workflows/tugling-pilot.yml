@@ -1,8 +1,6 @@
 name: Tugling candidate pilot
 
 on:
-  pull_request:
-  merge_group:
   workflow_dispatch:
     inputs:
       regression_probe:
@@ -45,7 +43,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: cyyapye/tugling
-          ref: c5990a7f6827b3daa20e3d76a4d1fa017e41de3d
+          ref: 7e88d56ea728a3d7aa4281d883c0d66f0e5fa251
           path: tugling-candidate
           persist-credentials: false
       - uses: pnpm/action-setup@v4

@@ -20,7 +20,10 @@ describe("post-merge preview deployment workflow", () => {
     ).toHaveLength(4);
     expect(
       verification.match(/runs-on: \[self-hosted, Linux, X64, keel-ci\]/g),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
+    expect(verification).toContain(
+      "uses: ./.github/workflows/native-verification.yml",
+    );
     expect(deployment).toContain(
       "runs-on: [self-hosted, Linux, X64, keel-deploy]",
     );

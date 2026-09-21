@@ -167,12 +167,28 @@ class NativeAccountingTests(unittest.TestCase):
                 native.compare_cases("python", observed, inventory)
 
     def test_ci_selects_pr_head_and_keeps_privileged_actions_out(self):
-        workflow = (pilot.ROOT / ".github/workflows/tugling-pilot.yml").read_text()
-        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
-        self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"', workflow)
+        # Ordinary CI verifies the event merge candidate once; the manual probe
+        # intentionally remains a separate exact-head experiment.
+        workflow = (pilot.ROOT / ".github/workflows/native-verification.yml").read_text()
+        ci = (pilot.ROOT / ".github/workflows/ci.yml").read_text()
+        probe = (pilot.ROOT / ".github/workflows/tugling-pilot.yml").read_text()
+        action = (pilot.ROOT / ".github/actions/verify-native-receipt/action.yml").read_text()
+        post_merge = (pilot.ROOT / ".github/workflows/post-merge.yml").read_text()
+        self.assertIn("ref: ${{ github.sha }}", workflow)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"', workflow)
         self.assertIn("runs-on: [self-hosted, Linux, X64, keel-ci]", workflow)
-        self.assertIn("make pilot-verify", workflow)
-        self.assertIn("evidence", workflow)
+        self.assertEqual(workflow.count("make pilot-verify"), 1)
+        self.assertIn("scripts/ci-verification.py publish", workflow)
+        self.assertEqual(ci.count("needs: native"), 3)
+        self.assertEqual(ci.count('test "$NATIVE_RESULT" = success'), 3)
+        self.assertEqual(ci.count("./keel/.github/actions/verify-native-receipt"), 3)
+        self.assertIn("uses: ./.github/workflows/native-verification.yml", post_merge)
+        self.assertIn("scripts/ci-verification.py check", action)
+        self.assertIn("native-required-${{ github.sha }}-${{ github.run_attempt }}", action)
+        self.assertNotIn("pull_request:", probe)
+        self.assertNotIn("merge_group:", probe)
+        for duplicate in ("make check", "make e2e", "make db-verify", "make verify"):
+            self.assertNotIn(duplicate, ci)
         for forbidden in ("sudo", "secrets.", "keel-deploy", "continue-on-error", "pull_request_target", "environment:"):
             self.assertNotIn(forbidden, workflow)
 
