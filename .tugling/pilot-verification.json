@@ -2,6 +2,28 @@
   "schema_version": 1,
   "flows": [
     {
+      "id": "source-quality",
+      "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
+      "argv": ["make", "data-scan", "format-check", "lint", "typecheck"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "scripts/check-public-data.mjs",
+        "eslint.config.mjs",
+        "tsconfig.json"
+      ],
+      "runtime": null
+    },
+    {
+      "id": "compose-configuration",
+      "description": "Validate the existing isolated synthetic development stack configuration.",
+      "argv": ["docker", "compose", "config", "--quiet"],
+      "timeout_seconds": 30,
+      "sources": ["compose.yaml"],
+      "runtime": null
+    },
+    {
       "id": "gate-and-artifact-integrity",
       "description": "Reject substituted candidate code and omitted/filtered native cases; exercise owned temporary checkout success, failure and cancellation.",
       "argv": ["python3", "-I", "scripts/pilot_native.py", "python"],
@@ -23,6 +45,55 @@
         "health": "Real runner exit and case outcomes are checked against the reviewed inventory.",
         "cleanup": "TemporaryDirectory and linux-test-run finally blocks remove only their owned paths and process groups."
       }
+    },
+    {
+      "id": "migration-and-seed",
+      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
+      "argv": ["make", "db-verify"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "scripts/local-seed-scenarios.ts",
+        "packages/database/seed/synthetic.sql"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native seed runner creates and resets only this checkout local scenario state.",
+        "health": "Scenario readback assertions check migrations, seeds and relationships.",
+        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
+      }
+    },
+    {
+      "id": "pdf-isolation",
+      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
+      "argv": ["make", "pdf-sandbox-verify"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "scripts/pdf-sandbox-verify.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/boundary.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native verifier creates named serial containers on the provisioned rootless socket using prepared immutable images.",
+        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
+        "cleanup": "The native launcher removes exact owned containers; no shared daemon or image cleanup."
+      }
+    },
+    {
+      "id": "build-and-entry-budget",
+      "description": "Build every workspace and enforce the native 100 KiB initial JavaScript gzip budget and lazy application boundary.",
+      "argv": ["make", "build"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "apps/web/package.json",
+        "scripts/check-web-entry-budget.mjs"
+      ],
+      "runtime": null
     },
     {
       "id": "native-unit-and-cost",
@@ -68,77 +139,6 @@
         "launch": "Vitest owns workerd, synthetic D1, GPG and temporary fixture processes; maxWorkers is two to bound native process contention.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
-      }
-    },
-    {
-      "id": "source-quality",
-      "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
-      "argv": ["make", "data-scan", "format-check", "lint", "typecheck"],
-      "timeout_seconds": 600,
-      "sources": [
-        "Makefile",
-        "package.json",
-        "scripts/check-public-data.mjs",
-        "eslint.config.mjs",
-        "tsconfig.json"
-      ],
-      "runtime": null
-    },
-    {
-      "id": "compose-configuration",
-      "description": "Validate the existing isolated synthetic development stack configuration.",
-      "argv": ["docker", "compose", "config", "--quiet"],
-      "timeout_seconds": 30,
-      "sources": ["compose.yaml"],
-      "runtime": null
-    },
-    {
-      "id": "pdf-isolation",
-      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
-      "argv": ["make", "pdf-sandbox-verify"],
-      "timeout_seconds": 600,
-      "sources": [
-        "Makefile",
-        "scripts/pdf-sandbox-verify.ts",
-        "scripts/pdf-sandbox.ts",
-        "scripts/pdf-sandbox/probe.py",
-        "scripts/pdf-sandbox/boundary.py"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native verifier creates named serial containers on the provisioned rootless socket using prepared immutable images.",
-        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
-        "cleanup": "The native launcher removes exact owned containers; no shared daemon or image cleanup."
-      }
-    },
-    {
-      "id": "build-and-entry-budget",
-      "description": "Build every workspace and enforce the native 100 KiB initial JavaScript gzip budget and lazy application boundary.",
-      "argv": ["make", "build"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "package.json",
-        "apps/web/package.json",
-        "scripts/check-web-entry-budget.mjs"
-      ],
-      "runtime": null
-    },
-    {
-      "id": "migration-and-seed",
-      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
-      "argv": ["make", "db-verify"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "scripts/local-seed-scenarios.ts",
-        "packages/database/seed/synthetic.sql"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native seed runner creates and resets only this checkout local scenario state.",
-        "health": "Scenario readback assertions check migrations, seeds and relationships.",
-        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
       }
     },
     {
