@@ -249,14 +249,14 @@ stale-evidence behavior remain covered by their dedicated integration tests.
 
 ## Failure and recovery
 
-Native CI uses loopback web ports 31031–31034 and API ports 32032–32033, outside
-local development ranges and OVH's Linux ephemeral range (32768-60999). A
-preflight checks port availability and the live kernel range before expensive
-verification. This avoids automatic outbound-port allocation colliding with
-browser startup after the unit suite; it does not reserve ports against
-unrelated explicit listeners. The browser server still fails closed on a later
-conflict and never reuses another server. Keep one native job per dedicated
-runner and do not kill an unknown port owner.
+Native CI uses loopback web ports 31031–31035 and API ports 32032, 32033 and
+32035, outside local development ranges and OVH's Linux ephemeral range
+(32768-60999). A preflight checks port availability and the live kernel range
+before expensive verification. This avoids automatic outbound-port allocation
+colliding with browser startup after the unit suite; it does not reserve ports
+against unrelated explicit listeners. The browser server still fails closed on a
+later conflict and never reuses another server. Keep one native job per
+dedicated runner and do not kill an unknown port owner.
 
 Receipt consumers require the producer's success, the exact artifact name from
 the current run, and matching project/config/map/helper/environment/run/attempt
@@ -296,7 +296,7 @@ Execution slices:
    writes, existing transactions or setup/measurement boundaries.
 2. Move repeated unmeasured D1 initialization and scale-fixture setup beside the
    database, keeping a fresh database per test and all measured operations.
-3. Run two independently seeded stateful browser partitions and separate
+3. Run three independently seeded stateful browser partitions and separate
    production/development mocked partitions with distinct ports, runtime state,
    diagnostics and owned cleanup. Compare their complete union with the
    unchanged reviewed browser inventory.
@@ -308,7 +308,7 @@ Execution slices:
    branches, including their failure cleanup, before checking for leftovers.
 6. Start the historically expensive Vitest files first, preserving discovered
    specifications and test order within each file. This avoids a large final
-   fixture leaving the other worker idle.
+   fixture leaving the other workers idle.
 7. Inspect the resulting critical path and host resource pressure. Pursue
    another candidate when its credible complete-gate improvement exceeds 5%;
    validate promising scheduling choices with a complete same-host comparison.
@@ -325,3 +325,20 @@ success or failure; observer errors do not trigger retries or application
 requests. It performs no network, D1 or object-storage work. Diagnostics share
 the existing seven-day artifact retention and contain no process arguments,
 credentials or portfolio data.
+
+## Evaluated remaining source-check optimizations
+
+An unchanged two-job local source run took 50.19 seconds: lint took 48.47
+seconds and typecheck 29.69 seconds. Repeating it with ESLint's supported
+`--concurrency 2`, without caching or selection changes, took 54.27 seconds:
+lint stayed at 48.41 seconds while typecheck rose to 40.75 seconds. Separate
+ESLint workers duplicate their TypeScript project services and increased CPU
+work. Keep lint concurrency disabled.
+
+OVH run `35764220712` is diagnostic evidence, not a successful-gate benchmark:
+source checks took 167.974 seconds, with typecheck finishing approximately 28
+seconds before lint. A TypeScript-only cache cannot advance that source
+boundary, and even zero-time lint cannot remove the remaining typecheck work.
+Ordinary per-file lint caching is unsafe for type-aware rules when imported
+types change. Keep the full checks; removing repeated parsing would require a
+separately measured design that preserves every workspace's type environment.
