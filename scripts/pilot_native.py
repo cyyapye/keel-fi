@@ -4,22 +4,27 @@
 import argparse
 from collections import Counter
 from contextlib import contextmanager
+from datetime import datetime
 import fcntl
 import importlib.util
 import json
 import os
 from pathlib import Path
+import signal
 import shutil
+import socket
 import stat
 import subprocess
 import sys
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 INVENTORY = ROOT / ".tugling/pilot-cases.json"
 ARTIFACTS = ROOT / ".tugling/local/pilot"
 PYTHON_SUITES = ("test_linux_test_run", "test_tugling_pilot")
-BROWSER_LANES = ("stateful", "mocked")
+BROWSER_LANES = ("mocked", "stateful-a", "stateful-b")
+BROWSER_RUNTIME = ROOT / ".keel-local/e2e-lanes"
 
 
 @contextmanager
@@ -46,24 +51,34 @@ def prepare_report(path):
 
 
 def merge_browser_reports(reports):
-    if not reports:
-        raise ValueError("browser reports are required")
+    if set(reports) != set(BROWSER_LANES):
+        raise ValueError("browser reports must contain every required lane exactly once")
+    ordered = [reports[lane] for lane in BROWSER_LANES]
+    starts = [datetime.fromisoformat(report["stats"]["startTime"].replace("Z", "+00:00"))
+              for report in ordered]
+    start = min(starts)
+    duration = max(
+        (started - start).total_seconds() * 1_000 + report["stats"]["duration"]
+        for started, report in zip(starts, ordered)
+    )
     return {
         "kind": "keel-browser-lanes",
-        "lanes": [{"id": lane, "config": report.get("config"), "stats": report["stats"]}
-                  for lane, report in zip(BROWSER_LANES, reports)],
-        "suites": [suite for report in reports for suite in report["suites"]],
-        "errors": [error for report in reports for error in report["errors"]],
+        "lanes": [{"id": lane, "config": reports[lane].get("config"), "stats": reports[lane]["stats"]}
+                  for lane in BROWSER_LANES],
+        "suites": [suite for report in ordered for suite in report["suites"]],
+        "errors": [error for report in ordered for error in report["errors"]],
         "stats": {
-            "startTime": reports[0]["stats"]["startTime"],
-            **{key: sum(report["stats"][key] for report in reports)
-               for key in ("duration", "expected", "skipped", "unexpected", "flaky")},
+            "startTime": min(report["stats"]["startTime"] for report in ordered),
+            "duration": duration,
+            **{key: sum(report["stats"][key] for report in ordered)
+               for key in ("expected", "skipped", "unexpected", "flaky")},
         },
+        "totalWorkDuration": sum(report["stats"]["duration"] for report in ordered),
     }
 
 
-def check_browser_lane(lane, report, files, inventory):
-    expected_workers = 2 if lane == "mocked" else 1
+def check_browser_lane(lane, report, files, inventory, execution):
+    expected_workers = execution[lane]["workers"]
     if report["config"]["workers"] != expected_workers:
         raise ValueError(f"{lane} browser lane used an unexpected worker count")
     prefixes = {f"e2e/{file}" for file in files}
@@ -74,17 +89,126 @@ def check_browser_lane(lane, report, files, inventory):
                                                          if entry["id"] in subset]})
 
 
-def run_browser_lanes(output):
-    lanes = json.loads(subprocess.check_output([
-        "node", "--import", "tsx", "--input-type=module", "--eval",
-        "import { BROWSER_TEST_LANES } from './scripts/browser-test-lanes.ts';"
-        "console.log(JSON.stringify(BROWSER_TEST_LANES));",
-    ], cwd=ROOT, text=True))
-    if set(lanes) != set(BROWSER_LANES):
+def validate_browser_execution(lanes, execution):
+    if set(lanes) != set(BROWSER_LANES) or set(execution) != set(BROWSER_LANES):
         raise ValueError("browser lane manifest differs from the required execution plan")
+    ports = []
+    for lane in BROWSER_LANES:
+        config = execution[lane]
+        expected_server = "mocked" if lane == "mocked" else "stateful"
+        expected_workers = 2 if lane == "mocked" else 1
+        if config["server"] != expected_server or config["workers"] != expected_workers:
+            raise ValueError(f"{lane} browser lane exceeds its reviewed resource budget")
+        lane_ports = [config["webPort"]]
+        if expected_server == "stateful":
+            lane_ports.append(config["apiPort"])
+        elif config["apiPort"] is not None:
+            raise ValueError("mocked browser lane must not allocate an API server")
+        if any(not isinstance(port, int) or port < 31_000 or port >= 32_768 for port in lane_ports):
+            raise ValueError(f"{lane} browser lane uses an unsafe port")
+        ports.extend(lane_ports)
+    if len(ports) != len(set(ports)):
+        raise ValueError("browser lanes must use distinct runtime ports")
+    return ports
+
+
+def assert_browser_ports_available(ports):
+    sockets = []
+    try:
+        for port in ports:
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", port))
+            listener.listen(1)
+            sockets.append(listener)
+    except OSError as error:
+        raise ValueError(f"browser runtime port {port} is unavailable") from error
+    finally:
+        for listener in sockets:
+            listener.close()
+
+
+def validate_owned_browser_path(path, label, *, recursive=False, allow_missing=False):
+    if path.resolve() != path:
+        raise ValueError(f"{label} must not follow symlinks")
+    if not path.exists():
+        if allow_missing:
+            return
+        raise ValueError(f"{label} must exist")
+    candidates = [path, *path.rglob("*")] if recursive else [path]
+    for candidate in candidates:
+        info = candidate.lstat()
+        regular = stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+        if info.st_uid != os.geteuid() or not (stat.S_ISDIR(info.st_mode) or regular):
+            raise ValueError(f"{label} must contain only owned directories and single-link regular files")
+
+
+def remove_browser_profiles():
+    local = ROOT / ".keel-local"
+    validate_owned_browser_path(local, "browser profile parent", allow_missing=True)
+    validate_owned_browser_path(BROWSER_RUNTIME, "browser runtime profiles",
+                                recursive=True, allow_missing=True)
+    if BROWSER_RUNTIME.exists():
+        shutil.rmtree(BROWSER_RUNTIME)
+
+
+def prepare_browser_profiles(execution):
+    local = ROOT / ".keel-local"
+    base = local / "e2e"
+    validate_owned_browser_path(local, "browser profile parent", allow_missing=True)
+    validate_owned_browser_path(base, "verified browser seed", recursive=True, allow_missing=True)
+    remove_browser_profiles()
+    subprocess.run(["make", "db-verify-e2e"], cwd=ROOT, check=True)
+    validate_owned_browser_path(local, "browser profile parent")
+    validate_owned_browser_path(base, "verified browser seed", recursive=True)
+    BROWSER_RUNTIME.mkdir(mode=0o700)
+    for lane in BROWSER_LANES:
+        if execution[lane]["server"] == "stateful":
+            shutil.copytree(base, BROWSER_RUNTIME / lane)
+
+
+def browser_process_group_alive(pid):
+    try:
+        os.killpg(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def cleanup_browser_processes(processes):
+    for process in processes:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    # Complete before Tugling's outer three-second process-group deadline.
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and any(browser_process_group_alive(process.pid) for process in processes):
+        time.sleep(0.05)
+    for process in processes:
+        if browser_process_group_alive(process.pid):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def run_browser_lanes(output):
+    manifest = json.loads(subprocess.check_output([
+        "node", "--import", "tsx", "--input-type=module", "--eval",
+        "import { BROWSER_TEST_EXECUTION, BROWSER_TEST_LANES } from './scripts/browser-test-lanes.ts';"
+        "console.log(JSON.stringify({execution:BROWSER_TEST_EXECUTION,lanes:BROWSER_TEST_LANES}));",
+    ], cwd=ROOT, text=True))
+    lanes, execution = manifest["lanes"], manifest["execution"]
+    ports = validate_browser_execution(lanes, execution)
+    assert_browser_ports_available(ports)
     inventory = json.loads(INVENTORY.read_text())
-    # Remove diagnostics from an earlier attempt even if this attempt fails
-    # before reaching the second lane. The caller holds the browser-suite lease.
     results = ARTIFACTS / "browser-results"
     if results.is_symlink():
         raise ValueError("browser results must not follow symlinks")
@@ -92,25 +216,63 @@ def run_browser_lanes(output):
         shutil.rmtree(results)
     for lane in BROWSER_LANES:
         prepare_report(ARTIFACTS / f"playwright-{lane}.json")
-    subprocess.run(["make", "db-verify-e2e"], cwd=ROOT, check=True)
-    reports = []
-    returncode = 0
-    for lane in BROWSER_LANES:
-        lane_output = ARTIFACTS / f"playwright-{lane}.json"
-        env = {**os.environ, "KEEL_E2E_ISOLATED": "1",
-               "KEEL_LOCAL_PERSIST_TO": str(ROOT / ".keel-local/e2e"),
-               "KEEL_BROWSER_LANE": lane, "PLAYWRIGHT_JSON_OUTPUT_FILE": str(lane_output)}
-        command = ["node", "node_modules/@playwright/test/cli.js", "test", "--config=playwright.config.ts",
-                   "--forbid-only", "--update-snapshots=none", "--reporter=list,json",
-                   f"--output={ARTIFACTS / 'browser-results' / lane}"]
-        result = subprocess.run(command, cwd=ROOT, env=env, check=False)
-        reports.append(json.loads(lane_output.read_text()))
+    processes = {}
+    reports = {}
+    handled_signals = {signal.SIGINT, signal.SIGTERM}
+    previous_handlers = {name: signal.getsignal(name) for name in handled_signals}
+    signal_state = {"registering": False, "pending": None}
+
+    def interrupt(signum, _frame):
+        if signal_state["registering"]:
+            signal_state["pending"] = signum
+            return
+        raise SystemExit(128 + signum)
+
+    for name in handled_signals:
+        signal.signal(name, interrupt)
+    try:
+        prepare_browser_profiles(execution)
+        for lane in BROWSER_LANES:
+            lane_output = ARTIFACTS / f"playwright-{lane}.json"
+            env = {**os.environ, "KEEL_E2E_ISOLATED": "1", "KEEL_BROWSER_LANE": lane,
+                   "PLAYWRIGHT_JSON_OUTPUT_FILE": str(lane_output)}
+            if execution[lane]["server"] == "stateful":
+                env["KEEL_LOCAL_PERSIST_TO"] = str(BROWSER_RUNTIME / lane)
+            command = ["node", "node_modules/@playwright/test/cli.js", "test", "--config=playwright.config.ts",
+                       "--forbid-only", "--update-snapshots=none", "--reporter=list,json",
+                       f"--output={results / lane}"]
+            signal_state["registering"] = True
+            try:
+                process = subprocess.Popen(command, cwd=ROOT, env=env, start_new_session=True)
+                processes[lane] = process
+            finally:
+                signal_state["registering"] = False
+            if signal_state["pending"] is not None:
+                raise SystemExit(128 + signal_state["pending"])
+        pending = set(BROWSER_LANES)
+        while pending:
+            for lane in list(pending):
+                returncode = processes[lane].poll()
+                if returncode is None:
+                    continue
+                pending.remove(lane)
+                try:
+                    report = json.loads((ARTIFACTS / f"playwright-{lane}.json").read_text())
+                    check_browser_lane(lane, report, lanes[lane], inventory, execution)
+                except (ValueError, OSError, json.JSONDecodeError) as error:
+                    raise ValueError(f"{lane} browser lane produced invalid evidence: {error}") from error
+                if returncode or report["errors"]:
+                    raise ValueError(f"{lane} browser lane reported errors (exit {returncode})")
+                reports[lane] = report
+            if pending:
+                time.sleep(0.1)
         output.write_text(json.dumps(merge_browser_reports(reports)))
-        check_browser_lane(lane, reports[-1], lanes[lane], inventory)
-        if result.returncode or reports[-1]["errors"]:
-            returncode = result.returncode or 1
-            break
-    return returncode
+        return 0
+    finally:
+        cleanup_browser_processes(processes.values())
+        remove_browser_profiles()
+        for name, handler in previous_handlers.items():
+            signal.signal(name, handler)
 
 
 def load_module(name):

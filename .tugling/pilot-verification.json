@@ -4,7 +4,7 @@
     {
       "id": "source-quality",
       "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
-      "argv": ["make", "data-scan", "format-check", "lint", "typecheck"],
+      "argv": ["make", "-j2", "data-scan", "format-check", "lint", "typecheck"],
       "timeout_seconds": 600,
       "sources": [
         "Makefile",
@@ -40,7 +40,8 @@
         "scripts/tugling-pilot.py",
         "scripts/ci-verification.py",
         ".github/workflows/native-verification.yml",
-        ".github/actions/verify-native-receipt/action.yml"
+        ".github/actions/verify-native-receipt/action.yml",
+        "scripts/ci-resource-sampler.py"
       ],
       "runtime": {
         "owner": "native-command",
@@ -82,7 +83,7 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "The native verifier creates named serial containers on the provisioned rootless socket using prepared immutable images.",
+        "launch": "The native verifier overlaps one scanner/reader sequence with one independent kernel-probe sequence, at most two owned containers with unchanged resource limits on the provisioned rootless socket.",
         "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
         "cleanup": "The native launcher removes exact owned containers; no shared daemon or image cleanup."
       },
@@ -146,11 +147,19 @@
         "scripts/test-support/sql-replay.ts",
         "scripts/test-support/sql-replay-worker.ts",
         "scripts/browser-test-lanes.ts",
-        "scripts/browser-test-lanes.test.ts"
+        "scripts/browser-test-lanes.test.ts",
+        "scripts/ci-test-sequencer.ts",
+        "scripts/ci-test-sequencer.test.ts",
+        "scripts/test-support/d1-cost.ts",
+        "scripts/test-support/sql-replay.ts",
+        "scripts/test-support/sql-replay-worker.ts",
+        "scripts/test-support/d1-cost.test.ts",
+        "scripts/test-support/cost-fixtures-worker.ts",
+        "scripts/test-support/cost-database.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest owns workerd, synthetic D1, GPG and temporary fixture processes; maxWorkers is two to bound native process contention.",
+        "launch": "Vitest schedules expensive files first and owns fresh workerd, synthetic D1, GPG and temporary fixtures; two workers bound native process contention.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
@@ -181,13 +190,14 @@
         "e2e/provider-legal-documents.spec.ts",
         "e2e/provider-session.spec.ts",
         "scripts/browser-test-lanes.ts",
-        "e2e/api-mocked-test.ts"
+        "e2e/api-mocked-test.ts",
+        "scripts/browser-test-server.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Native D1 reset precedes serial stateful and two-worker mocked Playwright lanes on checkout-specific ports; existing-server reuse is disabled.",
-        "health": "Playwright waits through Vite /api/alpha; mocked contexts reject unhandled application APIs; both lane reports must cover the complete reviewed browser inventory with unchanged snapshots.",
-        "cleanup": "Playwright stops owned browsers/server groups; per-suite leases prevent duplicate report writers; prior lane diagnostics are cleared before each browser run."
+        "launch": "One verified, closed synthetic D1 seed is copied into two independent profiles. Two one-worker stateful shards and a two-worker API-mocked Vite lane run concurrently on distinct ports.",
+        "health": "Stateful lanes wait through Vite /api/alpha; mocked contexts reject unhandled application APIs. Three validated reports must cover the complete reviewed browser inventory with unchanged snapshots.",
+        "cleanup": "Owned lane process groups are terminated on completion, failure or cancellation before profile removal. Per-suite leases prevent duplicate report and runtime writers."
       },
       "depends_on": ["build-and-entry-budget", "pdf-isolation"]
     }
@@ -303,6 +313,6 @@
     }
   ],
   "execution": {
-    "max_parallel": 2
+    "max_parallel": 3
   }
 }

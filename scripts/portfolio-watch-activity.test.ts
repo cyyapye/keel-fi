@@ -25,11 +25,8 @@ import {
   type PollingEnvironment,
 } from "../apps/web/src/bounded-polling";
 import type { Env } from "../apps/api/src/types";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import {
-  seedCostHoldings,
-  seedCostWatchTargets,
-} from "./test-support/cost-fixtures";
+import { createCostFixtureDatabase } from "./test-support/cost-database";
+import { measureD1 } from "./test-support/d1-cost";
 
 const start = "2026-09-12T13:00:00.000Z";
 const finish = "2026-09-12T13:01:00.000Z";
@@ -50,13 +47,10 @@ const fetchSource: NonNullable<
 };
 
 async function setup() {
-  const fixture = await createCostDatabase();
-  await seedCostHoldings(fixture.database);
-  await seedCostWatchTargets(fixture.database);
-  await fixture.database
-    .prepare("UPDATE portfolio_watch_source_sync_state SET next_check_at = ?")
-    .bind(start)
-    .run();
+  const fixture = await createCostFixtureDatabase({
+    operation: "portfolio-watch",
+    nextCheckAt: start,
+  });
   const measured = measureD1(fixture.database);
   const repository = new D1PortfolioWatchRepository(measured.database);
   const activity = new D1PortfolioWatchActivityRepository(measured.database);

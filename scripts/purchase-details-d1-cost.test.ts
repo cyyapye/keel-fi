@@ -1,16 +1,19 @@
 import { expect, it } from "vitest";
 import { D1PositionPurchaseRepository } from "../packages/database/src/position-purchases";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import { seedCostHoldings, COST_SUBJECT } from "./test-support/cost-fixtures";
+import { createCostFixtureDatabase } from "./test-support/cost-database";
+import { measureD1 } from "./test-support/d1-cost";
+import { COST_SUBJECT } from "./test-support/cost-fixtures";
 
 it("bounds purchase-head reads and writes across 120 positions and growing review history", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createCostFixtureDatabase({ operation: "holdings" });
   try {
-    await seedCostHoldings(fixture.database);
     await fixture.execute(`INSERT INTO users VALUES('purchase-other-user','purchase-other-subject','purchase-other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z');
     INSERT INTO households VALUES('purchase-other-household','purchase-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z');`);
-    await seedCostHoldings(fixture.database, "purchase-other-subject");
+    await fixture.setup({
+      operation: "holdings",
+      subject: "purchase-other-subject",
+    });
     const meter = measureD1(fixture.database);
     const reader = new D1InvestmentPositionViewRepository(meter.database);
     const get = () => reader.listForHousehold("hh_demo");

@@ -123,13 +123,18 @@ class NativeAccountingTests(unittest.TestCase):
                 }],
             }]}]}
         inventory = {"playwright": [f"e2e/{lane}.spec.ts :: chromium :: required" for lane in native.BROWSER_LANES], "exclusions": []}
-        for lane, workers in (("stateful", 1), ("mocked", 2)):
+        execution = {
+            lane: {"workers": 2 if lane == "mocked" else 1}
+            for lane in native.BROWSER_LANES
+        }
+        for lane in native.BROWSER_LANES:
+            workers = execution[lane]["workers"]
             correct = report(f"{lane}.spec.ts", workers)
-            native.check_browser_lane(lane, correct, [f"{lane}.spec.ts"], inventory)
-            other = "mocked" if lane == "stateful" else "stateful"
+            native.check_browser_lane(lane, correct, [f"{lane}.spec.ts"], inventory, execution)
+            other = next(candidate for candidate in native.BROWSER_LANES if candidate != lane)
             for incorrect in (report(f"{other}.spec.ts", workers), report(f"{lane}.spec.ts", 3)):
                 with self.assertRaises(ValueError):
-                    native.check_browser_lane(lane, incorrect, [f"{lane}.spec.ts"], inventory)
+                    native.check_browser_lane(lane, incorrect, [f"{lane}.spec.ts"], inventory, execution)
 
     def test_browser_lane_reports_preserve_errors_and_require_complete_union(self):
         def report(title, errors=None):
@@ -140,15 +145,88 @@ class NativeAccountingTests(unittest.TestCase):
                 "startTime": "2026-09-21T00:00:00Z", "duration": 10,
                 "expected": 1, "skipped": 0, "unexpected": 0, "flaky": 0,
             }}
-        stateful, mocked = report("stateful"), report("mocked", [{"message": "worker teardown failed"}])
+        reports = {lane: report(lane) for lane in native.BROWSER_LANES}
+        reports["mocked"] = report("mocked", [{"message": "worker teardown failed"}])
         inventory = {"playwright": [f"e2e/fixture.ts :: chromium :: {lane}" for lane in native.BROWSER_LANES], "exclusions": []}
-        merged = native.merge_browser_reports([stateful, mocked])
+        merged = native.merge_browser_reports(reports)
         native.compare_cases("playwright", native.playwright_cases(merged), inventory)
-        self.assertEqual(merged["stats"]["expected"], 2)
-        self.assertEqual(merged["errors"], mocked["errors"])
-        for reports in ([stateful], [stateful, stateful, mocked]):
+        self.assertEqual(merged["stats"]["expected"], len(native.BROWSER_LANES))
+        self.assertEqual(merged["stats"]["duration"], 10)
+        self.assertEqual(merged["totalWorkDuration"], 30)
+        self.assertEqual(merged["errors"], reports["mocked"]["errors"])
+        for incomplete in (
+            {"mocked": reports["mocked"]},
+            {**reports, "unexpected": report("unexpected")},
+        ):
             with self.assertRaises(ValueError):
-                native.compare_cases("playwright", native.playwright_cases(native.merge_browser_reports(reports)), inventory)
+                native.merge_browser_reports(incomplete)
+
+    def test_browser_execution_rejects_oversubscription_and_unsafe_ports(self):
+        lanes = {lane: [f"{lane}.spec.ts"] for lane in native.BROWSER_LANES}
+        execution = {
+            "mocked": {"server": "mocked", "workers": 2, "webPort": 31031, "apiPort": None},
+            "stateful-a": {"server": "stateful", "workers": 1, "webPort": 31032, "apiPort": 32032},
+            "stateful-b": {"server": "stateful", "workers": 1, "webPort": 31033, "apiPort": 32033},
+        }
+        self.assertEqual(native.validate_browser_execution(lanes, execution), [31031, 31032, 32032, 31033, 32033])
+        for lane, field, value in (
+            ("mocked", "workers", 3),
+            ("stateful-a", "webPort", 40000),
+            ("stateful-b", "apiPort", 32032),
+        ):
+            invalid = {name: dict(config) for name, config in execution.items()}
+            invalid[lane][field] = value
+            with self.subTest(lane=lane, field=field), self.assertRaises(ValueError):
+                native.validate_browser_execution(lanes, invalid)
+
+    def test_browser_cleanup_targets_owned_process_groups(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "descendant-stopped"
+            descendant = (
+                "import signal,sys\n"
+                "from pathlib import Path\n"
+                "def stop(*_):\n"
+                " Path(sys.argv[1]).write_text('stopped')\n"
+                " raise SystemExit(0)\n"
+                "signal.signal(signal.SIGTERM, stop)\n"
+                "print('ready', flush=True)\n"
+                "signal.pause()\n"
+            )
+            leader = (
+                "import signal,subprocess,sys\n"
+                "subprocess.Popen([sys.executable, '-c', sys.argv[2], sys.argv[1]])\n"
+                "signal.pause()\n"
+            )
+            process = subprocess.Popen(
+                [sys.executable, "-c", leader, str(marker), descendant],
+                start_new_session=True,
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(process.stdout.readline(), "ready\n")
+            native.cleanup_browser_processes([process])
+            process.stdout.close()
+            self.assertIsNotNone(process.poll())
+            self.assertEqual(marker.read_text(), "stopped")
+
+    def test_browser_profiles_reject_symlinked_parent_and_unowned_entries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            outside = root / "outside"
+            outside.mkdir()
+            linked = root / "linked"
+            linked.symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "must not follow symlinks"):
+                native.validate_owned_browser_path(linked, "synthetic browser profile")
+
+            owned = root / "owned"
+            owned.mkdir()
+            (owned / "seed.sqlite").write_text("synthetic")
+            with patch.object(native.os, "geteuid", return_value=os.geteuid() + 1):
+                with self.assertRaisesRegex(ValueError, "only owned"):
+                    native.validate_owned_browser_path(
+                        owned, "synthetic browser profile", recursive=True
+                    )
 
     def test_mocked_browser_guard_rejects_unknown_reads_and_unexpected_writes(self):
         with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:

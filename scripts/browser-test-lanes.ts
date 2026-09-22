@@ -11,37 +11,73 @@ export const BROWSER_TEST_LANES = {
     "investment-holdings.visual.spec.ts",
     "investment-review.visual.spec.ts",
   ],
-  stateful: [
+  "stateful-a": [
     "app-recovery.visual.spec.ts",
     "cash-accounts.visual.spec.ts",
     "goals.visual.spec.ts",
     "legal-entities.visual.spec.ts",
-    "legal-name-resolution.visual.spec.ts",
     "navigation.visual.spec.ts",
-    "obligations.visual.spec.ts",
     "observed-cash-flow.visual.spec.ts",
-    "overview-links.visual.spec.ts",
     "plan-actual-monitoring.visual.spec.ts",
-    "plan-inputs.visual.spec.ts",
-    "portfolio-baseline.visual.spec.ts",
-    "portfolio-dashboard.visual.spec.ts",
-    "portfolio-watch.visual.spec.ts",
     "private-alpha.spec.ts",
     "purchase-details.visual.spec.ts",
     "provider-browser-lifecycle.spec.ts",
     "provider-legal-documents.spec.ts",
     "provider-portfolio-mac-agent.spec.ts",
+  ],
+  "stateful-b": [
+    "legal-name-resolution.visual.spec.ts",
+    "obligations.visual.spec.ts",
+    "overview-links.visual.spec.ts",
+    "plan-inputs.visual.spec.ts",
+    "portfolio-baseline.visual.spec.ts",
+    "portfolio-dashboard.visual.spec.ts",
+    "portfolio-watch.visual.spec.ts",
     "provider-session.spec.ts",
     "sydecar-session-renewal.spec.ts",
   ],
 } as const satisfies Record<string, readonly string[]>;
+
+export const BROWSER_TEST_EXECUTION = {
+  mocked: {
+    apiPort: null,
+    server: "mocked",
+    webPort: 31_031,
+    workers: 2,
+  },
+  "stateful-a": {
+    apiPort: 32_032,
+    server: "stateful",
+    webPort: 31_032,
+    workers: 1,
+  },
+  "stateful-b": {
+    apiPort: 32_033,
+    server: "stateful",
+    webPort: 31_033,
+    workers: 1,
+  },
+} as const satisfies Record<
+  keyof typeof BROWSER_TEST_LANES,
+  {
+    readonly apiPort: number | null;
+    readonly server: "mocked" | "stateful";
+    readonly webPort: number;
+    readonly workers: number;
+  }
+>;
 
 export type BrowserTestLane = keyof typeof BROWSER_TEST_LANES | "all";
 
 export interface BrowserTestLaneConfig {
   readonly files: string[];
   readonly lane: BrowserTestLane;
+  readonly server: "mocked" | "stateful";
   readonly workers: number;
+}
+
+export function browserServerFailureExitCode(code: number | null): number {
+  return code !== null && code > 0 ? code : 1;
 }
 
 export function validateBrowserTestLanes(
@@ -88,13 +124,16 @@ export function discoverBrowserSpecFiles(directory: string): string[] {
 }
 
 export function validateMockedBrowserSpecs(e2eDirectory: string): void {
-  for (const file of BROWSER_TEST_LANES.mocked) {
+  const productionServed = new Set<string>(BROWSER_TEST_LANES.mocked);
+  for (const file of Object.values(BROWSER_TEST_LANES).flat()) {
     const source = readFileSync(path.join(e2eDirectory, file), "utf8");
-    if (!source.includes('from "./api-mocked-test"')) {
+    const usesMockedApi = source.includes('from "./api-mocked-test"');
+    if (productionServed.has(file) && !usesMockedApi) {
       throw new Error(
         `${file} must import the fail-closed mocked API fixture.`,
       );
     }
+    if (!usesMockedApi) continue;
     if (
       /\bpage\.request\b|\brequest\.(?:get|post|put|patch|delete)\s*\(/u.test(
         source,
@@ -114,9 +153,10 @@ export function validateMockedBrowserSpecs(e2eDirectory: string): void {
 
 function parseBrowserTestLane(value: string | undefined): BrowserTestLane {
   const lane = value ?? "all";
-  if (lane === "all" || lane === "mocked" || lane === "stateful") return lane;
+  if (lane === "all" || lane in BROWSER_TEST_LANES)
+    return lane as BrowserTestLane;
   throw new Error(
-    `KEEL_BROWSER_LANE must be one of all, mocked or stateful; received ${JSON.stringify(lane)}.`,
+    `KEEL_BROWSER_LANE must be one of all, ${Object.keys(BROWSER_TEST_LANES).join(", ")}; received ${JSON.stringify(lane)}.`,
   );
 }
 
@@ -130,11 +170,16 @@ export function resolveBrowserTestLane(options: {
   const lane = parseBrowserTestLane(options.lane);
   const files =
     lane === "all" ? actualSpecFiles : [...BROWSER_TEST_LANES[lane]].sort();
+  const execution =
+    lane === "all"
+      ? { server: "stateful" as const, workers: 1 }
+      : BROWSER_TEST_EXECUTION[lane];
 
   return {
     files: files.map((file) => `**/${file}`),
     lane,
-    workers: lane === "mocked" ? 2 : 1,
+    server: execution.server,
+    workers: execution.workers,
   };
 }
 

@@ -1,7 +1,12 @@
 import { build } from "esbuild";
 import { expect, it } from "vitest";
 import { createCostDatabase } from "./test-support/d1-cost";
-import { replaySql } from "./test-support/sql-replay";
+import {
+  addD1Cost,
+  replaySql,
+  type SqlReplayChunk,
+} from "./test-support/sql-replay";
+import { emptyD1Cost } from "./test-support/d1-meter";
 import { createSqliteTrace } from "./test-support/sqlite-trace";
 
 it("replays setup, atomic batches, bindings and reads with actual D1 index-write costs", async () => {
@@ -137,3 +142,105 @@ it("rejects incomplete replay, missing billing metadata and failed SQL traces", 
     trace.close();
   }
 });
+
+it("batches only adjacent standalone reads without changing real billing or production round trips", async () => {
+  const fixture = await createCostDatabase();
+  try {
+    await fixture.execute(
+      "CREATE TABLE replay_reads (id TEXT PRIMARY KEY, value INTEGER); CREATE INDEX replay_reads_value ON replay_reads(value)",
+    );
+    const chunk: SqlReplayChunk = {
+      queries: [
+        "INSERT INTO replay_reads VALUES ('synthetic', 1)",
+        "SELECT value FROM replay_reads",
+        "UPDATE replay_reads SET value = 2 WHERE id = 'synthetic'",
+      ],
+      steps: [
+        { batch: true, statements: [{ query: 0, bindings: [], rows: [] }] },
+        ...Array.from({ length: 3 }, () => ({
+          batch: false,
+          statements: [{ query: 1, bindings: [], rows: [{ value: 1 }] }],
+        })),
+        { batch: false, statements: [{ query: 2, bindings: [], rows: [] }] },
+        ...Array.from({ length: 2 }, () => ({
+          batch: false,
+          statements: [{ query: 1, bindings: [], rows: [{ value: 2 }] }],
+        })),
+        {
+          batch: true,
+          statements: [{ query: 1, bindings: [], rows: [{ value: 2 }] }],
+        },
+      ],
+      offset: 0,
+      measureFrom: 2,
+    };
+    const serial = emptyD1Cost();
+    for (const [index, step] of chunk.steps.entries()) {
+      addD1Cost(
+        serial,
+        await replaySql(fixture.database, {
+          ...chunk,
+          steps: [step],
+          offset: index,
+        }),
+      );
+    }
+    await fixture.execute("DELETE FROM replay_reads");
+    const grouped = await replaySql(fixture.database, chunk);
+    expect(grouped).toMatchObject(serial);
+    expect(grouped.roundTrips).toBe(6);
+    expect(grouped.statements).toBe(6);
+    expect(grouped.replayRoundTrips).toBe(6);
+    expect(grouped.replayedSteps).toBe(8);
+    expect(grouped.rowsWritten).toBeGreaterThan(1);
+    await fixture.execute("DELETE FROM replay_reads");
+    const divergent = structuredClone(chunk);
+    divergent.steps[3]!.statements[0]!.rows = [{ value: 999 }];
+    await expect(replaySql(fixture.database, divergent)).rejects.toThrow(
+      "D1/SQLite result mismatch at operation 3",
+    );
+    await fixture.execute("DELETE FROM replay_reads");
+    await expect(
+      replaySql(fixture.database, {
+        queries: [
+          chunk.queries[0]!,
+          "INSERT INTO missing_replay_table VALUES (1)",
+        ],
+        steps: [
+          {
+            batch: true,
+            statements: [0, 1].map((query) => ({
+              query,
+              bindings: [],
+              rows: [],
+            })),
+          },
+        ],
+        offset: 0,
+        measureFrom: 0,
+      }),
+    ).rejects.toThrow();
+    expect(
+      await fixture.database
+        .prepare("SELECT COUNT(*) AS count FROM replay_reads")
+        .first("count"),
+    ).toBe(0);
+    const bounded = await replaySql(fixture.database, {
+      queries: ["SELECT value FROM replay_reads"],
+      steps: Array.from({ length: 205 }, () => ({
+        batch: false,
+        statements: [{ query: 0, bindings: [], rows: [] }],
+      })),
+      offset: 0,
+      measureFrom: 0,
+    });
+    expect(bounded).toMatchObject({
+      roundTrips: 205,
+      statements: 205,
+      measuredSteps: 205,
+      replayRoundTrips: 3,
+    });
+  } finally {
+    await fixture.close();
+  }
+}, 30_000);

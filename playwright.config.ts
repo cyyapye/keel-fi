@@ -1,19 +1,25 @@
 import { defineConfig, devices } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import {
+  BROWSER_TEST_EXECUTION,
   browserTestDirectory,
   resolveBrowserTestLane,
 } from "./scripts/browser-test-lanes";
 import { resolveDevPorts } from "./scripts/dev-ports";
 
-const { webPort } = resolveDevPorts();
-const baseURL = `http://127.0.0.1:${webPort}`;
-const readinessURL = `${baseURL}/api/alpha`;
 const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
 const browserLane = resolveBrowserTestLane({
   e2eDirectory: browserTestDirectory(repositoryRoot),
   lane: process.env.KEEL_BROWSER_LANE,
 });
+const localPorts = resolveDevPorts();
+const webPort =
+  browserLane.lane === "all"
+    ? localPorts.webPort
+    : BROWSER_TEST_EXECUTION[browserLane.lane].webPort;
+const baseURL = `http://127.0.0.1:${webPort}`;
+const readinessURL =
+  browserLane.server === "mocked" ? baseURL : `${baseURL}/api/alpha`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -30,7 +36,7 @@ export default defineConfig({
   use: {
     baseURL,
     screenshot: "only-on-failure",
-    serviceWorkers: browserLane.lane === "mocked" ? "block" : "allow",
+    serviceWorkers: browserLane.server === "mocked" ? "block" : "allow",
     trace: "on-first-retry",
   },
   projects: [
@@ -44,7 +50,12 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm dev",
+    command:
+      browserLane.lane === "all"
+        ? "pnpm dev"
+        : browserLane.server === "mocked"
+          ? `pnpm --filter @keel/web exec vite --host 127.0.0.1 --port ${webPort} --strictPort`
+          : "pnpm exec tsx scripts/browser-test-server.ts",
     reuseExistingServer:
       !process.env.CI && process.env.KEEL_E2E_ISOLATED !== "1",
     timeout: 120_000,

@@ -47,14 +47,13 @@ counts. Keep the credential-bearing deployment account separate.
 Prioritize the real D1 cost fixtures and browser tests using measured receipt
 and native-report timings. Preserve the full-day provider scenarios and real D1
 cost assertions. Browser tests that share mutable D1 state remain serial.
-Parallel browser cases must use the reviewed API-mocked lane, reject unexpected
-application API calls, and own their browser context and fixture state.
-Parallelizing the stateful lane would require independent D1 directories,
-servers, ports and cleanup.
+API-mocked cases reject unexpected application API calls and own their browser
+contexts and fixtures. Stateful partitions use independent D1 directories,
+servers, ports and cleanup; each partition remains serial internally.
 
 ## Bounded execution plan
 
-The verification map opts into at most two concurrent native flows. Source
+The verification map opts into at most three concurrent native flows. Source
 checks and integrity checks can start together. Migration and PDF probes depend
 on integrity checks. Build depends on source checks and migration completion;
 unit/D1 tests depend on build. Browser tests depend on build and PDF isolation.
@@ -78,24 +77,26 @@ flowchart LR
   pdf --> browser
 ```
 
-Only two ready flows execute at once; an arrow means the prerequisite must
-finish successfully. The browser suite runs its stateful lane before its mocked
-lane, each with a separately owned server lifetime.
+Only three ready flows execute at once; an arrow means the prerequisite must
+finish successfully. Source checks use at most two Make jobs, and PDF proof uses
+at most two independently limited containers. No browser consumer starts before
+PDF isolation and build succeed.
 
-The unit suite retains its two-worker ceiling. The browser runner executes the
-stateful lane with one worker, then the isolated mocked lane with two workers.
-The reviewed partition contains 106 mocked executions and 226 stateful
-executions, including the existing 44 platform exclusions. The parallel group
-contains agreement security, automatic investment review, company names, holding
-details, holding imports, investment holdings and investment review. The guard
-exposed additional application reads in legal entities, legal-name resolution,
-portfolio dashboard and purchase details; those remain serial. The lanes keep
-existing desktop/mobile project names, screenshots and case identities. A new or
-unclassified spec fails the partition check. Both reports are combined and
-checked against the entire reviewed browser inventory; one green lane cannot
-substitute for the complete suite. Native report leases are per suite, so
-independent writers can overlap but duplicate suite invocations cannot replace
-an active report.
+The unit suite retains two workers and starts historically expensive files
+first. Browser verification runs two one-worker stateful partitions alongside a
+two-worker API-mocked lane. The partitions contain the same 106 mocked and 226
+stateful executions, including 44 reviewed platform exclusions. Each stateful
+partition receives a separate copy of the verified, closed synthetic seed and
+owns distinct API/web ports. The mocked lane serves Vite without an API server.
+It retains development-mode behavior required by dynamic-module recovery tests.
+All lanes keep desktop/mobile project names, snapshots and case identities.
+
+New or unclassified specs fail partition validation. All three reports must
+individually match their partition and jointly match the complete reviewed
+inventory; one green lane cannot substitute for the suite. Merged elapsed time
+is the span of the concurrent lanes, not their summed work. Per-suite leases
+reject duplicate writers, and cancellation cleans owned process groups before
+removing the isolated database profiles.
 
 The initial OVH capacity inspection found six CPUs, 11.4 GiB RAM, approximately
 9.3 GiB available memory and low CPU/I/O pressure. This is a starting snapshot,
@@ -170,13 +171,14 @@ stale-evidence behavior remain covered by their dedicated integration tests.
 
 ## Failure and recovery
 
-Native CI uses loopback ports 31000/31001, outside local development ranges and
-OVH's Linux ephemeral range (32768-60999). A preflight checks both availability
-and the live kernel range before expensive verification. This avoids automatic
-outbound-port allocation colliding with browser startup after the unit suite; it
-does not reserve ports against unrelated explicit listeners. The browser server
-still fails closed on a later conflict and never reuses another server. Keep one
-native job per dedicated runner and do not kill an unknown port owner.
+Native CI uses loopback web ports 31031–31033 and API ports 32032–32033, outside
+local development ranges and OVH's Linux ephemeral range (32768-60999). A
+preflight checks port availability and the live kernel range before expensive
+verification. This avoids automatic outbound-port allocation colliding with
+browser startup after the unit suite; it does not reserve ports against
+unrelated explicit listeners. The browser server still fails closed on a later
+conflict and never reuses another server. Keep one native job per dedicated
+runner and do not kill an unknown port owner.
 
 Receipt consumers require the producer's success, the exact artifact name from
 the current run, and matching project/config/map/helper/environment/run/attempt
@@ -193,3 +195,54 @@ The manual candidate workflow retains the synthetic polling-regression rejection
 experiment. Post-merge native verification, secret scanning, pinned released
 adapter validation, protected backup/migration/deployment and smoke checks
 remain required before claiming preview delivery.
+
+## September 22 optimization experiment
+
+The next measured round targets the complete native gate, using merged run
+`35690710837` (1,337.720 seconds) as its baseline. Browser elapsed time was
+959.120 seconds; unit/D1 elapsed time was 1,056.354 seconds. Both branches must
+improve because their completion times differ by only 55 seconds.
+
+The experiment preserves every reviewed case, desktop/mobile variant, real D1
+billing assertion, migration boundary, failure outcome, and exact-revision
+receipt. It changes only test transport, unmeasured fixture initialization and
+scheduling. Each accepted optimization must pass focused integrity tests and the
+complete OVH gate; timing from a failed or filtered run is diagnostic only.
+
+Execution slices:
+
+1. Profile provider initialization, scenario execution and D1 replay separately.
+   Batch only consecutive standalone SELECTs during synthetic replay, keeping
+   all results and actual rows-read/write metadata. Preserve original production
+   round-trip accounting independently of replay transport calls. Never combine
+   writes, existing transactions or setup/measurement boundaries.
+2. Move repeated unmeasured D1 initialization and scale-fixture setup beside the
+   database, keeping a fresh database per test and all measured operations.
+3. Run two independently seeded stateful browser partitions and an API-mocked
+   partition with distinct ports, runtime state, diagnostics and owned cleanup.
+   Compare their complete union with the unchanged reviewed browser inventory.
+4. Overlap read-only source checks with `make -j2`, and permit three native
+   flows so PDF isolation can overlap migration verification. Build and consumer
+   prerequisites remain explicit; runtime and migration outputs are not shared.
+5. Overlap the independent PDF scanner/reader sequence and kernel-probe
+   sequence, with at most two containers and unchanged limits. Wait for both
+   branches, including their failure cleanup, before checking for leftovers.
+6. Start the historically expensive Vitest files first, preserving discovered
+   specifications and test order within each file. This avoids a large final
+   fixture leaving the other worker idle.
+7. Inspect the resulting critical path and host resource pressure. Pursue
+   another candidate when its credible complete-gate improvement exceeds 5%;
+   validate promising scheduling choices with a complete same-host comparison.
+
+The stopping report must distinguish measured savings, rejected experiments, and
+untested architectural opportunities. A finite benchmark cannot prove that no
+possible future optimization exceeds 5%. No additional runner, larger host,
+removed assertion, relaxed watchdog or increased retry count is assumed.
+
+The native job owns one read-only host-counter observer during verification. It
+reads CPU, memory, swap and pressure counters every five seconds, with at most
+361 samples and an independent 30-minute deadline. The job stops and reaps it on
+success or failure; observer errors do not trigger retries or application
+requests. It performs no network, D1 or object-storage work. Diagnostics share
+the existing seven-day artifact retention and contain no process arguments,
+credentials or portfolio data.

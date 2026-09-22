@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  BROWSER_TEST_EXECUTION,
   BROWSER_TEST_LANES,
+  browserServerFailureExitCode,
   discoverBrowserSpecFiles,
   resolveBrowserTestLane,
   validateBrowserTestLanes,
@@ -24,10 +26,11 @@ describe("browser test lanes", () => {
     expect(() =>
       validateBrowserTestLanes(assigned, {
         mocked: BROWSER_TEST_LANES.mocked,
-        stateful: [
-          ...BROWSER_TEST_LANES.stateful,
+        "stateful-a": [
+          ...BROWSER_TEST_LANES["stateful-a"],
           BROWSER_TEST_LANES.mocked[0],
         ],
+        "stateful-b": BROWSER_TEST_LANES["stateful-b"],
       }),
     ).toThrow(/Assigned more than once/u);
   });
@@ -38,15 +41,28 @@ describe("browser test lanes", () => {
     ).toThrow(/KEEL_BROWSER_LANE must be one of/u);
   });
 
-  it("uses two workers only for the audited mocked lane", () => {
+  it("bounds workers while keeping each stateful shard serialized", () => {
     expect(
       resolveBrowserTestLane({ e2eDirectory: "e2e", lane: "mocked" }),
-    ).toMatchObject({ lane: "mocked", workers: 2 });
-    expect(
-      resolveBrowserTestLane({ e2eDirectory: "e2e", lane: "stateful" }),
-    ).toMatchObject({ lane: "stateful", workers: 1 });
+    ).toMatchObject({ lane: "mocked", server: "mocked", workers: 2 });
+    for (const lane of ["stateful-a", "stateful-b"] as const) {
+      expect(
+        resolveBrowserTestLane({ e2eDirectory: "e2e", lane }),
+      ).toMatchObject({ lane, server: "stateful", workers: 1 });
+    }
     expect(
       resolveBrowserTestLane({ e2eDirectory: "e2e", lane: "all" }),
-    ).toMatchObject({ lane: "all", workers: 1 });
+    ).toMatchObject({ lane: "all", server: "stateful", workers: 1 });
+    expect([null, 0, 1, 2].map(browserServerFailureExitCode)).toEqual([
+      1, 1, 1, 2,
+    ]);
+  });
+
+  it("gives concurrent lanes distinct non-ephemeral runtime ports", () => {
+    const ports = Object.values(BROWSER_TEST_EXECUTION).flatMap((lane) =>
+      lane.apiPort === null ? [lane.webPort] : [lane.webPort, lane.apiPort],
+    );
+    expect(new Set(ports).size).toBe(ports.length);
+    expect(ports.every((port) => port >= 31_000 && port < 32_768)).toBe(true);
   });
 });
