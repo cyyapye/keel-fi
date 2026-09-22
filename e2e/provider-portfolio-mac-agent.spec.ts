@@ -70,7 +70,10 @@ for (const [provider, origin, control] of [
 
     html = `<div hidden>${control}</div>`;
     await page.goto(`${origin}/portfolio`);
-    await expect(providerPageReady(page, provider, 100)).resolves.toBe(
+    // This is a positive readiness check for Sydecar's mounted responsive
+    // table. Use the production polling budget; 100 ms makes renderer
+    // scheduling under concurrent CI load part of the assertion.
+    await expect(providerPageReady(page, provider)).resolves.toBe(
       provider === "sydecar",
     );
     html = `<div id="loading">Loading</div><script>setTimeout(() => { document.body.innerHTML = ${JSON.stringify(control)}; }, 200)</script>`;
