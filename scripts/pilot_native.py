@@ -186,16 +186,26 @@ def browser_process_group_alive(pid):
 
 
 def cleanup_browser_processes(processes):
+    processes = tuple(processes)
     for process in processes:
         try:
-            os.killpg(process.pid, signal.SIGTERM)
+            # Playwright handles SIGINT by running task teardown, which owns its
+            # detached webServer process group. SIGTERM skips that teardown.
+            os.killpg(process.pid, signal.SIGINT)
         except ProcessLookupError:
             pass
     # Complete before Tugling's outer three-second process-group deadline.
     deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and any(browser_process_group_alive(process.pid) for process in processes):
+    while time.monotonic() < deadline:
+        # Reap exited leaders so Darwin does not retain a zombie process group
+        # that reports EPERM even after Playwright finished its owned teardown.
+        for process in processes:
+            process.poll()
+        if not any(browser_process_group_alive(process.pid) for process in processes):
+            break
         time.sleep(0.05)
     for process in processes:
+        process.poll()
         if browser_process_group_alive(process.pid):
             try:
                 os.killpg(process.pid, signal.SIGKILL)

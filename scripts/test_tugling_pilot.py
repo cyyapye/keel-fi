@@ -4,9 +4,13 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
+import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -182,15 +186,16 @@ class NativeAccountingTests(unittest.TestCase):
                 native.validate_browser_execution(lanes, invalid)
 
     def test_browser_cleanup_targets_owned_process_groups(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            marker = Path(temporary) / "descendant-stopped"
+        with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:
+            root = Path(temporary)
+            marker = root / "descendant-stopped"
             descendant = (
                 "import signal,sys\n"
                 "from pathlib import Path\n"
                 "def stop(*_):\n"
                 " Path(sys.argv[1]).write_text('stopped')\n"
                 " raise SystemExit(0)\n"
-                "signal.signal(signal.SIGTERM, stop)\n"
+                "signal.signal(signal.SIGINT, stop)\n"
                 "print('ready', flush=True)\n"
                 "signal.pause()\n"
             )
@@ -200,7 +205,7 @@ class NativeAccountingTests(unittest.TestCase):
                 "def stop(*_):\n"
                 " child.wait(timeout=1)\n"
                 " raise SystemExit(0)\n"
-                "signal.signal(signal.SIGTERM, stop)\n"
+                "signal.signal(signal.SIGINT, stop)\n"
                 "child = subprocess.Popen([sys.executable, '-c', sys.argv[2], sys.argv[1]])\n"
                 "signal.pause()\n"
             )
@@ -222,6 +227,210 @@ class NativeAccountingTests(unittest.TestCase):
             process.stdout.close()
             self.assertIsNotNone(process.poll())
             self.assertEqual(marker.read_text(), "stopped")
+
+            server_source = root / "detached-server.py"
+            server_source.write_text(
+                "import http.server,json,os,socketserver,sys\n"
+                "from pathlib import Path\n"
+                "class Handler(http.server.BaseHTTPRequestHandler):\n"
+                " def do_GET(self):\n"
+                "  self.send_response(204); self.end_headers()\n"
+                " def log_message(self, *_): pass\n"
+                "class Server(socketserver.TCPServer): allow_reuse_address=True\n"
+                "with Server(('127.0.0.1', int(sys.argv[1])), Handler) as server:\n"
+                " Path(sys.argv[2]).write_text(json.dumps({'pid':os.getpid(),'pgrp':os.getpgrp()}))\n"
+                " server.serve_forever()\n"
+            )
+            fixture = root / "cancellation.spec.ts"
+            fixture.write_text(
+                "import {test} from '@playwright/test';\n"
+                "test('waits for owned cancellation',async()=>{"
+                "await new Promise(resolve=>setTimeout(resolve,60000));});\n"
+            )
+
+            def available_port():
+                with socket.socket() as reservation:
+                    reservation.bind(("127.0.0.1", 0))
+                    return reservation.getsockname()[1]
+
+            def port_open(port):
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        return True
+                except OSError:
+                    return False
+
+            def wait_for(check, message, timeout=10):
+                deadline = time.monotonic() + timeout
+                while time.monotonic() < deadline:
+                    if check():
+                        return
+                    time.sleep(0.05)
+                self.fail(message)
+
+            def read_owned_server_group(server_identity):
+                if server_identity.parent != root or server_identity.is_symlink():
+                    raise ValueError("webServer identity escaped its owned temporary root")
+                native.validate_owned_browser_path(
+                    server_identity, "webServer identity"
+                )
+                identity = json.loads(server_identity.read_text())
+                if (
+                    not isinstance(identity, dict)
+                    or set(identity) != {"pid", "pgrp"}
+                    or type(identity["pid"]) is not int
+                    or type(identity["pgrp"]) is not int
+                    or identity["pid"] <= 0
+                    or identity["pgrp"] <= 0
+                    or os.getpgid(identity["pid"]) != identity["pgrp"]
+                ):
+                    raise ValueError("webServer identity did not name its live process group")
+                return identity["pgrp"]
+
+            def start_playwright(name, *, port=None, fail_after_ready=False):
+                port = port or available_port()
+                server_identity = root / f"{name}-server.json"
+                command = " ".join(
+                    shlex.quote(part)
+                    for part in (
+                        sys.executable,
+                        str(server_source),
+                        str(port),
+                        str(server_identity),
+                    )
+                )
+                config = root / f"{name}.config.cjs"
+                config.write_text(
+                    "module.exports="
+                    + json.dumps(
+                        {
+                            "testDir": str(root),
+                            "testMatch": fixture.name,
+                            "timeout": 60_000,
+                            "workers": 1,
+                            "webServer": {
+                                "command": command,
+                                "timeout": 10_000,
+                                "url": f"http://127.0.0.1:{port}/",
+                            },
+                        }
+                    )
+                    + ";\n"
+                )
+                playwright = subprocess.Popen(
+                    [
+                        "node",
+                        str(pilot.ROOT / "node_modules/@playwright/test/cli.js"),
+                        "test",
+                        "--config",
+                        str(config),
+                        "--reporter=line",
+                        f"--output={root / f'{name}-results'}",
+                    ],
+                    cwd=pilot.ROOT,
+                    start_new_session=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                try:
+                    wait_for(
+                        lambda: server_identity.exists() and port_open(port),
+                        f"Playwright {name} webServer did not become ready",
+                    )
+                    server_group = read_owned_server_group(server_identity)
+                    self.assertNotEqual(playwright.pid, server_group)
+                    if fail_after_ready:
+                        raise RuntimeError("synthetic startup validation failure")
+                    return playwright, port, server_group
+                except BaseException:
+                    native.cleanup_browser_processes([playwright])
+                    if server_identity.exists() and not server_identity.is_symlink():
+                        try:
+                            server_group = read_owned_server_group(server_identity)
+                        except (
+                            OSError,
+                            ValueError,
+                            TypeError,
+                            KeyError,
+                            json.JSONDecodeError,
+                        ):
+                            server_group = None
+                        if server_group is not None:
+                            try:
+                                os.killpg(server_group, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                    playwright.stdout.close()
+                    raise
+
+            failed_start_port = available_port()
+            with self.assertRaisesRegex(RuntimeError, "startup validation failure"):
+                start_playwright(
+                    "startup-failure",
+                    port=failed_start_port,
+                    fail_after_ready=True,
+                )
+            failed_identity = json.loads(
+                (root / "startup-failure-server.json").read_text()
+            )
+            wait_for(
+                lambda: not native.browser_process_group_alive(
+                    failed_identity["pgrp"]
+                ),
+                "startup failure left its detached webServer group alive",
+            )
+            self.assertFalse(port_open(failed_start_port))
+
+            # Negative control for the previous implementation: Playwright's
+            # SIGTERM path exits without tearing down its detached webServer.
+            old_signal, old_port, old_server_group = start_playwright("sigterm")
+            try:
+                os.killpg(old_signal.pid, signal.SIGTERM)
+                old_signal.wait(timeout=2)
+                self.assertTrue(port_open(old_port))
+                self.assertTrue(native.browser_process_group_alive(old_server_group))
+            finally:
+                if old_signal.poll() is None:
+                    os.killpg(old_signal.pid, signal.SIGKILL)
+                    old_signal.wait(timeout=1)
+                try:
+                    os.killpg(old_server_group, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                wait_for(
+                    lambda: not port_open(old_port),
+                    "negative-control webServer did not stop",
+                )
+                old_signal.stdout.close()
+
+            playwright, port, server_group = start_playwright("sigint")
+            runtime = root / ".keel-local" / "e2e-lanes"
+            (runtime / "stateful-a").mkdir(parents=True)
+            try:
+                native.cleanup_browser_processes([playwright])
+                wait_for(
+                    lambda: not native.browser_process_group_alive(server_group),
+                    "Playwright left its detached webServer process group alive",
+                )
+                self.assertFalse(port_open(port))
+            finally:
+                if playwright.poll() is None:
+                    os.killpg(playwright.pid, signal.SIGKILL)
+                    playwright.wait(timeout=1)
+                if native.browser_process_group_alive(server_group):
+                    os.killpg(server_group, signal.SIGKILL)
+                    wait_for(
+                        lambda: not port_open(port),
+                        "owned webServer cleanup did not release its port",
+                    )
+                playwright.stdout.close()
+            with (
+                patch.object(native, "ROOT", root),
+                patch.object(native, "BROWSER_RUNTIME", runtime),
+            ):
+                native.remove_browser_profiles()
+            self.assertFalse(runtime.exists())
 
     def test_browser_profiles_reject_symlinked_parent_and_unowned_entries(self):
         with tempfile.TemporaryDirectory() as temporary:

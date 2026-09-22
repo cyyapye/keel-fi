@@ -3,7 +3,11 @@ import type {
   LegalEntityInventory,
   LegalEntitySourceSummary,
 } from "../packages/domain/src/legal-entities";
-import { PortfolioBaselineStateSchema } from "../packages/domain/src";
+import {
+  InvestmentConnectionsStateSchema,
+  PortfolioBaselineStateSchema,
+  PrivateExposureReviewStateSchema,
+} from "../packages/domain/src";
 import type { LegalDocumentScan } from "../packages/domain/src/provider-legal-documents";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
@@ -47,6 +51,27 @@ const emptyPortfolioBaseline = PortfolioBaselineStateSchema.parse({
   requiresDuplicateReview: false,
   requiresCashOverlapReview: false,
   canConfirm: false,
+});
+
+const emptyInvestmentConnections = InvestmentConnectionsStateSchema.parse({
+  version: 1,
+  configured: false,
+  connections: [],
+  errorCode: "configuration_required",
+});
+
+const emptyPrivateExposureReviews = PrivateExposureReviewStateSchema.parse({
+  version: 2,
+  positions: [],
+  companies: [],
+  exactBatch: {
+    revision: "a".repeat(64),
+    positionCount: 0,
+    companyCount: 0,
+    existingCompanyCount: 0,
+    newCompanyCount: 0,
+    excludedPositionCount: 0,
+  },
 });
 
 function candidate(
@@ -139,6 +164,16 @@ async function setup(page: Page, candidates: LegalEntitySourceSummary[]) {
   await page.route("**/api/portfolio-baseline", (route) =>
     route.request().method() === "GET"
       ? route.fulfill({ json: emptyPortfolioBaseline })
+      : route.fallback(),
+  );
+  await page.route("**/api/investment-connections", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ json: emptyInvestmentConnections })
+      : route.fallback(),
+  );
+  await page.route("**/api/private-exposure-reviews", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ json: emptyPrivateExposureReviews })
       : route.fallback(),
   );
   await page.route("**/api/legal-entities", (route) =>
