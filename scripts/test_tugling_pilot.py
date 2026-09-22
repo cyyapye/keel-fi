@@ -194,7 +194,12 @@ class NativeAccountingTests(unittest.TestCase):
             )
             leader = (
                 "import signal,subprocess,sys\n"
-                "subprocess.Popen([sys.executable, '-c', sys.argv[2], sys.argv[1]])\n"
+                "child = None\n"
+                "def stop(*_):\n"
+                " child.wait(timeout=1)\n"
+                " raise SystemExit(0)\n"
+                "signal.signal(signal.SIGTERM, stop)\n"
+                "child = subprocess.Popen([sys.executable, '-c', sys.argv[2], sys.argv[1]])\n"
                 "signal.pause()\n"
             )
             process = subprocess.Popen(
@@ -204,7 +209,14 @@ class NativeAccountingTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(process.stdout.readline(), "ready\n")
-            native.cleanup_browser_processes([process])
+            try:
+                native.cleanup_browser_processes([process])
+            except PermissionError:
+                # Darwin can report EPERM while a fully signalled group is being
+                # reaped. The runner must fail closed rather than call it absent.
+                if sys.platform != "darwin":
+                    raise
+                process.wait(timeout=1)
             process.stdout.close()
             self.assertIsNotNone(process.poll())
             self.assertEqual(marker.read_text(), "stopped")
