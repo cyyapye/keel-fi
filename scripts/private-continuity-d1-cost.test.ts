@@ -1,19 +1,33 @@
+import { build } from "esbuild";
 import { expect, it } from "vitest";
 import { D1ExposureRepository } from "../packages/database/src/exposures";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
 import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import {
-  COST_SUBJECT,
-  COST_TIME,
-  seedCostHoldings,
-} from "./test-support/cost-fixtures";
+import { COST_SUBJECT, seedCostHoldings } from "./test-support/cost-fixtures";
 
 it("automatically reconciles 120 historical private investments with bounded D1 work and stable retries", async () => {
-  const fixture = await createCostDatabase();
+  const bundled = await build({
+    entryPoints: ["scripts/test-support/private-continuity-cost-worker.ts"],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+    conditions: ["workerd", "worker", "browser"],
+    mainFields: ["browser", "module", "main"],
+    external: ["node:*", "cloudflare:*"],
+    logLevel: "silent",
+  });
+  const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
+  const setup = async (operation: "history" | "initial" | "unrelated") => {
+    const response = await fixture.dispatchFetch(
+      "https://synthetic-setup.invalid",
+      { method: "POST", body: operation },
+    );
+    if (!response.ok) throw new Error(await response.text());
+  };
   try {
-    await seedCostHoldings(fixture.database, COST_SUBJECT, 1, true, {
-      status: "Realized",
-    });
+    await setup("initial");
     const measured = measureD1(fixture.database);
     await seedCostHoldings(measured.database, COST_SUBJECT, 2, false, {
       status: "Realized",
@@ -52,13 +66,7 @@ it("automatically reconciles 120 historical private investments with bounded D1 
     expect(retryCost.rowsWritten).toBe(0);
 
     // Grow accepted same-date history without changing economic identity.
-    for (let revision = 3; revision < 6; revision++) {
-      await seedCostHoldings(fixture.database, COST_SUBJECT, revision, false, {
-        status: "Realized",
-        investedMinor: 130_000,
-        allocationMinor: 170_000,
-      });
-    }
+    await setup("history");
     measured.reset();
     await repository.reconcileRetainedPositionContinuity(COST_SUBJECT);
     const historyCost = { ...measured.cost };
@@ -66,22 +74,7 @@ it("automatically reconciles 120 historical private investments with bounded D1 
     // investment; it must not scan all three older captures per investment.
     expect(historyCost.rowsRead).toBeLessThanOrEqual(retryCost.rowsRead + 240);
     console.info(JSON.stringify({ historicalPrivateHistory: historyCost }));
-    await fixture.database.batch([
-      fixture.database
-        .prepare(
-          "INSERT INTO users VALUES ('continuity-other-user', 'synthetic-continuity-other-subject', 'other@example.invalid', 'Synthetic user', ?)",
-        )
-        .bind(COST_TIME),
-      fixture.database
-        .prepare(
-          "INSERT INTO households VALUES ('continuity-other-household', 'continuity-other-user', 'Synthetic household', 'USD', ?)",
-        )
-        .bind(COST_TIME),
-    ]);
-    await seedCostHoldings(
-      fixture.database,
-      "synthetic-continuity-other-subject",
-    );
+    await setup("unrelated");
     measured.reset();
     await repository.reconcileRetainedPositionContinuity(COST_SUBJECT);
     expect(measured.cost.roundTrips).toBe(2);

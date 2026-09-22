@@ -154,6 +154,14 @@ These local measurements do not establish OVH timings or the 15-minute target.
 Use the native timing receipt and Vitest artifact for the eventual OVH
 comparison.
 
+The private-continuity D1 holdout runs its unmeasured synthetic setup inside the
+same workerd database: initial legacy holdings, three complete same-date history
+imports and an unrelated household. This avoids repeated cross-process setup
+transport while retaining the production import repositories, all 120 items and
+real database constraints. The measured import, reconciliation, retry, read and
+query-plan assertions still use actual D1 metadata. Its 90-second watchdog and
+all billing ceilings remain unchanged.
+
 The 120-position baseline holdout retains one actual review transition and
 directly seeds the other 118 historical reviews using schema-validated states
 and normal database triggers. All history, unrelated-household, retained

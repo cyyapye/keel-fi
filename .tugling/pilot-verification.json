@@ -136,6 +136,7 @@
         "packages/database/src/investment-review.test.ts",
         "packages/database/src/exposures.test.ts",
         "scripts/private-continuity-d1-cost.test.ts",
+        "scripts/test-support/private-continuity-cost-worker.ts",
         "packages/database/migrations/0069_historical_private_position_continuity.sql",
         "scripts/investment-events-d1-cost.test.ts",
         "packages/domain/src/investment-events.test.ts",
