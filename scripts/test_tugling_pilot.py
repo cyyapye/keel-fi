@@ -102,10 +102,15 @@ class NativeAccountingTests(unittest.TestCase):
 
     def test_native_suite_leases_allow_independent_suites_but_reject_same_suite(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(native, "ARTIFACTS", Path(temporary)):
+            self.assertEqual(native.native_lease_name("browser-fixture"), "playwright")
+            self.assertEqual(native.native_lease_name("playwright-prepared"), "playwright")
             with native.native_lease("vitest"), native.native_lease("playwright"):
                 with self.assertRaises(BlockingIOError):
                     with native.native_lease("vitest"):
                         self.fail("a second writer acquired the same suite report")
+                with self.assertRaises(BlockingIOError):
+                    with native.native_lease(native.native_lease_name("browser-fixture")):
+                        self.fail("browser fixture preparation overlapped Playwright")
                 contender = subprocess.run([
                     sys.executable, "-I", "-c",
                     "import fcntl,sys; f=open(sys.argv[1], 'a'); "
@@ -128,7 +133,7 @@ class NativeAccountingTests(unittest.TestCase):
             }]}]}
         inventory = {"playwright": [f"e2e/{lane}.spec.ts :: chromium :: required" for lane in native.BROWSER_LANES], "exclusions": []}
         execution = {
-            lane: {"workers": 1}
+            lane: {"workers": 4 if lane == "mocked-development" else 1}
             for lane in native.BROWSER_LANES
         }
         for lane in native.BROWSER_LANES:
@@ -169,14 +174,14 @@ class NativeAccountingTests(unittest.TestCase):
         lanes = {lane: [f"{lane}.spec.ts"] for lane in native.BROWSER_LANES}
         execution = {
             "mocked": {"server": "mocked", "frontend": "production", "workers": 1, "webPort": 31031, "apiPort": None},
-            "mocked-development": {"server": "mocked", "frontend": "development", "workers": 1, "webPort": 31034, "apiPort": None},
+            "mocked-development": {"server": "mocked", "frontend": "development", "workers": 4, "webPort": 31034, "apiPort": None},
             "stateful-development": {"server": "stateful", "frontend": "development", "workers": 1, "webPort": 31035, "apiPort": 32035},
             "stateful-a": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31032, "apiPort": 32032},
             "stateful-b": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31033, "apiPort": 32033},
         }
         schedule = {
             "mocked": [],
-            "mocked-development": ["stateful-development"],
+            "mocked-development": ["mocked", "stateful-development", "stateful-a", "stateful-b"],
             "stateful-development": [],
             "stateful-a": [],
             "stateful-b": [],
@@ -187,6 +192,7 @@ class NativeAccountingTests(unittest.TestCase):
         )
         for lane, field, value in (
             ("mocked", "workers", 2),
+            ("mocked-development", "workers", 1),
             ("mocked-development", "frontend", "production"),
             ("stateful-a", "webPort", 40000),
             ("stateful-b", "apiPort", 32032),
@@ -200,7 +206,7 @@ class NativeAccountingTests(unittest.TestCase):
             {**schedule, "mocked-development": ["unknown"]},
             {**schedule, "mocked-development": ["mocked-development"]},
             {**schedule, "stateful-development": ["mocked-development"]},
-            {**schedule, "mocked-development": []},
+            {**schedule, "mocked-development": ["stateful-development"]},
         )
         for invalid in invalid_schedules:
             with self.subTest(schedule=invalid), self.assertRaises(ValueError):
@@ -208,12 +214,15 @@ class NativeAccountingTests(unittest.TestCase):
 
         schedule = {
             "mocked": [],
-            "mocked-development": ["stateful-development"],
+            "mocked-development": ["mocked", "stateful-development", "stateful-a", "stateful-b"],
             "stateful-development": [],
             "stateful-a": [],
             "stateful-b": [],
         }
-        execution = {lane: {"workers": 1} for lane in native.BROWSER_LANES}
+        execution = {
+            lane: {"workers": 4 if lane == "mocked-development" else 1}
+            for lane in native.BROWSER_LANES
+        }
 
         class Process:
             def __init__(self, running=True):
@@ -271,6 +280,11 @@ class NativeAccountingTests(unittest.TestCase):
             )
         self.assertNotIn("stateful-development", processes)
         completed.add("stateful-development")
+        self.assertEqual(native.ready_browser_lanes(started, completed, schedule), [])
+        for lane in ("mocked", "stateful-a", "stateful-b"):
+            processes[lane].running = False
+            del processes[lane]
+            completed.add(lane)
         handoff = native.ready_browser_lanes(started, completed, schedule)
         self.assertEqual(handoff, ["mocked-development"])
         processes["mocked-development"] = Process()
@@ -584,6 +598,8 @@ class NativeAccountingTests(unittest.TestCase):
             seed = repository / ".keel-local" / "e2e"
             seed.mkdir(parents=True)
             (seed / "seed.sqlite").write_text("synthetic")
+            prepared_seed = repository / ".keel-local" / "pilot-browser-seed"
+            prepared_seal = repository / ".keel-local" / "pilot-browser-seed.json"
             runtime = repository / ".keel-local" / "e2e-lanes"
             execution = {
                 "mocked": {"server": "mocked"},
@@ -595,17 +611,82 @@ class NativeAccountingTests(unittest.TestCase):
             with (
                 patch.object(native, "ROOT", repository),
                 patch.object(native, "BROWSER_RUNTIME", runtime),
+                patch.object(native, "BROWSER_SEED", prepared_seed),
+                patch.object(native, "BROWSER_SEED_SEAL", prepared_seal),
+                patch.object(
+                    native, "browser_seed_input_digest", return_value="a" * 64
+                ) as input_digest,
                 patch.object(native.subprocess, "run") as run,
             ):
+                native.prepare_browser_seed()
+                run.assert_called_once_with(
+                    ["make", "db-verify-e2e"], cwd=repository, check=True
+                )
+                self.assertFalse(seed.exists())
+                native.validate_browser_seed_seal()
+
+                run.reset_mock()
+                native.prepare_browser_profiles(execution, prepared=True)
+                run.assert_not_called()
+                self.assertFalse(prepared_seed.exists())
+                self.assertFalse(prepared_seal.exists())
+                with self.assertRaisesRegex(ValueError, "must exist"):
+                    native.prepare_browser_profiles(execution, prepared=True)
+                run.assert_not_called()
+                for lane in ("mocked", "mocked-development"):
+                    self.assertEqual(list((runtime / lane).iterdir()), [])
+                for lane in ("stateful-development", "stateful-a", "stateful-b"):
+                    self.assertEqual(
+                        (runtime / lane / "seed.sqlite").read_text(), "synthetic"
+                    )
+
+                prepared_seed.mkdir()
+                (prepared_seed / "seed.sqlite").write_text("synthetic")
+                native.write_browser_seed_seal()
+                input_digest.return_value = "b" * 64
+                with self.assertRaisesRegex(ValueError, "seal does not match"):
+                    native.prepare_browser_profiles(execution, prepared=True)
+                run.assert_not_called()
+                input_digest.return_value = "a" * 64
+
+                (prepared_seed / "seed.sqlite").write_text("tampered")
+                with self.assertRaisesRegex(ValueError, "seal does not match"):
+                    native.prepare_browser_profiles(execution, prepared=True)
+                run.assert_not_called()
+                self.assertTrue(prepared_seed.exists())
+
+                (prepared_seed / "seed.sqlite").write_text("synthetic")
+                native.write_browser_seed_seal()
+                run.side_effect = subprocess.CalledProcessError(
+                    1, ["make", "db-verify-e2e"]
+                )
+                with self.assertRaises(subprocess.CalledProcessError):
+                    native.prepare_browser_seed()
+                self.assertFalse(prepared_seed.exists())
+                self.assertFalse(prepared_seal.exists())
+                run.side_effect = None
+                run.reset_mock()
+
+                prepared_seed.mkdir()
+                (prepared_seed / "seed.sqlite").write_text("synthetic")
+                native.write_browser_seed_seal()
+                prepared_seal.unlink()
+                prepared_seal.symlink_to(outside / "seal.json")
+                with self.assertRaisesRegex(ValueError, "must not follow symlinks"):
+                    native.prepare_browser_profiles(execution, prepared=True)
+                run.assert_not_called()
+
+                prepared_seal.unlink()
+                native.remove_browser_seed()
+                seed.mkdir()
+                (seed / "seed.sqlite").write_text("standalone")
                 native.prepare_browser_profiles(execution)
-            run.assert_called_once_with(
-                ["make", "db-verify-e2e"], cwd=repository, check=True
-            )
-            for lane in ("mocked", "mocked-development"):
-                self.assertEqual(list((runtime / lane).iterdir()), [])
-            for lane in ("stateful-development", "stateful-a", "stateful-b"):
+                run.assert_called_once_with(
+                    ["make", "db-verify-e2e"], cwd=repository, check=True
+                )
                 self.assertEqual(
-                    (runtime / lane / "seed.sqlite").read_text(), "synthetic"
+                    (runtime / "stateful-a" / "seed.sqlite").read_text(),
+                    "standalone",
                 )
 
     def test_mocked_browser_guard_rejects_unknown_reads_and_unexpected_writes(self):

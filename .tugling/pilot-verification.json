@@ -90,6 +90,29 @@
       "depends_on": ["gate-and-artifact-integrity"]
     },
     {
+      "id": "browser-fixture-preparation",
+      "description": "Build and seal the isolated synthetic D1 fixture before browser prerequisites reach the critical path.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "browser-fixture"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "pnpm-lock.yaml",
+        "apps/api/wrangler.jsonc",
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py",
+        "scripts/reset-e2e-state.mjs",
+        "packages/database/seed/synthetic.sql"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native command exclusively acquires the Playwright lease, runs the unchanged isolated browser reset, migrations, synthetic seed and readback, then moves the closed result to a dedicated allowlisted path.",
+        "health": "A source-input digest and complete prepared-tree digest seal the verified fixture; the browser consumer rejects missing, stale, mutated or symlinked state without rebuilding it.",
+        "cleanup": "Failure leaves no valid seal. The prepared browser command consumes the exact owned seed after cloning, while a later preparation safely replaces an unconsumed owned seed."
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
       "id": "build-and-entry-budget",
       "description": "Build every workspace and enforce the native 100 KiB initial JavaScript gzip budget and lazy application boundary.",
       "argv": ["make", "build"],
@@ -167,12 +190,17 @@
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
-      "depends_on": ["build-and-entry-budget"]
+      "depends_on": ["source-quality", "migration-and-seed"]
     },
     {
       "id": "browser-workflows",
       "description": "Exercise the complete desktop/mobile browser contract, including minimal review, automatic decisions, persisted saves, layout, recovery and real synthetic document capture.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "playwright"],
+      "argv": [
+        "python3",
+        "-I",
+        "scripts/pilot_native.py",
+        "playwright-prepared"
+      ],
       "timeout_seconds": 3600,
       "sources": [
         "Makefile",
@@ -202,11 +230,15 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "One verified, closed synthetic D1 seed is copied into three independent profiles. Three stateful shards and the production-served API-mocked lane start on distinct ports with one worker each; the development-served API-mocked lane takes the source- and development-copy-dependent stateful shard's slot only after validated teardown.",
+        "launch": "The sealed, verified and closed synthetic D1 fixture is copied into three independent profiles without rerunning setup. Three one-worker stateful shards and the one-worker production-served API-mocked lane start on distinct ports; only after all four validate and release their runtimes does the four-worker development-served API-mocked lane start.",
         "health": "Development lanes finish and validate the initial Vite module graph; stateful lanes also wait through the web proxy for /api/holdings-page. Mocked contexts reject unhandled application APIs. Five validated reports must cover the complete reviewed browser inventory with unchanged snapshots and at most four active browser workers.",
         "cleanup": "Owned lane process groups are terminated on completion, failure or cancellation before profile removal. Per-suite leases prevent duplicate report and runtime writers."
       },
-      "depends_on": ["build-and-entry-budget", "pdf-isolation"]
+      "depends_on": [
+        "browser-fixture-preparation",
+        "build-and-entry-budget",
+        "pdf-isolation"
+      ]
     }
   ],
   "requirements": [
@@ -231,6 +263,7 @@
         "source-quality",
         "native-unit-and-cost",
         "migration-and-seed",
+        "browser-fixture-preparation",
         "browser-workflows"
       ]
     },
@@ -291,7 +324,7 @@
         "docs/deployment/linux-test-cleanup.md",
         "docs/engineering/tugling-pilot.md"
       ],
-      "flows": ["gate-and-artifact-integrity"]
+      "flows": ["gate-and-artifact-integrity", "browser-fixture-preparation"]
     },
     {
       "id": "native-build-and-bootstrap",
@@ -305,6 +338,7 @@
         "source-quality",
         "compose-configuration",
         "build-and-entry-budget",
+        "browser-fixture-preparation",
         "migration-and-seed"
       ]
     },

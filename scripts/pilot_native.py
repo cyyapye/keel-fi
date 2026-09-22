@@ -6,6 +6,7 @@ from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -26,6 +27,8 @@ PYTHON_SUITES = ("test_linux_test_run", "test_tugling_pilot")
 BROWSER_LANES = ("mocked", "mocked-development", "stateful-development", "stateful-a", "stateful-b")
 BROWSER_MAX_ACTIVE_WORKERS = 4
 BROWSER_RUNTIME = ROOT / ".keel-local/e2e-lanes"
+BROWSER_SEED = ROOT / ".keel-local/pilot-browser-seed"
+BROWSER_SEED_SEAL = ROOT / ".keel-local/pilot-browser-seed.json"
 
 
 @contextmanager
@@ -42,6 +45,12 @@ def native_lease(runner):
         if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
             raise ValueError("native suite lease changed during acquisition")
         yield
+
+
+def native_lease_name(runner):
+    if runner in ("browser-fixture", "playwright", "playwright-prepared"):
+        return "playwright"
+    return runner
 
 
 def prepare_report(path):
@@ -119,7 +128,9 @@ def validate_browser_execution(lanes, execution, schedule):
 
     expected_schedule = {
         "mocked": [],
-        "mocked-development": ["stateful-development"],
+        "mocked-development": [
+            "mocked", "stateful-development", "stateful-a", "stateful-b"
+        ],
         "stateful-development": [],
         "stateful-a": [],
         "stateful-b": [],
@@ -137,8 +148,9 @@ def validate_browser_execution(lanes, execution, schedule):
     for lane in BROWSER_LANES:
         config = execution[lane]
         expected_server, expected_frontend = expected[lane]
+        expected_workers = 4 if lane == "mocked-development" else 1
         if (config["server"], config["frontend"], config["workers"]) != (
-                expected_server, expected_frontend, 1):
+                expected_server, expected_frontend, expected_workers):
             raise ValueError(f"{lane} browser lane exceeds its reviewed resource budget")
         lane_ports = [config["webPort"]]
         if expected_server == "stateful":
@@ -207,21 +219,132 @@ def remove_browser_profiles():
         shutil.rmtree(BROWSER_RUNTIME)
 
 
-def prepare_browser_profiles(execution):
+def browser_seed_input_digest():
+    files = [
+        ROOT / "Makefile",
+        ROOT / "package.json",
+        ROOT / "pnpm-lock.yaml",
+        ROOT / "apps/api/wrangler.jsonc",
+        ROOT / "scripts/reset-e2e-state.mjs",
+        ROOT / "packages/database/seed/synthetic.sql",
+        *sorted((ROOT / "packages/database/migrations").glob("*.sql")),
+    ]
+    digest = hashlib.sha256()
+    for path in files:
+        if path.resolve() != path or not path.is_file() or path.is_symlink():
+            raise ValueError("browser seed inputs must be regular repository files")
+        digest.update(path.relative_to(ROOT).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def browser_seed_tree_digest(path):
+    digest = hashlib.sha256()
+    files = sorted(candidate for candidate in path.rglob("*") if candidate.is_file())
+    for candidate in files:
+        digest.update(candidate.relative_to(path).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(candidate.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest(), len(files)
+
+
+def remove_browser_seed():
+    local = ROOT / ".keel-local"
+    validate_owned_browser_path(local, "browser seed parent", allow_missing=True)
+    validate_owned_browser_path(BROWSER_SEED, "prepared browser seed",
+                                recursive=True, allow_missing=True)
+    validate_owned_browser_path(BROWSER_SEED_SEAL, "browser seed seal",
+                                allow_missing=True)
+    if BROWSER_SEED.exists():
+        shutil.rmtree(BROWSER_SEED)
+    BROWSER_SEED_SEAL.unlink(missing_ok=True)
+
+
+def write_browser_seed_seal():
+    seed_digest, file_count = browser_seed_tree_digest(BROWSER_SEED)
+    seal = {
+        "schemaVersion": 1,
+        "seedPath": BROWSER_SEED.relative_to(ROOT).as_posix(),
+        "inputSha256": browser_seed_input_digest(),
+        "seedSha256": seed_digest,
+        "fileCount": file_count,
+    }
+    if BROWSER_SEED_SEAL.resolve() != BROWSER_SEED_SEAL or BROWSER_SEED_SEAL.is_symlink():
+        raise ValueError("browser seed seal must not follow symlinks")
+    BROWSER_SEED_SEAL.unlink(missing_ok=True)
+    descriptor = os.open(
+        BROWSER_SEED_SEAL,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o600,
+    )
+    with os.fdopen(descriptor, "w") as output:
+        json.dump(seal, output, sort_keys=True)
+        output.write("\n")
+
+
+def validate_browser_seed_seal():
+    validate_owned_browser_path(BROWSER_SEED, "prepared browser seed", recursive=True)
+    validate_owned_browser_path(BROWSER_SEED_SEAL, "browser seed seal")
+    try:
+        seal = json.loads(BROWSER_SEED_SEAL.read_text())
+    except json.JSONDecodeError as error:
+        raise ValueError("browser seed seal is invalid") from error
+    seed_digest, file_count = browser_seed_tree_digest(BROWSER_SEED)
+    expected = {
+        "schemaVersion": 1,
+        "seedPath": BROWSER_SEED.relative_to(ROOT).as_posix(),
+        "inputSha256": browser_seed_input_digest(),
+        "seedSha256": seed_digest,
+        "fileCount": file_count,
+    }
+    if seal != expected:
+        raise ValueError("browser seed seal does not match the verified fixture")
+
+
+def prepare_browser_seed():
     local = ROOT / ".keel-local"
     base = local / "e2e"
     validate_owned_browser_path(local, "browser profile parent", allow_missing=True)
     validate_owned_browser_path(base, "verified browser seed", recursive=True, allow_missing=True)
-    remove_browser_profiles()
+    remove_browser_seed()
     subprocess.run(["make", "db-verify-e2e"], cwd=ROOT, check=True)
     validate_owned_browser_path(local, "browser profile parent")
     validate_owned_browser_path(base, "verified browser seed", recursive=True)
+    base.rename(BROWSER_SEED)
+    write_browser_seed_seal()
+    validate_browser_seed_seal()
+
+
+def copy_browser_profiles(execution, base):
+    validate_owned_browser_path(base, "verified browser seed", recursive=True)
+    remove_browser_profiles()
     BROWSER_RUNTIME.mkdir(mode=0o700)
     for lane in BROWSER_LANES:
         if execution[lane]["server"] == "stateful":
             shutil.copytree(base, BROWSER_RUNTIME / lane)
         else:
             (BROWSER_RUNTIME / lane).mkdir(mode=0o700)
+
+
+def prepare_browser_profiles(execution, *, prepared=False):
+    if prepared:
+        validate_browser_seed_seal()
+        copy_browser_profiles(execution, BROWSER_SEED)
+        remove_browser_seed()
+        return
+    local = ROOT / ".keel-local"
+    base = local / "e2e"
+    validate_owned_browser_path(local, "browser profile parent", allow_missing=True)
+    validate_owned_browser_path(base, "verified browser seed",
+                                recursive=True, allow_missing=True)
+    remove_browser_profiles()
+    subprocess.run(["make", "db-verify-e2e"], cwd=ROOT, check=True)
+    validate_owned_browser_path(local, "browser profile parent")
+    validate_owned_browser_path(base, "verified browser seed", recursive=True)
+    copy_browser_profiles(execution, base)
 
 
 def browser_process_group_alive(pid):
@@ -324,7 +447,7 @@ def cleanup_browser_runtime(processes, original_failure):
         )
 
 
-def run_browser_lanes(output):
+def run_browser_lanes(output, *, prepared=False):
     manifest = json.loads(subprocess.check_output([
         "node", "--import", "tsx", "--input-type=module", "--eval",
         "import { BROWSER_TEST_EXECUTION, BROWSER_TEST_LANES, BROWSER_TEST_SCHEDULE } from './scripts/browser-test-lanes.ts';"
@@ -357,7 +480,7 @@ def run_browser_lanes(output):
         signal.signal(name, interrupt)
     original_failure = None
     try:
-        prepare_browser_profiles(execution)
+        prepare_browser_profiles(execution, prepared=prepared)
         started = set()
         completed = set()
 
@@ -495,6 +618,9 @@ class AccountedResult(unittest.TextTestResult):
 
 
 def run_suite(runner):
+    if runner == "browser-fixture":
+        prepare_browser_seed()
+        return
     inventory = json.loads(INVENTORY.read_text())
     if runner == "python":
         suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromModule(load_module(name)) for name in PYTHON_SUITES)
@@ -503,7 +629,8 @@ def run_suite(runner):
         if not result.wasSuccessful():
             raise ValueError("native Python tests failed")
         return
-    output = ARTIFACTS / f"{runner}.json"
+    report_runner = "playwright" if runner == "playwright-prepared" else runner
+    output = ARTIFACTS / f"{report_runner}.json"
     # Protect evidence itself without changing native fixture/runtime umasks.
     prepare_report(output)
     if runner == "vitest":
@@ -513,17 +640,22 @@ def run_suite(runner):
                    f"--outputFile={output}"]
         returncode = subprocess.run(command, cwd=ROOT, check=False).returncode
     else:
-        returncode = run_browser_lanes(output)
+        returncode = run_browser_lanes(
+            output, prepared=runner == "playwright-prepared"
+        )
     report = json.loads(output.read_text())
-    observed = vitest_cases(report) if runner == "vitest" else playwright_cases(report)
-    compare_cases(runner, observed, inventory)
-    if returncode or (runner == "vitest" and not report["success"]) or (runner == "playwright" and report["errors"]):
-        raise ValueError(f"{runner} reported errors (exit {returncode})")
+    observed = vitest_cases(report) if report_runner == "vitest" else playwright_cases(report)
+    compare_cases(report_runner, observed, inventory)
+    if returncode or (report_runner == "vitest" and not report["success"]) or (report_runner == "playwright" and report["errors"]):
+        raise ValueError(f"{report_runner} reported errors (exit {returncode})")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("runner", choices=("vitest", "playwright", "python"))
+    parser.add_argument(
+        "runner",
+        choices=("browser-fixture", "vitest", "playwright", "playwright-prepared", "python"),
+    )
     args = parser.parse_args()
     load_module("tugling-pilot").require_unfiltered_environment()
     ARTIFACTS.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -531,7 +663,7 @@ def main():
         raise ValueError("native artifact ownership must not follow symlinks")
     # One report slot per runner, scoped to this checkout; never replace a
     # report still owned by another active verification process.
-    with native_lease(args.runner):
+    with native_lease(native_lease_name(args.runner)):
         run_suite(args.runner)
 
 

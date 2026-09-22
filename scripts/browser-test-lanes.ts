@@ -62,7 +62,7 @@ export const BROWSER_TEST_EXECUTION = {
     frontend: "development",
     server: "mocked",
     webPort: 31_034,
-    workers: 1,
+    workers: 4,
   },
   "stateful-development": {
     apiPort: 32_035,
@@ -98,7 +98,12 @@ export const BROWSER_TEST_EXECUTION = {
 
 export const BROWSER_TEST_SCHEDULE = {
   mocked: [],
-  "mocked-development": ["stateful-development"],
+  "mocked-development": [
+    "mocked",
+    "stateful-development",
+    "stateful-a",
+    "stateful-b",
+  ],
   "stateful-development": [],
   "stateful-a": [],
   "stateful-b": [],

@@ -23,7 +23,7 @@ seconds for browsers and 885.347 seconds for unit/D1 tests. PDF isolation took
 232.225 seconds and source checks 226.340 seconds. It passed 1,151 unit/D1 cases
 and 288 browser cases, with 44 reviewed browser exclusions and no flakes.
 
-`.tugling/pilot.json` enforces a 1,800-second active native budget. The complete
+`.tugling/pilot.json` enforces a 900-second active native budget. The complete
 receipt records elapsed execution time, each flow duration and a sorted timing
 summary. Concurrent flow durations are not added to claim wall-clock time.
 Exceeding that budget fails required verification without silently dropping
@@ -55,13 +55,17 @@ servers, ports and cleanup; each partition remains serial internally.
 
 The verification map opts into at most three concurrent native flows. Source
 checks and integrity checks can start together. Migration and PDF probes depend
-on integrity checks. Build depends on source checks and migration completion;
-unit/D1 tests depend on build. Browser tests depend on build and PDF isolation.
-This keeps generated outputs stable before their consumers start and avoids
-running browser document processing before the sandbox boundary passes.
-Formatting and linting exclude the Git-ignored runtime, fixture and cache
-directories, so concurrent integrity tests cannot change files under the source
-checkers. Repository source and test files remain in scope.
+on integrity checks. Browser fixture preparation also becomes ready after the
+integrity checks and enters the three-flow schedule when a slot opens. Build and
+unit/D1 tests depend on source checks and migration completion and can run
+alongside each other. Unit tests consume TypeScript sources and isolated test
+fixtures, so they do not wait for build output. Browser tests depend on the
+sealed fixture, build and PDF isolation. This keeps generated outputs stable
+before their browser consumers start and avoids running browser document
+processing before the sandbox boundary passes. Formatting and linting exclude
+the Git-ignored runtime, fixture and cache directories, so concurrent integrity
+tests cannot change files under the source checkers. Repository source and test
+files remain in scope.
 
 The declared prerequisites are:
 
@@ -71,40 +75,56 @@ flowchart LR
   integrity[Integrity checks] --> compose[Compose validation]
   integrity --> migrations[Migrations and seed]
   integrity --> pdf[PDF isolation]
+  integrity --> browserFixture[Browser fixture]
   migrations --> build
-  build --> unit[Unit and D1 tests]
+  source --> unit[Unit and D1 tests]
+  migrations --> unit
   build --> browser[Browser suite]
   pdf --> browser
+  browserFixture --> browser
 ```
 
 Only three ready flows execute at once; an arrow means the prerequisite must
 finish successfully. Source checks use at most two Make jobs, and PDF proof uses
-at most two independently limited containers. No browser consumer starts before
-PDF isolation and build succeed.
+at most two independently limited containers. The fixture uses a slot released
+by an earlier flow and can overlap remaining source/PDF work. No browser
+consumer starts before its fixture, PDF isolation and build succeed.
 
 The unit suite uses three workers in CI and two locally, and starts historically
-expensive files first. Browser verification produces five one-worker reports
-while admitting at most four workers: three stateful partitions, 74 API-mocked
+expensive files first. Browser verification produces five reports while
+admitting at most four workers: three stateful partitions, 74 API-mocked
 executions served from the verified production build, and 32 API-mocked
-executions that require Vite development modules. The development stateful
-partition contains four specs and 58 executions: three depend on source modules,
-while Portfolio Watch asserts development-mode demo-source disclosure. After its
-report and runtime teardown validate, the development mocked lane takes that
-slot. The other two stateful partitions contain 96 and 72 executions and use the
-verified production build, as does the production mocked lane. The partitions
-contain the same 106 mocked and 226 stateful executions, including 44 reviewed
-platform exclusions. Each stateful partition receives a separate copy of the
-verified, closed synthetic seed and owns distinct API/web ports. Neither mocked
-lane starts an API server. Production serving reduces module transforms and
-requests; development serving retains the direct source-module checks and the
-intentional demo-source disclosure. Missing production JS or CSS fails startup.
-All lanes keep desktop/mobile project names, snapshots and case identities. Each
-lane owns its Vite dependency cache as well as its browser output. Development
-readiness transforms the initial application and Holdings module graph and
-rejects broken imports before admitting tests. Stateful readiness also checks
-the actual holdings-page projection through the web proxy, with one bounded
-probe in flight and a cached successful result for the development server. A
-simpler health endpoint cannot hide a cold first read or module load.
+executions that require Vite development modules. The initial four lanes each
+use one worker. After all four reports and runtimes validate and close, the
+development mocked lane uses the released four-worker budget. No stateful lane
+is parallelized. The development stateful partition contains four specs and 58
+executions: three depend on source modules, while Portfolio Watch asserts
+development-mode demo-source disclosure. The other two stateful partitions
+contain 96 and 72 executions and use the verified production build, as does the
+production mocked lane. The partitions contain the same 106 mocked and 226
+stateful executions, including 44 reviewed platform exclusions. Each stateful
+partition receives a separate copy of the verified, closed synthetic seed and
+owns distinct API/web ports. Neither mocked lane starts an API server.
+Production serving reduces module transforms and requests; development serving
+retains the direct source-module checks and the intentional demo-source
+disclosure. Missing production JS or CSS fails startup. All lanes keep
+desktop/mobile project names, snapshots and case identities. Each lane owns its
+Vite dependency cache as well as its browser output. Development readiness
+transforms the initial application and Holdings module graph and rejects broken
+imports before admitting tests. Stateful readiness also checks the actual
+holdings-page projection through the web proxy, with one bounded probe in flight
+and a cached successful result for the development server. A simpler health
+endpoint cannot hide a cold first read or module load.
+
+Fixture preparation runs the unchanged browser reset, every migration, the
+synthetic seed and invariant readback early in the bounded flow graph. It moves
+the closed result into a dedicated allowlisted path and seals both the source
+inputs and complete fixture contents. The required browser command only accepts
+that seal, clones three profiles and consumes the seed; it never falls back to a
+reset on the browser critical path. The standalone `pilot_native.py playwright`
+command retains its reset-and-verify behavior and uses a separate seed path.
+Both commands share the Playwright lease while touching browser runtime/report
+paths.
 
 Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
@@ -120,8 +140,8 @@ inventory; one green lane cannot substitute for the suite. Merged elapsed time
 is the span of the concurrent lanes, not their summed work. Per-suite leases
 reject duplicate writers, and cancellation cleans owned process groups before
 removing the isolated database profiles. The reviewed dependency map is exact:
-only the development mocked lane waits, and it cannot start until the
-development stateful lane has validated and released its process group and
+only the development mocked lane waits, and it cannot start until all four
+initial lanes have validated their reports and released their process groups and
 ports.
 
 The initial OVH capacity inspection found six CPUs, 11.4 GiB RAM, approximately
