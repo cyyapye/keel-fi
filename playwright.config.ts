@@ -24,14 +24,16 @@ const readinessURL =
     ? `${baseURL}/api/alpha`
     : browserLane.frontend === "development"
       ? `${baseURL}${BROWSER_TEST_VITE_READINESS_PATH}`
-      : baseURL;
+      : browserLane.server === "stateful"
+        ? `${baseURL}/api/holdings-page`
+        : baseURL;
 
 export default defineConfig({
   testDir: "./e2e",
   testMatch: browserLane.files,
   fullyParallel: true,
   // Mocked lanes reject unhandled application API requests. Every lane has one
-  // worker, keeping the four concurrent browser workers within the CPU budget.
+  // worker, and the reviewed schedule admits at most four at once.
   workers: browserLane.workers,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
@@ -62,8 +64,9 @@ export default defineConfig({
     reuseExistingServer:
       !process.env.CI && process.env.KEEL_E2E_ISOLATED !== "1",
     timeout: 120_000,
-    // Isolated development lanes finish Vite's module graph and, for stateful
-    // lanes, a synthetic API projection before Playwright starts a browser.
+    // Development lanes finish Vite's module graph before Playwright starts a
+    // browser. Every stateful lane also waits for its synthetic API projection
+    // through the same web proxy the browser consumes.
     url: readinessURL,
   },
 });

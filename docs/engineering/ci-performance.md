@@ -83,9 +83,13 @@ at most two independently limited containers. No browser consumer starts before
 PDF isolation and build succeed.
 
 The unit suite retains two workers and starts historically expensive files
-first. Browser verification runs four one-worker lanes: two stateful partitions,
-74 API-mocked executions served from the verified production build, and 32
-API-mocked executions that require Vite development modules. The partitions
+first. Browser verification produces five one-worker reports while admitting at
+most four workers: three stateful partitions, 74 API-mocked executions served
+from the verified production build, and 32 API-mocked executions that require
+Vite development modules. The small stateful partition contains the three
+source-module-dependent specs. After its report and runtime teardown validate,
+the development mocked lane takes that slot. The other two stateful partitions
+and the production mocked lane use the verified production build. The partitions
 contain the same 106 mocked and 226 stateful executions, including 44 reviewed
 platform exclusions. Each stateful partition receives a separate copy of the
 verified, closed synthetic seed and owns distinct API/web ports. Neither mocked
@@ -96,8 +100,9 @@ snapshots and case identities. Each lane owns its Vite dependency cache as well
 as its browser output. Development readiness transforms the initial application
 and Holdings module graph and rejects broken imports before admitting tests.
 Stateful readiness also checks the actual holdings-page projection through the
-web proxy, with one bounded probe in flight and a cached successful result. A
-simpler health endpoint cannot hide a cold first read or module load.
+web proxy, with one bounded probe in flight and a cached successful result for
+the development server. A simpler health endpoint cannot hide a cold first read
+or module load.
 
 Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
@@ -107,12 +112,15 @@ The required migration flow owns the default database reset and readback. The
 developer `make bootstrap` still seeds a ready-to-use local database. Removing
 the duplicate CI reset does not remove the migration or seed verification.
 
-New or unclassified specs fail partition validation. All four reports must
+New or unclassified specs fail partition validation. All five reports must
 individually match their partition and jointly match the complete reviewed
 inventory; one green lane cannot substitute for the suite. Merged elapsed time
 is the span of the concurrent lanes, not their summed work. Per-suite leases
 reject duplicate writers, and cancellation cleans owned process groups before
-removing the isolated database profiles.
+removing the isolated database profiles. The reviewed dependency map is exact:
+only the development mocked lane waits, and it cannot start until the
+development stateful lane has validated and released its process group and
+ports.
 
 The initial OVH capacity inspection found six CPUs, 11.4 GiB RAM, approximately
 9.3 GiB available memory and low CPU/I/O pressure. This is a starting snapshot,

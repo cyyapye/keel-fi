@@ -11,28 +11,30 @@ export const BROWSER_TEST_LANES = {
     "investment-review.visual.spec.ts",
   ],
   "mocked-development": ["investment-holdings.visual.spec.ts"],
-  "stateful-a": [
+  "stateful-development": [
     "app-recovery.visual.spec.ts",
-    "cash-accounts.visual.spec.ts",
-    "goals.visual.spec.ts",
     "legal-entities.visual.spec.ts",
     "navigation.visual.spec.ts",
+  ],
+  "stateful-a": [
+    "cash-accounts.visual.spec.ts",
+    "goals.visual.spec.ts",
+    "legal-name-resolution.visual.spec.ts",
     "observed-cash-flow.visual.spec.ts",
     "plan-actual-monitoring.visual.spec.ts",
-    "private-alpha.spec.ts",
     "purchase-details.visual.spec.ts",
     "provider-browser-lifecycle.spec.ts",
     "provider-legal-documents.spec.ts",
     "provider-portfolio-mac-agent.spec.ts",
   ],
   "stateful-b": [
-    "legal-name-resolution.visual.spec.ts",
     "obligations.visual.spec.ts",
     "overview-links.visual.spec.ts",
     "plan-inputs.visual.spec.ts",
     "portfolio-baseline.visual.spec.ts",
     "portfolio-dashboard.visual.spec.ts",
     "portfolio-watch.visual.spec.ts",
+    "private-alpha.spec.ts",
     "provider-session.spec.ts",
     "sydecar-session-renewal.spec.ts",
   ],
@@ -53,16 +55,23 @@ export const BROWSER_TEST_EXECUTION = {
     webPort: 31_034,
     workers: 1,
   },
+  "stateful-development": {
+    apiPort: 32_035,
+    frontend: "development",
+    server: "stateful",
+    webPort: 31_035,
+    workers: 1,
+  },
   "stateful-a": {
     apiPort: 32_032,
-    frontend: "development",
+    frontend: "production",
     server: "stateful",
     webPort: 31_032,
     workers: 1,
   },
   "stateful-b": {
     apiPort: 32_033,
-    frontend: "development",
+    frontend: "production",
     server: "stateful",
     webPort: 31_033,
     workers: 1,
@@ -76,6 +85,17 @@ export const BROWSER_TEST_EXECUTION = {
     readonly webPort: number;
     readonly workers: number;
   }
+>;
+
+export const BROWSER_TEST_SCHEDULE = {
+  mocked: [],
+  "mocked-development": ["stateful-development"],
+  "stateful-development": [],
+  "stateful-a": [],
+  "stateful-b": [],
+} as const satisfies Record<
+  keyof typeof BROWSER_TEST_LANES,
+  readonly (keyof typeof BROWSER_TEST_LANES)[]
 >;
 
 export type BrowserTestLane = keyof typeof BROWSER_TEST_LANES | "all";
@@ -140,7 +160,11 @@ export function validateMockedBrowserSpecs(e2eDirectory: string): void {
     ...BROWSER_TEST_LANES.mocked,
     ...BROWSER_TEST_LANES["mocked-development"],
   ]);
-  const productionServed = new Set<string>(BROWSER_TEST_LANES.mocked);
+  const productionServed = new Set<string>([
+    ...BROWSER_TEST_LANES.mocked,
+    ...BROWSER_TEST_LANES["stateful-a"],
+    ...BROWSER_TEST_LANES["stateful-b"],
+  ]);
   for (const file of Object.values(BROWSER_TEST_LANES).flat()) {
     const source = readFileSync(path.join(e2eDirectory, file), "utf8");
     const usesMockedApi = source.includes('from "./api-mocked-test"');
@@ -149,10 +173,7 @@ export function validateMockedBrowserSpecs(e2eDirectory: string): void {
         `${file} must import the fail-closed mocked API fixture.`,
       );
     }
-    if (
-      productionServed.has(file) &&
-      /(?:["'])\/src\/|\.\.\/apps\/web\/src\//u.test(source)
-    ) {
+    if (productionServed.has(file) && /["'`](?:\/|\*\*\/)src\//u.test(source)) {
       throw new Error(
         `${file} requires development-only frontend source access.`,
       );

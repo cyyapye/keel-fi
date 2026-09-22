@@ -156,7 +156,7 @@ class NativeAccountingTests(unittest.TestCase):
         native.compare_cases("playwright", native.playwright_cases(merged), inventory)
         self.assertEqual(merged["stats"]["expected"], len(native.BROWSER_LANES))
         self.assertEqual(merged["stats"]["duration"], 10)
-        self.assertEqual(merged["totalWorkDuration"], 40)
+        self.assertEqual(merged["totalWorkDuration"], 50)
         self.assertEqual(merged["errors"], reports["mocked"]["errors"])
         for incomplete in (
             {"mocked": reports["mocked"]},
@@ -170,10 +170,21 @@ class NativeAccountingTests(unittest.TestCase):
         execution = {
             "mocked": {"server": "mocked", "frontend": "production", "workers": 1, "webPort": 31031, "apiPort": None},
             "mocked-development": {"server": "mocked", "frontend": "development", "workers": 1, "webPort": 31034, "apiPort": None},
-            "stateful-a": {"server": "stateful", "frontend": "development", "workers": 1, "webPort": 31032, "apiPort": 32032},
-            "stateful-b": {"server": "stateful", "frontend": "development", "workers": 1, "webPort": 31033, "apiPort": 32033},
+            "stateful-development": {"server": "stateful", "frontend": "development", "workers": 1, "webPort": 31035, "apiPort": 32035},
+            "stateful-a": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31032, "apiPort": 32032},
+            "stateful-b": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31033, "apiPort": 32033},
         }
-        self.assertEqual(native.validate_browser_execution(lanes, execution), [31031, 31034, 31032, 32032, 31033, 32033])
+        schedule = {
+            "mocked": [],
+            "mocked-development": ["stateful-development"],
+            "stateful-development": [],
+            "stateful-a": [],
+            "stateful-b": [],
+        }
+        self.assertEqual(
+            native.validate_browser_execution(lanes, execution, schedule),
+            [31031, 31034, 31035, 32035, 31032, 32032, 31033, 32033],
+        )
         for lane, field, value in (
             ("mocked", "workers", 2),
             ("mocked-development", "frontend", "production"),
@@ -183,7 +194,85 @@ class NativeAccountingTests(unittest.TestCase):
             invalid = {name: dict(config) for name, config in execution.items()}
             invalid[lane][field] = value
             with self.subTest(lane=lane, field=field), self.assertRaises(ValueError):
-                native.validate_browser_execution(lanes, invalid)
+                native.validate_browser_execution(lanes, invalid, schedule)
+
+        invalid_schedules = (
+            {**schedule, "mocked-development": ["unknown"]},
+            {**schedule, "mocked-development": ["mocked-development"]},
+            {**schedule, "stateful-development": ["mocked-development"]},
+            {**schedule, "mocked-development": []},
+        )
+        for invalid in invalid_schedules:
+            with self.subTest(schedule=invalid), self.assertRaises(ValueError):
+                native.validate_browser_execution(lanes, execution, invalid)
+
+        schedule = {
+            "mocked": [],
+            "mocked-development": ["stateful-development"],
+            "stateful-development": [],
+            "stateful-a": [],
+            "stateful-b": [],
+        }
+        execution = {lane: {"workers": 1} for lane in native.BROWSER_LANES}
+
+        class Process:
+            def __init__(self, running=True):
+                self.running = running
+                self.pid = os.getpid()
+
+            def poll(self):
+                return None if self.running else 0
+
+            def wait(self, timeout):
+                return 0
+
+        started = set()
+        completed = set()
+        initial = native.ready_browser_lanes(started, completed, schedule)
+        self.assertEqual(initial, ["mocked", "stateful-development", "stateful-a", "stateful-b"])
+        processes = {lane: Process() for lane in initial}
+        self.assertEqual(native.active_browser_workers(processes, execution), 4)
+        started.update(initial)
+        self.assertEqual(native.ready_browser_lanes(started, completed, schedule), [])
+
+        processes["stateful-development"].running = False
+        self.assertEqual(native.active_browser_workers(processes, execution), 3)
+        self.assertEqual(native.ready_browser_lanes(started, completed, schedule), [])
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        stateful_port = listener.getsockname()[1]
+        teardown_execution = {
+            "stateful-development": {"webPort": stateful_port, "apiPort": None}
+        }
+        try:
+            with (
+                patch.object(native, "browser_process_group_alive", return_value=False),
+                self.assertRaisesRegex(ValueError, "did not release"),
+            ):
+                native.wait_for_browser_lane_teardown(
+                    "stateful-development",
+                    processes["stateful-development"],
+                    teardown_execution,
+                    timeout_seconds=0.05,
+                )
+            self.assertEqual(
+                native.ready_browser_lanes(started, completed, schedule), []
+            )
+        finally:
+            listener.close()
+        with patch.object(native, "browser_process_group_alive", return_value=False):
+            native.wait_for_browser_lane_teardown(
+                "stateful-development",
+                processes["stateful-development"],
+                teardown_execution,
+                timeout_seconds=0.05,
+            )
+        completed.add("stateful-development")
+        handoff = native.ready_browser_lanes(started, completed, schedule)
+        self.assertEqual(handoff, ["mocked-development"])
+        processes["mocked-development"] = Process()
+        self.assertEqual(native.active_browser_workers(processes, execution), 4)
 
     def test_browser_cleanup_targets_owned_process_groups(self):
         with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:
@@ -459,6 +548,7 @@ class NativeAccountingTests(unittest.TestCase):
             execution = {
                 "mocked": {"server": "mocked"},
                 "mocked-development": {"server": "mocked"},
+                "stateful-development": {"server": "stateful"},
                 "stateful-a": {"server": "stateful"},
                 "stateful-b": {"server": "stateful"},
             }
@@ -473,7 +563,7 @@ class NativeAccountingTests(unittest.TestCase):
             )
             for lane in ("mocked", "mocked-development"):
                 self.assertEqual(list((runtime / lane).iterdir()), [])
-            for lane in ("stateful-a", "stateful-b"):
+            for lane in ("stateful-development", "stateful-a", "stateful-b"):
                 self.assertEqual(
                     (runtime / lane / "seed.sqlite").read_text(), "synthetic"
                 )

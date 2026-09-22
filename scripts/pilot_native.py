@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parent.parent
 INVENTORY = ROOT / ".tugling/pilot-cases.json"
 ARTIFACTS = ROOT / ".tugling/local/pilot"
 PYTHON_SUITES = ("test_linux_test_run", "test_tugling_pilot")
-BROWSER_LANES = ("mocked", "mocked-development", "stateful-a", "stateful-b")
+BROWSER_LANES = ("mocked", "mocked-development", "stateful-development", "stateful-a", "stateful-b")
+BROWSER_MAX_ACTIVE_WORKERS = 4
 BROWSER_RUNTIME = ROOT / ".keel-local/e2e-lanes"
 
 
@@ -89,15 +90,49 @@ def check_browser_lane(lane, report, files, inventory, execution):
                                                          if entry["id"] in subset]})
 
 
-def validate_browser_execution(lanes, execution):
-    if set(lanes) != set(BROWSER_LANES) or set(execution) != set(BROWSER_LANES):
+def validate_browser_execution(lanes, execution, schedule):
+    if (set(lanes) != set(BROWSER_LANES) or set(execution) != set(BROWSER_LANES)
+            or set(schedule) != set(BROWSER_LANES)):
         raise ValueError("browser lane manifest differs from the required execution plan")
+    for lane, dependencies in schedule.items():
+        if not isinstance(dependencies, list):
+            raise ValueError(f"{lane} browser dependencies must be a list")
+        if lane in dependencies:
+            raise ValueError(f"{lane} browser lane cannot depend on itself")
+        if any(dependency not in schedule for dependency in dependencies):
+            raise ValueError(f"{lane} browser lane has an unknown dependency")
+
+    visiting = set()
+    visited = set()
+    def visit(lane):
+        if lane in visiting:
+            raise ValueError("browser lane schedule must be acyclic")
+        if lane in visited:
+            return
+        visiting.add(lane)
+        for dependency in schedule[lane]:
+            visit(dependency)
+        visiting.remove(lane)
+        visited.add(lane)
+    for lane in BROWSER_LANES:
+        visit(lane)
+
+    expected_schedule = {
+        "mocked": [],
+        "mocked-development": ["stateful-development"],
+        "stateful-development": [],
+        "stateful-a": [],
+        "stateful-b": [],
+    }
+    if schedule != expected_schedule:
+        raise ValueError("browser lane dependencies differ from the reviewed four-slot schedule")
     ports = []
     expected = {
         "mocked": ("mocked", "production"),
         "mocked-development": ("mocked", "development"),
-        "stateful-a": ("stateful", "development"),
-        "stateful-b": ("stateful", "development"),
+        "stateful-development": ("stateful", "development"),
+        "stateful-a": ("stateful", "production"),
+        "stateful-b": ("stateful", "production"),
     }
     for lane in BROWSER_LANES:
         config = execution[lane]
@@ -115,7 +150,21 @@ def validate_browser_execution(lanes, execution):
         ports.extend(lane_ports)
     if len(ports) != len(set(ports)):
         raise ValueError("browser lanes must use distinct runtime ports")
+    initial_workers = sum(execution[lane]["workers"] for lane in BROWSER_LANES
+                          if not schedule[lane])
+    if initial_workers > BROWSER_MAX_ACTIVE_WORKERS:
+        raise ValueError("browser lane schedule exceeds four active workers")
     return ports
+
+
+def ready_browser_lanes(started, completed, schedule):
+    return [lane for lane in BROWSER_LANES
+            if lane not in started and set(schedule[lane]).issubset(completed)]
+
+
+def active_browser_workers(processes, execution):
+    return sum(execution[lane]["workers"] for lane, process in processes.items()
+               if process.poll() is None)
 
 
 def assert_browser_ports_available(ports):
@@ -123,10 +172,10 @@ def assert_browser_ports_available(ports):
     try:
         for port in ports:
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sockets.append(listener)
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listener.bind(("127.0.0.1", port))
             listener.listen(1)
-            sockets.append(listener)
     except OSError as error:
         raise ValueError(f"browser runtime port {port} is unavailable") from error
     finally:
@@ -217,14 +266,31 @@ def cleanup_browser_processes(processes):
             pass
 
 
+def wait_for_browser_lane_teardown(lane, process, execution, timeout_seconds=5):
+    process.wait(timeout=1)
+    ports = [execution[lane]["webPort"]]
+    if execution[lane]["apiPort"] is not None:
+        ports.append(execution[lane]["apiPort"])
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not browser_process_group_alive(process.pid):
+            try:
+                assert_browser_ports_available(ports)
+                return
+            except ValueError:
+                pass
+        time.sleep(0.05)
+    raise ValueError(f"{lane} browser lane did not release its owned runtime")
+
+
 def run_browser_lanes(output):
     manifest = json.loads(subprocess.check_output([
         "node", "--import", "tsx", "--input-type=module", "--eval",
-        "import { BROWSER_TEST_EXECUTION, BROWSER_TEST_LANES } from './scripts/browser-test-lanes.ts';"
-        "console.log(JSON.stringify({execution:BROWSER_TEST_EXECUTION,lanes:BROWSER_TEST_LANES}));",
+        "import { BROWSER_TEST_EXECUTION, BROWSER_TEST_LANES, BROWSER_TEST_SCHEDULE } from './scripts/browser-test-lanes.ts';"
+        "console.log(JSON.stringify({execution:BROWSER_TEST_EXECUTION,lanes:BROWSER_TEST_LANES,schedule:BROWSER_TEST_SCHEDULE}));",
     ], cwd=ROOT, text=True))
-    lanes, execution = manifest["lanes"], manifest["execution"]
-    ports = validate_browser_execution(lanes, execution)
+    lanes, execution, schedule = manifest["lanes"], manifest["execution"], manifest["schedule"]
+    ports = validate_browser_execution(lanes, execution, schedule)
     assert_browser_ports_available(ports)
     inventory = json.loads(INVENTORY.read_text())
     results = ARTIFACTS / "browser-results"
@@ -250,7 +316,12 @@ def run_browser_lanes(output):
         signal.signal(name, interrupt)
     try:
         prepare_browser_profiles(execution)
-        for lane in BROWSER_LANES:
+        started = set()
+        completed = set()
+
+        def start_lane(lane):
+            if active_browser_workers(processes, execution) + execution[lane]["workers"] > BROWSER_MAX_ACTIVE_WORKERS:
+                raise ValueError("browser lane scheduler exceeded four active workers")
             lane_output = ARTIFACTS / f"playwright-{lane}.json"
             env = {**os.environ, "KEEL_E2E_ISOLATED": "1", "KEEL_BROWSER_LANE": lane,
                    "PLAYWRIGHT_JSON_OUTPUT_FILE": str(lane_output)}
@@ -267,13 +338,20 @@ def run_browser_lanes(output):
                 signal_state["registering"] = False
             if signal_state["pending"] is not None:
                 raise SystemExit(128 + signal_state["pending"])
-        pending = set(BROWSER_LANES)
-        while pending:
-            for lane in list(pending):
+            started.add(lane)
+
+        for lane in ready_browser_lanes(started, completed, schedule):
+            start_lane(lane)
+        while len(completed) < len(BROWSER_LANES):
+            finished = []
+            for lane in BROWSER_LANES:
+                if lane not in started or lane in completed:
+                    continue
                 returncode = processes[lane].poll()
                 if returncode is None:
                     continue
-                pending.remove(lane)
+                finished.append((lane, returncode))
+            for lane, returncode in finished:
                 try:
                     report = json.loads((ARTIFACTS / f"playwright-{lane}.json").read_text())
                     check_browser_lane(lane, report, lanes[lane], inventory, execution)
@@ -281,8 +359,14 @@ def run_browser_lanes(output):
                     raise ValueError(f"{lane} browser lane produced invalid evidence: {error}") from error
                 if returncode or report["errors"]:
                     raise ValueError(f"{lane} browser lane reported errors (exit {returncode})")
+                wait_for_browser_lane_teardown(lane, processes[lane], execution)
                 reports[lane] = report
-            if pending:
+                completed.add(lane)
+            for lane in ready_browser_lanes(started, completed, schedule):
+                start_lane(lane)
+            if not finished and active_browser_workers(processes, execution) == 0:
+                raise ValueError("browser lane schedule cannot make progress")
+            if len(completed) < len(BROWSER_LANES):
                 time.sleep(0.1)
         output.write_text(json.dumps(merge_browser_reports(reports)))
         return 0

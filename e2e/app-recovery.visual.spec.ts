@@ -152,7 +152,17 @@ test("keeps the screen and navigation when a delayed portfolio component fails",
     recovery.getByRole("button", { name: "Reload Keel" }),
   ).toBeVisible();
   await page.unroute("**/src/PortfolioSnapshot.tsx*");
-  await recovery.getByRole("button", { name: "Reload Keel" }).click();
+  const recoveredModule = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/src/PortfolioSnapshot.tsx",
+  );
+  const [recoveredModuleResponse] = await Promise.all([
+    recoveredModule,
+    recovery.getByRole("button", { name: "Reload Keel" }).click(),
+  ]);
+  expect(recoveredModuleResponse.status()).toBeGreaterThanOrEqual(200);
+  expect(recoveredModuleResponse.status()).toBeLessThan(400);
+  expect(await recoveredModuleResponse.finished()).toBeNull();
   await expect(page.locator(".portfolio-snapshot__metrics")).toBeVisible();
   await expect(
     page.getByText("The portfolio summary couldn’t load."),

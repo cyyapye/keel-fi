@@ -6,6 +6,7 @@ import { BROWSER_TEST_VITE_READINESS_PATH } from "./browser-test-readiness";
 import {
   BROWSER_TEST_EXECUTION,
   BROWSER_TEST_LANES,
+  BROWSER_TEST_SCHEDULE,
   browserServerFailureExitCode,
   discoverBrowserSpecFiles,
   resolveBrowserTestLane,
@@ -32,6 +33,7 @@ describe("browser test lanes", () => {
       validateBrowserTestLanes(assigned, {
         mocked: BROWSER_TEST_LANES.mocked,
         "mocked-development": BROWSER_TEST_LANES["mocked-development"],
+        "stateful-development": BROWSER_TEST_LANES["stateful-development"],
         "stateful-a": [
           ...BROWSER_TEST_LANES["stateful-a"],
           BROWSER_TEST_LANES.mocked[0],
@@ -49,6 +51,11 @@ describe("browser test lanes", () => {
 
   it("bounds workers while keeping each stateful shard serialized", () => {
     expect(BROWSER_TEST_VITE_READINESS_PATH).toBe("/__keel_browser_test_ready");
+    expect(
+      Object.entries(BROWSER_TEST_SCHEDULE).filter(
+        ([, dependencies]) => dependencies.length === 0,
+      ),
+    ).toHaveLength(4);
     expect(
       resolveBrowserTestLane({ e2eDirectory: "e2e", lane: "mocked" }),
     ).toMatchObject({
@@ -68,11 +75,22 @@ describe("browser test lanes", () => {
       server: "mocked",
       workers: 1,
     });
+    expect(
+      resolveBrowserTestLane({
+        e2eDirectory: "e2e",
+        lane: "stateful-development",
+      }),
+    ).toMatchObject({
+      frontend: "development",
+      lane: "stateful-development",
+      server: "stateful",
+      workers: 1,
+    });
     for (const lane of ["stateful-a", "stateful-b"] as const) {
       expect(
         resolveBrowserTestLane({ e2eDirectory: "e2e", lane }),
       ).toMatchObject({
-        frontend: "development",
+        frontend: "production",
         lane,
         server: "stateful",
         workers: 1,
