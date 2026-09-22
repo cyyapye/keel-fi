@@ -15,6 +15,7 @@ export const BROWSER_TEST_LANES = {
     "app-recovery.visual.spec.ts",
     "legal-entities.visual.spec.ts",
     "navigation.visual.spec.ts",
+    "portfolio-watch.visual.spec.ts",
   ],
   "stateful-a": [
     "cash-accounts.visual.spec.ts",
@@ -33,12 +34,20 @@ export const BROWSER_TEST_LANES = {
     "plan-inputs.visual.spec.ts",
     "portfolio-baseline.visual.spec.ts",
     "portfolio-dashboard.visual.spec.ts",
-    "portfolio-watch.visual.spec.ts",
     "private-alpha.spec.ts",
     "provider-session.spec.ts",
     "sydecar-session-renewal.spec.ts",
   ],
 } as const satisfies Record<string, readonly string[]>;
+
+const DEVELOPMENT_ONLY_STATEFUL_SPECS = [
+  "app-recovery.visual.spec.ts",
+  "legal-entities.visual.spec.ts",
+  "navigation.visual.spec.ts",
+  // The Watch screenshots intentionally assert Vite's development-mode demo
+  // source disclosure; the production build truthfully renders production copy.
+  "portfolio-watch.visual.spec.ts",
+] as const;
 
 export const BROWSER_TEST_EXECUTION = {
   mocked: {
@@ -124,8 +133,17 @@ export function validateBrowserTestLanes(
   const expected = [...new Set(assigned)].sort();
   const missing = actual.filter((file) => !expected.includes(file));
   const stale = expected.filter((file) => !actual.includes(file));
+  const developmentStateful = new Set(lanes["stateful-development"] ?? []);
+  const productionIncompatible = DEVELOPMENT_ONLY_STATEFUL_SPECS.filter(
+    (file) => !developmentStateful.has(file),
+  );
 
-  if (duplicates.length > 0 || missing.length > 0 || stale.length > 0) {
+  if (
+    duplicates.length > 0 ||
+    missing.length > 0 ||
+    stale.length > 0 ||
+    productionIncompatible.length > 0
+  ) {
     throw new Error(
       [
         "Browser test lane assignment must be exhaustive and exclusive.",
@@ -134,6 +152,9 @@ export function validateBrowserTestLanes(
           : "",
         missing.length > 0 ? `Unassigned specs: ${missing.join(", ")}.` : "",
         stale.length > 0 ? `Missing specs: ${stale.join(", ")}.` : "",
+        productionIncompatible.length > 0
+          ? `Development-only stateful specs assigned outside stateful-development: ${productionIncompatible.join(", ")}.`
+          : "",
       ]
         .filter(Boolean)
         .join(" "),

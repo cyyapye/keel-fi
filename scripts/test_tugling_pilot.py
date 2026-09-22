@@ -250,24 +250,26 @@ class NativeAccountingTests(unittest.TestCase):
                 patch.object(native, "browser_process_group_alive", return_value=False),
                 self.assertRaisesRegex(ValueError, "did not release"),
             ):
-                native.wait_for_browser_lane_teardown(
+                native.release_browser_lane(
                     "stateful-development",
-                    processes["stateful-development"],
+                    processes,
                     teardown_execution,
                     timeout_seconds=0.05,
                 )
+            self.assertIn("stateful-development", processes)
             self.assertEqual(
                 native.ready_browser_lanes(started, completed, schedule), []
             )
         finally:
             listener.close()
         with patch.object(native, "browser_process_group_alive", return_value=False):
-            native.wait_for_browser_lane_teardown(
+            native.release_browser_lane(
                 "stateful-development",
-                processes["stateful-development"],
+                processes,
                 teardown_execution,
                 timeout_seconds=0.05,
             )
+        self.assertNotIn("stateful-development", processes)
         completed.add("stateful-development")
         handoff = native.ready_browser_lanes(started, completed, schedule)
         self.assertEqual(handoff, ["mocked-development"])
@@ -305,17 +307,55 @@ class NativeAccountingTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(process.stdout.readline(), "ready\n")
-            try:
-                native.cleanup_browser_processes([process])
-            except PermissionError:
-                # Darwin can report EPERM while a fully signalled group is being
-                # reaped. The runner must fail closed rather than call it absent.
-                if sys.platform != "darwin":
-                    raise
-                process.wait(timeout=1)
+            native.cleanup_browser_processes([process])
             process.stdout.close()
             self.assertIsNotNone(process.poll())
             self.assertEqual(marker.read_text(), "stopped")
+
+            class StuckProcess:
+                pid = 999_999
+
+                def poll(self):
+                    return None
+
+                def wait(self, timeout):
+                    raise subprocess.TimeoutExpired("synthetic-browser", timeout)
+
+            stuck = StuckProcess()
+            with (
+                patch.object(native.os, "killpg") as killpg,
+                patch.object(native, "browser_process_group_alive", return_value=True),
+                patch.object(native.time, "monotonic", side_effect=[0, 3]),
+                self.assertRaisesRegex(ValueError, "could not prove"),
+            ):
+                native.cleanup_browser_processes([stuck])
+            self.assertEqual(
+                [call.args for call in killpg.call_args_list],
+                [(stuck.pid, signal.SIGINT), (stuck.pid, signal.SIGKILL)],
+            )
+
+            original = RuntimeError("synthetic lane failure")
+
+            def fail_then_cleanup():
+                try:
+                    raise original
+                except BaseException as error:
+                    native.cleanup_browser_runtime([stuck], error)
+                    raise
+
+            with (
+                patch.object(
+                    native,
+                    "cleanup_browser_processes",
+                    side_effect=ValueError("synthetic cleanup failure"),
+                ),
+                patch.object(native, "remove_browser_profiles") as remove_profiles,
+                patch("sys.stderr") as stderr,
+                self.assertRaisesRegex(RuntimeError, "synthetic lane failure"),
+            ):
+                fail_then_cleanup()
+            remove_profiles.assert_not_called()
+            self.assertIn("RuntimeError", "".join(call.args[0] for call in stderr.write.call_args_list))
 
             server_source = root / "detached-server.py"
             server_source.write_text(

@@ -236,6 +236,7 @@ def browser_process_group_alive(pid):
 
 def cleanup_browser_processes(processes):
     processes = tuple(processes)
+    permission_errors = []
     for process in processes:
         try:
             # Playwright handles SIGINT by running task teardown, which owns its
@@ -243,6 +244,8 @@ def cleanup_browser_processes(processes):
             os.killpg(process.pid, signal.SIGINT)
         except ProcessLookupError:
             pass
+        except PermissionError as error:
+            permission_errors.append(error)
     # Complete before Tugling's outer three-second process-group deadline.
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
@@ -260,10 +263,25 @@ def cleanup_browser_processes(processes):
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            except PermissionError as error:
+                permission_errors.append(error)
         try:
             process.wait(timeout=1)
         except subprocess.TimeoutExpired:
             pass
+        process.poll()
+    remaining = sorted({
+        process.pid for process in processes
+        if browser_process_group_alive(process.pid)
+    })
+    if remaining or permission_errors:
+        message = (
+            "browser process cleanup could not prove every owned group stopped"
+            + (f": {remaining}" if remaining else "")
+        )
+        if permission_errors:
+            raise ValueError(message) from permission_errors[0]
+        raise ValueError(message)
 
 
 def wait_for_browser_lane_teardown(lane, process, execution, timeout_seconds=5):
@@ -281,6 +299,29 @@ def wait_for_browser_lane_teardown(lane, process, execution, timeout_seconds=5):
                 pass
         time.sleep(0.05)
     raise ValueError(f"{lane} browser lane did not release its owned runtime")
+
+
+def release_browser_lane(lane, processes, execution, timeout_seconds=5):
+    wait_for_browser_lane_teardown(
+        lane, processes[lane], execution, timeout_seconds=timeout_seconds
+    )
+    # The process group and ports are proven gone. Remove the stale numeric PGID
+    # before a later lane gives the operating system time to recycle it.
+    del processes[lane]
+
+
+def cleanup_browser_runtime(processes, original_failure):
+    try:
+        cleanup_browser_processes(processes)
+        remove_browser_profiles()
+    except BaseException as cleanup_error:
+        if original_failure is None:
+            raise
+        print(
+            f"Browser cleanup also failed after {type(original_failure).__name__}: "
+            f"{cleanup_error}",
+            file=sys.stderr,
+        )
 
 
 def run_browser_lanes(output):
@@ -314,6 +355,7 @@ def run_browser_lanes(output):
 
     for name in handled_signals:
         signal.signal(name, interrupt)
+    original_failure = None
     try:
         prepare_browser_profiles(execution)
         started = set()
@@ -359,7 +401,7 @@ def run_browser_lanes(output):
                     raise ValueError(f"{lane} browser lane produced invalid evidence: {error}") from error
                 if returncode or report["errors"]:
                     raise ValueError(f"{lane} browser lane reported errors (exit {returncode})")
-                wait_for_browser_lane_teardown(lane, processes[lane], execution)
+                release_browser_lane(lane, processes, execution)
                 reports[lane] = report
                 completed.add(lane)
             for lane in ready_browser_lanes(started, completed, schedule):
@@ -370,11 +412,15 @@ def run_browser_lanes(output):
                 time.sleep(0.1)
         output.write_text(json.dumps(merge_browser_reports(reports)))
         return 0
+    except BaseException as error:
+        original_failure = error
+        raise
     finally:
-        cleanup_browser_processes(processes.values())
-        remove_browser_profiles()
-        for name, handler in previous_handlers.items():
-            signal.signal(name, handler)
+        try:
+            cleanup_browser_runtime(processes.values(), original_failure)
+        finally:
+            for name, handler in previous_handlers.items():
+                signal.signal(name, handler)
 
 
 def load_module(name):

@@ -41,6 +41,20 @@ describe("browser test lanes", () => {
         "stateful-b": BROWSER_TEST_LANES["stateful-b"],
       }),
     ).toThrow(/Assigned more than once/u);
+    expect(() =>
+      validateBrowserTestLanes(assigned, {
+        mocked: BROWSER_TEST_LANES.mocked,
+        "mocked-development": BROWSER_TEST_LANES["mocked-development"],
+        "stateful-development": BROWSER_TEST_LANES[
+          "stateful-development"
+        ].filter((file) => file !== "portfolio-watch.visual.spec.ts"),
+        "stateful-a": BROWSER_TEST_LANES["stateful-a"],
+        "stateful-b": [
+          ...BROWSER_TEST_LANES["stateful-b"],
+          "portfolio-watch.visual.spec.ts",
+        ],
+      }),
+    ).toThrow(/Development-only stateful specs.*portfolio-watch/u);
   });
 
   it("rejects unknown lane names", () => {

@@ -202,7 +202,7 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "One verified, closed synthetic D1 seed is copied into three independent profiles. Three stateful shards and the production-served API-mocked lane start on distinct ports with one worker each; the development-served API-mocked lane takes the source-dependent stateful shard's slot only after validated teardown.",
+        "launch": "One verified, closed synthetic D1 seed is copied into three independent profiles. Three stateful shards and the production-served API-mocked lane start on distinct ports with one worker each; the development-served API-mocked lane takes the source- and development-copy-dependent stateful shard's slot only after validated teardown.",
         "health": "Development lanes finish and validate the initial Vite module graph; stateful lanes also wait through the web proxy for /api/holdings-page. Mocked contexts reject unhandled application APIs. Five validated reports must cover the complete reviewed browser inventory with unchanged snapshots and at most four active browser workers.",
         "cleanup": "Owned lane process groups are terminated on completion, failure or cancellation before profile removal. Per-suite leases prevent duplicate report and runtime writers."
       },
