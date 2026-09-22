@@ -201,7 +201,7 @@
         "scripts/pilot_native.py",
         "playwright-prepared"
       ],
-      "timeout_seconds": 3600,
+      "timeout_seconds": 1800,
       "sources": [
         "Makefile",
         "playwright.config.ts",
