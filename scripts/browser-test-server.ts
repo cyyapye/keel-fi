@@ -6,6 +6,7 @@ import {
   BROWSER_TEST_EXECUTION,
   browserServerFailureExitCode,
   type BrowserTestLane,
+  validateProductionBrowserBuild,
 } from "./browser-test-lanes";
 import { DEV_HOST } from "./dev-ports";
 
@@ -39,6 +40,10 @@ if (execution.server === "stateful") {
   }
 } else if (requestedPersistRoot !== undefined) {
   throw new Error("The mocked browser lane must not receive a D1 profile.");
+}
+
+if (execution.frontend === "production") {
+  validateProductionBrowserBuild(path.join(rootDir, "apps/web"));
 }
 
 const environment = {
@@ -96,6 +101,8 @@ if (execution.server === "stateful") {
     "local",
     "--port",
     String(execution.apiPort),
+    "--inspector-port",
+    "0",
     "--persist-to",
     expectedPersistRoot,
   ]);
@@ -106,6 +113,7 @@ start("Web", [
   "@keel/web",
   "exec",
   "vite",
+  ...(execution.frontend === "production" ? ["preview"] : []),
   "--host",
   DEV_HOST,
   "--port",

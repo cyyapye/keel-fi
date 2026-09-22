@@ -124,7 +124,7 @@ class NativeAccountingTests(unittest.TestCase):
             }]}]}
         inventory = {"playwright": [f"e2e/{lane}.spec.ts :: chromium :: required" for lane in native.BROWSER_LANES], "exclusions": []}
         execution = {
-            lane: {"workers": 2 if lane == "mocked" else 1}
+            lane: {"workers": 1}
             for lane in native.BROWSER_LANES
         }
         for lane in native.BROWSER_LANES:
@@ -152,7 +152,7 @@ class NativeAccountingTests(unittest.TestCase):
         native.compare_cases("playwright", native.playwright_cases(merged), inventory)
         self.assertEqual(merged["stats"]["expected"], len(native.BROWSER_LANES))
         self.assertEqual(merged["stats"]["duration"], 10)
-        self.assertEqual(merged["totalWorkDuration"], 30)
+        self.assertEqual(merged["totalWorkDuration"], 40)
         self.assertEqual(merged["errors"], reports["mocked"]["errors"])
         for incomplete in (
             {"mocked": reports["mocked"]},
@@ -164,13 +164,15 @@ class NativeAccountingTests(unittest.TestCase):
     def test_browser_execution_rejects_oversubscription_and_unsafe_ports(self):
         lanes = {lane: [f"{lane}.spec.ts"] for lane in native.BROWSER_LANES}
         execution = {
-            "mocked": {"server": "mocked", "workers": 2, "webPort": 31031, "apiPort": None},
-            "stateful-a": {"server": "stateful", "workers": 1, "webPort": 31032, "apiPort": 32032},
-            "stateful-b": {"server": "stateful", "workers": 1, "webPort": 31033, "apiPort": 32033},
+            "mocked": {"server": "mocked", "frontend": "production", "workers": 1, "webPort": 31031, "apiPort": None},
+            "mocked-development": {"server": "mocked", "frontend": "development", "workers": 1, "webPort": 31034, "apiPort": None},
+            "stateful-a": {"server": "stateful", "frontend": "development", "workers": 1, "webPort": 31032, "apiPort": 32032},
+            "stateful-b": {"server": "stateful", "frontend": "development", "workers": 1, "webPort": 31033, "apiPort": 32033},
         }
-        self.assertEqual(native.validate_browser_execution(lanes, execution), [31031, 31032, 32032, 31033, 32033])
+        self.assertEqual(native.validate_browser_execution(lanes, execution), [31031, 31034, 31032, 32032, 31033, 32033])
         for lane, field, value in (
-            ("mocked", "workers", 3),
+            ("mocked", "workers", 2),
+            ("mocked-development", "frontend", "production"),
             ("stateful-a", "webPort", 40000),
             ("stateful-b", "apiPort", 32032),
         ):
@@ -247,6 +249,7 @@ class NativeAccountingTests(unittest.TestCase):
             runtime = repository / ".keel-local" / "e2e-lanes"
             execution = {
                 "mocked": {"server": "mocked"},
+                "mocked-development": {"server": "mocked"},
                 "stateful-a": {"server": "stateful"},
                 "stateful-b": {"server": "stateful"},
             }
@@ -259,7 +262,8 @@ class NativeAccountingTests(unittest.TestCase):
             run.assert_called_once_with(
                 ["make", "db-verify-e2e"], cwd=repository, check=True
             )
-            self.assertEqual(list((runtime / "mocked").iterdir()), [])
+            for lane in ("mocked", "mocked-development"):
+                self.assertEqual(list((runtime / lane).iterdir()), [])
             for lane in ("stateful-a", "stateful-b"):
                 self.assertEqual(
                     (runtime / lane / "seed.sqlite").read_text(), "synthetic"

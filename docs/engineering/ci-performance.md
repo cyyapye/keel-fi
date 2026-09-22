@@ -83,24 +83,29 @@ at most two independently limited containers. No browser consumer starts before
 PDF isolation and build succeed.
 
 The unit suite retains two workers and starts historically expensive files
-first. Browser verification runs two one-worker stateful partitions alongside a
-two-worker API-mocked lane. The partitions contain the same 106 mocked and 226
-stateful executions, including 44 reviewed platform exclusions. Each stateful
-partition receives a separate copy of the verified, closed synthetic seed and
-owns distinct API/web ports. The mocked lane serves Vite without an API server.
-It retains development-mode behavior required by dynamic-module recovery tests.
-All lanes keep desktop/mobile project names, snapshots and case identities. Each
-lane owns its Vite dependency cache as well as its browser output. Stateful
-readiness checks the actual holdings-page projection through the web proxy
-before admitting tests, so a simpler health endpoint cannot hide a cold first
-read.
+first. Browser verification runs four one-worker lanes: two stateful partitions,
+74 API-mocked executions served from the verified production build, and 32
+API-mocked executions that require Vite development modules. The partitions
+contain the same 106 mocked and 226 stateful executions, including 44 reviewed
+platform exclusions. Each stateful partition receives a separate copy of the
+verified, closed synthetic seed and owns distinct API/web ports. Neither mocked
+lane starts an API server. Production serving reduces module transforms and
+requests; development serving retains the direct source-module checks. Missing
+production JS or CSS fails startup. All lanes keep desktop/mobile project names,
+snapshots and case identities. Each lane owns its Vite dependency cache as well
+as its browser output. Stateful readiness checks the actual holdings-page
+projection through the web proxy before admitting tests, so a simpler health
+endpoint cannot hide a cold first read.
+
+Stateful Wrangler instances use OS-assigned inspector ports so debugger
+listeners cannot collide even though application ports are distinct.
 
 CI uses `make bootstrap-ci` for the toolchain, locked dependencies and Chromium.
 The required migration flow owns the default database reset and readback. The
 developer `make bootstrap` still seeds a ready-to-use local database. Removing
 the duplicate CI reset does not remove the migration or seed verification.
 
-New or unclassified specs fail partition validation. All three reports must
+New or unclassified specs fail partition validation. All four reports must
 individually match their partition and jointly match the complete reviewed
 inventory; one green lane cannot substitute for the suite. Merged elapsed time
 is the span of the concurrent lanes, not their summed work. Per-suite leases
@@ -188,7 +193,7 @@ stale-evidence behavior remain covered by their dedicated integration tests.
 
 ## Failure and recovery
 
-Native CI uses loopback web ports 31031–31033 and API ports 32032–32033, outside
+Native CI uses loopback web ports 31031–31034 and API ports 32032–32033, outside
 local development ranges and OVH's Linux ephemeral range (32768-60999). A
 preflight checks port availability and the live kernel range before expensive
 verification. This avoids automatic outbound-port allocation colliding with
@@ -235,9 +240,10 @@ Execution slices:
    writes, existing transactions or setup/measurement boundaries.
 2. Move repeated unmeasured D1 initialization and scale-fixture setup beside the
    database, keeping a fresh database per test and all measured operations.
-3. Run two independently seeded stateful browser partitions and an API-mocked
-   partition with distinct ports, runtime state, diagnostics and owned cleanup.
-   Compare their complete union with the unchanged reviewed browser inventory.
+3. Run two independently seeded stateful browser partitions and separate
+   production/development mocked partitions with distinct ports, runtime state,
+   diagnostics and owned cleanup. Compare their complete union with the
+   unchanged reviewed browser inventory.
 4. Overlap read-only source checks with `make -j2`, and permit three native
    flows so PDF isolation can overlap migration verification. Build and consumer
    prerequisites remain explicit; runtime and migration outputs are not shared.

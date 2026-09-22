@@ -155,7 +155,10 @@
         "scripts/test-support/cost-fixtures-worker.ts",
         "scripts/test-support/cost-database.ts",
         "scripts/test-support/automatic-investment-cost-database.ts",
-        "scripts/test-support/automatic-investment-cost-worker.ts"
+        "scripts/test-support/automatic-investment-cost-worker.ts",
+        "scripts/test-support/purchase-cost-database.ts",
+        "scripts/test-support/purchase-cost-worker.ts",
+        "scripts/purchase-details-d1-cost.test.ts"
       ],
       "runtime": {
         "owner": "native-command",
@@ -196,8 +199,8 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "One verified, closed synthetic D1 seed is copied into two independent profiles. Two one-worker stateful shards and a two-worker API-mocked Vite lane run concurrently on distinct ports.",
-        "health": "Stateful lanes wait through Vite /api/alpha; mocked contexts reject unhandled application APIs. Three validated reports must cover the complete reviewed browser inventory with unchanged snapshots.",
+        "launch": "One verified, closed synthetic D1 seed is copied into two independent profiles. Two stateful shards, one production-served API-mocked lane and one development-served API-mocked lane run concurrently on distinct ports, with one worker each.",
+        "health": "Stateful lanes wait through Vite /api/holdings-page; mocked contexts reject unhandled application APIs. Four validated reports must cover the complete reviewed browser inventory with unchanged snapshots.",
         "cleanup": "Owned lane process groups are terminated on completion, failure or cancellation before profile removal. Per-suite leases prevent duplicate report and runtime writers."
       },
       "depends_on": ["build-and-entry-budget", "pdf-isolation"]

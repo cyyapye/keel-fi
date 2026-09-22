@@ -27,8 +27,8 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: browserLane.files,
   fullyParallel: true,
-  // The mocked lane rejects unhandled application API requests. All flows that
-  // can reach shared D1 or own provider/browser processes remain serialized.
+  // Mocked lanes reject unhandled application API requests. Every lane has one
+  // worker, keeping the four concurrent browser workers within the CPU budget.
   workers: browserLane.workers,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

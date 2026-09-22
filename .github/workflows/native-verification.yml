@@ -97,6 +97,7 @@ jobs:
             keel/.tugling/local/pilot/playwright.json
             keel/.tugling/local/pilot/playwright-stateful-*.json
             keel/.tugling/local/pilot/playwright-mocked.json
+            keel/.tugling/local/pilot/playwright-mocked-development.json
             keel/.tugling/local/pilot/browser-results/
           include-hidden-files: true
           if-no-files-found: error

@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 INVENTORY = ROOT / ".tugling/pilot-cases.json"
 ARTIFACTS = ROOT / ".tugling/local/pilot"
 PYTHON_SUITES = ("test_linux_test_run", "test_tugling_pilot")
-BROWSER_LANES = ("mocked", "stateful-a", "stateful-b")
+BROWSER_LANES = ("mocked", "mocked-development", "stateful-a", "stateful-b")
 BROWSER_RUNTIME = ROOT / ".keel-local/e2e-lanes"
 
 
@@ -93,11 +93,17 @@ def validate_browser_execution(lanes, execution):
     if set(lanes) != set(BROWSER_LANES) or set(execution) != set(BROWSER_LANES):
         raise ValueError("browser lane manifest differs from the required execution plan")
     ports = []
+    expected = {
+        "mocked": ("mocked", "production"),
+        "mocked-development": ("mocked", "development"),
+        "stateful-a": ("stateful", "development"),
+        "stateful-b": ("stateful", "development"),
+    }
     for lane in BROWSER_LANES:
         config = execution[lane]
-        expected_server = "mocked" if lane == "mocked" else "stateful"
-        expected_workers = 2 if lane == "mocked" else 1
-        if config["server"] != expected_server or config["workers"] != expected_workers:
+        expected_server, expected_frontend = expected[lane]
+        if (config["server"], config["frontend"], config["workers"]) != (
+                expected_server, expected_frontend, 1):
             raise ValueError(f"{lane} browser lane exceeds its reviewed resource budget")
         lane_ports = [config["webPort"]]
         if expected_server == "stateful":
