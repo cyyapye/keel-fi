@@ -55,6 +55,7 @@ def require_unfiltered_environment():
         "MAKEOVERRIDES", "MFLAGS", "MAKEFILES", "MAKEFLAGS",
         "npm_config_argv", "npm_config_node_options", "KEEL_LOCAL_SCENARIO",
         "KEEL_E2E_ISOLATED", "KEEL_LOCAL_PERSIST_TO", "E2E_PERSIST_TO",
+        "KEEL_BROWSER_LANE",
     }
     for key, value in os.environ.items():
         runner_override = key.startswith(("VITEST_", "VITE_", "PW_TEST_", "PLAYWRIGHT_"))

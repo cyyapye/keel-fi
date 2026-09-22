@@ -41,9 +41,11 @@ def main():
     lines = ["## Native verification", "",
              f"Revision: `{evidence['project_revision']}`", "",
              f"Active native time: {timing['active_seconds']:.1f}s / {timing['budget_seconds']}s budget.",
+             f"Total flow work: {timing['total_flow_seconds']:.1f}s; maximum {evidence['execution_plan']['max_parallel']} concurrent flows.",
              "Queue and setup time are excluded. This job validates evidence; it does not rerun suites.",
-             "", "| Flow | Seconds |", "| --- | ---: |"]
-    lines.extend(f"| {row['id']} | {row['duration_seconds']:.1f} |" for row in timing["slowest_flows"])
+             "", "| Flow | Start offset | Seconds |", "| --- | ---: | ---: |"]
+    lines.extend(f"| {row['id']} | {row['started_offset_seconds']:.1f}s | {row['duration_seconds']:.1f} |"
+                 for row in sorted(evidence["results"], key=lambda row: row["started_offset_seconds"]))
     summary = "\n".join(lines) + "\n"
     print(summary)
     if os.environ.get("GITHUB_STEP_SUMMARY"):

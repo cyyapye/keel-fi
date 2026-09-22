@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from "@playwright/test";
+import { expect, test, type Page, type Request } from "./api-mocked-test";
 import type * as CollectionSearch from "../apps/web/src/collection-search";
 import type { Holding } from "../packages/domain/src/index";
 import type { InvestmentHoldingsView } from "../packages/domain/src/investment-holdings-view";

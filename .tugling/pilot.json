@@ -3,7 +3,7 @@
   "tugling": {
     "repository": "https://github.com/cyyapye/tugling",
     "channel": "pinned",
-    "revision": "7e88d56ea728a3d7aa4281d883c0d66f0e5fa251",
+    "revision": "b559aef09da829233ca0af1d2c723cd42f696be1",
     "version": "0.6.0"
   },
   "project": {
@@ -18,7 +18,7 @@
       "max_files": 64,
       "max_bytes": 16777216
     },
-    "verification_budget_seconds": 3000
+    "verification_budget_seconds": 1800
   },
   "learning": {
     "mode": "local",

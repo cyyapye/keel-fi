@@ -91,10 +91,93 @@ class SourceBoundaryTests(unittest.TestCase):
 
 class NativeAccountingTests(unittest.TestCase):
     def test_rejects_selection_and_reporter_environment_overrides(self):
-        for name in ("TEST_ARGS", "E2E_ARGS", "MAKEFLAGS", "PNPM", "NODE_OPTIONS", "VITEST_MAX_THREADS", "PW_TEST_GREP", "PLAYWRIGHT_JSON_OUTPUT_FILE"):
+        for name in ("TEST_ARGS", "E2E_ARGS", "MAKEFLAGS", "PNPM", "NODE_OPTIONS", "VITEST_MAX_THREADS", "PW_TEST_GREP", "PLAYWRIGHT_JSON_OUTPUT_FILE", "KEEL_BROWSER_LANE"):
             with self.subTest(name=name), patch.dict(os.environ, {name: "narrowed"}):
                 with self.assertRaisesRegex(ValueError, name):
                     pilot.require_unfiltered_environment()
+
+    def test_native_suite_leases_allow_independent_suites_but_reject_same_suite(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(native, "ARTIFACTS", Path(temporary)):
+            with native.native_lease("vitest"), native.native_lease("playwright"):
+                with self.assertRaises(BlockingIOError):
+                    with native.native_lease("vitest"):
+                        self.fail("a second writer acquired the same suite report")
+                contender = subprocess.run([
+                    sys.executable, "-I", "-c",
+                    "import fcntl,sys; f=open(sys.argv[1], 'a'); "
+                    "fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)",
+                    str(Path(temporary) / ".vitest.lease"),
+                ], capture_output=True, text=True)
+                self.assertNotEqual(contender.returncode, 0)
+                self.assertIn("BlockingIOError", contender.stderr)
+            # Cleanup releases ownership and a later invocation can proceed.
+            with native.native_lease("vitest"):
+                pass
+
+    def test_browser_lane_accounting_rejects_swapped_files_and_worker_counts(self):
+        def report(file, workers):
+            return {"config": {"workers": workers}, "suites": [{"specs": [{
+                "file": file, "title": "required", "tests": [{
+                    "projectName": "chromium", "status": "expected", "expectedStatus": "passed",
+                    "results": [{"status": "passed"}],
+                }],
+            }]}]}
+        inventory = {"playwright": [f"e2e/{lane}.spec.ts :: chromium :: required" for lane in native.BROWSER_LANES], "exclusions": []}
+        for lane, workers in (("stateful", 1), ("mocked", 2)):
+            correct = report(f"{lane}.spec.ts", workers)
+            native.check_browser_lane(lane, correct, [f"{lane}.spec.ts"], inventory)
+            other = "mocked" if lane == "stateful" else "stateful"
+            for incorrect in (report(f"{other}.spec.ts", workers), report(f"{lane}.spec.ts", 3)):
+                with self.assertRaises(ValueError):
+                    native.check_browser_lane(lane, incorrect, [f"{lane}.spec.ts"], inventory)
+
+    def test_browser_lane_reports_preserve_errors_and_require_complete_union(self):
+        def report(title, errors=None):
+            return {"suites": [{"specs": [{"file": "fixture.ts", "title": title, "tests": [{
+                "projectName": "chromium", "status": "expected", "expectedStatus": "passed",
+                "results": [{"status": "passed"}],
+            }]}]}], "errors": errors or [], "stats": {
+                "startTime": "2026-09-21T00:00:00Z", "duration": 10,
+                "expected": 1, "skipped": 0, "unexpected": 0, "flaky": 0,
+            }}
+        stateful, mocked = report("stateful"), report("mocked", [{"message": "worker teardown failed"}])
+        inventory = {"playwright": [f"e2e/fixture.ts :: chromium :: {lane}" for lane in native.BROWSER_LANES], "exclusions": []}
+        merged = native.merge_browser_reports([stateful, mocked])
+        native.compare_cases("playwright", native.playwright_cases(merged), inventory)
+        self.assertEqual(merged["stats"]["expected"], 2)
+        self.assertEqual(merged["errors"], mocked["errors"])
+        for reports in ([stateful], [stateful, stateful, mocked]):
+            with self.assertRaises(ValueError):
+                native.compare_cases("playwright", native.playwright_cases(native.merge_browser_reports(reports)), inventory)
+
+    def test_mocked_browser_guard_rejects_unknown_reads_and_unexpected_writes(self):
+        with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:
+            root = Path(temporary)
+            fixture = root / "fixture.ts"
+            config = root / "config.cjs"
+            config.write_text("module.exports={testDir:'.',testMatch:'fixture.ts',workers:1,use:{serviceWorkers:'block'}};\n")
+            imported = json.dumps(str(pilot.ROOT / "e2e/api-mocked-test.ts"))
+            for path, method, success in (("legal-entities", "GET", True), ("unknown", "GET", False), ("legal-entities", "POST", False)):
+                fixture.write_text(
+                    f"import {{test,expect}} from {imported};\n"
+                    "test('isolated API boundary',async({page})=>{"
+                    "await page.route('http://keel.test/',r=>r.fulfill({contentType:'text/html',body:'synthetic'}));"
+                    "await page.goto('http://keel.test/');"
+                    "const value=await page.evaluate(async(args)=>{"
+                    "const response=await fetch('/api/'+args.path,{method:args.method});"
+                    "return response.json();}," + json.dumps({"path": path, "method": method}) + ");"
+                    "expect(value.version).toBe(3);});\n"
+                )
+                result = subprocess.run([
+                    "node", str(pilot.ROOT / "node_modules/@playwright/test/cli.js"), "test",
+                    "--config", str(config), "--reporter=list", f"--output={root / 'results'}",
+                ], cwd=pilot.ROOT, text=True, capture_output=True)
+                with self.subTest(path=path, method=method):
+                    if success:
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("Mocked browser test made an unhandled application API request", result.stdout + result.stderr)
 
     def test_native_vitest_removed_skipped_and_filtered_cases_fail_accounting(self):
         # Real native execution proves a green filtered/omitted run cannot pass

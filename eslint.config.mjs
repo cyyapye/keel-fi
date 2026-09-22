@@ -13,6 +13,13 @@ export default tseslint.config(
       "**/playwright-report/**",
       "**/test-results/**",
       "**/.wrangler/**",
+      // These Git-ignored directories can change while independent CI flows run.
+      ".tugling/local/**",
+      ".tugling/checkouts/**",
+      ".keel-local/**",
+      ".npm-cache/**",
+      ".pnpm-store/**",
+      ".corepack/**",
     ],
   },
   eslint.configs.recommended,
