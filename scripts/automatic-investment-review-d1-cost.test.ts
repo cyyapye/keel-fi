@@ -6,8 +6,7 @@ import {
   resolveInvestmentReviews,
 } from "../apps/web/src/api";
 import type { Env } from "../apps/api/src/types";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import { seedAutomaticInvestments } from "./test-support/automatic-investments";
+import { measureD1 } from "./test-support/d1-cost";
 import { D1AutomaticInvestmentReviewRepository } from "../packages/database/src/automatic-investment-review";
 import { createAutomaticInvestmentCostDatabase } from "./test-support/automatic-investment-cost-database";
 
@@ -199,38 +198,22 @@ it("bounds automatic review, unchanged page visits, history and an outage throug
 }, 90_000);
 
 it("keeps normal source acceptance plus automatic review within the existing capture write budget", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createAutomaticInvestmentCostDatabase();
   try {
-    const measured = measureD1(fixture.database);
-    let sourceWrites = 0;
     // The capture boundary admits at most 24 documents per provider run.
-    await seedAutomaticInvestments(
-      measured.database,
-      120,
-      [],
-      false,
-      "synthetic-access-subject",
-      () => {
-        sourceWrites = measured.cost.rowsWritten;
-      },
-      24,
-    );
-    const captureWrites = measured.cost.rowsWritten;
-    measured.reset();
-    const result = await new D1AutomaticInvestmentReviewRepository(
-      measured.database,
-    ).resolve("synthetic-access-subject");
+    // Every setup, capture and review write remains measured inside workerd.
+    const result = await fixture.measureSourceCapture();
     expect(result.resolvedCount).toBe(24);
     expect(result.exceptionCount).toBe(96);
-    expect(captureWrites + measured.cost.rowsWritten).toBeLessThanOrEqual(
-      8_000,
-    );
+    expect(
+      result.captureWrites + result.review.rowsWritten,
+    ).toBeLessThanOrEqual(8_000);
     console.info(
       JSON.stringify({
         sourceCaptureAndAutomaticReview: {
-          sourceWrites,
-          captureWrites,
-          review: measured.cost,
+          sourceWrites: result.sourceWrites,
+          captureWrites: result.captureWrites,
+          review: result.review,
         },
       }),
     );

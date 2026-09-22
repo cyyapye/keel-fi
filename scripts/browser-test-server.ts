@@ -53,9 +53,11 @@ const environment = {
   // unused mocked API port must still satisfy the normal local-port parser.
   KEEL_API_PORT: String(execution.apiPort ?? 32_031),
   KEEL_BROWSER_VITE_CACHE_DIR: path.join(expectedPersistRoot, "vite-cache"),
+  KEEL_BROWSER_VITE_READINESS: execution.frontend === "development" ? "1" : "0",
   KEEL_WEB_PORT: String(execution.webPort),
   ...(execution.server === "stateful"
     ? {
+        KEEL_BROWSER_API_READINESS_PATH: "/api/holdings-page",
         WRANGLER_LOG_PATH: path.join(
           expectedPersistRoot,
           "logs",

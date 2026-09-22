@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { fileURLToPath } from "node:url";
+import { BROWSER_TEST_VITE_READINESS_PATH } from "./scripts/browser-test-readiness";
 import {
   BROWSER_TEST_EXECUTION,
   browserTestDirectory,
@@ -19,9 +20,11 @@ const webPort =
     : BROWSER_TEST_EXECUTION[browserLane.lane].webPort;
 const baseURL = `http://127.0.0.1:${webPort}`;
 const readinessURL =
-  browserLane.server === "mocked"
-    ? baseURL
-    : `${baseURL}${browserLane.lane === "all" ? "/api/alpha" : "/api/holdings-page"}`;
+  browserLane.lane === "all"
+    ? `${baseURL}/api/alpha`
+    : browserLane.frontend === "development"
+      ? `${baseURL}${BROWSER_TEST_VITE_READINESS_PATH}`
+      : baseURL;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -59,7 +62,8 @@ export default defineConfig({
     reuseExistingServer:
       !process.env.CI && process.env.KEEL_E2E_ISOLATED !== "1",
     timeout: 120_000,
-    // Waiting through Vite's API proxy proves both local services are ready.
+    // Isolated development lanes finish Vite's module graph and, for stateful
+    // lanes, a synthetic API projection before Playwright starts a browser.
     url: readinessURL,
   },
 });

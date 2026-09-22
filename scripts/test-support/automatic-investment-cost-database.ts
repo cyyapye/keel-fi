@@ -29,6 +29,18 @@ const automaticInvestmentCostWorker = build({
 }).then((bundled) => bundled.outputFiles[0]!.text);
 const seedResultSchema = z.object({ ids: z.array(z.string().uuid()) });
 const completedResultSchema = z.object({ completed: z.literal(true) });
+const sourceCaptureCostSchema = z.object({
+  sourceWrites: z.number().int().nonnegative(),
+  captureWrites: z.number().int().nonnegative(),
+  resolvedCount: z.number().int().nonnegative(),
+  exceptionCount: z.number().int().nonnegative(),
+  review: z.object({
+    roundTrips: z.number().int().nonnegative(),
+    statements: z.number().int().nonnegative(),
+    rowsRead: z.number().int().nonnegative(),
+    rowsWritten: z.number().int().nonnegative(),
+  }),
+});
 
 export async function createAutomaticInvestmentCostDatabase() {
   const fixture = await createCostDatabase(await automaticInvestmentCostWorker);
@@ -45,6 +57,10 @@ export async function createAutomaticInvestmentCostDatabase() {
   };
   return {
     ...fixture,
+    measureSourceCapture: async () =>
+      sourceCaptureCostSchema.parse(
+        await dispatch({ operation: "source-capture-cost" }),
+      ),
     seed: async (
       input: Omit<
         Extract<AutomaticInvestmentSetupOperation, { operation: "seed" }>,

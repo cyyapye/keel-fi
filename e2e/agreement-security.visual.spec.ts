@@ -3,10 +3,51 @@ import type {
   LegalEntityInventory,
   LegalEntitySourceSummary,
 } from "../packages/domain/src/legal-entities";
+import { PortfolioBaselineStateSchema } from "../packages/domain/src";
 import type { LegalDocumentScan } from "../packages/domain/src/provider-legal-documents";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { routeInvestmentReview } from "./investment-review-fixtures";
+
+const emptyPortfolioBaseline = PortfolioBaselineStateSchema.parse({
+  status: "waiting_for_reviewed_holdings",
+  sourceRevision: null,
+  observedAt: null,
+  baseForecastSnapshotId: null,
+  baseForecastSnapshotVersion: null,
+  summary: null,
+  positions: [],
+  cashAccounts: [],
+  changes: { positions: [], cashAccounts: [] },
+  planning: {
+    currentFiEligibleLiquidMinor: 182_500_000,
+    protectedCashFloorMinor: 10_300_000,
+    householdBurnMonthlyMinor: 2_850_000,
+    businessBurnMonthlyMinor: 1_250_000,
+    fiTargetMinor: 325_000_000,
+    p25FiveYearLiquidityMinor: 94_000_000,
+    p50FiveYearLiquidityMinor: 210_000_000,
+    p75FiveYearLiquidityMinor: 354_000_000,
+    forecastHorizonDate: "2031-12-31",
+  },
+  suggestedOtherFiEligibleLiquidMinor: 0,
+  currentImpact: {
+    fiEligibleLiquidMinor: 182_500_000,
+    fiEligibleChangeMinor: 0,
+    protectedRunwayMonths: 42,
+    fiGapMinor: 142_500_000,
+    lowerTotalAvailableMinor: 276_500_000,
+    middleTotalAvailableMinor: 392_500_000,
+    higherTotalAvailableMinor: 536_500_000,
+    probabilityCrossingFiPpm: 640_000,
+  },
+  latestBaseline: null,
+  hasSourceChanges: false,
+  hasCashAccountChanges: false,
+  requiresDuplicateReview: false,
+  requiresCashOverlapReview: false,
+  canConfirm: false,
+});
 
 function candidate(
   index: number,
@@ -95,6 +136,11 @@ async function setup(page: Page, candidates: LegalEntitySourceSummary[]) {
     acceptedCashAccounts: [],
     pendingImports: [],
   });
+  await page.route("**/api/portfolio-baseline", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ json: emptyPortfolioBaseline })
+      : route.fallback(),
+  );
   await page.route("**/api/legal-entities", (route) =>
     route.fulfill({ json: inventory }),
   );

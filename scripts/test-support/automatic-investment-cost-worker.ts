@@ -2,9 +2,11 @@ import { z } from "zod";
 import { D1AutomaticInvestmentReviewRepository } from "../../packages/database/src/automatic-investment-review";
 import { D1InvestmentReviewRepository } from "../../packages/database/src/investment-review";
 import { seedAutomaticInvestments } from "./automatic-investments";
+import { measureD1 } from "./d1-meter";
 
 const positionIdsSchema = z.array(z.string().uuid()).min(1).max(120);
 const setupOperationSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("source-capture-cost") }),
   z.object({
     operation: z.literal("seed"),
     count: z.number().int().min(1).max(120),
@@ -32,8 +34,8 @@ export type AutomaticInvestmentSetupOperation = z.input<
   typeof setupOperationSchema
 >;
 
-// Synthetic-only unmeasured fixture setup runs beside D1 to avoid repeated
-// Node-to-D1 RPC overhead. This worker is test support and has no app runtime.
+// Synthetic fixture setup and explicitly metered cost scenarios run beside D1
+// to avoid repeated host RPC overhead. This worker has no application runtime.
 export default {
   async fetch(
     request: Request,
@@ -44,6 +46,33 @@ export default {
       return Response.json({ error: parsed.error.flatten() }, { status: 400 });
     }
     const input = parsed.data;
+    if (input.operation === "source-capture-cost") {
+      const measured = measureD1(bindings.DB);
+      let sourceWrites = 0;
+      await seedAutomaticInvestments(
+        measured.database,
+        120,
+        [],
+        false,
+        "synthetic-access-subject",
+        () => {
+          sourceWrites = measured.cost.rowsWritten;
+        },
+        24,
+      );
+      const captureWrites = measured.cost.rowsWritten;
+      measured.reset();
+      const result = await new D1AutomaticInvestmentReviewRepository(
+        measured.database,
+      ).resolve("synthetic-access-subject");
+      return Response.json({
+        sourceWrites,
+        captureWrites,
+        resolvedCount: result.resolvedCount,
+        exceptionCount: result.exceptionCount,
+        review: { ...measured.cost },
+      });
+    }
     if (input.operation === "seed") {
       const capturedCount = input.capturedCount ?? input.count;
       if (capturedCount > input.count)

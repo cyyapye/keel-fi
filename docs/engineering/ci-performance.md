@@ -93,9 +93,11 @@ lane starts an API server. Production serving reduces module transforms and
 requests; development serving retains the direct source-module checks. Missing
 production JS or CSS fails startup. All lanes keep desktop/mobile project names,
 snapshots and case identities. Each lane owns its Vite dependency cache as well
-as its browser output. Stateful readiness checks the actual holdings-page
-projection through the web proxy before admitting tests, so a simpler health
-endpoint cannot hide a cold first read.
+as its browser output. Development readiness transforms the initial application
+and Holdings module graph and rejects broken imports before admitting tests.
+Stateful readiness also checks the actual holdings-page projection through the
+web proxy, with one bounded probe in flight and a cached successful result. A
+simpler health endpoint cannot hide a cold first read or module load.
 
 Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
@@ -179,11 +181,22 @@ all billing ceilings remain unchanged.
 
 The same boundary applies to holdings, Portfolio Watch, automatic-investment,
 participation, company-identity and investment-event fixtures: only unmeasured
-setup moves beside D1. Production repositories, real review transitions, append-
-only history, unrelated households and database constraints remain. Measured
-calls still run through their original client/repository path. The
-source-capture write-budget negative control deliberately keeps its measured
-setup unchanged.
+setup moves beside D1. Production repositories, real review transitions,
+append-only history, unrelated households and database constraints remain.
+Measured client/API requests still run through their original path.
+
+The purchase-history holdout runs all 960 production accepts beside D1,
+resetting the real meter for each operation. It returns all 960 billing records
+and all eight history-read records for the unchanged per-operation assertions.
+Ordered position/version accounting and a 960-receipt database readback reject
+partial execution; household isolation and query-plan checks remain on the host.
+No write transactions are combined and no billing values are synthesized.
+
+The source-capture write-budget holdout also executes beside D1, with its meter
+covering every setup, capture and automatic-review operation. It retains all 120
+investments, 24 captured documents, 96 exceptions and the combined 8,000-write
+ceiling. The source/capture/review measurement boundaries remain unchanged; only
+the host transport is removed.
 
 The 120-position baseline holdout retains one actual review transition and
 directly seeds the other 118 historical reviews using schema-validated states

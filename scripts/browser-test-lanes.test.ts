@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { BROWSER_TEST_VITE_READINESS_PATH } from "./browser-test-readiness";
 import {
   BROWSER_TEST_EXECUTION,
   BROWSER_TEST_LANES,
@@ -47,6 +48,7 @@ describe("browser test lanes", () => {
   });
 
   it("bounds workers while keeping each stateful shard serialized", () => {
+    expect(BROWSER_TEST_VITE_READINESS_PATH).toBe("/__keel_browser_test_ready");
     expect(
       resolveBrowserTestLane({ e2eDirectory: "e2e", lane: "mocked" }),
     ).toMatchObject({
