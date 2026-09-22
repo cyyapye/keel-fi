@@ -17,17 +17,25 @@ minutes. Dependency setup was approximately 16 seconds per job. These are
 observations, not fixed machine benchmarks; compare active execution separately
 from waiting.
 
-`.tugling/pilot.json` enforces a 3,000-second active native budget. The complete
-receipt records each flow duration and a sorted timing summary. Exceeding that
-budget fails required verification without silently dropping checks. Watchdogs
-remain independent safety ceilings. Do not raise the budget to hide a
-regression.
+The complete successful merged run `35645412914` at `fa9db84b` is the baseline
+for bounded parallel execution: 2,616.849 seconds active, including 1,168.481
+seconds for browsers and 885.347 seconds for unit/D1 tests. PDF isolation took
+232.225 seconds and source checks 226.340 seconds. It passed 1,151 unit/D1 cases
+and 288 browser cases, with 44 reviewed browser exclusions and no flakes.
+
+`.tugling/pilot.json` enforces a 1,800-second active native budget. The complete
+receipt records elapsed execution time, each flow duration and a sorted timing
+summary. Concurrent flow durations are not added to claim wall-clock time.
+Exceeding that budget fails required verification without silently dropping
+checks. Watchdogs remain independent safety ceilings. Do not raise the budget to
+hide a regression.
 
 Use Actions job creation/start/completion timestamps to measure queue and setup
 time separately. Compare complete successful workflows at the same coverage; do
 not count cancelled or filtered runs as speed improvements. Desired future
 service targets are p95 queue under two minutes and p95 PR completion under 15
-minutes. This first deduplication change does not establish those targets.
+minutes. These are service targets, not a claim established by one successful
+run.
 
 ## Capacity and further reductions
 
@@ -38,10 +46,76 @@ counts. Keep the credential-bearing deployment account separate.
 
 Prioritize the real D1 cost fixtures and browser tests using measured receipt
 and native-report timings. Preserve the full-day provider scenarios and real D1
-cost assertions. Browser tests share mutable state today: sharding requires
-independent D1 directories, servers, ports and cleanup. Do not increase
-Playwright workers until that isolation is proven. Prefer bounded parallelism to
-an unbounded matrix.
+cost assertions. Browser tests that share mutable D1 state remain serial.
+Parallel browser cases must use the reviewed API-mocked lane, reject unexpected
+application API calls, and own their browser context and fixture state.
+Parallelizing the stateful lane would require independent D1 directories,
+servers, ports and cleanup.
+
+## Bounded execution plan
+
+The verification map opts into at most two concurrent native flows. Source
+checks and integrity checks can start together. Migration and PDF probes depend
+on integrity checks. Build depends on source checks and migration completion;
+unit/D1 tests depend on build. Browser tests depend on build and PDF isolation.
+This keeps generated outputs stable before their consumers start and avoids
+running browser document processing before the sandbox boundary passes.
+Formatting and linting exclude the Git-ignored runtime, fixture and cache
+directories, so concurrent integrity tests cannot change files under the source
+checkers. Repository source and test files remain in scope.
+
+The declared prerequisites are:
+
+```mermaid
+flowchart LR
+  source[Source checks] --> build[Build and entry budget]
+  integrity[Integrity checks] --> compose[Compose validation]
+  integrity --> migrations[Migrations and seed]
+  integrity --> pdf[PDF isolation]
+  migrations --> build
+  build --> unit[Unit and D1 tests]
+  build --> browser[Browser suite]
+  pdf --> browser
+```
+
+Only two ready flows execute at once; an arrow means the prerequisite must
+finish successfully. The browser suite runs its stateful lane before its mocked
+lane, each with a separately owned server lifetime.
+
+The unit suite retains its two-worker ceiling. The browser runner executes the
+stateful lane with one worker, then the isolated mocked lane with two workers.
+The reviewed partition contains 106 mocked executions and 226 stateful
+executions, including the existing 44 platform exclusions. The parallel group
+contains agreement security, automatic investment review, company names, holding
+details, holding imports, investment holdings and investment review. The guard
+exposed additional application reads in legal entities, legal-name resolution,
+portfolio dashboard and purchase details; those remain serial. The lanes keep
+existing desktop/mobile project names, screenshots and case identities. A new or
+unclassified spec fails the partition check. Both reports are combined and
+checked against the entire reviewed browser inventory; one green lane cannot
+substitute for the complete suite. Native report leases are per suite, so
+independent writers can overlap but duplicate suite invocations cannot replace
+an active report.
+
+The initial OVH capacity inspection found six CPUs, 11.4 GiB RAM, approximately
+9.3 GiB available memory and low CPU/I/O pressure. This is a starting snapshot,
+not peak-load proof. Measure pressure during complete concurrent runs before
+raising either concurrency limit. One native runner job still owns all work; no
+additional persistent runner or deployment credential access is introduced.
+
+Failure, timeout, cancellation, missing cases, duplicate cases and flaky retry
+success remain failures. The scheduler stops admitting dependent work after a
+failure and cleans up only process groups it owns. Exact project, map, helper,
+environment, run and attempt binding remains mandatory for receipt consumers.
+
+Validation includes real scheduler dependency/overlap and cleanup holdouts,
+browser partition and unexpected-API rejection checks, same-suite lock
+contention across processes, swapped-lane/worker-count rejection and
+missing/duplicate lane report rejection. The browser guard is exercised through
+real Chromium: a known synthetic GET succeeds, while an unknown GET and an
+unexpected POST to a read-only fixture fail. Delivery requires a complete
+successful exact-revision PR gate, merged-revision gate and protected preview
+smokes. A faster filtered or failed run is not a performance result.
 
 ## Test layers
 
@@ -50,6 +124,13 @@ for SQL-backed behavior, and real D1 for billing counters, index maintenance,
 migration compatibility and scale holdouts. SQLite changed-row counts cannot
 stand in for D1 billed writes. Keep browser coverage for actual user workflows
 and Worker runtime boundaries, without repeating every decision permutation.
+
+Provider document permutations retain the real DOM, popups, source association,
+downloads, PDF extraction and cache/backfill assertions. Nine redundant scanner
+loads are replaced with current synthetic scan receipts, with exact scan-count
+assertions for cache reuse, extractor upgrades, expiry and resumed backfills.
+The production tsx smoke retains the real scanner/extractor boundary, and the
+dedicated PDF suite retains real adversarial scanner and isolation checks.
 
 The provider full-day gate runs all five scenarios through the production
 client, web proxy, API, authentication and repositories using in-memory SQLite.

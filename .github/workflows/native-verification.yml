@@ -16,7 +16,7 @@ jobs:
         working-directory: keel
     env:
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
-      TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-v1
+      TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v2
       # Stay below Linux's ephemeral range and outside local development ranges.
       KEEL_WEB_PORT: "31000"
       KEEL_API_PORT: "31001"
@@ -51,7 +51,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: cyyapye/tugling
-          ref: 7e88d56ea728a3d7aa4281d883c0d66f0e5fa251
+          ref: b559aef09da829233ca0af1d2c723cd42f696be1
           path: tugling-candidate
           persist-credentials: false
       - uses: pnpm/action-setup@v4
@@ -89,6 +89,8 @@ jobs:
             keel/.tugling/local/verification/managed-v1/*.json
             keel/.tugling/local/pilot/vitest.json
             keel/.tugling/local/pilot/playwright.json
+            keel/.tugling/local/pilot/playwright-stateful.json
+            keel/.tugling/local/pilot/playwright-mocked.json
             keel/.tugling/local/pilot/browser-results/
           include-hidden-files: true
           if-no-files-found: error

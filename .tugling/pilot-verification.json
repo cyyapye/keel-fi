@@ -11,9 +11,11 @@
         "package.json",
         "scripts/check-public-data.mjs",
         "eslint.config.mjs",
-        "tsconfig.json"
+        "tsconfig.json",
+        ".prettierignore"
       ],
-      "runtime": null
+      "runtime": null,
+      "depends_on": []
     },
     {
       "id": "compose-configuration",
@@ -21,7 +23,8 @@
       "argv": ["docker", "compose", "config", "--quiet"],
       "timeout_seconds": 30,
       "sources": ["compose.yaml"],
-      "runtime": null
+      "runtime": null,
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "gate-and-artifact-integrity",
@@ -44,7 +47,8 @@
         "launch": "unittest owns synthetic Git and native runner fixtures in temporary directories.",
         "health": "Real runner exit and case outcomes are checked against the reviewed inventory.",
         "cleanup": "TemporaryDirectory and linux-test-run finally blocks remove only their owned paths and process groups."
-      }
+      },
+      "depends_on": []
     },
     {
       "id": "migration-and-seed",
@@ -61,7 +65,8 @@
         "launch": "The native seed runner creates and resets only this checkout local scenario state.",
         "health": "Scenario readback assertions check migrations, seeds and relationships.",
         "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
-      }
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "pdf-isolation",
@@ -80,7 +85,8 @@
         "launch": "The native verifier creates named serial containers on the provisioned rootless socket using prepared immutable images.",
         "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
         "cleanup": "The native launcher removes exact owned containers; no shared daemon or image cleanup."
-      }
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "build-and-entry-budget",
@@ -93,7 +99,8 @@
         "apps/web/package.json",
         "scripts/check-web-entry-budget.mjs"
       ],
-      "runtime": null
+      "runtime": null,
+      "depends_on": ["source-quality", "migration-and-seed"]
     },
     {
       "id": "native-unit-and-cost",
@@ -136,14 +143,17 @@
         "scripts/sql-replay.test.ts",
         "scripts/test-support/sqlite-trace.ts",
         "scripts/test-support/sql-replay.ts",
-        "scripts/test-support/sql-replay-worker.ts"
+        "scripts/test-support/sql-replay-worker.ts",
+        "scripts/browser-test-lanes.ts",
+        "scripts/browser-test-lanes.test.ts"
       ],
       "runtime": {
         "owner": "native-command",
         "launch": "Vitest owns workerd, synthetic D1, GPG and temporary fixture processes; maxWorkers is two to bound native process contention.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
-      }
+      },
+      "depends_on": ["build-and-entry-budget"]
     },
     {
       "id": "browser-workflows",
@@ -168,14 +178,17 @@
         "e2e/app-recovery.visual.spec.ts",
         "e2e/provider-browser-lifecycle.spec.ts",
         "e2e/provider-legal-documents.spec.ts",
-        "e2e/provider-session.spec.ts"
+        "e2e/provider-session.spec.ts",
+        "scripts/browser-test-lanes.ts",
+        "e2e/api-mocked-test.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Native D1 reset precedes Playwright webServer pnpm dev on checkout-specific ports; existing-server reuse is disabled.",
-        "health": "Playwright waits through Vite /api/alpha, then asserts browser behavior and unchanged screenshot baselines.",
-        "cleanup": "Playwright stops owned browsers/server groups; reports occupy one locked slot under .tugling/local/pilot."
-      }
+        "launch": "Native D1 reset precedes serial stateful and two-worker mocked Playwright lanes on checkout-specific ports; existing-server reuse is disabled.",
+        "health": "Playwright waits through Vite /api/alpha; mocked contexts reject unhandled application APIs; both lane reports must cover the complete reviewed browser inventory with unchanged snapshots.",
+        "cleanup": "Playwright stops owned browsers/server groups; per-suite leases prevent duplicate report writers; prior lane diagnostics are cleared before each browser run."
+      },
+      "depends_on": ["build-and-entry-budget", "pdf-isolation"]
     }
   ],
   "requirements": [
@@ -287,5 +300,8 @@
       ],
       "flows": ["gate-and-artifact-integrity", "native-unit-and-cost"]
     }
-  ]
+  ],
+  "execution": {
+    "max_parallel": 2
+  }
 }
