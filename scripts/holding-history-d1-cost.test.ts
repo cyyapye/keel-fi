@@ -1,13 +1,14 @@
 import { expect, it } from "vitest";
 import { D1AlphaRepository } from "../packages/database/src/index";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import { COST_SUBJECT, seedCostHoldings } from "./test-support/cost-fixtures";
+import { createCostFixtureDatabase } from "./test-support/cost-database";
+import { measureD1 } from "./test-support/d1-cost";
+import { COST_SUBJECT } from "./test-support/cost-fixtures";
 
 it("keeps latest holding reads bounded with 120 older captures for each of 120 positions", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createCostFixtureDatabase({ operation: "holdings" });
   try {
-    const importId = await seedCostHoldings(fixture.database);
+    const importId = fixture.initialResult!.importId;
     const measured = measureD1(fixture.database);
     const alpha = new D1AlphaRepository(measured.database);
     const positions = new D1InvestmentPositionViewRepository(measured.database);

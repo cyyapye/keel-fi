@@ -16,10 +16,7 @@ jobs:
         working-directory: keel
     env:
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
-      TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v2
-      # Stay below Linux's ephemeral range and outside local development ranges.
-      KEEL_WEB_PORT: "31000"
-      KEEL_API_PORT: "31001"
+      TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v4
     steps:
       - uses: actions/checkout@v5
         with:
@@ -30,24 +27,6 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - name: Check dedicated CI browser ports before expensive verification
-        run: |
-          python3 - <<'PY'
-          import os
-          import socket
-          from contextlib import ExitStack
-          from pathlib import Path
-
-          low, high = map(int, Path("/proc/sys/net/ipv4/ip_local_port_range").read_text().split())
-          with ExitStack() as sockets:
-              for name in ("KEEL_WEB_PORT", "KEEL_API_PORT"):
-                  port = int(os.environ[name])
-                  if low <= port <= high:
-                      raise SystemExit(f"{name}={port} overlaps the host ephemeral range {low}-{high}")
-                  probe = sockets.enter_context(socket.socket())
-                  probe.bind(("127.0.0.1", port))
-                  print(f"{name}={port} is available and outside the ephemeral range")
-          PY
       - uses: actions/checkout@v5
         with:
           repository: cyyapye/tugling
@@ -64,11 +43,37 @@ jobs:
           node-version: 22.13.0
           cache: pnpm
           cache-dependency-path: keel/pnpm-lock.yaml
-      - run: make bootstrap
+      - run: make bootstrap-ci
+      - name: Check dedicated CI browser ports before expensive verification
+        run: |
+          node --import tsx --input-type=module <<'JS'
+          import { readFileSync } from "node:fs";
+          import { createServer } from "node:net";
+          import { BROWSER_TEST_EXECUTION } from "./scripts/browser-test-lanes.ts";
+
+          const [low, high] = readFileSync("/proc/sys/net/ipv4/ip_local_port_range", "utf8").trim().split(/\s+/).map(Number);
+          const ports = Object.values(BROWSER_TEST_EXECUTION).flatMap(({ webPort, apiPort }) => apiPort === null ? [webPort] : [webPort, apiPort]);
+          if (new Set(ports).size !== ports.length) throw new Error("Browser lanes share ports");
+          const servers = [];
+          try {
+            for (const port of ports) {
+              if (port >= low && port <= high) throw new Error(`Browser port ${port} overlaps ephemeral range ${low}-${high}`);
+              const server = createServer();
+              servers.push(server);
+              await new Promise((resolve, reject) => server.once("error", reject).listen(port, "127.0.0.1", resolve));
+              console.log(`Browser port ${port} is available and outside the ephemeral range`);
+            }
+          } finally {
+            for (const server of servers) server.close();
+          }
+          JS
       - run: make pdf-sandbox-build
       - name: Execute each required native suite once
         run: |
           mkdir -p .tugling/local
+          python3 scripts/ci-resource-sampler.py > .tugling/local/ci-resources.jsonl &
+          resource_sampler_pid=$!
+          trap 'kill "$resource_sampler_pid" 2>/dev/null || true; wait "$resource_sampler_pid" 2>/dev/null || true' EXIT
           make pilot-verify > .tugling/local/pilot-required.json
       - name: Validate and publish the complete receipt
         run: python3 -I scripts/ci-verification.py publish
@@ -86,11 +91,13 @@ jobs:
           name: native-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
           path: |
             keel/.tugling/local/pilot-required.json
+            keel/.tugling/local/ci-resources.jsonl
             keel/.tugling/local/verification/managed-v1/*.json
             keel/.tugling/local/pilot/vitest.json
             keel/.tugling/local/pilot/playwright.json
-            keel/.tugling/local/pilot/playwright-stateful.json
+            keel/.tugling/local/pilot/playwright-stateful-*.json
             keel/.tugling/local/pilot/playwright-mocked.json
+            keel/.tugling/local/pilot/playwright-mocked-development.json
             keel/.tugling/local/pilot/browser-results/
           include-hidden-files: true
           if-no-files-found: error

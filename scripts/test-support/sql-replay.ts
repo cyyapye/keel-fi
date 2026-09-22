@@ -27,36 +27,75 @@ function canonical(value: unknown): string {
   );
 }
 
-/** Execute every operation in order, retaining atomic batches and real counters. */
+/** Execute every operation in order, retaining write transactions and real counters. */
 export async function replaySql(database: D1Database, chunk: SqlReplayChunk) {
   const measured = measureD1(database);
   let measuredSteps = 0;
-  for (const [index, step] of chunk.steps.entries()) {
-    const statements = step.statements.map(({ query, bindings }) => {
+  let replayRoundTrips = 0;
+  for (let index = 0; index < chunk.steps.length;) {
+    const step = chunk.steps[index]!;
+    const measuring = chunk.offset + index >= chunk.measureFrom;
+    const readOnly = (candidate: SqlReplayStep) =>
+      !candidate.batch &&
+      candidate.statements.length === 1 &&
+      /^SELECT\b/iu.test(
+        chunk.queries[candidate.statements[0]!.query]?.trimStart() ?? "",
+      );
+    const grouped = [step];
+    // Only adjacent standalone SELECTs may share a replay transport call.
+    // No write, original transaction, or setup/measurement boundary is crossed.
+    // The fixture has a single owner, so no concurrent writer can be hidden.
+    if (readOnly(step)) {
+      while (
+        grouped.length < 100 &&
+        index + grouped.length < chunk.steps.length
+      ) {
+        const nextIndex = index + grouped.length;
+        const next = chunk.steps[nextIndex]!;
+        if (
+          chunk.offset + nextIndex >= chunk.measureFrom !== measuring ||
+          !readOnly(next)
+        )
+          break;
+        grouped.push(next);
+      }
+    }
+    const expected = grouped.flatMap((entry) => entry.statements);
+    const statements = expected.map(({ query, bindings }) => {
       const sql = chunk.queries[query];
       if (sql === undefined) throw new Error("Unknown replay query");
       return measured.database.prepare(sql).bind(...bindings);
     });
-    if (!step.batch && statements.length !== 1)
+    if (!step.batch && step.statements.length !== 1)
       throw new Error("Non-batch replay must contain one statement");
-    const results = step.batch
-      ? await measured.database.batch(statements)
-      : [await statements[0]!.all()];
-    if (results.length !== step.statements.length)
+    const results =
+      step.batch || grouped.length > 1
+        ? await measured.database.batch(statements)
+        : [await statements[0]!.all()];
+    replayRoundTrips++;
+    if (results.length !== expected.length)
       throw new Error("Incomplete D1 statement results");
     for (const [statementIndex, result] of results.entries()) {
       if (
-        canonical(result.results) !==
-        canonical(step.statements[statementIndex]!.rows)
+        canonical(result.results) !== canonical(expected[statementIndex]!.rows)
       )
         throw new Error(
-          `D1/SQLite result mismatch at operation ${chunk.offset + index}, statement ${statementIndex}`,
+          `D1/SQLite result mismatch at operation ${chunk.offset + index + (grouped.length > 1 ? statementIndex : 0)}, statement ${grouped.length > 1 ? 0 : statementIndex}`,
         );
     }
-    if (chunk.offset + index < chunk.measureFrom) measured.reset();
-    else measuredSteps++;
+    if (!measuring) measured.reset();
+    else measuredSteps += grouped.length;
+    index += grouped.length;
   }
-  return { ...measured.cost, replayedSteps: chunk.steps.length, measuredSteps };
+  return {
+    ...measured.cost,
+    // Production round trips come from the complete original application trace;
+    // replay transport optimization must never lower that workload budget.
+    roundTrips: measuredSteps,
+    replayRoundTrips,
+    replayedSteps: chunk.steps.length,
+    measuredSteps,
+  };
 }
 
 export function addD1Cost(total: D1Cost, cost: D1Cost) {

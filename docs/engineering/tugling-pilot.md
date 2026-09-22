@@ -42,12 +42,12 @@ Compose validation, local scenario verification and the existing Python
 temporary-run tests. Each suite runs once. No required inventory refresh,
 snapshot update, test filtering or model judging happens during execution.
 
-Native unit and cost verification uses two workers to bound workerd and GPG
-contention. Its overall watchdog allows 25 minutes for the complete suite: the
-15-minute budget from the four-worker configuration can terminate a progressing
-run on the shared CI host. Individual test deadlines, case accounting, and
-resource and D1 cost assertions remain unchanged. The combined flow watchdogs
-stay within the pinned harness's two-hour cap.
+Native unit and cost verification uses three CI workers and two local workers to
+bound workerd and GPG contention. Its overall watchdog remains 25 minutes; the
+independent active-verification performance budget is 15 minutes for the
+complete gate. Individual test deadlines, case accounting, and resource and D1
+cost assertions remain unchanged. The combined flow watchdogs stay within the
+pinned harness's two-hour cap.
 
 ## Accepted rules and native proof
 
@@ -121,11 +121,11 @@ protected credentials.
 Receipts bind the project/map/helper, OS, architecture, Python version, declared
 pinned toolchain, and GitHub repository/workflow/run/attempt/event SHA. Rerun
 the whole workflow after a failed attempt; an earlier attempt's receipt is not
-reusable. The initial active-verification budget is 3,000 seconds, based on the
-observed 46-minute complete gate. Every native flow duration and the slowest
-flows appear in Actions summaries. Queue/setup time is excluded and must be
-assessed separately. See [CI performance](ci-performance.md) for baseline and
-remaining capacity work.
+reusable. The active-verification budget is 900 seconds after the measured
+scheduling and fixture optimizations; exceeding it fails required verification.
+Every native flow duration and the slowest flows appear in Actions summaries.
+Queue/setup time is excluded and must be assessed separately. See
+[CI performance](ci-performance.md) for baseline and remaining capacity work.
 
 Local proof does not establish remote availability of the candidate commit,
 hosted required-check settings, remote CI, merged success, deployed usage,

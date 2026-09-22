@@ -123,12 +123,13 @@ export function createSqliteTrace() {
       dispatch: (
         body: string,
       ) => Promise<Pick<Response, "ok" | "text" | "json">>,
-    ): Promise<D1Cost> {
+    ): Promise<D1Cost & { replayRoundTrips: number }> {
       if (failed)
         throw new Error("Cannot replay a trace containing failed SQL");
       const cost = emptyD1Cost();
       let replayedSteps = 0;
       let measuredSteps = 0;
+      let replayRoundTrips = 0;
       // Bound bridge payloads; SQL is interned and every result is checked in D1.
       // This is transport batching only: original transaction boundaries remain.
       for (let offset = 0; offset < steps.length; offset += 500) {
@@ -144,18 +145,23 @@ export function createSqliteTrace() {
         const result: D1Cost & {
           replayedSteps: number;
           measuredSteps: number;
+          replayRoundTrips: number;
         } = await response.json();
         addD1Cost(cost, result);
         replayedSteps += result.replayedSteps;
         measuredSteps += result.measuredSteps;
+        replayRoundTrips += result.replayRoundTrips;
       }
       if (
         replayedSteps !== steps.length ||
         measuredSteps !== steps.length - measureFrom ||
-        cost.roundTrips !== roundTrips
+        cost.roundTrips !== roundTrips ||
+        !Number.isSafeInteger(replayRoundTrips) ||
+        replayRoundTrips < (steps.length > 0 ? 1 : 0) ||
+        replayRoundTrips > steps.length
       )
         throw new Error("Incomplete D1 replay");
-      return cost;
+      return { ...cost, replayRoundTrips };
     },
   };
 }

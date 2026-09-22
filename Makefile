@@ -15,7 +15,7 @@ AGENT_PLATFORM ?= $(shell uname -s)
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify pdf-sandbox-build pdf-sandbox-verify pilot-validate pilot-verify
+.PHONY: help bootstrap bootstrap-ci dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify pdf-sandbox-build pdf-sandbox-verify pilot-validate pilot-verify
 
 help:
 	@echo "Keel developer commands"
@@ -51,6 +51,13 @@ bootstrap:
 	node scripts/check-toolchain.mjs
 	$(PNPM) install --frozen-lockfile
 	KEEL_LOCAL_SCENARIO="$(SCENARIO)" $(PNPM) db:reset:local
+	$(PNPM) exec playwright install chromium
+
+# The required migration flow owns reset and readback before CI consumers start.
+# Developer bootstrap above still prepares a ready-to-use local database.
+bootstrap-ci:
+	node scripts/check-toolchain.mjs
+	$(PNPM) install --frozen-lockfile
 	$(PNPM) exec playwright install chromium
 
 dev:

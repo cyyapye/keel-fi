@@ -32,6 +32,7 @@ it.each([
 ] as const)(
   "measures a complete three-agent %s day with real D1 counters",
   async (scenario) => {
+    const started = performance.now();
     const bundled = await build({
       entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
       bundle: true,
@@ -44,8 +45,10 @@ it.each([
       external: ["node:*", "cloudflare:*"],
       logLevel: "silent",
     });
+    const bundledAt = performance.now();
     const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
     const trace = createSqliteTrace();
+    const initializedAt = performance.now();
     let clock = START;
     const now = () => new Date(clock);
     const credentials = new D1MacAgentCredentialRepository(trace.database, now);
@@ -259,6 +262,7 @@ it.each([
           (await portfolios.getOverview(SUBJECT, "sydecar")).errorCode,
         ).toBe("unexpected_failure");
       }
+      const replayStartedAt = performance.now();
       const cost = await trace.replay((body) =>
         fixture.dispatchFetch("https://synthetic-replay.invalid", {
           method: "POST",
@@ -279,6 +283,12 @@ it.each([
             workerInvocations,
             maxRoundTrips,
             ...cost,
+            timingsMs: {
+              bundle: Math.round(bundledAt - started),
+              initialize: Math.round(initializedAt - bundledAt),
+              scenario: Math.round(replayStartedAt - initializedAt),
+              replay: Math.round(performance.now() - replayStartedAt),
+            },
           },
         }),
       );

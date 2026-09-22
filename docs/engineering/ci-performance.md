@@ -23,7 +23,7 @@ seconds for browsers and 885.347 seconds for unit/D1 tests. PDF isolation took
 232.225 seconds and source checks 226.340 seconds. It passed 1,151 unit/D1 cases
 and 288 browser cases, with 44 reviewed browser exclusions and no flakes.
 
-`.tugling/pilot.json` enforces a 1,800-second active native budget. The complete
+`.tugling/pilot.json` enforces a 900-second active native budget. The complete
 receipt records elapsed execution time, each flow duration and a sorted timing
 summary. Concurrent flow durations are not added to claim wall-clock time.
 Exceeding that budget fails required verification without silently dropping
@@ -47,22 +47,25 @@ counts. Keep the credential-bearing deployment account separate.
 Prioritize the real D1 cost fixtures and browser tests using measured receipt
 and native-report timings. Preserve the full-day provider scenarios and real D1
 cost assertions. Browser tests that share mutable D1 state remain serial.
-Parallel browser cases must use the reviewed API-mocked lane, reject unexpected
-application API calls, and own their browser context and fixture state.
-Parallelizing the stateful lane would require independent D1 directories,
-servers, ports and cleanup.
+API-mocked cases reject unexpected application API calls and own their browser
+contexts and fixtures. Stateful partitions use independent D1 directories,
+servers, ports and cleanup; each partition remains serial internally.
 
 ## Bounded execution plan
 
-The verification map opts into at most two concurrent native flows. Source
+The verification map opts into at most three concurrent native flows. Source
 checks and integrity checks can start together. Migration and PDF probes depend
-on integrity checks. Build depends on source checks and migration completion;
-unit/D1 tests depend on build. Browser tests depend on build and PDF isolation.
-This keeps generated outputs stable before their consumers start and avoids
-running browser document processing before the sandbox boundary passes.
-Formatting and linting exclude the Git-ignored runtime, fixture and cache
-directories, so concurrent integrity tests cannot change files under the source
-checkers. Repository source and test files remain in scope.
+on integrity checks. Browser fixture preparation also becomes ready after the
+integrity checks and enters the three-flow schedule when a slot opens. Build and
+unit/D1 tests depend on source checks and migration completion and can run
+alongside each other. Unit tests consume TypeScript sources and isolated test
+fixtures, so they do not wait for build output. Browser tests depend on the
+sealed fixture, build and PDF isolation. This keeps generated outputs stable
+before their browser consumers start and avoids running browser document
+processing before the sandbox boundary passes. Formatting and linting exclude
+the Git-ignored runtime, fixture and cache directories, so concurrent integrity
+tests cannot change files under the source checkers. Repository source and test
+files remain in scope.
 
 The declared prerequisites are:
 
@@ -72,30 +75,74 @@ flowchart LR
   integrity[Integrity checks] --> compose[Compose validation]
   integrity --> migrations[Migrations and seed]
   integrity --> pdf[PDF isolation]
+  integrity --> browserFixture[Browser fixture]
   migrations --> build
-  build --> unit[Unit and D1 tests]
+  source --> unit[Unit and D1 tests]
+  migrations --> unit
   build --> browser[Browser suite]
   pdf --> browser
+  browserFixture --> browser
 ```
 
-Only two ready flows execute at once; an arrow means the prerequisite must
-finish successfully. The browser suite runs its stateful lane before its mocked
-lane, each with a separately owned server lifetime.
+Only three ready flows execute at once; an arrow means the prerequisite must
+finish successfully. Source checks use at most two Make jobs, and PDF proof uses
+at most two independently limited containers. The fixture uses a slot released
+by an earlier flow and can overlap remaining source/PDF work. No browser
+consumer starts before its fixture, PDF isolation and build succeed.
 
-The unit suite retains its two-worker ceiling. The browser runner executes the
-stateful lane with one worker, then the isolated mocked lane with two workers.
-The reviewed partition contains 106 mocked executions and 226 stateful
-executions, including the existing 44 platform exclusions. The parallel group
-contains agreement security, automatic investment review, company names, holding
-details, holding imports, investment holdings and investment review. The guard
-exposed additional application reads in legal entities, legal-name resolution,
-portfolio dashboard and purchase details; those remain serial. The lanes keep
-existing desktop/mobile project names, screenshots and case identities. A new or
-unclassified spec fails the partition check. Both reports are combined and
-checked against the entire reviewed browser inventory; one green lane cannot
-substitute for the complete suite. Native report leases are per suite, so
-independent writers can overlap but duplicate suite invocations cannot replace
-an active report.
+The unit suite uses three workers in CI and two locally, and starts historically
+expensive files first. Browser verification produces five reports while
+admitting at most four workers: three stateful partitions, 74 API-mocked
+executions served from the verified production build, and 32 API-mocked
+executions that require Vite development modules. The initial four lanes each
+use one worker. After all four reports and runtimes validate and close, the
+development mocked lane uses the released four-worker budget. No stateful lane
+is parallelized. The development stateful partition contains four specs and 58
+executions: three depend on source modules, while Portfolio Watch asserts
+development-mode demo-source disclosure. The other two stateful partitions
+contain 96 and 72 executions and use the verified production build, as does the
+production mocked lane. The partitions contain the same 106 mocked and 226
+stateful executions, including 44 reviewed platform exclusions. Each stateful
+partition receives a separate copy of the verified, closed synthetic seed and
+owns distinct API/web ports. Neither mocked lane starts an API server.
+Production serving reduces module transforms and requests; development serving
+retains the direct source-module checks and the intentional demo-source
+disclosure. Missing production JS or CSS fails startup. All lanes keep
+desktop/mobile project names, snapshots and case identities. Each lane owns its
+Vite dependency cache as well as its browser output. Development readiness
+transforms the initial application and Holdings module graph and rejects broken
+imports before admitting tests. Stateful readiness also checks the actual
+holdings-page projection through the web proxy, with one bounded probe in flight
+and a cached successful result for the development server. A simpler health
+endpoint cannot hide a cold first read or module load.
+
+Fixture preparation runs the unchanged browser reset, every migration, the
+synthetic seed and invariant readback early in the bounded flow graph. It moves
+the closed result into a dedicated allowlisted path and seals both the source
+inputs and complete fixture contents. The required browser command only accepts
+that seal, clones three profiles and consumes the seed; it never falls back to a
+reset on the browser critical path. The standalone `pilot_native.py playwright`
+command retains its reset-and-verify behavior and uses a separate seed path.
+Both commands share the Playwright lease while touching browser runtime/report
+paths.
+
+Stateful Wrangler instances use OS-assigned inspector ports so debugger
+listeners cannot collide even though application ports are distinct.
+
+CI uses `make bootstrap-ci` for the toolchain, locked dependencies and Chromium.
+The required migration flow owns the default database reset and readback. The
+developer `make bootstrap` still seeds a ready-to-use local database. Removing
+the duplicate CI reset does not remove the migration or seed verification.
+
+New or unclassified specs fail partition validation. All five reports must
+individually match their partition and jointly match the complete reviewed
+inventory; one green lane cannot substitute for the suite. Merged elapsed time
+is the span of the concurrent lanes, not their summed work. Per-suite leases
+reject duplicate writers, and cancellation cleans owned process groups before
+removing the isolated database profiles. The reviewed dependency map is exact:
+only the development mocked lane waits, and it cannot start until all four
+initial lanes have validated their reports and released their process groups and
+ports.
 
 The initial OVH capacity inspection found six CPUs, 11.4 GiB RAM, approximately
 9.3 GiB available memory and low CPU/I/O pressure. This is a starting snapshot,
@@ -141,6 +188,19 @@ no averages, sampled requests or shorter virtual days replace them. The replay
 fixture rejects unsupported metadata-dependent behavior rather than supplying
 fake D1 metadata. Required browser tests continue to cover Worker HTTP behavior.
 
+Session setup and browser reconnect checks use the same complete-trace proof.
+Each test retains its shared application and trace state across scenarios. Each
+measurement checkpoint replays the accumulated trace into a fresh D1 database,
+excluding prior setup and scenarios from that checkpoint's billed region. This
+preserves state transitions without applying a write twice to one replay target.
+Every scenario still checks its full request count and actual D1 billing.
+
+The collection read-budget fixture meters both production capture passes beside
+D1 and returns their actual counters, query diagnostics and continuity count for
+the original assertions. Only the remaining proposal, Watch, connection and
+unrelated-household setup is unmeasured. All eight read, discovery, race and
+history cases retain their original request paths, ceilings and watchdogs.
+
 `scripts/sql-replay.test.ts` checks result divergence, missing operations,
 missing metadata, transaction rollback, setup exclusion and real index-write
 billing. A negative-control experiment restoring one-minute heartbeat writes
@@ -162,6 +222,25 @@ real database constraints. The measured import, reconciliation, retry, read and
 query-plan assertions still use actual D1 metadata. Its 90-second watchdog and
 all billing ceilings remain unchanged.
 
+The same boundary applies to holdings, Portfolio Watch, automatic-investment,
+participation, company-identity and investment-event fixtures: only unmeasured
+setup moves beside D1. Production repositories, real review transitions,
+append-only history, unrelated households and database constraints remain.
+Measured client/API requests still run through their original path.
+
+The purchase-history holdout runs all 960 production accepts beside D1,
+resetting the real meter for each operation. It returns all 960 billing records
+and all eight history-read records for the unchanged per-operation assertions.
+Ordered position/version accounting and a 960-receipt database readback reject
+partial execution; household isolation and query-plan checks remain on the host.
+No write transactions are combined and no billing values are synthesized.
+
+The source-capture write-budget holdout also executes beside D1, with its meter
+covering every setup, capture and automatic-review operation. It retains all 120
+investments, 24 captured documents, 96 exceptions and the combined 8,000-write
+ceiling. The source/capture/review measurement boundaries remain unchanged; only
+the host transport is removed.
+
 The 120-position baseline holdout retains one actual review transition and
 directly seeds the other 118 historical reviews using schema-validated states
 and normal database triggers. All history, unrelated-household, retained
@@ -170,13 +249,14 @@ stale-evidence behavior remain covered by their dedicated integration tests.
 
 ## Failure and recovery
 
-Native CI uses loopback ports 31000/31001, outside local development ranges and
-OVH's Linux ephemeral range (32768-60999). A preflight checks both availability
-and the live kernel range before expensive verification. This avoids automatic
-outbound-port allocation colliding with browser startup after the unit suite; it
-does not reserve ports against unrelated explicit listeners. The browser server
-still fails closed on a later conflict and never reuses another server. Keep one
-native job per dedicated runner and do not kill an unknown port owner.
+Native CI uses loopback web ports 31031–31035 and API ports 32032, 32033 and
+32035, outside local development ranges and OVH's Linux ephemeral range
+(32768-60999). A preflight checks port availability and the live kernel range
+before expensive verification. This avoids automatic outbound-port allocation
+colliding with browser startup after the unit suite; it does not reserve ports
+against unrelated explicit listeners. The browser server still fails closed on a
+later conflict and never reuses another server. Keep one native job per
+dedicated runner and do not kill an unknown port owner.
 
 Receipt consumers require the producer's success, the exact artifact name from
 the current run, and matching project/config/map/helper/environment/run/attempt
@@ -193,3 +273,72 @@ The manual candidate workflow retains the synthetic polling-regression rejection
 experiment. Post-merge native verification, secret scanning, pinned released
 adapter validation, protected backup/migration/deployment and smoke checks
 remain required before claiming preview delivery.
+
+## September 22 optimization experiment
+
+The next measured round targets the complete native gate, using merged run
+`35690710837` (1,337.720 seconds) as its baseline. Browser elapsed time was
+959.120 seconds; unit/D1 elapsed time was 1,056.354 seconds. Both branches must
+improve because their completion times differ by only 55 seconds.
+
+The experiment preserves every reviewed case, desktop/mobile variant, real D1
+billing assertion, migration boundary, failure outcome, and exact-revision
+receipt. It changes only test transport, unmeasured fixture initialization and
+scheduling. Each accepted optimization must pass focused integrity tests and the
+complete OVH gate; timing from a failed or filtered run is diagnostic only.
+
+Execution slices:
+
+1. Profile provider initialization, scenario execution and D1 replay separately.
+   Batch only consecutive standalone SELECTs during synthetic replay, keeping
+   all results and actual rows-read/write metadata. Preserve original production
+   round-trip accounting independently of replay transport calls. Never combine
+   writes, existing transactions or setup/measurement boundaries.
+2. Move repeated unmeasured D1 initialization and scale-fixture setup beside the
+   database, keeping a fresh database per test and all measured operations.
+3. Run three independently seeded stateful browser partitions and separate
+   production/development mocked partitions with distinct ports, runtime state,
+   diagnostics and owned cleanup. Compare their complete union with the
+   unchanged reviewed browser inventory.
+4. Overlap read-only source checks with `make -j2`, and permit three native
+   flows so PDF isolation can overlap migration verification. Build and consumer
+   prerequisites remain explicit; runtime and migration outputs are not shared.
+5. Overlap the independent PDF scanner/reader sequence and kernel-probe
+   sequence, with at most two containers and unchanged limits. Wait for both
+   branches, including their failure cleanup, before checking for leftovers.
+6. Start the historically expensive Vitest files first, preserving discovered
+   specifications and test order within each file. This avoids a large final
+   fixture leaving the other workers idle.
+7. Inspect the resulting critical path and host resource pressure. Pursue
+   another candidate when its credible complete-gate improvement exceeds 5%;
+   validate promising scheduling choices with a complete same-host comparison.
+
+The stopping report must distinguish measured savings, rejected experiments, and
+untested architectural opportunities. A finite benchmark cannot prove that no
+possible future optimization exceeds 5%. No additional runner, larger host,
+removed assertion, relaxed watchdog or increased retry count is assumed.
+
+The native job owns one read-only host-counter observer during verification. It
+reads CPU, memory, swap and pressure counters every five seconds, with at most
+361 samples and an independent 30-minute deadline. The job stops and reaps it on
+success or failure; observer errors do not trigger retries or application
+requests. It performs no network, D1 or object-storage work. Diagnostics share
+the existing seven-day artifact retention and contain no process arguments,
+credentials or portfolio data.
+
+## Evaluated remaining source-check optimizations
+
+An unchanged two-job local source run took 50.19 seconds: lint took 48.47
+seconds and typecheck 29.69 seconds. Repeating it with ESLint's supported
+`--concurrency 2`, without caching or selection changes, took 54.27 seconds:
+lint stayed at 48.41 seconds while typecheck rose to 40.75 seconds. Separate
+ESLint workers duplicate their TypeScript project services and increased CPU
+work. Keep lint concurrency disabled.
+
+OVH run `35764220712` is diagnostic evidence, not a successful-gate benchmark:
+source checks took 167.974 seconds, with typecheck finishing approximately 28
+seconds before lint. A TypeScript-only cache cannot advance that source
+boundary, and even zero-time lint cannot remove the remaining typecheck work.
+Ordinary per-file lint caching is unsafe for type-aware rules when imported
+types change. Keep the full checks; removing repeated parsing would require a
+separately measured design that preserves every workspace's type environment.

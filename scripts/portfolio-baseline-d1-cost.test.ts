@@ -7,17 +7,13 @@ import {
   refreshAcceptedPortfolioBaseline,
 } from "../packages/database/src/portfolio-baseline";
 import { D1InvestmentExposureViewRepository } from "../packages/database/src/exposure-read-model";
-import {
-  createCostDatabase,
-  measureD1,
-  emptyD1Cost,
-} from "./test-support/d1-cost";
-import { seedCostHoldings, COST_SUBJECT } from "./test-support/cost-fixtures";
+import { measureD1, emptyD1Cost } from "./test-support/d1-cost";
+import { createCostFixtureDatabase } from "./test-support/cost-database";
+import { COST_SUBJECT } from "./test-support/cost-fixtures";
 
 it("keeps partial baseline refresh costs bounded with 120 sources, tied-date history, and retained exceptions", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createCostFixtureDatabase({ operation: "holdings" });
   try {
-    await seedCostHoldings(fixture.database);
     const measured = measureD1(fixture.database);
     const exposures = new D1InvestmentExposureViewRepository(measured.database);
     let missing = false;
@@ -52,7 +48,11 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
     ).toEqual([]);
     const costs: (typeof measured.cost)[] = [];
     for (const revision of [2, 3, 4, 5]) {
-      await seedCostHoldings(fixture.database, COST_SUBJECT, revision);
+      await fixture.setup({
+        operation: "holdings",
+        subject: COST_SUBJECT,
+        revision,
+      });
       missing = true;
       Object.assign(measured.cost, emptyD1Cost());
       expect(
@@ -108,7 +108,11 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
     await fixture.execute(
       "INSERT INTO users VALUES ('baseline-other-user', 'baseline-other-subject', 'other@example.invalid', 'Synthetic Other', '2026-09-01'); INSERT INTO households VALUES ('baseline-other', 'baseline-other-user', 'Synthetic Other', 'USD', '2026-09-01')",
     );
-    await seedCostHoldings(fixture.database, "baseline-other-subject", 6);
+    await fixture.setup({
+      operation: "holdings",
+      subject: "baseline-other-subject",
+      revision: 6,
+    });
     Object.assign(measured.cost, emptyD1Cost());
     const unchanged = await baseline.getState(COST_SUBJECT);
     expect(unchanged.latestBaseline?.id).toBe(current.latestBaseline?.id);
