@@ -43,7 +43,7 @@ jobs:
           node-version: 22.13.0
           cache: pnpm
           cache-dependency-path: keel/pnpm-lock.yaml
-      - run: make bootstrap
+      - run: make bootstrap-ci
       - name: Check dedicated CI browser ports before expensive verification
         run: |
           node --import tsx --input-type=module <<'JS'

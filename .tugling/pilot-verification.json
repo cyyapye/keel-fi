@@ -151,11 +151,11 @@
         "scripts/ci-test-sequencer.ts",
         "scripts/ci-test-sequencer.test.ts",
         "scripts/test-support/d1-cost.ts",
-        "scripts/test-support/sql-replay.ts",
-        "scripts/test-support/sql-replay-worker.ts",
         "scripts/test-support/d1-cost.test.ts",
         "scripts/test-support/cost-fixtures-worker.ts",
-        "scripts/test-support/cost-database.ts"
+        "scripts/test-support/cost-database.ts",
+        "scripts/test-support/automatic-investment-cost-database.ts",
+        "scripts/test-support/automatic-investment-cost-worker.ts"
       ],
       "runtime": {
         "owner": "native-command",
@@ -191,7 +191,8 @@
         "e2e/provider-session.spec.ts",
         "scripts/browser-test-lanes.ts",
         "e2e/api-mocked-test.ts",
-        "scripts/browser-test-server.ts"
+        "scripts/browser-test-server.ts",
+        "apps/web/vite.config.ts"
       ],
       "runtime": {
         "owner": "native-command",

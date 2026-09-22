@@ -1,39 +1,22 @@
 import { expect, it } from "vitest";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import { seedAutomaticInvestments } from "./test-support/automatic-investments";
+import { measureD1 } from "./test-support/d1-cost";
+import { createAutomaticInvestmentCostDatabase } from "./test-support/automatic-investment-cost-database";
 import { D1AlphaRepository } from "../packages/database/src/index";
 import { D1InvestmentReviewRepository } from "../packages/database/src/investment-review";
 import { D1HoldingsPageRepository } from "../packages/database/src/holdings-page";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
 
 it("keeps 120 participation projections and closure saves bounded across tied history and unrelated households", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createAutomaticInvestmentCostDatabase();
   try {
     const subject = "synthetic-access-subject";
-    const ids = await seedAutomaticInvestments(
-      fixture.database,
-      120,
-      [],
-      false,
+    const ids = await fixture.seed({ count: 120, subject, capturedCount: 0 });
+    await fixture.reviewParticipation({
+      ids,
       subject,
-      undefined,
-      0,
-    );
-    const reviews = new D1InvestmentReviewRepository(fixture.database);
-    for (const [index, id] of ids.entries()) {
-      const context = await reviews.getContext(subject, id);
-      await reviews.review(subject, id, {
-        requestId: crypto.randomUUID(),
-        expectedReviewId: null,
-        expectedSnapshotId: context.snapshotId,
-        expectedEvidenceRevision: context.evidenceRevision,
-        participationStatus: index < 60 ? "historical" : "current",
-        amountCorrection: {
-          amountMinor: 480_000,
-          note: "Synthetic personal commitment",
-        },
-      });
-    }
+      historicalCount: 60,
+      amountMinor: 480_000,
+    });
     const measured = measureD1(fixture.database);
     const holdings = new D1HoldingsPageRepository(measured.database);
     const read = async () => {
@@ -109,15 +92,11 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
     await fixture.execute(
       "INSERT INTO users VALUES ('participation-other-user','participation-other-subject','other@example.invalid','Synthetic Other','2026-09-01'); INSERT INTO households VALUES ('participation-other','participation-other-user','Synthetic Other','USD','2026-09-01')",
     );
-    await seedAutomaticInvestments(
-      fixture.database,
-      120,
-      [],
-      false,
-      "participation-other-subject",
-      undefined,
-      0,
-    );
+    await fixture.seed({
+      count: 120,
+      subject: "participation-other-subject",
+      capturedCount: 0,
+    });
     const unrelated = await read();
     const legacyAfter = await readLegacy();
     expect(legacyAfter.rowsRead).toBeLessThanOrEqual(

@@ -9,11 +9,12 @@ import type { Env } from "../apps/api/src/types";
 import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
 import { seedAutomaticInvestments } from "./test-support/automatic-investments";
 import { D1AutomaticInvestmentReviewRepository } from "../packages/database/src/automatic-investment-review";
+import { createAutomaticInvestmentCostDatabase } from "./test-support/automatic-investment-cost-database";
 
 it("bounds automatic review, unchanged page visits, history and an outage through the real client, proxy, auth and D1", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createAutomaticInvestmentCostDatabase();
   try {
-    const ids = await seedAutomaticInvestments(fixture.database, 120);
+    const ids = await fixture.seed({ count: 120 });
     const measured = measureD1(fixture.database);
     const objectGet = vi.fn(() => {
       throw new Error("Automatic review requested a source object");
@@ -104,26 +105,7 @@ it("bounds automatic review, unchanged page visits, history and an outage throug
 
     // 120 prior policy decisions per returned investment, all on the same
     // source observation date. Append-only and concurrency triggers stay on.
-    for (let version = 2; version <= 121; version++) {
-      await fixture.database
-        .prepare(
-          `INSERT INTO automatic_investment_reviews
-        (id, household_id, position_id, snapshot_id, policy_version, source_revision, expected_guard_json, result_guard_json, summary_json, details_json, version, supersedes_id, recorded_by_user_id, recorded_at)
-        SELECT printf('00000000-0000-4000-9000-%012x', ? * 1000 + keys.key), previous.household_id, previous.position_id, previous.snapshot_id, previous.policy_version,
-          printf('%064x', ? * 1000 + keys.key), previous.result_guard_json, previous.result_guard_json,
-          json_set(previous.summary_json, '$.id', printf('00000000-0000-4000-9000-%012x', ? * 1000 + keys.key)), '{}', ?, previous.id, previous.recorded_by_user_id, previous.recorded_at
-        FROM json_each(?) keys JOIN automatic_investment_reviews previous ON previous.position_id = keys.value AND previous.version = ?`,
-        )
-        .bind(
-          version,
-          version,
-          version,
-          version,
-          JSON.stringify(ids),
-          version - 1,
-        )
-        .run();
-    }
+    await fixture.growAutomaticReviewHistory(ids);
     measured.reset();
     expect((await resolveInvestmentReviews()).changedCount).toBe(0);
     expect(measured.cost.rowsWritten).toBe(0);

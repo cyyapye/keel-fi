@@ -89,7 +89,16 @@ stateful executions, including 44 reviewed platform exclusions. Each stateful
 partition receives a separate copy of the verified, closed synthetic seed and
 owns distinct API/web ports. The mocked lane serves Vite without an API server.
 It retains development-mode behavior required by dynamic-module recovery tests.
-All lanes keep desktop/mobile project names, snapshots and case identities.
+All lanes keep desktop/mobile project names, snapshots and case identities. Each
+lane owns its Vite dependency cache as well as its browser output. Stateful
+readiness checks the actual holdings-page projection through the web proxy
+before admitting tests, so a simpler health endpoint cannot hide a cold first
+read.
+
+CI uses `make bootstrap-ci` for the toolchain, locked dependencies and Chromium.
+The required migration flow owns the default database reset and readback. The
+developer `make bootstrap` still seeds a ready-to-use local database. Removing
+the duplicate CI reset does not remove the migration or seed verification.
 
 New or unclassified specs fail partition validation. All three reports must
 individually match their partition and jointly match the complete reviewed
@@ -162,6 +171,14 @@ transport while retaining the production import repositories, all 120 items and
 real database constraints. The measured import, reconciliation, retry, read and
 query-plan assertions still use actual D1 metadata. Its 90-second watchdog and
 all billing ceilings remain unchanged.
+
+The same boundary applies to holdings, Portfolio Watch, automatic-investment,
+participation, company-identity and investment-event fixtures: only unmeasured
+setup moves beside D1. Production repositories, real review transitions, append-
+only history, unrelated households and database constraints remain. Measured
+calls still run through their original client/repository path. The
+source-capture write-budget negative control deliberately keeps its measured
+setup unchanged.
 
 The 120-position baseline holdout retains one actual review transition and
 directly seeds the other 118 historical reviews using schema-validated states

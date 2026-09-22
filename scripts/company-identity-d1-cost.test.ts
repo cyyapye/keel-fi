@@ -1,23 +1,15 @@
 import { expect, it } from "vitest";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import { seedAutomaticInvestments } from "./test-support/automatic-investments";
+import { measureD1 } from "./test-support/d1-cost";
+import { createAutomaticInvestmentCostDatabase } from "./test-support/automatic-investment-cost-database";
 import { D1CompanyIdentityRepository } from "../packages/database/src/company-identity";
-import { D1AutomaticInvestmentReviewRepository } from "../packages/database/src/automatic-investment-review";
 import { D1InvestmentReviewRepository } from "../packages/database/src/investment-review";
 
 it("bounds company catalog and 120-position alias review including actual D1 history and unrelated-household costs", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createAutomaticInvestmentCostDatabase();
   const subject = "synthetic-access-subject";
   try {
-    const positions = await seedAutomaticInvestments(
-      fixture.database,
-      120,
-      [],
-      true,
-    );
-    await new D1AutomaticInvestmentReviewRepository(fixture.database).resolve(
-      subject,
-    );
+    const positions = await fixture.seed({ count: 120, sharedName: true });
+    await fixture.resolveAutomaticReviews(subject);
     const details = await new D1InvestmentReviewRepository(
       fixture.database,
     ).getContext(subject, positions[0]!);

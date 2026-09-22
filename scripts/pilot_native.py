@@ -165,6 +165,8 @@ def prepare_browser_profiles(execution):
     for lane in BROWSER_LANES:
         if execution[lane]["server"] == "stateful":
             shutil.copytree(base, BROWSER_RUNTIME / lane)
+        else:
+            (BROWSER_RUNTIME / lane).mkdir(mode=0o700)
 
 
 def browser_process_group_alive(pid):

@@ -19,7 +19,9 @@ const webPort =
     : BROWSER_TEST_EXECUTION[browserLane.lane].webPort;
 const baseURL = `http://127.0.0.1:${webPort}`;
 const readinessURL =
-  browserLane.server === "mocked" ? baseURL : `${baseURL}/api/alpha`;
+  browserLane.server === "mocked"
+    ? baseURL
+    : `${baseURL}${browserLane.lane === "all" ? "/api/alpha" : "/api/holdings-page"}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -53,9 +55,7 @@ export default defineConfig({
     command:
       browserLane.lane === "all"
         ? "pnpm dev"
-        : browserLane.server === "mocked"
-          ? `pnpm --filter @keel/web exec vite --host 127.0.0.1 --port ${webPort} --strictPort`
-          : "pnpm exec tsx scripts/browser-test-server.ts",
+        : "pnpm exec tsx scripts/browser-test-server.ts",
     reuseExistingServer:
       !process.env.CI && process.env.KEEL_E2E_ISOLATED !== "1",
     timeout: 120_000,

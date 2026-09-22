@@ -240,6 +240,31 @@ class NativeAccountingTests(unittest.TestCase):
                         owned, "synthetic browser profile", recursive=True
                     )
 
+            repository = root / "repository"
+            seed = repository / ".keel-local" / "e2e"
+            seed.mkdir(parents=True)
+            (seed / "seed.sqlite").write_text("synthetic")
+            runtime = repository / ".keel-local" / "e2e-lanes"
+            execution = {
+                "mocked": {"server": "mocked"},
+                "stateful-a": {"server": "stateful"},
+                "stateful-b": {"server": "stateful"},
+            }
+            with (
+                patch.object(native, "ROOT", repository),
+                patch.object(native, "BROWSER_RUNTIME", runtime),
+                patch.object(native.subprocess, "run") as run,
+            ):
+                native.prepare_browser_profiles(execution)
+            run.assert_called_once_with(
+                ["make", "db-verify-e2e"], cwd=repository, check=True
+            )
+            self.assertEqual(list((runtime / "mocked").iterdir()), [])
+            for lane in ("stateful-a", "stateful-b"):
+                self.assertEqual(
+                    (runtime / lane / "seed.sqlite").read_text(), "synthetic"
+                )
+
     def test_mocked_browser_guard_rejects_unknown_reads_and_unexpected_writes(self):
         with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:
             root = Path(temporary)

@@ -21,12 +21,17 @@ const runtimeRoot = path.resolve(rootDir, ".keel-local/e2e-lanes");
 const expectedPersistRoot = path.join(runtimeRoot, lane);
 const requestedPersistRoot = process.env.KEEL_LOCAL_PERSIST_TO;
 
+if (
+  !existsSync(expectedPersistRoot) ||
+  lstatSync(expectedPersistRoot).isSymbolicLink()
+) {
+  throw new Error(`Browser lane ${lane} requires its prepared runtime.`);
+}
+
 if (execution.server === "stateful") {
   if (
     requestedPersistRoot === undefined ||
-    path.resolve(requestedPersistRoot) !== expectedPersistRoot ||
-    !existsSync(expectedPersistRoot) ||
-    lstatSync(expectedPersistRoot).isSymbolicLink()
+    path.resolve(requestedPersistRoot) !== expectedPersistRoot
   ) {
     throw new Error(
       `Browser lane ${lane} requires its prepared isolated D1 profile.`,
@@ -39,9 +44,10 @@ if (execution.server === "stateful") {
 const environment = {
   ...process.env,
   KEEL_API_ORIGIN: `http://${DEV_HOST}:${execution.apiPort ?? 1}`,
-  // Vite loads the shared config in preview mode, so its unused API port must
-  // still satisfy the normal local-port parser. API_ORIGIN remains fail-closed.
+  // Vite loads the shared config before applying CLI port overrides, so an
+  // unused mocked API port must still satisfy the normal local-port parser.
   KEEL_API_PORT: String(execution.apiPort ?? 32_031),
+  KEEL_BROWSER_VITE_CACHE_DIR: path.join(expectedPersistRoot, "vite-cache"),
   KEEL_WEB_PORT: String(execution.webPort),
   ...(execution.server === "stateful"
     ? {

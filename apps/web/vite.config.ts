@@ -3,8 +3,10 @@ import { defineConfig } from "vite";
 import { resolveDevPorts } from "../../scripts/dev-ports";
 
 const { apiPort } = resolveDevPorts();
+const browserCacheDir = process.env.KEEL_BROWSER_VITE_CACHE_DIR;
 
 export default defineConfig({
+  ...(browserCacheDir === undefined ? {} : { cacheDir: browserCacheDir }),
   plugins: [react()],
   server: {
     proxy: {
