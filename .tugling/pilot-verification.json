@@ -120,6 +120,7 @@
         "scripts/participation-d1-cost.test.ts",
         "scripts/provider-agent-d1-cost.test.ts",
         "scripts/provider-agent-usage.test.ts",
+        "scripts/keel-session-check.test.ts",
         "scripts/cash-request-d1-cost.test.ts",
         "scripts/automatic-investment-review-d1-cost.test.ts",
         "scripts/portfolio-watch-d1-cost.test.ts",

@@ -15,7 +15,49 @@ const costFixtureWorker = build({
   external: ["node:*", "cloudflare:*"],
   logLevel: "silent",
 }).then((bundled) => bundled.outputFiles[0]!.text);
-const setupResultSchema = z.object({ importId: z.string().min(1) });
+const d1CostSchema = z
+  .object({
+    roundTrips: z.number().int().nonnegative(),
+    statements: z.number().int().nonnegative(),
+    rowsRead: z.number().int().nonnegative(),
+    rowsWritten: z.number().int().nonnegative(),
+  })
+  .strict();
+const setupResultSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      operation: z.literal("holdings"),
+      importId: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("portfolio-watch"),
+      importId: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("read-budgets"),
+      importId: z.string().min(1),
+      initialCapture: d1CostSchema,
+      acceptedCapture: d1CostSchema,
+      captureQueries: z
+        .array(
+          z
+            .object({
+              sql: z.string().min(1).max(170),
+              calls: z.number().int().nonnegative(),
+              rowsRead: z.number().int().nonnegative(),
+              rowsWritten: z.number().int().nonnegative(),
+            })
+            .strict(),
+        )
+        .max(5),
+      continuityCount: z.number().int().nonnegative(),
+    })
+    .strict(),
+]);
 
 export async function createCostFixtureDatabase(
   initialOperation?: CostFixtureSetupOperation,

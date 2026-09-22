@@ -158,6 +158,19 @@ no averages, sampled requests or shorter virtual days replace them. The replay
 fixture rejects unsupported metadata-dependent behavior rather than supplying
 fake D1 metadata. Required browser tests continue to cover Worker HTTP behavior.
 
+Session setup and browser reconnect checks use the same complete-trace proof.
+Each test retains its shared application and trace state across scenarios. Each
+measurement checkpoint replays the accumulated trace into a fresh D1 database,
+excluding prior setup and scenarios from that checkpoint's billed region. This
+preserves state transitions without applying a write twice to one replay target.
+Every scenario still checks its full request count and actual D1 billing.
+
+The collection read-budget fixture meters both production capture passes beside
+D1 and returns their actual counters, query diagnostics and continuity count for
+the original assertions. Only the remaining proposal, Watch, connection and
+unrelated-household setup is unmeasured. All eight read, discovery, race and
+history cases retain their original request paths, ceilings and watchdogs.
+
 `scripts/sql-replay.test.ts` checks result divergence, missing operations,
 missing metadata, transaction rollback, setup exclusion and real index-write
 billing. A negative-control experiment restoring one-minute heartbeat writes
