@@ -67,7 +67,6 @@ jobs:
             for (const server of servers) server.close();
           }
           JS
-      - run: make pdf-sandbox-build
       - name: Execute each required native suite once
         run: |
           mkdir -p .tugling/local

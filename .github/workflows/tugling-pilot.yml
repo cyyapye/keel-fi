@@ -58,8 +58,6 @@ jobs:
           cache-dependency-path: keel/pnpm-lock.yaml
       - name: Prepare locked dependencies and synthetic runtime
         run: make bootstrap
-      - name: Build isolated PDF runtimes on the provisioned rootless daemon
-        run: make pdf-sandbox-build
       - name: Execute complete required gate on this revision
         if: ${{ !inputs.regression_probe }}
         run: |

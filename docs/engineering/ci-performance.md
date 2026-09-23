@@ -72,18 +72,20 @@ servers, ports and cleanup; each partition remains serial internally.
 ## Bounded execution plan
 
 The verification map opts into at most three concurrent native flows. Source
-checks and integrity checks can start together. Migration and PDF probes depend
-on integrity checks. Browser fixture preparation also becomes ready after the
-integrity checks and enters the three-flow schedule when a slot opens. Build and
-unit/D1 tests depend on source checks and migration completion and can run
-alongside each other. Unit tests consume TypeScript sources and isolated test
-fixtures, so they do not wait for build output. Browser tests depend on the
-sealed fixture, build and PDF isolation. This keeps generated outputs stable
-before their browser consumers start and avoids running browser document
-processing before the sandbox boundary passes. Formatting and linting exclude
-the Git-ignored runtime, fixture and cache directories, so concurrent integrity
-tests cannot change files under the source checkers. Repository source and test
-files remain in scope.
+checks, integrity checks and the PDF security-image build can start together.
+Migration depends on integrity checks; PDF probes depend on both integrity and
+the successful image build. Browser fixture preparation also becomes ready after
+the integrity checks and enters the three-flow schedule when a slot opens. Build
+and unit/D1 tests depend on source checks and migration completion and can run
+alongside each other. Unit/D1 tests additionally wait for the PDF image build
+because they exercise the real isolated reader. Unit tests consume TypeScript
+sources and isolated test fixtures, so they do not wait for build output.
+Browser tests depend on the sealed fixture, build and PDF isolation. This keeps
+generated outputs stable before their browser consumers start and avoids running
+browser document processing before the sandbox boundary passes. Formatting and
+linting exclude the Git-ignored runtime, fixture and cache directories, so
+concurrent integrity tests cannot change files under the source checkers.
+Repository source and test files remain in scope.
 
 The declared prerequisites are:
 
@@ -93,6 +95,8 @@ flowchart LR
   integrity[Integrity checks] --> compose[Compose validation]
   integrity --> migrations[Migrations and seed]
   integrity --> pdf[PDF isolation]
+  pdfBuild[PDF security-image build] --> pdf
+  pdfBuild --> unit
   integrity --> browserFixture[Browser fixture]
   migrations --> build
   source --> unit[Unit and D1 tests]
@@ -146,6 +150,23 @@ paths.
 
 Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
+
+The image build is an explicit required flow, with its failure, timing and
+cancellation included in the exact-revision receipt and 900-second budget. Daily
+`SECURITY_REFRESH_DATE` package refresh, freshclam signature refresh,
+rootless-engine validation, immutable digests, atomic configuration writes and
+the clean-scanner preflight remain unchanged. No consumer uses partially built
+images. Native and manual pilot workflows do not build the images a second time
+outside the dependency graph.
+
+The September 23 UTC cold refresh in run `35800328085` took 120 seconds before
+the native gate: approximately 56 seconds for the reader/base and 63 seconds for
+the scanner, with a cached probe. Using the measured flow durations and
+three-slot schedule, moving that build into the graph projects approximately 92
+seconds (11%) saved on this cold path. Warm builds around 25 seconds offer about
+3% savings. This is a scheduling projection, not a measured cold run of the new
+graph; source/build contention can change the result. Preserve daily security
+freshness rather than skipping refreshes to meet the budget.
 
 CI uses `make bootstrap-ci` for the toolchain, locked dependencies and Chromium.
 The required migration flow owns the default database reset and readback. The
