@@ -253,8 +253,20 @@ records and no record are both valid. Purchase details never gate source
 acceptance or investment review. The form prefills the reported purchase date
 and source label, and gross/net capital only when accepted fee terms support
 that distinction. It does not treat SPV membership units as underlying company
-shares or infer missing fees as zero. Document extraction of share prices is not
-part of this first release.
+shares or infer missing fees as zero. Holdings detail and Investment review use
+the same purchase record. A manual Paste GP notice action extracts only
+explicit, bounded purchase terms into editable fields and retains the notice
+text with the accepted review. It does not create a merger/conversion, fetch
+documents, or save until confirmation. Conflicting or unsupported values remain
+unknown. Existing entered values are not overwritten. PDF extraction remains
+separate.
+
+Purchase and reference prices, one-time fees and their basis are visible
+together. A quoted premium is retained separately from calculated price and
+fee-inclusive premiums. A fee rate with unknown basis can be saved but does not
+affect capital or per-share calculations. Explicit reported annual management
+fees and carry are retained as purchase evidence; they do not replace accepted
+investment fee terms.
 
 Each purchase can retain a share class, integer micro-unit share price, entry
 reference price, gross cash, net share capital, one-time fee and its gross/net

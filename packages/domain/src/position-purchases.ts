@@ -8,6 +8,30 @@ const text = z.string().trim().min(1).max(500);
 export const PurchaseLotSchema = z
   .object({
     id: z.string().min(1).max(100),
+    transactionType: z.enum(["primary", "secondary"]).nullable().optional(),
+    referenceRound: text.nullable().optional(),
+    reportedPremiumPpm: z
+      .number()
+      .int()
+      .min(0)
+      .max(10_000_000)
+      .nullable()
+      .optional(),
+    reportedManagementFeePpm: z
+      .number()
+      .int()
+      .min(0)
+      .max(1_000_000)
+      .nullable()
+      .optional(),
+    reportedCarryPpm: z
+      .number()
+      .int()
+      .min(0)
+      .max(1_000_000)
+      .nullable()
+      .optional(),
+    sourceText: z.string().max(12_000).nullable().optional(),
     purchasedOn: z.iso.date().nullable(),
     shareClass: text.nullable(),
     priceMicros: positive.nullable(),
@@ -35,11 +59,11 @@ export const PurchaseLotSchema = z
   })
   .strict()
   .superRefine((lot, ctx) => {
-    if ((lot.feePpm === null) !== (lot.feeBasis === null))
+    if (lot.feePpm === null && lot.feeBasis !== null)
       ctx.addIssue({
         code: "custom",
         path: ["feeBasis"],
-        message: "Enter both the fee rate and its basis.",
+        message: "Enter the fee rate or clear its basis.",
       });
     if (
       lot.grossCashMinor !== null &&
@@ -244,4 +268,29 @@ function derivedPurchaseShares(net: number, price: number) {
   return quantity <= 1_000_000_000_000n
     ? { quantityMicros: Number(quantity), derived: true }
     : null;
+}
+
+export function purchaseAllInPrice(lot: PurchaseLot): number | null {
+  if (lot.priceMicros === null) return null;
+  let numerator: bigint, denominator: bigint;
+  if (lot.feePpm !== null && lot.feeBasis !== null) {
+    numerator =
+      lot.feeBasis === "net_capital"
+        ? 1_000_000n + BigInt(lot.feePpm)
+        : 1_000_000n;
+    denominator =
+      lot.feeBasis === "net_capital"
+        ? 1_000_000n
+        : 1_000_000n - BigInt(lot.feePpm);
+  } else {
+    const capital = purchaseCapital(lot);
+    if (capital.grossCashMinor === null || capital.netCapitalMinor === null)
+      return null;
+    numerator = BigInt(capital.grossCashMinor);
+    denominator = BigInt(capital.netCapitalMinor);
+  }
+  if (denominator <= 0n) return null;
+  const value =
+    (BigInt(lot.priceMicros) * numerator + denominator / 2n) / denominator;
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;
 }

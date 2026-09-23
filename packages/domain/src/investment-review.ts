@@ -1,3 +1,4 @@
+import { PurchaseContextSchema } from "./position-purchases";
 import { z } from "zod";
 import {
   InvestmentEventInputSchema,
@@ -361,6 +362,8 @@ export const InvestmentReviewContextSchema = z
   .object({
     positionId: Id,
     positionLabel: z.string().min(1).max(1_000),
+    purchaseContext: PurchaseContextSchema.nullable().optional(),
+    realizedMinor: z.number().int().safe().nonnegative().nullable().optional(),
     positionKind: z.enum(["spv_interest", "fund_interest"]).optional(),
     investmentEvents: z.array(InvestmentEventSchema).max(100).optional(),
     valuationAsOf: z.iso.datetime({ offset: true }).nullable().optional(),

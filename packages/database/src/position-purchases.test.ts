@@ -1,3 +1,4 @@
+import { D1InvestmentReviewRepository } from "./investment-review";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
@@ -41,6 +42,12 @@ it("persists optional details, reads them through holdings, versions edits and r
       lots: [
         {
           id: "partial",
+          transactionType: "secondary" as const,
+          referenceRound: "Series B",
+          reportedPremiumPpm: 240_000,
+          reportedManagementFeePpm: 0,
+          reportedCarryPpm: 120_000,
+          sourceText: "Synthetic GP notice: secondary preferred shares",
           purchasedOn: "2025-04-12",
           shareClass: "Series B",
           priceMicros: 12_500_000,
@@ -91,6 +98,17 @@ it("persists optional details, reads them through holdings, versions edits and r
   expect(
     page.holdings.find((row) => row.id === p.id)?.purchaseContext?.receipt,
   ).toEqual(second);
+  const reviewContext = await new D1InvestmentReviewRepository(
+    db.asD1(),
+  ).getContext(COST_SUBJECT, p.id);
+  expect(reviewContext.purchaseContext?.receipt).toEqual(second);
+  expect(reviewContext.purchaseContext?.snapshotId).toEqual(p.snapshot.id);
+  await expect(
+    new D1InvestmentReviewRepository(db.asD1()).getContext(
+      "another-subject",
+      p.id,
+    ),
+  ).rejects.toMatchObject({ code: "not_found" });
   expect(
     db.sqlite.prepare("SELECT COUNT(*) n FROM holding_purchase_reviews").get(),
   ).toMatchObject({ n: 2 });

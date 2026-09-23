@@ -105,7 +105,7 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
     .getByRole("textbox", { name: "Purchase price / share · USD", exact: true })
     .fill("12.50");
   await section
-    .getByText("Capital, one-time fee and reference price", { exact: true })
+    .getByText("Capital and share calculation", { exact: true })
     .click();
   await section
     .getByRole("textbox", { name: "Gross cash contributed · USD", exact: true })
