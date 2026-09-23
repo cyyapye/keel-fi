@@ -1,3 +1,7 @@
+import {
+  AcceptPurchasesSchema,
+  PurchaseReceiptSchema,
+} from "../packages/domain/src/position-purchases";
 import { expect, test, type Page } from "@playwright/test";
 import {
   CreateLegalEntityInputSchema,
@@ -24,6 +28,7 @@ async function setup(
   conflict = false,
   backgroundCount = 0,
   netImported = false,
+  purchaseFlow = false,
 ) {
   const doc = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -152,6 +157,17 @@ async function setup(
   );
   const fixture = await routeInvestmentReview(page, source, {
     snapshotId: "snapshot_demo_growth_iv",
+    ...(purchaseFlow
+      ? {
+          positionKind: "spv_interest",
+          purchaseContext: {
+            snapshotId: "snapshot_demo_growth_iv",
+            currency: "USD",
+            openedOn: "2026-02-01",
+            receipt: null,
+          },
+        }
+      : {}),
     committedMinor: netImported ? 2_730_000 : 1_000_000,
     fundedMinor: netImported ? 2_730_000 : 1_000_000,
     economics: {
@@ -1806,7 +1822,7 @@ test("records a continuing SPV conversion, retains rejected evidence and amends 
   const fixture = await setup(page);
   await selectReviewSection(page, "Investment");
   const section = page.getByRole("region", {
-    name: "Investment events",
+    name: "Mergers and conversions",
     exact: true,
   });
   await section
@@ -1877,6 +1893,156 @@ The SPV received 88 closing warrant shares.`);
   ).toHaveCount(1);
   expect(fixture.context.investmentEvents).toHaveLength(2);
   expect(fixture.context.committedMinor).toBe(1_000_000);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("captures a GP purchase notice directly in investment review without a corporate event", async ({
+  page,
+}) => {
+  const fixture = await setup(page, false, 0, false, true);
+  let reject = false;
+  let count = 0;
+  await page.route(
+    "**/api/investment-positions/position_demo_growth_iv/purchases",
+    async (route) => {
+      const input = AcceptPurchasesSchema.parse(route.request().postDataJSON());
+      if (reject)
+        return route.fulfill({
+          status: 409,
+          json: { error: "The purchase changed. Reload and review again." },
+        });
+      count++;
+      fixture.context.purchaseContext!.receipt = PurchaseReceiptSchema.parse({
+        id: `purchase-receipt-${count}`,
+        positionId: fixture.context.positionId,
+        snapshotId: input.expectedSnapshotId,
+        currency: "USD",
+        details: input.details,
+        acceptedAt: "2026-09-01T12:00:00.000Z",
+      });
+      await route.fulfill({
+        status: 201,
+        json: fixture.context.purchaseContext!.receipt,
+      });
+    },
+  );
+  await selectReviewSection(page, "Investment");
+  let section = page.getByRole("region", {
+    name: "Purchase details",
+    exact: true,
+  });
+  await expect(
+    section.getByRole("button", { name: "Paste GP notice", exact: true }),
+  ).toBeVisible();
+  await section
+    .getByRole("button", { name: "Paste GP notice", exact: true })
+    .click();
+  await section
+    .getByLabel("Purchase notice", { exact: true })
+    .fill(
+      "Type: Secondary - Preferred shares\nPrice: $24/share + 6% underlying fund fee = $12B valuation (total of 27% premium to the Series C: $10B valuation, $20/share)\nFees: 0%/yr mgmt fee, 12% carry",
+    );
+  await expect(section).toHaveScreenshot("investment-purchase-notice.png");
+  await section
+    .getByRole("button", { name: "Prefill purchase details", exact: true })
+    .click();
+  await expect(
+    section.getByLabel("Purchase price / share · USD", { exact: true }),
+  ).toHaveValue("24");
+  await expect(
+    section.getByLabel("Entry reference price / share · USD", { exact: true }),
+  ).toHaveValue("20");
+  await expect(
+    section.getByLabel("One-time fee · %", { exact: true }),
+  ).toHaveValue("6");
+  await expect(
+    section.getByLabel("Reported annual management fee · %", { exact: true }),
+  ).toHaveValue("0");
+  await expect(
+    section.getByLabel("Reported carry · %", { exact: true }),
+  ).toHaveValue("12");
+  await expect(
+    section.getByLabel("Remaining underlying shares", { exact: true }),
+  ).toHaveValue("");
+  await expect(page.getByLabel("Event type", { exact: true })).toHaveCount(0);
+  await expect(section).toHaveScreenshot("investment-purchase-prefilled.png");
+  await section
+    .getByRole("button", { name: "Review purchase details", exact: true })
+    .click();
+  await expect(section).toContainText("Calculated all-in premium: 27.20%");
+  await expect(section).toContainText("Notice-quoted premium: 27.00%");
+  await expect(section).toContainText("All-in purchase price: $25.44");
+  await expect(section).toHaveScreenshot("investment-purchase-review.png");
+  expect(count).toBe(0);
+  await section
+    .getByRole("button", { name: "Save purchase details", exact: true })
+    .click();
+  await expect(
+    section.getByRole("button", { name: "Edit purchases", exact: true }),
+  ).toBeVisible();
+  expect(fixture.writes).toHaveLength(0);
+  expect(fixture.context.investmentEvents ?? []).toEqual([]);
+  expect(
+    fixture.context.purchaseContext!.receipt!.details.lots[0],
+  ).toMatchObject({
+    priceMicros: 24_000_000,
+    feePpm: 60_000,
+    reportedCarryPpm: 120_000,
+    reportedManagementFeePpm: 0,
+  });
+  await expect(section).toHaveScreenshot("investment-purchase-saved.png");
+  await page.reload();
+  await selectReviewSection(page, "Investment");
+  section = page.getByRole("region", { name: "Purchase details", exact: true });
+  await expect(section).toContainText("$25.44");
+  await section
+    .getByRole("button", { name: "Edit purchases", exact: true })
+    .click();
+  await section
+    .getByLabel("Purchase price / share · USD", { exact: true })
+    .fill("25");
+  // Pasting again cannot replace an edited price, even when the new notice differs.
+  await section
+    .getByRole("button", { name: "Paste GP notice", exact: true })
+    .click();
+  await section
+    .getByLabel("Purchase notice", { exact: true })
+    .fill("Price: $30/share");
+  await section
+    .getByRole("button", { name: "Prefill purchase details", exact: true })
+    .click();
+  await expect(
+    section.getByLabel("Purchase price / share · USD", { exact: true }),
+  ).toHaveValue("25");
+  await section
+    .getByRole("button", { name: "Review purchase details", exact: true })
+    .click();
+  reject = true;
+  await section
+    .getByRole("button", { name: "Save purchase details", exact: true })
+    .click();
+  await expect(section).toContainText("The purchase changed.");
+  await section
+    .getByRole("button", { name: "Back to edit", exact: true })
+    .click();
+  await expect(
+    section.getByLabel("Purchase price / share · USD", { exact: true }),
+  ).toHaveValue("25");
+  reject = false;
+  await section
+    .getByRole("button", { name: "Review purchase details", exact: true })
+    .click();
+  await section
+    .getByRole("button", { name: "Save purchase details", exact: true })
+    .click();
+  await expect(
+    section.getByRole("button", { name: "Edit purchases", exact: true }),
+  ).toBeVisible();
+  expect(count).toBe(2);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

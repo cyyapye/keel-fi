@@ -1,3 +1,4 @@
+import { D1InvestmentReviewRepository } from "../packages/database/src/investment-review";
 import { expect, it } from "vitest";
 import { D1PositionPurchaseRepository } from "../packages/database/src/position-purchases";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
@@ -21,6 +22,10 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
       c.containers.flatMap((c) => c.positions),
     );
     expect(positions).toHaveLength(120);
+    const review = new D1InvestmentReviewRepository(meter.database);
+    meter.reset();
+    await review.getContext(COST_SUBJECT, positions[0]!.id);
+    const reviewEmpty = { ...meter.cost };
     const repo = new D1PositionPurchaseRepository(meter.database);
     const heads = new Map<string, string>();
     for (let version = 0; version < 8; version++) {
@@ -42,6 +47,26 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
       expect(meter.cost.rowsWritten).toBe(0);
       expect(meter.cost.rowsRead).toBeLessThanOrEqual(empty.rowsRead + 480);
     }
+    meter.reset();
+    const reviewed = await review.getContext(COST_SUBJECT, positions[0]!.id);
+    expect(reviewed.purchaseContext?.receipt?.id).toBe(
+      heads.get(positions[0]!.id),
+    );
+    expect(meter.cost.roundTrips).toBe(reviewEmpty.roundTrips);
+    expect(meter.cost.rowsWritten).toBe(0);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(reviewEmpty.rowsRead + 4);
+    const reviewSql = [...meter.queries].find((sql) =>
+      sql.includes("purchase.receipt_json purchase_json"),
+    )!;
+    const reviewPlan = (
+      await fixture.database
+        .prepare(`EXPLAIN QUERY PLAN ${reviewSql}`)
+        .bind(positions[0]!.id, "hh_demo")
+        .all<{ detail: string }>()
+    ).results;
+    expect(
+      reviewPlan.filter((row) => /SCAN purchase(?:_head)?\b/u.test(row.detail)),
+    ).toEqual([]);
     meter.reset();
     await reader.listForHousehold("unrelated-empty-household");
     expect(meter.cost.rowsRead).toBeLessThanOrEqual(10);

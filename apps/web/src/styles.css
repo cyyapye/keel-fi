@@ -8466,7 +8466,7 @@ h1,
 .purchase-fields > [data-slot="collapsible"] {
   margin: 1rem 0;
 }
-.purchase-fields [data-slot="collapsible-trigger"] {
+.purchase-details [data-slot="collapsible-trigger"] {
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -8525,4 +8525,14 @@ h1,
 .investment-events__source {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.purchase-notice-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.purchase-notice-form {
+  display: grid;
+  gap: 20px;
 }

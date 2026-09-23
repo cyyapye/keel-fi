@@ -1,3 +1,4 @@
+import { PurchaseReceiptSchema } from "@keel/domain/position-purchases";
 import {
   InvestmentEventSchema,
   currentInvestmentEvents,
@@ -56,6 +57,8 @@ type Position = {
   state_json: string | null;
   receipt_json: string | null;
   economics_json: string | null;
+  purchase_json: string | null;
+  realized_value_minor: number | null;
   automatic_review_json: string | null;
   observation_id: string | null;
   reported_management_fee_ppm: number | null;
@@ -160,7 +163,8 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     const position = await this.db
       .prepare(
         `SELECT p.id, p.legal_vehicle_name, p.owner_label, p.currency, p.position_kind, p.provider, p.opened_on,
-      s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status,
+      purchase.receipt_json purchase_json,
+      s.realized_value_minor, s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status,
       observation.evidence_json, observation.id observation_id, origin.source_json origin_json, review.state_json,
       reported_terms.management_fee_ppm reported_management_fee_ppm, reported_terms.carry_ppm reported_carry_ppm, s.observed_at,
       COALESCE(alias_receipt.receipt_json, company_review.receipt_json, json_extract(automatic.details_json, '$.company.receipt')) receipt_json,
@@ -178,6 +182,8 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         'carryPpm', terms.carry_ppm, 'note', terms.note, 'acceptedAt', terms_review.decided_at, 'decisionSource', terms.decision_source
       ) END economics_json
       FROM holding_positions p
+      LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id = p.id
+      LEFT JOIN holding_purchase_reviews purchase ON purchase.id = purchase_head.review_id
       LEFT JOIN holding_import_applications a ON a.id = (SELECT candidate.id FROM holding_import_applications candidate JOIN holding_position_snapshots snapshot ON snapshot.id = candidate.snapshot_id WHERE candidate.position_id = p.id ORDER BY candidate.applied_at DESC, snapshot.observed_at DESC, candidate.id DESC LIMIT 1)
       LEFT JOIN holding_position_snapshots s ON s.id = a.snapshot_id
       LEFT JOIN holding_import_rows r ON r.id = a.import_row_id
@@ -346,7 +352,24 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       positionLabel: position.legal_vehicle_name,
       positionKind: position.position_kind,
       investmentEvents: events,
+      purchaseContext:
+        position.snapshot_id !== null &&
+        position.currency === "USD" &&
+        position.position_kind === "spv_interest"
+          ? {
+              snapshotId: position.snapshot_id,
+              currency: "USD",
+              openedOn: position.opened_on,
+              receipt:
+                position.purchase_json == null
+                  ? null
+                  : PurchaseReceiptSchema.parse(
+                      JSON.parse(position.purchase_json),
+                    ),
+            }
+          : null,
       valuationAsOf: position.observed_at,
+      realizedMinor: position.realized_value_minor,
       openedOn: position.opened_on,
       automaticReview:
         position.automatic_review_json === null

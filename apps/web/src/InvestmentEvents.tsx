@@ -260,11 +260,11 @@ export function InvestmentEvents({
   return (
     <section
       className="investment-review__section"
-      aria-label="Investment events"
+      aria-label="Mergers and conversions"
     >
       <SectionHeader
         headingAs="h3"
-        title="Investment events"
+        title="Mergers and conversions"
         action={
           draft === null ? (
             <Button

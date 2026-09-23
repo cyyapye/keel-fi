@@ -18,6 +18,7 @@
     "./portfolio-watch-activity": "./src/portfolio-watch-activity.ts",
     "./watch-website": "./src/watch-website.ts",
     "./private-position-value-estimate": "./src/private-position-value-estimate.ts",
+    "./purchase-notice": "./src/purchase-notice.ts",
     "./position-purchases": "./src/position-purchases.ts",
     "./position-economics": "./src/position-economics.ts",
     "./position-read-model": "./src/position-read-model.ts",

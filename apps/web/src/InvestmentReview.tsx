@@ -1,3 +1,4 @@
+import { PositionPurchasesEditor } from "./PositionPurchasesEditor";
 import { InvestmentEvents } from "./InvestmentEvents";
 import { moneyInputValue, parseMoneyInput } from "./money-input";
 import {
@@ -1739,6 +1740,22 @@ export function InvestmentReview({
                   )
                 }
               </InvestmentAmountReview>
+              {context.purchaseContext && (
+                <PositionPurchasesEditor
+                  key={`${positionId}:${context.purchaseContext.snapshotId}:${context.purchaseContext.receipt?.id}`}
+                  holding={{
+                    id: positionId,
+                    sourceLabel,
+                    purchaseContext: context.purchaseContext,
+                    positionEconomicsContext: context.economics,
+                    realizedValueMinor: context.realizedMinor ?? null,
+                  }}
+                  onAccepted={async () => {
+                    await onSaved();
+                    setContext(await loadInvestmentReview(positionId));
+                  }}
+                />
+              )}
               {context.positionKind !== "fund_interest" && (
                 <InvestmentEvents context={context} save={save} busy={busy} />
               )}
