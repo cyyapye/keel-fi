@@ -26,6 +26,18 @@ const currentCheck = new Date().toISOString();
 const nextWeek = new Date(
   Date.parse(currentCheck) + 8 * 24 * 60 * 60_000,
 ).toISOString();
+// Scanner coverage inventory: the production tsx runner below deliberately
+// omits the scan injection so it exercises the real scanner and extractor.
+// Browser permutations inject a clean synthetic receipt while retaining the
+// real provider DOM, popup, URL validation, download, extraction, caching and
+// persistence paths. The dedicated pdf-sandbox suite owns adversarial scanner
+// behavior and resource-limit coverage.
+const cleanSyntheticScan = (bytes: Uint8Array, scannedAt = currentCheck) =>
+  Promise.resolve({
+    ...syntheticDocumentScan(bytes, scannedAt),
+    version: 2 as const,
+    findings: [],
+  });
 const urls = {
   sydecar:
     "https://storage.googleapis.com/sydecar-prod-documents/synthetic/agreement.pdf?synthetic=one",
@@ -382,37 +394,44 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     page,
     context,
   }) => {
-    // Two real antivirus processes load their databases across these four
-    // capture phases. CI takes about 30 seconds; match the other multi-capture
-    // tests without changing either sandbox's per-operation safety limits.
+    // Keep a generous bound for four browser capture phases and real PDF
+    // extraction without weakening either sandbox's per-operation limits.
     test.setTimeout(90_000);
     await documentPage(page, provider);
     let downloads = 0;
+    let scans = 0;
     const saved: ProviderLegalDocumentCapture[] = [];
     const run = (
       manifest: ProviderLegalDocumentManifest,
       date = currentCheck,
-    ) =>
-      providerAgreementCollector({
+    ) => {
+      const observedAt = () =>
+        new Date(Date.now() + Date.parse(date) - Date.parse(currentCheck));
+      return providerAgreementCollector({
         provider,
         manifest,
-        now: () =>
-          new Date(Date.now() + Date.parse(date) - Date.parse(currentCheck)),
+        now: observedAt,
         renew: () => Promise.resolve(),
         download: () => {
           downloads += 1;
           return Promise.resolve(new Response(syntheticAgreementPdf()));
+        },
+        scan: (bytes) => {
+          scans += 1;
+          return cleanSyntheticScan(bytes, observedAt().toISOString());
         },
         save: ({ capture }) => {
           saved.push(capture);
           return Promise.resolve();
         },
       });
+    };
     const collector = run({ version: 1, captures: [] });
     await collector.collect(page, position);
     expect(saved).toHaveLength(0); // Full financial snapshot must finish first.
     await collector.flush();
     expect(downloads).toBe(1);
+    expect(scans).toBe(1);
     expect(saved[0]).toMatchObject({
       problem: null,
       documents: [
@@ -438,6 +457,7 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     await cached.collect(page, position);
     await cached.flush();
     expect(downloads).toBe(1);
+    expect(scans).toBe(1);
     const previousVersion = run({
       version: 1,
       captures: captures.map((capture) => ({
@@ -456,6 +476,7 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     await previousVersion.collect(page, position);
     await previousVersion.flush();
     expect(downloads).toBe(2);
+    expect(scans).toBe(1); // A current clean scan can feed a newer extractor.
     expect(saved.at(-1)?.documents[0]?.extraction).toMatchObject({
       version: 7,
       problem: null,
@@ -465,6 +486,7 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     await refresh.collect(page, position);
     await refresh.flush();
     expect(downloads).toBe(3); // Same path may be replaced: bounded weekly recheck.
+    expect(scans).toBe(2);
     expect(saved.at(-1)?.documents[0]).toMatchObject({
       scan: { outcome: "clean" },
       extraction: { problem: null },
@@ -512,6 +534,7 @@ test("Sydecar indexes one central Documents page across 120 rows and opens only 
     });
   });
   let downloads = 0;
+  let scans = 0;
   const saved: ProviderLegalDocumentCapture[] = [];
   const collector = providerAgreementCollector({
     provider: "sydecar",
@@ -520,6 +543,10 @@ test("Sydecar indexes one central Documents page across 120 rows and opens only 
     download: () => {
       downloads += 1;
       return Promise.resolve(new Response(syntheticAgreementPdf()));
+    },
+    scan: (bytes) => {
+      scans += 1;
+      return cleanSyntheticScan(bytes);
     },
     save: ({ capture }) => {
       saved.push(capture);
@@ -540,6 +567,7 @@ test("Sydecar indexes one central Documents page across 120 rows and opens only 
   expect(documentPageRequests).toBe(1);
   expect(legacyPageRequests).toBe(0);
   expect(downloads).toBe(1);
+  expect(scans).toBe(1);
   expect(saved).toHaveLength(1);
   expect(saved[0]).toMatchObject({
     problem: null,
@@ -583,6 +611,7 @@ test("Sydecar uses an exact reconciled legacy page only after central controls f
     });
   });
   let downloads = 0;
+  let scans = 0;
   const captures: ProviderLegalDocumentCapture[] = [];
   const collector = providerAgreementCollector({
     provider: "sydecar",
@@ -591,6 +620,10 @@ test("Sydecar uses an exact reconciled legacy page only after central controls f
     download: () => {
       downloads += 1;
       return Promise.resolve(new Response(syntheticAgreementPdf()));
+    },
+    scan: (bytes) => {
+      scans += 1;
+      return cleanSyntheticScan(bytes);
     },
     save: ({ capture }) => {
       captures.push(capture);
@@ -618,6 +651,7 @@ test("Sydecar uses an exact reconciled legacy page only after central controls f
   await collector.flush();
   expect(visits).toEqual(["central", "legacy"]);
   expect(downloads).toBe(2);
+  expect(scans).toBe(1); // Identical bytes are scanned once within a run.
   expect(captures).toHaveLength(3);
   expect(
     new Set(captures.map((capture) => capture.naturalKeySha256)).size,
@@ -705,6 +739,7 @@ test("Sydecar central agreement backfill resumes after the 24-download run budge
     }),
   );
   let downloads = 0;
+  let scans = 0;
   const saved: ProviderLegalDocumentCapture[] = [];
   const build = (manifest: ProviderLegalDocumentManifest) =>
     providerAgreementCollector({
@@ -716,6 +751,10 @@ test("Sydecar central agreement backfill resumes after the 24-download run budge
         downloads += 1;
         return Promise.resolve(new Response(syntheticAgreementPdf()));
       },
+      scan: (bytes) => {
+        scans += 1;
+        return cleanSyntheticScan(bytes, new Date().toISOString());
+      },
       save: ({ capture }) => {
         saved.push(capture);
         return Promise.resolve();
@@ -726,6 +765,7 @@ test("Sydecar central agreement backfill resumes after the 24-download run budge
   await first.collectSydecarDocuments(page, positions);
   await first.flush();
   expect(downloads).toBe(24);
+  expect(scans).toBe(1);
   expect(saved).toHaveLength(13);
   expect(saved[12]).toMatchObject({
     problem: "limit_reached",
@@ -746,6 +786,7 @@ test("Sydecar central agreement backfill resumes after the 24-download run budge
   await second.flush();
 
   expect(downloads).toBe(26);
+  expect(scans).toBe(1); // The second collector reuses the fresh hash receipt.
   expect(saved).toHaveLength(26);
   expect(saved.slice(13).every((capture) => capture.problem === null)).toBe(
     true,
@@ -760,25 +801,32 @@ test("backfill reaches later positions before rechecking expired cached agreemen
   await documentPage(page, "sydecar");
   const saved: ProviderLegalDocumentCapture[] = [];
   let downloads = 0;
+  let scans = 0;
   const build = (
     manifest: ProviderLegalDocumentManifest,
     date = currentCheck,
-  ) =>
-    providerAgreementCollector({
+  ) => {
+    const observedAt = () =>
+      new Date(Date.now() + Date.parse(date) - Date.parse(currentCheck));
+    return providerAgreementCollector({
       provider: "sydecar",
       manifest,
-      now: () =>
-        new Date(Date.now() + Date.parse(date) - Date.parse(currentCheck)),
+      now: observedAt,
       renew: () => Promise.resolve(),
       download: () => {
         downloads += 1;
         return Promise.resolve(new Response(syntheticAgreementPdf()));
+      },
+      scan: (bytes) => {
+        scans += 1;
+        return cleanSyntheticScan(bytes, observedAt().toISOString());
       },
       save: ({ capture }) => {
         saved.push(capture);
         return Promise.resolve();
       },
     });
+  };
   const first = build({ version: 1, captures: [] });
   for (let index = 0; index < 25; index += 1)
     await first.collect(page, {
@@ -787,6 +835,7 @@ test("backfill reaches later positions before rechecking expired cached agreemen
     });
   await first.flush();
   expect(downloads).toBe(24);
+  expect(scans).toBe(1);
   expect(saved[24]).toMatchObject({ problem: "limit_reached", documents: [] });
   const second = build(
     {
@@ -808,6 +857,7 @@ test("backfill reaches later positions before rechecking expired cached agreemen
     });
   await second.flush();
   expect(downloads).toBe(48); // One new original, then 23 cached rechecks.
+  expect(scans).toBe(2); // One expired hash is rescanned, then reused this run.
   expect(saved[49]).toMatchObject({ problem: null });
 });
 

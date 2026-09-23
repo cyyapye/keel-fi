@@ -1,27 +1,55 @@
 import type { Page } from "@playwright/test";
+import { build } from "esbuild";
 import { afterEach, expect, it, vi } from "vitest";
 import { createApp } from "../apps/api/src/app";
 import type { Env } from "../apps/api/src/types";
 import { handleRequest } from "../apps/web/src/worker";
 import { waitForKeelSession } from "./keel-session-check";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
+import { createCostDatabase } from "./test-support/d1-cost";
+import { createSqliteTrace } from "./test-support/sqlite-trace";
 
 const ORIGIN = new URL("https://keel.example.com");
+const replayWorker = build({
+  entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
+  bundle: true,
+  write: false,
+  format: "esm",
+  platform: "neutral",
+  target: "es2022",
+  conditions: ["workerd", "worker", "browser"],
+  mainFields: ["browser", "module", "main"],
+  external: ["node:*", "cloudflare:*"],
+  logLevel: "silent",
+}).then((result) => result.outputFiles[0]!.text);
+
+async function replayD1(trace: ReturnType<typeof createSqliteTrace>) {
+  const fixture = await createCostDatabase(await replayWorker);
+  try {
+    return await trace.replay((body) =>
+      fixture.dispatchFetch("https://synthetic-replay.invalid", {
+        method: "POST",
+        body,
+      }),
+    );
+  } finally {
+    await fixture.close();
+  }
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 it("bounds all three setup checks through the browser client, auth and real D1 without loading the dashboard", async () => {
-  const fixture = await createCostDatabase();
-  const measured = measureD1(fixture.database);
+  const trace = createSqliteTrace();
   let subject = "synthetic-unprovisioned-subject";
   const app = createApp({
     verifyAccess: () =>
       Promise.resolve({ kind: "user" as const, subject, email: null }),
   });
   const env: Env = {
-    DB: measured.database,
+    DB: trace.database,
     ENVIRONMENT: "preview",
     DOCUMENTS: {} as R2Bucket,
     INGESTION_QUEUE: {} as Queue,
@@ -62,7 +90,7 @@ it("bounds all three setup checks through the browser client, auth and real D1 w
         scenario === "pending"
           ? "synthetic-unprovisioned-subject"
           : "synthetic-access-subject";
-      measured.reset();
+      trace.reset();
       requests = 0;
       for (let agent = 0; agent < 3; agent++) {
         let now = 0;
@@ -79,26 +107,29 @@ it("bounds all three setup checks through the browser client, auth and real D1 w
       expect(requests).toBeLessThanOrEqual(
         scenario === "pending" ? 1_080 : scenario === "failure" ? 30 : 3,
       );
-      expect(measured.cost.roundTrips).toBe(requests);
-      expect(measured.cost.rowsRead).toBeLessThanOrEqual(
+      const cost = await replayD1(trace);
+      expect(cost.roundTrips).toBe(requests);
+      expect(cost.rowsRead).toBeLessThanOrEqual(
         scenario === "pending" ? 0 : 120,
       );
-      expect(measured.cost.rowsWritten).toBe(0);
+      expect(cost.rowsWritten).toBe(0);
       report(
         JSON.stringify({
           syntheticSetupDay: {
             scenario,
             requests,
             workerInvocations: requests * 2,
-            ...measured.cost,
+            ...cost,
           },
         }),
       );
     }
+    const beforeUnauthenticated = trace.roundTrips;
     const unauthenticated = await app.request("/api/session", {}, env);
     expect(unauthenticated.status).toBe(401);
+    expect(trace.roundTrips).toBe(beforeUnauthenticated);
   } finally {
-    await fixture.close();
+    trace.close();
   }
 }, 60_000);
 
@@ -112,20 +143,19 @@ it("bounds a full browser reconnect day through the real status client and read-
     await import("../packages/database/src/provider-portfolio-agent");
   const { D1AngelListMacAgentRepository } =
     await import("../packages/database/src/angellist-mac-agent");
-  const fixture = await createCostDatabase();
-  const measured = measureD1(fixture.database);
+  const trace = createSqliteTrace();
   const start = Date.parse("2026-09-01T00:00:00.000Z");
   let now = start;
   const sessions = new D1ProviderBrowserSessionRepository(
-    measured.database,
+    trace.database,
     () => new Date(now),
   );
   const portfolios = new D1ProviderPortfolioAgentRepository(
-    measured.database,
+    trace.database,
     () => new Date(now),
   );
   const angellist = new D1AngelListMacAgentRepository(
-    measured.database,
+    trace.database,
     () => new Date(now),
   );
   const app = createApp({
@@ -138,7 +168,7 @@ it("bounds a full browser reconnect day through the real status client and read-
       }),
   });
   const env: Env = {
-    DB: measured.database,
+    DB: trace.database,
     ENVIRONMENT: "preview",
     DOCUMENTS: {} as R2Bucket,
     INGESTION_QUEUE: {} as Queue,
@@ -206,7 +236,7 @@ it("bounds a full browser reconnect day through the real status client and read-
           },
         });
       }
-      measured.reset();
+      trace.reset();
       requests = 0;
       const end = now + 86_400_000;
       while (jobs.size > 0) {
@@ -220,20 +250,22 @@ it("bounds a full browser reconnect day through the real status client and read-
       }
       expect(stopped).toBe(3);
       expect(requests).toBeLessThanOrEqual(failed ? 18 : 540);
-      expect(measured.cost.rowsRead).toBeLessThanOrEqual(failed ? 100 : 3_000);
-      expect(measured.cost.rowsWritten).toBe(0);
+      const cost = await replayD1(trace);
+      expect(cost.roundTrips).toBe(requests * 2);
+      expect(cost.rowsRead).toBeLessThanOrEqual(failed ? 100 : 3_000);
+      expect(cost.rowsWritten).toBe(0);
       report(
         JSON.stringify({
           syntheticReconnectBrowserDay: {
             failed,
             requests,
             workerInvocations: requests * 2,
-            ...measured.cost,
+            ...cost,
           },
         }),
       );
     }
   } finally {
-    await fixture.close();
+    trace.close();
   }
 }, 60_000);

@@ -4,5 +4,11 @@ node_modules
 playwright-report
 test-results
 .wrangler
+.tugling/local
+.tugling/checkouts
+.keel-local
+.npm-cache
+.pnpm-store
+.corepack
 pnpm-lock.yaml
 LICENSE

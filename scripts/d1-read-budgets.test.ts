@@ -9,57 +9,39 @@ import { D1HoldingsPageRepository } from "../packages/database/src/holdings-page
 import { D1HoldingImportRepository } from "../packages/database/src/holding-imports";
 import { D1PortfolioWatchRepository } from "../packages/database/src/portfolio-watch";
 import { D1ExposureRepository } from "../packages/database/src/exposures";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
+import { createCostFixtureDatabase } from "./test-support/cost-database";
+import { measureD1 } from "./test-support/d1-cost";
 import {
   COST_SUBJECT,
   COST_TIME,
-  seedCostHoldings,
-  seedCostProposals,
-  seedCostWatchTargets,
   syntheticDigest,
 } from "./test-support/cost-fixtures";
 
-let fixture: Awaited<ReturnType<typeof createCostDatabase>>;
+let fixture: Awaited<ReturnType<typeof createCostFixtureDatabase>>;
 let measured: ReturnType<typeof measureD1>;
 let importId: string;
 beforeAll(async () => {
-  fixture = await createCostDatabase();
+  fixture = await createCostFixtureDatabase({ operation: "read-budgets" });
+  const setup = fixture.initialResult;
+  if (setup?.operation !== "read-budgets")
+    throw new Error("Read-budget fixture setup was incomplete");
   measured = measureD1(fixture.database);
-  await seedCostHoldings(measured.database, COST_SUBJECT, 1, true);
   // Includes the documented maximum of 100 containers. The former row lookup
   // loop alone required 100 round trips before any import data was persisted.
-  expect(measured.cost.roundTrips).toBeLessThanOrEqual(35);
-  measured.reset();
-  importId = await seedCostHoldings(measured.database, COST_SUBJECT, 2);
-  expect(measured.cost.roundTrips).toBeLessThanOrEqual(35);
+  expect(setup.initialCapture.roundTrips).toBeLessThanOrEqual(35);
+  importId = setup.importId;
+  expect(setup.acceptedCapture.roundTrips).toBeLessThanOrEqual(35);
   console.info(
     JSON.stringify({
-      captureQueries: [...measured.byQuery]
-        .sort((a, b) => b[1].rowsRead - a[1].rowsRead)
-        .slice(0, 5)
-        .map(([sql, cost]) => ({ sql: sql.slice(0, 170), ...cost })),
+      captureQueries: setup.captureQueries,
     }),
   );
-  expect(measured.cost.rowsRead).toBeLessThanOrEqual(60_000);
-  expect(measured.cost.rowsWritten).toBeLessThanOrEqual(8_000);
-  expect(
-    await fixture.database
-      .prepare("SELECT COUNT(*) AS count FROM holding_position_continuities")
-      .first<number>("count"),
-  ).toBe(120);
-  console.info(JSON.stringify({ syntheticAcceptedCapture: measured.cost }));
-  await seedCostProposals(fixture.database);
-  await seedCostWatchTargets(fixture.database);
-  const connections = new D1InvestmentConnectionsRepository(fixture.database);
-  for (let index = 0; index < 50; index++) {
-    await connections.upsertConnection(
-      COST_SUBJECT,
-      "connector-secrets/synthetic.enc",
-      syntheticDigest(40_000 + index),
-      `ins-synthetic-${index}`,
-      `Synthetic institution ${index}`,
-    );
-  }
+  expect(setup.acceptedCapture.rowsRead).toBeLessThanOrEqual(60_000);
+  expect(setup.acceptedCapture.rowsWritten).toBeLessThanOrEqual(8_000);
+  expect(setup.continuityCount).toBe(120);
+  console.info(
+    JSON.stringify({ syntheticAcceptedCapture: setup.acceptedCapture }),
+  );
 }, 60_000);
 afterAll(async () => {
   await fixture?.close();
@@ -441,7 +423,10 @@ describe("real D1 reads at collection scale", () => {
         )
         .bind(COST_TIME),
     ]);
-    await seedCostHoldings(fixture.database, "synthetic-other-cost-subject");
+    await fixture.setup({
+      operation: "holdings",
+      subject: "synthetic-other-cost-subject",
+    });
     measured.reset();
     await exposures.reconcileRetainedPositionContinuity(COST_SUBJECT);
     expect(measured.cost.rowsRead).toBeLessThanOrEqual(

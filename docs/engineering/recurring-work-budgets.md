@@ -247,9 +247,15 @@ and prove the unchanged budget test rejects it; then restore and verify the fix.
 
 The SQL-only change counter above is supplemented by actual workerd D1 metadata
 in `scripts/provider-agent-d1-cost.test.ts`. The production client, web proxy,
-authentication and repository path run inside a virtual day; missing D1 billing
-metadata fails the test. Keep the independent ceilings below separate from
-scheduler constants.
+authentication and repository path run inside a virtual day against in-memory
+SQLite. Every SQL operation, binding and result is recorded, then replayed in
+order against a fresh workerd D1 database with the same migrations and seed.
+Every D1 result must match the behavior run. Original transaction boundaries are
+preserved, and actual D1 metadata supplies the full-day billing totals; SQLite
+never supplies estimated billing counters. Missing operations, divergent
+results, failed SQL or missing billing metadata fail the gate. Transport chunks
+reduce host/workerd crossings without omitting repeated polling operations. Keep
+the independent ceilings below separate from scheduler constants.
 
 | Workload                                           | HTTP requests | Web/API invocations | D1 rows read | D1 rows written |
 | -------------------------------------------------- | ------------: | ------------------: | -----------: | --------------: |

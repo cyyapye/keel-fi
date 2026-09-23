@@ -2,7 +2,7 @@ import {
   AcceptPurchasesSchema,
   PurchaseReceiptSchema,
 } from "../packages/domain/src/position-purchases";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./api-mocked-test";
 import {
   CreateLegalEntityInputSchema,
   type LegalEntityInventory,

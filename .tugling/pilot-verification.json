@@ -2,6 +2,31 @@
   "schema_version": 1,
   "flows": [
     {
+      "id": "source-quality",
+      "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
+      "argv": ["make", "-j2", "data-scan", "format-check", "lint", "typecheck"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "scripts/check-public-data.mjs",
+        "eslint.config.mjs",
+        "tsconfig.json",
+        ".prettierignore"
+      ],
+      "runtime": null,
+      "depends_on": []
+    },
+    {
+      "id": "compose-configuration",
+      "description": "Validate the existing isolated synthetic development stack configuration.",
+      "argv": ["docker", "compose", "config", "--quiet"],
+      "timeout_seconds": 30,
+      "sources": ["compose.yaml"],
+      "runtime": null,
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
       "id": "gate-and-artifact-integrity",
       "description": "Reject substituted candidate code and omitted/filtered native cases; exercise owned temporary checkout success, failure and cancellation.",
       "argv": ["python3", "-I", "scripts/pilot_native.py", "python"],
@@ -12,14 +37,121 @@
         "scripts/test_linux_test_run.py",
         "scripts/linux-test-run.py",
         ".tugling/pilot-cases.json",
-        "scripts/tugling-pilot.py"
+        "scripts/tugling-pilot.py",
+        "scripts/ci-verification.py",
+        ".github/workflows/native-verification.yml",
+        ".github/actions/verify-native-receipt/action.yml",
+        "scripts/ci-resource-sampler.py"
       ],
       "runtime": {
         "owner": "native-command",
         "launch": "unittest owns synthetic Git and native runner fixtures in temporary directories.",
         "health": "Real runner exit and case outcomes are checked against the reviewed inventory.",
         "cleanup": "TemporaryDirectory and linux-test-run finally blocks remove only their owned paths and process groups."
-      }
+      },
+      "depends_on": []
+    },
+    {
+      "id": "pdf-sandbox-build",
+      "description": "Build the daily-refreshed isolated PDF reader, adversarial probe and malware scanner images on the provisioned rootless daemon.",
+      "argv": ["make", "pdf-sandbox-build"],
+      "timeout_seconds": 1200,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "pnpm-lock.yaml",
+        "scripts/pdf-sandbox-build.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/Dockerfile",
+        "scripts/pdf-sandbox/boundary.py",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/reader.py",
+        "scripts/pdf-sandbox/scanner.py",
+        "scripts/pdf-sandbox/freshclam.conf",
+        "scripts/test-support/legal-documents.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native command builds immutable reader, probe and scanner targets on the provisioned rootless socket, retaining the daily security-package and malware-signature refresh.",
+        "health": "Rootless engine policy, immutable image digests and a clean synthetic scanner preflight must pass before owner-only runtime configurations are atomically replaced.",
+        "cleanup": "The builder removes its bounded temporary iid files; the immutable images and owner-only digest configurations remain for dependent verification flows."
+      },
+      "depends_on": []
+    },
+    {
+      "id": "migration-and-seed",
+      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
+      "argv": ["make", "db-verify"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "scripts/local-seed-scenarios.ts",
+        "packages/database/seed/synthetic.sql"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native seed runner creates and resets only this checkout local scenario state.",
+        "health": "Scenario readback assertions check migrations, seeds and relationships.",
+        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
+      "id": "pdf-isolation",
+      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
+      "argv": ["make", "pdf-sandbox-verify"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "scripts/pdf-sandbox-verify.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/boundary.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native verifier overlaps one scanner/reader sequence with one independent kernel-probe sequence, at most two owned containers with unchanged resource limits on the provisioned rootless socket.",
+        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
+        "cleanup": "The native launcher removes exact owned containers; no shared daemon or image cleanup."
+      },
+      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
+    },
+    {
+      "id": "browser-fixture-preparation",
+      "description": "Build and seal the isolated synthetic D1 fixture before browser prerequisites reach the critical path.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "browser-fixture"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "pnpm-lock.yaml",
+        "apps/api/wrangler.jsonc",
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py",
+        "scripts/reset-e2e-state.mjs",
+        "packages/database/seed/synthetic.sql"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native command exclusively acquires the Playwright lease, runs the unchanged isolated browser reset, migrations, synthetic seed and readback, then moves the closed result to a dedicated allowlisted path.",
+        "health": "A source-input digest and complete prepared-tree digest seal the verified fixture; the browser consumer rejects missing, stale, mutated or symlinked state without rebuilding it.",
+        "cleanup": "Failure leaves no valid seal. The prepared browser command consumes the exact owned seed after cloning, while a later preparation safely replaces an unconsumed owned seed."
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
+      "id": "build-and-entry-budget",
+      "description": "Build every workspace and enforce the native 100 KiB initial JavaScript gzip budget and lazy application boundary.",
+      "argv": ["make", "build"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "apps/web/package.json",
+        "scripts/check-web-entry-budget.mjs"
+      ],
+      "runtime": null,
+      "depends_on": ["source-quality", "migration-and-seed"]
     },
     {
       "id": "native-unit-and-cost",
@@ -38,6 +170,7 @@
         "scripts/participation-d1-cost.test.ts",
         "scripts/provider-agent-d1-cost.test.ts",
         "scripts/provider-agent-usage.test.ts",
+        "scripts/keel-session-check.test.ts",
         "scripts/cash-request-d1-cost.test.ts",
         "scripts/automatic-investment-review-d1-cost.test.ts",
         "scripts/portfolio-watch-d1-cost.test.ts",
@@ -55,94 +188,51 @@
         "packages/database/src/investment-review.test.ts",
         "packages/database/src/exposures.test.ts",
         "scripts/private-continuity-d1-cost.test.ts",
+        "scripts/test-support/private-continuity-cost-worker.ts",
         "packages/database/migrations/0069_historical_private_position_continuity.sql",
         "scripts/investment-events-d1-cost.test.ts",
         "packages/domain/src/investment-events.test.ts",
-        "packages/database/migrations/0071_investment_events.sql"
+        "packages/database/migrations/0071_investment_events.sql",
+        "scripts/sql-replay.test.ts",
+        "scripts/test-support/sqlite-trace.ts",
+        "scripts/test-support/sql-replay.ts",
+        "scripts/test-support/sql-replay-worker.ts",
+        "scripts/browser-test-lanes.ts",
+        "scripts/browser-test-lanes.test.ts",
+        "scripts/ci-test-sequencer.ts",
+        "scripts/ci-test-sequencer.test.ts",
+        "scripts/test-support/d1-cost.ts",
+        "scripts/test-support/d1-cost.test.ts",
+        "scripts/test-support/cost-fixtures-worker.ts",
+        "scripts/test-support/cost-database.ts",
+        "scripts/test-support/automatic-investment-cost-database.ts",
+        "scripts/test-support/automatic-investment-cost-worker.ts",
+        "scripts/test-support/purchase-cost-database.ts",
+        "scripts/test-support/purchase-cost-worker.ts",
+        "scripts/purchase-details-d1-cost.test.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest owns workerd, synthetic D1, GPG and temporary fixture processes; maxWorkers is two to bound native process contention.",
+        "launch": "Vitest schedules expensive files first and owns fresh workerd, synthetic D1, GPG and temporary fixtures; three CI workers (two locally) bound native process contention.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
-      }
-    },
-    {
-      "id": "source-quality",
-      "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
-      "argv": ["make", "data-scan", "format-check", "lint", "typecheck"],
-      "timeout_seconds": 600,
-      "sources": [
-        "Makefile",
-        "package.json",
-        "scripts/check-public-data.mjs",
-        "eslint.config.mjs",
-        "tsconfig.json"
-      ],
-      "runtime": null
-    },
-    {
-      "id": "compose-configuration",
-      "description": "Validate the existing isolated synthetic development stack configuration.",
-      "argv": ["docker", "compose", "config", "--quiet"],
-      "timeout_seconds": 30,
-      "sources": ["compose.yaml"],
-      "runtime": null
-    },
-    {
-      "id": "pdf-isolation",
-      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
-      "argv": ["make", "pdf-sandbox-verify"],
-      "timeout_seconds": 600,
-      "sources": [
-        "Makefile",
-        "scripts/pdf-sandbox-verify.ts",
-        "scripts/pdf-sandbox.ts",
-        "scripts/pdf-sandbox/probe.py",
-        "scripts/pdf-sandbox/boundary.py"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native verifier creates named serial containers on the provisioned rootless socket using prepared immutable images.",
-        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
-        "cleanup": "The native launcher removes exact owned containers; no shared daemon or image cleanup."
-      }
-    },
-    {
-      "id": "build-and-entry-budget",
-      "description": "Build every workspace and enforce the native 100 KiB initial JavaScript gzip budget and lazy application boundary.",
-      "argv": ["make", "build"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "package.json",
-        "apps/web/package.json",
-        "scripts/check-web-entry-budget.mjs"
-      ],
-      "runtime": null
-    },
-    {
-      "id": "migration-and-seed",
-      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
-      "argv": ["make", "db-verify"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "scripts/local-seed-scenarios.ts",
-        "packages/database/seed/synthetic.sql"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native seed runner creates and resets only this checkout local scenario state.",
-        "health": "Scenario readback assertions check migrations, seeds and relationships.",
-        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
-      }
+      },
+      "depends_on": [
+        "source-quality",
+        "migration-and-seed",
+        "pdf-sandbox-build"
+      ]
     },
     {
       "id": "browser-workflows",
       "description": "Exercise the complete desktop/mobile browser contract, including minimal review, automatic decisions, persisted saves, layout, recovery and real synthetic document capture.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "playwright"],
-      "timeout_seconds": 3600,
+      "argv": [
+        "python3",
+        "-I",
+        "scripts/pilot_native.py",
+        "playwright-prepared"
+      ],
+      "timeout_seconds": 1800,
       "sources": [
         "Makefile",
         "playwright.config.ts",
@@ -161,14 +251,25 @@
         "e2e/app-recovery.visual.spec.ts",
         "e2e/provider-browser-lifecycle.spec.ts",
         "e2e/provider-legal-documents.spec.ts",
-        "e2e/provider-session.spec.ts"
+        "e2e/provider-session.spec.ts",
+        "scripts/browser-test-lanes.ts",
+        "e2e/api-mocked-test.ts",
+        "scripts/browser-test-server.ts",
+        "scripts/browser-test-readiness.ts",
+        "e2e/agreement-security.visual.spec.ts",
+        "apps/web/vite.config.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Native D1 reset precedes Playwright webServer pnpm dev on checkout-specific ports; existing-server reuse is disabled.",
-        "health": "Playwright waits through Vite /api/alpha, then asserts browser behavior and unchanged screenshot baselines.",
-        "cleanup": "Playwright stops owned browsers/server groups; reports occupy one locked slot under .tugling/local/pilot."
-      }
+        "launch": "The sealed, verified and closed synthetic D1 fixture is copied into three independent profiles without rerunning setup. Three one-worker stateful shards and the one-worker production-served API-mocked lane start on distinct ports; only after all four validate and release their runtimes does the four-worker development-served API-mocked lane start.",
+        "health": "Development lanes finish and validate the initial Vite module graph; stateful lanes also wait through the web proxy for /api/holdings-page. Mocked contexts reject unhandled application APIs. Five validated reports must cover the complete reviewed browser inventory with unchanged snapshots and at most four active browser workers.",
+        "cleanup": "Owned lane process groups are terminated on completion, failure or cancellation before profile removal. Per-suite leases prevent duplicate report and runtime writers."
+      },
+      "depends_on": [
+        "browser-fixture-preparation",
+        "build-and-entry-budget",
+        "pdf-isolation"
+      ]
     }
   ],
   "requirements": [
@@ -193,6 +294,7 @@
         "source-quality",
         "native-unit-and-cost",
         "migration-and-seed",
+        "browser-fixture-preparation",
         "browser-workflows"
       ]
     },
@@ -244,7 +346,12 @@
         "docs/deployment/backup-and-recovery.md",
         "docs/security/private-document-baseline.md"
       ],
-      "flows": ["native-unit-and-cost", "pdf-isolation", "browser-workflows"]
+      "flows": [
+        "pdf-sandbox-build",
+        "native-unit-and-cost",
+        "pdf-isolation",
+        "browser-workflows"
+      ]
     },
     {
       "id": "temporary-work-ownership",
@@ -253,7 +360,7 @@
         "docs/deployment/linux-test-cleanup.md",
         "docs/engineering/tugling-pilot.md"
       ],
-      "flows": ["gate-and-artifact-integrity"]
+      "flows": ["gate-and-artifact-integrity", "browser-fixture-preparation"]
     },
     {
       "id": "native-build-and-bootstrap",
@@ -266,7 +373,9 @@
       "flows": [
         "source-quality",
         "compose-configuration",
+        "pdf-sandbox-build",
         "build-and-entry-budget",
+        "browser-fixture-preparation",
         "migration-and-seed"
       ]
     },
@@ -280,5 +389,8 @@
       ],
       "flows": ["gate-and-artifact-integrity", "native-unit-and-cost"]
     }
-  ]
+  ],
+  "execution": {
+    "max_parallel": 3
+  }
 }

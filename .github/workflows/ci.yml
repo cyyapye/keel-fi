@@ -13,43 +13,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native:
+    name: Complete native pilot gate
+    needs: secret-scan
+    uses: ./.github/workflows/native-verification.yml
+
   quality:
     name: Quality
+    needs: native
+    if: ${{ !cancelled() }}
     runs-on: [self-hosted, Linux, X64, keel-ci]
+    timeout-minutes: 5
     steps:
+      - name: Require successful native execution
+        env:
+          NATIVE_RESULT: ${{ needs.native.result }}
+        run: test "$NATIVE_RESULT" = success
       - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup-node-pnpm
-      - name: Validate Docker Compose configuration
-        run: docker compose config --quiet
-      - run: make pdf-sandbox-build
-      - run: make pdf-sandbox-verify
-      - run: make check
+        with:
+          ref: ${{ github.sha }}
+          path: keel
+          persist-credentials: false
+      - uses: ./keel/.github/actions/verify-native-receipt
 
   migrations:
     name: D1 migration and synthetic seed
+    needs: native
+    if: ${{ !cancelled() }}
     runs-on: [self-hosted, Linux, X64, keel-ci]
+    timeout-minutes: 5
     steps:
+      - name: Require successful native execution
+        env:
+          NATIVE_RESULT: ${{ needs.native.result }}
+        run: test "$NATIVE_RESULT" = success
       - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup-node-pnpm
-      - run: make db-verify
+        with:
+          ref: ${{ github.sha }}
+          path: keel
+          persist-credentials: false
+      - uses: ./keel/.github/actions/verify-native-receipt
 
   browser:
     name: Critical browser flows
+    needs: native
+    if: ${{ !cancelled() }}
     runs-on: [self-hosted, Linux, X64, keel-ci]
+    timeout-minutes: 5
     steps:
+      - name: Require successful native execution
+        env:
+          NATIVE_RESULT: ${{ needs.native.result }}
+        run: test "$NATIVE_RESULT" = success
       - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup-node-pnpm
-      - run: pnpm exec playwright install chromium
-      - run: make pdf-sandbox-build
-      - run: make e2e
-      - name: Upload browser failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
         with:
-          name: pr-browser-results
-          path: test-results/
-          if-no-files-found: ignore
-          retention-days: 7
+          ref: ${{ github.sha }}
+          path: keel
+          persist-credentials: false
+      - uses: ./keel/.github/actions/verify-native-receipt
 
   secret-scan:
     name: Secret scan

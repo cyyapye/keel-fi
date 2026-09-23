@@ -8,23 +8,15 @@ import {
 } from "../apps/api/src/portfolio-watch";
 import { enqueueDuePortfolioWatchSources } from "../apps/api/src/portfolio-watch-schedule";
 import type { Env } from "../apps/api/src/types";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import {
-  seedCostHoldings,
-  seedCostWatchTargets,
-} from "./test-support/cost-fixtures";
+import { createCostFixtureDatabase } from "./test-support/cost-database";
+import { measureD1 } from "./test-support/d1-cost";
 
 it("bounds the complete source job graph for a daily maximum discovery, replay, and outage", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createCostFixtureDatabase({
+    operation: "portfolio-watch",
+    nextCheckAt: "2026-09-12T00:00:00.000Z",
+  });
   try {
-    await seedCostHoldings(fixture.database);
-    await seedCostWatchTargets(fixture.database);
-    // SQLite enrollment triggers use wall time. Make the generated sources
-    // due at the start of the virtual day before measuring scheduler work.
-    await fixture.database
-      .prepare("UPDATE portfolio_watch_source_sync_state SET next_check_at = ?")
-      .bind("2026-09-12T00:00:00.000Z")
-      .run();
     const measured = measureD1(fixture.database);
     const repository = new D1PortfolioWatchRepository(measured.database);
     const jobs: Parameters<typeof __portfolioWatchTest.processSourceJob>[0][] =

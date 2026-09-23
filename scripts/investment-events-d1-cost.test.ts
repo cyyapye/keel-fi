@@ -1,22 +1,14 @@
 import { expect, it } from "vitest";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import { seedAutomaticInvestments } from "./test-support/automatic-investments";
+import { measureD1 } from "./test-support/d1-cost";
+import { createAutomaticInvestmentCostDatabase } from "./test-support/automatic-investment-cost-database";
 import { D1InvestmentReviewRepository } from "../packages/database/src/investment-review";
 import { investmentEvidenceRevision } from "../packages/domain/src/investment-review";
 
 it("bounds event detail and atomic conversion writes with 120 positions and growing event history", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createAutomaticInvestmentCostDatabase();
   try {
     const subject = "synthetic-access-subject";
-    const ids = await seedAutomaticInvestments(
-      fixture.database,
-      120,
-      [],
-      false,
-      subject,
-      undefined,
-      0,
-    );
+    const ids = await fixture.seed({ count: 120, subject, capturedCount: 0 });
     const measured = measureD1(fixture.database);
     const repository = new D1InvestmentReviewRepository(measured.database);
     const before = await repository.getContext(subject, ids[0]!);
@@ -108,15 +100,11 @@ it("bounds event detail and atomic conversion writes with 120 positions and grow
     await fixture.execute(
       "INSERT INTO users VALUES ('events-other-user','events-other-subject','events-other@example.invalid','Synthetic Other','2026-09-01'); INSERT INTO households VALUES ('events-other','events-other-user','Synthetic Other','USD','2026-09-01')",
     );
-    await seedAutomaticInvestments(
-      fixture.database,
-      120,
-      [],
-      false,
-      "events-other-subject",
-      undefined,
-      0,
-    );
+    await fixture.seed({
+      count: 120,
+      subject: "events-other-subject",
+      capturedCount: 0,
+    });
     measured.reset();
     expect(
       (await repository.getContext(subject, ids[0]!)).investmentEvents,

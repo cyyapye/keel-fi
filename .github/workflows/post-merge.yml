@@ -12,23 +12,10 @@ permissions:
 jobs:
   verify:
     name: Exact merged commit
-    runs-on: [self-hosted, Linux, X64, keel-ci]
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.sha }}
-      - uses: ./.github/actions/setup-node-pnpm
-      - run: pnpm exec playwright install chromium
-      - run: make pdf-sandbox-build
-      - run: make verify
-      - name: Upload browser failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: post-merge-browser-results
-          path: test-results/
-          if-no-files-found: ignore
-          retention-days: 7
+    needs:
+      - secret-scan
+      - tugling-contract
+    uses: ./.github/workflows/native-verification.yml
 
   secret-scan:
     name: Secret scan

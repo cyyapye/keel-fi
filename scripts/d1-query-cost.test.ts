@@ -17,6 +17,31 @@ describe("complete production SQL inventory", () => {
   it("compiles every SQL factory and rejects unscoped base-table scans", async () => {
     const queries = productionQueries();
     expect(queries.length).toBeGreaterThan(450);
+    const planBatchSize = 64;
+    const planStatements = queries.map((query) =>
+      fixture.database
+        .prepare(`EXPLAIN QUERY PLAN ${query.sql}`)
+        .bind(...Array<null>(placeholderCount(query.sql)).fill(null)),
+    );
+    const planResults: D1Result<{
+      id: number;
+      parent: number;
+      detail: string;
+    }>[] = [];
+    let planBatchCount = 0;
+    for (let index = 0; index < planStatements.length; index += planBatchSize) {
+      const statements = planStatements.slice(index, index + planBatchSize);
+      const results = await fixture.database.batch<{
+        id: number;
+        parent: number;
+        detail: string;
+      }>(statements);
+      expect(results).toHaveLength(statements.length);
+      planResults.push(...results);
+      planBatchCount++;
+    }
+    expect(planBatchCount).toBe(Math.ceil(queries.length / planBatchSize));
+    expect(planResults).toHaveLength(queries.length);
     const objects = (
       await fixture.database
         .prepare(
@@ -33,7 +58,7 @@ describe("complete production SQL inventory", () => {
       objects.filter((row) => row.type === "table").map((row) => row.name),
     );
     const failures: string[] = [];
-    for (const query of queries) {
+    for (const [index, query] of queries.entries()) {
       // Include referenced view bodies; otherwise a view can conceal its scan.
       let expanded = query.sql;
       const expandedViews = new Set<string>();
@@ -66,12 +91,12 @@ describe("complete production SQL inventory", () => {
           else sources.add(match[1]!);
         }
       }
-      const plan = (
-        await fixture.database
-          .prepare(`EXPLAIN QUERY PLAN ${query.sql}`)
-          .bind(...Array<null>(placeholderCount(query.sql)).fill(null))
-          .all<{ id: number; parent: number; detail: string }>()
-      ).results;
+      const planResult = planResults[index]!;
+      expect(
+        planResult.success,
+        `${query.file}:${query.line} ${query.method}`,
+      ).toBe(true);
+      const plan = planResult.results;
       const derived = new Set(
         plan.flatMap(
           (step) =>

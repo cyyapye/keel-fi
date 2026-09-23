@@ -1,15 +1,40 @@
 import { defineConfig, devices } from "@playwright/test";
+import { fileURLToPath } from "node:url";
+import { BROWSER_TEST_VITE_READINESS_PATH } from "./scripts/browser-test-readiness";
+import {
+  BROWSER_TEST_EXECUTION,
+  browserTestDirectory,
+  resolveBrowserTestLane,
+} from "./scripts/browser-test-lanes";
 import { resolveDevPorts } from "./scripts/dev-ports";
 
-const { webPort } = resolveDevPorts();
+const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
+const browserLane = resolveBrowserTestLane({
+  e2eDirectory: browserTestDirectory(repositoryRoot),
+  lane: process.env.KEEL_BROWSER_LANE,
+});
+const localPorts = resolveDevPorts();
+const webPort =
+  browserLane.lane === "all"
+    ? localPorts.webPort
+    : BROWSER_TEST_EXECUTION[browserLane.lane].webPort;
 const baseURL = `http://127.0.0.1:${webPort}`;
-const readinessURL = `${baseURL}/api/alpha`;
+const readinessURL =
+  browserLane.lane === "all"
+    ? `${baseURL}/api/alpha`
+    : browserLane.frontend === "development"
+      ? `${baseURL}${BROWSER_TEST_VITE_READINESS_PATH}`
+      : browserLane.server === "stateful"
+        ? `${baseURL}/api/holdings-page`
+        : baseURL;
 
 export default defineConfig({
   testDir: "./e2e",
+  testMatch: browserLane.files,
   fullyParallel: true,
-  // Functional flows share the seeded local D1 database and must not mutate it concurrently.
-  workers: 1,
+  // Mocked lanes reject unhandled application API requests. Four one-worker
+  // roots run first; the final mocked development lane then uses all four slots.
+  workers: browserLane.workers,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
@@ -18,6 +43,7 @@ export default defineConfig({
   use: {
     baseURL,
     screenshot: "only-on-failure",
+    serviceWorkers: browserLane.server === "mocked" ? "block" : "allow",
     trace: "on-first-retry",
   },
   projects: [
@@ -31,11 +57,16 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm dev",
+    command:
+      browserLane.lane === "all"
+        ? "pnpm dev"
+        : "pnpm exec tsx scripts/browser-test-server.ts",
     reuseExistingServer:
       !process.env.CI && process.env.KEEL_E2E_ISOLATED !== "1",
     timeout: 120_000,
-    // Waiting through Vite's API proxy proves both local services are ready.
+    // Development lanes finish Vite's module graph before Playwright starts a
+    // browser. Every stateful lane also waits for its synthetic API projection
+    // through the same web proxy the browser consumes.
     url: readinessURL,
   },
 });
