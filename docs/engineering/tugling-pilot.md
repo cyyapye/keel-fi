@@ -11,10 +11,11 @@ release. Learning stays local and is never a CI input or artifact.
 Keep the reviewed source checkout beside Keel, outside its discovery tree. Run
 from Keel on the intended branch. A fresh checkout uses `make bootstrap` for
 locked dependencies, synthetic D1 and Chromium. The existing PDF sandbox runbook
-owns the provisioned rootless socket and image build. Reuse a prepared local
-sandbox configuration; CI builds its own images with `make pdf-sandbox-build`.
-No credentials, real records or environment files are needed. Missing
-prerequisites fail closed.
+owns the provisioned rootless socket. The required gate explicitly runs
+`make pdf-sandbox-build` as a dependency-tracked flow, including the daily
+security refresh; focused local tests can reuse a prepared sandbox
+configuration. No credentials, real records or environment files are needed.
+Missing prerequisites fail closed.
 
 ```sh
 export TUGLING_PILOT_SOURCE=/absolute/sibling/tugling-candidate

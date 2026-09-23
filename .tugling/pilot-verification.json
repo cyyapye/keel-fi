@@ -52,6 +52,33 @@
       "depends_on": []
     },
     {
+      "id": "pdf-sandbox-build",
+      "description": "Build the daily-refreshed isolated PDF reader, adversarial probe and malware scanner images on the provisioned rootless daemon.",
+      "argv": ["make", "pdf-sandbox-build"],
+      "timeout_seconds": 1200,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "pnpm-lock.yaml",
+        "scripts/pdf-sandbox-build.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/Dockerfile",
+        "scripts/pdf-sandbox/boundary.py",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/reader.py",
+        "scripts/pdf-sandbox/scanner.py",
+        "scripts/pdf-sandbox/freshclam.conf",
+        "scripts/test-support/legal-documents.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native command builds immutable reader, probe and scanner targets on the provisioned rootless socket, retaining the daily security-package and malware-signature refresh.",
+        "health": "Rootless engine policy, immutable image digests and a clean synthetic scanner preflight must pass before owner-only runtime configurations are atomically replaced.",
+        "cleanup": "The builder removes its bounded temporary iid files; the immutable images and owner-only digest configurations remain for dependent verification flows."
+      },
+      "depends_on": []
+    },
+    {
       "id": "migration-and-seed",
       "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
       "argv": ["make", "db-verify"],
@@ -87,7 +114,7 @@
         "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
         "cleanup": "The native launcher removes exact owned containers; no shared daemon or image cleanup."
       },
-      "depends_on": ["gate-and-artifact-integrity"]
+      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
     },
     {
       "id": "browser-fixture-preparation",
@@ -190,7 +217,11 @@
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
-      "depends_on": ["source-quality", "migration-and-seed"]
+      "depends_on": [
+        "source-quality",
+        "migration-and-seed",
+        "pdf-sandbox-build"
+      ]
     },
     {
       "id": "browser-workflows",
@@ -315,7 +346,12 @@
         "docs/deployment/backup-and-recovery.md",
         "docs/security/private-document-baseline.md"
       ],
-      "flows": ["native-unit-and-cost", "pdf-isolation", "browser-workflows"]
+      "flows": [
+        "pdf-sandbox-build",
+        "native-unit-and-cost",
+        "pdf-isolation",
+        "browser-workflows"
+      ]
     },
     {
       "id": "temporary-work-ownership",
@@ -337,6 +373,7 @@
       "flows": [
         "source-quality",
         "compose-configuration",
+        "pdf-sandbox-build",
         "build-and-entry-budget",
         "browser-fixture-preparation",
         "migration-and-seed"

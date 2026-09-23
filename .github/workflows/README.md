@@ -49,10 +49,11 @@ accepting untrusted contributors.
 The CI account needs the rootless prerequisites and delegated cgroup-v2 CPU,
 memory and process controllers described in the
 [PDF sandbox runbook](../../docs/deployment/pdf-sandbox.md). The native gate
-builds the sandbox images explicitly and runs the real isolation probes; missing
-infrastructure fails the checks. Package installation happens inside the sandbox
-image build, not with `sudo` in the runner job. The deployment lane does not
-build or run PDFs.
+builds the sandbox images as a required flow alongside source checks. Image
+consumers wait for that build, and real isolation probes remain required;
+missing infrastructure fails the checks. Package installation happens inside the
+sandbox image build, not with `sudo` in the runner job. The deployment lane does
+not build or run PDFs.
 
 `post-merge.yml` runs the complete native required gate, the exact pinned
 Tugling project contract, and a full-history secret scan on the exact commit

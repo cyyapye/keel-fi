@@ -796,6 +796,8 @@ class NativeAccountingTests(unittest.TestCase):
         probe = (pilot.ROOT / ".github/workflows/tugling-pilot.yml").read_text()
         action = (pilot.ROOT / ".github/actions/verify-native-receipt/action.yml").read_text()
         post_merge = (pilot.ROOT / ".github/workflows/post-merge.yml").read_text()
+        plan = json.loads((pilot.ROOT / ".tugling/pilot-verification.json").read_text())
+        flows = {flow["id"]: flow for flow in plan["flows"]}
         self.assertIn("ref: ${{ github.sha }}", workflow)
         self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"', workflow)
         self.assertIn("runs-on: [self-hosted, Linux, X64, keel-ci]", workflow)
@@ -808,6 +810,24 @@ class NativeAccountingTests(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/native-verification.yml", post_merge)
         self.assertIn("scripts/ci-verification.py check", action)
         self.assertIn("native-required-${{ github.sha }}-${{ github.run_attempt }}", action)
+        self.assertNotIn("make pdf-sandbox-build", workflow)
+        self.assertNotIn("make pdf-sandbox-build", probe)
+        self.assertEqual(flows["pdf-sandbox-build"]["argv"], ["make", "pdf-sandbox-build"])
+        self.assertEqual(flows["pdf-sandbox-build"]["timeout_seconds"], 1200)
+        self.assertEqual(flows["pdf-sandbox-build"]["depends_on"], [])
+        self.assertEqual(
+            flows["pdf-isolation"]["depends_on"],
+            ["gate-and-artifact-integrity", "pdf-sandbox-build"],
+        )
+        self.assertEqual(
+            flows["native-unit-and-cost"]["depends_on"],
+            ["source-quality", "migration-and-seed", "pdf-sandbox-build"],
+        )
+        self.assertIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
+        self.assertEqual(plan["execution"]["max_parallel"], 3)
+        self.assertLessEqual(
+            sum(flow["timeout_seconds"] for flow in flows.values()), 7200
+        )
         self.assertNotIn("pull_request:", probe)
         self.assertNotIn("merge_group:", probe)
         for duplicate in ("make check", "make e2e", "make db-verify", "make verify"):
