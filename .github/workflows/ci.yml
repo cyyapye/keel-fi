@@ -15,6 +15,7 @@ concurrency:
 jobs:
   native:
     name: Complete native pilot gate
+    needs: secret-scan
     uses: ./.github/workflows/native-verification.yml
 
   quality:

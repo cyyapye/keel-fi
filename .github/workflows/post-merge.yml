@@ -12,6 +12,9 @@ permissions:
 jobs:
   verify:
     name: Exact merged commit
+    needs:
+      - secret-scan
+      - tugling-contract
     uses: ./.github/workflows/native-verification.yml
 
   secret-scan:

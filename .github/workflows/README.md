@@ -2,11 +2,12 @@
 
 `ci.yml` runs before merge for pull requests and merge-queue candidates. Its
 native verification runs once through `native-verification.yml` on the exact
-event SHA. The named Quality, D1 migration and synthetic seed, and Critical
-browser flows jobs validate its complete same-attempt required receipt. Secret
-scan remains independent. All checks fail closed, including if native execution
-is cancelled. The standalone Tugling candidate workflow is manual-only, so
-ordinary PRs no longer run a second full verification suite. See
+event SHA after the secret scan succeeds. The named Quality, D1 migration and
+synthetic seed, and Critical browser flows jobs validate its complete
+same-attempt required receipt. Secret scan remains independent. All checks fail
+closed, including if native execution is cancelled. The standalone Tugling
+candidate workflow is manual-only, so ordinary PRs no longer run a second full
+verification suite. See
 [CI performance](../../docs/engineering/ci-performance.md).
 
 `tugling.yml` separately verifies the project adapter, synthetic dogfood case,
@@ -55,9 +56,11 @@ build or run PDFs.
 
 `post-merge.yml` runs the complete native required gate, the exact pinned
 Tugling project contract, and a full-history secret scan on the exact commit
-pushed to `main`. After all three jobs pass, it automatically deploys that same
-SHA to the protected Cloudflare preview. A manual dispatch deploys only when it
-targets `main`.
+pushed to `main`. The small secret-scan and Tugling contract jobs run before
+native verification, so they cannot queue behind another long native run after
+verification finishes. After all three jobs pass, it automatically deploys that
+same SHA to the protected Cloudflare preview. A manual dispatch deploys only
+when it targets `main`.
 
 The preview deployment is serialized and fail-closed. It exports, encrypts, and
 round-trip verifies D1 before applying forward-only migrations, deploys the API

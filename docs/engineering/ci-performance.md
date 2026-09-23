@@ -44,6 +44,24 @@ does not add capacity. The host also serves other workloads; measure peak CPU,
 memory, I/O and queue pressure before adding runners or increasing worker
 counts. Keep the credential-bearing deployment account separate.
 
+Run the small release gates before admitting expensive native verification on
+this single runner. PR native verification waits for its secret scan; post-merge
+native verification waits for both the full-history secret scan and the pinned
+Tugling project contract. Preview still depends on all three gates. This
+prevents a completed native run from waiting behind another long native job
+merely to finish its small release checks. It does not eliminate queueing before
+verification or add capacity for simultaneous native runs.
+
+The need was observed in merged run `35771028409`: native verification passed at
+19:14:10 UTC, but a Dependabot native job occupied the runner from 19:14:45 to
+19:27:47. The contract and secret scan completed only at 19:28:14 and 19:28:27,
+so preview finished at 19:30:01. Native execution itself took 698.799 seconds
+(11m39s), versus 1,337.720 seconds before this optimization round. Its browser
+flow took 425.105 seconds and unit/D1 flow 511.484 seconds; 1,159 unit tests and
+288 browser cases passed, with 44 unchanged browser exclusions and no flakes.
+The 28m52s end-to-end workflow includes that queue gap and must not be
+represented as an 11m39s delivery.
+
 Prioritize the real D1 cost fixtures and browser tests using measured receipt
 and native-report timings. Preserve the full-day provider scenarios and real D1
 cost assertions. Browser tests that share mutable D1 state remain serial.
