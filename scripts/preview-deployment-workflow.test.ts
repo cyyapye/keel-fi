@@ -12,6 +12,23 @@ describe("post-merge preview deployment workflow", () => {
     expect(deploymentStart).toBeGreaterThan(-1);
     const verification = postMergeWorkflow.slice(0, deploymentStart);
     const deployment = postMergeWorkflow.slice(deploymentStart);
+    const pullRequestNativeStart = pullRequestWorkflow.indexOf("  native:");
+    const pullRequestQualityStart = pullRequestWorkflow.indexOf("  quality:");
+    const postMergeNativeStart = postMergeWorkflow.indexOf("  verify:");
+    const postMergeSecretScanStart =
+      postMergeWorkflow.indexOf("  secret-scan:");
+    expect(pullRequestNativeStart).toBeGreaterThan(-1);
+    expect(pullRequestQualityStart).toBeGreaterThan(pullRequestNativeStart);
+    expect(postMergeNativeStart).toBeGreaterThan(-1);
+    expect(postMergeSecretScanStart).toBeGreaterThan(postMergeNativeStart);
+    const pullRequestNative = pullRequestWorkflow.slice(
+      pullRequestNativeStart,
+      pullRequestQualityStart,
+    );
+    const postMergeNative = postMergeWorkflow.slice(
+      postMergeNativeStart,
+      postMergeSecretScanStart,
+    );
 
     expect(
       pullRequestWorkflow.match(
@@ -23,6 +40,10 @@ describe("post-merge preview deployment workflow", () => {
     ).toHaveLength(2);
     expect(verification).toContain(
       "uses: ./.github/workflows/native-verification.yml",
+    );
+    expect(pullRequestNative).toContain("needs: secret-scan");
+    expect(postMergeNative).toContain(
+      "needs:\n      - secret-scan\n      - tugling-contract",
     );
     expect(deployment).toContain(
       "runs-on: [self-hosted, Linux, X64, keel-deploy]",
