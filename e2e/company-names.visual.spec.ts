@@ -199,6 +199,10 @@ test("reviews an issuer link before grouping a public holding", async ({
   let reviewId: string | null = null;
   let reject = true;
   let recommendationCount = 0;
+  let releaseLookup: () => void = () => {};
+  const lookupReady = new Promise<void>((resolve) => {
+    releaseLookup = resolve;
+  });
   let manualSave = false;
   await page.route("**/api/companies/public-links", async (route) => {
     if (route.request().method() === "GET")
@@ -241,6 +245,7 @@ test("reviews an issuer link before grouping a public holding", async ({
     "**/api/companies/public-links/exposure_nstr_public/recommendation",
     async (route) => {
       recommendationCount++;
+      await lookupReady;
       await route.fulfill({
         json: {
           id: "match_one",
@@ -283,6 +288,16 @@ test("reviews an issuer link before grouping a public holding", async ({
   );
   await page.goto("/holdings/entities?companies=1&public=exposure_nstr_public");
   const editor = page.getByLabel("Review company grouping", { exact: true });
+  await expect(
+    editor.getByText(
+      "Northstar Orbital Technologies Corp. - Ordinary Shares - Class A",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(editor.getByRole("status")).toHaveText(
+    "Checking issuer evidence…",
+  );
+  releaseLookup();
   await expect(
     editor.getByRole("button", { name: "Approve grouping" }),
   ).toBeEnabled();

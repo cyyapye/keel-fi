@@ -219,29 +219,22 @@ export function PublicCompanyLinkEditor({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [manual, setManual] = useState(false);
-  const initial = useRef<Promise<{
-    catalog: PublicCompanyLinkCatalog;
-    match: PublicCompanyMatch | null;
-  }> | null>(null);
+  const initial = useRef<Promise<PublicCompanyLinkCatalog> | null>(null);
+  const lookup = useRef<Promise<PublicCompanyMatch> | null>(null);
   useEffect(() => {
     let active = true;
-    initial.current ??= loadPublicCompanyLinks().then(async (catalog) => {
-      const security = catalog.securities.find(
-        (item) => item.exposureId === exposureId,
-      );
-      return {
-        catalog,
-        match:
-          security && security.companyId === null
-            ? await recommendPublicCompanyLink(exposureId)
-            : null,
-      };
-    });
+    initial.current ??= loadPublicCompanyLinks();
     void initial.current
-      .then((result) => {
-        if (active) {
-          setCatalog(result.catalog);
-          setMatch(result.match);
+      .then(async (result) => {
+        if (!active) return;
+        setCatalog(result);
+        const security = result.securities.find(
+          (item) => item.exposureId === exposureId,
+        );
+        if (security && security.companyId === null) {
+          lookup.current ??= recommendPublicCompanyLink(exposureId);
+          const recommendation = await lookup.current;
+          if (active) setMatch(recommendation);
         }
       })
       .catch((failure: unknown) => {
