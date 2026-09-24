@@ -279,6 +279,7 @@ test("reviews an issuer link before grouping a public holding", async ({
       path: testInfo.outputPath("public-company-link-review-linux.png"),
       animations: "disabled",
       caret: "hide",
+      scale: "css",
     });
   } else {
     await expect(editor).toHaveScreenshot("public-company-link-review.png", {

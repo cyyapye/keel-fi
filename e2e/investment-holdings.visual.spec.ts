@@ -554,6 +554,7 @@ test("groups reviewed public stock with separate SPVs and keeps their value base
       path: testInfo.outputPath("public-private-company-group-linux.png"),
       animations: "disabled",
       caret: "hide",
+      scale: "css",
     });
   } else {
     await expect(group).toHaveScreenshot("public-private-company-group.png", {
