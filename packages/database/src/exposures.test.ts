@@ -706,6 +706,22 @@ describe("canonical exposure resolution and aggregation", () => {
     // Enabling lookup must recover immediately from a cached no-provider result.
     const unavailable = await links.recommend(accessSubject, publicExposure.id);
     expect(unavailable.status).toBe("unavailable");
+    // A completed provider failure from the prior runtime remains immutable,
+    // but must not suppress the fixed lookup after deployment.
+    const priorRun = sqlite
+      .prepare("SELECT * FROM public_company_match_runs WHERE id = ?")
+      .get(unavailable.id) as { cache_key: string };
+    const priorKey = JSON.parse(priorRun.cache_key) as unknown[];
+    priorKey[0] = "issuer-identity-v2";
+    priorKey[1] = true;
+    sqlite
+      .prepare(
+        `INSERT INTO public_company_match_runs
+      (id, household_id, exposure_id, issuer_name, identity_revision, expected_review_id, cache_key, created_at, search_requested, result_json, evidence_json)
+      SELECT ?, household_id, exposure_id, issuer_name, identity_revision, expected_review_id, ?, created_at, 1, result_json, evidence_json
+      FROM public_company_match_runs WHERE id = ?`,
+      )
+      .run("legacy-runtime-failure", JSON.stringify(priorKey), unavailable.id);
     const simultaneous = await Promise.all([
       links.recommend(accessSubject, publicExposure.id, search),
       links.recommend(accessSubject, publicExposure.id, search),
