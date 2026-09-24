@@ -161,7 +161,7 @@ export class D1PublicCompanyLinkRepository {
       );
     const now = new Date().toISOString();
     const cacheKey = JSON.stringify([
-      "issuer-identity-v2",
+      "issuer-identity-v3",
       search !== undefined,
       identity.revision,
       security.name,
