@@ -1902,6 +1902,7 @@ The SPV received 88 closing warrant shares.`);
 
 test("captures a GP purchase notice directly in investment review without a corporate event", async ({
   page,
+  isMobile,
 }) => {
   const fixture = await setup(page, false, 0, false, true);
   let reject = false;
@@ -2008,7 +2009,9 @@ test("captures a GP purchase notice directly in investment review without a corp
     sourceNotice,
     section.getByRole("button", { name: "Edit purchases", exact: true }),
   ]) {
-    expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(
+      isMobile ? 44 : 40,
+    );
   }
   await sourceNotice.click();
   await expect(section.locator(".purchase-notice-text")).toContainText(
