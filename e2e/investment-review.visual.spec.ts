@@ -1978,9 +1978,17 @@ test("captures a GP purchase notice directly in investment review without a corp
     section.getByRole("button", { name: "Edit purchases", exact: true }),
   ).toBeVisible();
   await expect(section).toContainText("$24.00");
-  await expect(section).toContainText("Calculated all-in premium: 27.20%");
-  await expect(section).toContainText("Notice-quoted premium: 27.00%");
-  await expect(section).toContainText("All-in purchase price: $25.44");
+  await expect(section).toContainText("27.20% calculated");
+  await expect(section).toContainText("27.00% quoted");
+  await expect(section).toContainText("$25.44");
+  await expect(section).not.toContainText("Not set");
+  await expect(section).not.toContainText("Purchase 1");
+  await expect(section).toContainText(
+    "Preferred shares · Secondary · Feb 1, 2026 · GP notice",
+  );
+  await expect(
+    section.getByRole("button", { name: "Source notice", exact: true }),
+  ).toBeVisible();
   expect(fixture.writes).toHaveLength(0);
   expect(fixture.context.investmentEvents ?? []).toEqual([]);
   expect(
@@ -1992,6 +2000,21 @@ test("captures a GP purchase notice directly in investment review without a corp
     reportedManagementFeePpm: 0,
   });
   await expect(section).toHaveScreenshot("investment-purchase-saved.png");
+  const sourceNotice = section.getByRole("button", {
+    name: "Source notice",
+    exact: true,
+  });
+  for (const action of [
+    sourceNotice,
+    section.getByRole("button", { name: "Edit purchases", exact: true }),
+  ]) {
+    expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  await sourceNotice.click();
+  await expect(section.locator(".purchase-notice-text")).toContainText(
+    "Type: Secondary - Preferred shares",
+  );
+
   await page.reload();
   await selectReviewSection(page, "Investment");
   section = page.getByRole("region", { name: "Purchase details", exact: true });

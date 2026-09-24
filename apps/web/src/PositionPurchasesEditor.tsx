@@ -35,7 +35,7 @@ import {
   Stat,
   StatGroup,
 } from "@keel/ui";
-import { formatCurrency } from "./format";
+import { formatCurrency, formatDate } from "./format";
 
 type Draft = Record<string, string>;
 function percent(ppm: bigint) {
@@ -279,15 +279,17 @@ export function PositionPurchasesEditor({
       <div className="position-economics__heading">
         <div>
           <h3>Purchase details</h3>
-          <p>
-            Optional. Record the underlying shares attributable to this SPV
-            investment.
-          </p>
+          {(open || !receipt?.details.lots.length) && (
+            <p>
+              Optional. Record the underlying shares attributable to this SPV
+              investment.
+            </p>
+          )}
         </div>
         {!open && (
           <ActionGroup wrap mobileLayout="stack">
             <Button
-              tone="secondary"
+              tone={receipt?.details.lots.length ? "quiet" : "secondary"}
               onClick={() => {
                 setCoversPosition(receipt?.details.coversPosition ?? false);
                 setDrafts(
@@ -339,153 +341,177 @@ export function PositionPurchasesEditor({
             const allIn = purchaseAllInPrice(lot);
             return (
               <div key={lot.id} className="purchase-summary">
-                <h4>
-                  Purchase {i + 1}
-                  {lot.shareClass ? ` · ${lot.shareClass}` : ""}
-                </h4>
-                <StatGroup className="holding-performance__values">
-                  <Stat
-                    label="Purchase price / share"
-                    value={
-                      lot.priceMicros === null
-                        ? "Not set"
-                        : `$${unitPrice(lot.priceMicros)}`
-                    }
-                  />
-                  <Stat
-                    valueClassName={shares ? "" : "is-not-set"}
-                    label={
-                      shares?.derived
-                        ? "Calculated original shares"
-                        : "Remaining underlying shares"
-                    }
-                    value={
-                      shares ? decimal(shares.quantityMicros, 6) : "Not set"
-                    }
-                  />
-                  <Stat
-                    label="Cash contributed"
-                    valueClassName={
-                      capital.grossCashMinor === null ? "is-not-set" : ""
-                    }
-                    value={
-                      capital.grossCashMinor === null
-                        ? "Not set"
-                        : money(capital.grossCashMinor)
-                    }
-                  />
-                  <Stat
-                    label="Share capital"
-                    valueClassName={
-                      capital.netCapitalMinor === null ? "is-not-set" : ""
-                    }
-                    value={
-                      capital.netCapitalMinor === null
-                        ? "Not set"
-                        : money(capital.netCapitalMinor)
-                    }
-                  />
-                </StatGroup>
-                <p>
-                  {lot.sourceLabel ?? "Source not recorded"}
-                  {lot.purchasedOn ? ` · Purchased ${lot.purchasedOn}` : ""}
+                {receipt.details.lots.length > 1 && <h4>Purchase {i + 1}</h4>}
+                <p className="purchase-summary__metadata">
+                  {[
+                    lot.shareClass,
+                    lot.transactionType
+                      ? lot.transactionType === "secondary"
+                        ? "Secondary"
+                        : "Primary"
+                      : null,
+                    lot.purchasedOn ? formatDate(lot.purchasedOn) : null,
+                    lot.sourceLabel,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
-                {lot.feePpm !== null && (
-                  <p>
-                    One-time {lot.feeLabel ?? "fee"}: {decimal(lot.feePpm, 4)}%{" "}
-                    {lot.feeBasis === "net_capital"
-                      ? "added to share capital"
-                      : lot.feeBasis === "gross_cash"
-                        ? "of gross cash"
-                        : "· basis not specified"}
-                    .
-                  </p>
-                )}
-                {lot.priceMicros !== null &&
-                  lot.referencePriceMicros !== null && (
-                    <p>
-                      Purchase premium:{" "}
-                      {percent(
-                        ((BigInt(lot.priceMicros) -
-                          BigInt(lot.referencePriceMicros)) *
-                          1_000_000n) /
-                          BigInt(lot.referencePriceMicros),
-                      )}
-                      % relative to ${unitPrice(lot.referencePriceMicros)} per
-                      share.
-                    </p>
-                  )}
-                {allIn !== null && Number.isSafeInteger(allIn) && (
-                  <p>
-                    All-in purchase price: ${unitPrice(allIn)} per share,
-                    including recorded upfront fees.
-                  </p>
-                )}
-                {allIn !== null && lot.referencePriceMicros !== null && (
-                  <p>
-                    Calculated all-in premium:{" "}
-                    {percent(
-                      ((BigInt(allIn) - BigInt(lot.referencePriceMicros)) *
-                        1_000_000n) /
-                        BigInt(lot.referencePriceMicros),
+                {(lot.priceMicros !== null || allIn !== null) && (
+                  <StatGroup className="holding-performance__values purchase-summary__prices">
+                    {lot.priceMicros !== null && (
+                      <Stat
+                        label="Purchase price / share"
+                        value={`$${unitPrice(lot.priceMicros)}`}
+                      />
                     )}
-                    % including recorded upfront fees.
-                  </p>
+                    {allIn !== null && Number.isSafeInteger(allIn) && (
+                      <Stat
+                        label="All-in price / share"
+                        value={`$${unitPrice(allIn)}`}
+                      />
+                    )}
+                  </StatGroup>
                 )}
-                {(lot.transactionType || lot.referenceRound) && (
-                  <p>
-                    {lot.transactionType
-                      ? `${lot.transactionType === "secondary" ? "Secondary" : "Primary"} purchase`
-                      : "Purchase"}
-                    {lot.referenceRound
-                      ? ` · Reference: ${lot.referenceRound}`
-                      : ""}
-                    .
-                  </p>
+                <dl className="purchase-summary__terms">
+                  {lot.feePpm !== null && (
+                    <div>
+                      <dt>{lot.feeLabel ?? "One-time fee"}</dt>
+                      <dd>
+                        {decimal(lot.feePpm, 4)}%{" "}
+                        {lot.feeBasis === "net_capital"
+                          ? "added to share capital"
+                          : lot.feeBasis === "gross_cash"
+                            ? "of gross cash"
+                            : "· basis unknown; excluded from calculations"}
+                      </dd>
+                    </div>
+                  )}
+                  {lot.referencePriceMicros !== null && (
+                    <div>
+                      <dt>{lot.referenceRound ?? "Entry"} reference price</dt>
+                      <dd>${unitPrice(lot.referencePriceMicros)} / share</dd>
+                    </div>
+                  )}
+                  {lot.referenceRound && lot.referencePriceMicros === null && (
+                    <div>
+                      <dt>Reference round</dt>
+                      <dd>{lot.referenceRound}</dd>
+                    </div>
+                  )}
+                  {lot.priceMicros !== null &&
+                    lot.referencePriceMicros !== null && (
+                      <div>
+                        <dt>Purchase premium</dt>
+                        <dd>
+                          {percent(
+                            ((BigInt(lot.priceMicros) -
+                              BigInt(lot.referencePriceMicros)) *
+                              1_000_000n) /
+                              BigInt(lot.referencePriceMicros),
+                          )}
+                          % before fees
+                        </dd>
+                      </div>
+                    )}
+                  {((allIn !== null && lot.referencePriceMicros !== null) ||
+                    lot.reportedPremiumPpm != null) && (
+                    <div>
+                      <dt>All-in premium</dt>
+                      <dd>
+                        {allIn !== null &&
+                          lot.referencePriceMicros !== null && (
+                            <span>
+                              {percent(
+                                ((BigInt(allIn) -
+                                  BigInt(lot.referencePriceMicros)) *
+                                  1_000_000n) /
+                                  BigInt(lot.referencePriceMicros),
+                              )}
+                              % calculated
+                            </span>
+                          )}
+                        {lot.reportedPremiumPpm != null && (
+                          <span>
+                            {percent(BigInt(lot.reportedPremiumPpm))}% quoted
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                  )}
+                  {(lot.reportedManagementFeePpm != null ||
+                    lot.reportedCarryPpm != null) && (
+                    <div>
+                      <dt>Reported fees</dt>
+                      <dd>
+                        {lot.reportedManagementFeePpm != null && (
+                          <span>
+                            {decimal(lot.reportedManagementFeePpm, 4)}% annual
+                            management
+                          </span>
+                        )}
+                        {lot.reportedCarryPpm != null && (
+                          <span>{decimal(lot.reportedCarryPpm, 4)}% carry</span>
+                        )}
+                        <small>
+                          Separate from accepted fee and carry terms.
+                        </small>
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                {(shares ||
+                  capital.grossCashMinor !== null ||
+                  capital.netCapitalMinor !== null) && (
+                  <dl className="purchase-summary__terms purchase-summary__capital">
+                    {shares && (
+                      <div>
+                        <dt>
+                          {shares.derived
+                            ? "Calculated original shares"
+                            : "Remaining underlying shares"}
+                        </dt>
+                        <dd>{decimal(shares.quantityMicros, 6)}</dd>
+                      </div>
+                    )}
+                    {capital.grossCashMinor !== null && (
+                      <div>
+                        <dt>Cash contributed</dt>
+                        <dd>{money(capital.grossCashMinor)}</dd>
+                      </div>
+                    )}
+                    {capital.netCapitalMinor !== null && (
+                      <div>
+                        <dt>Share capital</dt>
+                        <dd>{money(capital.netCapitalMinor)}</dd>
+                      </div>
+                    )}
+                  </dl>
                 )}
-                {lot.reportedPremiumPpm != null && (
-                  <p>
-                    Notice-quoted premium:{" "}
-                    {percent(BigInt(lot.reportedPremiumPpm))}%. Kept separately
-                    from the calculated premium.
-                  </p>
-                )}
-                {(lot.reportedManagementFeePpm != null ||
-                  lot.reportedCarryPpm != null) && (
-                  <p>
-                    Reported terms: annual management fee{" "}
-                    {lot.reportedManagementFeePpm == null
-                      ? "not specified"
-                      : `${percent(BigInt(lot.reportedManagementFeePpm))}%`}
-                    ; carry{" "}
-                    {lot.reportedCarryPpm == null
-                      ? "not specified"
-                      : `${percent(BigInt(lot.reportedCarryPpm))}%`}
-                    . These do not replace accepted fee and carry terms.
-                  </p>
-                )}
-                {lot.feePpm !== null && lot.feeBasis === null && (
-                  <p>
-                    Fee basis is not set; the fee is excluded from calculations.
-                  </p>
+                {lot.mark && (
+                  <dl className="purchase-summary__terms">
+                    <div>
+                      <dt>Valuation price</dt>
+                      <dd>
+                        ${unitPrice(lot.mark.priceMicros)} / share
+                        <small>
+                          {lot.mark.shareClass} ·{" "}
+                          {formatDate(lot.mark.effectiveDate)} ·{" "}
+                          {lot.mark.sourceLabel}
+                        </small>
+                      </dd>
+                    </div>
+                  </dl>
                 )}
                 {lot.sourceText && (
                   <Collapsible>
                     <CollapsibleTrigger>
                       <DisclosureIndicator />
-                      Original purchase notice
+                      Source notice
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <p className="purchase-notice-text">{lot.sourceText}</p>
                     </CollapsibleContent>
                   </Collapsible>
-                )}
-                {lot.mark && (
-                  <p>
-                    Valuation price: ${unitPrice(lot.mark.priceMicros)} ·{" "}
-                    {lot.mark.shareClass} · {lot.mark.effectiveDate} ·{" "}
-                    {lot.mark.sourceLabel}.
-                  </p>
                 )}
               </div>
             );
@@ -529,9 +555,8 @@ export function PositionPurchasesEditor({
           ) : (
             receipt.details.lots.length > 0 && (
               <p>
-                An estimate needs remaining shares and a dated price for the
-                same share class, covering the whole position. You can save
-                partial details without an estimate.
+                To estimate value, add remaining shares and a dated price for
+                the same share class covering the whole position.
               </p>
             )
           )}
