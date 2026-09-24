@@ -8,12 +8,13 @@ import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
 
-test("optional purchase details preserve drafts, review and reload shares", async ({
+test("optional purchase details save directly, preserve failed drafts and reload shares", async ({
   page,
 }, info) => {
   await page.clock.setFixedTime(new Date("2026-09-20T12:00:00.000Z"));
   let receipt: PurchaseReceipt | null = null;
   let reject = false;
+  let attempts = 0;
   const holding = () =>
     HoldingSchema.parse({
       id: "purchase-spv",
@@ -54,6 +55,7 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
   await page.route(
     "**/api/investment-positions/purchase-spv/purchases",
     async (route) => {
+      attempts++;
       if (reject) {
         await route.fulfill({
           status: 409,
@@ -103,10 +105,16 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
     .fill("Series B");
   await section
     .getByRole("textbox", { name: "Purchase price / share · USD", exact: true })
-    .fill("12.50");
+    .fill("12.5");
   await section
     .getByText("Capital and share calculation", { exact: true })
     .click();
+  await expect(
+    section.getByRole("textbox", {
+      name: "Purchase price / share · USD",
+      exact: true,
+    }),
+  ).toHaveValue("12.50");
   await section
     .getByRole("textbox", { name: "Gross cash contributed · USD", exact: true })
     .fill("1100");
@@ -154,24 +162,7 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
     animations: "disabled",
     fullPage: true,
   });
-  await section
-    .getByRole("button", { name: "Review purchase details", exact: true })
-    .click();
-  await expect(
-    section.getByText("80 shares × $20", { exact: false }),
-  ).toBeVisible();
-  expect(
-    await page.evaluate(
-      () =>
-        document.documentElement.scrollWidth <=
-        document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await expect.soft(page).toHaveScreenshot("purchase-review.png", {
-    animations: "disabled",
-    fullPage: true,
-  });
+  expect(attempts).toBe(0);
   reject = true;
   await section
     .getByRole("button", { name: "Save purchase details", exact: true })
@@ -179,7 +170,7 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
   await expect(
     section.getByText("The position changed. Review again."),
   ).toBeVisible();
-  await section.getByRole("button", { name: "Back to edit" }).click();
+  expect(attempts).toBe(1);
   await expect(
     section.getByRole("textbox", {
       name: "Purchase price / share · USD",
@@ -188,14 +179,13 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
   ).toHaveValue("12.50");
   reject = false;
   await section
-    .getByRole("button", { name: "Review purchase details", exact: true })
-    .click();
-  await section
     .getByRole("button", { name: "Save purchase details", exact: true })
     .click();
   await expect(
     section.getByRole("button", { name: "Edit purchases" }),
   ).toBeVisible();
+  await expect(section).toContainText("Purchase price / share");
+  await expect(section).toContainText("$12.50");
   expect(
     await page.evaluate(
       () =>
@@ -230,21 +220,19 @@ test("optional purchase details preserve drafts, review and reload shares", asyn
     })
     .click();
   await expect(
-    section.getByText("80 shares × $20", { exact: false }),
+    section.getByText("80 shares × $20.00", { exact: false }),
   ).toBeVisible();
   await section.getByRole("button", { name: "Edit purchases" }).click();
   await section
     .getByRole("textbox", { name: "Purchase price / share · USD", exact: true })
     .fill("10");
   await section
-    .getByRole("button", { name: "Review purchase details", exact: true })
-    .click();
-  await section
     .getByRole("button", { name: "Save purchase details", exact: true })
     .click();
   await expect(
-    section.getByText("100 shares × $20", { exact: false }),
+    section.getByText("100 shares × $20.00", { exact: false }),
   ).toBeVisible();
+  await expect(section).toContainText("$10.00");
   const widths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
     scroll: document.documentElement.scrollWidth,
