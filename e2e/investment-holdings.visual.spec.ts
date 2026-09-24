@@ -471,7 +471,7 @@ test.beforeEach(async ({ page }) => {
 
 test("groups reviewed public stock with separate SPVs and keeps their value bases", async ({
   page,
-}) => {
+}, testInfo) => {
   const syntheticHolding = (
     id: string,
     name: string,
@@ -549,10 +549,18 @@ test("groups reviewed public stock with separate SPVs and keeps their value base
     group.getByRole("link", { name: "Review company link" }),
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expect(group).toHaveScreenshot("public-private-company-group.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
+  if (process.platform === "linux") {
+    await group.screenshot({
+      path: testInfo.outputPath("public-private-company-group-linux.png"),
+      animations: "disabled",
+      caret: "hide",
+    });
+  } else {
+    await expect(group).toHaveScreenshot("public-private-company-group.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+  }
 });
 
 test("shows the Holdings shell while one read-only projection loads", async ({

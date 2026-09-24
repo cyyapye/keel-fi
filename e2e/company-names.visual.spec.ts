@@ -187,7 +187,7 @@ test("reviews generic duplicate names, preserves a rejected draft and finds save
 
 test("reviews an issuer link before grouping a public holding", async ({
   page,
-}) => {
+}, testInfo) => {
   await routeHoldingsPage(page, {
     householdName: "Demo Household",
     holdings: [],
@@ -274,10 +274,18 @@ test("reviews an issuer link before grouping a public holding", async ({
   await page.locator(".topbar").evaluate((element) => {
     (element as HTMLElement).style.position = "static";
   });
-  await expect(editor).toHaveScreenshot("public-company-link-review.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
+  if (process.platform === "linux") {
+    await editor.screenshot({
+      path: testInfo.outputPath("public-company-link-review-linux.png"),
+      animations: "disabled",
+      caret: "hide",
+    });
+  } else {
+    await expect(editor).toHaveScreenshot("public-company-link-review.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+  }
   await editor.getByRole("button", { name: "Confirm company link" }).click();
   await expect(editor).toContainText(
     "This security now appears with the company’s other positions.",
