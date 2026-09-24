@@ -9,6 +9,7 @@ import {
 } from "@keel/domain/company-identity";
 import {
   PublicCompanyLinkCatalogSchema,
+  PublicCompanyMatchSchema,
   PublicCompanyLinkReceiptSchema,
   PublicCompanyLinkReviewSchema,
   type PublicCompanyLinkReview,
@@ -2035,6 +2036,23 @@ export async function reviewPublicCompanyLink(input: PublicCompanyLinkReview) {
     await companyIdentityRequest(
       "public-links",
       PublicCompanyLinkReviewSchema.parse(input),
+    ),
+  );
+}
+
+export async function recommendPublicCompanyLink(exposureId: string) {
+  return PublicCompanyMatchSchema.parse(
+    await companyIdentityRequest(
+      `public-links/${encodeURIComponent(exposureId)}/recommendation`,
+      {},
+    ),
+  );
+}
+export async function approvePublicCompanyRecommendation(id: string) {
+  return PublicCompanyLinkReceiptSchema.parse(
+    await companyIdentityRequest(
+      `public-links/recommendations/${encodeURIComponent(id)}/approve`,
+      {},
     ),
   );
 }

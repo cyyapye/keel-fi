@@ -1,3 +1,4 @@
+import { PublicCompanyLinkEditor } from "./PublicCompanyLinkEditor";
 import { CompanyNames } from "./CompanyNames";
 import {
   DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS,
@@ -2059,6 +2060,9 @@ function ProgressiveRows<T>({
 }
 
 export function LegalEntities(props: { navigationVersion: number }) {
+  const publicId = new URLSearchParams(window.location.search).get("public");
+  if (publicId)
+    return <PublicCompanyLinkEditor key={publicId} exposureId={publicId} />;
   return new URLSearchParams(window.location.search).get("companies") ===
     "1" ? (
     <CompanyNames />

@@ -294,3 +294,33 @@ adds no polling, automatic retry or idle request; the existing holdings reload
 follows success. It counts actual D1 rows and index writes. Existing fee reviews
 and historical performance are unchanged; purchase-based return on gross cash is
 separately labeled before carry.
+
+### Public issuer grouping recommendations
+
+Opening **Holdings → Group with company** shows one focused issuer review. Keel
+proposes a unique match from accepted company names or aliases, ignoring
+recognized share-class labels and legal suffixes. A ticker or partial name alone
+is insufficient. If saved names do not identify a match, one bounded public
+issuer search can use the existing Brave connection. Recommendations require
+issuer identity evidence on an accepted official company domain, or an explicit
+alias statement in a regulatory source. Conflicting matches remain unresolved.
+The recommendation shows its reason and source. **Approve grouping** records the
+human decision; **Change company** opens the manual correction form.
+
+An authenticated POST atomically admits one lookup per security,
+company-identity revision, current link and UTC day. Reopening reuses that
+result, including empty and failed results; there is no idle polling or
+automatic retry. One lookup requests at most five results, has a ten-second
+deadline and a 256 KiB response limit, and fetches no candidate pages. Only the
+public issuer name is sent to search. An interrupted lookup stays visible as
+pending for that daily key; **Check again** reads its completion, and manual
+correction remains available.
+
+Migration `0073` records the observation and proposed match before acceptance.
+Completed evidence is immutable. Approval checks the identity revision, issuer,
+current link and one-day evidence age inside the database transaction; repeated
+approval converges on the same receipt. GETs project accepted state and never
+search. The catalog uses three queries over current mapping heads. The synthetic
+120-security holdout covers tied mapping history, unrelated households, empty
+results, recommendation reuse and acceptance with real D1 read/write counters.
+Grouping preserves each position and its existing valuation method.

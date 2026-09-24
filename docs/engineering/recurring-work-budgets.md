@@ -583,3 +583,25 @@ Test a held-out fast-cancellation or revoked-credential case so saving cost by
 delaying security actions fails. Compare the released and candidate skills on
 the same cases before promotion. The Keel rules and CI tests enforce this
 boundary now; they do not certify or release an upstream Tugling skill.
+
+## Public issuer recommendation lookup
+
+Opening a public holding’s grouping review makes one authenticated
+recommendation POST. Its owner is `D1PublicCompanyLinkRepository.recommend`;
+GETs, ingestion, schedulers and background tabs do not initiate these searches.
+Accepted-name matches need zero external requests. A daily key reuses completed,
+empty and failed results. Atomic admission permits at most 20 external searches
+per household per UTC day, including concurrent requests and failures. A changed
+company revision or link does not bypass that daily search ceiling. There is no
+automatic retry, timer, provider-page fetch or queue fanout. An idle day costs
+zero calls and writes. A full failure or useful-search day costs at most 20
+Brave requests, each with a ten-second deadline and 256 KiB response bound. The
+existing search credential is reused; no new service or quota is purchased.
+
+A fresh 120-security recommendation uses six D1 round trips, at most 4,200 rows
+read and eight rows written including indexes. Reopening uses four round trips
+and no writes. Approval uses four round trips, at most 100 reads and 12 writes;
+a duplicate approval writes nothing. A 20-search day therefore budgets at most
+84,000 reads and 160 writes for the lookup work, plus normal page/auth reads and
+explicit approval requests. The search is not admitted again when its result is
+pending or unavailable; the UI exposes the observed state and manual correction.
