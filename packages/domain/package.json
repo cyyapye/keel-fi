@@ -24,7 +24,8 @@
     "./position-read-model": "./src/position-read-model.ts",
     "./position-value": "./src/position-value.ts",
     "./provider-legal-documents": "./src/provider-legal-documents.ts",
-    "./company-identity": "./src/company-identity.ts"
+    "./company-identity": "./src/company-identity.ts",
+    "./public-company-links": "./src/public-company-links.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

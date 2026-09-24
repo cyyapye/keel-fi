@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { CanonicalExposure, PositionExposureMapping } from "./index";
-import { createInvestmentExposureView } from "./exposure-read-model";
+import {
+  companyExposureGroups,
+  createInvestmentExposureView,
+} from "./exposure-read-model";
 import type {
   InvestmentPositionRecord,
   InvestmentPositionView,
@@ -124,6 +127,69 @@ function mapping(
 }
 
 describe("investment exposure read model", () => {
+  it("rolls reviewed public and SPV positions into one company without changing their values", () => {
+    const publicSecurity = exposure(
+      "exposure_public_b",
+      "Synthetic listed security",
+    );
+    const privateCompany: CanonicalExposure = {
+      ...exposure("exposure_company_a", "Synthetic company"),
+      exposureKind: "private_company",
+      protectedIdentityKey: null,
+      companyId: "company_synthetic",
+      resolutionMethod: "reviewed_company",
+    };
+    const publicPositions = Array.from({ length: 120 }, (_, index) =>
+      position(`public_${String(index).padStart(3, "0")}`, 1_000),
+    );
+    const spv = position("spv_1", 25_000);
+    spv.kind = "spv_interest";
+    spv.snapshot.quantityMicros = null;
+    spv.snapshot.ticker = null;
+    const canonical = createInvestmentExposureView(
+      positionView([...publicPositions, spv]),
+      [publicSecurity, privateCompany],
+      [
+        ...publicPositions.map((record, index) =>
+          mapping(`public_mapping_${index}`, record.id, publicSecurity.id),
+        ),
+        {
+          ...mapping("spv_mapping", spv.id, privateCompany.id),
+          relationshipKind: "look_through",
+          decisionSource: "review",
+        },
+      ],
+    );
+    const grouped = companyExposureGroups({
+      ...canonical,
+      publicCompanyLinks: [
+        {
+          publicExposureId: publicSecurity.id,
+          companyExposureId: privateCompany.id,
+        },
+      ],
+    });
+    expect(canonical.exposures).toHaveLength(2);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.exposure.id).toBe(privateCompany.id);
+    expect(grouped[0]?.contributions).toHaveLength(121);
+    expect(grouped[0]?.totals).toEqual([
+      {
+        currency: "USD",
+        allocatedValueMinor: 145_000,
+        knownValuePositionCount: 121,
+        unknownValuePositionCount: 0,
+      },
+    ]);
+    expect(
+      canonical.positions.find((item) => item.id === spv.id),
+    ).toMatchObject({
+      quantityMicros: null,
+      valueMinor: 25_000,
+      valueSource: "provider",
+    });
+    expect(companyExposureGroups(canonical)).toHaveLength(2);
+  });
   it("groups shared exposure while preserving exact position lineage and provenance", () => {
     const records = [
       position("position_1", 1_000_000),

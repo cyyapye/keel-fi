@@ -12,9 +12,10 @@ import {
   type PrivateExposureReviewState,
 } from "@keel/domain";
 import { calculatePositionPerformance } from "@keel/domain/position-economics";
-import type {
-  InvestmentExposureGroup,
-  InvestmentExposurePosition,
+import {
+  companyExposureGroups as reviewedCompanyExposureGroups,
+  type InvestmentExposureGroup,
+  type InvestmentExposurePosition,
 } from "@keel/domain/exposure-read-model";
 import type { InvestmentHoldingsView } from "@keel/domain/investment-holdings-view";
 import type {
@@ -601,7 +602,9 @@ function exposurePerformanceLabel(
 }
 
 function companyExposureGroups(data: InvestmentHoldingsView) {
-  return data.exposureView.exposures.filter((group) => !isCashExposure(group));
+  return reviewedCompanyExposureGroups(data.exposureView).filter(
+    (group) => !isCashExposure(group),
+  );
 }
 
 function exposureTotalsLabel(
@@ -1262,6 +1265,17 @@ function ExposureView({
       ),
     [data, sortDirection],
   );
+  const publicExposureIds = useMemo(
+    () =>
+      new Set(
+        data.exposureView.exposures
+          .filter(
+            (group) => group.exposure.exposureKind === "public_instrument",
+          )
+          .map((group) => group.exposure.id),
+      ),
+    [data.exposureView.exposures],
+  );
   const matchingExposureGroups =
     searchMatches === null
       ? sortedExposureGroups
@@ -1520,12 +1534,15 @@ function ExposureView({
         </section>
       )}
       {visibleCanonicalExposureGroups.map((group) => {
+        const seenPositionIds = new Set<string>();
         const positions = group.contributions
           .map((contribution) => positionById.get(contribution.positionId))
-          .filter(
-            (position): position is InvestmentExposurePosition =>
-              position !== undefined,
-          )
+          .filter((position): position is InvestmentExposurePosition => {
+            if (position === undefined || seenPositionIds.has(position.id))
+              return false;
+            seenPositionIds.add(position.id);
+            return true;
+          })
           .sort((left, right) =>
             compareExposurePositions(left, right, sortDirection),
           );
@@ -1567,6 +1584,12 @@ function ExposureView({
         ]
           .filter((label): label is string => label !== null)
           .join(" · ");
+        const publicExposureId =
+          group.exposure.exposureKind === "public_instrument"
+            ? group.exposure.id
+            : group.contributions.find((contribution) =>
+                publicExposureIds.has(contribution.exposureId),
+              )?.exposureId;
         return (
           <Collapsible
             className="exposure-group"
@@ -1729,6 +1752,15 @@ function ExposureView({
                       Load more {displayName} positions
                     </Button>
                   </div>
+                )}
+                {publicExposureId !== undefined && (
+                  <TextLink
+                    href={`/holdings/entities?companies=1&public=${encodeURIComponent(publicExposureId)}`}
+                  >
+                    {group.exposure.exposureKind === "public_instrument"
+                      ? "Group with company"
+                      : "Review company link"}
+                  </TextLink>
                 )}
               </div>
             </CollapsibleContent>

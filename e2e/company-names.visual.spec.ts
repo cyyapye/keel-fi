@@ -184,3 +184,103 @@ test("reviews generic duplicate names, preserves a rejected draft and finds save
     ),
   ).toBe(true);
 });
+
+test("reviews an issuer link before grouping a public holding", async ({
+  page,
+}) => {
+  await routeHoldingsPage(page, {
+    householdName: "Demo Household",
+    holdings: [],
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.route("**/api/companies/identity", (route) =>
+    route.fulfill({
+      json: {
+        revision: 1,
+        companies: [
+          {
+            id: "company_northstar",
+            legalName: "Northstar Robotics",
+            aliases: [],
+          },
+        ],
+        suggestedGroups: [],
+      },
+    }),
+  );
+  let reviewCount = 0;
+  let reviewId: string | null = null;
+  await page.route("**/api/companies/public-links", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        json: {
+          securities: [
+            {
+              exposureId: "exposure_nstr_public",
+              name: "Northstar Class A",
+              companyId: reviewId === null ? null : "company_northstar",
+              reviewId,
+              positionCount: 1,
+            },
+          ],
+          companies: [{ id: "company_northstar", name: "Northstar Robotics" }],
+        },
+      });
+      return;
+    }
+    const input = route.request().postDataJSON() as {
+      companyId: string;
+      exposureId: string;
+      sourceUrl: string;
+    };
+    expect(input).toMatchObject({
+      companyId: "company_northstar",
+      exposureId: "exposure_nstr_public",
+      sourceUrl: "https://example.test/synthetic-filing",
+    });
+    reviewCount += 1;
+    reviewId = "11111111-1111-4111-8111-111111111111";
+    await route.fulfill({
+      status: 201,
+      json: {
+        id: reviewId,
+        exposureId: input.exposureId,
+        companyId: input.companyId,
+        reviewedAt: "2026-09-01T12:00:00.000Z",
+      },
+    });
+  });
+  await page.goto("/holdings/entities?companies=1&public=exposure_nstr_public");
+  const editor = page.getByRole("region", { name: "Link public holding" });
+  await expect(
+    editor.getByRole("heading", { name: "Link a public holding" }),
+  ).toBeVisible();
+  await editor.getByRole("combobox", { name: "Group under" }).click();
+  await page.getByRole("option", { name: "Northstar Robotics" }).click();
+  await editor
+    .getByLabel("Issuer evidence URL")
+    .fill("https://example.test/synthetic-filing");
+  await editor
+    .getByLabel("Why this security belongs to this company")
+    .fill("The synthetic filing names Northstar Robotics as issuer.");
+  await editor.getByRole("button", { name: "Review grouping" }).click();
+  await expect(
+    editor.getByRole("heading", {
+      name: "Northstar Class A → Northstar Robotics",
+    }),
+  ).toBeVisible();
+  await page.locator(".topbar").evaluate((element) => {
+    (element as HTMLElement).style.position = "static";
+  });
+  await expect(editor).toHaveScreenshot("public-company-link-review.png", {
+    animations: "disabled",
+    caret: "hide",
+  });
+  await editor.getByRole("button", { name: "Confirm company link" }).click();
+  await expect(editor).toContainText(
+    "This security now appears with the company’s other positions.",
+  );
+  expect(reviewCount).toBe(1);
+});

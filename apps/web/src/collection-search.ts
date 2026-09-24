@@ -1,7 +1,8 @@
 import type { AcceptedCashAccount } from "@keel/domain";
-import type {
-  InvestmentExposureGroup,
-  InvestmentExposurePosition,
+import {
+  companyExposureGroups,
+  type InvestmentExposureGroup,
+  type InvestmentExposurePosition,
 } from "@keel/domain/exposure-read-model";
 import type { InvestmentHoldingsView } from "@keel/domain/investment-holdings-view";
 import type {
@@ -79,7 +80,7 @@ export function buildHoldingsSearchIndex(
       text: prepare([account.accountLabel, account.institutionLabel]),
     })),
     positions,
-    exposures: data.exposureView.exposures
+    exposures: companyExposureGroups(data.exposureView)
       .filter((group) => !isCashExposure(group))
       .map((group) => {
         const name = normalizeSearchText(group.exposure.canonicalName);

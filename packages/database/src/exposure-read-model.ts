@@ -7,6 +7,7 @@ import {
 } from "@keel/domain";
 import {
   createInvestmentExposureView,
+  InvestmentExposureViewSchema,
   type InvestmentExposureView,
 } from "@keel/domain/exposure-read-model";
 import {
@@ -35,6 +36,7 @@ type CanonicalExposureRow = {
   canonical_name: string;
   protected_identity_key: string | null;
   company_id: string | null;
+  linked_company_id: string | null;
   resolution_method:
     "strong_identifier" | "reviewed_company" | "reviewed_fund" | "unresolved";
   evidence_sha256: string;
@@ -252,11 +254,19 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
         this.db
           .prepare(
             `SELECT
-               id, household_id, exposure_kind, canonical_name,
-               protected_identity_key, company_id, resolution_method,
-               evidence_sha256, created_at
+               canonical_exposures.id, canonical_exposures.household_id,
+               exposure_kind, canonical_name,
+               protected_identity_key, canonical_exposures.company_id,
+               resolution_method, evidence_sha256, created_at,
+               COALESCE(redirect.company_id, link.company_id)
+                 AS linked_company_id
              FROM canonical_exposures
-             WHERE household_id = ?
+             LEFT JOIN public_exposure_company_links link
+               ON link.public_exposure_id = canonical_exposures.id
+             LEFT JOIN company_redirects redirect
+               ON redirect.source_company_id = link.company_id
+              AND redirect.household_id = link.household_id
+             WHERE canonical_exposures.household_id = ?
                AND EXISTS (
                  SELECT 1
                  FROM holding_position_exposure_mappings current_mapping
@@ -276,7 +286,7 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
                            current_mapping.id
                    )
                )
-             ORDER BY lower(canonical_name), id`,
+             ORDER BY lower(canonical_name), canonical_exposures.id`,
           )
           .bind(householdId),
       ),
@@ -334,12 +344,39 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
       ),
     ]);
     const positionView = InvestmentPositionViewSchema.parse(positionViewInput);
-    return createInvestmentExposureView(
+    const canonicalView = createInvestmentExposureView(
       positionView,
       exposureRows.map(canonicalExposureFrom),
       mappingRows.map(mappingFrom),
       unambiguousAcceptedValuations(acceptedValuationRows),
     );
+    const activeExposureIds = new Set(
+      canonicalView.exposures.map((group) => group.exposure.id),
+    );
+    const privateExposureByCompanyId = new Map(
+      exposureRows.flatMap((row) =>
+        row.exposure_kind === "private_company" && row.company_id !== null
+          ? [[row.company_id, row.id] as const]
+          : [],
+      ),
+    );
+    return InvestmentExposureViewSchema.parse({
+      ...canonicalView,
+      publicCompanyLinks: exposureRows.flatMap((row) => {
+        if (
+          row.exposure_kind !== "public_instrument" ||
+          row.linked_company_id === null
+        )
+          return [];
+        const companyExposureId = privateExposureByCompanyId.get(
+          row.linked_company_id,
+        );
+        return companyExposureId !== undefined &&
+          activeExposureIds.has(companyExposureId)
+          ? [{ publicExposureId: row.id, companyExposureId }]
+          : [];
+      }),
+    });
   }
 
   private async findIdentity(

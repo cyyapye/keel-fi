@@ -27,8 +27,12 @@ import {
   previewCompanyAlias,
   reviewCompanyAlias,
 } from "./api";
+import { PublicCompanyLinkEditor } from "./PublicCompanyLinkEditor";
 
 export function CompanyNames() {
+  const publicExposureId = new URLSearchParams(window.location.search).get(
+    "public",
+  );
   const [catalog, setCatalog] = useState<CompanyIdentityCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -121,6 +125,9 @@ export function CompanyNames() {
         title="Company names"
         description="Choose one company name for your holdings and recognize its other names in future reviews."
       />
+      {publicExposureId !== null && publicExposureId.length > 0 && (
+        <PublicCompanyLinkEditor exposureId={publicExposureId} />
+      )}
       {error && <FormMessage tone="error">{error}</FormMessage>}
       {catalog === null ? (
         <>

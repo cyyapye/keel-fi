@@ -10,6 +10,8 @@ import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import { D1AlphaRepository } from "./index";
 import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
 import { D1PortfolioWatchRepository } from "./portfolio-watch";
+import { D1PublicCompanyLinkRepository } from "./public-company-links";
+import { companyExposureGroups } from "@keel/domain/exposure-read-model";
 
 const reconciliationMigrationFile =
   "packages/database/migrations/0026_reconciled_holding_ownership.sql";
@@ -85,6 +87,7 @@ const migrationFiles = [
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
   "packages/database/migrations/0061_portfolio_watch_activity.sql",
   "packages/database/migrations/0062_reviewed_company_aliases.sql",
+  "packages/database/migrations/0072_reviewed_public_company_links.sql",
   "packages/database/migrations/0070_private_purchase_details.sql",
   "packages/database/migrations/0064_watch_read_receipts.sql",
   "packages/database/seed/synthetic.sql",
@@ -630,6 +633,101 @@ describe("canonical exposure resolution and aggregation", () => {
   });
 
   afterEach(() => sqlite.close());
+
+  it("reviews an issuer link without changing public or SPV mappings and rejects stale reviews", async () => {
+    seedAcceptedPosition(sqlite, {
+      id: "position_public_issuer",
+      label: "Synthetic Listed Security",
+      positionKind: "direct",
+      valueMinor: 1_600_000,
+      valueState: "reported",
+    });
+    seedAcceptedPosition(sqlite, {
+      id: "position_spv_issuer",
+      label: "Synthetic Issuer SPV",
+      positionKind: "spv_interest",
+      valueMinor: 2_000_000,
+      valueState: "reported",
+    });
+    const privateExposure = await repository.resolveExposure(accessSubject, {
+      exposureKind: "private_company",
+      canonicalName: "Northstar Robotics",
+      companyId: "co_northstar",
+      evidenceSha256: hash("synthetic reviewed issuer"),
+    });
+    const publicExposure = await repository.resolveExposure(accessSubject, {
+      exposureKind: "public_instrument",
+      canonicalName: "Synthetic listed security",
+      protectedIdentityKey: hash("synthetic strong security identifier"),
+      evidenceSha256: hash("synthetic public security evidence"),
+    });
+    for (const [positionId, exposureId, relationshipKind] of [
+      ["position_public_issuer", publicExposure.id, "direct"],
+      ["position_spv_issuer", privateExposure.id, "look_through"],
+    ] as const) {
+      await repository.recordMapping(accessSubject, {
+        positionId,
+        exposureId,
+        relationshipKind,
+        allocationPpm: 1_000_000,
+        status: "active",
+        decisionSource: "review",
+        decisionReference: "synthetic issuer mapping",
+        evidenceSha256: hash(`synthetic ${positionId}`),
+        effectiveAt: recordedAt,
+      });
+    }
+    const links = new D1PublicCompanyLinkRepository(
+      database as unknown as D1Database,
+    );
+    const before = await readModel.list(accessSubject);
+    const mappingCountBefore = sqlite
+      .prepare(
+        "SELECT COUNT(*) AS count FROM holding_position_exposure_mappings",
+      )
+      .get() as { count: number };
+    expect(companyExposureGroups(before)).toHaveLength(before.exposures.length);
+    const catalog = await links.getCatalog(accessSubject);
+    expect(
+      catalog.securities.find((item) => item.exposureId === publicExposure.id),
+    ).toMatchObject({ reviewId: null, positionCount: 1 });
+    const review = {
+      exposureId: publicExposure.id,
+      companyId: "co_northstar",
+      expectedReviewId: null,
+      sourceUrl: "https://example.test/synthetic-issuer-filing",
+      reason: "Synthetic filing identifies the issuer.",
+    };
+    await links.review(accessSubject, review);
+    await expect(links.review(accessSubject, review)).rejects.toThrow(
+      /changed/u,
+    );
+    const after = await readModel.list(accessSubject);
+    const grouped = companyExposureGroups(after).find(
+      (group) => group.exposure.id === privateExposure.id,
+    );
+    expect(
+      grouped?.contributions.map((item) => item.positionId).sort(),
+    ).toEqual(["position_public_issuer", "position_spv_issuer"]);
+    expect(grouped?.totals).toMatchObject([
+      { allocatedValueMinor: 3_600_000, knownValuePositionCount: 2 },
+    ]);
+    expect(after.exposures).toHaveLength(before.exposures.length);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM holding_position_exposure_mappings",
+        )
+        .get(),
+    ).toEqual(mappingCountBefore);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS count FROM public_exposure_company_reviews",
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+  });
 
   it("retires the three preview demo lots without deleting accepted history", async () => {
     const alpha = await new D1AlphaRepository(

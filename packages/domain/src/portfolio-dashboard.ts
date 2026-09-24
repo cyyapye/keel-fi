@@ -3,6 +3,7 @@ import type {
   InvestmentExposureGroup,
   InvestmentExposurePosition,
 } from "./exposure-read-model";
+import { companyExposureGroups } from "./exposure-read-model";
 import type { InvestmentHoldingsView } from "./investment-holdings-view";
 
 const PARTS_PER_MILLION = 1_000_000n;
@@ -102,7 +103,7 @@ function isCashExposure(group: InvestmentExposureGroup): boolean {
 
 function displayCurrency(view: InvestmentHoldingsView): string {
   const currencies = new Set(
-    view.exposureView.exposures.flatMap((group) =>
+    companyExposureGroups(view.exposureView).flatMap((group) =>
       group.totals
         .filter((total) => total.knownValuePositionCount > 0)
         .map((total) => total.currency),
@@ -120,7 +121,7 @@ function exposureRows(
   view: InvestmentHoldingsView,
   currency: string,
 ): PortfolioDashboardExposure[] {
-  return view.exposureView.exposures
+  return companyExposureGroups(view.exposureView)
     .filter((group) => !isCashExposure(group))
     .flatMap((group): PortfolioDashboardExposure[] => {
       const total = group.totals.find((item) => item.currency === currency);
@@ -232,7 +233,7 @@ function exposureMovers(
     view.exposureView.positions.map((position) => [position.id, position]),
   );
 
-  return view.exposureView.exposures
+  return companyExposureGroups(view.exposureView)
     .filter((group) => !isCashExposure(group))
     .flatMap((group): PortfolioDashboardMover[] => {
       if (
@@ -329,7 +330,7 @@ export function createPortfolioDashboardSnapshot(
     (account) => account.valueState !== "reported",
   ).length;
   const otherCurrencies = new Set(
-    holdings.exposureView.exposures.flatMap((group) =>
+    companyExposureGroups(holdings.exposureView).flatMap((group) =>
       group.totals
         .filter(
           (total) =>
