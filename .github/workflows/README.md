@@ -88,6 +88,10 @@ Portfolio Watch website suggestions are optional. Set
 `KEEL_PREVIEW_BRAVE_SEARCH_API_KEY` to enable the Find website action. Without
 that secret, users can confirm a known official website directly in Coverage.
 Search results require a recorded company-identity decision before monitoring.
+Public-holding issuer recommendations use credential-free Wikidata entity lookup
+when that optional secret is absent. The protected deployment smoke calls the
+configured issuer provider with a synthetic query from the actual Worker and
+records `issuer_lookup_provider` in the release receipt.
 
 Robinhood sync is optional. To enable it in preview, configure the complete
 secret group `KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY`,

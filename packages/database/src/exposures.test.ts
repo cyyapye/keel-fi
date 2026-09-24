@@ -703,6 +703,9 @@ describe("canonical exposure resolution and aggregation", () => {
         },
       ]),
     );
+    // Enabling lookup must recover immediately from a cached no-provider result.
+    const unavailable = await links.recommend(accessSubject, publicExposure.id);
+    expect(unavailable.status).toBe("unavailable");
     const simultaneous = await Promise.all([
       links.recommend(accessSubject, publicExposure.id, search),
       links.recommend(accessSubject, publicExposure.id, search),

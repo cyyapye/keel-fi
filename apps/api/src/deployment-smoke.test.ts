@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "./app";
 import {
@@ -8,6 +8,12 @@ import {
 } from "./deployment-smoke";
 import { handlePortfolioWatchQueue } from "./portfolio-watch";
 import type { Env } from "./types";
+
+import { searchIssuerEvidence } from "./public-company-search";
+vi.mock("./public-company-search", () => ({ searchIssuerEvidence: vi.fn() }));
+beforeEach(() =>
+  vi.mocked(searchIssuerEvidence).mockReset().mockResolvedValue([]),
+);
 
 const deployedGitSha = "a".repeat(40);
 const deploymentSmokeToken = "preview-smoke-token-with-at-least-32-characters";
@@ -90,11 +96,21 @@ describe("preview deployment smoke", () => {
       deployedGitSha,
       workerVersionId: "api-version-1",
       workerVersionTag: deployedGitSha,
-      checks: { alpha: true, d1: true, queue: true, r2: true },
+      checks: {
+        alpha: true,
+        d1: true,
+        issuerLookup: true,
+        queue: true,
+        r2: true,
+      },
     });
     expect(bindings.alphaProjectionLoader).toHaveBeenCalledWith(
       bindings.env,
       "synthetic-access-subject",
+    );
+    expect(searchIssuerEvidence).toHaveBeenCalledWith(
+      "Keel Synthetic Issuer Canary",
+      undefined,
     );
     expect(bindings.putObject).toHaveBeenCalledTimes(1);
     expect(bindings.getObject).toHaveBeenCalledTimes(1);
@@ -106,6 +122,17 @@ describe("preview deployment smoke", () => {
         gitSha: deployedGitSha,
       }),
     );
+  });
+
+  it("fails the release smoke when the issuer provider is unavailable", async () => {
+    const bindings = deploymentEnv();
+    vi.mocked(searchIssuerEvidence).mockRejectedValueOnce(
+      new Error("Issuer provider unavailable"),
+    );
+    await expect(
+      runDeploymentSmoke(bindings.env, bindings.alphaProjectionLoader),
+    ).rejects.toThrow("Issuer provider unavailable");
+    expect(bindings.putObject).not.toHaveBeenCalled();
   });
 
   it("cleans up the R2 canary when Queue publication fails", async () => {

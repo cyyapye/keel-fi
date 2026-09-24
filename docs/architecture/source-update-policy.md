@@ -301,20 +301,28 @@ Opening **Holdings → Group with company** shows one focused issuer review. Kee
 proposes a unique match from accepted company names or aliases, ignoring
 recognized share-class labels and legal suffixes. A ticker or partial name alone
 is insufficient. If saved names do not identify a match, one bounded public
-issuer search can use the existing Brave connection. Recommendations require
-issuer identity evidence on an accepted official company domain, or an explicit
-alias statement in a regulatory source. Conflicting matches remain unresolved.
-The recommendation shows its reason and source. **Approve grouping** records the
-human decision; **Change company** opens the manual correction form.
+issuer search uses Wikidata when no optional Brave credential is configured.
+Wikidata candidates require exact normalized matches for both the public issuer
+and an accepted company name/alias on the same entity, using structured labels
+and matched aliases rather than description text. The proposal links to that
+record and explicitly identifies Wikidata as its evidence; it never accepts the
+identity automatically. Brave results require issuer identity evidence on an
+accepted official company domain, or an explicit alias statement in a regulatory
+source. Conflicting matches remain unresolved. The recommendation shows its
+reason and source. **Approve grouping** records the human decision; **Change
+company** opens the manual correction form.
 
 An authenticated POST atomically admits one lookup per security,
-company-identity revision, current link and UTC day. Reopening reuses that
-result, including empty and failed results; there is no idle polling or
-automatic retry. One lookup requests at most five results, has a ten-second
-deadline and a 256 KiB response limit, and fetches no candidate pages. Only the
-public issuer name is sent to search. An interrupted lookup stays visible as
-pending for that daily key; **Check again** reads its completion, and manual
-correction remains available.
+company-identity revision, current link, lookup version/availability and UTC
+day. Reopening reuses that result, including empty and failed results; there is
+no idle polling or automatic retry. One lookup requests at most five results,
+has a ten-second deadline and a 256 KiB response limit, and fetches no candidate
+pages. Only the public issuer name is sent to search. An interrupted lookup
+stays visible as pending for that daily key; **Check again** reads its
+completion, and manual correction remains available. Lookup version and
+availability are part of the cache key so fixing a missing provider does not
+preserve an unavailable result until tomorrow. Existing observations remain
+immutable; the household daily admission cap still applies across versions.
 
 Migration `0073` records the observation and proposed match before acceptance.
 Completed evidence is immutable. Approval checks the identity revision, issuer,

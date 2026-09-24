@@ -2208,7 +2208,7 @@ export function createApp(options: AppOptions = {}) {
             await new D1PublicCompanyLinkRepository(context.env.DB).recommend(
               context.get("identity").subject,
               context.req.param("exposureId"),
-              key ? (issuer) => searchIssuerEvidence(issuer, key) : undefined,
+              (issuer) => searchIssuerEvidence(issuer, key),
             ),
           ),
           200,
