@@ -317,12 +317,14 @@ company-identity revision, current link, lookup version/availability and UTC
 day. Reopening reuses that result, including empty and failed results; there is
 no idle polling or automatic retry. One lookup requests at most five results,
 has a ten-second deadline and a 256 KiB response limit, and fetches no candidate
-pages. Only the public issuer name is sent to search. An interrupted lookup
-stays visible as pending for that daily key; **Check again** reads its
-completion, and manual correction remains available. Lookup version and
-availability are part of the cache key so fixing a missing provider does not
-preserve an unavailable result until tomorrow. Existing observations remain
-immutable; the household daily admission cap still applies across versions.
+pages. Fetch uses Workers-supported manual redirects and rejects non-success
+responses before parsing; redirect destinations are never fetched. Only the
+public issuer name is sent to search. An interrupted lookup stays visible as
+pending for that daily key; **Check again** reads its completion, and manual
+correction remains available. Lookup version and availability are part of the
+cache key so fixing a missing provider does not preserve an unavailable result
+until tomorrow. Existing observations remain immutable; the household daily
+admission cap still applies across versions.
 
 Migration `0073` records the observation and proposed match before acceptance.
 Completed evidence is immutable. Approval checks the identity revision, issuer,

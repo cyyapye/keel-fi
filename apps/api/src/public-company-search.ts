@@ -77,7 +77,7 @@ export async function searchIssuerEvidence(
           "User-Agent":
             "KeelIssuerReview/1.0 (https://github.com/cyyapye/keel-fi)",
         },
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok || response.body === null)
