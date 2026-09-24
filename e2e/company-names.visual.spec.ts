@@ -195,92 +195,220 @@ test("reviews an issuer link before grouping a public holding", async ({
     acceptedCashAccounts: [],
     pendingImports: [],
   });
-  await page.route("**/api/companies/identity", (route) =>
-    route.fulfill({
-      json: {
-        revision: 1,
-        companies: [
-          {
-            id: "company_northstar",
-            legalName: "Northstar Robotics",
-            aliases: [],
-          },
-        ],
-        suggestedGroups: [],
-      },
-    }),
-  );
   let reviewCount = 0;
   let reviewId: string | null = null;
+  let reject = true;
+  let recommendationCount = 0;
+  let releaseLookup: () => void = () => {};
+  const lookupReady = new Promise<void>((resolve) => {
+    releaseLookup = resolve;
+  });
+  let manualSave = false;
   await page.route("**/api/companies/public-links", async (route) => {
-    if (route.request().method() === "GET") {
-      await route.fulfill({
+    if (route.request().method() === "GET")
+      return route.fulfill({
         json: {
           securities: [
             {
               exposureId: "exposure_nstr_public",
-              name: "Northstar Class A",
-              companyId: reviewId === null ? null : "company_northstar",
+              name: "Northstar Orbital Technologies Corp. - Ordinary Shares - Class A",
+              companyId:
+                reviewId === null
+                  ? null
+                  : manualSave
+                    ? "company_harbor"
+                    : "company_northstar",
               reviewId,
               positionCount: 1,
             },
           ],
-          companies: [{ id: "company_northstar", name: "Northstar Robotics" }],
+          companies: [
+            { id: "company_northstar", name: "Northstar Robotics" },
+            { id: "company_harbor", name: "Harbor Health Systems" },
+          ],
         },
       });
-      return;
-    }
-    const input = route.request().postDataJSON() as {
-      companyId: string;
-      exposureId: string;
-      sourceUrl: string;
-    };
-    expect(input).toMatchObject({
-      companyId: "company_northstar",
-      exposureId: "exposure_nstr_public",
-      sourceUrl: "https://example.test/synthetic-filing",
-    });
-    reviewCount += 1;
-    reviewId = "11111111-1111-4111-8111-111111111111";
-    await route.fulfill({
+    manualSave = true;
+    reviewCount++;
+    reviewId = "review_manual";
+    return route.fulfill({
       status: 201,
       json: {
         id: reviewId,
-        exposureId: input.exposureId,
-        companyId: input.companyId,
+        exposureId: "exposure_nstr_public",
+        companyId: "company_harbor",
         reviewedAt: "2026-09-01T12:00:00.000Z",
       },
     });
   });
+  await page.route(
+    "**/api/companies/public-links/exposure_nstr_public/recommendation",
+    async (route) => {
+      recommendationCount++;
+      await lookupReady;
+      await route.fulfill({
+        json: {
+          id: "match_one",
+          exposureId: "exposure_nstr_public",
+          status: "recommended",
+          companyId: "company_northstar",
+          companyName: "Northstar Robotics",
+          reason:
+            "The issuer name appears in Northstar Robotics’ official legal notice.",
+          sourceUrl: "https://example.test/synthetic-filing",
+          sourceTitle: "Northstar Robotics · Legal notice",
+        },
+      });
+    },
+  );
+  await page.route(
+    "**/api/companies/public-links/recommendations/match_one/approve",
+    async (route) => {
+      if (reject) {
+        reject = false;
+        return route.fulfill({
+          status: 409,
+          json: {
+            error: "Company evidence changed. Check the recommendation again.",
+          },
+        });
+      }
+      reviewCount++;
+      reviewId = "review_one";
+      await route.fulfill({
+        status: 201,
+        json: {
+          id: reviewId,
+          exposureId: "exposure_nstr_public",
+          companyId: "company_northstar",
+          reviewedAt: "2026-09-01T12:00:00.000Z",
+        },
+      });
+    },
+  );
   await page.goto("/holdings/entities?companies=1&public=exposure_nstr_public");
-  const editor = page.getByRole("region", { name: "Link public holding" });
+  const editor = page.getByLabel("Review company grouping", { exact: true });
   await expect(
-    editor.getByRole("heading", { name: "Link a public holding" }),
+    editor.getByText(
+      "Northstar Orbital Technologies Corp. - Ordinary Shares - Class A",
+      { exact: true },
+    ),
   ).toBeVisible();
+  await expect(editor.getByRole("status")).toHaveText(
+    "Checking issuer evidence…",
+  );
+  releaseLookup();
+  await expect(
+    editor.getByRole("button", { name: "Approve grouping" }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("heading", { name: "Review a company name" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("combobox")).toHaveCount(0);
+  await expect(page).toHaveScreenshot("public-company-link-review.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+  await editor.getByRole("button", { name: "Approve grouping" }).click();
+  await expect(editor).toContainText("Company evidence changed.");
+  await expect(editor).toContainText("Northstar Robotics · Legal notice");
+  await editor.getByRole("button", { name: "Check again" }).click();
+  await editor.getByRole("button", { name: "Approve grouping" }).click();
+  await expect(
+    editor.getByRole("heading", { name: "Grouped with Northstar Robotics" }),
+  ).toBeVisible();
+  expect(reviewCount).toBe(1);
+  await page.reload();
+  await expect(
+    editor.getByRole("heading", { name: "Grouped with Northstar Robotics" }),
+  ).toBeVisible();
+  expect(recommendationCount).toBe(2);
+  await expect(
+    editor.getByRole("button", { name: "Approve grouping" }),
+  ).toHaveCount(0);
+  await editor.getByRole("button", { name: "Change company" }).click();
   await editor.getByRole("combobox", { name: "Group under" }).click();
-  await page.getByRole("option", { name: "Northstar Robotics" }).click();
+  await page.getByRole("option", { name: "Harbor Health Systems" }).click();
   await editor
     .getByLabel("Issuer evidence URL")
-    .fill("https://example.test/synthetic-filing");
+    .fill("https://example.test/synthetic-correction");
   await editor
     .getByLabel("Why this security belongs to this company")
-    .fill("The synthetic filing names Northstar Robotics as issuer.");
-  await editor.getByRole("button", { name: "Review grouping" }).click();
-  await expect(
-    editor.getByRole("heading", {
-      name: "Northstar Class A → Northstar Robotics",
-    }),
-  ).toBeVisible();
-  await page.locator(".topbar").evaluate((element) => {
-    (element as HTMLElement).style.position = "static";
-  });
-  await expect(editor).toHaveScreenshot("public-company-link-review.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
+    .fill("Corrected using the synthetic issuer filing.");
+  await editor
+    .getByRole("button", { name: "Review grouping", exact: true })
+    .click();
   await editor.getByRole("button", { name: "Confirm company link" }).click();
-  await expect(editor).toContainText(
-    "This security now appears with the company’s other positions.",
+  await expect(
+    editor.getByRole("heading", { name: "Grouped with Harbor Health Systems" }),
+  ).toBeVisible();
+  expect(reviewCount).toBe(2);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("shows an unresolved issuer match without presenting a second grouping form", async ({
+  page,
+}) => {
+  await routeHoldingsPage(page, {
+    householdName: "Demo Household",
+    holdings: [],
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.route("**/api/companies/public-links", (route) =>
+    route.fulfill({
+      json: {
+        securities: [
+          {
+            exposureId: "demo_public",
+            name: "Demo Systems Class A",
+            companyId: null,
+            reviewId: null,
+            positionCount: 1,
+          },
+        ],
+        companies: [{ id: "demo_company", name: "Demo Systems" }],
+      },
+    }),
   );
-  expect(reviewCount).toBe(1);
+  await page.route(
+    "**/api/companies/public-links/demo_public/recommendation",
+    (route) =>
+      route.fulfill({
+        json: {
+          id: "demo_match",
+          exposureId: "demo_public",
+          status: "ambiguous",
+          companyId: null,
+          companyName: null,
+          sourceUrl: null,
+          sourceTitle: null,
+          reason:
+            "More than one company matches the issuer evidence. Choose the correct company.",
+        },
+      }),
+  );
+  await page.goto("/holdings/entities?companies=1&public=demo_public");
+  await expect(
+    page.getByRole("heading", { name: "Match needs clarification" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Approve grouping" }),
+  ).toHaveCount(0);
+  await expect(page).toHaveScreenshot("public-company-link-unresolved.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Choose company manually" }).click();
+  await expect(page.getByRole("combobox", { name: "Group under" })).toHaveCount(
+    1,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Review a company name" }),
+  ).toHaveCount(0);
 });

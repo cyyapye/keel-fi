@@ -1,3 +1,4 @@
+import { searchIssuerEvidence } from "./public-company-search";
 import {
   AcceptPurchasesSchema,
   PurchaseReceiptSchema,
@@ -21,6 +22,9 @@ import {
 } from "@keel/database";
 import {
   PublicCompanyLinkCatalogSchema,
+  PublicCompanyMatchSchema,
+  PublicCompanyLookupInputSchema,
+  PublicCompanyApprovalInputSchema,
   PublicCompanyLinkReceiptSchema,
   PublicCompanyLinkReviewSchema,
 } from "@keel/domain/public-company-links";
@@ -2189,6 +2193,85 @@ export function createApp(options: AppOptions = {}) {
       });
     }
   });
+  app.post(
+    "/api/companies/public-links/:exposureId/recommendation",
+    async (context) => {
+      const input = PublicCompanyLookupInputSchema.safeParse({
+        exposureId: context.req.param("exposureId"),
+      });
+      if (!input.success)
+        return context.json({ error: "Choose a valid public holding." }, 400);
+      try {
+        const key = context.env.BRAVE_SEARCH_API_KEY;
+        return context.json(
+          PublicCompanyMatchSchema.parse(
+            await new D1PublicCompanyLinkRepository(context.env.DB).recommend(
+              context.get("identity").subject,
+              context.req.param("exposureId"),
+              key ? (issuer) => searchIssuerEvidence(issuer, key) : undefined,
+            ),
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        return context.json(
+          {
+            error:
+              error instanceof PublicCompanyLinkError
+                ? error.message
+                : "Couldn’t check the issuer match. Try again.",
+          },
+          error instanceof PublicCompanyLinkError && error.code === "not_found"
+            ? 404
+            : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+  app.post(
+    "/api/companies/public-links/recommendations/:id/approve",
+    async (context) => {
+      const input = PublicCompanyApprovalInputSchema.safeParse({
+        id: context.req.param("id"),
+      });
+      if (!input.success)
+        return context.json(
+          { error: "Choose a valid issuer recommendation." },
+          400,
+        );
+      try {
+        return context.json(
+          await new D1PublicCompanyLinkRepository(
+            context.env.DB,
+          ).approveRecommendation(
+            context.get("identity").subject,
+            context.req.param("id"),
+          ),
+          201,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        return context.json(
+          {
+            error:
+              error instanceof PublicCompanyLinkError
+                ? error.message
+                : "The company grouping could not be saved.",
+          },
+          error instanceof PublicCompanyLinkError
+            ? error.code === "not_found"
+              ? 404
+              : error.code === "stale"
+                ? 409
+                : 400
+            : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
   app.post("/api/companies/public-links", async (context) => {
     const input = PublicCompanyLinkReviewSchema.safeParse(
       await context.req.json().catch(() => null),

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   PublicCompanyLinkReviewSchema,
   type PublicCompanyLinkCatalog,
   type PublicCompanyLinkReview,
+  type PublicCompanyMatch,
 } from "@keel/domain/public-company-links";
 import {
   Button,
@@ -11,18 +12,26 @@ import {
   Input,
   SearchSelect,
   SectionHeader,
+  PageHeader,
   Textarea,
   TextLink,
 } from "@keel/ui";
-import { loadPublicCompanyLinks, reviewPublicCompanyLink } from "./api";
+import {
+  loadPublicCompanyLinks,
+  reviewPublicCompanyLink,
+  recommendPublicCompanyLink,
+  approvePublicCompanyRecommendation,
+} from "./api";
 
-export function PublicCompanyLinkEditor({
+function ManualPublicCompanyLinkEditor({
   exposureId,
+  onSaved,
 }: {
   exposureId: string;
+  onSaved: () => void;
 }) {
   const [catalog, setCatalog] = useState<PublicCompanyLinkCatalog | null>(null);
-  const [selectedExposureId, setSelectedExposureId] = useState(exposureId);
+  const selectedExposureId = exposureId;
   const [companyId, setCompanyId] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [reason, setReason] = useState("");
@@ -91,6 +100,7 @@ export function PublicCompanyLinkEditor({
       setSaved(true);
       setSourceUrl("");
       setReason("");
+      onSaved();
     } catch (failure) {
       setPreview(null);
       setError(
@@ -106,8 +116,8 @@ export function PublicCompanyLinkEditor({
   return (
     <section className="company-names__review" aria-label="Link public holding">
       <SectionHeader
-        title="Link a public holding"
-        description="Choose the company that issued this security. Its position and value stay unchanged."
+        title="Choose another company"
+        description="Add the source that confirms this issuer belongs to the company."
       />
       {error && <FormMessage tone="error">{error}</FormMessage>}
       {saved && (
@@ -128,27 +138,6 @@ export function PublicCompanyLinkEditor({
           }}
         >
           <fieldset disabled={busy} className="company-names__fields">
-            <Field label="Public security" variant="filled">
-              <SearchSelect
-                label="Public security"
-                searchLabel="Search public securities"
-                value={selectedExposureId}
-                items={catalog.securities.map((item) => ({
-                  value: item.exposureId,
-                  label: item.name,
-                }))}
-                onChange={(value) =>
-                  change(() => {
-                    setSelectedExposureId(value);
-                    setCompanyId(
-                      catalog.securities.find(
-                        (item) => item.exposureId === value,
-                      )?.companyId ?? "",
-                    );
-                  })
-                }
-              />
-            </Field>
             <Field label="Group under" variant="filled">
               <SearchSelect
                 label="Group under"
@@ -216,5 +205,214 @@ export function PublicCompanyLinkEditor({
         </form>
       )}
     </section>
+  );
+}
+
+export function PublicCompanyLinkEditor({
+  exposureId,
+}: {
+  exposureId: string;
+}) {
+  const [catalog, setCatalog] = useState<PublicCompanyLinkCatalog | null>(null);
+  const [match, setMatch] = useState<PublicCompanyMatch | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [manual, setManual] = useState(false);
+  const initial = useRef<Promise<PublicCompanyLinkCatalog> | null>(null);
+  const lookup = useRef<Promise<PublicCompanyMatch> | null>(null);
+  useEffect(() => {
+    let active = true;
+    initial.current ??= loadPublicCompanyLinks();
+    void initial.current
+      .then(async (result) => {
+        if (!active) return;
+        setCatalog(result);
+        const security = result.securities.find(
+          (item) => item.exposureId === exposureId,
+        );
+        if (security && security.companyId === null) {
+          lookup.current ??= recommendPublicCompanyLink(exposureId);
+          const recommendation = await lookup.current;
+          if (active) setMatch(recommendation);
+        }
+      })
+      .catch((failure: unknown) => {
+        if (active)
+          setError(
+            failure instanceof Error
+              ? failure.message
+              : "Couldn’t check the issuer match.",
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [exposureId]);
+  const security = catalog?.securities.find(
+    (item) => item.exposureId === exposureId,
+  );
+  const linked = catalog?.companies.find(
+    (item) => item.id === security?.companyId,
+  );
+  const refresh = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await loadPublicCompanyLinks();
+      setCatalog(next);
+      setMatch(await recommendPublicCompanyLink(exposureId));
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "Couldn’t check the issuer match.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+  const approve = async () => {
+    if (match?.status !== "recommended" || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const receipt = await approvePublicCompanyRecommendation(match.id);
+      setCatalog((current) =>
+        current === null
+          ? null
+          : {
+              ...current,
+              securities: current.securities.map((item) =>
+                item.exposureId === exposureId
+                  ? {
+                      ...item,
+                      companyId: receipt.companyId,
+                      reviewId: receipt.id,
+                    }
+                  : item,
+              ),
+            },
+      );
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "The grouping could not be saved.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div
+      className="company-names entity-review"
+      aria-label="Review company grouping"
+    >
+      <div className="entity-review__navigation">
+        <TextLink href="/holdings">Back to holdings</TextLink>
+      </div>
+      <PageHeader
+        title="Company grouping"
+        description={
+          security?.name ?? "Find the company behind this public holding."
+        }
+      />
+      {error && <FormMessage tone="error">{error}</FormMessage>}
+      {loading ? (
+        <p role="status">Checking issuer evidence…</p>
+      ) : catalog === null ? (
+        <Button onClick={() => void refresh()} tone="secondary">
+          Try again
+        </Button>
+      ) : security === undefined ? (
+        <p>This public holding is no longer available.</p>
+      ) : manual ? (
+        <>
+          <ManualPublicCompanyLinkEditor
+            exposureId={exposureId}
+            onSaved={() => {
+              setManual(false);
+              void refresh();
+            }}
+          />
+          <Button tone="quiet" onClick={() => setManual(false)}>
+            Back to recommendation
+          </Button>
+        </>
+      ) : linked ? (
+        <section className="company-names__review">
+          <SectionHeader
+            title={`Grouped with ${linked.name}`}
+            description="This holding now appears with the company’s other positions."
+          />
+          <TextLink href="/holdings">View holdings</TextLink>
+          <Button tone="quiet" onClick={() => setManual(true)}>
+            Change company
+          </Button>
+        </section>
+      ) : (
+        <section className="company-names__review">
+          {match?.status === "recommended" ? (
+            <>
+              <SectionHeader
+                eyebrow="Recommended company"
+                title={match.companyName!}
+                description={match.reason}
+              />
+              {match.sourceUrl ? (
+                <TextLink
+                  href={match.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {match.sourceTitle ?? "View issuer evidence"}
+                </TextLink>
+              ) : (
+                <TextLink href="/holdings/entities?companies=1">
+                  View accepted company names
+                </TextLink>
+              )}
+              <p>
+                {security.positionCount === 1
+                  ? "This position will appear"
+                  : `${security.positionCount} positions will appear`}{" "}
+                with {match.companyName}’s other holdings. Each position keeps
+                its own value.
+              </p>
+              <Button onClick={() => void approve()} disabled={busy}>
+                {busy ? "Saving…" : "Approve grouping"}
+              </Button>
+            </>
+          ) : (
+            <SectionHeader
+              title={
+                match?.status === "ambiguous"
+                  ? "Match needs clarification"
+                  : match?.status === "unavailable"
+                    ? "Issuer lookup unavailable"
+                    : match?.status === "pending"
+                      ? "Checking issuer evidence"
+                      : "No confident match yet"
+              }
+              description={match?.reason}
+            />
+          )}
+          {(error !== null || match?.status === "pending") && (
+            <Button tone="secondary" onClick={() => void refresh()}>
+              Check again
+            </Button>
+          )}
+          <Button tone="quiet" onClick={() => setManual(true)}>
+            {match?.status === "recommended"
+              ? "Change company"
+              : "Choose company manually"}
+          </Button>
+        </section>
+      )}
+    </div>
   );
 }

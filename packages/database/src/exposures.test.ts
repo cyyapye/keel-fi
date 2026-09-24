@@ -87,7 +87,9 @@ const migrationFiles = [
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
   "packages/database/migrations/0061_portfolio_watch_activity.sql",
   "packages/database/migrations/0062_reviewed_company_aliases.sql",
+  "packages/database/migrations/0063_current_exposure_mapping_heads.sql",
   "packages/database/migrations/0072_reviewed_public_company_links.sql",
+  "packages/database/migrations/0073_public_company_recommendations.sql",
   "packages/database/migrations/0070_private_purchase_details.sql",
   "packages/database/migrations/0064_watch_read_receipts.sql",
   "packages/database/seed/synthetic.sql",
@@ -691,10 +693,68 @@ describe("canonical exposure resolution and aggregation", () => {
     expect(
       catalog.securities.find((item) => item.exposureId === publicExposure.id),
     ).toMatchObject({ reviewId: null, positionCount: 1 });
+    const search = vi.fn(() =>
+      Promise.resolve([
+        {
+          title: "Synthetic listed security legal notice",
+          url: "https://northstar-robotics.example/legal",
+          description:
+            "Synthetic listed security is issued by Northstar Robotics.",
+        },
+      ]),
+    );
+    const simultaneous = await Promise.all([
+      links.recommend(accessSubject, publicExposure.id, search),
+      links.recommend(accessSubject, publicExposure.id, search),
+    ]);
+    const proposed = simultaneous.find(
+      (result) => result.status === "recommended",
+    )!;
+    expect(new Set(simultaneous.map((result) => result.id)).size).toBe(1);
+    expect(proposed).toMatchObject({
+      status: "recommended",
+      companyId: "co_northstar",
+    });
+    expect(
+      await links.recommend(accessSubject, publicExposure.id, search),
+    ).toEqual(proposed);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(
+      (await links.getCatalog(accessSubject)).securities.find(
+        (item) => item.exposureId === publicExposure.id,
+      )?.companyId,
+    ).toBeNull();
+    sqlite.exec(
+      "UPDATE companies SET updated_at = '2026-09-02' WHERE id = 'co_northstar'",
+    );
+    await expect(
+      links.approveRecommendation(accessSubject, proposed.id),
+    ).rejects.toThrow(/changed/u);
+    const current = await links.recommend(
+      accessSubject,
+      publicExposure.id,
+      search,
+    );
+    const approvals = await Promise.all([
+      links.approveRecommendation(accessSubject, current.id),
+      links.approveRecommendation(accessSubject, current.id),
+    ]);
+    const approved = approvals[0];
+    expect(approvals[1]).toEqual(approved);
+    expect(
+      await links.approveRecommendation(accessSubject, current.id),
+    ).toEqual(approved);
+    expect(() =>
+      sqlite
+        .prepare(
+          "UPDATE public_company_match_runs SET result_json = '{}' WHERE id = ?",
+        )
+        .run(current.id),
+    ).toThrow(/immutable/u);
     const review = {
       exposureId: publicExposure.id,
       companyId: "co_northstar",
-      expectedReviewId: null,
+      expectedReviewId: approved.id,
       sourceUrl: "https://example.test/synthetic-issuer-filing",
       reason: "Synthetic filing identifies the issuer.",
     };
@@ -726,7 +786,7 @@ describe("canonical exposure resolution and aggregation", () => {
           "SELECT COUNT(*) AS count FROM public_exposure_company_reviews",
         )
         .get(),
-    ).toEqual({ count: 1 });
+    ).toEqual({ count: 2 });
   });
 
   it("retires the three preview demo lots without deleting accepted history", async () => {
@@ -2957,6 +3017,10 @@ describe("holding ownership and exposure reconciliation migration", () => {
             file !== oneSidedPositionIdentityMigrationFile &&
             file !== privateProviderPositionContinuityMigrationFile &&
             file !== portfolioWatchExposureUniverseMigrationFile &&
+            file !==
+              "packages/database/migrations/0063_current_exposure_mapping_heads.sql" &&
+            file !==
+              "packages/database/migrations/0073_public_company_recommendations.sql" &&
             file !== "packages/database/seed/synthetic.sql",
         )
         .forEach((file) => {
