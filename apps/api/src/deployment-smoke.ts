@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import { D1AlphaRepository } from "@keel/database";
 
+import { searchIssuerEvidence } from "./public-company-search";
+
 import type { Env } from "./types";
 
 export const DeployedGitShaSchema = z
@@ -66,6 +68,7 @@ export const DeploymentSmokeResultSchema = z
       .object({
         alpha: z.literal(true),
         d1: z.literal(true),
+        issuerLookup: z.literal(true),
         queue: z.literal(true),
         r2: z.literal(true),
       })
@@ -117,6 +120,12 @@ export async function runDeploymentSmoke(
   }
   await alphaProjectionLoader(env, previewUser.access_subject);
 
+  // Probe the same configured provider from the deployed Worker, with no household data.
+  await searchIssuerEvidence(
+    "Keel Synthetic Issuer Canary",
+    env.BRAVE_SEARCH_API_KEY,
+  );
+
   const objectKey = `deployment-smoke/${deployedGitSha}/${crypto.randomUUID()}`;
   try {
     await env.DOCUMENTS.put(objectKey, smokeObjectBody, {
@@ -155,6 +164,7 @@ export async function runDeploymentSmoke(
     checks: {
       alpha: true,
       d1: true,
+      issuerLookup: true,
       queue: true,
       r2: true,
     },

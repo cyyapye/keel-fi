@@ -595,8 +595,12 @@ per household per UTC day, including concurrent requests and failures. A changed
 company revision or link does not bypass that daily search ceiling. There is no
 automatic retry, timer, provider-page fetch or queue fanout. An idle day costs
 zero calls and writes. A full failure or useful-search day costs at most 20
-Brave requests, each with a ten-second deadline and 256 KiB response bound. The
-existing search credential is reused; no new service or quota is purchased.
+provider requests, each with a ten-second deadline and 256 KiB response bound.
+The default provider is Wikidata's public entity search (no credential); an
+existing optional Brave credential selects Brave. Each admission calls only one
+provider once. No new paid service or quota is purchased. Cache version and
+provider availability changes permit a fresh observation, while preserving the
+same 20-request household ceiling.
 
 A fresh 120-security recommendation uses six D1 round trips, at most 4,200 rows
 read and eight rows written including indexes. Reopening uses four round trips
@@ -605,3 +609,11 @@ a duplicate approval writes nothing. A 20-search day therefore budgets at most
 84,000 reads and 160 writes for the lookup work, plus normal page/auth reads and
 explicit approval requests. The search is not admitted again when its result is
 pending or unavailable; the UI exposes the observed state and manual correction.
+
+The protected release smoke also calls the configured issuer provider with a
+fixed synthetic canary query from the deployed Worker. It does not read or write
+holdings or recommendations. The smoke requires a validated provider response
+(empty results are valid) and fails closed on missing/malformed or failed
+responses. This adds at most one provider request per smoke attempt, at most
+three during the existing version-propagation retry budget, and zero idle calls.
+Live review verification remains necessary to prove a particular recommendation.

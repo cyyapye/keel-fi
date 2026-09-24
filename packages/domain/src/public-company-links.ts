@@ -74,6 +74,7 @@ export const IssuerSearchResultsSchema = z
       title: z.string().max(500),
       url: z.url().max(2_048),
       description: z.string().max(2_000),
+      identityNames: z.array(Label).min(2).max(2).optional(),
     }),
   )
   .max(5);
@@ -130,7 +131,13 @@ export function recommendPublicCompany(
       .toLowerCase()
       .replace(/^www\./u, "");
     const text = `${source.title} ${source.description}`;
-    if (!containsName(text, securityName)) continue;
+    const entityNames =
+      /^https:\/\/www\.wikidata\.org\/wiki\/Q[1-9][0-9]*$/u.test(source.url)
+        ? source.identityNames
+        : undefined;
+    const entityIssuer =
+      entityNames?.some((name) => key(name) === key(securityName)) ?? false;
+    if (!entityIssuer && !containsName(text, securityName)) continue;
     for (const company of companies) {
       const officialHost = company.websiteHost
         ?.toLowerCase()
@@ -169,7 +176,11 @@ export function recommendPublicCompany(
       );
       if (
         (official && (issuerHeading || (legalPage && operatorStatement))) ||
-        explicitAlias
+        explicitAlias ||
+        (entityIssuer &&
+          [company.name, ...company.aliases].some((name) =>
+            entityNames?.some((entityName) => key(entityName) === key(name)),
+          ))
       )
         found.set(company.id, { company, source });
     }
@@ -189,7 +200,9 @@ export function recommendPublicCompany(
     companyId: company.id,
     companyName: company.name,
     reason: source
-      ? `The issuer name appears in a source associated with ${company.name}.`
+      ? source.identityNames
+        ? `Wikidata lists the issuer name and ${company.name} on the same company record.`
+        : `The issuer name appears in a source associated with ${company.name}.`
       : "The issuer name matches this company’s accepted name or alias after removing share-class labels and legal suffixes.",
     sourceUrl: source?.url ?? null,
     sourceTitle: source?.title ?? "Accepted company names",

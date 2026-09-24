@@ -61,7 +61,7 @@ it("authenticates issuer recommendations and approval and rejects stale or inval
     expect(recommend).toHaveBeenCalledWith(
       "synthetic-access-subject",
       "demo_public",
-      undefined,
+      expect.any(Function),
     );
     expect((await app.request(paths[1]!, { method: "POST" }, env)).status).toBe(
       201,

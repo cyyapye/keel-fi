@@ -63,7 +63,7 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "apps/api/src/portfolio-watch.ts | resolvePublicHostWithDnsJson | network | fetchImpl | 778c2ea638b09833",
   "apps/api/src/provider-legal-documents.ts | registerProviderLegalDocumentRoutes | storage | context.env.DOCUMENTS.get | 2ff90a1353aacc50",
   "apps/api/src/provider-legal-documents.ts | registerProviderLegalDocumentRoutes | storage | context.env.DOCUMENTS.put | ac084d79bdce177d",
-  "apps/api/src/public-company-search.ts | searchIssuerEvidence | network | fetcher | c1e49561bed0b4e6",
+  "apps/api/src/public-company-search.ts | searchIssuerEvidence | network | fetcher | c32383741e05f057",
   "apps/api/src/retained-public-exposure.ts | evidenceFromDocument | storage | env.DOCUMENTS.get | 9fb1f48120d6d1d3",
   "apps/api/src/watch-website-search.ts | searchWatchWebsite | network | fetcher | c1e49561bed0b4e6",
   "apps/api/wrangler.jsonc | deployment configuration | 030213ccfaf9457f",

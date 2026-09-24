@@ -191,6 +191,7 @@ export async function writeReleaseEvidence(
       "access_service_token",
       "dashboard_shell_and_asset",
       "d1_binding",
+      "issuer_lookup_provider",
       "r2_transient_round_trip_and_cleanup",
       "queue_publish_canary",
       "api_and_web_git_sha",

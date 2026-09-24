@@ -98,6 +98,7 @@ function successfulFetch(
             d1: true,
             queue: true,
             r2: true,
+            issuerLookup: true,
           },
         }),
       );
@@ -256,6 +257,7 @@ describe("preview deployment runtime verification", () => {
                   d1: true,
                   queue: true,
                   r2: true,
+                  issuerLookup: true,
                 },
               }),
             );
@@ -298,6 +300,7 @@ describe("preview deployment runtime verification", () => {
                 d1: true,
                 queue: true,
                 r2: true,
+                issuerLookup: true,
               },
             }),
           );
