@@ -70,6 +70,36 @@ it("uses issuer evidence on an accepted company domain without guessing an unfam
       },
     ]).status,
   ).toBe("no_match");
+  const regulatory = {
+    ...source,
+    url: "https://www.sec.gov/example",
+    title: "Synthetic filing",
+    description:
+      "Demo Launch Technologies Inc., also known as Demo Orbit, is the issuer.",
+  };
+  expect(
+    recommendPublicCompany("Demo Launch Technologies Inc.", companies, [
+      regulatory,
+    ]),
+  ).toMatchObject({ status: "recommended", companyId: "co_one" });
+  expect(
+    recommendPublicCompany("Demo Launch Technologies Inc.", companies, [
+      {
+        ...regulatory,
+        description:
+          "Demo Launch Technologies Inc. is not known as Demo Orbit.",
+      },
+    ]).status,
+  ).toBe("no_match");
+  expect(
+    recommendPublicCompany("Demo Launch Technologies Inc.", companies, [
+      {
+        ...regulatory,
+        description:
+          "Demo Launch Technologies Inc. competes with Demo Holdings, also known as Demo Orbit.",
+      },
+    ]).status,
+  ).toBe("no_match");
 });
 it("keeps conflicting issuer identities unresolved and supports bounded company catalogs", () => {
   const many = Array.from({ length: 120 }, (_, i) => ({

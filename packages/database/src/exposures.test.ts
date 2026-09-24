@@ -696,7 +696,7 @@ describe("canonical exposure resolution and aggregation", () => {
     const search = vi.fn(() =>
       Promise.resolve([
         {
-          title: "Synthetic listed security issuer",
+          title: "Synthetic listed security legal notice",
           url: "https://northstar-robotics.example/legal",
           description:
             "Synthetic listed security is issued by Northstar Robotics.",

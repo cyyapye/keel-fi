@@ -138,28 +138,35 @@ export function recommendPublicCompany(
       const official =
         officialHost != null &&
         (host === officialHost || host.endsWith(`.${officialHost}`));
-      // An accepted official domain associates the issuer with this company.
-      // Regulator results require an explicit alias relationship as well.
+      const escape = (value: string) =>
+        value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+      const issuerPattern = `${escape(key(securityName))}(?: (?:inc|incorporated|corp|corporation|ltd|limited|llc|plc))*`;
+      const normalized = companySuggestionKey(source.description);
       const regulator = host === "sec.gov" || host.endsWith(".sec.gov");
+      // Bind the alias/operator claim to the issuer itself, not another company
+      // mentioned elsewhere in a search result.
       const explicitAlias =
         regulator &&
-        [company.name, ...company.aliases].some((name) => {
-          const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-          return new RegExp(
-            `(?:known as|doing business as|d/b/a|trading as|also called)\\s+[“"']?${escaped}(?:[”"'., ]|$)`,
-            "iu",
-          ).test(text);
-        });
-      const issuerHeading = companySuggestionKey(source.title).startsWith(
-        key(securityName),
-      );
+        [company.name, ...company.aliases].some((name) =>
+          new RegExp(
+            `(?:^| )${issuerPattern} (?:also )?(?:known as|doing business as|d b a|trading as|called) ${escape(key(name))}(?: |$)`,
+            "u",
+          ).test(normalized),
+        );
+      const issuerHeading = new RegExp(
+        `^${issuerPattern}(?: (?:privacy policy|legal notice|terms of service|terms and conditions))?$`,
+        "u",
+      ).test(companySuggestionKey(source.title));
       const legalPage = /\/(?:legal|privacy|terms)(?:[/.-]|$)/iu.test(
         new URL(source.url).pathname,
       );
-      const operatorStatement =
-        /(?:operated by|provided by|owned by|operates this|our company|[“"'](?:we|us|our)[”"'])/iu.test(
-          source.description,
-        );
+      const operatorStatement = [company.name, ...company.aliases].some(
+        (name) =>
+          new RegExp(
+            `(?:^| )${issuerPattern}(?: ${escape(key(name))})? (?:we|us|our|operates this website|operates this service)(?: |$)`,
+            "u",
+          ).test(normalized),
+      );
       if (
         (official && (issuerHeading || (legalPage && operatorStatement))) ||
         explicitAlias
