@@ -1952,10 +1952,10 @@ test("captures a GP purchase notice directly in investment review without a corp
     .click();
   await expect(
     section.getByLabel("Purchase price / share · USD", { exact: true }),
-  ).toHaveValue("24");
+  ).toHaveValue("24.00");
   await expect(
     section.getByLabel("Entry reference price / share · USD", { exact: true }),
-  ).toHaveValue("20");
+  ).toHaveValue("20.00");
   await expect(
     section.getByLabel("One-time fee · %", { exact: true }),
   ).toHaveValue("6");
@@ -1970,13 +1970,6 @@ test("captures a GP purchase notice directly in investment review without a corp
   ).toHaveValue("");
   await expect(page.getByLabel("Event type", { exact: true })).toHaveCount(0);
   await expect(section).toHaveScreenshot("investment-purchase-prefilled.png");
-  await section
-    .getByRole("button", { name: "Review purchase details", exact: true })
-    .click();
-  await expect(section).toContainText("Calculated all-in premium: 27.20%");
-  await expect(section).toContainText("Notice-quoted premium: 27.00%");
-  await expect(section).toContainText("All-in purchase price: $25.44");
-  await expect(section).toHaveScreenshot("investment-purchase-review.png");
   expect(count).toBe(0);
   await section
     .getByRole("button", { name: "Save purchase details", exact: true })
@@ -1984,6 +1977,10 @@ test("captures a GP purchase notice directly in investment review without a corp
   await expect(
     section.getByRole("button", { name: "Edit purchases", exact: true }),
   ).toBeVisible();
+  await expect(section).toContainText("$24.00");
+  await expect(section).toContainText("Calculated all-in premium: 27.20%");
+  await expect(section).toContainText("Notice-quoted premium: 27.00%");
+  await expect(section).toContainText("All-in purchase price: $25.44");
   expect(fixture.writes).toHaveLength(0);
   expect(fixture.context.investmentEvents ?? []).toEqual([]);
   expect(
@@ -2017,25 +2014,16 @@ test("captures a GP purchase notice directly in investment review without a corp
     .click();
   await expect(
     section.getByLabel("Purchase price / share · USD", { exact: true }),
-  ).toHaveValue("25");
-  await section
-    .getByRole("button", { name: "Review purchase details", exact: true })
-    .click();
+  ).toHaveValue("25.00");
   reject = true;
   await section
     .getByRole("button", { name: "Save purchase details", exact: true })
     .click();
   await expect(section).toContainText("The purchase changed.");
-  await section
-    .getByRole("button", { name: "Back to edit", exact: true })
-    .click();
   await expect(
     section.getByLabel("Purchase price / share · USD", { exact: true }),
-  ).toHaveValue("25");
+  ).toHaveValue("25.00");
   reject = false;
-  await section
-    .getByRole("button", { name: "Review purchase details", exact: true })
-    .click();
   await section
     .getByRole("button", { name: "Save purchase details", exact: true })
     .click();

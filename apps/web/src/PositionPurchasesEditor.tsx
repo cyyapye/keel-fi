@@ -53,6 +53,12 @@ function decimal(value: number | null | undefined, digits: number) {
     "",
   );
 }
+function unitPrice(value: number | null | undefined) {
+  const raw = decimal(value, 6);
+  if (!raw) return "";
+  const [whole, fraction = ""] = raw.split(".");
+  return `${whole}.${fraction.padEnd(2, "0")}`;
+}
 function scaled(value: string | undefined, digits: number): number | null {
   if (!value?.trim()) return null;
   if (!new RegExp(`^\\d+(?:\\.\\d{0,${digits}})?$`, "u").test(value.trim()))
@@ -75,8 +81,8 @@ function draftFor(lot: PurchaseLot): Draft {
     sourceText: lot.sourceText ?? "",
     purchasedOn: lot.purchasedOn ?? "",
     shareClass: lot.shareClass ?? "",
-    priceMicros: decimal(lot.priceMicros, 6),
-    referencePriceMicros: decimal(lot.referencePriceMicros, 6),
+    priceMicros: unitPrice(lot.priceMicros),
+    referencePriceMicros: unitPrice(lot.referencePriceMicros),
     grossCashMinor: decimal(lot.grossCashMinor, 2),
     netCapitalMinor: decimal(lot.netCapitalMinor, 2),
     feePpm: decimal(lot.feePpm, 4),
@@ -86,7 +92,7 @@ function draftFor(lot: PurchaseLot): Draft {
     sharesAsOf: lot.sharesAsOf ?? "",
     sourceLabel: lot.sourceLabel ?? "",
     sourceUrl: lot.sourceUrl ?? "",
-    markPrice: decimal(lot.mark?.priceMicros, 6),
+    markPrice: unitPrice(lot.mark?.priceMicros),
     markDate: lot.mark?.effectiveDate ?? "",
     markClass: lot.mark?.shareClass ?? "",
     markSource: lot.mark?.sourceLabel ?? "",
@@ -157,7 +163,6 @@ export function PositionPurchasesEditor({
     receipt?.details.coversPosition ?? false,
   );
   const [open, setOpen] = useState(false);
-  const [reviewing, setReviewing] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,18 +204,7 @@ export function PositionPurchasesEditor({
         JSON.stringify(
           receipt?.details ?? { coversPosition: false, lots: [] },
         ));
-  const preview = parsed.success
-    ? PurchaseReceiptSchema.parse({
-        id: "preview",
-        positionId: holding.id,
-        snapshotId: context.snapshotId,
-        currency: context.currency,
-        details: parsed.data.details,
-        acceptedAt: new Date().toISOString(),
-      })
-    : null;
-  const shown = reviewing ? preview : receipt;
-  const estimate = estimatePurchaseValue(shown, context.snapshotId);
+  const estimate = estimatePurchaseValue(receipt, context.snapshotId);
   const money = (n: number) => formatCurrency(n, context.currency);
   const update = (index: number, key: string, value: string) =>
     setDrafts((old) =>
@@ -223,6 +217,15 @@ export function PositionPurchasesEditor({
         inputMode={numeric ? "decimal" : "text"}
         value={drafts[i]?.[key] ?? ""}
         onChange={(event) => update(i, key, event.currentTarget.value)}
+        onBlur={() => {
+          if (
+            !["priceMicros", "referencePriceMicros", "markPrice"].includes(key)
+          )
+            return;
+          const amount = scaled(drafts[i]?.[key], 6);
+          if (amount !== null && Number.isSafeInteger(amount))
+            update(i, key, unitPrice(amount));
+        }}
       />
     </Field>
   );
@@ -259,7 +262,6 @@ export function PositionPurchasesEditor({
       const accepted = PurchaseReceiptSchema.parse(body);
       setReceipt(accepted);
       setOpen(false);
-      setReviewing(false);
       await onAccepted();
     } catch (e) {
       setError(
@@ -293,7 +295,6 @@ export function PositionPurchasesEditor({
                     ? receipt.details.lots.map(draftFor)
                     : [blank(true)],
                 );
-                setReviewing(false);
                 setError(null);
                 setNoticeIndex(null);
                 setNoticeWarnings([]);
@@ -310,7 +311,6 @@ export function PositionPurchasesEditor({
                 onClick={() => {
                   setDrafts([blank(true)]);
                   setCoversPosition(false);
-                  setReviewing(false);
                   setError(null);
                   setNoticeText("");
                   setNoticeIndex(0);
@@ -331,9 +331,9 @@ export function PositionPurchasesEditor({
         </Notice>
       )}
       {error && <Notice tone="error">{error}</Notice>}
-      {(!open || reviewing) && shown && (
+      {!open && receipt && (
         <>
-          {shown.details.lots.map((lot, i) => {
+          {receipt.details.lots.map((lot, i) => {
             const shares = purchaseShares(lot);
             const capital = purchaseCapital(lot);
             const allIn = purchaseAllInPrice(lot);
@@ -349,7 +349,7 @@ export function PositionPurchasesEditor({
                     value={
                       lot.priceMicros === null
                         ? "Not set"
-                        : `$${decimal(lot.priceMicros, 6)}`
+                        : `$${unitPrice(lot.priceMicros)}`
                     }
                   />
                   <Stat
@@ -411,13 +411,13 @@ export function PositionPurchasesEditor({
                           1_000_000n) /
                           BigInt(lot.referencePriceMicros),
                       )}
-                      % relative to ${decimal(lot.referencePriceMicros, 6)} per
+                      % relative to ${unitPrice(lot.referencePriceMicros)} per
                       share.
                     </p>
                   )}
                 {allIn !== null && Number.isSafeInteger(allIn) && (
                   <p>
-                    All-in purchase price: ${decimal(allIn, 6)} per share,
+                    All-in purchase price: ${unitPrice(allIn)} per share,
                     including recorded upfront fees.
                   </p>
                 )}
@@ -482,7 +482,7 @@ export function PositionPurchasesEditor({
                 )}
                 {lot.mark && (
                   <p>
-                    Valuation price: ${decimal(lot.mark.priceMicros, 6)} ·{" "}
+                    Valuation price: ${unitPrice(lot.mark.priceMicros)} ·{" "}
                     {lot.mark.shareClass} · {lot.mark.effectiveDate} ·{" "}
                     {lot.mark.sourceLabel}.
                   </p>
@@ -503,7 +503,7 @@ export function PositionPurchasesEditor({
                 {estimate.lots
                   .map(
                     (row) =>
-                      `${decimal(row.quantityMicros, 6)} shares × $${decimal(row.priceMicros, 6)}`,
+                      `${decimal(row.quantityMicros, 6)} shares × $${unitPrice(row.priceMicros)}`,
                   )
                   .join(" + ")}
                 . Excludes carry and remaining expenses; the provider mark stays
@@ -527,7 +527,7 @@ export function PositionPurchasesEditor({
                 )}
             </>
           ) : (
-            shown.details.lots.length > 0 && (
+            receipt.details.lots.length > 0 && (
               <p>
                 An estimate needs remaining shares and a dated price for the
                 same share class, covering the whole position. You can save
@@ -537,7 +537,7 @@ export function PositionPurchasesEditor({
           )}
         </>
       )}
-      {open && !reviewing && noticeIndex !== null && (
+      {open && noticeIndex !== null && (
         <form
           className="purchase-notice-form"
           onSubmit={(event) => {
@@ -566,10 +566,9 @@ export function PositionPurchasesEditor({
                     continue;
                   next[key] =
                     typeof value === "number"
-                      ? decimal(
-                          value,
-                          numeric.has(key) ? 6 : rates.has(key) ? 4 : 2,
-                        )
+                      ? numeric.has(key)
+                        ? unitPrice(value)
+                        : decimal(value, rates.has(key) ? 4 : 2)
                       : typeof value === "string"
                         ? value
                         : "";
@@ -614,12 +613,12 @@ export function PositionPurchasesEditor({
           </ActionGroup>
         </form>
       )}
-      {open && !reviewing && noticeIndex === null && (
+      {open && noticeIndex === null && (
         <form
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (parsed.success && changed) setReviewing(true);
+            if (parsed.success && changed && !busy) void save();
           }}
         >
           <p>
@@ -844,29 +843,19 @@ export function PositionPurchasesEditor({
             <Button
               tone="primary"
               type="submit"
-              disabled={!parsed.success || !changed}
+              disabled={!parsed.success || !changed || busy}
             >
-              Review purchase details
+              {busy ? "Saving…" : "Save purchase details"}
             </Button>
-            <Button tone="secondary" onClick={() => setOpen(false)}>
+            <Button
+              tone="secondary"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+            >
               Cancel
             </Button>
           </ActionGroup>
         </form>
-      )}
-      {open && reviewing && (
-        <ActionGroup wrap mobileLayout="stack">
-          <Button tone="primary" disabled={busy} onClick={() => void save()}>
-            {busy ? "Saving…" : "Save purchase details"}
-          </Button>
-          <Button
-            tone="secondary"
-            disabled={busy}
-            onClick={() => setReviewing(false)}
-          >
-            Back to edit
-          </Button>
-        </ActionGroup>
       )}
     </section>
   );
