@@ -23,6 +23,8 @@ import {
   ActionGroup,
   Button,
   DatePicker,
+  DataList,
+  DataItem,
   Field,
   Input,
   Notice,
@@ -372,135 +374,153 @@ export function PositionPurchasesEditor({
                     )}
                   </StatGroup>
                 )}
-                <dl className="purchase-summary__terms">
+                <DataList className="purchase-summary__terms">
                   {lot.feePpm !== null && (
-                    <div>
-                      <dt>{lot.feeLabel ?? "One-time fee"}</dt>
-                      <dd>
-                        {decimal(lot.feePpm, 4)}%{" "}
-                        {lot.feeBasis === "net_capital"
-                          ? "added to share capital"
-                          : lot.feeBasis === "gross_cash"
-                            ? "of gross cash"
-                            : "· basis unknown; excluded from calculations"}
-                      </dd>
-                    </div>
+                    <DataItem
+                      label={lot.feeLabel ?? "One-time fee"}
+                      value={
+                        <>
+                          {decimal(lot.feePpm, 4)}%{" "}
+                          {lot.feeBasis === "net_capital"
+                            ? "added to share capital"
+                            : lot.feeBasis === "gross_cash"
+                              ? "of gross cash"
+                              : "· basis unknown; excluded from calculations"}
+                        </>
+                      }
+                    />
                   )}
                   {lot.referencePriceMicros !== null && (
-                    <div>
-                      <dt>{lot.referenceRound ?? "Entry"} reference price</dt>
-                      <dd>${unitPrice(lot.referencePriceMicros)} / share</dd>
-                    </div>
+                    <DataItem
+                      label={
+                        <>{lot.referenceRound ?? "Entry"} reference price</>
+                      }
+                      value={
+                        <>${unitPrice(lot.referencePriceMicros)} / share</>
+                      }
+                    />
                   )}
                   {lot.referenceRound && lot.referencePriceMicros === null && (
-                    <div>
-                      <dt>Reference round</dt>
-                      <dd>{lot.referenceRound}</dd>
-                    </div>
+                    <DataItem
+                      label="Reference round"
+                      value={lot.referenceRound}
+                    />
                   )}
                   {lot.priceMicros !== null &&
                     lot.referencePriceMicros !== null && (
-                      <div>
-                        <dt>Purchase premium</dt>
-                        <dd>
-                          {percent(
-                            ((BigInt(lot.priceMicros) -
-                              BigInt(lot.referencePriceMicros)) *
-                              1_000_000n) /
-                              BigInt(lot.referencePriceMicros),
-                          )}
-                          % before fees
-                        </dd>
-                      </div>
+                      <DataItem
+                        label="Purchase premium"
+                        value={
+                          <>
+                            {percent(
+                              ((BigInt(lot.priceMicros) -
+                                BigInt(lot.referencePriceMicros)) *
+                                1_000_000n) /
+                                BigInt(lot.referencePriceMicros),
+                            )}
+                            % before fees
+                          </>
+                        }
+                      />
                     )}
                   {((allIn !== null && lot.referencePriceMicros !== null) ||
                     lot.reportedPremiumPpm != null) && (
-                    <div>
-                      <dt>All-in premium</dt>
-                      <dd>
-                        {allIn !== null &&
-                          lot.referencePriceMicros !== null && (
+                    <DataItem
+                      label="All-in premium"
+                      value={
+                        <>
+                          {allIn !== null &&
+                            lot.referencePriceMicros !== null && (
+                              <span>
+                                {percent(
+                                  ((BigInt(allIn) -
+                                    BigInt(lot.referencePriceMicros)) *
+                                    1_000_000n) /
+                                    BigInt(lot.referencePriceMicros),
+                                )}
+                                % calculated
+                              </span>
+                            )}
+                          {lot.reportedPremiumPpm != null && (
                             <span>
-                              {percent(
-                                ((BigInt(allIn) -
-                                  BigInt(lot.referencePriceMicros)) *
-                                  1_000_000n) /
-                                  BigInt(lot.referencePriceMicros),
-                              )}
-                              % calculated
+                              {percent(BigInt(lot.reportedPremiumPpm))}% quoted
                             </span>
                           )}
-                        {lot.reportedPremiumPpm != null && (
-                          <span>
-                            {percent(BigInt(lot.reportedPremiumPpm))}% quoted
-                          </span>
-                        )}
-                      </dd>
-                    </div>
+                        </>
+                      }
+                    />
                   )}
                   {(lot.reportedManagementFeePpm != null ||
                     lot.reportedCarryPpm != null) && (
-                    <div>
-                      <dt>Reported fees</dt>
-                      <dd>
-                        {lot.reportedManagementFeePpm != null && (
-                          <span>
-                            {decimal(lot.reportedManagementFeePpm, 4)}% annual
-                            management
-                          </span>
-                        )}
-                        {lot.reportedCarryPpm != null && (
-                          <span>{decimal(lot.reportedCarryPpm, 4)}% carry</span>
-                        )}
-                        <small>
-                          Separate from accepted fee and carry terms.
-                        </small>
-                      </dd>
-                    </div>
+                    <DataItem
+                      label="Reported fees"
+                      value={
+                        <>
+                          {lot.reportedManagementFeePpm != null && (
+                            <span>
+                              {decimal(lot.reportedManagementFeePpm, 4)}% annual
+                              management
+                            </span>
+                          )}
+                          {lot.reportedCarryPpm != null && (
+                            <span>
+                              {decimal(lot.reportedCarryPpm, 4)}% carry
+                            </span>
+                          )}
+                          <small>
+                            Separate from accepted fee and carry terms.
+                          </small>
+                        </>
+                      }
+                    />
                   )}
-                </dl>
+                </DataList>
                 {(shares ||
                   capital.grossCashMinor !== null ||
                   capital.netCapitalMinor !== null) && (
-                  <dl className="purchase-summary__terms purchase-summary__capital">
+                  <DataList className="purchase-summary__terms purchase-summary__capital">
                     {shares && (
-                      <div>
-                        <dt>
-                          {shares.derived
-                            ? "Calculated original shares"
-                            : "Remaining underlying shares"}
-                        </dt>
-                        <dd>{decimal(shares.quantityMicros, 6)}</dd>
-                      </div>
+                      <DataItem
+                        label={
+                          <>
+                            {shares.derived
+                              ? "Calculated original shares"
+                              : "Remaining underlying shares"}
+                          </>
+                        }
+                        value={decimal(shares.quantityMicros, 6)}
+                      />
                     )}
                     {capital.grossCashMinor !== null && (
-                      <div>
-                        <dt>Cash contributed</dt>
-                        <dd>{money(capital.grossCashMinor)}</dd>
-                      </div>
+                      <DataItem
+                        label="Cash contributed"
+                        value={money(capital.grossCashMinor)}
+                      />
                     )}
                     {capital.netCapitalMinor !== null && (
-                      <div>
-                        <dt>Share capital</dt>
-                        <dd>{money(capital.netCapitalMinor)}</dd>
-                      </div>
+                      <DataItem
+                        label="Share capital"
+                        value={money(capital.netCapitalMinor)}
+                      />
                     )}
-                  </dl>
+                  </DataList>
                 )}
                 {lot.mark && (
-                  <dl className="purchase-summary__terms">
-                    <div>
-                      <dt>Valuation price</dt>
-                      <dd>
-                        ${unitPrice(lot.mark.priceMicros)} / share
-                        <small>
-                          {lot.mark.shareClass} ·{" "}
-                          {formatDate(lot.mark.effectiveDate)} ·{" "}
-                          {lot.mark.sourceLabel}
-                        </small>
-                      </dd>
-                    </div>
-                  </dl>
+                  <DataList className="purchase-summary__terms">
+                    <DataItem
+                      label="Valuation price"
+                      value={
+                        <>
+                          ${unitPrice(lot.mark.priceMicros)} / share
+                          <small>
+                            {lot.mark.shareClass} ·{" "}
+                            {formatDate(lot.mark.effectiveDate)} ·{" "}
+                            {lot.mark.sourceLabel}
+                          </small>
+                        </>
+                      }
+                    />
+                  </DataList>
                 )}
                 {lot.sourceText && (
                   <Collapsible>

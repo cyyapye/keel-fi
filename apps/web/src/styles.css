@@ -8527,6 +8527,9 @@ h1,
 }
 .purchase-summary__terms dt {
   color: var(--muted);
+  font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
 }
 .purchase-summary__terms dd {
   margin: 0;
