@@ -40,7 +40,7 @@ describe("bounded issuer evidence lookup", () => {
       "https://api.search.brave.com/res/v1/web/search",
     );
     expect(url.searchParams.get("count")).toBe("5");
-    expect(options?.redirect).toBe("error");
+    expect(options?.redirect).toBe("manual");
   });
   it("recommends an exact public identity alias without a search credential", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
@@ -87,7 +87,7 @@ describe("bounded issuer evidence lookup", () => {
     expect(new Headers(options?.headers).has("X-Subscription-Token")).toBe(
       false,
     );
-    expect(options?.redirect).toBe("error");
+    expect(options?.redirect).toBe("manual");
     // Similar names, a forged source host, and duplicate target identities stay unresolved.
     expect(
       recommendPublicCompany("Demo Orbital Systems Corp.", companies, results)
@@ -143,6 +143,10 @@ describe("bounded issuer evidence lookup", () => {
   });
   it("rejects provider failures, oversized and malformed responses", async () => {
     for (const response of [
+      new Response("", {
+        status: 302,
+        headers: { Location: "https://redirect.example/" },
+      }),
       new Response("limited", { status: 429 }),
       new Response("x".repeat(262145)),
       new Response('{"web":{"results":"invalid"}}'),

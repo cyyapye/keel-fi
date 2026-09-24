@@ -1144,6 +1144,7 @@
     "scripts/provider-portfolio-mac-agent.test.ts :: provider portfolio Mac agent > uses integer minor units for provider amounts",
     "scripts/provider-portfolio-mac-agent.test.ts :: provider portfolio Mac agent > uses integer parts per million for Sydecar percentages",
     "scripts/public-company-match-d1-cost.test.ts :: bounds issuer recommendations across 120 holdings, tied mapping history and unrelated households",
+    "scripts/public-company-worker-runtime.test.ts :: runs issuer lookup in Workers and rejects redirects before following them",
     "scripts/purchase-details-d1-cost.test.ts :: bounds purchase-head reads and writes across 120 positions and growing review history",
     "scripts/queue-runtime-config.test.ts :: queue runtime configuration > keeps the final Plaid retry beyond the D1 stale-lease boundary",
     "scripts/queue-runtime-config.test.ts :: queue runtime configuration > retains failed production and local messages in dedicated queues",
