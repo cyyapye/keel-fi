@@ -198,6 +198,14 @@ export const InvestmentExposureViewSchema = z.object({
   asOf: IsoTimestampSchema,
   positions: z.array(InvestmentExposurePositionSchema),
   exposures: z.array(InvestmentExposureGroupSchema),
+  publicCompanyLinks: z
+    .array(
+      z.object({
+        publicExposureId: z.string().min(1),
+        companyExposureId: z.string().min(1),
+      }),
+    )
+    .optional(),
 });
 
 export type InvestmentExposureContribution = z.infer<
@@ -212,6 +220,79 @@ export type InvestmentExposurePosition = z.infer<
 export type InvestmentExposureView = z.infer<
   typeof InvestmentExposureViewSchema
 >;
+
+// Instrument and position identities stay in `exposures`. Reviewed issuer
+// links combine their contributions only in this concentration projection.
+export function companyExposureGroups(
+  view: InvestmentExposureView,
+): InvestmentExposureGroup[] {
+  const groups = new Map(
+    view.exposures.map((group) => [group.exposure.id, group]),
+  );
+  const targetByPublic = new Map(
+    (view.publicCompanyLinks ?? []).map((link) => [
+      link.publicExposureId,
+      link.companyExposureId,
+    ]),
+  );
+  const combined = new Map<string, InvestmentExposureGroup>();
+  for (const group of view.exposures) {
+    const targetId = targetByPublic.get(group.exposure.id);
+    const target = targetId === undefined ? undefined : groups.get(targetId);
+    if (
+      targetId !== undefined &&
+      (group.exposure.exposureKind !== "public_instrument" ||
+        target?.exposure.exposureKind !== "private_company" ||
+        group.exposure.householdId !== target.exposure.householdId)
+    ) {
+      throw new Error("Reviewed issuer link has invalid exposure identities.");
+    }
+    const displayGroup = target ?? group;
+    const key = displayGroup.exposure.id;
+    const current = combined.get(key);
+    combined.set(key, {
+      exposure: displayGroup.exposure,
+      contributions: [
+        ...(current?.contributions ?? []),
+        ...group.contributions,
+      ],
+      totals: [],
+    });
+  }
+  return [...combined.values()].map((group) => {
+    const totals = new Map<
+      string,
+      { values: bigint; known: Set<string>; unknown: Set<string> }
+    >();
+    for (const contribution of group.contributions) {
+      const total = totals.get(contribution.currency) ?? {
+        values: 0n,
+        known: new Set<string>(),
+        unknown: new Set<string>(),
+      };
+      if (contribution.allocatedValueMinor === null) {
+        total.unknown.add(contribution.positionId);
+      } else {
+        total.values += BigInt(contribution.allocatedValueMinor);
+        total.known.add(contribution.positionId);
+      }
+      totals.set(contribution.currency, total);
+    }
+    return {
+      ...group,
+      totals: [...totals.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([currency, total]) => ({
+          currency,
+          allocatedValueMinor: NonNegativeMoneyMinorSchema.parse(
+            Number(total.values),
+          ),
+          knownValuePositionCount: total.known.size,
+          unknownValuePositionCount: total.unknown.size,
+        })),
+    };
+  });
+}
 
 function safeMinorSum(values: readonly number[]): number {
   const total = values.reduce((sum, value) => sum + BigInt(value), 0n);

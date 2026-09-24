@@ -3945,6 +3945,69 @@ export const canonicalExposures = sqliteTable(
   ],
 );
 
+export const publicExposureCompanyReviews = sqliteTable(
+  "public_exposure_company_reviews",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    publicExposureId: text("public_exposure_id")
+      .notNull()
+      .references(() => canonicalExposures.id),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id),
+    sourceUrl: text("source_url").notNull(),
+    reason: text("reason").notNull(),
+    expectedReviewId: text("expected_review_id"),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id),
+    reviewedAt: timestamp("reviewed_at"),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.expectedReviewId],
+      foreignColumns: [table.id],
+      name: "public_exposure_company_reviews_expected_fk",
+    }),
+    index("public_exposure_company_reviews_exposure_idx").on(
+      table.householdId,
+      table.publicExposureId,
+      table.reviewedAt,
+    ),
+    check(
+      "public_exposure_company_reviews_source_url_check",
+      sql`length(${table.sourceUrl}) BETWEEN 8 AND 2048`,
+    ),
+    check(
+      "public_exposure_company_reviews_reason_check",
+      sql`length(${table.reason}) BETWEEN 1 AND 1000`,
+    ),
+  ],
+);
+
+export const publicExposureCompanyLinks = sqliteTable(
+  "public_exposure_company_links",
+  {
+    publicExposureId: text("public_exposure_id")
+      .primaryKey()
+      .references(() => canonicalExposures.id),
+    householdId: householdReference(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id),
+    reviewId: text("review_id")
+      .notNull()
+      .references(() => publicExposureCompanyReviews.id),
+  },
+  (table) => [
+    index("public_exposure_company_links_company_idx").on(
+      table.householdId,
+      table.companyId,
+    ),
+  ],
+);
+
 export const holdingPositionExposureMappings = sqliteTable(
   "holding_position_exposure_mappings",
   {

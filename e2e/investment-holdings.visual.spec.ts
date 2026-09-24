@@ -469,6 +469,92 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test("groups reviewed public stock with separate SPVs and keeps their value bases", async ({
+  page,
+}) => {
+  const syntheticHolding = (
+    id: string,
+    name: string,
+    valueMinor: number | null,
+    ticker: string | null,
+  ): Holding => ({
+    id,
+    companyId: ticker === null ? "company_northstar" : null,
+    positionName: name,
+    exposureName: "Northstar Robotics",
+    ownerLabel: ticker === null ? "Synthetic SPV" : "Demo Brokerage",
+    positionKind: ticker === null ? "spv_interest" : "direct",
+    administratorNavMinor: valueMinor,
+    administratorNavState: valueMinor === null ? "not_set" : "reported",
+    externalMarkMinor: null,
+    underwritingValueMinor: null,
+    scenarioValueMinor: null,
+    usableLiquidityMinor: null,
+    sourceStatus: "verified",
+    sourceLabel: ticker === null ? "Synthetic manager" : "Plaid Investments",
+    effectiveDate: "2026-08-15",
+    retrievedAt: "2026-08-15T12:00:00.000Z",
+    confidencePpm: null,
+    ticker,
+    quantityMicros: ticker === null ? null : 100_000_000,
+    investedMinor: ticker === null ? 2_000_000 : 1_500_000,
+    committedMinor: ticker === null ? 2_000_000 : 1_500_000,
+    costBasisMinor: ticker === null ? null : 1_500_000,
+  });
+  const holdings = [
+    syntheticHolding(
+      "position_nstr_public",
+      "Northstar Class A",
+      1_600_000,
+      "NSTR",
+    ),
+    syntheticHolding("position_nstr_spv_a", "Northstar SPV A", 2_000_000, null),
+    syntheticHolding("position_nstr_spv_b", "Northstar SPV B", null, null),
+  ];
+  const view = investmentHoldingsViewFor(holdings);
+  const publicId = view.exposureView.exposures.find(
+    (group) => group.exposure.exposureKind === "public_instrument",
+  )!.exposure.id;
+  const companyId = view.exposureView.exposures.find(
+    (group) => group.exposure.exposureKind === "private_company",
+  )!.exposure.id;
+  const linkedView: InvestmentHoldingsView = {
+    ...view,
+    exposureView: {
+      ...view.exposureView,
+      publicCompanyLinks: [
+        { publicExposureId: publicId, companyExposureId: companyId },
+      ],
+    },
+  };
+  await routeHoldingsPage(page, {
+    householdName: "Demo Household",
+    holdings,
+    investmentHoldings: linkedView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.goto("/holdings");
+  await expect(page.locator(".exposure-group")).toHaveCount(1);
+  const group = page.locator(".exposure-group");
+  await expect(group).toContainText("Northstar Robotics");
+  await expect(group).toContainText("3 positions");
+  await group.locator('[data-slot="collapsible-trigger"]').click();
+  await expect(group).toContainText("NSTR");
+  await expect(group).toContainText("Northstar SPV A");
+  await expect(group).toContainText("Northstar SPV B");
+  await expect(group).toContainText("1 estimate");
+  await expect(group).toContainText("$56k");
+  await expect(
+    group.getByRole("link", { name: "Review company link" }),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expect(group).toHaveScreenshot("public-private-company-group.png", {
+    animations: "disabled",
+    caret: "hide",
+  });
+});
+
 test("shows the Holdings shell while one read-only projection loads", async ({
   page,
 }) => {

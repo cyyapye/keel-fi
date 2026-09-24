@@ -20,6 +20,15 @@ import {
   type CompanyIdentityRepository,
 } from "@keel/database";
 import {
+  PublicCompanyLinkCatalogSchema,
+  PublicCompanyLinkReceiptSchema,
+  PublicCompanyLinkReviewSchema,
+} from "@keel/domain/public-company-links";
+import {
+  D1PublicCompanyLinkRepository,
+  PublicCompanyLinkError,
+} from "@keel/database";
+import {
   WatchCompanySearchSchema,
   WatchReadInputSchema,
 } from "@keel/domain/portfolio-watch-activity";
@@ -2161,6 +2170,54 @@ export function createApp(options: AppOptions = {}) {
       );
     } catch (error) {
       return companyIdentityErrorResponse(context, error);
+    }
+  });
+  app.get("/api/companies/public-links", async (context) => {
+    try {
+      return context.json(
+        PublicCompanyLinkCatalogSchema.parse(
+          await new D1PublicCompanyLinkRepository(context.env.DB).getCatalog(
+            context.get("identity").subject,
+          ),
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch {
+      return context.json({ error: "Public holdings are unavailable." }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+  });
+  app.post("/api/companies/public-links", async (context) => {
+    const input = PublicCompanyLinkReviewSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!input.success)
+      return context.json(
+        { error: "Choose the security, company and issuer evidence." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    try {
+      return context.json(
+        PublicCompanyLinkReceiptSchema.parse(
+          await new D1PublicCompanyLinkRepository(context.env.DB).review(
+            context.get("identity").subject,
+            input.data,
+          ),
+        ),
+        201,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      if (error instanceof PublicCompanyLinkError)
+        return context.json(
+          { error: error.message },
+          error.code === "not_found" ? 404 : error.code === "stale" ? 409 : 400,
+          { "Cache-Control": "private, no-store" },
+        );
+      throw error;
     }
   });
 

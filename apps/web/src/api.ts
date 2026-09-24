@@ -8,6 +8,12 @@ import {
   type CompanyAliasReviewInput,
 } from "@keel/domain/company-identity";
 import {
+  PublicCompanyLinkCatalogSchema,
+  PublicCompanyLinkReceiptSchema,
+  PublicCompanyLinkReviewSchema,
+  type PublicCompanyLinkReview,
+} from "@keel/domain/public-company-links";
+import {
   PortfolioWatchActivitySchema,
   PortfolioWatchProgressSchema,
   WatchReadReceiptSchema,
@@ -2016,6 +2022,19 @@ export async function reviewCompanyAlias(input: CompanyAliasReviewInput) {
     await companyIdentityRequest(
       "aliases",
       CompanyAliasReviewInputSchema.parse(input),
+    ),
+  );
+}
+export async function loadPublicCompanyLinks(signal?: AbortSignal) {
+  return PublicCompanyLinkCatalogSchema.parse(
+    await companyIdentityRequest("public-links", undefined, signal),
+  );
+}
+export async function reviewPublicCompanyLink(input: PublicCompanyLinkReview) {
+  return PublicCompanyLinkReceiptSchema.parse(
+    await companyIdentityRequest(
+      "public-links",
+      PublicCompanyLinkReviewSchema.parse(input),
     ),
   );
 }

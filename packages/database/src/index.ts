@@ -2963,3 +2963,4 @@ export const __alphaRepositoryTest = {
 export * from "./schema";
 
 export * from "./company-identity";
+export * from "./public-company-links";
