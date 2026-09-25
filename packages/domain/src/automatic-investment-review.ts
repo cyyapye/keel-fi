@@ -1,3 +1,5 @@
+import { purchaseEconomicsEvidence } from "./purchase-economics";
+import type { PurchaseReceipt } from "./position-purchases";
 import { z } from "zod";
 import type { LegalEntityNameEvidence } from "./position-read-model";
 import type { InvestmentReviewContext } from "./investment-review";
@@ -152,6 +154,7 @@ export function automaticCompanyChoices(
 export function automaticEconomics(
   context: PositionEconomicsContext,
   documents: readonly LegalNameDocumentReference[],
+  purchase: PurchaseReceipt | null = null,
 ): {
   input: AcceptPositionEconomicsInput | null;
   issue: AutomaticReviewIssue | null;
@@ -169,13 +172,15 @@ export function automaticEconomics(
   ];
   const one = (field: string) =>
     values(field).length === 1 ? values(field)[0]! : null;
-  const reportedManagement = context.reportedTerms?.managementFeePpm ?? null;
-  const reportedCarry = context.reportedTerms?.carryPpm ?? null;
+  const purchaseEvidence = purchaseEconomicsEvidence(context, purchase);
+  const reportedManagement = purchaseEvidence.managementFeePpm;
+  const reportedCarry = purchaseEvidence.carryPpm;
   const managementFeePpm = one("managementFeePpm") ?? reportedManagement;
   const carryPpm = one("carryPpm") ?? reportedCarry;
   const observedAt =
     documents.find((doc) => doc.economicsCitations?.length)?.observedAt ??
-    context.reportedTerms?.observedAt;
+    context.reportedTerms?.observedAt ??
+    purchase?.acceptedAt;
   const reported =
     (managementFeePpm === null && carryPpm === null) || observedAt === undefined
       ? context.reportedTerms
@@ -183,9 +188,7 @@ export function automaticEconomics(
           managementFeePpm,
           carryPpm,
           sourceLabel:
-            citations.length > 0
-              ? "Agreement"
-              : context.reportedTerms!.sourceLabel,
+            citations.length > 0 ? "Agreement" : purchaseEvidence.sourceLabel,
           observedAt,
           adminFeeYears: one("adminFeeYears"),
           setupFeePpm: one("setupFeePpm"),
@@ -197,6 +200,17 @@ export function automaticEconomics(
     issue: issue("economics", code, message),
     reported,
   });
+  if (
+    (purchase !== null &&
+      (purchase.snapshotId !== context.snapshotId ||
+        purchase.details.lots.length !== 1)) ||
+    (context.acceptedTerms?.purchaseFee != null &&
+      purchaseEvidence.purchaseFee === null)
+  )
+    return blocked(
+      "unsupported",
+      "Review purchase fees against the current position before changing investment terms.",
+    );
   if (documents.some((doc) => doc.economicsProblem !== undefined))
     return blocked(
       "unsupported",
@@ -215,6 +229,7 @@ export function automaticEconomics(
       "Check the agreement before using its fee terms.",
     );
   if (
+    purchaseEvidence.conflicts.length > 0 ||
     citations.some((citation) => values(citation.field).length > 1) ||
     (reportedManagement !== null &&
       one("managementFeePpm") !== null &&
@@ -227,8 +242,18 @@ export function automaticEconomics(
       "conflicting",
       "Sources disagree on fee, carry, or contributed capital.",
     );
-  const adminFeeYears = one("adminFeeYears");
+  const adminFeeYears =
+    one("adminFeeYears") ?? (managementFeePpm === 0 ? 1 : null);
   const setupFeePpm = one("setupFeePpm");
+  if (
+    purchaseEvidence.purchaseFee &&
+    purchaseEvidence.purchaseFee.ratePpm > 0 &&
+    setupFeePpm === purchaseEvidence.purchaseFee.ratePpm
+  )
+    return blocked(
+      "unsupported",
+      "Check whether the setup fee and purchase fee describe the same charge.",
+    );
   const gross = one("grossCommitmentMinor");
   const net = one("netInvestedMinor");
   if (
@@ -274,6 +299,7 @@ export function automaticEconomics(
     expectedTermsId: context.acceptedTerms?.id ?? null,
     capitalBasis,
     grossCommitmentMinor: capitalBasis === "net_invested" ? gross : null,
+    purchaseFee: purchaseEvidence.purchaseFee,
     annualAdminFeePpm: managementFeePpm,
     adminFeeYears,
     setupFeePpm,

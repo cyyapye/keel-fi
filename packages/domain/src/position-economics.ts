@@ -6,7 +6,17 @@ const NonNegativeMoneyMinorSchema = z.number().int().safe().nonnegative();
 const PositiveMoneyMinorSchema = z.number().int().safe().positive();
 const ProbabilityPpmSchema = z.number().int().min(0).max(1_000_000);
 
+export const PurchaseFeeSchema = z
+  .object({
+    receiptId: z.string().min(1),
+    ratePpm: ProbabilityPpmSchema,
+    basis: z.enum(["gross_cash", "net_capital"]),
+    label: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
 const FeeTermsSchema = z.object({
+  purchaseFee: PurchaseFeeSchema.nullable().optional(),
   // Missing fields describe reviews made before net capital and setup fees
   // were supported. New reviews explicitly supply all three fields.
   capitalBasis: z.enum(["gross_commitment", "net_invested"]).optional(),
@@ -114,6 +124,7 @@ export const CalculatedPositionEconomicsSchema = z.object({
   fundedMinor: NonNegativeMoneyMinorSchema,
   upfrontAdminFeeMinor: NonNegativeMoneyMinorSchema,
   setupFeeMinor: NonNegativeMoneyMinorSchema,
+  purchaseFeeMinor: NonNegativeMoneyMinorSchema.default(0),
   positionCostBasisMinor: NonNegativeMoneyMinorSchema,
   totalAdminFeePpm: ProbabilityPpmSchema,
   setupFeePpm: ProbabilityPpmSchema,
@@ -176,7 +187,19 @@ export function calculatePositionEconomics(
   // Round the combined fee once; assign any remaining minor unit to setup so
   // the displayed breakdown always sums to gross capital, even at 100% fees.
   const totalFeeMinor = feeMinor(totalAdminFeePpm + setupFeePpm);
-  const positionCostBasisMinor = grossMinor - totalFeeMinor;
+  const cashForPurchase = grossMinor - totalFeeMinor;
+  const purchaseFee = parsed.acceptedTerms.purchaseFee;
+  const purchaseRate = BigInt(purchaseFee?.ratePpm ?? 0);
+  const purchaseNet =
+    purchaseFee?.basis === "net_capital"
+      ? (cashForPurchase * PARTS_PER_MILLION +
+          (PARTS_PER_MILLION + purchaseRate) / 2n) /
+        (PARTS_PER_MILLION + purchaseRate)
+      : cashForPurchase -
+        (cashForPurchase * purchaseRate + PARTS_PER_MILLION / 2n) /
+          PARTS_PER_MILLION;
+  const purchaseFeeMinor = cashForPurchase - purchaseNet;
+  const positionCostBasisMinor = purchaseNet;
   if (netImport && positionCostBasisMinor !== BigInt(parsed.committedMinor)) {
     return null;
   }
@@ -192,6 +215,7 @@ export function calculatePositionEconomics(
       totalFeeMinor - upfrontAdminFeeMinor,
       "Setup fee",
     ),
+    purchaseFeeMinor: safeNonNegativeNumber(purchaseFeeMinor, "Purchase fee"),
     positionCostBasisMinor: safeNonNegativeNumber(
       positionCostBasisMinor,
       "Position cost basis",
@@ -227,20 +251,35 @@ export function calculatePositionPerformance(input: {
     input.economicsContext === null
       ? null
       : calculatePositionEconomics(input.economicsContext);
-  const costBasisMinor =
-    economics?.positionCostBasisMinor ??
-    input.providerCostBasisMinor ??
-    (input.allowFundedAmountEstimate && (input.fundedMinor ?? 0) > 0
-      ? input.fundedMinor
-      : null);
+  // Investor return includes fees paid. Net share capital is not cash outlay.
+  // A fully funded net import can be reconciled to its reviewed gross amount;
+  // a partial net import cannot establish gross paid-in cash on its own.
+  const netImport =
+    input.economicsContext?.acceptedTerms?.capitalBasis === "net_invested";
+  const funded = input.economicsContext?.fundedMinor ?? input.fundedMinor;
+  const contributed = netImport
+    ? economics !== null &&
+      (funded === input.economicsContext?.committedMinor ||
+        funded === economics.committedMinor)
+      ? economics.committedMinor
+      : null
+    : funded;
+  const privatePosition =
+    input.economicsContext !== null ||
+    (input.allowFundedAmountEstimate && input.providerCostBasisMinor === null);
+  const costBasisMinor = privatePosition
+    ? contributed !== null && contributed > 0
+      ? contributed
+      : null
+    : input.providerCostBasisMinor;
   const costBasisSource =
-    economics !== null
-      ? ("reviewed_spv_terms" as const)
-      : input.providerCostBasisMinor !== null
-        ? ("provider" as const)
-        : input.allowFundedAmountEstimate && (input.fundedMinor ?? 0) > 0
-          ? ("funded_amount_estimate" as const)
-          : null;
+    costBasisMinor === null
+      ? null
+      : privatePosition
+        ? economics !== null
+          ? ("reviewed_spv_terms" as const)
+          : ("funded_amount_estimate" as const)
+        : ("provider" as const);
   if (!input.currentValueReported || input.currentValueMinor === null) {
     return {
       costBasisMinor,

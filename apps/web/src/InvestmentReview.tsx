@@ -1702,6 +1702,7 @@ export function InvestmentReview({
                         id: positionId,
                         sourceLabel,
                         positionEconomicsContext: context.economics,
+                        purchaseContext: context.purchaseContext,
                       }}
                       onAccepted={async () => {
                         await onSaved();

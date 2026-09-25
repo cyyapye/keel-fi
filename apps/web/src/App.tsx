@@ -2758,10 +2758,17 @@ function PositionPerformanceSummary({
       holding.positionKind === "spv_interest" ||
       holding.positionKind === "fund_interest",
   });
+  const contributionBasis =
+    performance.costBasisSource !== "provider" &&
+    (holding.positionKind === "spv_interest" ||
+      holding.positionKind === "fund_interest" ||
+      holding.companyId !== null);
+  const basisLabel = contributionBasis ? "Cash contributed" : "Cost basis";
   const basisHelper = {
     provider: "Reported by the brokerage source.",
-    reviewed_spv_terms: "Gross commitment less reviewed upfront fees.",
-    funded_amount_estimate: "Funded amount estimate; fee terms are not set.",
+    reviewed_spv_terms: "Cash contributed, including reviewed upfront fees.",
+    funded_amount_estimate:
+      "Reported funded amount; confirm that it includes all fees paid.",
   }[performance.costBasisSource ?? "funded_amount_estimate"];
 
   return (
@@ -2773,8 +2780,8 @@ function PositionPerformanceSummary({
             <Stat
               label={
                 performance.costBasisSource === "funded_amount_estimate"
-                  ? "Cost basis · estimate"
-                  : "Cost basis"
+                  ? `${basisLabel} · reported`
+                  : basisLabel
               }
               value={
                 performance.costBasisMinor === null
@@ -2804,10 +2811,10 @@ function PositionPerformanceSummary({
           <CollapsibleContent>
             <DataList>
               <DataItem
-                label="Cost basis"
+                label={basisLabel}
                 value={
                   performance.costBasisMinor === null
-                    ? "Add SPV terms or wait for source cost basis."
+                    ? "Return needs the total cash paid, including fees."
                     : basisHelper
                 }
               />
@@ -2815,13 +2822,13 @@ function PositionPerformanceSummary({
                 label="Total gain / loss"
                 value={
                   performance.totalGainMinor === null
-                    ? "Available when current value and cost basis are known."
-                    : `${formatCompactMoney(performance.totalGainMinor)} · Current value plus realized proceeds, less cost basis.`
+                    ? "Available when current value and cash contributed are known."
+                    : `${formatCompactMoney(performance.totalGainMinor)} · Current value plus realized proceeds, less ${basisLabel.toLowerCase()}.`
                 }
               />
               <DataItem
                 label="Total return"
-                value="Not annualized. Carry is applied only after an exit."
+                value="Not annualized. Uses the reported value and proceeds; no additional carry is deducted."
               />
               {projectedEstimate !== null && acceptedAdjustment === null && (
                 <DataItem

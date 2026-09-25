@@ -1,3 +1,4 @@
+import { PurchaseReceiptSchema } from "@keel/domain/position-purchases";
 import { sourceInvestmentAmount } from "@keel/domain/investment-review";
 import {
   companyNameKey,
@@ -62,6 +63,7 @@ type Row = {
   company_review_id: string | null;
   receipt_json: string | null;
   economics_json: string | null;
+  purchase_json: string | null;
   economics_source: string | null;
   reported_management_fee_ppm: number | null;
   reported_carry_ppm: number | null;
@@ -131,7 +133,7 @@ const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) <= 131072 THEN observation.evidence_json ELSE NULL END evidence_json,
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) > 131072 THEN 1 ELSE 0 END evidence_oversized,
   review.id review_id, review.state_json, company_review.id company_review_id, COALESCE(alias_receipt.receipt_json, company_review.receipt_json) receipt_json,
-  terms.decision_source economics_source,
+  terms.decision_source economics_source, purchase.receipt_json purchase_json,
   reported.management_fee_ppm reported_management_fee_ppm, reported.carry_ppm reported_carry_ppm,
   decision.id entity_decision_id, decision.decision entity_decision, decision.legal_entity_id entity_id,
   decision.decision_source entity_decision_source, entity_version.id entity_version_id, entity_version.version entity_version, entity_version.legal_name accepted_legal_name,
@@ -139,7 +141,7 @@ const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_
   CASE WHEN terms.id IS NULL THEN NULL ELSE json_object(
     'id', terms.id, 'positionId', p.id, 'acceptedAgainstSnapshotId', terms.snapshot_id,
     'commitmentMinorAtAcceptance', terms.commitment_minor, 'fundedMinorAtAcceptance', terms.funded_minor,
-    'capitalBasis', terms.capital_basis, 'grossCommitmentMinor', terms.gross_commitment_minor, 'setupFeePpm', terms.setup_fee_ppm,
+    'capitalBasis', terms.capital_basis, 'grossCommitmentMinor', terms.gross_commitment_minor, 'setupFeePpm', terms.setup_fee_ppm, 'purchaseFee', json(terms.purchase_fee_json),
     'annualAdminFeePpm', terms.annual_admin_fee_ppm, 'adminFeeYears', terms.admin_fee_years,
     'carryPpm', terms.carry_ppm, 'note', terms.note, 'acceptedAt', terms_review.decided_at,
     'decisionSource', terms.decision_source
@@ -148,6 +150,8 @@ const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_
   JOIN holding_import_applications a ON a.id = (
     SELECT candidate.id FROM holding_import_applications candidate JOIN holding_position_snapshots snapshot ON snapshot.id = candidate.snapshot_id
     WHERE candidate.position_id = p.id ORDER BY candidate.applied_at DESC, snapshot.observed_at DESC, candidate.id DESC LIMIT 1)
+  LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id = p.id AND purchase_head.household_id = p.household_id
+  LEFT JOIN holding_purchase_reviews purchase ON purchase.id = purchase_head.review_id
   JOIN holding_position_snapshots s ON s.id = a.snapshot_id
   JOIN holding_import_rows r ON r.id = a.import_row_id
   LEFT JOIN holding_import_row_provider_investments provider_identity ON provider_identity.import_row_id = r.id
@@ -427,7 +431,10 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
       );
       const guard = {
         // Re-evaluate old receipts once after fixing missed company conflicts.
-        evaluationVersion: 3,
+        evaluationVersion: 4,
+        purchaseReceiptId: row.purchase_json
+          ? PurchaseReceiptSchema.parse(JSON.parse(row.purchase_json)).id
+          : null,
         applicationId: row.application_id,
         observationId: row.observation_id,
         reviewId: row.review_id,
@@ -847,6 +854,9 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
               currentEvidence.state !== "unavailable"
               ? supportedDocuments
               : [],
+            row.purchase_json
+              ? PurchaseReceiptSchema.parse(JSON.parse(row.purchase_json))
+              : null,
           );
           if (decision.issue !== null) issues.push(decision.issue);
           else if (decision.input !== null) {
@@ -858,6 +868,8 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
               currentTerms.adminFeeYears !== termInput.adminFeeYears ||
               currentTerms.setupFeePpm !== termInput.setupFeePpm ||
               currentTerms.carryPpm !== termInput.carryPpm ||
+              JSON.stringify(currentTerms.purchaseFee ?? null) !==
+                JSON.stringify(termInput.purchaseFee ?? null) ||
               currentTerms.capitalBasis !== termInput.capitalBasis ||
               currentTerms.grossCommitmentMinor !==
                 termInput.grossCommitmentMinor
@@ -885,6 +897,9 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
                 capital_basis: termInput.capitalBasis!,
                 gross_commitment_minor: termInput.grossCommitmentMinor ?? null,
                 setup_fee_ppm: termInput.setupFeePpm!,
+                purchase_fee_json: termInput.purchaseFee
+                  ? JSON.stringify(termInput.purchaseFee)
+                  : null,
                 annual_admin_fee_ppm: termInput.annualAdminFeePpm,
                 admin_fee_years: termInput.adminFeeYears,
                 carry_ppm: termInput.carryPpm,
@@ -1028,7 +1043,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
                   : table === "holding_position_exposure_mappings"
                     ? `INSERT INTO holding_position_exposure_mappings (id, household_id, position_id, exposure_id, relationship_kind, allocation_ppm, status, decision_source, decision_reference, evidence_sha256, effective_at, version, supersedes_mapping_id, accepted_by_user_id, accepted_at, immutable) SELECT json_extract(value, '$.id'), json_extract(value, '$.household_id'), json_extract(value, '$.position_id'), json_extract(value, '$.exposure_id'), json_extract(value, '$.relationship_kind'), json_extract(value, '$.allocation_ppm'), json_extract(value, '$.status'), json_extract(value, '$.decision_source'), json_extract(value, '$.decision_reference'), json_extract(value, '$.evidence_sha256'), json_extract(value, '$.effective_at'), json_extract(value, '$.version'), json_extract(value, '$.supersedes_mapping_id'), json_extract(value, '$.accepted_by_user_id'), json_extract(value, '$.accepted_at'), json_extract(value, '$.immutable') FROM json_each(?)`
                     : table === "holding_position_economics_proposals"
-                      ? `INSERT INTO holding_position_economics_proposals (id, household_id, position_id, snapshot_id, supersedes_proposal_id, commitment_minor, funded_minor, capital_basis, gross_commitment_minor, setup_fee_ppm, annual_admin_fee_ppm, admin_fee_years, carry_ppm, note, created_by, created_at, immutable, decision_source) SELECT json_extract(value, '$.id'), json_extract(value, '$.household_id'), json_extract(value, '$.position_id'), json_extract(value, '$.snapshot_id'), json_extract(value, '$.supersedes_proposal_id'), json_extract(value, '$.commitment_minor'), json_extract(value, '$.funded_minor'), json_extract(value, '$.capital_basis'), json_extract(value, '$.gross_commitment_minor'), json_extract(value, '$.setup_fee_ppm'), json_extract(value, '$.annual_admin_fee_ppm'), json_extract(value, '$.admin_fee_years'), json_extract(value, '$.carry_ppm'), json_extract(value, '$.note'), json_extract(value, '$.created_by'), json_extract(value, '$.created_at'), json_extract(value, '$.immutable'), json_extract(value, '$.decision_source') FROM json_each(?)`
+                      ? `INSERT INTO holding_position_economics_proposals (id, household_id, position_id, snapshot_id, supersedes_proposal_id, commitment_minor, funded_minor, capital_basis, gross_commitment_minor, setup_fee_ppm, purchase_fee_json, annual_admin_fee_ppm, admin_fee_years, carry_ppm, note, created_by, created_at, immutable, decision_source) SELECT json_extract(value, '$.id'), json_extract(value, '$.household_id'), json_extract(value, '$.position_id'), json_extract(value, '$.snapshot_id'), json_extract(value, '$.supersedes_proposal_id'), json_extract(value, '$.commitment_minor'), json_extract(value, '$.funded_minor'), json_extract(value, '$.capital_basis'), json_extract(value, '$.gross_commitment_minor'), json_extract(value, '$.setup_fee_ppm'), json_extract(value, '$.purchase_fee_json'), json_extract(value, '$.annual_admin_fee_ppm'), json_extract(value, '$.admin_fee_years'), json_extract(value, '$.carry_ppm'), json_extract(value, '$.note'), json_extract(value, '$.created_by'), json_extract(value, '$.created_at'), json_extract(value, '$.immutable'), json_extract(value, '$.decision_source') FROM json_each(?)`
                       : `INSERT INTO holding_position_economics_reviews (id, household_id, proposal_id, reviewer_user_id, decision, rationale, decided_at, immutable) SELECT json_extract(value, '$.id'), json_extract(value, '$.household_id'), json_extract(value, '$.proposal_id'), json_extract(value, '$.reviewer_user_id'), json_extract(value, '$.decision'), json_extract(value, '$.rationale'), json_extract(value, '$.decided_at'), json_extract(value, '$.immutable') FROM json_each(?)`;
     return this.db.prepare(sql).bind(records);
   }

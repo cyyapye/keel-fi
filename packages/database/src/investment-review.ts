@@ -177,7 +177,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       CASE WHEN terms.id IS NULL THEN NULL ELSE json_object(
         'id', terms.id, 'positionId', p.id, 'acceptedAgainstSnapshotId', terms.snapshot_id,
         'commitmentMinorAtAcceptance', terms.commitment_minor, 'fundedMinorAtAcceptance', terms.funded_minor,
-        'capitalBasis', terms.capital_basis, 'grossCommitmentMinor', terms.gross_commitment_minor, 'setupFeePpm', terms.setup_fee_ppm,
+        'capitalBasis', terms.capital_basis, 'grossCommitmentMinor', terms.gross_commitment_minor, 'setupFeePpm', terms.setup_fee_ppm, 'purchaseFee', json(terms.purchase_fee_json),
         'annualAdminFeePpm', terms.annual_admin_fee_ppm, 'adminFeeYears', terms.admin_fee_years,
         'carryPpm', terms.carry_ppm, 'note', terms.note, 'acceptedAt', terms_review.decided_at, 'decisionSource', terms.decision_source
       ) END economics_json

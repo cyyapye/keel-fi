@@ -2019,6 +2019,82 @@ test("captures a GP purchase notice directly in investment review without a corp
     expect(boxes[2]!.weight).toBeGreaterThan(boxes[0]!.weight);
     expect(boxes[2]!.weight).toBeGreaterThan(boxes[1]!.weight);
   }
+  const economics = page.getByRole("region", {
+    name: "Investment amounts and fees",
+    exact: true,
+  });
+  await economics.getByRole("button", { name: /fee & carry/ }).click();
+  await expect(
+    economics.getByLabel("Management fee rate", { exact: true }),
+  ).toHaveValue("0");
+  await expect(economics.getByLabel("Carry", { exact: true })).toHaveValue(
+    "12",
+  );
+  await expect(economics.getByLabel("Fee term", { exact: true })).toHaveValue(
+    "1",
+  );
+  await expect(
+    economics.getByLabel("Other setup fee", { exact: true }),
+  ).toHaveValue("");
+  await expect(economics).toContainText("6% added to share capital");
+  await expect(economics).toHaveScreenshot(
+    "investment-purchase-fee-prefill.png",
+  );
+  await page.route(
+    "**/api/investment-positions/position_demo_growth_iv/economics",
+    async (route) => {
+      const input = AcceptPositionEconomicsInputSchema.parse(
+        route.request().postDataJSON(),
+      );
+      expect(input).toMatchObject({
+        annualAdminFeePpm: 0,
+        carryPpm: 120_000,
+        setupFeePpm: 0,
+        purchaseFee: {
+          receiptId: "purchase-receipt-1",
+          ratePpm: 60_000,
+          basis: "net_capital",
+        },
+      });
+      const terms = PositionEconomicsTermsSchema.parse({
+        ...input,
+        id: "synthetic-purchase-terms",
+        positionId: fixture.context.positionId,
+        acceptedAgainstSnapshotId: fixture.context.snapshotId,
+        commitmentMinorAtAcceptance: fixture.context.committedMinor,
+        fundedMinorAtAcceptance: fixture.context.fundedMinor,
+        acceptedAt: "2026-09-01T12:00:00.000Z",
+      });
+      fixture.context.economics!.acceptedTerms = terms;
+      await route.fulfill({ status: 201, json: terms });
+    },
+  );
+  await economics
+    .getByRole("combobox", { name: "Imported amount", exact: true })
+    .click();
+  await page
+    .getByRole("option", {
+      name: "Before fees · gross commitment",
+      exact: true,
+    })
+    .click();
+  await economics.getByLabel("Other setup fee", { exact: true }).fill("0");
+  await economics
+    .getByRole("button", { name: "Review terms", exact: true })
+    .click();
+  await expect(economics).toContainText("$9,433.96");
+  await economics
+    .getByRole("button", { name: "Accept terms", exact: true })
+    .click();
+  await expect(
+    economics.getByRole("button", { name: /fee & carry/ }),
+  ).toBeVisible();
+  await expect(economics).toContainText("$566.04");
+  await expect(economics).toContainText("$9,433.96");
+  await expect(economics).toHaveScreenshot(
+    "investment-purchase-fees-accepted.png",
+  );
+
   await expect(section).toHaveScreenshot("investment-purchase-saved.png");
   const sourceNotice = section.getByRole("button", {
     name: "Source notice",

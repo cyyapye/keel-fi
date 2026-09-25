@@ -1,3 +1,4 @@
+import { PurchaseFeeSchema } from "@keel/domain/position-economics";
 import {
   AlphaDataSchema,
   CreateSignalUpdateProposalInputSchema,
@@ -188,6 +189,7 @@ type HoldingRow = {
   economics_capital_basis: "gross_commitment" | "net_invested" | null;
   economics_gross_commitment_minor: number | null;
   economics_setup_fee_ppm: number | null;
+  economics_purchase_fee_json: string | null;
   economics_annual_admin_fee_ppm: number | null;
   economics_admin_fee_years: number | null;
   economics_carry_ppm: number | null;
@@ -757,6 +759,7 @@ export class D1AlphaRepository implements AlphaRepository {
                  NULL AS economics_capital_basis,
                  NULL AS economics_gross_commitment_minor,
                  NULL AS economics_setup_fee_ppm,
+                 NULL AS economics_purchase_fee_json,
                  NULL AS economics_annual_admin_fee_ppm,
                  NULL AS economics_admin_fee_years,
                  NULL AS economics_carry_ppm,
@@ -903,6 +906,7 @@ export class D1AlphaRepository implements AlphaRepository {
                  economics.capital_basis AS economics_capital_basis,
                  economics.gross_commitment_minor AS economics_gross_commitment_minor,
                  economics.setup_fee_ppm AS economics_setup_fee_ppm,
+                 economics.purchase_fee_json AS economics_purchase_fee_json,
                  economics.annual_admin_fee_ppm
                    AS economics_annual_admin_fee_ppm,
                  economics.admin_fee_years AS economics_admin_fee_years,
@@ -1255,6 +1259,12 @@ export class D1AlphaRepository implements AlphaRepository {
                         grossCommitmentMinor:
                           row.economics_gross_commitment_minor,
                         setupFeePpm: row.economics_setup_fee_ppm,
+                        purchaseFee:
+                          row.economics_purchase_fee_json == null
+                            ? null
+                            : PurchaseFeeSchema.parse(
+                                JSON.parse(row.economics_purchase_fee_json),
+                              ),
                         annualAdminFeePpm: row.economics_annual_admin_fee_ppm,
                         adminFeeYears: row.economics_admin_fee_years,
                         carryPpm: row.economics_carry_ppm,

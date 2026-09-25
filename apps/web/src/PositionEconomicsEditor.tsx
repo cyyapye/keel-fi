@@ -1,3 +1,4 @@
+import { purchaseEconomicsEvidence } from "@keel/domain/purchase-economics";
 import { moneyInputValue, parseMoneyInput } from "./money-input";
 import { type Holding } from "@keel/domain";
 import {
@@ -88,7 +89,10 @@ export function PositionEconomicsEditor({
   amountEditor,
   amountDetail,
 }: {
-  holding: Pick<Holding, "id" | "sourceLabel" | "positionEconomicsContext">;
+  holding: Pick<
+    Holding,
+    "id" | "sourceLabel" | "positionEconomicsContext" | "purchaseContext"
+  >;
   onAccepted: () => Promise<void>;
   presentation?: "holding" | "review";
   amountAction?: ReactNode;
@@ -98,12 +102,23 @@ export function PositionEconomicsEditor({
   const headingId = useId();
   const context = holding.positionEconomicsContext ?? null;
   const terms = context?.acceptedTerms ?? null;
+  const evidence = context
+    ? purchaseEconomicsEvidence(context, holding.purchaseContext?.receipt)
+    : null;
   const reportedTerms = context?.reportedTerms ?? null;
   const acceptedEconomics =
     context === null ? null : calculatePositionEconomics(context);
   const termsNeedReview = terms !== null && acceptedEconomics === null;
-  const reportedManagementFeePpm = reportedTerms?.managementFeePpm ?? null;
-  const reportedCarryPpm = reportedTerms?.carryPpm ?? null;
+  const sourceConflictReviewed =
+    terms !== null &&
+    terms.decisionSource !== "policy" &&
+    !termsNeedReview &&
+    Date.parse(terms.acceptedAt) >=
+      Date.parse(
+        holding.purchaseContext?.receipt?.acceptedAt ?? terms.acceptedAt,
+      );
+  const reportedManagementFeePpm = evidence?.managementFeePpm ?? null;
+  const reportedCarryPpm = evidence?.carryPpm ?? null;
   const hasReportedFee = reportedManagementFeePpm !== null;
   const hasReportedCarryTerm = reportedCarryPpm !== null;
   const reportedFeeDiffers =
@@ -116,7 +131,7 @@ export function PositionEconomicsEditor({
     reportedCarryPpm !== terms.carryPpm;
   const reportedTermsDiffer = reportedFeeDiffers || reportedCarryDiffers;
   const prefillFromReportedTerms =
-    reportedTerms !== null &&
+    evidence !== null &&
     (terms === null ||
       (terms.decisionSource === "policy" &&
         (termsNeedReview || reportedTermsDiffer)));
@@ -124,7 +139,9 @@ export function PositionEconomicsEditor({
     ? (reportedManagementFeePpm ?? terms?.annualAdminFeePpm ?? null)
     : (terms?.annualAdminFeePpm ?? null);
   const initialFeeYears =
-    terms?.adminFeeYears ?? reportedTerms?.adminFeeYears ?? null;
+    terms?.adminFeeYears ??
+    reportedTerms?.adminFeeYears ??
+    (initialAnnualFeePpm === 0 ? 1 : null);
   const initialCapitalBasis =
     terms?.capitalBasis ??
     (terms !== null
@@ -151,7 +168,7 @@ export function PositionEconomicsEditor({
   const reportedCarryLabel =
     reportedCarryPpm === null ? null : formatProbability(reportedCarryPpm);
   const reportedTermsSummary =
-    reportedTerms === null
+    !hasReportedFee && !hasReportedCarryTerm
       ? null
       : reportedFeeLabel !== null && reportedCarryLabel !== null
         ? `a ${reportedFeeLabel} management fee and ${reportedCarryLabel} carry`
@@ -182,7 +199,16 @@ export function PositionEconomicsEditor({
   const [setupFee, setSetupFee] = useState(
     percentageInputValueOrBlank(initialSetupFee),
   );
-  const [note, setNote] = useState(terms?.note ?? "");
+  const initialPurchaseFee = terms
+    ? (terms.purchaseFee ?? null)
+    : (evidence?.purchaseFee ?? null);
+  const [purchaseFee, setPurchaseFee] = useState(initialPurchaseFee);
+  const initialNote =
+    terms?.note ??
+    (evidence?.sourceLabel
+      ? `Reviewed terms from ${evidence.sourceLabel}.`
+      : "");
+  const [note, setNote] = useState(initialNote);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -211,6 +237,7 @@ export function PositionEconomicsEditor({
         ? parseMoneyInput(grossCommitment, context.currency)
         : null,
     setupFeePpm,
+    purchaseFee,
     annualAdminFeePpm,
     adminFeeYears,
     carryPpm,
@@ -255,7 +282,8 @@ export function PositionEconomicsEditor({
     annualAdminFeePpm !== terms.annualAdminFeePpm ||
     adminFeeYears !== terms.adminFeeYears ||
     carryPpm !== terms.carryPpm ||
-    note.trim() !== terms.note;
+    note.trim() !== terms.note ||
+    JSON.stringify(purchaseFee) !== JSON.stringify(terms.purchaseFee ?? null);
   const canReview = draftEconomics !== null && changed;
   const reset = () => {
     setOpen(false);
@@ -268,7 +296,8 @@ export function PositionEconomicsEditor({
       moneyInputValue(initialGrossCommitment, context?.currency ?? "USD"),
     );
     setSetupFee(percentageInputValueOrBlank(initialSetupFee));
-    setNote(terms?.note ?? "");
+    setNote(initialNote);
+    setPurchaseFee(initialPurchaseFee);
     setError(null);
   };
 
@@ -308,7 +337,9 @@ export function PositionEconomicsEditor({
         displayedEconomics === null
           ? context.amountCorrectionNote != null
             ? "Investment amount"
-            : "Imported amount"
+            : holding.sourceLabel.toLowerCase().includes("sydecar")
+              ? "Allocation"
+              : "Investment amount"
           : terms?.capitalBasis === "net_invested"
             ? "Gross commitment"
             : "Commitment"
@@ -338,19 +369,21 @@ export function PositionEconomicsEditor({
     <EconomicsValue
       presentation={presentation}
       detail={
-        reportedFeeDiffers && reportedTerms !== null
-          ? `${reportedTerms.sourceLabel} now reports ${reportedFeeLabel}; accepted terms remain in use until review.`
+        reportedFeeDiffers && evidence !== null
+          ? `${evidence.sourceLabel} now reports ${reportedFeeLabel}; accepted terms remain in use until review.`
           : hasReportedFee &&
-              reportedTerms !== null &&
+              evidence !== null &&
               (terms === null || termsNeedReview)
-            ? `${reportedTerms.sourceLabel} reports ${reportedFeeLabel}; confirm the fee term.`
+            ? `${evidence.sourceLabel} reports ${reportedFeeLabel}; confirm the fee term.`
             : terms === null
-              ? reportedTerms !== null
-                ? "Management fee is not included in this source."
-                : "Add the fee rate and term."
+              ? evidence?.conflicts.includes("management fee")
+                ? "Sources disagree; review the reported rates."
+                : reportedTerms !== null
+                  ? "Management fee is not included in this source."
+                  : "Add the fee rate and term."
               : termsNeedReview
                 ? "Commitment or funded capital changed after acceptance."
-                : `Management: ${money(displayedEconomics!.upfrontAdminFeeMinor)}. Setup: ${terms.setupFeePpm == null ? "not recorded" : money(displayedEconomics!.setupFeeMinor)}.`
+                : `Management: ${money(displayedEconomics!.upfrontAdminFeeMinor)}. Setup: ${terms.setupFeePpm == null ? "not recorded" : money(displayedEconomics!.setupFeeMinor)}.${terms.purchaseFee ? ` ${terms.purchaseFee.label}: ${money(displayedEconomics!.purchaseFeeMinor)}.` : ""}`
       }
       label="Upfront fees"
       value={
@@ -363,7 +396,8 @@ export function PositionEconomicsEditor({
           : money(
               Number(
                 BigInt(displayedEconomics.upfrontAdminFeeMinor) +
-                  BigInt(displayedEconomics.setupFeeMinor),
+                  BigInt(displayedEconomics.setupFeeMinor) +
+                  BigInt(displayedEconomics.purchaseFeeMinor),
               ),
             )
       }
@@ -389,17 +423,21 @@ export function PositionEconomicsEditor({
     <EconomicsValue
       presentation={presentation}
       detail={
-        reportedCarryDiffers && reportedTerms !== null
-          ? `${reportedTerms.sourceLabel} now reports ${reportedCarryLabel}; accepted carry remains in use.`
+        reportedCarryDiffers && evidence !== null
+          ? `${evidence.sourceLabel} now reports ${reportedCarryLabel}; accepted carry remains in use.`
           : hasReportedCarryTerm &&
-              reportedTerms !== null &&
+              evidence !== null &&
               (terms === null || termsNeedReview)
-            ? `Reported by ${reportedTerms.sourceLabel}; accept before use.`
-            : terms === null && reportedTerms !== null
-              ? "Carry is not included in this source."
-              : termsNeedReview
-                ? "Review against the current source before applying carry."
-                : "Applied to gains when an exit is recorded."
+            ? `Reported by ${evidence.sourceLabel}; accept before use.`
+            : evidence?.conflicts.includes("carry")
+              ? sourceConflictReviewed
+                ? "Your reviewed carry remains in use."
+                : "Sources disagree; review the reported rates."
+              : terms === null && reportedTerms !== null
+                ? "Carry is not included in this source."
+                : termsNeedReview
+                  ? "Review against the current source before applying carry."
+                  : "Applied to gains when an exit is recorded."
       }
       label="Carry"
       value={
@@ -463,6 +501,38 @@ export function PositionEconomicsEditor({
         )}
       </div>
       {amountEditor}
+      {evidence &&
+        evidence.conflicts.length > 0 &&
+        (open || !sourceConflictReviewed) && (
+          <Notice tone={sourceConflictReviewed ? "info" : "error"}>
+            Purchase notice and provider disagree on{" "}
+            {evidence.conflicts.join(" and ")}.{" "}
+            {sourceConflictReviewed
+              ? "Your accepted terms remain in use. You can change them below."
+              : open
+                ? "Choose the correct terms below."
+                : "Open fee & carry review to choose the correct terms."}
+            {terms !== null &&
+              !sourceConflictReviewed &&
+              " Your accepted terms remain in use."}
+            {evidence.conflicts.includes("management fee") && (
+              <p>
+                Management: purchase notice{" "}
+                {formatProbability(evidence.purchaseManagementFeePpm!)};{" "}
+                {reportedTerms?.sourceLabel}{" "}
+                {formatProbability(reportedTerms!.managementFeePpm!)}.
+              </p>
+            )}
+            {evidence.conflicts.includes("carry") && (
+              <p>
+                Carry: purchase notice{" "}
+                {formatProbability(evidence.purchaseCarryPpm!)};{" "}
+                {reportedTerms?.sourceLabel}{" "}
+                {formatProbability(reportedTerms!.carryPpm!)}.
+              </p>
+            )}
+          </Notice>
+        )}
 
       {presentation === "review" ? (
         <>
@@ -472,14 +542,18 @@ export function PositionEconomicsEditor({
             {netStat}
           </StatGroup>
           <StatGroup className="position-economics__values position-economics__secondary">
-            {fundedStat}
+            {(context.fundedMinor !== context.committedMinor ||
+              terms?.capitalBasis === "net_invested") &&
+              fundedStat}
             {carryStat}
           </StatGroup>
         </>
       ) : (
         <DataList className="position-economics__rows">
           {commitmentStat}
-          {fundedStat}
+          {(context.fundedMinor !== context.committedMinor ||
+            terms?.capitalBasis === "net_invested") &&
+            fundedStat}
           {feesStat}
           {netStat}
           {carryStat}
@@ -498,11 +572,38 @@ export function PositionEconomicsEditor({
             }
           }}
         >
-          {prefillFromReportedTerms && reportedTerms !== null && (
+          {prefillFromReportedTerms && reportedTermsSummary !== null && (
             <p className="position-economics__reported">
-              {`${reportedTerms.sourceLabel} reports ${reportedTermsSummary}. ${reportedTermsInstruction}`}
+              {`${evidence?.sourceLabel} reports ${reportedTermsSummary}. ${reportedTermsInstruction}`}
             </p>
           )}
+          {terms !== null && (
+            <p>
+              Your accepted terms are prefilled. Changes below replace them only
+              when you save.
+            </p>
+          )}
+          {purchaseFee && (
+            <Notice>
+              {purchaseFee.label}: {percentageInputValue(purchaseFee.ratePpm)}%{" "}
+              {purchaseFee.basis === "net_capital"
+                ? "added to share capital"
+                : "of purchase cash"}
+              . Included once after SPV management and setup fees. Do not enter
+              this fee again below.
+            </Notice>
+          )}
+          {evidence?.purchaseFee &&
+            JSON.stringify(purchaseFee) !==
+              JSON.stringify(evidence.purchaseFee) && (
+              <Button
+                type="button"
+                tone="quiet"
+                onClick={() => setPurchaseFee(evidence.purchaseFee)}
+              >
+                Use purchase fee from {evidence.sourceLabel}
+              </Button>
+            )}
           <div className="position-economics__fields">
             <Field label="Imported amount" variant="filled" wide>
               <Select
@@ -548,7 +649,11 @@ export function PositionEconomicsEditor({
                 <Input
                   aria-label="Management fee rate"
                   inputMode="decimal"
-                  onChange={(event) => setAnnualFee(event.currentTarget.value)}
+                  onChange={(event) => {
+                    setAnnualFee(event.currentTarget.value);
+                    if (parsePercentageInput(event.currentTarget.value) === 0)
+                      setFeeYears("1");
+                  }}
                   required
                   value={annualFee}
                 />
@@ -571,10 +676,13 @@ export function PositionEconomicsEditor({
                 />
               </InputGroup>
             </Field>
-            <Field label="Setup fee" variant="filled">
+            <Field
+              label={purchaseFee ? "Other setup fee" : "Setup fee"}
+              variant="filled"
+            >
               <InputGroup suffix="%">
                 <Input
-                  aria-label="Setup fee"
+                  aria-label={purchaseFee ? "Other setup fee" : "Setup fee"}
                   inputMode="decimal"
                   value={setupFee}
                   onChange={(event) => setSetupFee(event.currentTarget.value)}
@@ -644,12 +752,18 @@ export function PositionEconomicsEditor({
             </strong>
           </div>
           <div>
-            <span>Setup fee</span>
+            <span>{purchaseFee ? "Other setup fee" : "Setup fee"}</span>
             <strong>
               {formatProbability(draftEconomics.setupFeePpm)} ·{" "}
               {money(draftEconomics.setupFeeMinor)}
             </strong>
           </div>
+          {purchaseFee && (
+            <div>
+              <span>{purchaseFee.label}</span>
+              <strong>{money(draftEconomics.purchaseFeeMinor)}</strong>
+            </div>
+          )}
           <div>
             <span>Net invested</span>
             <strong>{money(draftEconomics.positionCostBasisMinor)}</strong>
