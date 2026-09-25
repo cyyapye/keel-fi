@@ -1,3 +1,4 @@
+import { estimatePurchaseValue } from "@keel/domain/position-purchases";
 import { PositionPurchasesEditor } from "./PositionPurchasesEditor";
 import { PortfolioWatchMonitor } from "./PortfolioWatchMonitor";
 import { formatWatchTime, mergeWatchReadState } from "./portfolio-watch-format";
@@ -90,6 +91,7 @@ import {
 } from "@keel/ui";
 import {
   type CSSProperties,
+  type ReactNode,
   type FormEvent,
   lazy,
   Suspense,
@@ -149,6 +151,7 @@ import {
   type Screen,
 } from "./app-navigation";
 import {
+  formatCurrency,
   formatCompactCurrency,
   formatCompactMoney,
   formatDate,
@@ -2211,18 +2214,119 @@ function positionValueSourceUrlIsValid(value: string): boolean {
   }
 }
 
-function PositionValueAdjustmentEditor({
+function PositionValuationSection({
   holding,
   onAccepted,
 }: {
   holding: Holding;
   onAccepted: () => Promise<void>;
 }) {
+  const [reportedDirty, setReportedDirty] = useState(false);
+  const [sharesDirty, setSharesDirty] = useState(false);
+  if (!holding.purchaseContext)
+    return (
+      <PositionValueAdjustmentEditor
+        holding={holding}
+        onAccepted={onAccepted}
+      />
+    );
+  const accepted = holding.positionValueContext?.acceptedAdjustment;
+  const estimate = estimatePurchaseValue(
+    holding.purchaseContext.receipt,
+    holding.purchaseContext.snapshotId,
+  );
+  const summary = accepted
+    ? `${formatCurrency(accepted.valueMinor, accepted.currency)} · ${accepted.sourceLabel} · ${formatDate(accepted.effectiveDate)}`
+    : estimate
+      ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · Share estimate · ${formatDate(estimate.effectiveDate)}`
+      : holding.positionValueContext?.providerValueMinor != null
+        ? `${formatCurrency(holding.positionValueContext.providerValueMinor, holding.positionValueContext.currency)} · ${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`
+        : "Optional · Add a reported value or calculate from shares";
+  return (
+    <section aria-label="Position value" className="position-valuation">
+      <Collapsible>
+        <CollapsibleTrigger
+          className="position-valuation__toggle"
+          aria-label="Position value"
+        >
+          <span>
+            <strong>Position value</strong>
+            <small>{summary}</small>
+          </span>
+          {(reportedDirty || sharesDirty) && (
+            <span className="position-valuation__draft">Unsaved changes</span>
+          )}
+          <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent keepMounted>
+          <Tabs
+            defaultValue={holding.positionValueContext ? "reported" : "shares"}
+          >
+            <TabsList
+              className="scenario-tabs"
+              variant="line"
+              aria-label="Valuation method"
+            >
+              {holding.positionValueContext && (
+                <TabsTrigger value="reported">
+                  Enter a reported value
+                </TabsTrigger>
+              )}
+              <TabsTrigger value="shares">Calculate from shares</TabsTrigger>
+            </TabsList>
+            {holding.positionValueContext && (
+              <TabsContent value="reported" keepMounted>
+                <PositionValueAdjustmentEditor
+                  holding={holding}
+                  onAccepted={onAccepted}
+                  embedded
+                  onDirtyChange={setReportedDirty}
+                />
+              </TabsContent>
+            )}
+            <TabsContent value="shares" keepMounted>
+              <p>
+                Remaining shares × a dated price for the same share class.
+                Before carry and remaining expenses; does not replace a reported
+                mark.
+              </p>
+              <PositionPurchasesEditor
+                key={`${holding.id}:${holding.purchaseContext.snapshotId}:${holding.purchaseContext.receipt?.id}`}
+                holding={holding}
+                onAccepted={onAccepted}
+                mode="valuation"
+                onDirtyChange={setSharesDirty}
+              />
+            </TabsContent>
+          </Tabs>
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
+  );
+}
+
+function PositionValueAdjustmentEditor({
+  holding,
+  onAccepted,
+  embedded = false,
+  onDirtyChange,
+}: {
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+  holding: Holding;
+  onAccepted: () => Promise<void>;
+}) {
   const context = holding.positionValueContext ?? null;
   const projectedEstimate = context?.projectedEstimate ?? null;
-  const [open, setOpen] = useState(false);
+  const automaticEntry =
+    embedded &&
+    context?.acceptedAdjustment == null &&
+    context?.providerValueMinor == null &&
+    projectedEstimate === null;
+  const [editing, setOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [value, setValue] = useState("");
+  const initialDate = useRef(new Date().toISOString().slice(0, 10));
   const [effectiveDate, setEffectiveDate] = useState(
     new Date().toISOString().slice(0, "YYYY-MM-DD".length),
   );
@@ -2235,6 +2339,29 @@ function PositionValueAdjustmentEditor({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const open = editing || (automaticEntry && notice === null);
+
+  useEffect(() => {
+    onDirtyChange?.(
+      Boolean(
+        value ||
+        sourceLabel ||
+        sourceUrl ||
+        commentary ||
+        sourceKind !== "gp_update" ||
+        effectiveDate !== initialDate.current,
+      ),
+    );
+  }, [
+    value,
+    sourceLabel,
+    sourceUrl,
+    commentary,
+    sourceKind,
+    effectiveDate,
+    onDirtyChange,
+  ]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   if (context === null) {
     return null;
   }
@@ -2245,7 +2372,8 @@ function PositionValueAdjustmentEditor({
     valueMinor !== null &&
     effectiveDate.length > 0 &&
     sourceLabel.trim().length > 0 &&
-    commentary.trim().length >= 3 &&
+    ((sourceKind === "gp_update" && !commentary.trim()) ||
+      commentary.trim().length >= 3) &&
     positionValueSourceUrlIsValid(trimmedUrl) &&
     (sourceKind !== "news_article" || trimmedUrl.length > 0);
   const currentValueMinor =
@@ -2271,6 +2399,7 @@ function PositionValueAdjustmentEditor({
     setOpen(false);
     setReviewing(false);
     setValue("");
+    setEffectiveDate(initialDate.current);
     setSourceKind("gp_update");
     setSourceLabel("");
     setSourceUrl("");
@@ -2332,16 +2461,23 @@ function PositionValueAdjustmentEditor({
 
   return (
     <section
-      aria-labelledby="position-value-adjustment-title"
+      aria-label={embedded ? "Reported position value" : undefined}
+      aria-labelledby={embedded ? undefined : "position-value-adjustment-title"}
       className="position-value-adjustment"
     >
       <div className="position-value-adjustment__heading">
         <div>
-          <p className="eyebrow">Your evidence</p>
-          <h3 id="position-value-adjustment-title">Position value</h3>
+          {!embedded && (
+            <>
+              <p className="eyebrow">Your evidence</p>
+              <h3 id="position-value-adjustment-title">Position value</h3>
+            </>
+          )}
           <p>
             {projectedEstimate === null
-              ? "Add a sourced mark when you know more than the latest provider update."
+              ? embedded
+                ? "Enter the total value of your stake from a GP statement or another source."
+                : "Add a sourced mark when you know more than the latest provider update."
               : "Review the Portfolio Watch estimate or replace it with stronger position evidence."}
           </p>
         </div>
@@ -2356,9 +2492,23 @@ function PositionValueAdjustmentEditor({
         )}
       </div>
 
+      {embedded && !open && currentValueMinor !== null && (
+        <StatGroup className="holding-performance__values">
+          <Stat
+            label={
+              context.acceptedAdjustment
+                ? "Accepted position value"
+                : "Provider-reported value"
+            }
+            value={formatCurrency(currentValueMinor, context.currency)}
+            detail={`${context.acceptedAdjustment?.sourceLabel ?? holding.sourceLabel} · ${formatDate(context.acceptedAdjustment?.effectiveDate ?? holding.effectiveDate)} · ${context.acceptedAdjustment ? positionValueSourceKindLabel(context.acceptedAdjustment.sourceKind) : "Reported total"}`}
+          />
+        </StatGroup>
+      )}
       {notice !== null && <FormMessage tone="success">{notice}</FormMessage>}
       {open && !reviewing && (
         <form
+          noValidate
           className="position-value-adjustment__form"
           onSubmit={(event) => {
             event.preventDefault();
@@ -2368,6 +2518,9 @@ function PositionValueAdjustmentEditor({
             }
           }}
         >
+          <p className="position-value-requirements">
+            Value, date and source name are required. Source type is prefilled.
+          </p>
           <div className="position-value-adjustment__fields">
             <Field label={`Value · ${context.currency}`} variant="filled">
               <InputGroup
@@ -2425,35 +2578,85 @@ function PositionValueAdjustmentEditor({
                 value={sourceLabel}
               />
             </Field>
-            <Field
-              description={
-                sourceKind === "news_article"
-                  ? "Required for a news article. HTTPS only."
-                  : "Optional. HTTPS only."
-              }
-              label="Source link"
-              variant="filled"
-              wide
-            >
-              <Input
-                inputMode="url"
-                onChange={(event) => setSourceUrl(event.currentTarget.value)}
-                placeholder="https://…"
-                required={sourceKind === "news_article"}
-                type="url"
-                value={sourceUrl}
-              />
-            </Field>
-            <Field label="What this value reflects" variant="filled" wide>
-              <Textarea
-                maxLength={1_000}
-                onChange={(event) => setCommentary(event.currentTarget.value)}
-                required
-                rows={3}
-                value={commentary}
-              />
-            </Field>
           </div>
+          <Collapsible
+            key={sourceKind}
+            defaultOpen={
+              sourceKind !== "gp_update" || Boolean(sourceUrl || commentary)
+            }
+          >
+            <CollapsibleTrigger>
+              <span>
+                Supporting details
+                {sourceKind === "gp_update" ? " (optional)" : ""}
+              </span>
+              <DisclosureIndicator />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="position-value-adjustment__fields">
+                <Field
+                  description={
+                    sourceKind === "news_article"
+                      ? "Required for a news article. HTTPS only."
+                      : "Optional. HTTPS only."
+                  }
+                  label={
+                    sourceKind === "news_article"
+                      ? "Source link (required)"
+                      : "Source link (optional)"
+                  }
+                  variant="filled"
+                  wide
+                >
+                  <Input
+                    aria-label="Source link"
+                    inputMode="url"
+                    onChange={(event) =>
+                      setSourceUrl(event.currentTarget.value)
+                    }
+                    placeholder="https://…"
+                    required={sourceKind === "news_article"}
+                    type="url"
+                    value={sourceUrl}
+                  />
+                </Field>
+                <Field
+                  label={
+                    sourceKind === "gp_update"
+                      ? "Notes (optional)"
+                      : "Why this value applies (required)"
+                  }
+                  variant="filled"
+                  wide
+                >
+                  <Textarea
+                    aria-label="What this value reflects"
+                    maxLength={1_000}
+                    onChange={(event) =>
+                      setCommentary(event.currentTarget.value)
+                    }
+                    required={sourceKind !== "gp_update"}
+                    rows={3}
+                    value={commentary}
+                  />
+                </Field>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+          {(value || sourceLabel || sourceUrl || commentary) && !canReview && (
+            <FormMessage tone="neutral">
+              {valueMinor === null
+                ? "Enter a valid position value."
+                : !effectiveDate
+                  ? "Choose the value date."
+                  : !sourceLabel.trim()
+                    ? "Name the source of this value."
+                    : !positionValueSourceUrlIsValid(trimmedUrl) ||
+                        (sourceKind === "news_article" && !trimmedUrl)
+                      ? "Add a valid HTTPS source link."
+                      : "Use at least 3 characters to explain what this value reflects."}
+            </FormMessage>
+          )}
           {error !== null && <Notice tone="error">{error}</Notice>}
           <ActionGroup
             align="end"
@@ -2461,7 +2664,7 @@ function PositionValueAdjustmentEditor({
             mobileLayout="grid"
           >
             <Button disabled={busy} onClick={reset} tone="quiet" type="button">
-              Cancel
+              {automaticEntry ? "Reset" : "Cancel"}
             </Button>
             <Button disabled={!canReview || busy} tone="primary" type="submit">
               Review value
@@ -2482,7 +2685,7 @@ function PositionValueAdjustmentEditor({
               · As of {formatDate(effectiveDate)}
             </small>
           </div>
-          <p>{commentary.trim()}</p>
+          {commentary.trim() && <p>{commentary.trim()}</p>}
           {trimmedUrl.length > 0 && (
             <TextLink href={trimmedUrl} rel="noreferrer" target="_blank">
               Open source
@@ -2523,10 +2726,13 @@ function isCashLikeHolding(holding: Holding): boolean {
   return holding.instrumentType?.trim().toLowerCase() === "cash";
 }
 
-function PositionPerformanceSummary({ holding }: { holding: Holding }) {
-  if (isCashLikeHolding(holding)) {
-    return null;
-  }
+function PositionPerformanceSummary({
+  holding,
+  primary,
+}: {
+  holding: Holding;
+  primary: ReactNode;
+}) {
   const acceptedAdjustment =
     holding.positionValueContext?.acceptedAdjustment ?? null;
   const projectedEstimate =
@@ -2559,72 +2765,80 @@ function PositionPerformanceSummary({ holding }: { holding: Holding }) {
   }[performance.costBasisSource ?? "funded_amount_estimate"];
 
   return (
-    <section
-      aria-labelledby="holding-performance-title"
-      className="holding-performance"
-    >
-      <p className="eyebrow">Performance</p>
-      <h3 id="holding-performance-title">Position return</h3>
-      <StatGroup className="holding-performance__values">
-        <Stat
-          detail={
-            performance.costBasisMinor === null
-              ? "Add SPV terms or wait for source cost basis."
-              : basisHelper
-          }
-          label="Cost basis"
-          value={
-            performance.costBasisMinor === null
-              ? "Not reported"
-              : formatCompactMoney(performance.costBasisMinor)
-          }
-          valueClassName={
-            performance.costBasisMinor === null ? "is-not-set" : ""
-          }
-        />
-        <Stat
-          detail="Current value plus realized proceeds, less cost basis."
-          label="Total gain / loss"
-          value={
-            performance.totalGainMinor === null
-              ? "Unavailable"
-              : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)}`.replace(
-                  "-",
-                  "−",
-                )
-          }
-          valueClassName={
-            performance.totalGainMinor === null ? "is-not-set" : ""
-          }
-        />
-        <Stat
-          details={
-            projectedEstimate !== null && acceptedAdjustment === null
-              ? [
-                  "Not annualized. Carry is applied only after an exit.",
-                  "Uses the Portfolio Watch estimate until stronger evidence is reviewed.",
-                ]
-              : ["Not annualized. Carry is applied only after an exit."]
-          }
-          label="Total return"
-          value={
-            performance.totalReturnPpm === null
-              ? "Unavailable"
-              : formatSignedProbability(performance.totalReturnPpm)
-          }
-          valueClassName={
-            performance.totalReturnPpm === null ? "is-not-set" : ""
-          }
-        />
-        {isPlaidInvestmentsHolding(holding) && (
-          <Stat
-            detail="Needs a prior daily price at the same share count."
-            label="Day gain / loss"
-            value="Unavailable"
-            valueClassName="is-not-set"
-          />
+    <section aria-label="Position summary" className="holding-headline">
+      <StatGroup className="holding-headline__values">
+        {primary}
+        {!isCashLikeHolding(holding) && (
+          <>
+            <Stat
+              label={
+                performance.costBasisSource === "funded_amount_estimate"
+                  ? "Cost basis · estimate"
+                  : "Cost basis"
+              }
+              value={
+                performance.costBasisMinor === null
+                  ? "Not reported"
+                  : formatCompactMoney(performance.costBasisMinor)
+              }
+            />
+            {performance.totalReturnPpm !== null && (
+              <Stat
+                label="Total return"
+                value={formatSignedProbability(performance.totalReturnPpm)}
+                detail={
+                  performance.totalGainMinor === null
+                    ? undefined
+                    : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)} total gain / loss`
+                }
+              />
+            )}
+          </>
         )}
       </StatGroup>
+      {!isCashLikeHolding(holding) && (
+        <Collapsible className="holding-summary-details">
+          <CollapsibleTrigger>
+            Return details <DisclosureIndicator />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <DataList>
+              <DataItem
+                label="Cost basis"
+                value={
+                  performance.costBasisMinor === null
+                    ? "Add SPV terms or wait for source cost basis."
+                    : basisHelper
+                }
+              />
+              <DataItem
+                label="Total gain / loss"
+                value={
+                  performance.totalGainMinor === null
+                    ? "Available when current value and cost basis are known."
+                    : `${formatCompactMoney(performance.totalGainMinor)} · Current value plus realized proceeds, less cost basis.`
+                }
+              />
+              <DataItem
+                label="Total return"
+                value="Not annualized. Carry is applied only after an exit."
+              />
+              {projectedEstimate !== null && acceptedAdjustment === null && (
+                <DataItem
+                  label="Value source"
+                  value="Uses the Portfolio Watch estimate until stronger evidence is reviewed."
+                />
+              )}
+              {isPlaidInvestmentsHolding(holding) && (
+                <DataItem
+                  label="Day gain / loss"
+                  value="Needs a prior daily price at the same share count."
+                />
+              )}
+            </DataList>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </section>
   );
 }
@@ -2728,39 +2942,77 @@ function HoldingDetailWorkspace({
         <h2 id="holding-detail-title" ref={headingRef} tabIndex={-1}>
           {primaryName}
         </h2>
-        <p>
-          {holding.exposureName === null
-            ? holdingKindLabel(holding)
-            : holding.positionKind === "direct"
-              ? "Direct position"
-              : `Via ${holding.positionName}`}
-        </p>
+        {(holding.exposureName === null ||
+          holding.positionKind === "direct" ||
+          holding.positionName !== primaryName) && (
+          <p>
+            {holding.exposureName === null
+              ? holdingKindLabel(holding)
+              : holding.positionKind === "direct"
+                ? "Direct position"
+                : `Via ${holding.positionName}`}
+          </p>
+        )}
       </header>
 
-      <section aria-labelledby="holding-values-title">
-        <p className="eyebrow">Value lenses</p>
-        <h3 id="holding-values-title">Current values</h3>
-        <StatGroup className="holding-detail-values">
-          {valueLenses.map((lens) => (
-            <Stat
-              className={
-                lens.wide
-                  ? "holding-detail-value holding-detail-value--wide"
-                  : "holding-detail-value"
-              }
-              detail={lens.helper}
-              key={lens.label}
-              label={lens.label}
-              value={lens.value}
-              valueClassName={lens.value === "Not set" ? "is-not-set" : ""}
-            />
-          ))}
-        </StatGroup>
-      </section>
-
-      <PositionPerformanceSummary holding={holding} />
+      <PositionPerformanceSummary
+        holding={holding}
+        primary={
+          <Stat
+            className="holding-headline__primary"
+            label={
+              acceptedAdjustment
+                ? "Reviewed value"
+                : projectedEstimate && holding.administratorNavMinor === null
+                  ? "Estimated value"
+                  : valueLenses[0].label
+            }
+            value={
+              acceptedAdjustment
+                ? holdingValueLabel(acceptedAdjustment.valueMinor)
+                : projectedEstimate && holding.administratorNavMinor === null
+                  ? holdingValueLabel(projectedEstimate.valueMinor)
+                  : valueLenses[0].value
+            }
+            detail={
+              acceptedAdjustment
+                ? `${acceptedAdjustment.sourceLabel} · ${formatDate(acceptedAdjustment.effectiveDate)}`
+                : projectedEstimate && holding.administratorNavMinor === null
+                  ? "Portfolio Watch estimate · Not an accepted mark"
+                  : holding.administratorNavMinor === null
+                    ? holding.administratorNavState === "locked"
+                      ? valueLenses[0].helper
+                      : "Add a reported value or calculate from shares below."
+                    : `${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`
+            }
+          />
+        }
+      />
+      <Collapsible className="holding-other-values">
+        <CollapsibleTrigger className="holding-section-toggle">
+          <strong>Other valuations</strong>
+          <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <DataList>
+            {valueLenses.map((lens) => (
+              <DataItem
+                key={lens.label}
+                label={lens.label}
+                value={
+                  <>
+                    <strong>{lens.value}</strong>
+                    <small>{lens.helper}</small>
+                  </>
+                }
+              />
+            ))}
+          </DataList>
+        </CollapsibleContent>
+      </Collapsible>
 
       <PositionPurchasesEditor
+        mode="purchase"
         key={`${holding.id}:${holding.purchaseContext?.snapshotId}:${holding.purchaseContext?.receipt?.id}`}
         holding={holding}
         onAccepted={onValueAccepted}
@@ -2769,165 +3021,191 @@ function HoldingDetailWorkspace({
       <PositionEconomicsEditor holding={holding} onAccepted={onValueAccepted} />
 
       {!isCashLikeHolding(holding) && (
-        <PositionValueAdjustmentEditor
+        <PositionValuationSection
           holding={holding}
           onAccepted={onValueAccepted}
         />
       )}
 
-      <div className="holding-detail-records">
-        <section aria-labelledby="holding-position-title">
-          <p className="eyebrow">Accepted record</p>
-          <h3 id="holding-position-title">Position</h3>
-          <DataList>
-            <DataItem label={legalPositionLabel} value={holding.positionName} />
-            <DataItem label="Held through" value={holding.ownerLabel} />
-            {isPlaidInvestmentsHolding(holding) && (
-              <>
+      <Collapsible className="holding-ownership">
+        <CollapsibleTrigger className="holding-section-toggle">
+          <span>
+            <strong>Ownership &amp; source</strong>
+            <small>
+              {holding.ownerLabel} · {holding.sourceLabel} ·{" "}
+              {formatDate(holding.effectiveDate)}
+            </small>
+          </span>
+          <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="holding-detail-records">
+            <section aria-labelledby="holding-position-title">
+              <p className="eyebrow">Accepted record</p>
+              <h3 id="holding-position-title">Position</h3>
+              <DataList>
                 <DataItem
-                  label="Ticker"
-                  value={holding.ticker ?? "Not reported"}
+                  label={legalPositionLabel}
+                  value={holding.positionName}
                 />
-                <DataItem
-                  label="Shares"
-                  value={formatQuantityMicros(holding.quantityMicros)}
-                />
-                <DataItem
-                  label="Cost basis"
-                  value={holdingValueLabel(holding.costBasisMinor)}
-                />
-              </>
-            )}
-          </DataList>
-        </section>
+                <DataItem label="Held through" value={holding.ownerLabel} />
+                {isPlaidInvestmentsHolding(holding) && (
+                  <>
+                    <DataItem
+                      label="Ticker"
+                      value={holding.ticker ?? "Not reported"}
+                    />
+                    <DataItem
+                      label="Shares"
+                      value={formatQuantityMicros(holding.quantityMicros)}
+                    />
+                    <DataItem
+                      label="Cost basis"
+                      value={holdingValueLabel(holding.costBasisMinor)}
+                    />
+                  </>
+                )}
+              </DataList>
+            </section>
 
-        <section aria-labelledby="holding-source-title">
-          <p className="eyebrow">Value evidence</p>
-          <h3 id="holding-source-title">{sourceSectionTitle}</h3>
-          <DataList>
-            <DataItem label="Source" value={holding.sourceLabel} />
-            <DataItem label="As of" value={formatDate(holding.effectiveDate)} />
-            {holding.confidencePpm !== null && (
-              <DataItem
-                label="Source confidence"
-                value={formatProbability(holding.confidencePpm)}
-              />
-            )}
-            {holding.sourceStatus !== "verified" && (
-              <DataItem
-                label="Source status"
-                value={<SourceBadge status={holding.sourceStatus} />}
-              />
-            )}
-          </DataList>
-        </section>
-      </div>
-      {acceptedAdjustment !== null && (
-        <section
-          aria-labelledby="holding-reviewed-mark-title"
-          className="holding-reviewed-mark"
-        >
-          <p className="eyebrow">Reviewed position mark</p>
-          <h3 id="holding-reviewed-mark-title">
-            {acceptedAdjustment.sourceLabel}
-          </h3>
-          <DataList>
-            <DataItem
-              label="Value"
-              value={holdingValueLabel(holding.externalMarkMinor)}
-            />
-            <DataItem
-              label="As of"
-              value={formatDate(acceptedAdjustment.effectiveDate)}
-            />
-            <DataItem
-              label="Source"
-              value={positionValueSourceKindLabel(
-                acceptedAdjustment.sourceKind,
-              )}
-            />
-            {acceptedAdjustment.sourceUrl !== null && (
-              <DataItem
-                label="Link"
-                value={
-                  <TextLink
-                    href={acceptedAdjustment.sourceUrl}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    Open source
-                  </TextLink>
-                }
-              />
-            )}
-            <DataItem
-              className="holding-reviewed-mark__commentary"
-              label="Note"
-              value={acceptedAdjustment.commentary}
-            />
-          </DataList>
-        </section>
-      )}
-      {acceptedAdjustment === null && projectedEstimate !== null && (
-        <section
-          aria-labelledby="holding-portfolio-watch-estimate-title"
-          className="holding-reviewed-mark"
-        >
-          <p className="eyebrow">Estimated position value</p>
-          <h3 id="holding-portfolio-watch-estimate-title">
-            Portfolio Watch estimate
-          </h3>
-          <DataList>
-            <DataItem
-              label="Value"
-              value={holdingValueLabel(projectedEstimate.valueMinor)}
-            />
-            <DataItem
-              label="As of"
-              value={formatDate(projectedEstimate.effectiveDate)}
-            />
-            <DataItem
-              label="GP mark"
-              value={projectedEstimate.referenceSourceLabel}
-            />
-            <DataItem
-              label="This tranche"
-              value={
-                <>
-                  <TextLink
-                    href={projectedEstimate.positionRound.sourceUrl}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    {projectedEstimate.positionRound.sourceTitle}
-                  </TextLink>{" "}
-                  · {formatDate(projectedEstimate.positionRound.effectiveDate)}
-                </>
-              }
-            />
-            <DataItem
-              label="Reference tranche"
-              value={
-                <>
-                  <TextLink
-                    href={projectedEstimate.referenceRound.sourceUrl}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    {projectedEstimate.referenceRound.sourceTitle}
-                  </TextLink>{" "}
-                  · {formatDate(projectedEstimate.referenceRound.effectiveDate)}
-                </>
-              }
-            />
-          </DataList>
-          <small>
-            Scales funded cost basis by the GP mark and the nearest accepted
-            financing valuation for each tranche. Review it before treating it
-            as a position mark; it does not enter FI planning.
-          </small>
-        </section>
-      )}
+            <section aria-labelledby="holding-source-title">
+              <p className="eyebrow">Value evidence</p>
+              <h3 id="holding-source-title">{sourceSectionTitle}</h3>
+              <DataList>
+                <DataItem label="Source" value={holding.sourceLabel} />
+                <DataItem
+                  label="As of"
+                  value={formatDate(holding.effectiveDate)}
+                />
+                {holding.confidencePpm !== null && (
+                  <DataItem
+                    label="Source confidence"
+                    value={formatProbability(holding.confidencePpm)}
+                  />
+                )}
+                {holding.sourceStatus !== "verified" && (
+                  <DataItem
+                    label="Source status"
+                    value={<SourceBadge status={holding.sourceStatus} />}
+                  />
+                )}
+              </DataList>
+            </section>
+          </div>
+          {acceptedAdjustment !== null && (
+            <section
+              aria-labelledby="holding-reviewed-mark-title"
+              className="holding-reviewed-mark"
+            >
+              <p className="eyebrow">Reviewed position mark</p>
+              <h3 id="holding-reviewed-mark-title">
+                {acceptedAdjustment.sourceLabel}
+              </h3>
+              <DataList>
+                <DataItem
+                  label="Value"
+                  value={holdingValueLabel(holding.externalMarkMinor)}
+                />
+                <DataItem
+                  label="As of"
+                  value={formatDate(acceptedAdjustment.effectiveDate)}
+                />
+                <DataItem
+                  label="Source"
+                  value={positionValueSourceKindLabel(
+                    acceptedAdjustment.sourceKind,
+                  )}
+                />
+                {acceptedAdjustment.sourceUrl !== null && (
+                  <DataItem
+                    label="Link"
+                    value={
+                      <TextLink
+                        href={acceptedAdjustment.sourceUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Open source
+                      </TextLink>
+                    }
+                  />
+                )}
+                <DataItem
+                  className="holding-reviewed-mark__commentary"
+                  label="Note"
+                  value={acceptedAdjustment.commentary}
+                />
+              </DataList>
+            </section>
+          )}
+          {acceptedAdjustment === null && projectedEstimate !== null && (
+            <section
+              aria-labelledby="holding-portfolio-watch-estimate-title"
+              className="holding-reviewed-mark"
+            >
+              <p className="eyebrow">Estimated position value</p>
+              <h3 id="holding-portfolio-watch-estimate-title">
+                Portfolio Watch estimate
+              </h3>
+              <DataList>
+                <DataItem
+                  label="Value"
+                  value={holdingValueLabel(projectedEstimate.valueMinor)}
+                />
+                <DataItem
+                  label="As of"
+                  value={formatDate(projectedEstimate.effectiveDate)}
+                />
+                <DataItem
+                  label="GP mark"
+                  value={projectedEstimate.referenceSourceLabel}
+                />
+                <DataItem
+                  label="This tranche"
+                  value={
+                    <>
+                      <TextLink
+                        href={projectedEstimate.positionRound.sourceUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {projectedEstimate.positionRound.sourceTitle}
+                      </TextLink>{" "}
+                      ·{" "}
+                      {formatDate(
+                        projectedEstimate.positionRound.effectiveDate,
+                      )}
+                    </>
+                  }
+                />
+                <DataItem
+                  label="Reference tranche"
+                  value={
+                    <>
+                      <TextLink
+                        href={projectedEstimate.referenceRound.sourceUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {projectedEstimate.referenceRound.sourceTitle}
+                      </TextLink>{" "}
+                      ·{" "}
+                      {formatDate(
+                        projectedEstimate.referenceRound.effectiveDate,
+                      )}
+                    </>
+                  }
+                />
+              </DataList>
+              <small>
+                Scales funded cost basis by the GP mark and the nearest accepted
+                financing valuation for each tranche. Review it before treating
+                it as a position mark; it does not enter FI planning.
+              </small>
+            </section>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }

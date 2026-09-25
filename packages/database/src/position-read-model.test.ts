@@ -982,7 +982,7 @@ describe("canonical investment position view", () => {
         sourceKind: "gp_update",
         sourceLabel: "Synthetic Q2 GP update",
         sourceUrl: null,
-        commentary: "Synthetic progress supports a reviewed position mark.",
+        commentary: "",
       },
     );
     const view = await repository.list(
@@ -1003,7 +1003,7 @@ describe("canonical investment position view", () => {
     expect(position?.acceptedValueAdjustment).toMatchObject({
       id: accepted.id,
       valueMinor: 1_250_000,
-      commentary: "Synthetic progress supports a reviewed position mark.",
+      commentary: "No additional notes supplied.",
     });
     expect(position?.priorValue).toEqual({
       state: "reported",

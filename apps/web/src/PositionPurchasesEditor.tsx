@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Holding } from "@keel/domain";
 import {
   AcceptPurchasesSchema,
@@ -146,6 +146,8 @@ const feeChoices = [
 export function PositionPurchasesEditor({
   holding,
   onAccepted,
+  mode = "combined",
+  onDirtyChange,
 }: {
   holding: Pick<
     Holding,
@@ -156,6 +158,8 @@ export function PositionPurchasesEditor({
     | "realizedValueMinor"
   >;
   onAccepted: () => Promise<void>;
+  mode?: "combined" | "purchase" | "valuation";
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const context = holding.purchaseContext;
   const [receipt, setReceipt] = useState<PurchaseReceipt | null>(
@@ -164,13 +168,41 @@ export function PositionPurchasesEditor({
   const [coversPosition, setCoversPosition] = useState(
     receipt?.details.coversPosition ?? false,
   );
-  const [open, setOpen] = useState(false);
-  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const automaticEntry =
+    mode === "valuation" &&
+    Boolean(receipt?.details.lots.length) &&
+    !estimatePurchaseValue(receipt, context?.snapshotId ?? "");
+  const [editing, setOpen] = useState(false);
+  const open = editing || automaticEntry;
+  const [valuationOnly, setValuationOnly] = useState(mode === "valuation");
+  const [drafts, setDrafts] = useState<Draft[]>(() =>
+    automaticEntry ? receipt!.details.lots.map(draftFor) : [],
+  );
+  const [removed, setRemoved] = useState<{ draft: Draft; index: number }[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [noticeIndex, setNoticeIndex] = useState<number | null>(null);
   const [noticeText, setNoticeText] = useState("");
   const [noticeWarnings, setNoticeWarnings] = useState<string[]>([]);
+  const sharesInput = useRef<HTMLInputElement>(null);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (editing && valuationOnly) sharesInput.current?.focus();
+    else if (!open && wasOpen.current) editButton.current?.focus();
+    wasOpen.current = open;
+  }, [open, editing, valuationOnly]);
+  useEffect(() => {
+    onDirtyChange?.(
+      open &&
+        (coversPosition !== (receipt?.details.coversPosition ?? false) ||
+          JSON.stringify(drafts.map(lotFor)) !==
+            JSON.stringify(
+              receipt?.details.lots.map((lot) => lotFor(draftFor(lot))) ?? [],
+            )),
+    );
+  }, [open, coversPosition, drafts, receipt, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   if (!context) return null;
   const blank = (prefill: boolean): Draft => {
     const economics =
@@ -210,12 +242,25 @@ export function PositionPurchasesEditor({
   const money = (n: number) => formatCurrency(n, context.currency);
   const update = (index: number, key: string, value: string) =>
     setDrafts((old) =>
-      old.map((d, i) => (i === index ? { ...d, [key]: value } : d)),
+      old.map((d, i) =>
+        i === index
+          ? {
+              ...d,
+              [key]: value,
+              ...(key === "markPrice" && value && !d.markClass && d.shareClass
+                ? { markClass: d.shareClass }
+                : {}),
+            }
+          : d,
+      ),
     );
   const field = (i: number, key: string, label: string, numeric = false) => (
     <Field label={label} variant="filled">
       <Input
         aria-label={label}
+        ref={
+          i === 0 && key === "remainingSharesMicros" ? sharesInput : undefined
+        }
         inputMode={numeric ? "decimal" : "text"}
         value={drafts[i]?.[key] ?? ""}
         onChange={(event) => update(i, key, event.currentTarget.value)}
@@ -240,6 +285,20 @@ export function PositionPurchasesEditor({
       />
     </Field>
   );
+  const edit = (valuation = false) => {
+    setRemoved([]);
+    setCoversPosition(receipt?.details.coversPosition ?? false);
+    setDrafts(
+      receipt?.details.lots.length
+        ? receipt.details.lots.map(draftFor)
+        : [blank(true)],
+    );
+    setError(null);
+    setNoticeIndex(null);
+    setNoticeWarnings([]);
+    setValuationOnly(valuation);
+    setOpen(true);
+  };
   const save = async () => {
     if (!parsed.success) return;
     setBusy(true);
@@ -263,6 +322,7 @@ export function PositionPurchasesEditor({
         );
       const accepted = PurchaseReceiptSchema.parse(body);
       setReceipt(accepted);
+      setRemoved([]);
       setOpen(false);
       await onAccepted();
     } catch (e) {
@@ -276,15 +336,24 @@ export function PositionPurchasesEditor({
   return (
     <section
       className="position-economics purchase-details"
-      aria-label="Purchase details"
+      aria-label={
+        mode === "valuation" ? "Share-based valuation" : "Purchase details"
+      }
     >
       <div className="position-economics__heading">
         <div>
-          <h3>Purchase details</h3>
-          {(open || !receipt?.details.lots.length) && (
+          {mode !== "valuation" && (
+            <h3>
+              {open && valuationOnly
+                ? "Value your position"
+                : "Purchase details"}
+            </h3>
+          )}
+          {(open || !receipt?.details.lots.length) && mode !== "valuation" && (
             <p>
-              Optional. Record the underlying shares attributable to this SPV
-              investment.
+              {valuationOnly
+                ? "Use your remaining company shares and a dated price for the same share class."
+                : "Optional. Record the underlying shares attributable to this SPV investment."}
             </p>
           )}
         </div>
@@ -292,24 +361,19 @@ export function PositionPurchasesEditor({
           <ActionGroup wrap mobileLayout="stack">
             <Button
               tone={receipt?.details.lots.length ? "quiet" : "secondary"}
-              onClick={() => {
-                setCoversPosition(receipt?.details.coversPosition ?? false);
-                setDrafts(
-                  receipt?.details.lots.length
-                    ? receipt.details.lots.map(draftFor)
-                    : [blank(true)],
-                );
-                setError(null);
-                setNoticeIndex(null);
-                setNoticeWarnings([]);
-                setOpen(true);
-              }}
+              ref={editButton}
+              disabled={mode === "valuation" && !receipt?.details.lots.length}
+              onClick={() => edit(mode === "valuation")}
             >
-              {receipt?.details.lots.length
-                ? "Edit purchases"
-                : "Add purchase details"}
+              {mode === "valuation"
+                ? estimate
+                  ? "Edit share calculation"
+                  : "Add share details"
+                : receipt?.details.lots.length
+                  ? "Edit purchases"
+                  : "Add purchase details"}
             </Button>
-            {!receipt?.details.lots.length && (
+            {mode !== "valuation" && !receipt?.details.lots.length && (
               <Button
                 tone="quiet"
                 onClick={() => {
@@ -337,250 +401,313 @@ export function PositionPurchasesEditor({
       {error && <Notice tone="error">{error}</Notice>}
       {!open && receipt && (
         <>
-          {receipt.details.lots.map((lot, i) => {
-            const shares = purchaseShares(lot);
-            const capital = purchaseCapital(lot);
-            const allIn = purchaseAllInPrice(lot);
-            return (
-              <div key={lot.id} className="purchase-summary">
-                {receipt.details.lots.length > 1 && <h4>Purchase {i + 1}</h4>}
-                <p className="purchase-summary__metadata">
-                  {[
-                    lot.shareClass,
-                    lot.transactionType
-                      ? lot.transactionType === "secondary"
-                        ? "Secondary"
-                        : "Primary"
-                      : null,
-                    lot.purchasedOn ? formatDate(lot.purchasedOn) : null,
-                    lot.sourceLabel,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                {(lot.priceMicros !== null || allIn !== null) && (
-                  <StatGroup className="holding-performance__values purchase-summary__prices">
-                    {lot.priceMicros !== null && (
-                      <Stat
-                        label="Purchase price / share"
-                        value={`$${unitPrice(lot.priceMicros)}`}
-                      />
-                    )}
-                    {allIn !== null && Number.isSafeInteger(allIn) && (
-                      <Stat
-                        label="All-in price / share"
-                        value={`$${unitPrice(allIn)}`}
-                      />
-                    )}
-                  </StatGroup>
-                )}
-                <DataList className="purchase-summary__terms">
-                  {lot.feePpm !== null && (
-                    <DataItem
-                      label={lot.feeLabel ?? "One-time fee"}
-                      value={
-                        <>
-                          {decimal(lot.feePpm, 4)}%{" "}
-                          {lot.feeBasis === "net_capital"
-                            ? "added to share capital"
-                            : lot.feeBasis === "gross_cash"
-                              ? "of gross cash"
-                              : "· basis unknown; excluded from calculations"}
-                        </>
-                      }
-                    />
-                  )}
-                  {lot.referencePriceMicros !== null && (
-                    <DataItem
-                      label={
-                        <>{lot.referenceRound ?? "Entry"} reference price</>
-                      }
-                      value={
-                        <>${unitPrice(lot.referencePriceMicros)} / share</>
-                      }
-                    />
-                  )}
-                  {lot.referenceRound && lot.referencePriceMicros === null && (
-                    <DataItem
-                      label="Reference round"
-                      value={lot.referenceRound}
-                    />
-                  )}
-                  {lot.priceMicros !== null &&
-                    lot.referencePriceMicros !== null && (
-                      <DataItem
-                        label="Purchase premium"
-                        value={
+          {mode !== "valuation" &&
+            receipt.details.lots.map((lot, i) => {
+              const shares = purchaseShares(lot);
+              const capital = purchaseCapital(lot);
+              const allIn = purchaseAllInPrice(lot);
+              return (
+                <div key={lot.id} className="purchase-summary">
+                  {receipt.details.lots.length > 1 && <h4>Purchase {i + 1}</h4>}
+                  <p className="purchase-summary__metadata">
+                    {[
+                      lot.shareClass,
+                      lot.transactionType
+                        ? lot.transactionType === "secondary"
+                          ? "Secondary"
+                          : "Primary"
+                        : null,
+                      lot.purchasedOn ? formatDate(lot.purchasedOn) : null,
+                      lot.sourceLabel,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                  <div className="purchase-summary__layout">
+                    <div className="purchase-summary__cost">
+                      <StatGroup
+                        className="purchase-cost"
+                        aria-label="Cost per share"
+                      >
+                        {lot.priceMicros !== null && (
+                          <Stat
+                            label="Share price"
+                            value={`$${unitPrice(lot.priceMicros)}`}
+                          />
+                        )}
+                        {allIn !== null && lot.priceMicros !== null && (
                           <>
-                            {percent(
-                              ((BigInt(lot.priceMicros) -
-                                BigInt(lot.referencePriceMicros)) *
-                                1_000_000n) /
-                                BigInt(lot.referencePriceMicros),
-                            )}
-                            % before fees
+                            <span
+                              className="purchase-cost__operator"
+                              aria-hidden="true"
+                            >
+                              +
+                            </span>
+                            <Stat
+                              label={
+                                lot.feePpm !== null && lot.feeBasis
+                                  ? `Upfront fee · ${decimal(lot.feePpm, 4)}% ${lot.feeBasis === "net_capital" ? "on share capital" : "of gross cash"}`
+                                  : "Upfront fees / share"
+                              }
+                              value={`$${unitPrice(Number(BigInt(allIn) - BigInt(lot.priceMicros)))}`}
+                            />
+                            <span
+                              className="purchase-cost__operator"
+                              aria-hidden="true"
+                            >
+                              =
+                            </span>
+                            <Stat
+                              className="purchase-cost__total"
+                              label="All-in / share"
+                              value={`$${unitPrice(allIn)}`}
+                            />
                           </>
-                        }
-                      />
-                    )}
-                  {((allIn !== null && lot.referencePriceMicros !== null) ||
-                    lot.reportedPremiumPpm != null) && (
-                    <DataItem
-                      label="All-in premium"
-                      value={
-                        <>
-                          {allIn !== null &&
-                            lot.referencePriceMicros !== null && (
-                              <span>
+                        )}
+                      </StatGroup>
+                      {lot.feePpm !== null && allIn === null && (
+                        <p>
+                          {lot.feeLabel ?? "One-time fee"}:{" "}
+                          {decimal(lot.feePpm, 4)}%
+                          {lot.feeBasis === null
+                            ? " · basis unknown; excluded from calculations"
+                            : ""}
+                          .
+                        </p>
+                      )}
+                      {lot.referencePriceMicros !== null && (
+                        <p className="purchase-reference-line">
+                          {lot.referenceRound ?? "Entry"} reference $
+                          {unitPrice(lot.referencePriceMicros)} / share
+                          {allIn !== null && (
+                            <>
+                              {" "}
+                              · All-in premium{" "}
+                              <strong>
                                 {percent(
                                   ((BigInt(allIn) -
                                     BigInt(lot.referencePriceMicros)) *
                                     1_000_000n) /
                                     BigInt(lot.referencePriceMicros),
                                 )}
-                                % calculated
-                              </span>
+                                %
+                              </strong>
+                            </>
+                          )}
+                        </p>
+                      )}
+                      {(lot.reportedPremiumPpm != null ||
+                        (lot.priceMicros !== null &&
+                          lot.referencePriceMicros !== null)) && (
+                        <Collapsible>
+                          <CollapsibleTrigger>
+                            Calculation details <DisclosureIndicator />
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            {lot.priceMicros !== null &&
+                              lot.referencePriceMicros !== null && (
+                                <p>
+                                  Purchase premium:{" "}
+                                  {percent(
+                                    ((BigInt(lot.priceMicros) -
+                                      BigInt(lot.referencePriceMicros)) *
+                                      1_000_000n) /
+                                      BigInt(lot.referencePriceMicros),
+                                  )}
+                                  % before upfront fees.
+                                </p>
+                              )}
+                            {allIn !== null &&
+                              lot.referencePriceMicros !== null && (
+                                <p>
+                                  All-in premium is calculated from the share
+                                  price plus recorded upfront fees relative to
+                                  the reference price.
+                                </p>
+                              )}
+                            {lot.reportedPremiumPpm != null && (
+                              <p>
+                                Notice-quoted premium:{" "}
+                                {percent(BigInt(lot.reportedPremiumPpm))}%. Kept
+                                separately from the calculated premium.
+                              </p>
                             )}
-                          {lot.reportedPremiumPpm != null && (
-                            <span>
-                              {percent(BigInt(lot.reportedPremiumPpm))}% quoted
-                            </span>
-                          )}
-                        </>
-                      }
-                    />
-                  )}
-                  {(lot.reportedManagementFeePpm != null ||
-                    lot.reportedCarryPpm != null) && (
-                    <DataItem
-                      label="Reported fees"
-                      value={
+                          </CollapsibleContent>
+                        </Collapsible>
+                      )}
+                    </div>
+                    <aside
+                      className="purchase-summary__context"
+                      aria-label="Purchase terms and source"
+                    >
+                      {(lot.reportedManagementFeePpm != null ||
+                        lot.reportedCarryPpm != null) && (
                         <>
-                          {lot.reportedManagementFeePpm != null && (
-                            <span>
-                              {decimal(lot.reportedManagementFeePpm, 4)}% annual
-                              management
-                            </span>
-                          )}
-                          {lot.reportedCarryPpm != null && (
-                            <span>
-                              {decimal(lot.reportedCarryPpm, 4)}% carry
-                            </span>
-                          )}
-                          <small>
-                            Separate from accepted fee and carry terms.
-                          </small>
+                          <h4>Reported terms</h4>
+                          <DataList className="purchase-reported-terms">
+                            {lot.reportedManagementFeePpm != null && (
+                              <DataItem
+                                label="Management / year"
+                                value={`${decimal(lot.reportedManagementFeePpm, 4)}%`}
+                              />
+                            )}
+                            {lot.reportedCarryPpm != null && (
+                              <DataItem
+                                label="Carry"
+                                value={`${decimal(lot.reportedCarryPpm, 4)}%`}
+                              />
+                            )}
+                          </DataList>
+                          <p>Separate from accepted fee and carry terms.</p>
                         </>
-                      }
-                    />
+                      )}
+                      {lot.feeLabel && <p>Upfront fee: {lot.feeLabel}.</p>}
+                      {lot.referenceRound &&
+                        lot.referencePriceMicros === null && (
+                          <p>Reference: {lot.referenceRound}.</p>
+                        )}
+                      {lot.sourceText && (
+                        <Collapsible>
+                          <CollapsibleTrigger>
+                            Source notice <DisclosureIndicator />
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <p className="purchase-notice-text">
+                              {lot.sourceText}
+                            </p>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      )}
+                    </aside>
+                  </div>
+                  {(shares ||
+                    capital.grossCashMinor !== null ||
+                    capital.netCapitalMinor !== null) && (
+                    <DataList className="purchase-summary__terms purchase-summary__capital">
+                      {shares && (
+                        <DataItem
+                          label={
+                            <>
+                              {shares.derived
+                                ? "Calculated original shares"
+                                : "Remaining underlying shares"}
+                            </>
+                          }
+                          value={decimal(shares.quantityMicros, 6)}
+                        />
+                      )}
+                      {capital.grossCashMinor !== null && (
+                        <DataItem
+                          label="Cash contributed"
+                          value={money(capital.grossCashMinor)}
+                        />
+                      )}
+                      {capital.netCapitalMinor !== null && (
+                        <DataItem
+                          label="Share capital"
+                          value={money(capital.netCapitalMinor)}
+                        />
+                      )}
+                    </DataList>
                   )}
-                </DataList>
-                {(shares ||
-                  capital.grossCashMinor !== null ||
-                  capital.netCapitalMinor !== null) && (
-                  <DataList className="purchase-summary__terms purchase-summary__capital">
-                    {shares && (
+                  {mode !== "purchase" && lot.mark && (
+                    <DataList className="purchase-summary__terms">
                       <DataItem
-                        label={
+                        label="Valuation price"
+                        value={
                           <>
-                            {shares.derived
-                              ? "Calculated original shares"
-                              : "Remaining underlying shares"}
+                            ${unitPrice(lot.mark.priceMicros)} / share
+                            <small>
+                              {lot.mark.shareClass} ·{" "}
+                              {formatDate(lot.mark.effectiveDate)} ·{" "}
+                              {lot.mark.sourceLabel}
+                            </small>
                           </>
                         }
-                        value={decimal(shares.quantityMicros, 6)}
                       />
-                    )}
-                    {capital.grossCashMinor !== null && (
-                      <DataItem
-                        label="Cash contributed"
-                        value={money(capital.grossCashMinor)}
-                      />
-                    )}
-                    {capital.netCapitalMinor !== null && (
-                      <DataItem
-                        label="Share capital"
-                        value={money(capital.netCapitalMinor)}
-                      />
-                    )}
-                  </DataList>
-                )}
-                {lot.mark && (
-                  <DataList className="purchase-summary__terms">
-                    <DataItem
-                      label="Valuation price"
-                      value={
-                        <>
-                          ${unitPrice(lot.mark.priceMicros)} / share
-                          <small>
-                            {lot.mark.shareClass} ·{" "}
-                            {formatDate(lot.mark.effectiveDate)} ·{" "}
-                            {lot.mark.sourceLabel}
-                          </small>
-                        </>
-                      }
+                    </DataList>
+                  )}
+                </div>
+              );
+            })}
+          {mode === "valuation" &&
+            receipt.details.lots
+              .filter((lot) => lot.mark)
+              .map((lot) => (
+                <p key={lot.id} className="purchase-summary__metadata">
+                  {lot.mark?.shareClass} · ${unitPrice(lot.mark?.priceMicros)} /
+                  share · {lot.mark?.sourceLabel} ·{" "}
+                  {lot.mark && formatDate(lot.mark.effectiveDate)}
+                </p>
+              ))}
+          {mode !== "purchase" &&
+            (estimate ? (
+              <div className="purchase-valuation-result">
+                <div>
+                  <StatGroup className="holding-performance__values">
+                    <Stat
+                      label="Estimated position value · before carry"
+                      value={money(estimate.valueMinor)}
+                      detail={`As of ${formatDate(estimate.effectiveDate)}${estimate.derivedShares ? " · uses calculated original shares" : ""}`}
                     />
-                  </DataList>
-                )}
-                {lot.sourceText && (
-                  <Collapsible>
-                    <CollapsibleTrigger>
-                      <DisclosureIndicator />
-                      Source notice
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <p className="purchase-notice-text">{lot.sourceText}</p>
-                    </CollapsibleContent>
-                  </Collapsible>
+                  </StatGroup>
+                  <p>
+                    {estimate.lots
+                      .map(
+                        (row) =>
+                          `${decimal(row.quantityMicros, 6)} shares × $${unitPrice(row.priceMicros)}`,
+                      )
+                      .join(" + ")}
+                    . Excludes carry and remaining expenses; the provider mark
+                    stays separate.
+                  </p>
+                  {estimate.grossCashMinor !== null &&
+                    estimate.grossCashMinor > 0 &&
+                    holding.realizedValueMinor != null && (
+                      <p>
+                        Estimated return on cash contributed, before carry:{" "}
+                        {percent(
+                          ((BigInt(estimate.valueMinor) +
+                            BigInt(holding.realizedValueMinor ?? 0) -
+                            BigInt(estimate.grossCashMinor)) *
+                            1_000_000n) /
+                            BigInt(estimate.grossCashMinor),
+                        )}
+                        %. Includes reported distributions and the recorded
+                        upfront fees; not tax basis.
+                      </p>
+                    )}
+                </div>
+                {mode !== "valuation" && (
+                  <Button tone="quiet" onClick={() => edit(true)}>
+                    Update valuation
+                  </Button>
                 )}
               </div>
-            );
-          })}
-          {estimate ? (
-            <>
-              <StatGroup className="holding-performance__values">
-                <Stat
-                  label="Share price estimate · before carry"
-                  value={money(estimate.valueMinor)}
-                  detail={`As of ${estimate.effectiveDate}${estimate.derivedShares ? " · uses calculated original shares" : ""}`}
-                />
-              </StatGroup>
-              <p>
-                {estimate.lots
-                  .map(
-                    (row) =>
-                      `${decimal(row.quantityMicros, 6)} shares × $${unitPrice(row.priceMicros)}`,
-                  )
-                  .join(" + ")}
-                . Excludes carry and remaining expenses; the provider mark stays
-                separate.
-              </p>
-              {estimate.grossCashMinor !== null &&
-                estimate.grossCashMinor > 0 &&
-                holding.realizedValueMinor != null && (
-                  <p>
-                    Estimated return on cash contributed, before carry:{" "}
-                    {percent(
-                      ((BigInt(estimate.valueMinor) +
-                        BigInt(holding.realizedValueMinor ?? 0) -
-                        BigInt(estimate.grossCashMinor)) *
-                        1_000_000n) /
-                        BigInt(estimate.grossCashMinor),
-                    )}
-                    %. Includes reported distributions and the recorded upfront
-                    fees; not tax basis.
-                  </p>
-                )}
-            </>
-          ) : (
-            receipt.details.lots.length > 0 && (
-              <p>
-                To estimate value, add remaining shares and a dated price for
-                the same share class covering the whole position.
-              </p>
-            )
-          )}
+            ) : (
+              mode !== "valuation" &&
+              receipt.details.lots.length > 0 && (
+                <div className="purchase-valuation-prompt">
+                  <div>
+                    <h4>Estimate your position</h4>
+                    <p>
+                      Add remaining shares and a dated price for the same share
+                      class to estimate value.
+                    </p>
+                  </div>
+                  <Button tone="secondary" onClick={() => edit(true)}>
+                    Add valuation details
+                  </Button>
+                </div>
+              )
+            ))}
         </>
+      )}
+      {mode === "valuation" && !open && !receipt?.details.lots.length && (
+        <p>
+          Add a purchase and its underlying share class in Purchase details
+          first.
+        </p>
       )}
       {open && noticeIndex !== null && (
         <form
@@ -666,127 +793,169 @@ export function PositionPurchasesEditor({
             if (parsed.success && changed && !busy) void save();
           }}
         >
-          <p>
-            Known dates, source labels and reviewed capital are prefilled.
-            Unknown amounts stay blank. Share counts here are company shares,
-            not SPV units.
-          </p>
+          {!valuationOnly && (
+            <p>
+              All purchase fields are optional. Save what you know; leave
+              unknown amounts blank. Related details are only needed for
+              calculations.
+            </p>
+          )}
           {noticeWarnings.length > 0 && (
             <Notice>{noticeWarnings.join(" ")}</Notice>
           )}
           {drafts.map((d, i) => (
             <fieldset key={d.id} className="purchase-fields">
-              <legend>Purchase {i + 1}</legend>
-              <Button
-                tone="quiet"
-                onClick={() => {
-                  setNoticeIndex(i);
-                  setNoticeText(d.sourceText ?? "");
-                }}
-              >
-                Paste GP notice
-              </Button>
-              <div className="position-economics__fields">
-                <Field label="Transaction type" variant="filled">
-                  <Select
-                    items={[
-                      { value: "unknown", label: "Not specified" },
-                      { value: "primary", label: "Primary" },
-                      { value: "secondary", label: "Secondary" },
-                    ]}
-                    value={d.transactionType || "unknown"}
-                    onValueChange={(v) =>
-                      update(
-                        i,
-                        "transactionType",
-                        v === "unknown" ? "" : String(v),
-                      )
-                    }
+              <legend className="purchase-fields__heading">
+                <span>
+                  {drafts.length > 1
+                    ? `Purchase ${i + 1}`
+                    : d.shareClass || "Underlying shares"}
+                </span>
+                {!valuationOnly && (
+                  <Button
+                    tone="quiet"
+                    disabled={busy}
+                    aria-label={`Remove purchase ${i + 1}`}
+                    onClick={() => {
+                      setRemoved((old) => [...old, { draft: d, index: i }]);
+                      setDrafts((old) => old.filter((_, j) => j !== i));
+                    }}
                   >
-                    <SelectTrigger aria-label="Transaction type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="unknown">Not specified</SelectItem>
-                      <SelectItem value="primary">Primary</SelectItem>
-                      <SelectItem value="secondary">Secondary</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                {date(i, "purchasedOn", "Purchase date")}
-                {field(i, "shareClass", "Underlying share class")}
-                {field(i, "priceMicros", "Purchase price / share · USD", true)}
-                {field(i, "feePpm", "One-time fee · %", true)}
-                <Field label="Fee basis" variant="filled">
-                  <Select
-                    items={feeChoices}
-                    value={d.feeBasis || "unknown"}
-                    onValueChange={(v) =>
-                      update(i, "feeBasis", v === "unknown" ? "" : String(v))
-                    }
+                    Remove
+                  </Button>
+                )}
+              </legend>
+              {!valuationOnly && (
+                <>
+                  <Button
+                    tone="quiet"
+                    onClick={() => {
+                      setNoticeIndex(i);
+                      setNoticeText(d.sourceText ?? "");
+                    }}
                   >
-                    <SelectTrigger aria-label="Fee basis">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {feeChoices.map((choice) => (
-                        <SelectItem key={choice.value} value={choice.value}>
-                          {choice.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                {field(i, "feeLabel", "Fee description")}
-                {field(
-                  i,
-                  "referencePriceMicros",
-                  "Entry reference price / share · USD",
-                  true,
-                )}
-                {field(i, "referenceRound", "Reference round")}
-                {field(
-                  i,
-                  "reportedPremiumPpm",
-                  "Notice-quoted premium · %",
-                  true,
-                )}
-                {field(
-                  i,
-                  "reportedManagementFeePpm",
-                  "Reported annual management fee · %",
-                  true,
-                )}
-                {field(i, "reportedCarryPpm", "Reported carry · %", true)}
-                {field(
-                  i,
-                  "remainingSharesMicros",
-                  "Remaining underlying shares",
-                  true,
-                )}
-                {date(i, "sharesAsOf", "Shares as of")}
-                {field(i, "sourceLabel", "Purchase source")}
-              </div>
-              <p>
-                Annual management fee and carry are reported purchase terms.
-                Review fee &amp; carry separately to use them in investment
-                economics.
-              </p>
-              {d.sourceText && (
-                <Collapsible>
-                  <CollapsibleTrigger>
-                    <DisclosureIndicator />
-                    Original purchase notice
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <p className="purchase-notice-text">{d.sourceText}</p>
-                  </CollapsibleContent>
-                </Collapsible>
+                    Paste GP notice
+                  </Button>
+                  <div className="position-economics__fields">
+                    <Field label="Transaction type" variant="filled">
+                      <Select
+                        items={[
+                          { value: "unknown", label: "Not specified" },
+                          { value: "primary", label: "Primary" },
+                          { value: "secondary", label: "Secondary" },
+                        ]}
+                        value={d.transactionType || "unknown"}
+                        onValueChange={(v) =>
+                          update(
+                            i,
+                            "transactionType",
+                            v === "unknown" ? "" : String(v),
+                          )
+                        }
+                      >
+                        <SelectTrigger aria-label="Transaction type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unknown">Not specified</SelectItem>
+                          <SelectItem value="primary">Primary</SelectItem>
+                          <SelectItem value="secondary">Secondary</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {date(i, "purchasedOn", "Purchase date")}
+                    {field(i, "shareClass", "Underlying share class")}
+                    {field(
+                      i,
+                      "priceMicros",
+                      "Purchase price / share · USD",
+                      true,
+                    )}
+                    {field(i, "feePpm", "One-time fee · %", true)}
+                    <Field label="Fee basis" variant="filled">
+                      <Select
+                        items={feeChoices}
+                        value={d.feeBasis || "unknown"}
+                        onValueChange={(v) =>
+                          update(
+                            i,
+                            "feeBasis",
+                            v === "unknown" ? "" : String(v),
+                          )
+                        }
+                      >
+                        <SelectTrigger aria-label="Fee basis">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {feeChoices.map((choice) => (
+                            <SelectItem key={choice.value} value={choice.value}>
+                              {choice.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {field(i, "feeLabel", "Fee description")}
+                    {field(
+                      i,
+                      "referencePriceMicros",
+                      "Entry reference price / share · USD",
+                      true,
+                    )}
+                    {field(i, "referenceRound", "Reference round")}
+                    {field(
+                      i,
+                      "reportedPremiumPpm",
+                      "Notice-quoted premium · %",
+                      true,
+                    )}
+                    {field(
+                      i,
+                      "reportedManagementFeePpm",
+                      "Reported annual management fee · %",
+                      true,
+                    )}
+                    {field(i, "reportedCarryPpm", "Reported carry · %", true)}
+                    {field(i, "sourceLabel", "Purchase source")}
+                  </div>
+                  <p>
+                    Annual management fee and carry are reported purchase terms.
+                    Review fee &amp; carry separately to use them in investment
+                    economics.
+                  </p>
+                  {d.sourceText && (
+                    <Collapsible>
+                      <CollapsibleTrigger>
+                        Original purchase notice <DisclosureIndicator />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <p className="purchase-notice-text">{d.sourceText}</p>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </>
+              )}
+              {mode !== "purchase" && (
+                <div className="position-economics__fields">
+                  {valuationOnly &&
+                    !receipt?.details.lots[i]?.shareClass &&
+                    field(i, "shareClass", "Underlying share class")}
+                  {field(
+                    i,
+                    "remainingSharesMicros",
+                    "Remaining underlying shares",
+                    true,
+                  )}
+                  {date(i, "sharesAsOf", "Shares as of")}
+                  <p className="purchase-fields__hint">
+                    Share count is optional. If entered, its date is required.
+                  </p>
+                </div>
               )}
               <Collapsible>
                 <CollapsibleTrigger>
-                  <DisclosureIndicator />
-                  Capital and share calculation
+                  Capital and share calculation <DisclosureIndicator />
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="position-economics__fields">
@@ -828,76 +997,102 @@ export function PositionPurchasesEditor({
                   </p>
                 </CollapsibleContent>
               </Collapsible>
-              <Collapsible>
-                <CollapsibleTrigger>
-                  <DisclosureIndicator />
-                  Valuation price evidence
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="position-economics__fields">
-                    {field(
-                      i,
-                      "markPrice",
-                      "Valuation price / share · USD",
-                      true,
-                    )}
-                    {date(i, "markDate", "Valuation price as of")}
-                    {field(i, "markClass", "Valuation share class")}
-                    {field(i, "markSource", "Valuation source")}
-                    {field(i, "markUrl", "Valuation source link")}
-                  </div>
-                  <p>
-                    Use a price for the same underlying share class. A company
-                    valuation or another preferred series is not a matching
-                    share price.
-                  </p>
-                </CollapsibleContent>
-              </Collapsible>
-              <Button
-                tone="secondary"
-                onClick={() =>
-                  setDrafts((old) => old.filter((_, j) => j !== i))
-                }
-              >
-                Remove purchase {i + 1}
-              </Button>
+              {mode !== "purchase" && (
+                <Collapsible defaultOpen={valuationOnly}>
+                  <CollapsibleTrigger>
+                    Valuation price evidence <DisclosureIndicator />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="position-economics__fields">
+                      {field(
+                        i,
+                        "markPrice",
+                        "Valuation price / share · USD",
+                        true,
+                      )}
+                      {date(i, "markDate", "Valuation price as of")}
+                      {field(i, "markClass", "Valuation share class")}
+                      {field(i, "markSource", "Valuation source")}
+                      {field(i, "markUrl", "Valuation source link")}
+                    </div>
+                    <p>
+                      A valuation price needs a date, matching share class and
+                      source. The source link is optional. A company valuation
+                      or another preferred series is not a matching share price.
+                    </p>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
             </fieldset>
           ))}
-          <label className="purchase-coverage">
-            <Input
-              type="checkbox"
-              checked={coversPosition}
-              onChange={(event) =>
-                setCoversPosition(event.currentTarget.checked)
-              }
-            />{" "}
-            These purchases cover all my remaining shares in this SPV.
-          </label>
+          {mode !== "purchase" && (
+            <label className="purchase-coverage">
+              <Input
+                type="checkbox"
+                checked={coversPosition}
+                onChange={(event) =>
+                  setCoversPosition(event.currentTarget.checked)
+                }
+              />{" "}
+              These purchases cover all my remaining shares in this SPV.
+            </label>
+          )}
           {!parsed.success && (
             <Notice tone="error">{parsed.error.issues[0]?.message}</Notice>
           )}
-          <ActionGroup wrap mobileLayout="stack">
-            {drafts.length < 20 && (
+          {removed.map(({ draft, index }) => (
+            <Notice key={draft.id}>
+              {draft.shareClass || "Purchase"} removed from this draft.{" "}
               <Button
-                tone="secondary"
-                onClick={() => setDrafts((old) => [...old, blank(false)])}
+                tone="quiet"
+                disabled={busy || drafts.length >= 20}
+                onClick={() => {
+                  setDrafts((old) => {
+                    const next = [...old];
+                    next.splice(Math.min(index, next.length), 0, draft);
+                    return next;
+                  });
+                  setRemoved((old) =>
+                    old.filter((row) => row.draft.id !== draft.id),
+                  );
+                }}
               >
-                Add another purchase
+                Undo
               </Button>
-            )}
+            </Notice>
+          ))}
+          {!valuationOnly && drafts.length < 20 && (
+            <Button
+              className="purchase-add"
+              tone="quiet"
+              onClick={() => setDrafts((old) => [...old, blank(false)])}
+            >
+              + Add another purchase
+            </Button>
+          )}
+          <ActionGroup
+            className="purchase-actions"
+            align="end"
+            wrap
+            mobileLayout="stack"
+          >
+            <Button
+              tone="quiet"
+              disabled={busy}
+              onClick={() => (automaticEntry ? edit(true) : setOpen(false))}
+            >
+              {automaticEntry ? "Reset" : "Cancel"}
+            </Button>
             <Button
               tone="primary"
               type="submit"
               disabled={!parsed.success || !changed || busy}
             >
-              {busy ? "Saving…" : "Save purchase details"}
-            </Button>
-            <Button
-              tone="secondary"
-              disabled={busy}
-              onClick={() => setOpen(false)}
-            >
-              Cancel
+              {busy
+                ? "Saving…"
+                : valuationOnly
+                  ? "Save valuation details"
+                  : "Save purchase details"}
             </Button>
           </ActionGroup>
         </form>

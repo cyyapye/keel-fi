@@ -59,10 +59,20 @@ export const AcceptPositionValueAdjustmentInputSchema = z
     sourceKind: PositionValueSourceKindSchema,
     sourceLabel: z.string().trim().min(1).max(240),
     sourceUrl: OptionalHttpsSourceUrlSchema,
-    commentary: z.string().trim().min(3).max(1_000),
+    commentary: z.string().trim().max(1_000).default(""),
   })
   .strict()
   .superRefine((input, context) => {
+    if (
+      (input.sourceKind !== "gp_update" || input.commentary.length > 0) &&
+      input.commentary.length < 3
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Explain what this value reflects (at least 3 characters).",
+        path: ["commentary"],
+      });
+    }
     if (input.sourceKind === "news_article" && input.sourceUrl === null) {
       context.addIssue({
         code: "custom",
@@ -70,7 +80,11 @@ export const AcceptPositionValueAdjustmentInputSchema = z
         path: ["sourceUrl"],
       });
     }
-  });
+  })
+  .transform((input) => ({
+    ...input,
+    commentary: input.commentary || "No additional notes supplied.",
+  }));
 
 export type PositionValueAdjustment = z.infer<
   typeof PositionValueAdjustmentSchema
