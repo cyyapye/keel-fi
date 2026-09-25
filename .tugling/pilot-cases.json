@@ -802,6 +802,7 @@
     "packages/domain/src/position-read-model.test.ts :: investment position view contract > requires an explicit source or reviewed-history purpose",
     "packages/domain/src/position-value.test.ts :: position value evidence > accepts a sourced GP mark without manufacturing a link",
     "packages/domain/src/position-value.test.ts :: position value evidence > accepts news evidence with a safe HTTPS source URL",
+    "packages/domain/src/position-value.test.ts :: position value evidence > allows omitted GP notes but preserves the explanation boundary for other evidence",
     "packages/domain/src/position-value.test.ts :: position value evidence > rejects news evidence without a safe HTTPS source URL: http://news.example/mark",
     "packages/domain/src/position-value.test.ts :: position value evidence > rejects news evidence without a safe HTTPS source URL: https://user:pass@news.example/mark",
     "packages/domain/src/position-value.test.ts :: position value evidence > rejects news evidence without a safe HTTPS source URL: null",
