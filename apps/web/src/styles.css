@@ -8698,7 +8698,9 @@ h1,
     grid-column: 2;
   }
   .purchase-cost .stat__value {
-    font-size: 26px;
+    font-size: 22px;
+    font-weight: 500;
+    text-align: right;
     margin: 0;
     overflow-wrap: anywhere;
   }
@@ -8716,7 +8718,8 @@ h1,
     padding: 5px 0 0;
   }
   .purchase-cost__total .stat__value {
-    font-size: 30px;
+    font-size: 28px;
+    font-weight: 750;
   }
   .purchase-valuation-prompt {
     align-items: stretch;

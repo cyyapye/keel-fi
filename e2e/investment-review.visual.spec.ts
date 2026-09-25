@@ -1946,7 +1946,7 @@ test("captures a GP purchase notice directly in investment review without a corp
   await section
     .getByLabel("Purchase notice", { exact: true })
     .fill(
-      "Type: Secondary - Preferred shares\nPrice: $24/share + 6% underlying fund fee = $12B valuation (total of 27% premium to the Series C: $10B valuation, $20/share)\nFees: 0%/yr mgmt fee, 12% carry",
+      "Type: Secondary - Preferred shares\nPrice: $24.25/share + 6% underlying fund fee = $12B valuation (total of 27% premium to the Series C: $10B valuation, $20/share)\nFees: 0%/yr mgmt fee, 12% carry",
     );
   await expect(section).toHaveScreenshot("investment-purchase-notice.png");
   await section
@@ -1954,7 +1954,7 @@ test("captures a GP purchase notice directly in investment review without a corp
     .click();
   await expect(
     section.getByLabel("Purchase price / share · USD", { exact: true }),
-  ).toHaveValue("24.00");
+  ).toHaveValue("24.25");
   await expect(
     section.getByLabel("Entry reference price / share · USD", { exact: true }),
   ).toHaveValue("20.00");
@@ -1979,12 +1979,13 @@ test("captures a GP purchase notice directly in investment review without a corp
   await expect(
     section.getByRole("button", { name: "Edit purchases", exact: true }),
   ).toBeVisible();
-  await expect(section).toContainText("$24.00");
-  await expect(section).toContainText("All-in premium 27.20%");
+  await expect(section).toContainText("$24.25");
+  await expect(section).toContainText("All-in premium 28.52%");
   await section.getByRole("button", { name: "Calculation details" }).click();
   await expect(section).toContainText("Notice-quoted premium: 27.00%");
   await section.getByRole("button", { name: "Calculation details" }).click();
-  await expect(section).toContainText("$25.44");
+  await expect(section).toContainText("$25.71");
+  await expect(section.locator(".purchase-cost")).toContainText("$1.46");
   await expect(section).not.toContainText("Not set");
   await expect(section).not.toContainText("Purchase 1");
   await expect(section).toContainText(
@@ -1998,11 +1999,26 @@ test("captures a GP purchase notice directly in investment review without a corp
   expect(
     fixture.context.purchaseContext!.receipt!.details.lots[0],
   ).toMatchObject({
-    priceMicros: 24_000_000,
+    priceMicros: 24_250_000,
     feePpm: 60_000,
     reportedCarryPpm: 120_000,
     reportedManagementFeePpm: 0,
   });
+  if (isMobile) {
+    const values = section.locator(".purchase-cost .stat__value");
+    const boxes = await values.evaluateAll((elements) =>
+      elements.map((element) => ({
+        right: element.getBoundingClientRect().right,
+        weight: Number(getComputedStyle(element).fontWeight),
+      })),
+    );
+    expect(
+      Math.max(...boxes.map((box) => box.right)) -
+        Math.min(...boxes.map((box) => box.right)),
+    ).toBeLessThan(1);
+    expect(boxes[2]!.weight).toBeGreaterThan(boxes[0]!.weight);
+    expect(boxes[2]!.weight).toBeGreaterThan(boxes[1]!.weight);
+  }
   await expect(section).toHaveScreenshot("investment-purchase-saved.png");
   const sourceNotice = section.getByRole("button", {
     name: "Source notice",
@@ -2024,7 +2040,7 @@ test("captures a GP purchase notice directly in investment review without a corp
   await page.reload();
   await selectReviewSection(page, "Investment");
   section = page.getByRole("region", { name: "Purchase details", exact: true });
-  await expect(section).toContainText("$25.44");
+  await expect(section).toContainText("$25.71");
   await section
     .getByRole("button", { name: "Add valuation details", exact: true })
     .click();
@@ -2046,9 +2062,12 @@ test("captures a GP purchase notice directly in investment review without a corp
   await section
     .getByRole("button", { name: "Edit purchases", exact: true })
     .click();
+  await expect(
+    section.getByLabel("Purchase price / share · USD", { exact: true }),
+  ).toHaveValue("24.25");
   await section
     .getByLabel("Purchase price / share · USD", { exact: true })
-    .fill("25");
+    .fill("25.125");
   // Pasting again cannot replace an edited price, even when the new notice differs.
   await section
     .getByRole("button", { name: "Paste GP notice", exact: true })
@@ -2061,7 +2080,7 @@ test("captures a GP purchase notice directly in investment review without a corp
     .click();
   await expect(
     section.getByLabel("Purchase price / share · USD", { exact: true }),
-  ).toHaveValue("25.00");
+  ).toHaveValue("25.125");
   reject = true;
   await section
     .getByRole("button", { name: "Save purchase details", exact: true })
@@ -2069,7 +2088,7 @@ test("captures a GP purchase notice directly in investment review without a corp
   await expect(section).toContainText("The purchase changed.");
   await expect(
     section.getByLabel("Purchase price / share · USD", { exact: true }),
-  ).toHaveValue("25.00");
+  ).toHaveValue("25.125");
   reject = false;
   await section
     .getByRole("button", { name: "Save purchase details", exact: true })
@@ -2077,6 +2096,10 @@ test("captures a GP purchase notice directly in investment review without a corp
   await expect(
     section.getByRole("button", { name: "Edit purchases", exact: true }),
   ).toBeVisible();
+  await expect(section.locator(".purchase-cost")).toContainText("$25.13");
+  expect(
+    fixture.context.purchaseContext!.receipt!.details.lots[0]!.priceMicros,
+  ).toBe(25_125_000);
   expect(count).toBe(2);
   await section
     .getByRole("button", { name: "Add valuation details", exact: true })
@@ -2125,7 +2148,7 @@ test("captures a GP purchase notice directly in investment review without a corp
   expect(
     fixture.context.purchaseContext!.receipt!.details.lots[0],
   ).toMatchObject({
-    priceMicros: 25_000_000,
+    priceMicros: 25_125_000,
     remainingSharesMicros: 100_000_000,
     feePpm: 60_000,
   });
