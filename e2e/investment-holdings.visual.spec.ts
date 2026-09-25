@@ -1265,7 +1265,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     page.getByRole("button", { name: "Add value evidence" }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: "Position return" }),
+    page.getByRole("button", { name: "Return details", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(cashDetailAction).toBeFocused();
@@ -1285,12 +1285,13 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     page.getByRole("heading", { level: 2, name: "Beacon Robotics" }),
   ).toBeFocused();
   await expect(
-    page.getByRole("heading", { name: "Position return" }),
+    page.getByRole("region", { name: "Position summary" }),
   ).toBeVisible();
   await expect(page.getByText("Total return").locator("..")).toContainText(
     "+50.0%",
   );
   await expect(page.getByText("Day gain / loss")).toHaveCount(0);
+  await page.getByRole("button", { name: /Ownership & source/ }).click();
   await expect(
     page.getByRole("heading", { name: "Portfolio Watch estimate" }),
   ).toBeVisible();
