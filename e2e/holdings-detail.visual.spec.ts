@@ -820,7 +820,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   });
   await summitAction.click();
   await expect(
-    page.getByText("Summit Demo SPV", { exact: true }),
+    page.getByText("Via Summit Demo SPV", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("Management fee is not included in this source.", {
@@ -828,7 +828,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     }),
   ).toBeVisible();
   await expect(
-    page.locator(".position-economics__values").getByText("20.0%", {
+    page.locator(".position-economics__rows").getByText("20.0%", {
       exact: true,
     }),
   ).toBeVisible();
@@ -886,20 +886,41 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     page.getByRole("button", { name: "Back to holdings" }),
   ).toHaveAttribute("data-slot", "text-link");
+  const ownershipToggle = page.getByRole("button", {
+    name: /^Ownership & source/u,
+  });
+  await expect(ownershipToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText("Legal SPV")).not.toBeVisible();
+  await ownershipToggle.click();
   await expect(page.getByText("Legal SPV")).toBeVisible();
   await expect(page.getByText("Held through")).toBeVisible();
-  await expect(page.getByText("Demo Family LLC")).toBeVisible();
-  await expect(page.getByText("Imported source")).toBeVisible();
+  await expect(
+    page.getByText("Imported source", { exact: true }),
+  ).toBeVisible();
+  await ownershipToggle.click();
+  const otherValuesToggle = page.getByRole("button", {
+    name: "Other valuations",
+    exact: true,
+  });
+  await otherValuesToggle.click();
   await expect(
     page.getByText(
       "Reviewed value copied into the provider template as of the source date.",
     ),
   ).toBeVisible();
+  await ownershipToggle.click();
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-detail-supporting-details.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await ownershipToggle.click();
+  await otherValuesToggle.click();
   await expect(
     page.getByText("Imported amount", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.locator(".position-economics__values").getByText("$100k"),
+    page.locator(".position-economics__rows").getByText("$100k"),
   ).toHaveCount(2);
   await expect(page.getByText("Source confidence")).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
@@ -976,7 +997,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     page.getByRole("button", { name: "Update fee & carry" }),
   ).toBeVisible();
   await expect(
-    page.locator(".position-economics__values").getByText("$98k"),
+    page.locator(".position-economics__rows").getByText("$98k"),
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
@@ -1052,6 +1073,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
       "Reviewed value accepted. Exposure totals now use this mark.",
     ),
   ).toBeVisible();
+  await page.getByRole("button", { name: /^Ownership & source/u }).click();
   const reviewedMark = page.locator(".holding-reviewed-mark");
   await expect(reviewedMark).toContainText("Synthetic Health Journal");
   await expect(reviewedMark).toContainText("$150k");
@@ -1111,10 +1133,14 @@ test("leads with the investment and opens a truthful holding detail", async ({
       name: "View SYN holding details",
     })
     .click();
+  await page.getByRole("button", { name: /^Ownership & source/u }).click();
   await expect(
     page.getByRole("heading", { name: "Brokerage source" }),
   ).toBeVisible();
   await expect(page.getByText("1,250")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Other valuations", exact: true })
+    .click();
   await expect(
     page.getByText("Brokerage-reported market value as of the source date."),
   ).toBeVisible();

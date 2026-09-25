@@ -38,6 +38,14 @@ test("optional purchase details save directly, preserve failed drafts and reload
       committedMinor: 110000,
       realizedValueMinor: 0,
       instrumentType: "SPV interest",
+      positionValueContext: {
+        snapshotId: "snapshot_purchase-spv",
+        currency: "USD",
+        providerValueState: "not_reported",
+        providerValueMinor: null,
+        acceptedAdjustment: null,
+        projectedEstimate: null,
+      },
       purchaseContext: {
         snapshotId: "snapshot_purchase-spv",
         currency: "USD",
@@ -65,7 +73,7 @@ test("optional purchase details save directly, preserve failed drafts and reload
       }
       const input = route.request().postDataJSON();
       receipt = PurchaseReceiptSchema.parse({
-        id: `receipt-${receipt ? "2" : "1"}`,
+        id: `receipt-${attempts}`,
         positionId: "purchase-spv",
         snapshotId: input.expectedSnapshotId,
         currency: "USD",
@@ -124,32 +132,6 @@ test("optional purchase details save directly, preserve failed drafts and reload
   await section.getByRole("combobox", { name: "Fee basis" }).click();
   await page.getByRole("option", { name: "Added to share capital" }).click();
   await section.getByRole("checkbox", { name: /No sales, splits/u }).check();
-  await section.getByText("Valuation price evidence", { exact: true }).click();
-  await section
-    .getByRole("textbox", {
-      name: "Valuation price / share · USD",
-      exact: true,
-    })
-    .fill("20");
-  await section
-    .getByRole("textbox", { name: "Valuation share class", exact: true })
-    .fill("Series B");
-  await section
-    .getByRole("textbox", { name: "Valuation source", exact: true })
-    .fill("Synthetic GP statement");
-  await section
-    .getByRole("checkbox", { name: /These purchases cover/u })
-    .check();
-  // Use the shared accessible calendar.
-  await section
-    .getByRole("button", { name: "Valuation price as of", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
-    .click();
-  await section
-    .getByRole("textbox", { name: "Valuation source", exact: true })
-    .focus();
   expect(
     await page.evaluate(
       () =>
@@ -162,6 +144,20 @@ test("optional purchase details save directly, preserve failed drafts and reload
     animations: "disabled",
     fullPage: true,
   });
+  await section.getByRole("button", { name: "Remove purchase 1" }).click();
+  await expect(
+    section.getByRole("textbox", {
+      name: "Purchase price / share · USD",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await section.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(
+    section.getByRole("textbox", {
+      name: "Purchase price / share · USD",
+      exact: true,
+    }),
+  ).toHaveValue("12.50");
   expect(attempts).toBe(0);
   reject = true;
   await section
@@ -184,8 +180,121 @@ test("optional purchase details save directly, preserve failed drafts and reload
   await expect(
     section.getByRole("button", { name: "Edit purchases" }),
   ).toBeVisible();
-  await expect(section).toContainText("Purchase price / share");
+  await expect(section).toContainText("Share price");
   await expect(section).toContainText("$12.50");
+  await expect(
+    section.getByText("Valuation price evidence", { exact: true }),
+  ).toHaveCount(0);
+  const valuation = page.getByRole("region", {
+    name: "Position value",
+    exact: true,
+  });
+  await expect(valuation).toHaveCount(1);
+  const valueToggle = valuation.getByRole("button", {
+    name: "Position value",
+    exact: true,
+  });
+  await expect(valueToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    valuation.getByRole("tab", { name: "Enter a reported value" }),
+  ).toBeHidden();
+  await valueToggle.click();
+  await valuation.getByRole("tab", { name: "Enter a reported value" }).click();
+  await expect(
+    valuation.getByRole("button", { name: "Add value evidence" }),
+  ).toHaveCount(0);
+  await valuation
+    .getByRole("textbox", { name: "Source name", exact: true })
+    .fill("Synthetic reported total");
+  await valuation.getByRole("textbox", { name: /Value · USD/u }).fill("1800");
+  await expect(
+    valuation.getByRole("button", { name: "Review value", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    valuation.getByRole("button", { name: "Supporting details (optional)" }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await valueToggle.click();
+  await expect(
+    valuation.getByText("Unsaved changes", { exact: true }),
+  ).toBeVisible();
+  await valueToggle.click();
+  await expect(
+    valuation.getByRole("textbox", { name: "Source name", exact: true }),
+  ).toHaveValue("Synthetic reported total");
+  await valuation.getByRole("tab", { name: "Calculate from shares" }).click();
+  await expect(
+    valuation.getByRole("button", { name: "Add share details" }),
+  ).toHaveCount(0);
+  await valuation
+    .getByRole("textbox", {
+      name: "Valuation price / share · USD",
+      exact: true,
+    })
+    .fill("20");
+  await valuation
+    .getByRole("textbox", { name: "Valuation share class", exact: true })
+    .fill("Series B");
+  await valuation
+    .getByRole("textbox", { name: "Valuation source", exact: true })
+    .fill("Synthetic GP statement");
+  await valuation
+    .getByRole("checkbox", { name: /These purchases cover/u })
+    .check();
+  // Use the shared accessible calendar.
+  await valuation
+    .getByRole("button", { name: "Valuation price as of", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
+    .click();
+  await valuation
+    .getByRole("textbox", { name: "Valuation source", exact: true })
+    .focus();
+
+  await valuation.getByRole("tab", { name: "Enter a reported value" }).click();
+  await expect(
+    valuation.getByRole("textbox", { name: "Source name", exact: true }),
+  ).toHaveValue("Synthetic reported total");
+  const sectionCaptureStyle = await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await expect(valuation).toHaveScreenshot("position-value-reported.png", {
+    animations: "disabled",
+  });
+  await valuation.getByRole("tab", { name: "Calculate from shares" }).click();
+  await expect(
+    valuation.getByRole("textbox", {
+      name: "Valuation price / share · USD",
+      exact: true,
+    }),
+  ).toHaveValue("20.00");
+  await expect(valuation).toHaveScreenshot("position-value-shares.png", {
+    animations: "disabled",
+  });
+  await sectionCaptureStyle.evaluate((element) => {
+    element.parentNode?.removeChild(element);
+  });
+  reject = true;
+  await valuation
+    .getByRole("button", { name: "Save valuation details" })
+    .click();
+  await expect(
+    valuation.getByText("The position changed. Review again."),
+  ).toBeVisible();
+  await expect(
+    valuation.getByRole("textbox", {
+      name: "Valuation price / share · USD",
+      exact: true,
+    }),
+  ).toHaveValue("20.00");
+  reject = false;
+  await valuation
+    .getByRole("button", { name: "Save valuation details" })
+    .click();
+  await expect(
+    valuation.getByText("80 shares × $20.00", { exact: false }),
+  ).toBeVisible();
+
   expect(
     await page.evaluate(
       () =>
@@ -219,8 +328,10 @@ test("optional purchase details save directly, preserve failed drafts and reload
       name: "View Synthetic Purchase SPV holding details",
     })
     .click();
+  await valueToggle.click();
+  await valuation.getByRole("tab", { name: "Calculate from shares" }).click();
   await expect(
-    section.getByText("80 shares × $20.00", { exact: false }),
+    valuation.getByText("80 shares × $20.00", { exact: false }),
   ).toBeVisible();
   await section.getByRole("button", { name: "Edit purchases" }).click();
   await section
@@ -230,7 +341,7 @@ test("optional purchase details save directly, preserve failed drafts and reload
     .getByRole("button", { name: "Save purchase details", exact: true })
     .click();
   await expect(
-    section.getByText("100 shares × $20.00", { exact: false }),
+    valuation.getByText("100 shares × $20.00", { exact: false }),
   ).toBeVisible();
   await expect(section).toContainText("$10.00");
   const widths = await page.evaluate(() => ({

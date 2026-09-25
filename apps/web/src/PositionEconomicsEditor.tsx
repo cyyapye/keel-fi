@@ -8,6 +8,8 @@ import {
 import {
   ActionGroup,
   Button,
+  DataItem,
+  DataList,
   Field,
   Input,
   InputGroup,
@@ -20,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@keel/ui";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode, type ComponentProps } from "react";
 import { acceptPositionEconomics } from "./api";
 import {
   formatCompactCurrency,
@@ -54,6 +56,29 @@ function parsePercentageInput(value: string): number | null {
 function percentageInputValueOrBlank(value: number | null): string {
   return value === null ? "" : percentageInputValue(value);
 }
+
+const EconomicsValue = ({
+  presentation,
+  ...props
+}: ComponentProps<typeof Stat> & { presentation: "review" | "holding" }) =>
+  presentation === "review" ? (
+    <Stat {...props} />
+  ) : (
+    <DataItem
+      label={props.label}
+      value={
+        <>
+          <strong className={props.valueClassName}>{props.value}</strong>
+          {props.detail &&
+            !(
+              typeof props.detail === "string" &&
+              (props.detail.startsWith("Accepted from ") ||
+                props.detail === "Amount reported by the source.")
+            ) && <small>{props.detail}</small>}
+        </>
+      }
+    />
+  );
 
 export function PositionEconomicsEditor({
   holding,
@@ -268,7 +293,8 @@ export function PositionEconomicsEditor({
 
   const displayedEconomics = acceptedEconomics;
   const commitmentStat = (
-    <Stat
+    <EconomicsValue
+      presentation={presentation}
       detail={
         amountDetail ??
         (context.amountCorrectionNote == null
@@ -293,7 +319,8 @@ export function PositionEconomicsEditor({
     />
   );
   const fundedStat = (
-    <Stat
+    <EconomicsValue
+      presentation={presentation}
       detail={
         terms?.capitalBasis === "net_invested" && displayedEconomics !== null
           ? "Reported after fees."
@@ -308,7 +335,8 @@ export function PositionEconomicsEditor({
     />
   );
   const feesStat = (
-    <Stat
+    <EconomicsValue
+      presentation={presentation}
       detail={
         reportedFeeDiffers && reportedTerms !== null
           ? `${reportedTerms.sourceLabel} now reports ${reportedFeeLabel}; accepted terms remain in use until review.`
@@ -343,7 +371,8 @@ export function PositionEconomicsEditor({
     />
   );
   const netStat = (
-    <Stat
+    <EconomicsValue
+      presentation={presentation}
       detail="Gross commitment less fees. Not tax basis."
       label="Net invested"
       value={
@@ -357,7 +386,8 @@ export function PositionEconomicsEditor({
     />
   );
   const carryStat = (
-    <Stat
+    <EconomicsValue
+      presentation={presentation}
       detail={
         reportedCarryDiffers && reportedTerms !== null
           ? `${reportedTerms.sourceLabel} now reports ${reportedCarryLabel}; accepted carry remains in use.`
@@ -411,13 +441,17 @@ export function PositionEconomicsEditor({
     >
       <div className="position-economics__heading">
         <div>
-          <p className="eyebrow">Investment terms</p>
+          {presentation === "review" && (
+            <p className="eyebrow">Investment terms</p>
+          )}
           <h3 id={headingId}>
             {presentation === "review"
               ? "Investment amounts and fees"
               : "SPV economics"}
           </h3>
-          <p>Review how fees relate to the imported investment amount.</p>
+          {presentation === "review" && (
+            <p>Review how fees relate to the imported investment amount.</p>
+          )}
         </div>
         {presentation === "review" ? (
           <ActionGroup>
@@ -443,13 +477,13 @@ export function PositionEconomicsEditor({
           </StatGroup>
         </>
       ) : (
-        <StatGroup className="position-economics__values">
+        <DataList className="position-economics__rows">
           {commitmentStat}
           {fundedStat}
           {feesStat}
           {netStat}
           {carryStat}
-        </StatGroup>
+        </DataList>
       )}
 
       {open && !reviewing && (

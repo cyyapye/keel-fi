@@ -21,6 +21,32 @@ describe("position value evidence", () => {
     ).toBe(true);
   });
 
+  it("allows omitted GP notes but preserves the explanation boundary for other evidence", () => {
+    for (const commentary of [undefined, "", "   "]) {
+      const parsed = AcceptPositionValueAdjustmentInputSchema.parse({
+        ...input,
+        commentary,
+      });
+      expect(parsed.commentary).toBe("No additional notes supplied.");
+      for (const sourceKind of ["news_article", "other"]) {
+        expect(
+          AcceptPositionValueAdjustmentInputSchema.safeParse({
+            ...input,
+            commentary,
+            sourceKind,
+            sourceUrl: "https://news.example/mark",
+          }).success,
+        ).toBe(false);
+      }
+    }
+    expect(
+      AcceptPositionValueAdjustmentInputSchema.safeParse({
+        ...input,
+        commentary: "x",
+      }).success,
+    ).toBe(false);
+  });
+
   it.each([
     null,
     "http://news.example/mark",

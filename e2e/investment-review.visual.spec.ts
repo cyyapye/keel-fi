@@ -1904,6 +1904,7 @@ test("captures a GP purchase notice directly in investment review without a corp
   page,
   isMobile,
 }) => {
+  await page.clock.setFixedTime(new Date("2026-09-20T12:00:00Z"));
   const fixture = await setup(page, false, 0, false, true);
   let reject = false;
   let count = 0;
@@ -1979,8 +1980,10 @@ test("captures a GP purchase notice directly in investment review without a corp
     section.getByRole("button", { name: "Edit purchases", exact: true }),
   ).toBeVisible();
   await expect(section).toContainText("$24.00");
-  await expect(section).toContainText("27.20% calculated");
-  await expect(section).toContainText("27.00% quoted");
+  await expect(section).toContainText("All-in premium 27.20%");
+  await section.getByRole("button", { name: "Calculation details" }).click();
+  await expect(section).toContainText("Notice-quoted premium: 27.00%");
+  await section.getByRole("button", { name: "Calculation details" }).click();
   await expect(section).toContainText("$25.44");
   await expect(section).not.toContainText("Not set");
   await expect(section).not.toContainText("Purchase 1");
@@ -2023,6 +2026,24 @@ test("captures a GP purchase notice directly in investment review without a corp
   section = page.getByRole("region", { name: "Purchase details", exact: true });
   await expect(section).toContainText("$25.44");
   await section
+    .getByRole("button", { name: "Add valuation details", exact: true })
+    .click();
+  await expect(
+    section.getByRole("heading", { name: "Value your position" }),
+  ).toBeVisible();
+  await expect(
+    section.getByLabel("Remaining underlying shares", { exact: true }),
+  ).toBeFocused();
+  await expect(
+    section.getByLabel("Purchase price / share · USD", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    section.getByLabel("Valuation price / share · USD", { exact: true }),
+  ).toBeVisible();
+  await expect(section).toHaveScreenshot("investment-purchase-valuation.png");
+  await section.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(count).toBe(1);
+  await section
     .getByRole("button", { name: "Edit purchases", exact: true })
     .click();
   await section
@@ -2057,6 +2078,61 @@ test("captures a GP purchase notice directly in investment review without a corp
     section.getByRole("button", { name: "Edit purchases", exact: true }),
   ).toBeVisible();
   expect(count).toBe(2);
+  await section
+    .getByRole("button", { name: "Add valuation details", exact: true })
+    .click();
+  await section
+    .getByLabel("Remaining underlying shares", { exact: true })
+    .fill("100");
+  await section
+    .getByRole("button", { name: "Shares as of", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
+    .click();
+  await section
+    .getByLabel("Valuation price / share · USD", { exact: true })
+    .fill("30");
+  await expect(
+    section.getByLabel("Valuation share class", { exact: true }),
+  ).toHaveValue("Preferred shares");
+  await section
+    .getByRole("button", { name: "Valuation price as of", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
+    .click();
+  await section
+    .getByLabel("Valuation source", { exact: true })
+    .fill("Synthetic GP statement");
+  await section
+    .getByRole("checkbox", { name: /These purchases cover/u })
+    .check();
+  reject = true;
+  await section
+    .getByRole("button", { name: "Save valuation details", exact: true })
+    .click();
+  await expect(section).toContainText("The purchase changed.");
+  await expect(
+    section.getByLabel("Remaining underlying shares", { exact: true }),
+  ).toHaveValue("100");
+  reject = false;
+  await section
+    .getByRole("button", { name: "Save valuation details", exact: true })
+    .click();
+  await expect(section).toContainText("100 shares × $30.00");
+  expect(count).toBe(3);
+  expect(
+    fixture.context.purchaseContext!.receipt!.details.lots[0],
+  ).toMatchObject({
+    priceMicros: 25_000_000,
+    remainingSharesMicros: 100_000_000,
+    feePpm: 60_000,
+  });
+  await page.reload();
+  await selectReviewSection(page, "Investment");
+  section = page.getByRole("region", { name: "Purchase details", exact: true });
+  await expect(section).toContainText("100 shares × $30.00");
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

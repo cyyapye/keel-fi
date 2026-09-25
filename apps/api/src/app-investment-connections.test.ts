@@ -361,7 +361,7 @@ describe("investment-connections API", () => {
       sourceKind: "gp_update" as const,
       sourceLabel: "Synthetic Q2 GP update",
       sourceUrl: null,
-      commentary: "Synthetic company progress supports the reviewed mark.",
+      commentary: "No additional notes supplied.",
       acceptedAt: "2026-08-16T12:00:00.000Z",
     };
     const positionValueAdjustmentRepository = {
@@ -383,7 +383,7 @@ describe("investment-connections API", () => {
           sourceKind: "gp_update",
           sourceLabel: "Synthetic Q2 GP update",
           sourceUrl: null,
-          commentary: "Synthetic company progress supports the reviewed mark.",
+          commentary: "",
         }),
       },
       env(),
@@ -398,6 +398,7 @@ describe("investment-connections API", () => {
       expect.objectContaining({
         valueMinor: 1_250_000,
         sourceKind: "gp_update",
+        commentary: "No additional notes supplied.",
       }),
     );
   });
