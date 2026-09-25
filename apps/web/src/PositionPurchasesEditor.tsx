@@ -37,7 +37,7 @@ import {
   Stat,
   StatGroup,
 } from "@keel/ui";
-import { formatCurrency, formatDate } from "./format";
+import { formatCurrency, formatDate, formatMoney } from "./format";
 
 type Draft = Record<string, string>;
 function percent(ppm: bigint) {
@@ -60,6 +60,11 @@ function unitPrice(value: number | null | undefined) {
   if (!raw) return "";
   const [whole, fraction = ""] = raw.split(".");
   return `${whole}.${fraction.padEnd(2, "0")}`;
+}
+// Round only the summary display. Drafts and calculations retain exact micros.
+function displayedUnitPrice(value: number | null | undefined) {
+  if (value == null) return "";
+  return formatMoney(Number((BigInt(value) + 5_000n) / 10_000n));
 }
 function scaled(value: string | undefined, digits: number): number | null {
   if (!value?.trim()) return null;
@@ -432,7 +437,7 @@ export function PositionPurchasesEditor({
                         {lot.priceMicros !== null && (
                           <Stat
                             label="Share price"
-                            value={`$${unitPrice(lot.priceMicros)}`}
+                            value={displayedUnitPrice(lot.priceMicros)}
                           />
                         )}
                         {allIn !== null && lot.priceMicros !== null && (
@@ -449,7 +454,9 @@ export function PositionPurchasesEditor({
                                   ? `Upfront fee · ${decimal(lot.feePpm, 4)}% ${lot.feeBasis === "net_capital" ? "on share capital" : "of gross cash"}`
                                   : "Upfront fees / share"
                               }
-                              value={`$${unitPrice(Number(BigInt(allIn) - BigInt(lot.priceMicros)))}`}
+                              value={displayedUnitPrice(
+                                Number(BigInt(allIn) - BigInt(lot.priceMicros)),
+                              )}
                             />
                             <span
                               className="purchase-cost__operator"
@@ -460,7 +467,7 @@ export function PositionPurchasesEditor({
                             <Stat
                               className="purchase-cost__total"
                               label="All-in / share"
-                              value={`$${unitPrice(allIn)}`}
+                              value={displayedUnitPrice(allIn)}
                             />
                           </>
                         )}
