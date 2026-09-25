@@ -63,6 +63,7 @@ const migrationFiles = [
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
   "packages/database/migrations/0062_reviewed_company_aliases.sql",
   "packages/database/migrations/0070_private_purchase_details.sql",
+  "packages/database/migrations/0074_purchase_fee_economics.sql",
   "packages/database/migrations/0072_reviewed_public_company_links.sql",
   "packages/database/migrations/0060_provider_session_renewals.sql",
   "packages/database/seed/synthetic.sql",

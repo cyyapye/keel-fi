@@ -12,6 +12,7 @@ import {
 } from "@keel/domain/position-read-model";
 import {
   PositionEconomicsTermsSchema,
+  PurchaseFeeSchema,
   ReportedPositionEconomicsTermsSchema,
 } from "@keel/domain/position-economics";
 import { PositionValueAdjustmentSchema } from "@keel/domain/position-value";
@@ -117,6 +118,7 @@ type InvestmentPositionRow = {
   economics_capital_basis: "gross_commitment" | "net_invested" | null;
   economics_gross_commitment_minor: number | null;
   economics_setup_fee_ppm: number | null;
+  economics_purchase_fee_json: string | null;
   economics_annual_admin_fee_ppm: number | null;
   economics_admin_fee_years: number | null;
   economics_carry_ppm: number | null;
@@ -192,6 +194,12 @@ function positionFromRow(
           capitalBasis: row.economics_capital_basis,
           grossCommitmentMinor: row.economics_gross_commitment_minor,
           setupFeePpm: row.economics_setup_fee_ppm,
+          purchaseFee:
+            row.economics_purchase_fee_json == null
+              ? null
+              : PurchaseFeeSchema.parse(
+                  JSON.parse(row.economics_purchase_fee_json),
+                ),
           annualAdminFeePpm: row.economics_annual_admin_fee_ppm,
           adminFeeYears: row.economics_admin_fee_years,
           carryPpm: row.economics_carry_ppm,
@@ -542,6 +550,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              economics.capital_basis AS economics_capital_basis,
              economics.gross_commitment_minor AS economics_gross_commitment_minor,
              economics.setup_fee_ppm AS economics_setup_fee_ppm,
+             economics.purchase_fee_json AS economics_purchase_fee_json,
              economics.annual_admin_fee_ppm
                AS economics_annual_admin_fee_ppm,
              economics.admin_fee_years AS economics_admin_fee_years,

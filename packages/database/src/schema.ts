@@ -2703,6 +2703,7 @@ export const holdingPositionEconomicsProposals = sqliteTable(
     capitalBasis: text("capital_basis").notNull().default("gross_commitment"),
     grossCommitmentMinor: integer("gross_commitment_minor"),
     setupFeePpm: integer("setup_fee_ppm"),
+    purchaseFeeJson: text("purchase_fee_json"),
     annualAdminFeePpm: integer("annual_admin_fee_ppm").notNull(),
     adminFeeYears: integer("admin_fee_years").notNull(),
     carryPpm: integer("carry_ppm").notNull(),

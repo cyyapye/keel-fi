@@ -415,6 +415,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
         expectedTermsId: null,
         capitalBasis: "gross_commitment",
         grossCommitmentMinor: null,
+        purchaseFee: null,
         setupFeePpm: 0,
         annualAdminFeePpm: 20_000,
         adminFeeYears: 1,
@@ -916,12 +917,10 @@ test("leads with the investment and opens a truthful holding detail", async ({
   );
   await ownershipToggle.click();
   await otherValuesToggle.click();
-  await expect(
-    page.getByText("Imported amount", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Allocation", { exact: true })).toBeVisible();
   await expect(
     page.locator(".position-economics__rows").getByText("$100k"),
-  ).toHaveCount(2);
+  ).toHaveCount(1);
   await expect(page.getByText("Source confidence")).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
@@ -1099,7 +1098,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(harborExposure).toContainText("$240k");
   await expect(
     harborExposure.locator(".exposure-group__summary"),
-  ).toContainText("$183k · +28%");
+  ).toContainText("$185k · +27%");
   await expect(
     harborExposure.locator(".exposure-group__summary"),
   ).toHaveAttribute("aria-expanded", "true");

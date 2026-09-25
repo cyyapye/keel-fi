@@ -1,3 +1,6 @@
+import { D1PositionPurchaseRepository } from "./position-purchases";
+import { automaticEconomics } from "@keel/domain/automatic-investment-review";
+import type { PurchaseReceipt } from "@keel/domain/position-purchases";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   legalDocumentTestDatabase,
@@ -35,6 +38,116 @@ const receipt = (id: string) =>
   ) as { resolved: string[]; issues: { section: string; code: string }[] };
 
 describe("exception-based investment review", () => {
+  it("reconciles matching purchase fees and rejects conflicting or stale purchase evidence", async () => {
+    const [id] = await seed();
+    const review = await new D1InvestmentReviewRepository(d1.asD1()).getContext(
+      subject,
+      id!,
+    );
+    const context = {
+      ...review.economics!,
+      committedMinor: 4_000_000,
+      acceptedTerms: null,
+    };
+    const purchase: PurchaseReceipt = {
+      id: "synthetic-purchase",
+      positionId: id!,
+      snapshotId: context.snapshotId,
+      currency: "USD",
+      acceptedAt: "2026-09-01T12:00:00.000Z",
+      details: {
+        coversPosition: false,
+        lots: [
+          {
+            id: "synthetic-lot",
+            purchasedOn: null,
+            shareClass: "Preferred",
+            priceMicros: null,
+            referencePriceMicros: null,
+            grossCashMinor: null,
+            netCapitalMinor: null,
+            feePpm: 60_000,
+            feeBasis: "net_capital",
+            feeLabel: "Underlying fee",
+            originalSharesUnchanged: false,
+            remainingSharesMicros: null,
+            sharesAsOf: null,
+            sourceLabel: "Synthetic notice",
+            sourceUrl: null,
+            mark: null,
+            reportedManagementFeePpm: 60_000,
+            reportedCarryPpm: 175_000,
+          },
+        ],
+      },
+    };
+    const documents = review.documents.map((doc) => ({
+      ...doc,
+      economicsCitations: doc.economicsCitations?.map((citation) =>
+        citation.field === "netInvestedMinor"
+          ? { ...citation, value: 3_500_000 }
+          : citation,
+      ),
+    }));
+    const result = automaticEconomics(context, documents, purchase);
+    expect(result.issue).toBeNull();
+    const savedPurchase = await new D1PositionPurchaseRepository(
+      d1.asD1(),
+    ).accept(subject, id!, {
+      expectedSnapshotId: context.snapshotId,
+      expectedReceiptId: null,
+      details: {
+        ...purchase.details,
+        lots: [{ ...purchase.details.lots[0]!, feePpm: 0 }],
+      },
+    });
+    await new D1AutomaticInvestmentReviewRepository(d1.asD1()).resolve(subject);
+    const acceptedReview = await new D1InvestmentReviewRepository(
+      d1.asD1(),
+    ).getContext(subject, id!);
+    expect(acceptedReview.economics?.acceptedTerms).toMatchObject({
+      decisionSource: "policy",
+      purchaseFee: {
+        receiptId: savedPurchase.id,
+        ratePpm: 0,
+        basis: "net_capital",
+      },
+    });
+
+    expect(result.input?.purchaseFee).toMatchObject({
+      receiptId: purchase.id,
+      ratePpm: 60_000,
+      basis: "net_capital",
+    });
+    expect(
+      automaticEconomics(context, documents, {
+        ...purchase,
+        snapshotId: "stale",
+      }).issue?.code,
+    ).toBe("unsupported");
+    expect(
+      automaticEconomics(context, documents, {
+        ...purchase,
+        details: {
+          ...purchase.details,
+          lots: [{ ...purchase.details.lots[0]!, reportedCarryPpm: 100_000 }],
+        },
+      }).issue?.code,
+    ).toBe("conflicting");
+    expect(
+      automaticEconomics(context, documents, {
+        ...purchase,
+        details: {
+          ...purchase.details,
+          lots: [
+            purchase.details.lots[0]!,
+            { ...purchase.details.lots[0]!, id: "another-lot" },
+          ],
+        },
+      }).issue?.code,
+    ).toBe("unsupported");
+  });
+
   it("re-evaluates legacy cached summaries once and then returns to a write-free retry", async () => {
     await seed();
     const originalBatch = d1.batch.bind(d1);

@@ -547,38 +547,39 @@ export function PositionPurchasesEditor({
                       className="purchase-summary__context"
                       aria-label="Purchase terms and source"
                     >
-                      {(lot.reportedManagementFeePpm != null ||
-                        lot.reportedCarryPpm != null) && (
-                        <>
-                          <h4>Reported terms</h4>
-                          <DataList className="purchase-reported-terms">
-                            {lot.reportedManagementFeePpm != null && (
-                              <DataItem
-                                label="Management / year"
-                                value={`${decimal(lot.reportedManagementFeePpm, 4)}%`}
-                              />
-                            )}
-                            {lot.reportedCarryPpm != null && (
-                              <DataItem
-                                label="Carry"
-                                value={`${decimal(lot.reportedCarryPpm, 4)}%`}
-                              />
-                            )}
-                          </DataList>
-                          <p>Separate from accepted fee and carry terms.</p>
-                        </>
-                      )}
                       {lot.feeLabel && <p>Upfront fee: {lot.feeLabel}.</p>}
                       {lot.referenceRound &&
                         lot.referencePriceMicros === null && (
                           <p>Reference: {lot.referenceRound}.</p>
                         )}
-                      {lot.sourceText && (
+                      {(lot.sourceText ||
+                        lot.reportedManagementFeePpm != null ||
+                        lot.reportedCarryPpm != null) && (
                         <Collapsible>
                           <CollapsibleTrigger>
                             Source notice <DisclosureIndicator />
                           </CollapsibleTrigger>
                           <CollapsibleContent>
+                            {(lot.reportedManagementFeePpm != null ||
+                              lot.reportedCarryPpm != null) && (
+                              <>
+                                <h4>Reported terms</h4>
+                                <DataList className="purchase-reported-terms">
+                                  {lot.reportedManagementFeePpm != null && (
+                                    <DataItem
+                                      label="Management / year"
+                                      value={`${decimal(lot.reportedManagementFeePpm, 4)}%`}
+                                    />
+                                  )}
+                                  {lot.reportedCarryPpm != null && (
+                                    <DataItem
+                                      label="Carry"
+                                      value={`${decimal(lot.reportedCarryPpm, 4)}%`}
+                                    />
+                                  )}
+                                </DataList>
+                              </>
+                            )}
                             <p className="purchase-notice-text">
                               {lot.sourceText}
                             </p>
@@ -927,9 +928,8 @@ export function PositionPurchasesEditor({
                     {field(i, "sourceLabel", "Purchase source")}
                   </div>
                   <p>
-                    Annual management fee and carry are reported purchase terms.
-                    Review fee &amp; carry separately to use them in investment
-                    economics.
+                    Known management fee and carry prefill fee &amp; carry
+                    review. Conflicting sources need your review.
                   </p>
                   {d.sourceText && (
                     <Collapsible>

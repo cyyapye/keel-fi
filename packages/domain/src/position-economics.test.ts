@@ -54,11 +54,58 @@ describe("position economics", () => {
       fundedMinor: 10_000_000,
       upfrontAdminFeeMinor: 1_000_000,
       setupFeeMinor: 0,
+      purchaseFeeMinor: 0,
       positionCostBasisMinor: 9_000_000,
       totalAdminFeePpm: 100_000,
       setupFeePpm: 0,
       carryPpm: 200_000,
     });
+  });
+
+  it("applies purchase fees once with their stated basis after SPV fees", () => {
+    const terms = {
+      ...context.acceptedTerms,
+      purchaseFee: {
+        receiptId: "synthetic-receipt",
+        ratePpm: 60_000,
+        basis: "net_capital" as const,
+        label: "Underlying fee",
+      },
+    };
+    const result = calculatePositionEconomics({
+      ...context,
+      acceptedTerms: terms,
+    });
+    expect(result).toMatchObject({
+      upfrontAdminFeeMinor: 1_000_000,
+      purchaseFeeMinor: 509_434,
+      positionCostBasisMinor: 8_490_566,
+    });
+    expect(
+      calculatePositionEconomics({
+        ...context,
+        acceptedTerms: {
+          ...terms,
+          purchaseFee: { ...terms.purchaseFee, basis: "gross_cash" },
+        },
+      }),
+    ).toMatchObject({
+      purchaseFeeMinor: 540_000,
+      positionCostBasisMinor: 8_460_000,
+    });
+    expect(
+      calculatePositionEconomics({
+        ...context,
+        committedMinor: 8_490_566,
+        acceptedTerms: {
+          ...terms,
+          commitmentMinorAtAcceptance: 8_490_566,
+          capitalBasis: "net_invested",
+          grossCommitmentMinor: 10_000_000,
+          setupFeePpm: 0,
+        },
+      }),
+    ).toMatchObject({ positionCostBasisMinor: 8_490_566 });
   });
 
   it("derives basis from commitment even when funded capital differs", () => {
@@ -111,7 +158,7 @@ describe("position economics", () => {
         economicsContext: netContext,
         allowFundedAmountEstimate: true,
       }),
-    ).toMatchObject({ costBasisMinor: 2_730_000, totalGainMinor: 0 });
+    ).toMatchObject({ costBasisMinor: 3_000_000, totalGainMinor: -270_000 });
   });
 
   it("rejects fee terms above the commitment", () => {
@@ -207,6 +254,53 @@ describe("position economics", () => {
     ).toBeNull();
   });
 
+  it("uses paid cash including fees and distributions without counting unfunded commitments", () => {
+    const input = {
+      currentValueMinor: 3_500_000,
+      currentValueReported: true,
+      realizedValueMinor: 500_000,
+      providerCostBasisMinor: null,
+      fundedMinor: 2_500_000,
+      allowFundedAmountEstimate: true,
+      economicsContext: {
+        ...context,
+        fundedMinor: 2_500_000,
+        acceptedTerms: {
+          ...context.acceptedTerms,
+          fundedMinorAtAcceptance: 2_500_000,
+          purchaseFee: {
+            receiptId: "synthetic-purchase",
+            ratePpm: 60_000,
+            basis: "net_capital" as const,
+            label: "Underlying fee",
+          },
+        },
+      },
+    };
+    expect(calculatePositionPerformance(input)).toMatchObject({
+      costBasisMinor: 2_500_000,
+      totalGainMinor: 1_500_000,
+      totalReturnPpm: 600_000,
+    });
+    expect(
+      calculatePositionPerformance({
+        ...input,
+        economicsContext: {
+          ...input.economicsContext,
+          committedMinor: 9_000_000,
+          acceptedTerms: {
+            ...input.economicsContext.acceptedTerms,
+            capitalBasis: "net_invested",
+            grossCommitmentMinor: 10_000_000,
+            commitmentMinorAtAcceptance: 9_000_000,
+            purchaseFee: null,
+            setupFeePpm: 0,
+          },
+        },
+      }),
+    ).toMatchObject({ costBasisMinor: null, totalReturnPpm: null });
+  });
+
   it("calculates total return only when current value is reported", () => {
     expect(
       calculatePositionPerformance({
@@ -219,11 +313,11 @@ describe("position economics", () => {
         allowFundedAmountEstimate: true,
       }),
     ).toEqual({
-      costBasisMinor: 9_000_000,
+      costBasisMinor: 10_000_000,
       costBasisSource: "reviewed_spv_terms",
       totalValueMinor: 13_500_000,
-      totalGainMinor: 4_500_000,
-      totalReturnPpm: 500_000,
+      totalGainMinor: 3_500_000,
+      totalReturnPpm: 350_000,
     });
 
     expect(
@@ -237,7 +331,7 @@ describe("position economics", () => {
         allowFundedAmountEstimate: true,
       }),
     ).toMatchObject({
-      costBasisMinor: 9_000_000,
+      costBasisMinor: 10_000_000,
       totalGainMinor: null,
       totalReturnPpm: null,
     });

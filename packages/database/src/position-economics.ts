@@ -133,6 +133,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
       capitalBasis: input.capitalBasis ?? "gross_commitment",
       grossCommitmentMinor: input.grossCommitmentMinor ?? null,
       setupFeePpm: input.setupFeePpm ?? null,
+      purchaseFee: input.purchaseFee ?? null,
       annualAdminFeePpm: input.annualAdminFeePpm,
       adminFeeYears: input.adminFeeYears,
       carryPpm: input.carryPpm,
@@ -152,7 +153,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
     ) {
       throw new PositionEconomicsError(
         "capital_mismatch",
-        "Gross commitment less management and setup fees must equal the imported net amount.",
+        "Gross commitment less all recorded fees must equal the imported net amount.",
       );
     }
     try {
@@ -162,10 +163,10 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
             `INSERT INTO holding_position_economics_proposals (
                id, household_id, position_id, snapshot_id,
                supersedes_proposal_id, commitment_minor, funded_minor,
-               capital_basis, gross_commitment_minor, setup_fee_ppm,
+               capital_basis, gross_commitment_minor, setup_fee_ppm, purchase_fee_json,
                annual_admin_fee_ppm, admin_fee_years, carry_ppm, note,
                created_by, created_at, immutable
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
           )
           .bind(
             proposalId,
@@ -178,6 +179,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
             terms.capitalBasis,
             terms.grossCommitmentMinor,
             terms.setupFeePpm,
+            terms.purchaseFee ? JSON.stringify(terms.purchaseFee) : null,
             input.annualAdminFeePpm,
             input.adminFeeYears,
             input.carryPpm,
@@ -207,7 +209,7 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
     } catch (error) {
       if (
         error instanceof Error &&
-        /UNIQUE|position economics proposal (?:provenance mismatch|snapshot is stale)/u.test(
+        /UNIQUE|position economics (?:purchase evidence changed|proposal (?:provenance mismatch|snapshot is stale))/u.test(
           error.message,
         )
       ) {

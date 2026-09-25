@@ -1,3 +1,7 @@
+import { automaticEconomics } from "@keel/domain/automatic-investment-review";
+import { D1PositionEconomicsRepository } from "./position-economics";
+import { calculatePositionEconomics } from "@keel/domain/position-economics";
+import { purchaseEconomicsEvidence } from "@keel/domain/purchase-economics";
 import { D1InvestmentReviewRepository } from "./investment-review";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -54,9 +58,9 @@ it("persists optional details, reads them through holdings, versions edits and r
           referencePriceMicros: null,
           grossCashMinor: null,
           netCapitalMinor: null,
-          feePpm: null,
-          feeBasis: null,
-          feeLabel: null,
+          feePpm: 60_000,
+          feeBasis: "net_capital" as const,
+          feeLabel: "Underlying fee",
           originalSharesUnchanged: false,
           remainingSharesMicros: null,
           sharesAsOf: null,
@@ -102,6 +106,135 @@ it("persists optional details, reads them through holdings, versions edits and r
     db.asD1(),
   ).getContext(COST_SUBJECT, p.id);
   expect(reviewContext.purchaseContext?.receipt).toEqual(second);
+  const economicsContext = reviewContext.economics!;
+  const evidence = purchaseEconomicsEvidence(economicsContext, second);
+  expect(evidence.purchaseFee).toMatchObject({
+    receiptId: second.id,
+    basis: "net_capital",
+    ratePpm: 60_000,
+  });
+  expect(
+    purchaseEconomicsEvidence(
+      {
+        ...economicsContext,
+        reportedTerms: {
+          managementFeePpm: 0,
+          carryPpm: 150_000,
+          sourceLabel: "Synthetic provider",
+          observedAt: second.acceptedAt,
+        },
+      },
+      second,
+    ),
+  ).toMatchObject({
+    managementFeePpm: 0,
+    carryPpm: null,
+    conflicts: ["carry"],
+  });
+  expect(
+    purchaseEconomicsEvidence(
+      { ...economicsContext, snapshotId: "new-snapshot" },
+      second,
+    ).purchaseFee,
+  ).toBeNull();
+  const economicsRepo = new D1PositionEconomicsRepository(db.asD1());
+  const feeInput = {
+    expectedSnapshotId: p.snapshot.id,
+    expectedTermsId: null,
+    expectedCommitmentMinor: economicsContext.committedMinor,
+    capitalBasis: "gross_commitment" as const,
+    annualAdminFeePpm: 0,
+    adminFeeYears: 1,
+    setupFeePpm: 0,
+    carryPpm: 120_000,
+    purchaseFee: evidence.purchaseFee,
+    note: "Synthetic source-backed purchase economics",
+  };
+  await expect(
+    economicsRepo.accept(COST_SUBJECT, p.id, {
+      ...feeInput,
+      purchaseFee: { ...evidence.purchaseFee!, receiptId: first.id },
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  const accepted = await economicsRepo.accept(COST_SUBJECT, p.id, feeInput);
+  expect(accepted.purchaseFee).toEqual(evidence.purchaseFee);
+  const automatic = automaticEconomics(
+    { ...economicsContext, reportedTerms: null },
+    [],
+    second,
+  );
+  expect(automatic.reported).toMatchObject({
+    managementFeePpm: 0,
+    carryPpm: 120_000,
+  });
+  expect(automatic.issue?.code).toBe("missing");
+  expect(automatic.input).toBeNull();
+  expect(
+    automaticEconomics(
+      {
+        ...economicsContext,
+        reportedTerms: {
+          managementFeePpm: 0,
+          carryPpm: 150_000,
+          sourceLabel: "Synthetic provider",
+          observedAt: second.acceptedAt,
+        },
+      },
+      [],
+      second,
+    ).issue?.code,
+  ).toBe("conflicting");
+
+  const grossForNet = Number(
+    (BigInt(economicsContext.committedMinor) * 1_060_000n + 500_000n) /
+      1_000_000n,
+  );
+  await expect(
+    economicsRepo.accept(COST_SUBJECT, p.id, {
+      ...feeInput,
+      expectedTermsId: accepted.id,
+      capitalBasis: "net_invested",
+      grossCommitmentMinor: grossForNet + 100,
+    }),
+  ).rejects.toMatchObject({ code: "capital_mismatch" });
+
+  const afterFee = await new D1InvestmentReviewRepository(db.asD1()).getContext(
+    COST_SUBJECT,
+    p.id,
+  );
+  expect(afterFee.economics?.acceptedTerms?.purchaseFee).toEqual(
+    evidence.purchaseFee,
+  );
+  const calculated = calculatePositionEconomics(afterFee.economics!);
+  const net = Number(
+    (BigInt(economicsContext.committedMinor) * 1_000_000n + 530_000n) /
+      1_060_000n,
+  );
+  expect(calculated).toMatchObject({
+    positionCostBasisMinor: net,
+    purchaseFeeMinor: economicsContext.committedMinor - net,
+  });
+  expect(
+    readFileSync(
+      "packages/database/migrations/0074_purchase_fee_economics.sql",
+      "utf8",
+    ),
+  ).not.toMatch(/\bSELECT\s+CASE\b/iu);
+
+  const netAccepted = await economicsRepo.accept(COST_SUBJECT, p.id, {
+    ...feeInput,
+    expectedTermsId: accepted.id,
+    capitalBasis: "net_invested",
+    grossCommitmentMinor: grossForNet,
+  });
+  expect(netAccepted.grossCommitmentMinor).toBe(grossForNet);
+  const netReadback = await new D1InvestmentReviewRepository(
+    db.asD1(),
+  ).getContext(COST_SUBJECT, p.id);
+  expect(calculatePositionEconomics(netReadback.economics!)).toMatchObject({
+    committedMinor: grossForNet,
+    positionCostBasisMinor: economicsContext.committedMinor,
+  });
   expect(reviewContext.purchaseContext?.snapshotId).toEqual(p.snapshot.id);
   await expect(
     new D1InvestmentReviewRepository(db.asD1()).getContext(

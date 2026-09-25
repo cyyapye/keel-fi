@@ -47,13 +47,20 @@ companies remain exceptions. Provider participation status needs no extra
 confirmation. Ownership percentages and trust or tax conclusions are never
 inferred.
 
-Fee acceptance requires explicit management rate and prepaid term, setup rate,
-carry, currency, and gross capital evidence. All fees must reconcile to the
-source amount using integer money and ppm. Missing is not zero. A net import
-keeps its imported amount and records the evidenced gross amount separately;
-carry only applies to exit gains. Incomplete, conflicting, unsupported, blocked,
-or ambiguously associated evidence stays in the review queue. Clear fields are
-prefilled so the user supplies only the missing information.
+Fee acceptance requires explicit management rate and prepaid term (zero annual
+management needs no term), setup rate, carry, currency, and gross capital
+evidence. All fees must reconcile to the source amount using integer money and
+ppm. Missing is not zero. A net import keeps its imported amount and records the
+evidenced gross amount separately; carry only applies to exit gains. Incomplete,
+conflicting, unsupported, blocked, or ambiguously associated evidence stays in
+the review queue. Clear fields are prefilled so the user supplies only the
+missing information.
+
+Current single-purchase notices can supply management and carry evidence.
+Disagreement with provider or agreement terms remains an exception. Underlying
+purchase fees retain their rate, basis and receipt; they apply once to capital
+after SPV fees. Multiple purchases or stale purchase evidence require review.
+The transaction checks the purchase receipt head before accepting these terms.
 
 Each automatic decision records its policy, source revision, accepted sections,
 exceptions and supporting evidence. Manual identity, participation, company and
