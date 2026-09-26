@@ -1335,7 +1335,7 @@ async function captureTokenfolio(
     );
     const markMicros = await rowPrice(
       4,
-      /^(?:TF Price|Mark\s*\/\s*(?:sh|share)):?$/iu,
+      /^(?:\*?TF Price|Mark\s*\/\s*(?:sh|share)):?$/iu,
     );
     const reportedMarkDate = await readOptional(/^(?:Mark date|Mark as of)$/iu);
     let markDate: string | null = null;
