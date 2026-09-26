@@ -1182,6 +1182,7 @@
     "packages/database/src/holding-imports.test.ts :: AngelList holding import persistence > retains Tokenfolio per-share observations without accepting a financial record",
     "packages/database/src/position-purchases.test.ts :: projects only owned source prices with one bounded query across 120 positions",
     "packages/domain/src/position-purchases.test.ts :: prefills a single current fully funded purchase without changing accepted details",
+    "packages/domain/src/position-purchases.test.ts :: records an explicit proxy without inventing class or mark date",
     "scripts/share-price-evidence-d1-cost.test.ts :: bounds share-price evidence reads across 120 holdings, repeated history and empty results"
   ],
   "playwright": [
