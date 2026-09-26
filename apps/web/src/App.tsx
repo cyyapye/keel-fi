@@ -2238,7 +2238,7 @@ function PositionValuationSection({
   const summary = accepted
     ? `${formatCurrency(accepted.valueMinor, accepted.currency)} · ${accepted.sourceLabel} · ${formatDate(accepted.effectiveDate)}`
     : estimate
-      ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · Share estimate · ${formatDate(estimate.effectiveDate)}`
+      ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · ${estimate.proxy ? "Proxy estimate" : "Share estimate"} · ${estimate.effectiveDate ? formatDate(estimate.effectiveDate) : "Mark date unknown"}`
       : holding.positionValueContext?.providerValueMinor != null
         ? `${formatCurrency(holding.positionValueContext.providerValueMinor, holding.positionValueContext.currency)} · ${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`
         : "Optional · Add a reported value or calculate from shares";
@@ -2286,9 +2286,9 @@ function PositionValuationSection({
             )}
             <TabsContent value="shares" keepMounted>
               <p>
-                Remaining shares × a dated price for the same share class.
-                Before carry and remaining expenses; does not replace a reported
-                mark.
+                Remaining shares × a matching share price or an explicitly
+                chosen proxy. Before carry and remaining expenses; does not
+                replace a reported mark.
               </p>
               <PositionPurchasesEditor
                 key={`${holding.id}:${holding.purchaseContext.snapshotId}:${holding.purchaseContext.receipt?.id}`}
@@ -2740,11 +2740,13 @@ function PositionPerformanceSummary({
   const currentValueMinor =
     acceptedAdjustment?.valueMinor ??
     holding.administratorNavMinor ??
+    holding.shareValueEstimate?.valueMinor ??
     projectedEstimate?.valueMinor ??
     null;
   const currentValueReported =
     acceptedAdjustment !== null ||
     holding.administratorNavState === "reported" ||
+    holding.shareValueEstimate != null ||
     projectedEstimate !== null;
   const performance = calculatePositionPerformance({
     currentValueMinor,
@@ -2791,7 +2793,13 @@ function PositionPerformanceSummary({
             />
             {performance.totalReturnPpm !== null && (
               <Stat
-                label="Total return"
+                label={
+                  holding.shareValueEstimate?.proxy &&
+                  holding.administratorNavMinor === null &&
+                  !acceptedAdjustment
+                    ? "Estimated return · before carry"
+                    : "Total return"
+                }
                 value={formatSignedProbability(performance.totalReturnPpm)}
                 detail={
                   performance.totalGainMinor === null
@@ -2827,8 +2835,20 @@ function PositionPerformanceSummary({
                 }
               />
               <DataItem
-                label="Total return"
-                value="Not annualized. Uses the reported value and proceeds; no additional carry is deducted."
+                label={
+                  holding.shareValueEstimate?.proxy &&
+                  holding.administratorNavMinor === null &&
+                  !acceptedAdjustment
+                    ? "Estimated return · before carry"
+                    : "Total return"
+                }
+                value={
+                  holding.shareValueEstimate &&
+                  holding.administratorNavMinor === null &&
+                  !acceptedAdjustment
+                    ? "Not annualized. Uses the estimated value and reported proceeds, before carry and remaining expenses."
+                    : "Not annualized. Uses the reported value and proceeds; no additional carry is deducted."
+                }
               />
               {projectedEstimate !== null && acceptedAdjustment === null && (
                 <DataItem
@@ -2970,27 +2990,38 @@ function HoldingDetailWorkspace({
             label={
               acceptedAdjustment
                 ? "Reviewed value"
-                : projectedEstimate && holding.administratorNavMinor === null
-                  ? "Estimated value"
-                  : valueLenses[0].label
+                : holding.shareValueEstimate &&
+                    holding.administratorNavMinor === null
+                  ? holding.shareValueEstimate.proxy
+                    ? "Estimated value · proxy"
+                    : "Estimated value · shares"
+                  : projectedEstimate && holding.administratorNavMinor === null
+                    ? "Estimated value"
+                    : valueLenses[0].label
             }
             value={
               acceptedAdjustment
                 ? holdingValueLabel(acceptedAdjustment.valueMinor)
-                : projectedEstimate && holding.administratorNavMinor === null
-                  ? holdingValueLabel(projectedEstimate.valueMinor)
-                  : valueLenses[0].value
+                : holding.shareValueEstimate &&
+                    holding.administratorNavMinor === null
+                  ? holdingValueLabel(holding.shareValueEstimate.valueMinor)
+                  : projectedEstimate && holding.administratorNavMinor === null
+                    ? holdingValueLabel(projectedEstimate.valueMinor)
+                    : valueLenses[0].value
             }
             detail={
               acceptedAdjustment
                 ? `${acceptedAdjustment.sourceLabel} · ${formatDate(acceptedAdjustment.effectiveDate)}`
-                : projectedEstimate && holding.administratorNavMinor === null
-                  ? "Portfolio Watch estimate · Not an accepted mark"
-                  : holding.administratorNavMinor === null
-                    ? holding.administratorNavState === "locked"
-                      ? valueLenses[0].helper
-                      : "Add a reported value or calculate from shares below."
-                    : `${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`
+                : holding.shareValueEstimate &&
+                    holding.administratorNavMinor === null
+                  ? "Before carry and remaining expenses · See valuation assumptions below"
+                  : projectedEstimate && holding.administratorNavMinor === null
+                    ? "Portfolio Watch estimate · Not an accepted mark"
+                    : holding.administratorNavMinor === null
+                      ? holding.administratorNavState === "locked"
+                        ? valueLenses[0].helper
+                        : "Add a reported value or calculate from shares below."
+                      : `${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`
             }
           />
         }

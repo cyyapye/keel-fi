@@ -199,3 +199,50 @@ it("prefills a single current fully funded purchase without changing accepted de
     )[0]?.netCapitalMinor,
   ).toBeNull();
 });
+
+it("records an explicit proxy without inventing class or mark date", () => {
+  const r = receipt();
+  const mark = {
+    ...lot().mark!,
+    sourceEvidenceId: "source",
+    shareClass: "Common",
+    effectiveDate: null,
+    proxy: {
+      confirmed: true as const,
+      reason: "Closest available price; preferred rights differ.",
+      capturedAt: "2026-09-20T12:00:00.000Z",
+    },
+  };
+  r.details.lots[0] = PurchaseLotSchema.parse({ ...lot(), mark });
+  expect(estimatePurchaseValue(r, "s")).toMatchObject({
+    valueMinor: 16000,
+    proxy: true,
+    effectiveDate: null,
+  });
+  expect(
+    PurchaseLotSchema.safeParse({
+      ...lot(),
+      mark: { ...mark, proxy: undefined },
+    }).success,
+  ).toBe(false);
+  expect(
+    PurchaseLotSchema.safeParse({
+      ...lot(),
+      mark: { ...mark, comparableConfirmed: true },
+    }).success,
+  ).toBe(false);
+  expect(
+    PurchaseLotSchema.safeParse({
+      ...lot(),
+      mark: { ...mark, sourceEvidenceId: undefined },
+    }).success,
+  ).toBe(false);
+  expect(
+    PurchaseLotSchema.safeParse({
+      ...lot(),
+      mark: { ...mark, proxy: { ...mark.proxy, reason: " " } },
+    }).success,
+  ).toBe(false);
+  r.details.coversPosition = false;
+  expect(estimatePurchaseValue(r, "s")).toBeNull();
+});

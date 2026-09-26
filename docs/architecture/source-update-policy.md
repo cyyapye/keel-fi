@@ -281,13 +281,14 @@ reference price, gross cash, net share capital, one-time fee and its gross/net
 basis, source reference, and remaining attributable shares with their date.
 Calculated original shares require explicit confirmation that there have been no
 sales, splits or conversions. A dated price and source for the identical share
-class must cover every purchase before a share estimate is available. The
-reviewer must also confirm that the purchases cover the entire remaining
-position. A mismatch or incomplete evidence leaves the existing valuation
-fallback intact. A new source snapshot retains purchase history but requires a
-fresh review before using its share estimate. Reported or manually accepted
-marks retain precedence; the share estimate is shown separately, before carry
-and remaining expenses.
+class must cover every purchase for a matching-share estimate. An explicit proxy
+decision can instead retain a class mismatch or unknown price date as described
+below. The reviewer must also confirm that the purchases cover the entire
+remaining position. A mismatch or incomplete evidence leaves the existing
+valuation fallback intact. A new source snapshot retains purchase history but
+requires a fresh review before using its share estimate. Reported or manually
+accepted marks retain precedence; the share estimate is shown separately, before
+carry and remaining expenses.
 
 Accepted purchase records are append-only and atomically advance an indexed
 current head. The POST checks household ownership, position, snapshot and prior
@@ -358,3 +359,23 @@ are preserved. The user confirms unchanged shares and comparable securities,
 provides missing price evidence, and saves a purchase review. The server rejects
 changed source prices and class mismatches. Estimates remain before carry and
 separate from reported values; returns use the position's cash contributed.
+
+### Explicit proxy share estimates
+
+A reviewer can choose **Use as proxy estimate** on imported per-share evidence
+when it is the closest available price. The purchase review records the source
+revision, captured timestamp, source share class (or unknown), actual mark date
+(or unknown), a required rationale, and the explicit proxy decision. Capture
+time never substitutes for a mark date. Proxy use does not assert matching
+securities. Original-share and whole-position coverage confirmations still
+apply. The price, reported date, known source class, capture time and latest
+source revision are checked on acceptance; the transaction rejects obsolete
+source evidence.
+
+Proxy estimates are labeled separately in Holdings and valuation details, before
+carry and remaining expenses. Their assumptions remain expandable after saving.
+An unknown price date stays unknown throughout projection. Reported and accepted
+manual values retain precedence. Later source evidence does not silently reprice
+the proxy; changing it requires another recorded purchase decision. Migration
+`0076` must precede the API/web release. Read and write query budgets are
+unchanged.

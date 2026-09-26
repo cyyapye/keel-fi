@@ -82,7 +82,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       )
       SELECT e.import_row_id id,priced_position.id positionId,priced_position.legal_vehicle_name positionLabel,
         CASE i.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' ELSE i.provider END sourceLabel,
-        s.observed_at observedAt,e.evidence_json
+        s.observed_at observedAt,i.created_at capturedAt,e.evidence_json
       FROM latest priced_position CROSS JOIN holding_import_applications a ON a.id=priced_position.application_id
       CROSS JOIN holding_position_snapshots s ON s.id=a.snapshot_id
       CROSS JOIN holding_import_share_prices e ON e.import_row_id=a.import_row_id AND e.household_id=priced_position.household_id
@@ -98,6 +98,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
         positionLabel: string;
         sourceLabel: string;
         observedAt: string;
+        capturedAt: string;
         evidence_json: string;
       }>();
     return SharePriceEvidenceListSchema.parse(
@@ -153,13 +154,19 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
           source.markMicros !== mark.priceMicros ||
           (source.markDate !== null &&
             source.markDate !== mark.effectiveDate) ||
-          mark.comparableConfirmed !== true ||
+          (mark.proxy
+            ? mark.proxy.capturedAt !== source.capturedAt
+            : mark.comparableConfirmed !== true) ||
           (source.shareClass !== null &&
-            source.shareClass.toLowerCase() !== lot.shareClass?.toLowerCase())
+            (mark.proxy
+              ? source.shareClass.toLowerCase() !==
+                mark.shareClass?.toLowerCase()
+              : source.shareClass.toLowerCase() !==
+                lot.shareClass?.toLowerCase()))
         )
           throw new PositionPurchaseError(
             "stale",
-            "The selected price changed or needs comparability confirmation. Reload its evidence.",
+            "The selected price changed or its valuation choice needs review. Reload its evidence.",
           );
       }
     }

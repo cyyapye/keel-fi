@@ -463,7 +463,9 @@ function exposureValueSourceLabel(
     return "Invested amount estimate";
   }
   if (position.valueSource === "share_price_estimate")
-    return "Share price estimate";
+    return position.shareValueEstimate?.proxy
+      ? "Estimated value · proxy"
+      : "Share price estimate";
   if (position.valueSource === "portfolio_watch_estimate") {
     return "Portfolio Watch estimate";
   }
@@ -1704,7 +1706,11 @@ function ExposureView({
                         className="position-row__value"
                         title={
                           valueSourceLabel !== null
-                            ? `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`
+                            ? position.valueSource === "share_price_estimate" &&
+                              position.shareValueEstimate?.proxy &&
+                              position.shareValueEstimate.effectiveDate === null
+                              ? `${valueSourceLabel} · Mark date unknown`
+                              : `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`
                             : undefined
                         }
                       >
