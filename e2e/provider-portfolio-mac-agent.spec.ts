@@ -165,7 +165,7 @@ function tokenfolioPage(
             <div><span>Units:</span><span>100</span></div>
             <div><span>Entry Price:</span><span>$10.00</span></div>
             <div><span>Committed:</span><span>${row.committed}</span></div>
-            <div><span>TF Price:</span><span>$15.00</span></div>
+            <div><span>*TF Price:</span><span>$15.00</span></div>
             <div><span>Current Value:</span><span>${row.current}<span>${row.currentSuffix}</span></span></div>
             <div><span>Status:</span><span>${row.status}</span></div>
           </div>
