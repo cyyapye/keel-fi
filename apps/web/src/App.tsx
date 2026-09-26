@@ -2285,11 +2285,6 @@ function PositionValuationSection({
               </TabsContent>
             )}
             <TabsContent value="shares" keepMounted>
-              <p>
-                Remaining shares × a matching share price or an explicitly
-                chosen proxy. Before carry and remaining expenses; does not
-                replace a reported mark.
-              </p>
               <PositionPurchasesEditor
                 key={`${holding.id}:${holding.purchaseContext.snapshotId}:${holding.purchaseContext.receipt?.id}`}
                 holding={holding}

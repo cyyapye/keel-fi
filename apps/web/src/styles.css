@@ -9163,3 +9163,17 @@ h1,
     gap: 16px;
   }
 }
+
+.purchase-proxy-confirmation .stat__label,
+.purchase-proxy-confirmation .stat__value {
+  display: block;
+}
+.purchase-proxy-confirmation .stat__value {
+  margin-top: 8px;
+  font-size: 32px;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+.purchase-proxy-confirmation > [data-slot="collapsible"] {
+  margin-top: 8px;
+}

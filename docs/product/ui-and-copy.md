@@ -63,6 +63,25 @@ finite maintenance queue lives in
   evidence, and security restrictions are different states. A retry must not
   weaken a security boundary, and a read failure does not prove sign-in expired.
 
+## User effort contract
+
+Before building a form, separate facts Keel already knows, values it can
+calculate, and decisions only the user can make. Show the proposed result first.
+Keep source metadata and calculations read-only under Details; offer explicit
+adjustments for exceptions. Unknown facts stay unknown.
+
+When existing evidence is sufficient, the ordinary path must require no typing:
+one meaningful confirmation followed by one Apply action. Combine confirmations
+that express the same decision. Do not require a written justification for a
+routine explicit choice; record the selected action and evidence automatically,
+with an optional personal note. Preserve necessary trust boundaries in concise
+copy beside the decision.
+
+For example, choosing an imported share price as a proxy shows the estimated
+value immediately, asks whether the shares cover the remaining position, and
+records that choice on Apply. Source dates, class and capture metadata do not
+become homework for the user.
+
 ## Copy filter
 
 Every visible sentence or label must do at least one of these jobs:
@@ -94,6 +113,10 @@ punctuation correction is material, including source and review disclosures.
 
 Before handing off a material interface change:
 
+- Test the ordinary-path effort budget: visible required inputs, confirmations,
+  and actions. A screenshot passing is not sufficient. Exercise the path without
+  typing when existing evidence is sufficient, and verify optional adjustments
+  and failed-save draft preservation.
 - Compare the screen side by side with its Keel reference screen before coding
   and after implementation.
 - Review desktop and mobile layouts at their tested breakpoints.
