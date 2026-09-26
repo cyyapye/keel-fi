@@ -109,6 +109,9 @@ function draftFor(lot: PurchaseLot): Draft {
     sourceUrl: lot.sourceUrl ?? "",
     markEvidenceId: lot.mark?.sourceEvidenceId ?? "",
     markComparable: String(lot.mark?.comparableConfirmed ?? false),
+    markProxy: String(Boolean(lot.mark?.proxy)),
+    proxyReason: lot.mark?.proxy?.reason ?? "",
+    markCapturedAt: lot.mark?.proxy?.capturedAt ?? "",
     markPrice: unitPrice(lot.mark?.priceMicros),
     markDate: lot.mark?.effectiveDate ?? "",
     markClass: lot.mark?.shareClass ?? "",
@@ -146,12 +149,23 @@ function lotFor(d: Draft) {
           ...(d.markEvidenceId
             ? {
                 sourceEvidenceId: d.markEvidenceId,
-                comparableConfirmed: d.markComparable === "true" ? true : false,
+                ...(d.markProxy === "true"
+                  ? {
+                      proxy: {
+                        confirmed: true,
+                        reason: d.proxyReason,
+                        capturedAt: d.markCapturedAt,
+                      },
+                    }
+                  : {
+                      comparableConfirmed:
+                        d.markComparable === "true" ? true : false,
+                    }),
               }
             : {}),
           priceMicros: scaled(d.markPrice, 6),
-          effectiveDate: d.markDate,
-          shareClass: d.markClass,
+          effectiveDate: d.markDate || null,
+          shareClass: d.markClass || null,
           sourceLabel: d.markSource,
           sourceUrl: d.markUrl || null,
         }
@@ -355,7 +369,11 @@ export function PositionPurchasesEditor({
               ["markPrice", "markDate", "markClass", "shareClass"].includes(key)
                 ? { markComparable: "false" }
                 : {}),
-              ...(key === "markPrice" && value && !d.markClass && d.shareClass
+              ...(d.markProxy !== "true" &&
+              key === "markPrice" &&
+              value &&
+              !d.markClass &&
+              d.shareClass
                 ? { markClass: d.shareClass }
                 : {}),
             }
@@ -466,7 +484,7 @@ export function PositionPurchasesEditor({
           {(open || !receipt?.details.lots.length) && mode !== "valuation" && (
             <p>
               {valuationOnly
-                ? "Use your remaining company shares and a dated price for the same share class."
+                ? "Use your remaining company shares with a matching price or a proxy estimate."
                 : "Optional. Record the underlying shares attributable to this SPV investment."}
             </p>
           )}
@@ -736,8 +754,10 @@ export function PositionPurchasesEditor({
                             ${unitPrice(lot.mark.priceMicros)} / share
                             <small>
                               {lot.mark.shareClass} ·{" "}
-                              {formatDate(lot.mark.effectiveDate)} ·{" "}
-                              {lot.mark.sourceLabel}
+                              {lot.mark.effectiveDate
+                                ? formatDate(lot.mark.effectiveDate)
+                                : "Mark date unknown"}{" "}
+                              · {lot.mark.sourceLabel}
                             </small>
                           </>
                         }
@@ -754,7 +774,9 @@ export function PositionPurchasesEditor({
                 <p key={lot.id} className="purchase-summary__metadata">
                   {lot.mark?.shareClass} · ${unitPrice(lot.mark?.priceMicros)} /
                   share · {lot.mark?.sourceLabel} ·{" "}
-                  {lot.mark && formatDate(lot.mark.effectiveDate)}
+                  {lot.mark?.effectiveDate
+                    ? formatDate(lot.mark.effectiveDate)
+                    : "Mark date unknown"}
                 </p>
               ))}
           {mode !== "purchase" &&
@@ -763,9 +785,13 @@ export function PositionPurchasesEditor({
                 <div>
                   <StatGroup className="holding-performance__values">
                     <Stat
-                      label="Estimated position value · before carry"
+                      label={
+                        estimate.proxy
+                          ? "Estimated value · proxy"
+                          : "Estimated position value · before carry"
+                      }
                       value={money(estimate.valueMinor)}
-                      detail={`As of ${formatDate(estimate.effectiveDate)}${estimate.derivedShares ? " · uses calculated original shares" : ""}`}
+                      detail={`${estimate.effectiveDate ? `As of ${formatDate(estimate.effectiveDate)}` : "Mark date unknown"}${estimate.derivedShares ? " · uses calculated original shares" : ""}`}
                     />
                   </StatGroup>
                   <p>
@@ -778,6 +804,34 @@ export function PositionPurchasesEditor({
                     . Excludes carry and remaining expenses; the provider mark
                     stays separate.
                   </p>
+                  {estimate.proxy && (
+                    <Collapsible>
+                      <CollapsibleTrigger>
+                        Proxy assumptions <DisclosureIndicator />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        {receipt.details.lots
+                          .filter((lot) => lot.mark?.proxy)
+                          .map((lot) => (
+                            <p key={lot.id}>
+                              {lot.mark!.sourceLabel} ·{" "}
+                              {lot.mark!.shareClass ??
+                                "Source share class unknown"}{" "}
+                              applied to {lot.shareClass}.{" "}
+                              {lot.mark!.proxy!.reason} Captured{" "}
+                              {formatDate(
+                                lot.mark!.proxy!.capturedAt.slice(0, 10),
+                              )}
+                              ;{" "}
+                              {lot.mark!.effectiveDate
+                                ? `mark dated ${formatDate(lot.mark!.effectiveDate)}`
+                                : "mark date unknown"}
+                              .
+                            </p>
+                          ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
                   {estimatedPerformance?.totalReturnPpm != null && (
                     <p>
                       Estimated return on cash contributed, before carry:{" "}
@@ -800,8 +854,7 @@ export function PositionPurchasesEditor({
                   <div>
                     <h4>Estimate your position</h4>
                     <p>
-                      Add remaining shares and a dated price for the same share
-                      class to estimate value.
+                      Add remaining shares and choose a price to estimate value.
                     </p>
                   </div>
                   <Button tone="secondary" onClick={() => edit(true)}>
@@ -1135,6 +1188,8 @@ export function PositionPurchasesEditor({
                                       markSource: `${item.sourceLabel} · ${item.positionLabel}`,
                                       markEvidenceId: item.id,
                                       markComparable: "false",
+                                      markProxy: "false",
+                                      proxyReason: "",
                                     },
                               ),
                             )
@@ -1142,13 +1197,38 @@ export function PositionPurchasesEditor({
                         >
                           Use this price
                         </Button>
+                        <Button
+                          tone="quiet"
+                          onClick={() =>
+                            setDrafts((old) =>
+                              old.map((draft, index) =>
+                                index !== i
+                                  ? draft
+                                  : {
+                                      ...draft,
+                                      markPrice: unitPrice(item.markMicros),
+                                      markDate: item.markDate ?? "",
+                                      markClass: item.shareClass ?? "",
+                                      markSource: `${item.sourceLabel} · ${item.positionLabel}`,
+                                      markEvidenceId: item.id,
+                                      markComparable: "false",
+                                      markProxy: "true",
+                                      proxyReason: "",
+                                      markCapturedAt: item.capturedAt,
+                                    },
+                              ),
+                            )
+                          }
+                        >
+                          Use as proxy estimate
+                        </Button>
                         {item.shareClass &&
                           d.shareClass &&
                           item.shareClass.toLowerCase() !==
                             d.shareClass.toLowerCase() && (
                             <p>
-                              This price is for a different share class. Enter
-                              evidence for your class below.
+                              Different share class. Use a proxy or provide a
+                              matching price.
                             </p>
                           )}
                       </div>
@@ -1176,7 +1256,29 @@ export function PositionPurchasesEditor({
                       </CollapsibleContent>
                     </Collapsible>
                   )}
-                  {d.markEvidenceId && (
+                  {d.markProxy === "true" && (
+                    <>
+                      <Notice>
+                        Proxy estimate · The price may be for a different share
+                        class. {d.markDate ? "" : "Mark date unknown. "}Captured{" "}
+                        {formatDate((d.markCapturedAt ?? "").slice(0, 10))}; not
+                        a mark date.
+                      </Notice>
+                      <Field
+                        label="Why this proxy is appropriate"
+                        variant="filled"
+                      >
+                        <Textarea
+                          aria-label="Why this proxy is appropriate"
+                          value={d.proxyReason}
+                          onChange={(event) =>
+                            update(i, "proxyReason", event.currentTarget.value)
+                          }
+                        />
+                      </Field>
+                    </>
+                  )}
+                  {d.markEvidenceId && d.markProxy !== "true" && (
                     <label>
                       <Input
                         type="checkbox"
@@ -1195,7 +1297,7 @@ export function PositionPurchasesEditor({
                   )}
                   <p>
                     Portfolio Watch company valuations provide context. This
-                    calculation needs a dated price for the same security.
+                    calculation uses per-share price evidence.
                   </p>
                 </div>
               )}
@@ -1281,9 +1383,9 @@ export function PositionPurchasesEditor({
                       {field(i, "markUrl", "Valuation source link")}
                     </div>
                     <p>
-                      A valuation price needs a date, matching share class and
-                      source. The source link is optional. A company valuation
-                      or another preferred series is not a matching share price.
+                      {d.markProxy === "true"
+                        ? "For a proxy, leave the mark date or source share class blank if unknown. Saving records your choice to use this price despite those limitations."
+                        : "A valuation price needs a date, matching share class and source. The source link is optional. A company valuation or another preferred series is not a matching share price."}
                     </p>
                   </CollapsibleContent>
                 </Collapsible>
@@ -1304,14 +1406,21 @@ export function PositionPurchasesEditor({
           )}
           {valuationOnly && draftEstimate && (
             <Notice>
-              Estimated gross value:{" "}
+              {draftEstimate.proxy
+                ? "Estimated value · proxy: "
+                : "Estimated gross value: "}
               <strong>{money(draftEstimate.valueMinor)}</strong> · before carry
-              and remaining expenses. As of{" "}
-              {formatDate(draftEstimate.effectiveDate)}.
+              and remaining expenses.{" "}
+              {draftEstimate.effectiveDate
+                ? `As of ${formatDate(draftEstimate.effectiveDate)}.`
+                : "Mark date unknown."}
             </Notice>
           )}
           {drafts.some(
-            (d) => d.markEvidenceId && d.markComparable !== "true",
+            (d) =>
+              d.markEvidenceId &&
+              d.markProxy !== "true" &&
+              d.markComparable !== "true",
           ) && (
             <Notice>
               Confirm that the selected price applies to your underlying share
@@ -1320,7 +1429,10 @@ export function PositionPurchasesEditor({
           )}
           {!parsed.success &&
             !drafts.some(
-              (d) => d.markEvidenceId && d.markComparable !== "true",
+              (d) =>
+                d.markEvidenceId &&
+                d.markProxy !== "true" &&
+                d.markComparable !== "true",
             ) && (
               <Notice tone="error">{parsed.error.issues[0]?.message}</Notice>
             )}

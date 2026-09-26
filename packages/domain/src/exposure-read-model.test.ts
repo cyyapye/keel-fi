@@ -652,6 +652,24 @@ it("uses a share estimate for missing values while preserving a provider mark al
     valueMinor: 20_000,
     shareValueEstimate: { valueMinor: 20_000 },
   });
+  const proxyMark = p.purchaseReceipt.details.lots[0]!.mark!;
+  proxyMark.proxy = {
+    confirmed: true,
+    reason: "Closest common-share price.",
+    capturedAt: "2026-09-01T00:00:00.000Z",
+  };
+  proxyMark.sourceEvidenceId = "synthetic-source";
+  proxyMark.shareClass = "Common";
+  proxyMark.effectiveDate = null;
+  expect(
+    createInvestmentExposureView(positionView([p]), [], []).positions[0],
+  ).toMatchObject({
+    valueSource: "share_price_estimate",
+    valueMinor: 20_000,
+    valueEffectiveDate: null,
+    valueSourceLabel: "Proxy share price estimate",
+    shareValueEstimate: { proxy: true, effectiveDate: null },
+  });
   p.snapshot.unrealizedValue = { state: "reported", minor: 18_000 };
   expect(
     createInvestmentExposureView(positionView([p]), [], []).positions[0],

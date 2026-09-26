@@ -54,9 +54,21 @@ export const PurchaseLotSchema = z
       .object({
         sourceEvidenceId: text.optional(),
         comparableConfirmed: z.literal(true).optional(),
+        proxy: z
+          .object({
+            confirmed: z.literal(true),
+            reason: z
+              .string()
+              .trim()
+              .min(1, "Explain why this proxy is appropriate.")
+              .max(500),
+            capturedAt: z.iso.datetime(),
+          })
+          .strict()
+          .optional(),
         priceMicros: positive,
-        effectiveDate: z.iso.date(),
-        shareClass: text,
+        effectiveDate: z.iso.date().nullable(),
+        shareClass: text.nullable(),
         sourceLabel: text,
         sourceUrl: z.url().max(2048).nullable(),
       })
@@ -65,6 +77,21 @@ export const PurchaseLotSchema = z
   })
   .strict()
   .superRefine((lot, ctx) => {
+    if (lot.mark) {
+      const mark = lot.mark;
+      if (
+        mark.proxy
+          ? !mark.sourceEvidenceId || mark.comparableConfirmed
+          : !mark.effectiveDate || !mark.shareClass
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: ["mark"],
+          message: mark.proxy
+            ? "Select source price evidence and accept it as a proxy, not a matching share class."
+            : "A matching share price needs its date and share class.",
+        });
+    }
     if (lot.feePpm === null && lot.feeBasis !== null)
       ctx.addIssue({
         code: "custom",
@@ -87,7 +114,11 @@ export const PurchaseLotSchema = z
         path: ["sharesAsOf"],
         message: "Date the remaining underlying share count.",
       });
-    if (lot.mark && lot.purchasedOn && lot.mark.effectiveDate < lot.purchasedOn)
+    if (
+      lot.mark?.effectiveDate &&
+      lot.purchasedOn &&
+      lot.mark.effectiveDate < lot.purchasedOn
+    )
       ctx.addIssue({
         code: "custom",
         path: ["mark"],
@@ -246,7 +277,8 @@ export function purchaseShares(lot: PurchaseLot) {
 }
 export const ShareValueEstimateSchema = z.object({
   valueMinor: money,
-  effectiveDate: z.iso.date(),
+  effectiveDate: z.iso.date().nullable(),
+  proxy: z.boolean().default(false),
   derivedShares: z.boolean(),
   grossCashMinor: money.nullable(),
   lots: z.array(
@@ -256,7 +288,7 @@ export const ShareValueEstimateSchema = z.object({
       priceMicros: positive,
       valueMinor: money,
       sourceLabel: text,
-      effectiveDate: z.iso.date(),
+      effectiveDate: z.iso.date().nullable(),
     }),
   ),
 });
@@ -277,16 +309,23 @@ export function estimatePurchaseValue(
   let allGross = true;
   for (const lot of receipt.details.lots) {
     const shares = purchaseShares(lot);
-    // A price must explicitly describe the same security, not merely the same company.
+    // Use matching securities unless the recorded review explicitly chose a proxy.
     if (
       !shares ||
       !lot.mark ||
       !lot.shareClass ||
       !lot.sourceLabel ||
-      lot.shareClass.toLowerCase() !== lot.mark.shareClass.toLowerCase()
+      (!lot.mark.proxy &&
+        (!lot.mark.effectiveDate ||
+          lot.shareClass.toLowerCase() !== lot.mark.shareClass?.toLowerCase()))
     )
       return null;
-    if (lot.sharesAsOf && lot.sharesAsOf > lot.mark.effectiveDate) return null;
+    if (
+      lot.sharesAsOf &&
+      lot.mark.effectiveDate &&
+      lot.sharesAsOf > lot.mark.effectiveDate
+    )
+      return null;
     derivedShares ||= shares.derived;
     const cash = purchaseCapital(lot).grossCashMinor;
     if (cash === null) allGross = false;
@@ -308,7 +347,10 @@ export function estimatePurchaseValue(
     valueMinor: integer(
       rows.reduce((n, row) => n + BigInt(row.valueMinor), 0n),
     ),
-    effectiveDate: rows.map((row) => row.effectiveDate).sort()[0],
+    effectiveDate: rows.some((row) => row.effectiveDate === null)
+      ? null
+      : rows.map((row) => row.effectiveDate).sort()[0],
+    proxy: receipt.details.lots.some((lot) => Boolean(lot.mark?.proxy)),
     derivedShares,
     grossCashMinor: allGross ? integer(gross) : null,
     lots: rows,
@@ -354,6 +396,7 @@ export const SharePriceEvidenceSchema = z.object({
   positionLabel: text,
   sourceLabel: text,
   observedAt: z.string().min(1),
+  capturedAt: z.iso.datetime(),
   costMicros: positive.nullable(),
   markMicros: positive.nullable(),
   markDate: z.iso.date().nullable(),

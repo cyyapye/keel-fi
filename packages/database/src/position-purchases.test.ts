@@ -276,7 +276,7 @@ it("projects only owned source prices with one bounded query across 120 position
       JSON.stringify({
         costMicros: 20000000,
         markMicros: 35000000,
-        markDate: "2026-09-01",
+        markDate: null,
         shareClass: "Series B",
       }),
     );
@@ -359,12 +359,76 @@ it("projects only owned source prices with one bounded query across 120 position
       },
     ],
   };
-  const saved = await repo.accept(COST_SUBJECT, related.id, {
+  let saved = await repo.accept(COST_SUBJECT, related.id, {
     expectedSnapshotId: snapshot.snapshot_id,
     expectedReceiptId: null,
     details,
   });
   expect(saved.details.lots[0]?.mark?.sourceEvidenceId).toBe(row.import_row_id);
+  const proxyDetails = {
+    ...details,
+    lots: [
+      {
+        ...details.lots[0]!,
+        shareClass: "Preferred",
+        mark: {
+          ...details.lots[0]!.mark,
+          comparableConfirmed: undefined,
+          effectiveDate: null,
+          proxy: {
+            confirmed: true as const,
+            reason: "Closest available source price.",
+            capturedAt: prices[0]!.capturedAt,
+          },
+        },
+      },
+    ],
+  };
+  await expect(
+    repo.accept(COST_SUBJECT, related.id, {
+      expectedSnapshotId: snapshot.snapshot_id,
+      expectedReceiptId: saved.id,
+      details: {
+        ...proxyDetails,
+        lots: [
+          {
+            ...proxyDetails.lots[0]!,
+            mark: { ...proxyDetails.lots[0]!.mark, priceMicros: 99000000 },
+          },
+        ],
+      },
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  saved = await repo.accept(COST_SUBJECT, related.id, {
+    expectedSnapshotId: snapshot.snapshot_id,
+    expectedReceiptId: saved.id,
+    details: proxyDetails,
+  });
+  const storedProxy = db.sqlite
+    .prepare("SELECT receipt_json FROM holding_purchase_reviews WHERE id=?")
+    .get(saved.id) as { receipt_json: string };
+  expect(
+    JSON.parse(storedProxy.receipt_json).details.lots[0].mark.proxy,
+  ).toEqual(proxyDetails.lots[0]!.mark.proxy);
+
+  const forged = structuredClone(saved);
+  forged.id = "forged-proxy-capture";
+  forged.details.lots[0]!.mark!.proxy!.capturedAt = "2020-01-01T00:00:00.000Z";
+  expect(() =>
+    db.sqlite
+      .prepare(
+        "INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES(?,'hh_demo',?,?,?,?,'usr_demo',?)",
+      )
+      .run(
+        forged.id,
+        related.id,
+        snapshot.snapshot_id,
+        saved.id,
+        JSON.stringify(forged),
+        forged.acceptedAt,
+      ),
+  ).toThrow(/purchase price evidence stale/u);
+
   await seedCostHoldings(db.asD1(), COST_SUBJECT, 2);
   await expect(
     repo.accept(COST_SUBJECT, related.id, {

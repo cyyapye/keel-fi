@@ -140,7 +140,7 @@ export const InvestmentExposurePositionSchema = z
         "reviewed_adjustment",
       ])
       .optional(),
-    valueEffectiveDate: z.iso.date().optional(),
+    valueEffectiveDate: z.iso.date().nullable().optional(),
     valueSourceLabel: z.string().trim().min(1).max(240).optional(),
     priorValueState: z
       .enum(["reported", "locked", "not_reported"])
@@ -607,12 +607,17 @@ export function createInvestmentExposureView(
                     : "provider",
           valueEffectiveDate:
             adjustment?.effectiveDate ??
-            (useShareEstimate ? shareValueEstimate.effectiveDate : null) ??
-            privateValueEstimate?.effectiveDate ??
-            position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length),
+            (useShareEstimate
+              ? shareValueEstimate.effectiveDate
+              : (privateValueEstimate?.effectiveDate ??
+                position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length))),
           valueSourceLabel:
             adjustment?.sourceLabel ??
-            (useShareEstimate ? "Reviewed underlying share prices" : null) ??
+            (useShareEstimate
+              ? shareValueEstimate.proxy
+                ? "Proxy share price estimate"
+                : "Reviewed underlying share prices"
+              : null) ??
             (privateValueEstimate === null
               ? position.source.label
               : `Portfolio Watch + ${privateValueEstimate.referenceSourceLabel}`),

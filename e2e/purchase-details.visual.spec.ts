@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { HoldingSchema } from "../packages/domain/src/index";
 import {
   PurchaseReceiptSchema,
+  estimatePurchaseValue,
   type PurchaseReceipt,
 } from "../packages/domain/src/position-purchases";
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
@@ -16,6 +17,8 @@ test("optional purchase details save directly, preserve failed drafts and reload
   let receipt: PurchaseReceipt | null = null;
   let reject = false;
   let attempts = 0;
+  let proxyEvidence = false;
+  let reportedValue = true;
   const holding = () =>
     HoldingSchema.parse({
       id: "purchase-spv",
@@ -24,8 +27,12 @@ test("optional purchase details save directly, preserve failed drafts and reload
       exposureName: "Synthetic Purchase Company",
       ownerLabel: "Demo Family LLC",
       positionKind: "spv_interest",
-      administratorNavMinor: 150000,
-      administratorNavState: "reported",
+      administratorNavMinor: reportedValue ? 150000 : null,
+      administratorNavState: reportedValue ? "reported" : "not_set",
+      shareValueEstimate: estimatePurchaseValue(
+        receipt,
+        "snapshot_purchase-spv",
+      ),
       externalMarkMinor: null,
       underwritingValueMinor: null,
       scenarioValueMinor: null,
@@ -96,10 +103,11 @@ test("optional purchase details save directly, preserve failed drafts and reload
               positionLabel: "Synthetic Related SPV",
               sourceLabel: "Tokenfolio",
               observedAt: "2026-09-01T00:00:00.000Z",
+              capturedAt: "2026-09-02T12:00:00.000Z",
               costMicros: 10000000,
               markMicros: 20000000,
-              markDate: "2026-09-01",
-              shareClass: "Series B",
+              markDate: proxyEvidence ? null : "2026-09-01",
+              shareClass: proxyEvidence ? "Common" : "Series B",
             },
           ],
           watch: [
@@ -405,4 +413,106 @@ test("optional purchase details save directly, preserve failed drafts and reload
     scroll: document.documentElement.scrollWidth,
   }));
   expect(widths.scroll).toBe(widths.client);
+  proxyEvidence = true;
+  await valuation
+    .getByRole("button", { name: "Edit share calculation" })
+    .click();
+  await valuation
+    .getByRole("button", { name: "Use as proxy estimate" })
+    .click();
+  await expect(
+    valuation.getByRole("button", { name: "Use this price", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    valuation.getByRole("button", { name: "Save valuation details" }),
+  ).toBeDisabled();
+  await valuation
+    .getByRole("textbox", { name: "Why this proxy is appropriate" })
+    .fill("Closest available common-share price; preferred rights may differ.");
+  await expect(
+    valuation.getByRole("textbox", {
+      name: "Valuation share class",
+      exact: true,
+    }),
+  ).toHaveValue("Common");
+  await expect(
+    valuation.getByRole("checkbox", { name: /I confirmed this price/ }),
+  ).toHaveCount(0);
+  const proxyStyle = await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await expect(valuation).toHaveScreenshot("position-value-proxy-draft.png", {
+    animations: "disabled",
+  });
+  reject = true;
+  await valuation
+    .getByRole("button", { name: "Save valuation details" })
+    .click();
+  await expect(
+    valuation.getByText("The position changed. Review again."),
+  ).toBeVisible();
+  await expect(
+    valuation.getByRole("textbox", { name: "Why this proxy is appropriate" }),
+  ).toHaveValue(
+    "Closest available common-share price; preferred rights may differ.",
+  );
+  reject = false;
+  await valuation
+    .getByRole("button", { name: "Save valuation details" })
+    .click();
+  await expect(
+    valuation.getByText("Estimated value · proxy", { exact: true }),
+  ).toBeVisible();
+  await valuation.getByRole("button", { name: "Proxy assumptions" }).click();
+  await expect(valuation).toContainText("Common applied to Series B");
+  await expect(valuation).toContainText("mark date unknown");
+  await expect(valuation).toHaveScreenshot("position-value-proxy-saved.png", {
+    animations: "disabled",
+  });
+  await proxyStyle.evaluate((el) => el.parentNode?.removeChild(el));
+  await expect(
+    page.getByRole("region", { name: "Position summary" }),
+  ).toContainText("Administrator NAV");
+  expect(receipt!.details.lots[0]!.mark!.effectiveDate).toBeNull();
+  expect(receipt!.details.lots[0]!.mark!.proxy!.confirmed).toBe(true);
+  await page.reload();
+  await page
+    .getByRole("button", { name: /Synthetic Purchase Company 1 position/u })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "View Synthetic Purchase SPV holding details",
+    })
+    .click();
+  await valueToggle.click();
+  await valuation.getByRole("tab", { name: "Calculate from shares" }).click();
+  await expect(
+    valuation.getByText("Estimated value · proxy", { exact: true }),
+  ).toBeVisible();
+  await valuation
+    .getByRole("button", { name: "Edit share calculation" })
+    .click();
+  await valuation
+    .getByRole("textbox", { name: "Why this proxy is appropriate" })
+    .fill("Updated proxy rationale after review.");
+  await valuation
+    .getByRole("button", { name: "Save valuation details" })
+    .click();
+  await valuation.getByRole("button", { name: "Proxy assumptions" }).click();
+  await expect(valuation).toContainText(
+    "Updated proxy rationale after review.",
+  );
+  reportedValue = false;
+  await page.reload();
+  await page
+    .getByRole("button", { name: /Synthetic Purchase Company 1 position/u })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "View Synthetic Purchase SPV holding details",
+    })
+    .click();
+  const summary = page.getByRole("region", { name: "Position summary" });
+  await expect(summary).toContainText("Estimated value · proxy");
+  await expect(summary).toContainText("Estimated return · before carry");
 });
