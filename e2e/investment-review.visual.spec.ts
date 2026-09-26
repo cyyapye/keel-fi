@@ -1906,6 +1906,10 @@ test("captures a GP purchase notice directly in investment review without a corp
 }) => {
   await page.clock.setFixedTime(new Date("2026-09-20T12:00:00Z"));
   const fixture = await setup(page, false, 0, false, true);
+  await page.route(
+    "**/api/investment-positions/*/share-price-evidence",
+    (route) => route.fulfill({ json: { prices: [], watch: [] } }),
+  );
   let reject = false;
   let count = 0;
   await page.route(

@@ -5,6 +5,7 @@ import {
   estimatePurchaseValue,
   purchaseCapital,
   purchaseShares,
+  prefillPurchaseCapital,
 } from "./position-purchases";
 const lot = () =>
   PurchaseLotSchema.parse({
@@ -89,6 +90,9 @@ describe("purchase economics", () => {
     incomplete.details.coversPosition = false;
     expect(estimatePurchaseValue(incomplete, "s")).toBeNull();
     const r = receipt();
+    r.details.lots[0]!.mark!.shareClass =
+      r.details.lots[0]!.shareClass!.toUpperCase();
+    expect(estimatePurchaseValue(r, "s")).not.toBeNull();
     r.details.lots[0]!.mark!.shareClass = "Common";
     expect(estimatePurchaseValue(r, "s")).toBeNull();
     r.details.lots.push({ ...lot(), id: "second", mark: null });
@@ -127,4 +131,71 @@ describe("purchase economics", () => {
       }).success,
     ).toBe(false);
   });
+});
+
+it("prefills a single current fully funded purchase without changing accepted details", () => {
+  const r = receipt();
+  r.details.lots[0] = { ...lot(), grossCashMinor: null, netCapitalMinor: null };
+  const context = {
+    snapshotId: "s",
+    currency: "USD",
+    committedMinor: 11000,
+    fundedMinor: 11000,
+    reportedTerms: null,
+    acceptedTerms: {
+      id: "terms",
+      positionId: "p",
+      acceptedAgainstSnapshotId: "s",
+      capitalBasis: "gross_commitment" as const,
+      grossCommitmentMinor: null,
+      annualAdminFeePpm: 0,
+      adminFeeYears: 1,
+      setupFeePpm: 0,
+      carryPpm: 0,
+      purchaseFee: {
+        receiptId: "r",
+        ratePpm: 100000,
+        basis: "net_capital" as const,
+        label: "Fee",
+      },
+      commitmentMinorAtAcceptance: 11000,
+      fundedMinorAtAcceptance: 11000,
+      acceptedAt: "2026-09-01T00:00:00.000Z",
+      note: "Synthetic reviewed terms",
+    },
+  };
+  expect(prefillPurchaseCapital(r, context)[0]?.netCapitalMinor).toBe(10000);
+  expect(r.details.lots[0]?.netCapitalMinor).toBeNull();
+  expect(
+    prefillPurchaseCapital(r, {
+      ...context,
+      committedMinor: 10000,
+      fundedMinor: 10000,
+      acceptedTerms: {
+        ...context.acceptedTerms,
+        capitalBasis: "net_invested",
+        grossCommitmentMinor: 11000,
+        commitmentMinorAtAcceptance: 10000,
+        fundedMinorAtAcceptance: 10000,
+      },
+    })[0]?.netCapitalMinor,
+  ).toBe(10000);
+  expect(prefillPurchaseCapital(r, { ...context, fundedMinor: 1000 })).toEqual(
+    r.details.lots,
+  );
+  expect(prefillPurchaseCapital(r, { ...context, snapshotId: "new" })).toEqual(
+    r.details.lots,
+  );
+  expect(
+    prefillPurchaseCapital(
+      {
+        ...r,
+        details: {
+          ...r.details,
+          lots: [r.details.lots[0], { ...r.details.lots[0], id: "second" }],
+        },
+      },
+      context,
+    )[0]?.netCapitalMinor,
+  ).toBeNull();
 });

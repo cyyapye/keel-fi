@@ -77,6 +77,7 @@ const migrationFiles = [
   "packages/database/migrations/0072_reviewed_public_company_links.sql",
   "packages/database/migrations/0064_watch_read_receipts.sql",
   "packages/database/migrations/0068_exception_baseline_empty.sql",
+  "packages/database/migrations/0075_provider_share_prices.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -103,6 +104,7 @@ describe("nullable private investment date migration", () => {
               "packages/database/migrations/0058_net_invested_position_economics.sql",
               "packages/database/migrations/0059_automatic_investment_reviews.sql",
               "packages/database/migrations/0062_reviewed_company_aliases.sql",
+              "packages/database/migrations/0075_provider_share_prices.sql",
               "packages/database/migrations/0070_private_purchase_details.sql",
               "packages/database/migrations/0074_purchase_fee_economics.sql",
               "packages/database/migrations/0072_reviewed_public_company_links.sql",
@@ -568,6 +570,56 @@ describe("AngelList holding import persistence", () => {
 
   afterEach(() => {
     sqlite.close();
+  });
+
+  it("retains Tokenfolio per-share observations without accepting a financial record", async () => {
+    const input = providerTemplateStageInput("tokenfolio");
+    const sharePrices = {
+      costMicros: 12345678,
+      markMicros: 23456789,
+      markDate: null,
+      shareClass: null,
+    };
+    const captured = {
+      ...input,
+      formatVersion: 4 as const,
+      rows: input.rows.map((row) => ({
+        ...row,
+        providerInvestmentId: "synthetic-price-investment",
+        dealMetadata: { ...row.dealMetadata, sharePrices },
+      })),
+    };
+    const staged = await repository.stageHoldingImport(
+      "synthetic-access-subject",
+      captured,
+    );
+    expect(
+      JSON.parse(
+        (
+          sqlite
+            .prepare(
+              "SELECT evidence_json FROM holding_import_share_prices WHERE import_row_id=?",
+            )
+            .get(staged.preview.rows[0]!.id) as { evidence_json: string }
+        ).evidence_json,
+      ),
+    ).toEqual(sharePrices);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) count FROM holding_positions WHERE provider='tokenfolio'",
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+    await expect(
+      repository.stageHoldingImport("synthetic-access-subject", {
+        ...captured,
+        formatVersion: 3,
+      }),
+    ).rejects.toThrow();
+    expect(() =>
+      sqlite.exec("UPDATE holding_import_share_prices SET evidence_json='{}'"),
+    ).toThrow(/immutable/u);
   });
 
   it("stages once, preserves a locked NAV, and applies an SPV position without quantity", async () => {

@@ -49,6 +49,27 @@ export const PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES = {
 const LEGACY_SYDECAR_HOLDINGS_TEMPLATE_CSV_PREAMBLE =
   "Keel Sydecar holdings template v1";
 
+export const ProviderSharePricesSchema = z
+  .object({
+    costMicros: z
+      .number()
+      .int()
+      .safe()
+      .positive()
+      .max(1_000_000_000_000)
+      .nullable(),
+    markMicros: z
+      .number()
+      .int()
+      .safe()
+      .positive()
+      .max(1_000_000_000_000)
+      .nullable(),
+    markDate: z.iso.date().nullable(),
+    shareClass: z.string().trim().min(1).max(500).nullable(),
+  })
+  .strict();
+
 const RequiredTemplateTextSchema = z.string().trim().min(1).max(1_000);
 
 export const PrivateInvestmentImportRowSchema = z
@@ -77,6 +98,7 @@ export const PrivateInvestmentImportRowSchema = z
     dealMetadata: z
       .object({
         allocationMinor: NonNegativeMoneyMinorSchema,
+        sharePrices: ProviderSharePricesSchema.nullable().optional(),
         instrument: RequiredTemplateTextSchema,
         managementFeePpm: ProbabilityPpmSchema.nullable().default(null),
         carryPpm: ProbabilityPpmSchema.nullable().default(null),
@@ -133,7 +155,12 @@ export const PrivateInvestmentImportRowSchema = z
 export const ProviderHoldingsTemplateCsvImportSchema = z
   .object({
     provider: ProviderHoldingsTemplateProviderSchema,
-    formatVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    formatVersion: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+    ]),
     effectiveDate: IsoDateSchema,
     rows: z
       .array(PrivateInvestmentImportRowSchema)
@@ -460,6 +487,7 @@ export async function createProviderPositionNaturalKeySha256(input: {
 
 const RawTemplateRowSchema = z
   .object({
+    sharePrices: ProviderSharePricesSchema.nullable().optional(),
     investment: RequiredTemplateTextSchema,
     legalPosition: RequiredTemplateTextSchema,
     positionType: z.enum(["Direct", "SPV", "Fund"]),
@@ -481,13 +509,25 @@ const RawTemplateRowSchema = z
   })
   .strict();
 
+function parseSharePricesCell(value: string | undefined): unknown {
+  try {
+    return JSON.parse(value || "null");
+  } catch {
+    return { invalid: true };
+  }
+}
+
 function toRawTemplateRow(
   fields: readonly string[],
-  formatVersion: 1 | 2 | 3,
+  formatVersion: 1 | 2 | 3 | 4,
   provider: ProviderHoldingsTemplateProvider,
 ) {
   const hasFees = provider === "sydecar" && formatVersion >= 2;
   return {
+    sharePrices:
+      formatVersion === 4
+        ? parseSharePricesCell(fields[hasFees ? 15 : 13])
+        : null,
     investment: fields[0],
     legalPosition: fields[1],
     positionType: fields[2],
@@ -502,7 +542,7 @@ function toRawTemplateRow(
     instrument: fields[11],
     managementFeePercent: hasFees ? fields[12] : null,
     carryPercent: hasFees ? fields[13] : null,
-    ...(formatVersion === 3
+    ...(formatVersion >= 3
       ? { providerInvestmentId: fields[hasFees ? 14 : 12] }
       : {}),
   };
@@ -511,7 +551,7 @@ function toRawTemplateRow(
 async function parseTemplateRow(
   record: CsvRecord,
   provider: ProviderHoldingsTemplateProvider,
-  formatVersion: 1 | 2 | 3,
+  formatVersion: 1 | 2 | 3 | 4,
 ): Promise<{ effectiveDate: string; row: PrivateInvestmentImportRow }> {
   const label = providerLabel(provider);
   const headers = providerHoldingsTemplateCsvHeaders(provider, formatVersion);
@@ -656,6 +696,7 @@ async function parseTemplateRow(
       positionKind,
       dealMetadata: {
         allocationMinor: committedMinor,
+        ...(raw.sharePrices ? { sharePrices: raw.sharePrices } : {}),
         instrument: raw.instrument,
         managementFeePpm,
         carryPpm,
@@ -676,13 +717,17 @@ function hasExactHeader(
 
 export function providerHoldingsTemplateCsvHeaders(
   provider: ProviderHoldingsTemplateProvider,
-  formatVersion: 1 | 2 | 3 = provider === "sydecar" ? 2 : 1,
+  formatVersion: 1 | 2 | 3 | 4 = provider === "sydecar" ? 2 : 1,
 ): readonly string[] {
   const headers =
     provider === "sydecar" && formatVersion >= 2
       ? SYDECAR_HOLDINGS_TEMPLATE_CSV_V2_HEADERS
       : PROVIDER_HOLDINGS_TEMPLATE_CSV_HEADERS;
-  return formatVersion === 3 ? [...headers, "Provider Investment ID"] : headers;
+  return formatVersion === 4
+    ? [...headers, "Provider Investment ID", "Share Prices JSON"]
+    : formatVersion >= 3
+      ? [...headers, "Provider Investment ID"]
+      : headers;
 }
 
 export function providerHoldingsTemplateCsv(
@@ -706,16 +751,18 @@ export async function parseProviderHoldingsTemplateCsv(
       ? preamble.fields[0]
       : null;
   const formatVersion =
-    preambleValue === PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES[provider]
-      ? (3 as const)
-      : preambleValue === PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES[provider]
-        ? provider === "sydecar"
-          ? (2 as const)
-          : (1 as const)
-        : provider === "sydecar" &&
-            preambleValue === LEGACY_SYDECAR_HOLDINGS_TEMPLATE_CSV_PREAMBLE
-          ? (1 as const)
-          : null;
+    preambleValue === `Keel ${label} holdings template v4`
+      ? (4 as const)
+      : preambleValue === PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES[provider]
+        ? (3 as const)
+        : preambleValue === PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES[provider]
+          ? provider === "sydecar"
+            ? (2 as const)
+            : (1 as const)
+          : provider === "sydecar" &&
+              preambleValue === LEGACY_SYDECAR_HOLDINGS_TEMPLATE_CSV_PREAMBLE
+            ? (1 as const)
+            : null;
   if (formatVersion === null) {
     throw new ProviderHoldingsTemplateCsvParseError(
       "invalid_preamble",

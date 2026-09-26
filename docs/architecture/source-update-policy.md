@@ -341,3 +341,20 @@ search. The catalog uses three queries over current mapping heads. The synthetic
 120-security holdout covers tied mapping history, unrelated households, empty
 results, recommendation reuse and acceptance with real D1 read/write counters.
 Grouping preserves each position and its existing valuation method.
+
+### Reusing per-share valuation evidence
+
+Tokenfolio version 4 captures retain the explicitly labelled entry and marked
+share prices at millionth-dollar precision. A missing mark date or share class
+stays unknown; retrieval time is not a valuation date. These source observations
+are immutable and become selectable only through accepted position snapshots.
+The valuation editor finds prices through reviewed company/exposure links within
+the household, alongside Portfolio Watch news as company-level context. News and
+company valuations never become per-share prices automatically.
+
+For a single fully funded purchase, missing share capital can be prefilled from
+current accepted economics. Existing capital and actual remaining-share counts
+are preserved. The user confirms unchanged shares and comparable securities,
+provides missing price evidence, and saves a purchase review. The server rejects
+changed source prices and class mismatches. Estimates remain before carry and
+separate from reported values; returns use the position's cash contributed.

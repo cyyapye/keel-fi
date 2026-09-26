@@ -1178,7 +1178,11 @@
     "scripts/sql-replay.test.ts :: rejects D1 result divergence instead of trusting the SQLite behavior oracle",
     "scripts/sql-replay.test.ts :: rejects incomplete replay, missing billing metadata and failed SQL traces",
     "scripts/sql-replay.test.ts :: replays setup, atomic batches, bindings and reads with actual D1 index-write costs",
-    "scripts/test-support/d1-cost.test.ts :: creates isolated complete D1 fixtures and fails closed between bootstrap batches"
+    "scripts/test-support/d1-cost.test.ts :: creates isolated complete D1 fixtures and fails closed between bootstrap batches",
+    "packages/database/src/holding-imports.test.ts :: AngelList holding import persistence > retains Tokenfolio per-share observations without accepting a financial record",
+    "packages/database/src/position-purchases.test.ts :: projects only owned source prices with one bounded query across 120 positions",
+    "packages/domain/src/position-purchases.test.ts :: prefills a single current fully funded purchase without changing accepted details",
+    "scripts/share-price-evidence-d1-cost.test.ts :: bounds share-price evidence reads across 120 holdings, repeated history and empty results"
   ],
   "playwright": [
     "e2e/agreement-security.visual.spec.ts :: chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads",
