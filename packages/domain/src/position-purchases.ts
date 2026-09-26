@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  calculatePositionEconomics,
+  type PositionEconomicsContext,
+} from "./position-economics";
 
 const money = z.number().int().safe().nonnegative();
 const positive = z.number().int().safe().positive().max(1_000_000_000_000);
@@ -48,6 +52,8 @@ export const PurchaseLotSchema = z
     sourceUrl: z.url().max(2048).nullable(),
     mark: z
       .object({
+        sourceEvidenceId: text.optional(),
+        comparableConfirmed: z.literal(true).optional(),
         priceMicros: positive,
         effectiveDate: z.iso.date(),
         shareClass: text,
@@ -133,6 +139,53 @@ export const PurchaseContextSchema = z.object({
 export type PurchaseLot = z.infer<typeof PurchaseLotSchema>;
 export type PurchaseReceipt = z.infer<typeof PurchaseReceiptSchema>;
 export type AcceptPurchases = z.infer<typeof AcceptPurchasesSchema>;
+
+// Only a single, fully funded purchase can inherit the position's capital.
+// This fills missing evidence in an editable draft, never an accepted receipt.
+export function prefillPurchaseCapital(
+  receipt: PurchaseReceipt,
+  context: PositionEconomicsContext | null | undefined,
+): PurchaseLot[] {
+  const lots = receipt.details.lots;
+  if (
+    !context ||
+    receipt.snapshotId !== context.snapshotId ||
+    lots.length !== 1
+  )
+    return lots;
+  const economics = calculatePositionEconomics(context);
+  if (
+    !economics ||
+    (economics.fundedMinor !== economics.committedMinor &&
+      !(
+        context.acceptedTerms?.capitalBasis === "net_invested" &&
+        economics.fundedMinor === context.committedMinor
+      ))
+  )
+    return lots;
+  return lots.map((lot) => {
+    if (lot.grossCashMinor !== null || lot.netCapitalMinor !== null) return lot;
+    // Purchase capital excludes SPV fees; preserve the separately paid cash in
+    // position economics instead of charging those fees again in the lot.
+    const acceptedFee = context.acceptedTerms?.purchaseFee;
+    if (
+      acceptedFee &&
+      (acceptedFee.ratePpm !== lot.feePpm || acceptedFee.basis !== lot.feeBasis)
+    )
+      return lot;
+    const capital = acceptedFee
+      ? economics.positionCostBasisMinor
+      : purchaseCapital({
+          ...lot,
+          grossCashMinor: economics.positionCostBasisMinor,
+        }).netCapitalMinor;
+    const candidate = {
+      ...lot,
+      netCapitalMinor: capital,
+    };
+    return PurchaseLotSchema.safeParse(candidate).success ? candidate : lot;
+  });
+}
 
 function integer(value: bigint): number {
   const n = Number(value);
@@ -230,7 +283,7 @@ export function estimatePurchaseValue(
       !lot.mark ||
       !lot.shareClass ||
       !lot.sourceLabel ||
-      lot.shareClass !== lot.mark.shareClass
+      lot.shareClass.toLowerCase() !== lot.mark.shareClass.toLowerCase()
     )
       return null;
     if (lot.sharesAsOf && lot.sharesAsOf > lot.mark.effectiveDate) return null;
@@ -294,3 +347,33 @@ export function purchaseAllInPrice(lot: PurchaseLot): number | null {
     (BigInt(lot.priceMicros) * numerator + denominator / 2n) / denominator;
   return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;
 }
+
+export const SharePriceEvidenceSchema = z.object({
+  id: text,
+  positionId: text,
+  positionLabel: text,
+  sourceLabel: text,
+  observedAt: z.string().min(1),
+  costMicros: positive.nullable(),
+  markMicros: positive.nullable(),
+  markDate: z.iso.date().nullable(),
+  shareClass: text.nullable(),
+});
+export const SharePriceEvidenceListSchema = z
+  .array(SharePriceEvidenceSchema)
+  .max(120);
+
+export const PositionValuationEvidenceSchema = z.object({
+  prices: SharePriceEvidenceListSchema,
+  watch: z
+    .array(
+      z.object({
+        id: text,
+        title: z.string().min(1),
+        url: z.url().refine((value) => new URL(value).protocol === "https:"),
+        publishedAt: z.string().min(1),
+        fact: z.string(),
+      }),
+    )
+    .max(10),
+});

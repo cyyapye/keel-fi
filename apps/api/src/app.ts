@@ -2767,6 +2767,21 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.get(
+    "/api/investment-positions/:positionId/share-price-evidence",
+    async (context) => {
+      const evidence = await new D1PositionPurchaseRepository(
+        context.env.DB,
+      ).valuationEvidence(
+        context.get("identity").subject,
+        context.req.param("positionId"),
+      );
+      return context.json(evidence, 200, {
+        "Cache-Control": "private, no-store",
+      });
+    },
+  );
+
   app.post(
     "/api/investment-positions/:positionId/purchases",
     async (context) => {

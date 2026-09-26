@@ -81,7 +81,7 @@ const HoldingImportStageInputSchema = z
   .object({
     provider: PrivateHoldingImportProviderSchema.default(ANGELLIST_PROVIDER),
     formatVersion: z
-      .union([z.literal(1), z.literal(2), z.literal(3)])
+      .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
       .default(1),
     objectKey: z.string().min(1).max(1_024),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -93,6 +93,18 @@ const HoldingImportStageInputSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    if (
+      value.rows.some((row) => row.dealMetadata.sharePrices != null) &&
+      (value.provider !== TOKENFOLIO_PROVIDER || value.formatVersion !== 4)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["rows"],
+        message:
+          "Per-share source prices require a Tokenfolio version 4 capture.",
+      });
+    }
+
     const rowNumbers = value.rows.map((row) => row.rowNumber).sort();
     const scopedRows = value.canonicalScope.rows
       .map((row) => row.sourceRowNumber)
@@ -158,7 +170,7 @@ const HoldingImportStageInputSchema = z
       });
     }
     if (
-      value.formatVersion === 3 &&
+      value.formatVersion >= 3 &&
       value.rows.some((row) => row.providerInvestmentId === undefined)
     )
       context.addIssue({
@@ -530,6 +542,7 @@ async function snapshotFingerprint(
       row.netValueState,
       row.netValueMinor,
       row.dealMetadata.instrument,
+      ...(row.dealMetadata.sharePrices ? [row.dealMetadata.sharePrices] : []),
     ]),
   );
 }
@@ -735,8 +748,8 @@ export class D1HoldingImportRepository {
     const input = HoldingImportStageInputSchema.parse(rawInput);
     const importMetadata = PRIVATE_HOLDING_IMPORT_METADATA[input.provider];
     const parserSchema =
-      input.formatVersion === 3
-        ? `${input.provider}_keel_template_v3`
+      input.formatVersion >= 3
+        ? `${input.provider}_keel_template_v${input.formatVersion}`
         : input.provider === SYDECAR_PROVIDER && input.formatVersion === 2
           ? SYDECAR_PARSER_SCHEMA_V2
           : importMetadata.parserSchema;
@@ -958,6 +971,19 @@ export class D1HoldingImportRepository {
               )
               .bind(rowId, identity.household_id, row.providerInvestmentId),
           );
+        if (row.dealMetadata.sharePrices) {
+          statements.push(
+            this.db
+              .prepare(
+                `INSERT INTO holding_import_share_prices(import_row_id, household_id, evidence_json) VALUES (?, ?, ?)`,
+              )
+              .bind(
+                rowId,
+                identity.household_id,
+                JSON.stringify(row.dealMetadata.sharePrices),
+              ),
+          );
+        }
         if (economicsEvidence !== null) {
           statements.push(
             this.reportedEconomicsEvidenceInsert(

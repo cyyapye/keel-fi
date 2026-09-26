@@ -189,6 +189,12 @@ type CaptureRow = {
   carryPpm: number | null;
   identityKey: string;
   providerInvestmentId: string;
+  sharePrices?: {
+    costMicros: number | null;
+    markMicros: number | null;
+    markDate: string | null;
+    shareClass: string | null;
+  };
 };
 
 function parseOptions(argv: readonly string[]) {
@@ -1026,11 +1032,14 @@ function rowsToCsv(
       row.instrument,
       ...providerTerms,
       row.providerInvestmentId,
+      ...(provider === "tokenfolio"
+        ? [JSON.stringify(row.sharePrices ?? null)]
+        : []),
     ]
       .map(csvCell)
       .join(",");
   });
-  const document = `${PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES[provider]}\n${providerHoldingsTemplateCsvHeaders(provider, 3).join(",")}\n${lines.join("\n")}\n`;
+  const document = `${provider === "tokenfolio" ? "Keel Tokenfolio holdings template v4" : PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES[provider]}\n${providerHoldingsTemplateCsvHeaders(provider, provider === "tokenfolio" ? 4 : 3).join(",")}\n${lines.join("\n")}\n`;
   const bytes = new TextEncoder().encode(document);
   if (bytes.byteLength > MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_BYTES) {
     throw new AgentFailure("incomplete_snapshot");
@@ -1287,7 +1296,59 @@ async function captureTokenfolio(
     );
     if (providerInvestmentId === null)
       throw new AgentFailure("identity_ambiguous");
+    const dialog = close.locator('xpath=ancestor::*[@role="dialog"][1]');
+    const readOptional = async (name: RegExp) => {
+      const label = dialog
+        .locator("dt, .text-xs.text-gray-400.mb-1.truncate")
+        .filter({ hasText: name });
+      return (await label.count()) === 1
+        ? (
+            await label.locator("xpath=following-sibling::*[1]").innerText()
+          ).trim()
+        : null;
+    };
+    const price = (value: string | null) => {
+      if (!value) return null;
+      const match =
+        /^(?:USD\s*|\$)?([0-9]+(?:,[0-9]{3})*)(?:\.([0-9]{1,6}))?$/.exec(value);
+      if (!match) return null;
+      const result =
+        BigInt(match[1]!.replaceAll(",", "")) * 1_000_000n +
+        BigInt((match[2] ?? "").padEnd(6, "0"));
+      return result > 0n && result <= 1_000_000_000_000n
+        ? Number(result)
+        : null;
+    };
+    const rowPrice = async (cellIndex: number, label: RegExp) => {
+      const cell = cells.nth(cellIndex);
+      const spans = cell.locator(":scope > span");
+      if (
+        (await spans.count()) !== 2 ||
+        !label.test((await spans.first().innerText()).trim())
+      )
+        return null;
+      return price((await spans.last().innerText()).trim());
+    };
+    const costMicros = await rowPrice(
+      2,
+      /^(?:Entry Price|Cost\s*\/\s*(?:sh|share)):?$/iu,
+    );
+    const markMicros = await rowPrice(
+      4,
+      /^(?:TF Price|Mark\s*\/\s*(?:sh|share)):?$/iu,
+    );
+    const reportedMarkDate = await readOptional(/^(?:Mark date|Mark as of)$/iu);
+    let markDate: string | null = null;
+    if (reportedMarkDate) {
+      try {
+        markDate = parseProviderDate(reportedMarkDate);
+      } catch {
+        /* Unknown is not the capture date. */
+      }
+    }
+    const shareClass = await readOptional(/^Share class$/iu);
     const capturedRow: CaptureRow = {
+      sharePrices: { costMicros, markMicros, markDate, shareClass },
       investment: company,
       legalPosition: requiredText(`Tokenfolio position in ${company}`),
       positionType: "SPV",

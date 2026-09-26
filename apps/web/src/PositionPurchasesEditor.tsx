@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { Holding } from "@keel/domain";
 import {
   AcceptPurchasesSchema,
+  type SharePriceEvidenceListSchema,
+  PositionValuationEvidenceSchema,
+  prefillPurchaseCapital,
   PurchaseReceiptSchema,
+  PurchaseLotSchema,
   estimatePurchaseValue,
   purchaseCapital,
   purchaseShares,
@@ -14,7 +18,10 @@ import {
   extractPurchaseNotice,
   PurchaseNoticeInputSchema,
 } from "@keel/domain/purchase-notice";
-import { calculatePositionEconomics } from "@keel/domain/position-economics";
+import {
+  calculatePositionEconomics,
+  calculatePositionPerformance,
+} from "@keel/domain/position-economics";
 import {
   Collapsible,
   CollapsibleTrigger,
@@ -29,6 +36,7 @@ import {
   Input,
   Notice,
   Textarea,
+  TextLink,
   Select,
   SelectContent,
   SelectItem,
@@ -99,6 +107,8 @@ function draftFor(lot: PurchaseLot): Draft {
     sharesAsOf: lot.sharesAsOf ?? "",
     sourceLabel: lot.sourceLabel ?? "",
     sourceUrl: lot.sourceUrl ?? "",
+    markEvidenceId: lot.mark?.sourceEvidenceId ?? "",
+    markComparable: String(lot.mark?.comparableConfirmed ?? false),
     markPrice: unitPrice(lot.mark?.priceMicros),
     markDate: lot.mark?.effectiveDate ?? "",
     markClass: lot.mark?.shareClass ?? "",
@@ -133,6 +143,12 @@ function lotFor(d: Draft) {
       Boolean,
     )
       ? {
+          ...(d.markEvidenceId
+            ? {
+                sourceEvidenceId: d.markEvidenceId,
+                comparableConfirmed: d.markComparable === "true" ? true : false,
+              }
+            : {}),
           priceMicros: scaled(d.markPrice, 6),
           effectiveDate: d.markDate,
           shareClass: d.markClass,
@@ -181,8 +197,51 @@ export function PositionPurchasesEditor({
   const open = editing || automaticEntry;
   const [valuationOnly, setValuationOnly] = useState(mode === "valuation");
   const [drafts, setDrafts] = useState<Draft[]>(() =>
-    automaticEntry ? receipt!.details.lots.map(draftFor) : [],
+    automaticEntry
+      ? prefillPurchaseCapital(receipt!, holding.positionEconomicsContext).map(
+          draftFor,
+        )
+      : [],
   );
+  const [priceEvidence, setPriceEvidence] = useState<
+    ReturnType<typeof SharePriceEvidenceListSchema.parse>
+  >([]);
+  const [watchEvidence, setWatchEvidence] = useState<
+    ReturnType<typeof PositionValuationEvidenceSchema.parse>["watch"]
+  >([]);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [loadingEvidence, setLoadingEvidence] = useState(true);
+  useEffect(() => {
+    if (!open || !valuationOnly) return;
+    const controller = new AbortController();
+    void fetch(
+      `/api/investment-positions/${encodeURIComponent(holding.id)}/share-price-evidence`,
+      { signal: controller.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok)
+          throw new Error(
+            "Price evidence could not be loaded. You can still enter a sourced price below.",
+          );
+        const evidence = PositionValuationEvidenceSchema.parse(
+          await response.json(),
+        );
+        if (controller.signal.aborted) return;
+        setEvidenceError(null);
+        setPriceEvidence(evidence.prices);
+        setWatchEvidence(evidence.watch);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setEvidenceError(
+            "Price evidence could not be loaded. Reopen this section to retry, or enter a sourced price below.",
+          );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingEvidence(false);
+      });
+    return () => controller.abort();
+  }, [open, valuationOnly, holding.id]);
   const [removed, setRemoved] = useState<{ draft: Draft; index: number }[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -203,10 +262,22 @@ export function PositionPurchasesEditor({
         (coversPosition !== (receipt?.details.coversPosition ?? false) ||
           JSON.stringify(drafts.map(lotFor)) !==
             JSON.stringify(
-              receipt?.details.lots.map((lot) => lotFor(draftFor(lot))) ?? [],
+              receipt
+                ? prefillPurchaseCapital(
+                    receipt,
+                    holding.positionEconomicsContext,
+                  ).map((lot) => lotFor(draftFor(lot)))
+                : [],
             )),
     );
-  }, [open, coversPosition, drafts, receipt, onDirtyChange]);
+  }, [
+    open,
+    coversPosition,
+    drafts,
+    receipt,
+    onDirtyChange,
+    holding.positionEconomicsContext,
+  ]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   if (!context) return null;
   const blank = (prefill: boolean): Draft => {
@@ -244,6 +315,31 @@ export function PositionPurchasesEditor({
           receipt?.details ?? { coversPosition: false, lots: [] },
         ));
   const estimate = estimatePurchaseValue(receipt, context.snapshotId);
+  const estimatedPerformance =
+    estimate && holding.realizedValueMinor != null
+      ? calculatePositionPerformance({
+          currentValueMinor: estimate.valueMinor,
+          currentValueReported: true,
+          realizedValueMinor: holding.realizedValueMinor,
+          providerCostBasisMinor: null,
+          fundedMinor: estimate.grossCashMinor,
+          economicsContext: holding.positionEconomicsContext ?? null,
+          allowFundedAmountEstimate: true,
+        })
+      : null;
+  const draftEstimate = parsed.success
+    ? estimatePurchaseValue(
+        {
+          id: receipt?.id ?? "draft",
+          positionId: holding.id,
+          snapshotId: context.snapshotId,
+          currency: "USD",
+          acceptedAt: receipt?.acceptedAt ?? new Date().toISOString(),
+          details: parsed.data.details,
+        },
+        context.snapshotId,
+      )
+    : null;
   const money = (n: number) => formatCurrency(n, context.currency);
   const update = (index: number, key: string, value: string) =>
     setDrafts((old) =>
@@ -252,6 +348,13 @@ export function PositionPurchasesEditor({
           ? {
               ...d,
               [key]: value,
+              ...(d.markEvidenceId &&
+              (key === "markPrice"
+                ? scaled(d[key], 6) !== scaled(value, 6)
+                : d[key] !== value) &&
+              ["markPrice", "markDate", "markClass", "shareClass"].includes(key)
+                ? { markComparable: "false" }
+                : {}),
               ...(key === "markPrice" && value && !d.markClass && d.shareClass
                 ? { markClass: d.shareClass }
                 : {}),
@@ -295,12 +398,18 @@ export function PositionPurchasesEditor({
     setCoversPosition(receipt?.details.coversPosition ?? false);
     setDrafts(
       receipt?.details.lots.length
-        ? receipt.details.lots.map(draftFor)
+        ? prefillPurchaseCapital(receipt, holding.positionEconomicsContext).map(
+            draftFor,
+          )
         : [blank(true)],
     );
     setError(null);
     setNoticeIndex(null);
     setNoticeWarnings([]);
+    if (valuation) {
+      setLoadingEvidence(true);
+      setEvidenceError(null);
+    }
     setValuationOnly(valuation);
     setOpen(true);
   };
@@ -606,7 +715,7 @@ export function PositionPurchasesEditor({
                       )}
                       {capital.grossCashMinor !== null && (
                         <DataItem
-                          label="Cash contributed"
+                          label="Cash used for purchase"
                           value={money(capital.grossCashMinor)}
                         />
                       )}
@@ -669,22 +778,14 @@ export function PositionPurchasesEditor({
                     . Excludes carry and remaining expenses; the provider mark
                     stays separate.
                   </p>
-                  {estimate.grossCashMinor !== null &&
-                    estimate.grossCashMinor > 0 &&
-                    holding.realizedValueMinor != null && (
-                      <p>
-                        Estimated return on cash contributed, before carry:{" "}
-                        {percent(
-                          ((BigInt(estimate.valueMinor) +
-                            BigInt(holding.realizedValueMinor ?? 0) -
-                            BigInt(estimate.grossCashMinor)) *
-                            1_000_000n) /
-                            BigInt(estimate.grossCashMinor),
-                        )}
-                        %. Includes reported distributions and the recorded
-                        upfront fees; not tax basis.
-                      </p>
-                    )}
+                  {estimatedPerformance?.totalReturnPpm != null && (
+                    <p>
+                      Estimated return on cash contributed, before carry:{" "}
+                      {percent(BigInt(estimatedPerformance.totalReturnPpm))}
+                      %. Includes reported distributions and the recorded
+                      upfront fees; not tax basis.
+                    </p>
+                  )}
                 </div>
                 {mode !== "valuation" && (
                   <Button tone="quiet" onClick={() => edit(true)}>
@@ -943,6 +1044,161 @@ export function PositionPurchasesEditor({
                   )}
                 </>
               )}
+              {valuationOnly && (
+                <div>
+                  <p>
+                    Confirm that the original shares are still held, or enter
+                    the GP's actual allocation below.
+                  </p>
+                  <label>
+                    <Input
+                      type="checkbox"
+                      checked={d.originalSharesUnchanged === "true"}
+                      onChange={(event) =>
+                        update(
+                          i,
+                          "originalSharesUnchanged",
+                          String(event.currentTarget.checked),
+                        )
+                      }
+                    />{" "}
+                    No sales, splits or conversions; original shares are still
+                    held.
+                  </label>
+                  {(() => {
+                    const lot = PurchaseLotSchema.safeParse({
+                      ...lotFor(d),
+                      mark: null,
+                      remainingSharesMicros: null,
+                      originalSharesUnchanged: true,
+                    });
+                    const shares = lot.success
+                      ? purchaseShares(lot.data)
+                      : null;
+                    return shares ? (
+                      <p>
+                        Estimated original shares:{" "}
+                        <strong>{decimal(shares.quantityMicros, 6)}</strong> ·
+                        capital ÷ purchase price. An entered remaining share
+                        count takes precedence.
+                      </p>
+                    ) : null;
+                  })()}
+                  {loadingEvidence && <p>Loading price evidence…</p>}
+                  {evidenceError && (
+                    <Notice tone="error">{evidenceError}</Notice>
+                  )}
+                  {!loadingEvidence &&
+                    !evidenceError &&
+                    !priceEvidence.some((item) => item.markMicros !== null) && (
+                      <p>
+                        No imported share prices yet. Refresh the provider
+                        source with the updated capture agent, or enter a dated
+                        price below.
+                      </p>
+                    )}
+                  {priceEvidence
+                    .filter((item) => item.markMicros !== null)
+                    .map((item) => (
+                      <div key={item.id}>
+                        <p>
+                          <strong>
+                            {item.sourceLabel} · ${unitPrice(item.markMicros)} /
+                            share
+                          </strong>{" "}
+                          ·{" "}
+                          {item.markDate
+                            ? formatDate(item.markDate)
+                            : "Mark date not reported"}
+                          <br />
+                          {item.positionLabel} ·{" "}
+                          {item.shareClass ?? "Share class not reported"}
+                        </p>
+                        <Button
+                          tone="quiet"
+                          disabled={Boolean(
+                            item.shareClass &&
+                            d.shareClass &&
+                            item.shareClass.toLowerCase() !==
+                              d.shareClass.toLowerCase(),
+                          )}
+                          onClick={() =>
+                            setDrafts((old) =>
+                              old.map((draft, index) =>
+                                index !== i
+                                  ? draft
+                                  : {
+                                      ...draft,
+                                      markPrice: unitPrice(item.markMicros),
+                                      markDate: item.markDate ?? "",
+                                      markClass: item.shareClass ?? "",
+                                      markSource: `${item.sourceLabel} · ${item.positionLabel}`,
+                                      markEvidenceId: item.id,
+                                      markComparable: "false",
+                                    },
+                              ),
+                            )
+                          }
+                        >
+                          Use this price
+                        </Button>
+                        {item.shareClass &&
+                          d.shareClass &&
+                          item.shareClass.toLowerCase() !==
+                            d.shareClass.toLowerCase() && (
+                            <p>
+                              This price is for a different share class. Enter
+                              evidence for your class below.
+                            </p>
+                          )}
+                      </div>
+                    ))}
+                  {watchEvidence.length > 0 && (
+                    <Collapsible>
+                      <CollapsibleTrigger>
+                        Portfolio Watch context <DisclosureIndicator />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        {watchEvidence.map((item) => (
+                          <p key={item.id}>
+                            <TextLink
+                              href={item.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {item.title}
+                            </TextLink>{" "}
+                            · {formatDate(item.publishedAt.slice(0, 10))}
+                            <br />
+                            {item.fact}
+                          </p>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                  {d.markEvidenceId && (
+                    <label>
+                      <Input
+                        type="checkbox"
+                        checked={d.markComparable === "true"}
+                        onChange={(event) =>
+                          update(
+                            i,
+                            "markComparable",
+                            String(event.currentTarget.checked),
+                          )
+                        }
+                      />{" "}
+                      I confirmed this price applies to the same underlying
+                      share class.
+                    </label>
+                  )}
+                  <p>
+                    Portfolio Watch company valuations provide context. This
+                    calculation needs a dated price for the same security.
+                  </p>
+                </div>
+              )}
               {mode !== "purchase" && (
                 <div className="position-economics__fields">
                   {valuationOnly &&
@@ -980,21 +1236,23 @@ export function PositionPurchasesEditor({
                     )}
                     {field(i, "sourceUrl", "Purchase source link")}
                   </div>
-                  <label>
-                    <Input
-                      type="checkbox"
-                      checked={d.originalSharesUnchanged === "true"}
-                      onChange={(event) =>
-                        update(
-                          i,
-                          "originalSharesUnchanged",
-                          String(event.currentTarget.checked),
-                        )
-                      }
-                    />{" "}
-                    No sales, splits or conversions; original shares are still
-                    held.
-                  </label>
+                  {!valuationOnly && (
+                    <label>
+                      <Input
+                        type="checkbox"
+                        checked={d.originalSharesUnchanged === "true"}
+                        onChange={(event) =>
+                          update(
+                            i,
+                            "originalSharesUnchanged",
+                            String(event.currentTarget.checked),
+                          )
+                        }
+                      />{" "}
+                      No sales, splits or conversions; original shares are still
+                      held.
+                    </label>
+                  )}
                   <p>
                     Without a remaining share count, Keel can calculate original
                     shares from share capital and purchase price. Only use that
@@ -1044,9 +1302,28 @@ export function PositionPurchasesEditor({
               These purchases cover all my remaining shares in this SPV.
             </label>
           )}
-          {!parsed.success && (
-            <Notice tone="error">{parsed.error.issues[0]?.message}</Notice>
+          {valuationOnly && draftEstimate && (
+            <Notice>
+              Estimated gross value:{" "}
+              <strong>{money(draftEstimate.valueMinor)}</strong> · before carry
+              and remaining expenses. As of{" "}
+              {formatDate(draftEstimate.effectiveDate)}.
+            </Notice>
           )}
+          {drafts.some(
+            (d) => d.markEvidenceId && d.markComparable !== "true",
+          ) && (
+            <Notice>
+              Confirm that the selected price applies to your underlying share
+              class before saving.
+            </Notice>
+          )}
+          {!parsed.success &&
+            !drafts.some(
+              (d) => d.markEvidenceId && d.markComparable !== "true",
+            ) && (
+              <Notice tone="error">{parsed.error.issues[0]?.message}</Notice>
+            )}
           {removed.map(({ draft, index }) => (
             <Notice key={draft.id}>
               {draft.shareClass || "Purchase"} removed from this draft.{" "}

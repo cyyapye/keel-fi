@@ -11,6 +11,7 @@ import {
 } from "../../../scripts/test-support/legal-documents";
 import {
   seedCostHoldings,
+  seedCostWatchTargets,
   COST_SUBJECT,
 } from "../../../scripts/test-support/cost-fixtures";
 import { D1PositionPurchaseRepository } from "./position-purchases";
@@ -251,4 +252,149 @@ it("persists optional details, reads them through holdings, versions edits and r
   expect(() => db.sqlite.exec("DELETE FROM holding_purchase_reviews")).toThrow(
     /immutable/u,
   );
+});
+
+it("projects only owned source prices with one bounded query across 120 positions", async () => {
+  const positions = db.sqlite
+    .prepare(
+      `SELECT id,household_id FROM holding_positions WHERE household_id='hh_demo' ORDER BY id`,
+    )
+    .all() as { id: string; household_id: string }[];
+  expect(positions.length).toBeGreaterThanOrEqual(120);
+  await seedCostWatchTargets(db.asD1());
+  const p = positions[0]!;
+  const row = db.sqlite
+    .prepare(
+      `SELECT import_row_id FROM holding_import_applications WHERE position_id=? ORDER BY applied_at DESC,id DESC LIMIT 1`,
+    )
+    .get(p.id) as { import_row_id: string };
+  db.sqlite
+    .prepare(`INSERT INTO holding_import_share_prices VALUES(?,?,?)`)
+    .run(
+      row.import_row_id,
+      p.household_id,
+      JSON.stringify({
+        costMicros: 20000000,
+        markMicros: 35000000,
+        markDate: "2026-09-01",
+        shareClass: "Series B",
+      }),
+    );
+  const before = db.statements.length;
+  const repo = new D1PositionPurchaseRepository(db.asD1());
+  const prices = await repo.evidence(COST_SUBJECT, p.id);
+  expect(db.statements.length - before).toBe(1);
+  const query = db.statements[before]!;
+  const plan = db.sqlite
+    .prepare(`EXPLAIN QUERY PLAN ${query.sql}`)
+    .all(COST_SUBJECT, p.id) as { detail: string }[];
+  expect(plan.some((row) => /SCAN candidate/u.test(row.detail))).toBe(false);
+  expect(
+    plan.some((row) => /SEARCH candidate USING INDEX/u.test(row.detail)),
+  ).toBe(true);
+  expect(prices).toHaveLength(1);
+  expect(prices[0]).toMatchObject({
+    id: row.import_row_id,
+    markMicros: 35000000,
+    costMicros: 20000000,
+    shareClass: "Series B",
+  });
+  const related = positions[1]!;
+  // Source prices cannot cross legal positions until the economic link is reviewed.
+  expect(await repo.evidence(COST_SUBJECT, related.id)).toEqual([]);
+  const exposure = db.sqlite
+    .prepare(
+      "SELECT exposure_id FROM holding_position_exposure_heads WHERE position_id=? AND status='active'",
+    )
+    .get(p.id) as { exposure_id: string };
+  db.sqlite
+    .prepare(
+      `INSERT INTO holding_position_exposure_mappings
+    (id,household_id,position_id,exposure_id,relationship_kind,allocation_ppm,status,decision_source,decision_reference,evidence_sha256,effective_at,version,supersedes_mapping_id,accepted_by_user_id,accepted_at,immutable)
+    SELECT id || '-withdrawn',household_id,position_id,exposure_id,relationship_kind,NULL,'withdrawn','review','Synthetic regrouping',evidence_sha256,effective_at,version+1,id,'usr_demo',accepted_at,1
+    FROM holding_position_exposure_mappings m WHERE position_id=? AND status='active' AND NOT EXISTS (SELECT 1 FROM holding_position_exposure_mappings later WHERE later.supersedes_mapping_id=m.id)`,
+    )
+    .run(related.id);
+  db.sqlite
+    .prepare(
+      `INSERT INTO holding_position_exposure_mappings
+    (id,household_id,position_id,exposure_id,relationship_kind,allocation_ppm,status,decision_source,decision_reference,evidence_sha256,effective_at,version,supersedes_mapping_id,accepted_by_user_id,accepted_at,immutable)
+    VALUES('shared-price-link','hh_demo',?,?,'look_through',1000000,'active','review','Synthetic comparable issuer',?,'2026-09-02',1,NULL,'usr_demo','2026-09-02',1)`,
+    )
+    .run(related.id, exposure.exposure_id, "a".repeat(64));
+  expect(await repo.evidence(COST_SUBJECT, related.id)).toEqual(prices);
+  const snapshot = db.sqlite
+    .prepare(
+      "SELECT snapshot_id FROM holding_import_applications WHERE position_id=? ORDER BY applied_at DESC,id DESC LIMIT 1",
+    )
+    .get(related.id) as { snapshot_id: string };
+  const details = {
+    coversPosition: true,
+    lots: [
+      {
+        id: "estimated",
+        purchasedOn: null,
+        shareClass: "Series B",
+        priceMicros: 20000000,
+        referencePriceMicros: null,
+        grossCashMinor: null,
+        netCapitalMinor: 200000,
+        feePpm: 0,
+        feeBasis: "net_capital" as const,
+        feeLabel: null,
+        originalSharesUnchanged: true,
+        remainingSharesMicros: null,
+        sharesAsOf: null,
+        sourceLabel: "Synthetic purchase",
+        sourceUrl: null,
+        mark: {
+          priceMicros: 35000000,
+          effectiveDate: "2026-09-01",
+          shareClass: "Series B",
+          sourceLabel: "Synthetic provider",
+          sourceUrl: null,
+          sourceEvidenceId: row.import_row_id,
+          comparableConfirmed: true as const,
+        },
+      },
+    ],
+  };
+  const saved = await repo.accept(COST_SUBJECT, related.id, {
+    expectedSnapshotId: snapshot.snapshot_id,
+    expectedReceiptId: null,
+    details,
+  });
+  expect(saved.details.lots[0]?.mark?.sourceEvidenceId).toBe(row.import_row_id);
+  await seedCostHoldings(db.asD1(), COST_SUBJECT, 2);
+  await expect(
+    repo.accept(COST_SUBJECT, related.id, {
+      expectedSnapshotId: snapshot.snapshot_id,
+      expectedReceiptId: saved.id,
+      details,
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  const latest = db.sqlite
+    .prepare(
+      "SELECT snapshot_id FROM holding_import_applications WHERE position_id=? ORDER BY applied_at DESC,id DESC LIMIT 1",
+    )
+    .get(related.id) as { snapshot_id: string };
+  expect(() =>
+    db.sqlite
+      .prepare(
+        `INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES('raced-price','hh_demo',?,?,?,?,'usr_demo','2026-09-03')`,
+      )
+      .run(
+        related.id,
+        latest.snapshot_id,
+        saved.id,
+        JSON.stringify({
+          ...saved,
+          id: "raced-price",
+          snapshotId: latest.snapshot_id,
+        }),
+      ),
+  ).toThrow(/purchase price evidence stale/u);
+
+  expect(await repo.evidence("unrelated-subject", p.id)).toEqual([]);
+  expect(await repo.evidence(COST_SUBJECT, "missing")).toEqual([]);
 });

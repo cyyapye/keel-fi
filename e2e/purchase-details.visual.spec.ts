@@ -11,6 +11,7 @@ import { navigateToScreen } from "./navigation";
 test("optional purchase details save directly, preserve failed drafts and reload shares", async ({
   page,
 }, info) => {
+  test.setTimeout(120000);
   await page.clock.setFixedTime(new Date("2026-09-20T12:00:00.000Z"));
   let receipt: PurchaseReceipt | null = null;
   let reject = false;
@@ -82,6 +83,36 @@ test("optional purchase details save directly, preserve failed drafts and reload
       });
       await route.fulfill({ status: 201, json: receipt });
     },
+  );
+  await page.route(
+    "**/api/investment-positions/purchase-spv/share-price-evidence",
+    (route) =>
+      route.fulfill({
+        json: {
+          prices: [
+            {
+              id: "synthetic-price",
+              positionId: "other-spv",
+              positionLabel: "Synthetic Related SPV",
+              sourceLabel: "Tokenfolio",
+              observedAt: "2026-09-01T00:00:00.000Z",
+              costMicros: 10000000,
+              markMicros: 20000000,
+              markDate: "2026-09-01",
+              shareClass: "Series B",
+            },
+          ],
+          watch: [
+            {
+              id: "synthetic-news",
+              title: "Synthetic company financing",
+              url: "https://example.com/financing",
+              publishedAt: "2026-09-02T00:00:00.000Z",
+              fact: "A financing was announced; company-level context only.",
+            },
+          ],
+        },
+      }),
   );
   await page.goto("/");
   await navigateToScreen(
@@ -226,6 +257,26 @@ test("optional purchase details save directly, preserve failed drafts and reload
     valuation.getByRole("button", { name: "Add share details" }),
   ).toHaveCount(0);
   await valuation
+    .getByRole("button", { name: "Use this price", exact: true })
+    .click();
+  await expect(
+    valuation.getByRole("textbox", {
+      name: "Valuation price / share · USD",
+      exact: true,
+    }),
+  ).toHaveValue("20.00");
+  await expect(
+    valuation.getByRole("button", { name: "Save valuation details" }),
+  ).toBeDisabled();
+  await valuation
+    .getByRole("checkbox", {
+      name: "I confirmed this price applies to the same underlying share class.",
+    })
+    .check();
+  await expect(
+    valuation.getByRole("button", { name: "Portfolio Watch context" }),
+  ).toBeVisible();
+  await valuation
     .getByRole("textbox", {
       name: "Valuation price / share · USD",
       exact: true,
@@ -250,6 +301,11 @@ test("optional purchase details save directly, preserve failed drafts and reload
   await valuation
     .getByRole("textbox", { name: "Valuation source", exact: true })
     .focus();
+  await valuation
+    .getByRole("checkbox", {
+      name: "I confirmed this price applies to the same underlying share class.",
+    })
+    .check();
 
   await valuation.getByRole("tab", { name: "Enter a reported value" }).click();
   await expect(

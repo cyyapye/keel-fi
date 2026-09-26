@@ -334,6 +334,14 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
   expect(parsed.rows).toMatchObject([
     {
       companyOrFund: "Synthetic Atlas",
+      dealMetadata: {
+        sharePrices: {
+          costMicros: 10000000,
+          markMicros: 15000000,
+          markDate: null,
+          shareClass: null,
+        },
+      },
       investedMinor: 1_250_000,
       unrealizedValueMinor: 1_875_025,
       investmentEntity: "Synthetic Family LLC",
