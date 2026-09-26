@@ -421,23 +421,41 @@ test("optional purchase details save directly, preserve failed drafts and reload
     .getByRole("button", { name: "Use as proxy estimate" })
     .click();
   await expect(
-    valuation.getByRole("button", { name: "Use this price", exact: true }),
+    valuation.getByRole("button", { name: "Apply proxy estimate" }),
   ).toBeDisabled();
+  await expect(valuation.getByRole("checkbox")).toHaveCount(1);
+  await expect(valuation.getByRole("textbox")).toHaveCount(0);
+  await expect(valuation).toContainText("100 shares × $20.00");
+  await valuation.getByRole("checkbox").check();
   await expect(
-    valuation.getByRole("button", { name: "Save valuation details" }),
+    valuation.getByRole("button", { name: "Apply proxy estimate" }),
+  ).toBeEnabled();
+  await valuation
+    .getByRole("button", { name: "Adjust shares", exact: true })
+    .click();
+  await valuation
+    .getByRole("textbox", { name: "Remaining underlying shares", exact: true })
+    .fill("90");
+  await expect(
+    valuation.getByRole("button", { name: "Apply proxy estimate" }),
   ).toBeDisabled();
   await valuation
-    .getByRole("textbox", { name: "Why this proxy is appropriate" })
-    .fill("Closest available common-share price; preferred rights may differ.");
+    .getByRole("button", { name: "Shares as of", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
+    .click();
+  await expect(valuation).toContainText("90 shares × $20.00");
   await expect(
-    valuation.getByRole("textbox", {
-      name: "Valuation share class",
-      exact: true,
-    }),
-  ).toHaveValue("Common");
-  await expect(
-    valuation.getByRole("checkbox", { name: /I confirmed this price/ }),
-  ).toHaveCount(0);
+    valuation.getByRole("button", { name: "Apply proxy estimate" }),
+  ).toBeEnabled();
+  await valuation
+    .getByRole("textbox", { name: "Remaining underlying shares", exact: true })
+    .fill("");
+  await expect(valuation).toContainText("100 shares × $20.00");
+  await valuation
+    .getByRole("button", { name: "Adjust shares", exact: true })
+    .click();
   const proxyStyle = await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
@@ -445,21 +463,13 @@ test("optional purchase details save directly, preserve failed drafts and reload
     animations: "disabled",
   });
   reject = true;
-  await valuation
-    .getByRole("button", { name: "Save valuation details" })
-    .click();
+  await valuation.getByRole("button", { name: "Apply proxy estimate" }).click();
   await expect(
     valuation.getByText("The position changed. Review again."),
   ).toBeVisible();
-  await expect(
-    valuation.getByRole("textbox", { name: "Why this proxy is appropriate" }),
-  ).toHaveValue(
-    "Closest available common-share price; preferred rights may differ.",
-  );
+  await expect(valuation.getByRole("checkbox")).toBeChecked();
   reject = false;
-  await valuation
-    .getByRole("button", { name: "Save valuation details" })
-    .click();
+  await valuation.getByRole("button", { name: "Apply proxy estimate" }).click();
   await expect(
     valuation.getByText("Estimated value · proxy", { exact: true }),
   ).toBeVisible();
@@ -475,6 +485,10 @@ test("optional purchase details save directly, preserve failed drafts and reload
   ).toContainText("Administrator NAV");
   expect(receipt!.details.lots[0]!.mark!.effectiveDate).toBeNull();
   expect(receipt!.details.lots[0]!.mark!.proxy!.confirmed).toBe(true);
+  expect(receipt!.details.lots[0]!.mark!.proxy!.reason).toBe(
+    "Closest available imported share price.",
+  );
+  expect(receipt!.details.coversPosition).toBe(true);
   await page.reload();
   await page
     .getByRole("button", { name: /Synthetic Purchase Company 1 position/u })
@@ -492,12 +506,11 @@ test("optional purchase details save directly, preserve failed drafts and reload
   await valuation
     .getByRole("button", { name: "Edit share calculation" })
     .click();
+  await valuation.getByRole("button", { name: "Details", exact: true }).click();
   await valuation
-    .getByRole("textbox", { name: "Why this proxy is appropriate" })
+    .getByRole("textbox", { name: "Note (optional)" })
     .fill("Updated proxy rationale after review.");
-  await valuation
-    .getByRole("button", { name: "Save valuation details" })
-    .click();
+  await valuation.getByRole("button", { name: "Apply proxy estimate" }).click();
   await valuation.getByRole("button", { name: "Proxy assumptions" }).click();
   await expect(valuation).toContainText(
     "Updated proxy rationale after review.",

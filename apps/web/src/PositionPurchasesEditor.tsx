@@ -153,7 +153,9 @@ function lotFor(d: Draft) {
                   ? {
                       proxy: {
                         confirmed: true,
-                        reason: d.proxyReason,
+                        reason:
+                          d.proxyReason?.trim() ||
+                          "Closest available imported share price.",
                         capturedAt: d.markCapturedAt,
                       },
                     }
@@ -354,6 +356,39 @@ export function PositionPurchasesEditor({
         context.snapshotId,
       )
     : null;
+  const compactProxy =
+    valuationOnly && drafts.length === 1 && drafts[0]?.markProxy === "true";
+  // Preview the proposed assumption without accepting it in the saved draft.
+  const previewDetails = compactProxy
+    ? AcceptPurchasesSchema.safeParse({
+        expectedSnapshotId: context.snapshotId,
+        expectedReceiptId: receipt?.id ?? null,
+        details: {
+          coversPosition: true,
+          lots: drafts.map((d) =>
+            lotFor({ ...d, originalSharesUnchanged: "true" }),
+          ),
+        },
+      })
+    : null;
+  const proxyPreview = previewDetails?.success
+    ? estimatePurchaseValue(
+        {
+          id: receipt?.id ?? "preview",
+          positionId: holding.id,
+          snapshotId: context.snapshotId,
+          currency: "USD",
+          acceptedAt: receipt?.acceptedAt ?? new Date().toISOString(),
+          details: previewDetails.data.details,
+        },
+        context.snapshotId,
+      )
+    : null;
+  const canSave =
+    parsed.success &&
+    changed &&
+    !busy &&
+    (!compactProxy || Boolean(draftEstimate));
   const money = (n: number) => formatCurrency(n, context.currency);
   const update = (index: number, key: string, value: string) =>
     setDrafts((old) =>
@@ -472,6 +507,13 @@ export function PositionPurchasesEditor({
         mode === "valuation" ? "Share-based valuation" : "Purchase details"
       }
     >
+      {mode === "valuation" && !compactProxy && (
+        <p>
+          Remaining shares × a matching share price or an explicitly chosen
+          proxy. Before carry and remaining expenses; does not replace a
+          reported mark.
+        </p>
+      )}
       <div className="position-economics__heading">
         <div>
           {mode !== "valuation" && (
@@ -952,7 +994,7 @@ export function PositionPurchasesEditor({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (parsed.success && changed && !busy) void save();
+            if (canSave) void save();
           }}
         >
           {!valuationOnly && (
@@ -987,412 +1029,545 @@ export function PositionPurchasesEditor({
                   </Button>
                 )}
               </legend>
-              {!valuationOnly && (
-                <>
-                  <Button
-                    tone="quiet"
-                    onClick={() => {
-                      setNoticeIndex(i);
-                      setNoticeText(d.sourceText ?? "");
-                    }}
-                  >
-                    Paste GP notice
-                  </Button>
-                  <div className="position-economics__fields">
-                    <Field label="Transaction type" variant="filled">
-                      <Select
-                        items={[
-                          { value: "unknown", label: "Not specified" },
-                          { value: "primary", label: "Primary" },
-                          { value: "secondary", label: "Secondary" },
-                        ]}
-                        value={d.transactionType || "unknown"}
-                        onValueChange={(v) =>
-                          update(
-                            i,
-                            "transactionType",
-                            v === "unknown" ? "" : String(v),
-                          )
-                        }
-                      >
-                        <SelectTrigger aria-label="Transaction type">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unknown">Not specified</SelectItem>
-                          <SelectItem value="primary">Primary</SelectItem>
-                          <SelectItem value="secondary">Secondary</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    {date(i, "purchasedOn", "Purchase date")}
-                    {field(i, "shareClass", "Underlying share class")}
-                    {field(
-                      i,
-                      "priceMicros",
-                      "Purchase price / share · USD",
-                      true,
-                    )}
-                    {field(i, "feePpm", "One-time fee · %", true)}
-                    <Field label="Fee basis" variant="filled">
-                      <Select
-                        items={feeChoices}
-                        value={d.feeBasis || "unknown"}
-                        onValueChange={(v) =>
-                          update(
-                            i,
-                            "feeBasis",
-                            v === "unknown" ? "" : String(v),
-                          )
-                        }
-                      >
-                        <SelectTrigger aria-label="Fee basis">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {feeChoices.map((choice) => (
-                            <SelectItem key={choice.value} value={choice.value}>
-                              {choice.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    {field(i, "feeLabel", "Fee description")}
-                    {field(
-                      i,
-                      "referencePriceMicros",
-                      "Entry reference price / share · USD",
-                      true,
-                    )}
-                    {field(i, "referenceRound", "Reference round")}
-                    {field(
-                      i,
-                      "reportedPremiumPpm",
-                      "Notice-quoted premium · %",
-                      true,
-                    )}
-                    {field(
-                      i,
-                      "reportedManagementFeePpm",
-                      "Reported annual management fee · %",
-                      true,
-                    )}
-                    {field(i, "reportedCarryPpm", "Reported carry · %", true)}
-                    {field(i, "sourceLabel", "Purchase source")}
-                  </div>
-                  <p>
-                    Known management fee and carry prefill fee &amp; carry
-                    review. Conflicting sources need your review.
-                  </p>
-                  {d.sourceText && (
-                    <Collapsible>
-                      <CollapsibleTrigger>
-                        Original purchase notice <DisclosureIndicator />
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <p className="purchase-notice-text">{d.sourceText}</p>
-                      </CollapsibleContent>
-                    </Collapsible>
+              {compactProxy ? (
+                <div className="purchase-proxy-confirmation">
+                  {proxyPreview ? (
+                    <>
+                      <Stat
+                        label="Estimated value · proxy"
+                        value={money(proxyPreview.valueMinor)}
+                      />
+                      <p>
+                        {decimal(proxyPreview.lots[0]?.quantityMicros, 6)}{" "}
+                        shares ×{" "}
+                        {displayedUnitPrice(proxyPreview.lots[0]?.priceMicros)}.
+                        Before carry and remaining expenses.
+                      </p>
+                    </>
+                  ) : (
+                    <Notice>
+                      Add a valid share count and date under Adjust shares to
+                      calculate this estimate.
+                    </Notice>
                   )}
-                </>
-              )}
-              {valuationOnly && (
-                <div>
                   <p>
-                    Confirm that the original shares are still held, or enter
-                    the GP's actual allocation below.
+                    {d.markSource}. The price may be for a different share
+                    class.{!d.markDate && " Mark date unknown."}
                   </p>
-                  <label>
+                  <label className="purchase-coverage">
                     <Input
                       type="checkbox"
-                      checked={d.originalSharesUnchanged === "true"}
-                      onChange={(event) =>
+                      checked={
+                        coversPosition &&
+                        (Boolean(d.remainingSharesMicros) ||
+                          d.originalSharesUnchanged === "true")
+                      }
+                      onChange={(event) => {
+                        const checked = event.currentTarget.checked;
+                        setCoversPosition(checked);
                         update(
                           i,
                           "originalSharesUnchanged",
-                          String(event.currentTarget.checked),
-                        )
-                      }
-                    />{" "}
-                    No sales, splits or conversions; original shares are still
-                    held.
+                          String(checked && !d.remainingSharesMicros),
+                        );
+                      }}
+                    />
+                    {d.remainingSharesMicros
+                      ? "These are all my remaining shares in this SPV."
+                      : "Use my calculated shares as my full remaining position; no sales, splits or conversions."}
                   </label>
-                  {(() => {
-                    const lot = PurchaseLotSchema.safeParse({
-                      ...lotFor(d),
-                      mark: null,
-                      remainingSharesMicros: null,
-                      originalSharesUnchanged: true,
-                    });
-                    const shares = lot.success
-                      ? purchaseShares(lot.data)
-                      : null;
-                    return shares ? (
-                      <p>
-                        Estimated original shares:{" "}
-                        <strong>{decimal(shares.quantityMicros, 6)}</strong> ·
-                        capital ÷ purchase price. An entered remaining share
-                        count takes precedence.
-                      </p>
-                    ) : null;
-                  })()}
-                  {loadingEvidence && <p>Loading price evidence…</p>}
-                  {evidenceError && (
-                    <Notice tone="error">{evidenceError}</Notice>
-                  )}
-                  {!loadingEvidence &&
-                    !evidenceError &&
-                    !priceEvidence.some((item) => item.markMicros !== null) && (
-                      <p>
-                        No imported share prices yet. Refresh the provider
-                        source with the updated capture agent, or enter a dated
-                        price below.
-                      </p>
-                    )}
-                  {priceEvidence
-                    .filter((item) => item.markMicros !== null)
-                    .map((item) => (
-                      <div key={item.id}>
-                        <p>
-                          <strong>
-                            {item.sourceLabel} · ${unitPrice(item.markMicros)} /
-                            share
-                          </strong>{" "}
-                          ·{" "}
-                          {item.markDate
-                            ? formatDate(item.markDate)
-                            : "Mark date not reported"}
-                          <br />
-                          {item.positionLabel} ·{" "}
-                          {item.shareClass ?? "Share class not reported"}
-                        </p>
-                        <Button
-                          tone="quiet"
-                          disabled={Boolean(
-                            item.shareClass &&
-                            d.shareClass &&
-                            item.shareClass.toLowerCase() !==
-                              d.shareClass.toLowerCase(),
-                          )}
-                          onClick={() =>
-                            setDrafts((old) =>
-                              old.map((draft, index) =>
-                                index !== i
-                                  ? draft
-                                  : {
-                                      ...draft,
-                                      markPrice: unitPrice(item.markMicros),
-                                      markDate: item.markDate ?? "",
-                                      markClass: item.shareClass ?? "",
-                                      markSource: `${item.sourceLabel} · ${item.positionLabel}`,
-                                      markEvidenceId: item.id,
-                                      markComparable: "false",
-                                      markProxy: "false",
-                                      proxyReason: "",
-                                    },
-                              ),
-                            )
-                          }
-                        >
-                          Use this price
-                        </Button>
-                        <Button
-                          tone="quiet"
-                          onClick={() =>
-                            setDrafts((old) =>
-                              old.map((draft, index) =>
-                                index !== i
-                                  ? draft
-                                  : {
-                                      ...draft,
-                                      markPrice: unitPrice(item.markMicros),
-                                      markDate: item.markDate ?? "",
-                                      markClass: item.shareClass ?? "",
-                                      markSource: `${item.sourceLabel} · ${item.positionLabel}`,
-                                      markEvidenceId: item.id,
-                                      markComparable: "false",
-                                      markProxy: "true",
-                                      proxyReason: "",
-                                      markCapturedAt: item.capturedAt,
-                                    },
-                              ),
-                            )
-                          }
-                        >
-                          Use as proxy estimate
-                        </Button>
-                        {item.shareClass &&
-                          d.shareClass &&
-                          item.shareClass.toLowerCase() !==
-                            d.shareClass.toLowerCase() && (
-                            <p>
-                              Different share class. Use a proxy or provide a
-                              matching price.
-                            </p>
-                          )}
+                  <Collapsible>
+                    <CollapsibleTrigger>
+                      Adjust shares <DisclosureIndicator />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="position-economics__fields">
+                        {field(
+                          i,
+                          "remainingSharesMicros",
+                          "Remaining underlying shares",
+                          true,
+                        )}
+                        {date(i, "sharesAsOf", "Shares as of")}
                       </div>
-                    ))}
-                  {watchEvidence.length > 0 && (
-                    <Collapsible>
-                      <CollapsibleTrigger>
-                        Portfolio Watch context <DisclosureIndicator />
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        {watchEvidence.map((item) => (
-                          <p key={item.id}>
-                            <TextLink
-                              href={item.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {item.title}
-                            </TextLink>{" "}
-                            · {formatDate(item.publishedAt.slice(0, 10))}
-                            <br />
-                            {item.fact}
-                          </p>
-                        ))}
-                      </CollapsibleContent>
-                    </Collapsible>
-                  )}
-                  {d.markProxy === "true" && (
-                    <>
-                      <Notice>
-                        Proxy estimate · The price may be for a different share
-                        class. {d.markDate ? "" : "Mark date unknown. "}Captured{" "}
-                        {formatDate((d.markCapturedAt ?? "").slice(0, 10))}; not
-                        a mark date.
-                      </Notice>
-                      <Field
-                        label="Why this proxy is appropriate"
-                        variant="filled"
-                      >
+                      <p>
+                        Optional. Enter the actual remaining shares and their
+                        date to replace the calculated count.
+                      </p>
+                    </CollapsibleContent>
+                  </Collapsible>
+                  <Collapsible>
+                    <CollapsibleTrigger>
+                      Details <DisclosureIndicator />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <p>
+                        Price: {displayedUnitPrice(scaled(d.markPrice, 6))} per
+                        share · {d.markClass || "Share class unknown"} ·{" "}
+                        {d.markDate
+                          ? formatDate(d.markDate)
+                          : "Mark date unknown"}
+                        .
+                      </p>
+                      <p>
+                        Captured{" "}
+                        {formatDate((d.markCapturedAt ?? "").slice(0, 10))};
+                        capture date is not the mark date. Calculated shares use
+                        capital after fees divided by purchase price.
+                      </p>
+                      <p>
+                        Applying records your choice to use the closest
+                        available imported share price. It does not replace a
+                        reported value.
+                      </p>
+                      <Field label="Note (optional)" variant="filled">
                         <Textarea
-                          aria-label="Why this proxy is appropriate"
+                          aria-label="Note (optional)"
                           value={d.proxyReason}
                           onChange={(event) =>
                             update(i, "proxyReason", event.currentTarget.value)
                           }
                         />
                       </Field>
+                      <Button
+                        tone="quiet"
+                        onClick={() => update(i, "markProxy", "false")}
+                      >
+                        Choose another price
+                      </Button>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              ) : (
+                <>
+                  {!valuationOnly && (
+                    <>
+                      <Button
+                        tone="quiet"
+                        onClick={() => {
+                          setNoticeIndex(i);
+                          setNoticeText(d.sourceText ?? "");
+                        }}
+                      >
+                        Paste GP notice
+                      </Button>
+                      <div className="position-economics__fields">
+                        <Field label="Transaction type" variant="filled">
+                          <Select
+                            items={[
+                              { value: "unknown", label: "Not specified" },
+                              { value: "primary", label: "Primary" },
+                              { value: "secondary", label: "Secondary" },
+                            ]}
+                            value={d.transactionType || "unknown"}
+                            onValueChange={(v) =>
+                              update(
+                                i,
+                                "transactionType",
+                                v === "unknown" ? "" : String(v),
+                              )
+                            }
+                          >
+                            <SelectTrigger aria-label="Transaction type">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="unknown">
+                                Not specified
+                              </SelectItem>
+                              <SelectItem value="primary">Primary</SelectItem>
+                              <SelectItem value="secondary">
+                                Secondary
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        {date(i, "purchasedOn", "Purchase date")}
+                        {field(i, "shareClass", "Underlying share class")}
+                        {field(
+                          i,
+                          "priceMicros",
+                          "Purchase price / share · USD",
+                          true,
+                        )}
+                        {field(i, "feePpm", "One-time fee · %", true)}
+                        <Field label="Fee basis" variant="filled">
+                          <Select
+                            items={feeChoices}
+                            value={d.feeBasis || "unknown"}
+                            onValueChange={(v) =>
+                              update(
+                                i,
+                                "feeBasis",
+                                v === "unknown" ? "" : String(v),
+                              )
+                            }
+                          >
+                            <SelectTrigger aria-label="Fee basis">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {feeChoices.map((choice) => (
+                                <SelectItem
+                                  key={choice.value}
+                                  value={choice.value}
+                                >
+                                  {choice.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        {field(i, "feeLabel", "Fee description")}
+                        {field(
+                          i,
+                          "referencePriceMicros",
+                          "Entry reference price / share · USD",
+                          true,
+                        )}
+                        {field(i, "referenceRound", "Reference round")}
+                        {field(
+                          i,
+                          "reportedPremiumPpm",
+                          "Notice-quoted premium · %",
+                          true,
+                        )}
+                        {field(
+                          i,
+                          "reportedManagementFeePpm",
+                          "Reported annual management fee · %",
+                          true,
+                        )}
+                        {field(
+                          i,
+                          "reportedCarryPpm",
+                          "Reported carry · %",
+                          true,
+                        )}
+                        {field(i, "sourceLabel", "Purchase source")}
+                      </div>
+                      <p>
+                        Known management fee and carry prefill fee &amp; carry
+                        review. Conflicting sources need your review.
+                      </p>
+                      {d.sourceText && (
+                        <Collapsible>
+                          <CollapsibleTrigger>
+                            Original purchase notice <DisclosureIndicator />
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <p className="purchase-notice-text">
+                              {d.sourceText}
+                            </p>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      )}
                     </>
                   )}
-                  {d.markEvidenceId && d.markProxy !== "true" && (
-                    <label>
-                      <Input
-                        type="checkbox"
-                        checked={d.markComparable === "true"}
-                        onChange={(event) =>
-                          update(
-                            i,
-                            "markComparable",
-                            String(event.currentTarget.checked),
-                          )
-                        }
-                      />{" "}
-                      I confirmed this price applies to the same underlying
-                      share class.
-                    </label>
+                  {valuationOnly && (
+                    <div>
+                      <p>
+                        Confirm that the original shares are still held, or
+                        enter the GP's actual allocation below.
+                      </p>
+                      <label>
+                        <Input
+                          type="checkbox"
+                          checked={d.originalSharesUnchanged === "true"}
+                          onChange={(event) =>
+                            update(
+                              i,
+                              "originalSharesUnchanged",
+                              String(event.currentTarget.checked),
+                            )
+                          }
+                        />{" "}
+                        No sales, splits or conversions; original shares are
+                        still held.
+                      </label>
+                      {(() => {
+                        const lot = PurchaseLotSchema.safeParse({
+                          ...lotFor(d),
+                          mark: null,
+                          remainingSharesMicros: null,
+                          originalSharesUnchanged: true,
+                        });
+                        const shares = lot.success
+                          ? purchaseShares(lot.data)
+                          : null;
+                        return shares ? (
+                          <p>
+                            Estimated original shares:{" "}
+                            <strong>{decimal(shares.quantityMicros, 6)}</strong>{" "}
+                            · capital ÷ purchase price. An entered remaining
+                            share count takes precedence.
+                          </p>
+                        ) : null;
+                      })()}
+                      {loadingEvidence && <p>Loading price evidence…</p>}
+                      {evidenceError && (
+                        <Notice tone="error">{evidenceError}</Notice>
+                      )}
+                      {!loadingEvidence &&
+                        !evidenceError &&
+                        !priceEvidence.some(
+                          (item) => item.markMicros !== null,
+                        ) && (
+                          <p>
+                            No imported share prices yet. Refresh the provider
+                            source with the updated capture agent, or enter a
+                            dated price below.
+                          </p>
+                        )}
+                      {priceEvidence
+                        .filter((item) => item.markMicros !== null)
+                        .map((item) => (
+                          <div key={item.id}>
+                            <p>
+                              <strong>
+                                {item.sourceLabel} · $
+                                {unitPrice(item.markMicros)} / share
+                              </strong>{" "}
+                              ·{" "}
+                              {item.markDate
+                                ? formatDate(item.markDate)
+                                : "Mark date not reported"}
+                              <br />
+                              {item.positionLabel} ·{" "}
+                              {item.shareClass ?? "Share class not reported"}
+                            </p>
+                            <Button
+                              tone="quiet"
+                              disabled={Boolean(
+                                item.shareClass &&
+                                d.shareClass &&
+                                item.shareClass.toLowerCase() !==
+                                  d.shareClass.toLowerCase(),
+                              )}
+                              onClick={() =>
+                                setDrafts((old) =>
+                                  old.map((draft, index) =>
+                                    index !== i
+                                      ? draft
+                                      : {
+                                          ...draft,
+                                          markPrice: unitPrice(item.markMicros),
+                                          markDate: item.markDate ?? "",
+                                          markClass: item.shareClass ?? "",
+                                          markSource: `${item.sourceLabel} · ${item.positionLabel}`,
+                                          markEvidenceId: item.id,
+                                          markComparable: "false",
+                                          markProxy: "false",
+                                          proxyReason: "",
+                                        },
+                                  ),
+                                )
+                              }
+                            >
+                              Use this price
+                            </Button>
+                            <Button
+                              tone="quiet"
+                              onClick={() => {
+                                setCoversPosition(false);
+                                setDrafts((old) =>
+                                  old.map((draft, index) =>
+                                    index !== i
+                                      ? draft
+                                      : {
+                                          ...draft,
+                                          markPrice: unitPrice(item.markMicros),
+                                          markDate: item.markDate ?? "",
+                                          markClass: item.shareClass ?? "",
+                                          markSource: `${item.sourceLabel} · ${item.positionLabel}`,
+                                          markEvidenceId: item.id,
+                                          markComparable: "false",
+                                          markProxy: "true",
+                                          proxyReason: "",
+                                          markCapturedAt: item.capturedAt,
+                                        },
+                                  ),
+                                );
+                              }}
+                            >
+                              Use as proxy estimate
+                            </Button>
+                            {item.shareClass &&
+                              d.shareClass &&
+                              item.shareClass.toLowerCase() !==
+                                d.shareClass.toLowerCase() && (
+                                <p>
+                                  Different share class. Use a proxy or provide
+                                  a matching price.
+                                </p>
+                              )}
+                          </div>
+                        ))}
+                      {watchEvidence.length > 0 && (
+                        <Collapsible>
+                          <CollapsibleTrigger>
+                            Portfolio Watch context <DisclosureIndicator />
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            {watchEvidence.map((item) => (
+                              <p key={item.id}>
+                                <TextLink
+                                  href={item.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {item.title}
+                                </TextLink>{" "}
+                                · {formatDate(item.publishedAt.slice(0, 10))}
+                                <br />
+                                {item.fact}
+                              </p>
+                            ))}
+                          </CollapsibleContent>
+                        </Collapsible>
+                      )}
+                      {d.markProxy === "true" && (
+                        <>
+                          <Notice>
+                            Proxy estimate · The price may be for a different
+                            share class.{" "}
+                            {d.markDate ? "" : "Mark date unknown. "}Captured{" "}
+                            {formatDate((d.markCapturedAt ?? "").slice(0, 10))};
+                            not a mark date.
+                          </Notice>
+                          <Field label="Note (optional)" variant="filled">
+                            <Textarea
+                              aria-label="Note (optional)"
+                              value={d.proxyReason}
+                              onChange={(event) =>
+                                update(
+                                  i,
+                                  "proxyReason",
+                                  event.currentTarget.value,
+                                )
+                              }
+                            />
+                          </Field>
+                        </>
+                      )}
+                      {d.markEvidenceId && d.markProxy !== "true" && (
+                        <label>
+                          <Input
+                            type="checkbox"
+                            checked={d.markComparable === "true"}
+                            onChange={(event) =>
+                              update(
+                                i,
+                                "markComparable",
+                                String(event.currentTarget.checked),
+                              )
+                            }
+                          />{" "}
+                          I confirmed this price applies to the same underlying
+                          share class.
+                        </label>
+                      )}
+                      <p>
+                        Portfolio Watch company valuations provide context. This
+                        calculation uses per-share price evidence.
+                      </p>
+                    </div>
                   )}
-                  <p>
-                    Portfolio Watch company valuations provide context. This
-                    calculation uses per-share price evidence.
-                  </p>
-                </div>
-              )}
-              {mode !== "purchase" && (
-                <div className="position-economics__fields">
-                  {valuationOnly &&
-                    !receipt?.details.lots[i]?.shareClass &&
-                    field(i, "shareClass", "Underlying share class")}
-                  {field(
-                    i,
-                    "remainingSharesMicros",
-                    "Remaining underlying shares",
-                    true,
-                  )}
-                  {date(i, "sharesAsOf", "Shares as of")}
-                  <p className="purchase-fields__hint">
-                    Share count is optional. If entered, its date is required.
-                  </p>
-                </div>
-              )}
-              <Collapsible>
-                <CollapsibleTrigger>
-                  Capital and share calculation <DisclosureIndicator />
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="position-economics__fields">
-                    {field(
-                      i,
-                      "grossCashMinor",
-                      "Gross cash contributed · USD",
-                      true,
-                    )}
-                    {field(
-                      i,
-                      "netCapitalMinor",
-                      "Capital used for shares · USD",
-                      true,
-                    )}
-                    {field(i, "sourceUrl", "Purchase source link")}
-                  </div>
-                  {!valuationOnly && (
-                    <label>
-                      <Input
-                        type="checkbox"
-                        checked={d.originalSharesUnchanged === "true"}
-                        onChange={(event) =>
-                          update(
-                            i,
-                            "originalSharesUnchanged",
-                            String(event.currentTarget.checked),
-                          )
-                        }
-                      />{" "}
-                      No sales, splits or conversions; original shares are still
-                      held.
-                    </label>
-                  )}
-                  <p>
-                    Without a remaining share count, Keel can calculate original
-                    shares from share capital and purchase price. Only use that
-                    calculation if there have been no sales, splits or
-                    conversions. These details do not replace fee and carry
-                    terms.
-                  </p>
-                </CollapsibleContent>
-              </Collapsible>
-              {mode !== "purchase" && (
-                <Collapsible defaultOpen={valuationOnly}>
-                  <CollapsibleTrigger>
-                    Valuation price evidence <DisclosureIndicator />
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
+                  {mode !== "purchase" && (
                     <div className="position-economics__fields">
+                      {valuationOnly &&
+                        !receipt?.details.lots[i]?.shareClass &&
+                        field(i, "shareClass", "Underlying share class")}
                       {field(
                         i,
-                        "markPrice",
-                        "Valuation price / share · USD",
+                        "remainingSharesMicros",
+                        "Remaining underlying shares",
                         true,
                       )}
-                      {date(i, "markDate", "Valuation price as of")}
-                      {field(i, "markClass", "Valuation share class")}
-                      {field(i, "markSource", "Valuation source")}
-                      {field(i, "markUrl", "Valuation source link")}
+                      {date(i, "sharesAsOf", "Shares as of")}
+                      <p className="purchase-fields__hint">
+                        Share count is optional. If entered, its date is
+                        required.
+                      </p>
                     </div>
-                    <p>
-                      {d.markProxy === "true"
-                        ? "For a proxy, leave the mark date or source share class blank if unknown. Saving records your choice to use this price despite those limitations."
-                        : "A valuation price needs a date, matching share class and source. The source link is optional. A company valuation or another preferred series is not a matching share price."}
-                    </p>
-                  </CollapsibleContent>
-                </Collapsible>
+                  )}
+                  <Collapsible>
+                    <CollapsibleTrigger>
+                      Capital and share calculation <DisclosureIndicator />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="position-economics__fields">
+                        {field(
+                          i,
+                          "grossCashMinor",
+                          "Gross cash contributed · USD",
+                          true,
+                        )}
+                        {field(
+                          i,
+                          "netCapitalMinor",
+                          "Capital used for shares · USD",
+                          true,
+                        )}
+                        {field(i, "sourceUrl", "Purchase source link")}
+                      </div>
+                      {!valuationOnly && (
+                        <label>
+                          <Input
+                            type="checkbox"
+                            checked={d.originalSharesUnchanged === "true"}
+                            onChange={(event) =>
+                              update(
+                                i,
+                                "originalSharesUnchanged",
+                                String(event.currentTarget.checked),
+                              )
+                            }
+                          />{" "}
+                          No sales, splits or conversions; original shares are
+                          still held.
+                        </label>
+                      )}
+                      <p>
+                        Without a remaining share count, Keel can calculate
+                        original shares from share capital and purchase price.
+                        Only use that calculation if there have been no sales,
+                        splits or conversions. These details do not replace fee
+                        and carry terms.
+                      </p>
+                    </CollapsibleContent>
+                  </Collapsible>
+                  {mode !== "purchase" && (
+                    <Collapsible defaultOpen={valuationOnly}>
+                      <CollapsibleTrigger>
+                        Valuation price evidence <DisclosureIndicator />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="position-economics__fields">
+                          {field(
+                            i,
+                            "markPrice",
+                            "Valuation price / share · USD",
+                            true,
+                          )}
+                          {date(i, "markDate", "Valuation price as of")}
+                          {field(i, "markClass", "Valuation share class")}
+                          {field(i, "markSource", "Valuation source")}
+                          {field(i, "markUrl", "Valuation source link")}
+                        </div>
+                        <p>
+                          {d.markProxy === "true"
+                            ? "For a proxy, leave the mark date or source share class blank if unknown. Saving records your choice to use this price despite those limitations."
+                            : "A valuation price needs a date, matching share class and source. The source link is optional. A company valuation or another preferred series is not a matching share price."}
+                        </p>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </>
               )}
             </fieldset>
           ))}
-          {mode !== "purchase" && (
+          {mode !== "purchase" && !compactProxy && (
             <label className="purchase-coverage">
               <Input
                 type="checkbox"
@@ -1404,7 +1579,7 @@ export function PositionPurchasesEditor({
               These purchases cover all my remaining shares in this SPV.
             </label>
           )}
-          {valuationOnly && draftEstimate && (
+          {valuationOnly && !compactProxy && draftEstimate && (
             <Notice>
               {draftEstimate.proxy
                 ? "Estimated value · proxy: "
@@ -1479,16 +1654,14 @@ export function PositionPurchasesEditor({
             >
               {automaticEntry ? "Reset" : "Cancel"}
             </Button>
-            <Button
-              tone="primary"
-              type="submit"
-              disabled={!parsed.success || !changed || busy}
-            >
+            <Button tone="primary" type="submit" disabled={!canSave}>
               {busy
                 ? "Saving…"
-                : valuationOnly
-                  ? "Save valuation details"
-                  : "Save purchase details"}
+                : compactProxy
+                  ? "Apply proxy estimate"
+                  : valuationOnly
+                    ? "Save valuation details"
+                    : "Save purchase details"}
             </Button>
           </ActionGroup>
         </form>
