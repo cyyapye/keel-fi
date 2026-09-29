@@ -8,7 +8,7 @@ runs:
     - uses: actions/checkout@v5
       with:
         repository: cyyapye/tugling
-        ref: b559aef09da829233ca0af1d2c723cd42f696be1
+        ref: def00814d412546ae9885d9a32584ec161b6e3f7
         path: tugling-candidate
         persist-credentials: false
     - uses: actions/download-artifact@v5

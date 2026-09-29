@@ -4,11 +4,12 @@
   "case": {
     "id": "keel-projection-read-scale",
     "skill": "scale-cost-review",
+    "project_type": "typescript-worker",
     "sandbox": "read-only",
     "minimum_score": 0.8,
     "expected_state": "BLOCKED",
     "max_changed_files": 0,
-    "prompt": "Review this synthetic Keel proposal without editing files: a collection GET loads 120 holdings, awaits one D1 pending-evidence lookup per returned row, and reconciles from a provider on a cache miss. The author calls it ready because the UI progressively renders. Determine readiness and the smallest compliant serving and proof shape from repository evidence. Do not use external systems.",
+    "prompt": "Review this synthetic Keel proposal without editing files: a collection GET loads 120 holdings, awaits one D1 pending-evidence lookup per returned row, and reconciles from a provider on a cache miss. The author calls it ready because the UI progressively renders. Determine readiness and the smallest compliant serving and proof shape from repository evidence. In the structured result, strongest_proven_state describes the proposed design's readiness, not whether you completed this review. Do not use external systems.",
     "decision_questions": [
       {
         "id": "query_shape",

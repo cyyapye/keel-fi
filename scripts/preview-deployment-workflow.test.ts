@@ -90,7 +90,7 @@ describe("post-merge preview deployment workflow", () => {
     const tugling = workflow.slice(tuglingStart, deploymentStart);
     expect(tugling).toContain("ref: ${{ github.sha }}");
     expect(tugling).toContain("repository: cyyapye/tugling");
-    expect(tugling).toContain("ref: e709bd77128e3d14ebc8ded37ccc2afe8f4b6eba");
+    expect(tugling).toContain("ref: def00814d412546ae9885d9a32584ec161b6e3f7");
     expect(tugling).toContain("persist-credentials: false");
     expect(tugling).toContain("project_contract.py");
     expect(tugling).toContain("--source-mode pinned");

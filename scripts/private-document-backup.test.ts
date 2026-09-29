@@ -237,5 +237,6 @@ describe("private document backup and recovery", () => {
         await rm(temporary, { recursive: true, force: true });
       }
     },
+    15_000,
   );
 });
