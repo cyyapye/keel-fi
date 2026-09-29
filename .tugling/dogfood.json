@@ -4,6 +4,7 @@
   "case": {
     "id": "keel-projection-read-scale",
     "skill": "scale-cost-review",
+    "project_type": "typescript-worker",
     "sandbox": "read-only",
     "minimum_score": 0.8,
     "expected_state": "BLOCKED",
