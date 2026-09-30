@@ -71,7 +71,7 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "apps/web/src/App.tsx | AngelListMacAgentControl | timer | window.setTimeout | 490facad2c7c4c3e",
   "apps/web/src/App.tsx | AngelListMacAgentControl | timer | window.setTimeout | 8e74620f963089e5",
   "apps/web/src/App.tsx | CashAccountsControl | timer | window.setTimeout | 5fe263b041170409",
-  "apps/web/src/App.tsx | CashAccountsControl | timer | window.setTimeout | eb2748342871ad66",
+  "apps/web/src/App.tsx | CashAccountsControl | timer | window.setTimeout | 6bbcac236f5f9214",
   "apps/web/src/App.tsx | Holdings | timer | window.setTimeout | 93d66fed41118b8e",
   "apps/web/src/App.tsx | PortfolioBaselineSection | timer | window.setTimeout | 540a4d1242d2390a",
   "apps/web/src/App.tsx | ProviderPortfolioAgentRow | timer | window.setTimeout | 490facad2c7c4c3e",
