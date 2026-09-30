@@ -5011,24 +5011,14 @@ function CashAccountsControl({
     const timer = window.setTimeout(() => {
       void reload(controller.signal)
         .then(async (initialState) => {
-          const refreshCutoff = Date.now() - 7 * 24 * 60 * 60 * 1_000;
-          const hasDueConnection = initialState.connections.some(
-            (connection) =>
-              connection.status === "ready" &&
-              connection.liveRefreshesRemaining > 0 &&
-              (connection.lastLiveAttemptAt == null ||
-                Date.parse(connection.lastLiveAttemptAt) < refreshCutoff) &&
-              (connection.lastCheckedAt === null ||
-                Date.parse(connection.lastCheckedAt) < refreshCutoff),
-          );
           if (
             controller.signal.aborted ||
             !initialState.configured ||
-            (!hasDueConnection && initialState.pendingProposals.length === 0)
+            (initialState.connections.length === 0 &&
+              initialState.pendingProposals.length === 0)
           ) {
             return;
           }
-          setBusyAction("automatic");
           try {
             const next = await refreshDueCashAccounts();
             if (controller.signal.aborted) {
@@ -5050,10 +5040,6 @@ function CashAccountsControl({
                   ? refreshError.message
                   : "Automatic bank balance checks are temporarily unavailable.",
               );
-            }
-          } finally {
-            if (!controller.signal.aborted) {
-              setBusyAction(null);
             }
           }
         })
@@ -5278,8 +5264,8 @@ function CashAccountsControl({
                 : "Bank cash"}
           </h2>
           <p>
-            Balances update automatically. Review only new accounts and
-            unresolved changes.
+            Keel checks due balances when you open Sources. Review only new
+            accounts and unresolved changes.
           </p>
         </div>
         {!setupRequired && (
@@ -5406,6 +5392,7 @@ function CashAccountsControl({
               const pendingProposal = state.pendingProposals.find(
                 (proposal) => proposal.connectionId === connection.id,
               );
+              const coolingDown = connection.cooldownActive === true;
               if (
                 pendingProposal === undefined &&
                 connection.status !== "needs_attention"
@@ -5444,16 +5431,19 @@ function CashAccountsControl({
                     <small>
                       {pendingProposal !== undefined
                         ? `${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "account needs" : "accounts need"} attention · ${pendingProposal.refreshKind === "live" ? "live check" : "cached"} ${formatDate(pendingProposal.observedAt)}`
-                        : connection.lastCheckedAt === null
-                          ? "Not checked yet"
-                          : `Automatic check failed after ${formatDate(connection.lastCheckedAt)}`}
+                        : coolingDown
+                          ? `Plaid paused checks until ${formatDate(connection.cooldownUntil!)}`
+                          : connection.lastCheckedAt === null
+                            ? "Not checked yet"
+                            : `Automatic check failed after ${formatDate(connection.lastCheckedAt)}`}
                     </small>
                   </span>
                   <Button
                     disabled={
                       busyAction !== null ||
                       (pendingProposal === undefined &&
-                        connection.liveRefreshesRemaining === 0)
+                        (connection.liveRefreshesRemaining === 0 ||
+                          coolingDown))
                     }
                     onClick={() => {
                       if (pendingProposal !== undefined) {
@@ -5470,7 +5460,9 @@ function CashAccountsControl({
                       ? "Checking…"
                       : pendingProposal !== undefined
                         ? `Review ${pendingProposal.summary.rowCount} ${pendingProposal.summary.rowCount === 1 ? "exception" : "exceptions"}`
-                        : "Try again"}
+                        : coolingDown
+                          ? "Check paused"
+                          : "Try again"}
                   </Button>
                 </div>
               );
@@ -5490,12 +5482,9 @@ function CashAccountsControl({
       )}
       {!setupRequired && (state?.connections.length ?? 0) > 0 && (
         <p className="cash-accounts__cost-note">
-          {busyAction === "automatic"
-            ? "Checking due bank balances…"
-            : latestBankCheckAt === null
-              ? "Balances are checked automatically when due."
-              : `Last checked ${formatDate(latestBankCheckAt)}.`}{" "}
-          Checks run no more than once a week or four times per bank each month.
+          {latestBankCheckAt === null
+            ? "Balances are checked when due."
+            : `Last checked ${formatDate(latestBankCheckAt)}.`}
         </p>
       )}
     </section>

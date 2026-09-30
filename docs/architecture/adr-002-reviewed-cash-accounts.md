@@ -36,19 +36,23 @@ Use Plaid for cash-account observations with these boundaries:
   numbers;
 - use the free `/accounts/get` response immediately after a new Item is linked;
 - when Holdings loads, call `/accounts/balance/get` only when the institution
-  has no active refresh and no live attempt in the preceding seven days;
+  has no active refresh and no live attempt in the preceding day for an
+  explicitly configured free plan, or seven days for the default paid plan;
 - offer a manual retry only after a failed automatic check;
-- allow at most four live balance requests per connected institution per UTC
-  calendar month, including an attempted request once it crosses Keel's provider
-  boundary; and
+- allow at most 31 free-mode or four paid-mode live balance requests per
+  connected institution per UTC calendar month, including an attempted request
+  once it crosses Keel's provider boundary; persist a Plaid Balance rate-limit
+  event and thereafter require seven days between attempts for that institution;
+  stop automatic checks on exhausted Limited Production credits; and
 - do not run a background schedule or subscribe to Transactions in this
   milestone.
 
-The fixed request ceiling makes the maximum live-balance cost per institution
+The paid request ceiling makes the maximum live-balance cost per institution
 `4 × the Plaid contract rate` each month. Plaid does not publish the exact
-account-specific rate, so the operator must verify it in the Plaid dashboard or
-contract before enabling production. Initial linking uses the free cached
-endpoint and does not consume this ceiling.
+account-specific rate or expose the team's billing plan to this integration, so
+the operator must verify the plan and rate in the Plaid Dashboard or contract
+before enabling production. Initial linking uses the free cached endpoint and
+does not consume this ceiling.
 
 Every provider response is validated at the API boundary and retained under an
 opaque key in private R2. D1 stores only household-scoped connection metadata,

@@ -215,6 +215,7 @@ import {
 } from "./plaid-cash-flow-sync";
 import {
   cashAccountsConfigured,
+  cashRefreshUsagePlan,
   connectCashAccount,
   createPlaidCashClient,
   disconnectCashAccount,
@@ -383,8 +384,22 @@ function cashAccountErrorResponse(
       message: "Reconnect this institution to continue.",
       status: 409 as const,
     },
+    cooldown_active: {
+      message: "Plaid has limited balance checks. Try again after seven days.",
+      status: 429 as const,
+    },
+    free_usage_exhausted: {
+      message:
+        "Plaid's free Balance usage is exhausted. Check your Plaid plan.",
+      status: 429 as const,
+    },
     monthly_limit_reached: {
       message: "This institution has used its live balance checks this month.",
+      status: 429 as const,
+    },
+    provider_rate_limited: {
+      message:
+        "Plaid has limited balance checks. Keel will retry after seven days.",
       status: 429 as const,
     },
     review_required: {
@@ -970,7 +985,8 @@ export function createApp(options: AppOptions = {}) {
     options.newInvestmentConnectionsAvailable ??
     env.INVESTMENTS_NEW_CONNECTIONS_ENABLED === "true";
   const cashAccountsRepositoryFor = (env: Env) =>
-    options.cashAccountsRepository ?? new D1CashAccountsRepository(env.DB);
+    options.cashAccountsRepository ??
+    new D1CashAccountsRepository(env.DB, cashRefreshUsagePlan(env));
   const cashPlaidClientFor = (env: Env) =>
     options.cashPlaidClient ?? createPlaidCashClient(env);
   const cashAccountsConfiguredFor = (env: Env) =>

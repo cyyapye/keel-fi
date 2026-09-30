@@ -23,6 +23,8 @@ export interface Env {
   MAC_AGENT_API_ORIGIN?: string;
   CONNECTOR_CREDENTIAL_KEY?: string;
   PLAID_CLIENT_ID?: string;
+  /** Operator-confirmed Plaid plan. Unknown values fail closed to paid limits. */
+  PLAID_CASH_USAGE_PLAN?: string;
   PLAID_ENVIRONMENT?: string;
   PLAID_REDIRECT_URI?: string;
   PLAID_SECRET?: string;

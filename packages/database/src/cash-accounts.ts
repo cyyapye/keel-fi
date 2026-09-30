@@ -28,8 +28,12 @@ import {
 } from "./cash-account-identity";
 
 const CONNECTOR_TYPE = "plaid-cash";
-const LIVE_REFRESH_LIMIT = 4;
+const PAID_LIVE_REFRESH_LIMIT = 4;
+const FREE_LIVE_REFRESH_LIMIT = 31;
+const RATE_LIMIT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1_000;
 const SHA256_SCHEMA = z.string().regex(/^[a-f0-9]{64}$/u);
+
+export type CashRefreshUsagePlan = "free" | "paid";
 
 type HouseholdIdentity = {
   household_id: string;
@@ -50,6 +54,7 @@ type ConnectionStateRow = ConnectionRow & {
   latest_error_code: string | null;
   live_refreshes_used: number;
   last_live_attempt_at: string | null;
+  has_rate_limit: number;
 };
 
 type ProposalSourceRow = {
@@ -559,7 +564,16 @@ export interface CashAccountsRepository {
 }
 
 export class D1CashAccountsRepository implements CashAccountsRepository {
-  public constructor(private readonly db: D1Database) {}
+  public constructor(
+    private readonly db: D1Database,
+    private readonly usagePlan: CashRefreshUsagePlan = "paid",
+  ) {}
+
+  private get liveRefreshLimit(): number {
+    return this.usagePlan === "free"
+      ? FREE_LIVE_REFRESH_LIMIT
+      : PAID_LIVE_REFRESH_LIMIT;
+  }
 
   public async listAcceptedAccountsForHousehold(
     householdId: string,
@@ -613,10 +627,23 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
             : "ready",
         lastCheckedAt: connection.last_synced_at,
         lastLiveAttemptAt: connection.last_live_attempt_at,
-        liveRefreshLimit: LIVE_REFRESH_LIMIT,
+        cooldownUntil:
+          connection.has_rate_limit === 1 &&
+          connection.last_live_attempt_at !== null
+            ? new Date(
+                Date.parse(connection.last_live_attempt_at) +
+                  RATE_LIMIT_COOLDOWN_MS,
+              ).toISOString()
+            : null,
+        cooldownActive:
+          connection.has_rate_limit === 1 &&
+          connection.last_live_attempt_at !== null &&
+          Date.parse(connection.last_live_attempt_at) + RATE_LIMIT_COOLDOWN_MS >
+            Date.now(),
+        liveRefreshLimit: this.liveRefreshLimit,
         liveRefreshesUsed: connection.live_refreshes_used,
         liveRefreshesRemaining: Math.max(
-          LIVE_REFRESH_LIMIT - connection.live_refreshes_used,
+          this.liveRefreshLimit - connection.live_refreshes_used,
           0,
         ),
       })),
@@ -896,6 +923,9 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     const identity = await findIdentity(this.db, accessSubject);
     const id = crypto.randomUUID();
     const startedAt = new Date().toISOString();
+    const rateLimitedAfter = new Date(
+      Date.parse(startedAt) - RATE_LIMIT_COOLDOWN_MS,
+    ).toISOString();
     const result = await this.db
       .prepare(
         `INSERT INTO connector_sync_runs (
@@ -919,6 +949,21 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
                AND used.cursor = 'cash-live-v1'
                AND used.started_at >= ? AND used.started_at < ?
            ) < ?
+         )
+         AND (
+           ? = 'initial'
+           OR NOT EXISTS (
+             SELECT 1 FROM connector_sync_runs limited
+             WHERE limited.connector_account_id = ?
+               AND limited.cursor = 'cash-live-v1'
+               AND limited.error_code = 'provider_rate_limited'
+           )
+           OR NOT EXISTS (
+             SELECT 1 FROM connector_sync_runs recent
+             WHERE recent.connector_account_id = ?
+               AND recent.cursor = 'cash-live-v1'
+               AND recent.started_at >= ?
+           )
          )`,
       )
       .bind(
@@ -933,7 +978,11 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         identity.household_id,
         connection.id,
         ...monthBounds(new Date(startedAt)),
-        LIVE_REFRESH_LIMIT,
+        this.liveRefreshLimit,
+        refreshKind,
+        connection.id,
+        connection.id,
+        rateLimitedAfter,
       )
       .run();
     if (result.meta.changes !== 1) {
@@ -941,6 +990,19 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         throw new CashAccountRepositoryError(
           "review_required",
           "A balance check is already running for this institution.",
+        );
+      }
+      if (
+        refreshKind === "live" &&
+        (await this.rateLimitCooldownActive(
+          identity.household_id,
+          connection.id,
+          rateLimitedAfter,
+        ))
+      ) {
+        throw new CashAccountRepositoryError(
+          "cooldown_active",
+          "Plaid has limited balance checks for this institution. Try again after the seven-day pause.",
         );
       }
       throw new CashAccountRepositoryError(
@@ -966,6 +1028,9 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     const identity = await findIdentity(this.db, accessSubject);
     const id = crypto.randomUUID();
     const startedAt = new Date().toISOString();
+    const rateLimitedAfter = new Date(
+      Date.parse(startedAt) - RATE_LIMIT_COOLDOWN_MS,
+    ).toISOString();
     const result = await this.db
       .prepare(
         `INSERT INTO connector_sync_runs (
@@ -987,6 +1052,33 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
              AND recent.cursor = 'cash-live-v1'
              AND recent.started_at >= ?
          )
+         AND NOT EXISTS (
+           SELECT 1 FROM connector_sync_runs exhausted
+           WHERE exhausted.connector_account_id = ?
+             AND exhausted.cursor = 'cash-live-v1'
+             AND exhausted.error_code = 'free_usage_exhausted'
+             AND NOT EXISTS (
+               SELECT 1 FROM connector_sync_runs recovered
+               WHERE recovered.connector_account_id = exhausted.connector_account_id
+                 AND recovered.cursor = 'cash-live-v1'
+                 AND recovered.status = 'succeeded'
+                 AND recovered.finished_at > exhausted.finished_at
+             )
+         )
+         AND (
+           NOT EXISTS (
+             SELECT 1 FROM connector_sync_runs limited
+             WHERE limited.connector_account_id = ?
+               AND limited.cursor = 'cash-live-v1'
+               AND limited.error_code = 'provider_rate_limited'
+           )
+           OR NOT EXISTS (
+             SELECT 1 FROM connector_sync_runs recent
+             WHERE recent.connector_account_id = ?
+               AND recent.cursor = 'cash-live-v1'
+               AND recent.started_at >= ?
+           )
+         )
          AND (
            SELECT COUNT(*) FROM connector_sync_runs used
            WHERE used.household_id = ?
@@ -1005,10 +1097,14 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
         identity.household_id,
         connection.id,
         refreshedAfter,
+        connection.id,
+        connection.id,
+        connection.id,
+        rateLimitedAfter,
         identity.household_id,
         connection.id,
         ...monthBounds(new Date(startedAt)),
-        LIVE_REFRESH_LIMIT,
+        this.liveRefreshLimit,
       )
       .run();
     return result.meta.changes === 1
@@ -1664,6 +1760,12 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
                WHERE run.connector_account_id = account.id AND run.cursor = 'cash-live-v1'
                ORDER BY run.started_at DESC LIMIT 1
              ) AS last_live_attempt_at,
+             EXISTS (
+               SELECT 1 FROM connector_sync_runs limited
+               WHERE limited.connector_account_id = account.id
+                 AND limited.cursor = 'cash-live-v1'
+                 AND limited.error_code = 'provider_rate_limited'
+             ) AS has_rate_limit,
              (
                SELECT run.status FROM connector_sync_runs run
                WHERE run.connector_account_id = account.id
@@ -1703,6 +1805,35 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     ) AS blocked`,
       )
       .bind(householdId, connectionId)
+      .first<{ blocked: number }>();
+    return row?.blocked === 1;
+  }
+
+  private async rateLimitCooldownActive(
+    householdId: string,
+    connectionId: string,
+    cutoff: string,
+  ): Promise<boolean> {
+    const row = await this.db
+      .prepare(
+        `SELECT (
+          EXISTS (
+            SELECT 1 FROM connector_sync_runs limited
+            WHERE limited.household_id = ?
+              AND limited.connector_account_id = ?
+              AND limited.cursor = 'cash-live-v1'
+              AND limited.error_code = 'provider_rate_limited'
+          )
+          AND EXISTS (
+            SELECT 1 FROM connector_sync_runs recent
+            WHERE recent.household_id = ?
+              AND recent.connector_account_id = ?
+              AND recent.cursor = 'cash-live-v1'
+              AND recent.started_at >= ?
+          )
+        ) AS blocked`,
+      )
+      .bind(householdId, connectionId, householdId, connectionId, cutoff)
       .first<{ blocked: number }>();
     return row?.blocked === 1;
   }

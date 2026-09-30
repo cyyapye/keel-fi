@@ -1660,6 +1660,167 @@ describe("reviewed cash accounts", () => {
     });
   });
 
+  it("uses the free cadence until a real rate limit, then remembers the seven-day pause", async () => {
+    repository = new D1CashAccountsRepository(
+      measured as unknown as D1Database,
+      "free",
+    );
+    const connection = await repository.upsertConnection(
+      "synthetic-access-subject",
+      "First Synthetic Bank",
+      "connector-secrets/synthetic-cash.enc",
+      "6".repeat(64),
+    );
+    const dailyCutoff = new Date(
+      Date.now() - 24 * 60 * 60 * 1_000,
+    ).toISOString();
+    const first = await repository.beginAutomaticRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      dailyCutoff,
+    );
+    expect(first).not.toBeNull();
+    await repository.failRefresh(
+      "synthetic-access-subject",
+      first!.id,
+      "provider_rate_limited",
+    );
+    expect(
+      (await repository.getState("synthetic-access-subject", true))
+        .connections[0],
+    ).toMatchObject({
+      liveRefreshLimit: 31,
+      liveRefreshesRemaining: 30,
+      cooldownUntil: expect.any(String),
+      cooldownActive: true,
+    });
+    sqlite
+      .prepare("UPDATE connector_sync_runs SET started_at = ? WHERE id = ?")
+      .run(
+        new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000).toISOString(),
+        first!.id,
+      );
+    await expect(
+      repository.beginAutomaticRefresh(
+        "synthetic-access-subject",
+        connection.id,
+        dailyCutoff,
+      ),
+    ).resolves.toBeNull();
+    const guardedInsert = measured.queries.find(({ sql }) =>
+      sql.includes("limited.error_code = 'provider_rate_limited'"),
+    )!;
+    const guardPlan = sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${guardedInsert.sql}`)
+      .all(...guardedInsert.values)
+      .map((row) => row.detail)
+      .join("\n");
+    expect(guardPlan).toContain("connector_sync_runs_cash_rate_limit_idx");
+    expect(guardPlan).not.toMatch(/SCAN limited/);
+    await expect(
+      repository.beginRefresh(
+        "synthetic-access-subject",
+        connection.id,
+        "live",
+      ),
+    ).rejects.toMatchObject({ code: "cooldown_active" });
+
+    sqlite
+      .prepare("UPDATE connector_sync_runs SET started_at = ? WHERE id = ?")
+      .run(
+        new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000).toISOString(),
+        first!.id,
+      );
+    const second = await repository.beginAutomaticRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      dailyCutoff,
+    );
+    expect(second).not.toBeNull();
+    await repository.failRefresh(
+      "synthetic-access-subject",
+      second!.id,
+      "provider_unavailable",
+    );
+    sqlite
+      .prepare(
+        "UPDATE connector_sync_runs SET status = 'succeeded', error_code = NULL WHERE id = ?",
+      )
+      .run(second!.id);
+    sqlite
+      .prepare("UPDATE connector_sync_runs SET started_at = ? WHERE id = ?")
+      .run(
+        new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000).toISOString(),
+        second!.id,
+      );
+    await expect(
+      repository.beginAutomaticRefresh(
+        "synthetic-access-subject",
+        connection.id,
+        dailyCutoff,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("stops automatic checks when free credits are exhausted", async () => {
+    repository = new D1CashAccountsRepository(
+      measured as unknown as D1Database,
+      "free",
+    );
+    const connection = await repository.upsertConnection(
+      "synthetic-access-subject",
+      "First Synthetic Bank",
+      "connector-secrets/synthetic-cash.enc",
+      "6".repeat(64),
+    );
+    const run = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "live",
+    );
+    await repository.failRefresh(
+      "synthetic-access-subject",
+      run.id,
+      "free_usage_exhausted",
+    );
+    sqlite
+      .prepare("UPDATE connector_sync_runs SET started_at = ? WHERE id = ?")
+      .run(
+        new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000).toISOString(),
+        run.id,
+      );
+    await expect(
+      repository.beginAutomaticRefresh(
+        "synthetic-access-subject",
+        connection.id,
+        new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString(),
+      ),
+    ).resolves.toBeNull();
+    const retry = await repository.beginRefresh(
+      "synthetic-access-subject",
+      connection.id,
+      "live",
+    );
+    await repository.failRefresh(
+      "synthetic-access-subject",
+      retry.id,
+      "provider_unavailable",
+    );
+    sqlite
+      .prepare("UPDATE connector_sync_runs SET started_at = ? WHERE id = ?")
+      .run(
+        new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000).toISOString(),
+        retry.id,
+      );
+    await expect(
+      repository.beginAutomaticRefresh(
+        "synthetic-access-subject",
+        connection.id,
+        new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString(),
+      ),
+    ).resolves.toBeNull();
+  });
+
   it("starts an automatic live check only when the weekly guard allows it", async () => {
     const connection = await repository.upsertConnection(
       "synthetic-access-subject",
