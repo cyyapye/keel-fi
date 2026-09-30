@@ -103,6 +103,9 @@ export const PreviewDeploymentEnvironmentSchema = z
     KEEL_PREVIEW_ACCESS_CLIENT_SECRET: z.string().min(32).max(1024),
     KEEL_PREVIEW_ACCESS_TEAM_DOMAIN: HostnameSchema,
     KEEL_PREVIEW_API_WORKER: CloudflareResourceNameSchema,
+    KEEL_PREVIEW_PLAID_CASH_USAGE_PLAN: OptionalEnvironmentValue(
+      z.enum(["free", "paid"]),
+    ),
     KEEL_PREVIEW_BACKUP_PASSPHRASE: z.string().min(32).max(1024),
     KEEL_PREVIEW_D1_ID: z.uuid(),
     KEEL_PREVIEW_D1_NAME: CloudflareResourceNameSchema,
@@ -188,6 +191,8 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
       ENVIRONMENT: "preview",
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
       INVESTMENTS_NEW_CONNECTIONS_ENABLED: "true",
+      PLAID_CASH_USAGE_PLAN:
+        configuration.KEEL_PREVIEW_PLAID_CASH_USAGE_PLAN ?? "paid",
       MAC_AGENT_API_ORIGIN: agentApiOrigin.origin,
       PLAID_WEBHOOK_URL: webhookUrl.href,
     },

@@ -84,6 +84,12 @@ describe("preview deployment configuration", () => {
     expect(
       PreviewDeploymentEnvironmentSchema.safeParse(partialConnector).success,
     ).toBe(false);
+
+    const invalidUsagePlan = environment("/tmp/unused");
+    invalidUsagePlan.KEEL_PREVIEW_PLAID_CASH_USAGE_PLAN = "unlimited";
+    expect(
+      PreviewDeploymentEnvironmentSchema.safeParse(invalidUsagePlan).success,
+    ).toBe(false);
   });
 
   it("generates complete private Wrangler configuration outside tracked files", async () => {
@@ -107,6 +113,7 @@ describe("preview deployment configuration", () => {
         MAC_AGENT_API_ORIGIN: "https://keel-preview-agents.example.com",
         PLAID_WEBHOOK_URL:
           "https://keel-preview-webhooks.example.com/webhooks/plaid",
+        PLAID_CASH_USAGE_PLAN: "paid",
       },
       compatibility_flags: ["global_fetch_strictly_public", "nodejs_compat"],
       secrets: {

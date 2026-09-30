@@ -8,6 +8,7 @@ import type { CashAccountsState } from "@keel/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  cashRefreshUsagePlan,
   cashProviderKey,
   cashProviderScopedKey,
   connectCashAccount,
@@ -211,6 +212,75 @@ function testEnv(bucket: R2Bucket): Env {
 }
 
 describe("Plaid cash account sync", () => {
+  it("recognizes Plaid balance limits separately from exhausted free credits", async () => {
+    for (const [plaidCode, expectedCode] of [
+      ["BALANCE_LIMIT", "provider_rate_limited"],
+      ["NEW_BALANCE_RATE_LIMIT", "provider_rate_limited"],
+      ["CREDITS_EXHAUSTED", "free_usage_exhausted"],
+    ] as const) {
+      const client = new FetchPlaidCashClient(
+        {
+          clientId: "synthetic-client",
+          secret: "synthetic-secret",
+          environment: "sandbox",
+          credentialKey,
+          redirectUri: "https://keel.example/holdings",
+        },
+        vi
+          .fn()
+          .mockResolvedValue(
+            Response.json(
+              { error_type: "RATE_LIMIT_EXCEEDED", error_code: plaidCode },
+              { status: 429 },
+            ),
+          ),
+      );
+      await expect(
+        client.getAccounts("synthetic-access-token", "live"),
+      ).rejects.toMatchObject({
+        code: expectedCode,
+      });
+    }
+  });
+
+  it("uses an explicit free plan and otherwise defaults to the paid cost guard", () => {
+    const env = testEnv({} as R2Bucket);
+    expect(cashRefreshUsagePlan(env)).toBe("paid");
+    env.PLAID_CASH_USAGE_PLAN = "free";
+    expect(cashRefreshUsagePlan(env)).toBe("free");
+  });
+
+  it("checks a free-plan connection after one day", async () => {
+    const repository = cashRepository();
+    repository.getState.mockResolvedValue({
+      ...state(),
+      connections: [
+        {
+          id: "synthetic-cash-connection",
+          institutionLabel: "First Synthetic Bank",
+          status: "ready",
+          lastCheckedAt: "2026-08-15T18:00:00.000Z",
+          liveRefreshLimit: 31,
+          liveRefreshesUsed: 1,
+          liveRefreshesRemaining: 30,
+        },
+      ],
+    });
+    const env = testEnv({} as R2Bucket);
+    env.PLAID_CASH_USAGE_PLAN = "free";
+    await refreshDueCashAccounts({
+      env,
+      repository,
+      client: {} as PlaidCashClient,
+      accessSubject: "synthetic-access-subject",
+      now: new Date("2026-08-17T18:00:00.000Z"),
+    });
+    expect(repository.beginAutomaticRefresh).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-cash-connection",
+      "2026-08-16T18:00:00.000Z",
+    );
+  });
   it("scopes provider account and transaction keys to one Plaid Item", async () => {
     const storage = memoryBucket();
     const env = testEnv(storage.bucket);

@@ -6,6 +6,7 @@ import {
 import type {
   CashAccountRefreshRun,
   CashAccountsRepository,
+  CashRefreshUsagePlan,
 } from "@keel/database";
 import {
   CashAccountLinkTokenSchema,
@@ -19,6 +20,15 @@ import type { Env } from "./types";
 
 const MAX_PLAID_RESPONSE_BYTES = 5 * 1_048_576;
 const PLAID_REQUEST_TIMEOUT_MS = 15_000;
+const FREE_AUTOMATIC_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1_000;
+const PAID_AUTOMATIC_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1_000;
+
+export function cashRefreshUsagePlan(env: Env): CashRefreshUsagePlan {
+  return z
+    .enum(["free", "paid"])
+    .catch("paid")
+    .parse(env.PLAID_CASH_USAGE_PLAN);
+}
 
 const PlaidCashConfigurationSchema = z
   .object({
@@ -29,6 +39,13 @@ const PlaidCashConfigurationSchema = z
     redirectUri: z.url().max(2_048),
   })
   .strict();
+
+const PlaidBalanceRateLimitSchema = z
+  .object({
+    error_type: z.literal("RATE_LIMIT_EXCEEDED"),
+    error_code: z.string().min(1).max(128),
+  })
+  .passthrough();
 
 export type PlaidCashConfiguration = z.infer<
   typeof PlaidCashConfigurationSchema
@@ -100,6 +117,8 @@ export class PlaidCashClientError extends Error {
       | "configuration_required"
       | "connection_invalid"
       | "provider_unavailable"
+      | "provider_rate_limited"
+      | "free_usage_exhausted"
       | "response_invalid"
       | "staging_failed",
     message: string,
@@ -624,6 +643,27 @@ export class FetchPlaidCashClient implements PlaidCashClient {
     }
     const bytes = await readBoundedResponse(response);
     if (!response.ok) {
+      if (path === "/accounts/balance/get" && response.status === 429) {
+        let decoded: unknown;
+        try {
+          decoded = JSON.parse(
+            new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+          );
+        } catch {
+          decoded = null;
+        }
+        const limit = PlaidBalanceRateLimitSchema.safeParse(decoded);
+        if (limit.success) {
+          throw new PlaidCashClientError(
+            limit.data.error_code === "CREDITS_EXHAUSTED"
+              ? "free_usage_exhausted"
+              : "provider_rate_limited",
+            limit.data.error_code === "CREDITS_EXHAUSTED"
+              ? "Plaid's free Balance usage is exhausted. Check your Plaid plan before trying again."
+              : "Plaid has limited balance checks. Keel will pause this institution for seven days.",
+          );
+        }
+      }
       throw new PlaidCashClientError(
         response.status === 400 || response.status === 401
           ? "connection_invalid"
@@ -655,7 +695,10 @@ function errorCode(error: unknown): CashAccountsErrorCode {
       .enum([
         "configuration_required",
         "connection_invalid",
+        "cooldown_active",
+        "free_usage_exhausted",
         "monthly_limit_reached",
+        "provider_rate_limited",
         "review_required",
         "provider_unavailable",
         "response_invalid",
@@ -889,8 +932,6 @@ async function executeCashAccountRefresh(input: {
   }
 }
 
-const AUTOMATIC_LIVE_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1_000;
-
 export async function refreshDueCashAccounts(input: {
   env: Env;
   repository: CashAccountsRepository;
@@ -902,9 +943,11 @@ export async function refreshDueCashAccounts(input: {
   await input.repository.applyAutomaticUpdates(input.accessSubject);
   const state = await input.repository.getState(input.accessSubject, true);
   const now = input.now ?? new Date();
-  const refreshedAfter = new Date(
-    now.getTime() - AUTOMATIC_LIVE_REFRESH_INTERVAL_MS,
-  ).toISOString();
+  const interval =
+    cashRefreshUsagePlan(input.env) === "free"
+      ? FREE_AUTOMATIC_REFRESH_INTERVAL_MS
+      : PAID_AUTOMATIC_REFRESH_INTERVAL_MS;
+  const refreshedAfter = new Date(now.getTime() - interval).toISOString();
   let attempted = false;
   for (const connection of state.connections) {
     if (

@@ -344,7 +344,10 @@ test("shows only cash exceptions and preserves failed decisions", async ({
   await expect(acceptedSavingsRow).toContainText(
     "Northstar Demo Bank · As of Aug 1, 2026",
   );
-  await expect(cashSection).toContainText("four times per bank each month");
+  await expect(cashSection).toContainText(
+    "Keel checks due balances when you open Sources",
+  );
+  await expect(cashSection).toContainText("Last checked Aug 14, 2026");
   await expect(cashSection).not.toContainText("Review waiting");
   await expect(cashSection).not.toContainText("ready to review");
   await expect.poll(() => automaticRefreshRequests).toBe(1);
@@ -368,6 +371,35 @@ test("shows only cash exceptions and preserves failed decisions", async ({
     maxDiffPixelRatio: 0.025,
     threshold: 0.25,
   });
+
+  cashState = {
+    ...pendingState,
+    connections: [
+      {
+        ...pendingState.connections[0],
+        status: "needs_attention",
+        cooldownUntil: "2099-01-01T00:00:00.000Z",
+        cooldownActive: true,
+      },
+    ],
+    pendingProposals: [],
+  };
+  await page.reload();
+  await expect(
+    cashSection.getByText("Plaid paused checks until"),
+  ).toBeVisible();
+  await expect(
+    cashSection.getByRole("button", { name: "Check paused" }),
+  ).toBeDisabled();
+  await expectNoHorizontalOverflow(page);
+  await expect(cashSection).toHaveScreenshot("cash-accounts-paused.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.025,
+    threshold: 0.25,
+  });
+  cashState = pendingState;
+  await page.reload();
 
   await page.getByRole("button", { name: "Review 2 exceptions" }).click();
   const reviewHeading = page.getByRole("heading", {

@@ -34,6 +34,12 @@ missing account as closed or empty.
    - `PLAID_REDIRECT_URI`; and
    - `PLAID_SECRET`.
 
+6. Set `PLAID_CASH_USAGE_PLAN=free` only after checking the plan in Plaid's
+   Dashboard. Automatic preview deployment reads
+   `KEEL_PREVIEW_PLAID_CASH_USAGE_PLAN` from the GitHub `preview` environment.
+   An absent setting defaults to `paid`. Plaid does not expose the team's
+   billing plan to Keel through the Balance API.
+
 For local Wrangler development, put the values in the ignored
 `apps/api/.dev.vars` file. For automatic preview deployment, configure the same
 names with the `KEEL_PREVIEW_` prefix in the GitHub `preview` environment. The
@@ -48,13 +54,19 @@ unreadable and requires reconnecting it.
 
 - Initial linking uses the cached `/accounts/get` response and consumes no live
   balance-check allowance.
-- Opening Holdings attempts `/accounts/balance/get` only when the institution
-  has no live attempt in the preceding seven days.
+- Opening Holdings attempts `/accounts/balance/get` when a free-plan connection
+  has no live attempt in the preceding day, or a paid-plan connection has no
+  live attempt in the preceding seven days.
 - A failed automatic check exposes a bounded manual retry; healthy connections
   do not repeat a routine **Check balances** action.
-- Each institution is capped at four attempted live checks per UTC calendar
-  month. There is no background schedule or webhook-triggered cash refresh, so a
-  page reload inside the cooldown makes no provider request.
+- Free mode allows at most 31 attempted live checks per institution per UTC
+  month. Paid mode keeps the four-attempt cap. There is no background schedule
+  or webhook-triggered cash refresh.
+- A real Plaid Balance rate-limit response starts a seven-day pause for that
+  institution. Keel remembers the event in D1 and applies the pause after each
+  later attempt, even across deployments. Exhausted Limited Production credits
+  stop automatic checks until a manual successful retry; waiting seven days
+  cannot restore those credits.
 - Keel permits one active check per connection. Waiting exceptions do not block
   the next due check. A newer complete observation replaces older waiting rows
   with recorded decisions, preserving their evidence.
@@ -62,12 +74,13 @@ unreadable and requires reconnecting it.
   or changing the last accepted cash fact. Valid newer live balances for known
   accounts apply automatically. New account inclusion, missing or unsupported
   values, changed account types, and conflicting values remain exceptions.
-- The maximum live-balance cost is therefore
+- The maximum paid-mode live-balance cost is therefore
   `4 × the deployment's Plaid contract rate` per institution each month, plus
-  any one-time Auth charge for linking.
-- Plaid Trial is free and limits Production to 10 live Items; Plaid does not
-  publish a separate monthly allowance of Balance calls. The four-attempt limit
-  is Keel's own maximum-cost guard.
+  any one-time Auth charge for linking. The 31-attempt free-mode ceiling is
+  Keel's own guard.
+- Plaid Trial is free and limits Production to 10 live Items; calls against
+  existing Trial Items are not plan-capped. Legacy Limited Production can run
+  out of free credits. Confirm which arrangement applies in the Dashboard.
 
 Use Plaid's official documentation for
 [Link product initialization](https://plaid.com/docs/link/initializing-products/),

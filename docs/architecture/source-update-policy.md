@@ -117,8 +117,11 @@ accounts, and a policy batch needs six round trips. One observation can contain
 100 reported accounts plus 100 missing prior accounts; recovery processes at
 most 20 current proposals and 20 superseded proposals per call, using set-based
 decisions. Current exceptions cannot starve the cleanup of old observations. The
-existing weekly and monthly provider limits apply even when exceptions are
-waiting.
+existing provider limits apply even when exceptions are waiting: a configured
+free plan checks at most daily with 31 monthly attempts, while the default paid
+plan checks weekly with four monthly attempts. Once Plaid actually reports a
+Balance rate limit, D1 enforces seven days between subsequent attempts for that
+institution. Exhausted free credits suspend automatic checks.
 
 After an accepted cash change, the browser invokes the existing baseline refresh
 POST and reloads Holdings and planning values. The initial baseline and genuine
