@@ -158,6 +158,25 @@ test("review duplicate sources and replacement history with no typing, saved rel
     .getByRole("button", { name: "Link investment records" })
     .click();
   await section.getByRole("combobox", { name: "Record to link" }).click();
+  const search = page.getByRole("combobox", {
+    name: "Search investment or source",
+  });
+  await expect(search).toBeVisible();
+  await expect(section.getByText("Find a record", { exact: true })).toHaveCount(
+    0,
+  );
+  await search.fill("missing record");
+  await expect(page.getByText("No matching investment records.")).toBeVisible();
+  await search.fill("tokenfolio aerospace");
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await expect(page.locator(".search-select")).toHaveScreenshot(
+    "position-link-search.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+    },
+  );
+  await search.fill("");
   await page
     .getByRole("option", { name: /Demo Orbit Aerospace source/ })
     .click();
