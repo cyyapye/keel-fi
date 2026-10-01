@@ -274,22 +274,24 @@ profile for the next leased capture. A failed saved-session check does not
 complete the reconnect or trigger credential rotation. Cancellation and the
 15-minute lease still apply during verification.
 
-Only a visible provider-owned authentication form is classified as requiring
-sign-in. Missing, hidden, delayed, or changed portfolio controls are reported as
-page-reading failures with a retry action, not as proof of login expiry.
-Reconnect failures log only provider, stage and bounded error codes; do not add
-cookies, page text, credentials, account identifiers, or source URLs to logs.
-Deploy the API/web first and update the existing provider service code only
-after its exact revision passes verification. Preserve its Linux identity and
-Chrome profile. Synthetic restart tests do not establish real-provider session
-durability. Sydecar's twelve-hour refresh authorization also needs normal
-provider renewal before a daily capture. After deploying migration 0060, API/web
-and the existing Sydecar worker, verify a live reconnect, a later
-`provider_session_renewal_verified` event and the following scheduled capture
-without another sign-in. Log only the bounded request count and remaining
-refresh lifetime; never log token values. Check D1 lease outcomes separately
-from browser evidence. Preserve the existing profile, credential, user and
-service sandbox throughout activation.
+Visible provider-owned authentication controls are classified as requiring
+sign-in. Tokenfolio also recognizes explicit passkey sign-in buttons and
+MFA/passkey challenges in authentication forms or blocking dialogs; optional
+inline security settings are excluded. Missing, hidden, delayed, or changed
+portfolio controls are reported as page-reading failures with a retry action,
+not as proof of login expiry. Reconnect failures log only provider, stage and
+bounded error codes; do not add cookies, page text, credentials, account
+identifiers, or source URLs to logs. Deploy the API/web first and update the
+existing provider service code only after its exact revision passes
+verification. Preserve its Linux identity and Chrome profile. Synthetic restart
+tests do not establish real-provider session durability. Sydecar's twelve-hour
+refresh authorization also needs normal provider renewal before a daily capture.
+After deploying migration 0060, API/web and the existing Sydecar worker, verify
+a live reconnect, a later `provider_session_renewal_verified` event and the
+following scheduled capture without another sign-in. Log only the bounded
+request count and remaining refresh lifetime; never log token values. Check D1
+lease outcomes separately from browser evidence. Preserve the existing profile,
+credential, user and service sandbox throughout activation.
 
 ## Verify and operate it
 
