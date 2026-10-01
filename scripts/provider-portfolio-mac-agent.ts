@@ -709,6 +709,50 @@ async function providerSignInVisible(
   if ((await email.first().isVisible()) && (await signIn.first().isVisible())) {
     return true;
   }
+  if (provider === "tokenfolio") {
+    // Passkey-only sign-in does not need a password or email field. Required
+    // enrollment can also interrupt an existing session, including in a dialog
+    // over still-mounted portfolio controls. Keep ordinary security settings
+    // out of this check and never read the credential or challenge values.
+    if (
+      await page
+        .getByRole("button", {
+          name: /^(?:sign in|log in) with (?:a |your )?passkey[.!]?$/iu,
+        })
+        .filter({ visible: true })
+        .first()
+        .isVisible()
+    ) {
+      return true;
+    }
+    const portfolioVisible = await page
+      .locator('button#portfolio-tab-active[role="tab"]')
+      .isVisible();
+    const challenge = page
+      .locator(
+        portfolioVisible
+          ? 'dialog, [role="dialog"]'
+          : 'dialog, [role="dialog"], form',
+      )
+      .filter({
+        has: page
+          .getByRole("heading", {
+            name: /^(?:verify your identity|(?:(?:set up|setup|enable) )?(?:two-factor|multi-factor) authentication|set up (?:a |your )?passkey)[.!]?$/iu,
+          })
+          .filter({ visible: true }),
+      })
+      .filter({
+        has: page
+          .getByRole("button", {
+            name: /^(?:verify|continue|set up|enable|(?:use|sign in with) (?:a |your )?passkey)[.!]?$/iu,
+          })
+          .filter({ visible: true }),
+      })
+      .filter({ visible: true });
+    if (await challenge.first().isVisible()) {
+      return true;
+    }
+  }
   // A provider may render its dedicated sign-in page before mounting the form.
   // Require both its auth route and visible sign-in copy, never a generic login
   // link, a redirect query, or an unrelated page's heading alone.

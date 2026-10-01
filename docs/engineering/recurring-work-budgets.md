@@ -69,6 +69,17 @@ its profile without running an idle page. Empty checks must open zero browsers;
 the one-minute discovery clock cannot become 1,440 browser launches per day.
 Browser startup failures follow the leased operation's bounded failure path.
 
+Tokenfolio's passkey/MFA classification inspects only visible DOM controls in
+the existing page-readiness check. It adds no browser launch, network request,
+API/D1/object operation, timer, credential probe, or retry. Existing 45-second
+portfolio readiness and 15-minute reconnect deadlines still apply; explicit
+authentication challenges use the existing sign-in-required failure path. The
+three-agent idle, continuous-outage, intermittent-recovery and maximum
+useful-work day envelopes below remain unchanged, including the shared account
+headroom. A synthetic browser regression fails under the former detector and
+requires passkey/MFA recovery while rejecting hidden and optional controls; the
+authenticated virtual-day usage gates continue to enforce the existing ceilings.
+
 ### Sydecar session maintenance
 
 The provider's observed access-token lifetime is one hour and refresh-token

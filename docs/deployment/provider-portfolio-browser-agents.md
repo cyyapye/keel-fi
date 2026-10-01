@@ -122,6 +122,32 @@ prove the sign-in expired. Keel recognizes a dedicated sign-in route together
 with visible sign-in copy even when its form has not loaded. Reconnecting and
 queuing an update are mutually exclusive while either request is in progress.
 
+### Tokenfolio MFA and passkey changes
+
+Enabling MFA or registering a passkey can invalidate a provider's older
+sessions. Signing in through an ordinary browser does not renew the dedicated
+agent profile. Use **Reconnect Tokenfolio**, complete the provider's required
+steps in that browser, and wait for Keel to verify the saved session and the
+immediate update. Confirm the next scheduled update also succeeds before
+treating the session as durable.
+
+On a remote Linux worker, a passkey stored on the user's Mac may not be
+available to the worker's Chrome browser. A streamed browser does not forward
+the Mac's platform authenticator. Use the provider's authenticator-code or other
+supported sign-in alternative when offered. If Tokenfolio requires a passkey
+that cannot be used from the worker, that sign-in method needs a
+provider-supported recovery path or an agent on a device that can use the
+passkey. Keep MFA enabled; do not copy credentials between profiles or automate
+authentication challenges.
+
+The agent recognizes explicit passkey sign-in buttons and visible MFA/passkey
+challenges within an authentication form or dialog on Tokenfolio's own origin. A
+dialog can block a still-visible portfolio. Optional inline security settings,
+hidden controls, unrelated origins, and missing portfolio controls alone do not
+establish a sign-in requirement. This detection routes failures to the existing
+reconnect flow; it does not establish Tokenfolio's session lifetime or renew a
+revoked sign-in.
+
 ## Capture contracts
 
 The agent fails closed if a provider page changes, a visible count changes
