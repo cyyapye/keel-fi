@@ -124,6 +124,69 @@ for (const [provider, origin, control] of [
   });
 }
 
+test("Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in", async ({
+  page,
+}) => {
+  const origin = "https://app.tokenfolio.co";
+  const control =
+    '<button id="portfolio-tab-active" role="tab">Active Holdings0</button>';
+  let html = "";
+  await page.route(`${origin}/**`, (route) =>
+    route.fulfill({ body: html, contentType: "text/html" }),
+  );
+
+  for (const content of [
+    "<button>Sign in with a passkey</button>",
+    "<button>Log in with your passkey</button>",
+    '<form><h1>Verify your identity</h1><input inputmode="numeric"><button>Verify</button></form>',
+    '<form><h1>Two-factor authentication</h1><input inputmode="numeric"><button>Verify</button></form>',
+    "<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>",
+    `${control}<div role="dialog"><h2>Set up your passkey</h2><button>Continue</button></div>`,
+  ]) {
+    html = content;
+    await page.goto(`${origin}/portfolio`);
+    await expect(
+      requireProviderPageReady(page, "tokenfolio", 100),
+    ).rejects.toThrow("provider_sign_in_required");
+  }
+
+  for (const content of [
+    "<h1>Set up two-factor authentication</h1><button>Continue</button>",
+    "<div hidden><form><h1>Verify your identity</h1><button>Verify</button></form></div>",
+    "<form><h1 hidden>Verify your identity</h1><button>Verify</button></form>",
+    "<form><h1>Verify your identity</h1><button hidden>Verify</button></form>",
+    "<form><h1>Verify your identity</h1></form><form><button>Verify</button></form>",
+    "<button hidden>Sign in with a passkey</button>",
+    "<form><h1>Two-factor authentication</h1><button>Disable</button></form>",
+    "<form><h1>Security settings</h1><button>Add passkey</button></form>",
+  ]) {
+    html = content;
+    await page.goto(`${origin}/portfolio`);
+    await expect(
+      requireProviderPageReady(page, "tokenfolio", 100),
+    ).rejects.toThrow("page_not_supported");
+    html = `${control}${content}`;
+    await page.reload();
+    await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
+  }
+
+  // Optional enrollment within the portfolio's settings is not a sign-in gate.
+  html = `${control}<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>`;
+  await page.goto(`${origin}/portfolio`);
+  await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
+
+  await page.route("https://unrelated.example/**", (route) =>
+    route.fulfill({
+      body: "<button>Sign in with a passkey</button>",
+      contentType: "text/html",
+    }),
+  );
+  await page.goto("https://unrelated.example/login");
+  await expect(
+    requireProviderPageReady(page, "tokenfolio", 100),
+  ).rejects.toThrow("page_not_supported");
+});
+
 function tokenfolioPage(
   activeCount = 2,
   statuses: readonly [string, string] = ["Funds Received", "Completed"],
