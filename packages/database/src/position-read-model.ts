@@ -1,5 +1,6 @@
 import { PurchaseReceiptSchema } from "@keel/domain/position-purchases";
 import {
+  LinkedReportedValueSchema,
   investmentSourceFreshness,
   InvestmentPositionViewSchema,
   LegalEntityNameEvidenceSchema,
@@ -56,6 +57,7 @@ type InvestmentContainerRow = {
 
 type InvestmentPositionRow = {
   purchase_receipt_json?: string | null;
+  linked_value_json: string | null;
   container_id: string;
   position_id: string;
   legal_vehicle_name: string;
@@ -217,6 +219,10 @@ function positionFromRow(
           observedAt: row.retrieved_at,
         });
   return {
+    linkedReportedValue:
+      row.linked_value_json == null
+        ? null
+        : LinkedReportedValueSchema.parse(JSON.parse(row.linked_value_json)),
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
     ...(row.automatic_review_json == null
@@ -408,6 +414,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
   public async listForHousehold(
     householdId: string,
     asOf = new Date().toISOString(),
+    includeLinked = false,
   ): Promise<InvestmentPositionView> {
     InvestmentPositionViewSchema.shape.asOf.parse(asOf);
     const [connectionRows, containerRows, positionRows] = await Promise.all([
@@ -482,6 +489,19 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              position.legal_vehicle_name,
              position.owner_label,
              accepted_row.exposure_label AS reported_exposure_name,
+             (SELECT json_object('reviewId',link.review_id,'sourcePositionId',link.source_position_id,
+               'snapshotId',ls.id,'sourceLabel',CASE lp.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' ELSE 'AngelList' END,'observedAt',ls.observed_at,
+               'state',CASE WHEN ls.provider_status='live' AND COALESCE(json_extract(lr.state_json,'$.participationStatus'),'current') NOT IN ('historical','cancelled') THEN ls.unrealized_value_state ELSE 'not_reported' END,
+               'minor',CASE WHEN ls.provider_status='live' AND COALESCE(json_extract(lr.state_json,'$.participationStatus'),'current') NOT IN ('historical','cancelled') THEN ls.unrealized_value_minor ELSE NULL END)
+               FROM holding_position_link_heads link
+               JOIN holding_positions lp ON lp.id=link.source_position_id
+               JOIN holding_import_applications la ON la.id=(
+                 SELECT a.id FROM holding_import_applications a JOIN holding_position_snapshots ss ON ss.id=a.snapshot_id
+                 WHERE a.position_id=lp.id ORDER BY a.applied_at DESC,ss.observed_at DESC,a.id DESC LIMIT 1)
+               JOIN holding_position_snapshots ls ON ls.id=la.snapshot_id
+               LEFT JOIN holding_investment_reviews lr ON lr.id=(SELECT id FROM holding_investment_reviews WHERE household_id=lp.household_id AND position_id=lp.id ORDER BY version DESC LIMIT 1)
+               WHERE link.household_id=position.household_id AND link.target_position_id=position.id AND link.state='linked' AND link.use_source_value=1
+             ) AS linked_value_json,
              position.position_kind,
              position.opened_on,
              ownership.version AS ownership_version,
@@ -678,6 +698,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              SELECT id FROM automatic_investment_reviews WHERE household_id = position.household_id AND position_id = position.id ORDER BY version DESC LIMIT 1
            )
            WHERE position.household_id = ?
+             ${includeLinked ? "" : `AND NOT EXISTS (SELECT 1 FROM holding_position_link_heads link WHERE link.source_position_id=position.id AND link.state='linked')`}
              AND NOT EXISTS (
                SELECT 1
                FROM holding_position_continuities continuity

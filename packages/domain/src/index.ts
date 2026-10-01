@@ -1,3 +1,4 @@
+import { LinkedReportedValueSchema } from "./position-read-model";
 import {
   PurchaseContextSchema,
   ShareValueEstimateSchema,
@@ -389,6 +390,7 @@ export function createGoalPreview(
 }
 
 export const HoldingSchema = z.object({
+  linkedReportedValue: LinkedReportedValueSchema.nullable().optional(),
   purchaseContext: PurchaseContextSchema.nullable().optional(),
   shareValueEstimate: ShareValueEstimateSchema.nullable().optional(),
   id: z.string().min(1),

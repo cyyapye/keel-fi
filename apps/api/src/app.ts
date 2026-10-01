@@ -1,3 +1,5 @@
+import { AcceptPositionLinkSchema } from "@keel/domain/position-links";
+import { D1PositionLinkRepository, PositionLinkError } from "@keel/database";
 import { searchIssuerEvidence } from "./public-company-search";
 import {
   AcceptPurchasesSchema,
@@ -2081,6 +2083,52 @@ export function createApp(options: AppOptions = {}) {
       return context.json({ error: "Holdings are unavailable." }, 503, {
         "Cache-Control": "private, no-store",
       });
+    }
+  });
+
+  app.get("/api/investment-position-links", async (context) => {
+    try {
+      return context.json(
+        await new D1PositionLinkRepository(context.env.DB).workspace(
+          context.get("identity").subject,
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch {
+      return context.json(
+        { error: "Investment records are unavailable. Try again." },
+        503,
+        { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+  app.post("/api/investment-position-links", async (context) => {
+    const input = AcceptPositionLinkSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!input.success)
+      return context.json(
+        { error: "Choose valid investment records and a relationship." },
+        400,
+      );
+    try {
+      const receipt = await new D1PositionLinkRepository(context.env.DB).accept(
+        context.get("identity").subject,
+        input.data,
+      );
+      return context.json(receipt, 201, {
+        "Cache-Control": "private, no-store",
+      });
+    } catch (error) {
+      if (error instanceof PositionLinkError)
+        return context.json({ error: error.message }, 409, {
+          "Cache-Control": "private, no-store",
+        });
+      return context.json(
+        { error: "The investment link could not be saved. Try again." },
+        503,
+      );
     }
   });
 

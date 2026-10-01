@@ -21,6 +21,7 @@
     "./purchase-notice": "./src/purchase-notice.ts",
     "./position-purchases": "./src/position-purchases.ts",
     "./position-economics": "./src/position-economics.ts",
+    "./position-links": "./src/position-links.ts",
     "./position-read-model": "./src/position-read-model.ts",
     "./position-value": "./src/position-value.ts",
     "./provider-legal-documents": "./src/provider-legal-documents.ts",
