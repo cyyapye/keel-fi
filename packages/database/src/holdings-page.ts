@@ -1,3 +1,4 @@
+import { reportedPositionValue } from "@keel/domain/position-read-model";
 import { investmentAmount } from "@keel/domain/investment-review";
 import { includesCurrentInvestment } from "@keel/domain/investment-review";
 import { HoldingSchema, type Holding } from "@keel/domain";
@@ -112,6 +113,7 @@ function importedHoldingFrom(
   const acceptedAdjustment = position.acceptedValueAdjustment ?? null;
 
   return HoldingSchema.parse({
+    linkedReportedValue: position.linkedReportedValue ?? null,
     purchaseContext:
       position.kind === "spv_interest" && position.snapshot.currency === "USD"
         ? {
@@ -128,11 +130,11 @@ function importedHoldingFrom(
     exposureName: canonicalCompanyNames.at(-1) ?? position.reportedExposureName,
     ownerLabel: position.ownerLabel ?? ownerLabel,
     positionKind: position.kind,
-    administratorNavMinor: position.snapshot.unrealizedValue.minor,
+    administratorNavMinor: reportedPositionValue(position).minor,
     administratorNavState:
-      position.snapshot.unrealizedValue.state === "reported"
+      reportedPositionValue(position).state === "reported"
         ? "reported"
-        : position.snapshot.unrealizedValue.state === "locked"
+        : reportedPositionValue(position).state === "locked"
           ? "locked"
           : "not_set",
     externalMarkMinor: acceptedAdjustment?.valueMinor ?? null,

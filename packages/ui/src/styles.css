@@ -1218,6 +1218,21 @@ h3 {
   border: 0;
 }
 
+/* Inline disclosures keep the indicator beside their label at every width. */
+[data-slot="collapsible-trigger"][data-layout="inline"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: auto;
+  min-height: 44px;
+  cursor: pointer;
+}
+[data-slot="collapsible-trigger"][data-layout="inline"]
+  > .disclosure-indicator {
+  margin: 0;
+}
+
 [data-slot="collapsible-content"] {
   height: var(--collapsible-panel-height);
   overflow: visible;

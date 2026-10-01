@@ -78,6 +78,7 @@ const migrationFiles = [
   "packages/database/migrations/0064_watch_read_receipts.sql",
   "packages/database/migrations/0068_exception_baseline_empty.sql",
   "packages/database/migrations/0075_provider_share_prices.sql",
+  "packages/database/migrations/0078_reviewed_position_links.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -94,6 +95,7 @@ describe("nullable private investment date migration", () => {
         .filter(
           (file) =>
             ![
+              "packages/database/migrations/0078_reviewed_position_links.sql",
               "packages/database/migrations/0068_exception_baseline_empty.sql",
               "packages/database/migrations/0055_exception_based_source_updates.sql",
               "packages/database/migrations/0035_nullable_private_investment_date.sql",

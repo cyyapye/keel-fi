@@ -66,6 +66,7 @@ const migrationFiles = [
   "packages/database/migrations/0074_purchase_fee_economics.sql",
   "packages/database/migrations/0072_reviewed_public_company_links.sql",
   "packages/database/migrations/0060_provider_session_renewals.sql",
+  "packages/database/migrations/0078_reviewed_position_links.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -904,7 +905,7 @@ describe("canonical investment position view", () => {
       plan.filter((row) =>
         row.detail.includes("holding_import_applications_position_applied_idx"),
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
 
     const pageSqlStart = database.preparedSql.length;
     const page = await new D1HoldingsPageRepository(

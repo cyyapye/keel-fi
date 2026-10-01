@@ -59,7 +59,7 @@ type EndedPosition = {
   positionId: string;
   snapshotId: string;
   reviewId: string | null;
-  participation: "historical" | "cancelled";
+  participation: "historical" | "cancelled" | "linked";
 };
 
 type BaselinePositionItemRow = {
@@ -1644,7 +1644,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           `SELECT 'position' AS item_kind, item.position_id AS source_key,
              item.snapshot_id AS revision_id, item.value_minor, item.value_state,
              item.observed_at,
-             CASE WHEN coalesce(json_extract(review.state_json, '$.participationStatus'),
+             CASE WHEN link.state='linked' THEN json_object('positionId',item.position_id,'snapshotId',accepted_snapshot.id,'reviewId',link.review_id,'participation','linked')
+             WHEN coalesce(json_extract(review.state_json, '$.participationStatus'),
                CASE WHEN accepted_snapshot.provider_status = 'realized' THEN 'historical' ELSE 'current' END)
                IN ('historical', 'cancelled') THEN
                json_object('positionId', item.position_id, 'snapshotId', accepted_snapshot.id,
@@ -1668,6 +1669,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
              ORDER BY candidate.applied_at DESC, candidate_snapshot.observed_at DESC, candidate.id DESC LIMIT 1
            )
            JOIN holding_position_snapshots accepted_snapshot ON accepted_snapshot.id = application.snapshot_id
+           LEFT JOIN holding_position_link_heads link ON link.source_position_id=item.position_id AND link.household_id=item.household_id
            LEFT JOIN holding_investment_reviews review ON review.id = (
              SELECT candidate.id FROM holding_investment_reviews candidate
              WHERE candidate.household_id = item.household_id AND candidate.position_id = item.position_id

@@ -95,6 +95,16 @@ export const InvestmentPositionSnapshotSchema = z.object({
   costBasisMinor: NonNegativeIntegerSchema.nullable(),
 });
 
+export const LinkedReportedValueSchema = NullableReportedValueSchema.safeExtend(
+  {
+    reviewId: z.string(),
+    sourcePositionId: z.string(),
+    snapshotId: z.string(),
+    sourceLabel: z.string(),
+    observedAt: IsoTimestampSchema,
+  },
+);
+
 export const InvestmentPositionRecordSchema = z.object({
   id: z.string().min(1),
   legalVehicleName: z.string().trim().min(1).max(1_000),
@@ -122,6 +132,7 @@ export const InvestmentPositionRecordSchema = z.object({
   investmentReview: InvestmentReviewStateSchema.nullable().optional(),
   companyReview: InvestmentCompanyReceiptSchema.nullable().optional(),
   automaticReview: AutomaticInvestmentReviewSchema.nullable().optional(),
+  linkedReportedValue: LinkedReportedValueSchema.nullable().optional(),
   priorValue: PriorPositionValueSchema.nullable().optional(),
 });
 
@@ -272,4 +283,8 @@ export function investmentSourceFreshness(
   const staleAfterMs =
     INVESTMENT_POSITION_STALE_AFTER_DAYS * 24 * 60 * 60 * 1_000;
   return asOfTime - observedTime > staleAfterMs ? "stale" : "current";
+}
+
+export function reportedPositionValue(position: InvestmentPositionRecord) {
+  return position.linkedReportedValue ?? position.snapshot.unrealizedValue;
 }

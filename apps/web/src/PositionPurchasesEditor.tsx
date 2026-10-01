@@ -676,7 +676,7 @@ export function PositionPurchasesEditor({
                         (lot.priceMicros !== null &&
                           lot.referencePriceMicros !== null)) && (
                         <Collapsible>
-                          <CollapsibleTrigger>
+                          <CollapsibleTrigger layout="inline">
                             Calculation details <DisclosureIndicator />
                           </CollapsibleTrigger>
                           <CollapsibleContent>
@@ -725,7 +725,7 @@ export function PositionPurchasesEditor({
                         lot.reportedManagementFeePpm != null ||
                         lot.reportedCarryPpm != null) && (
                         <Collapsible>
-                          <CollapsibleTrigger>
+                          <CollapsibleTrigger layout="inline">
                             Source notice <DisclosureIndicator />
                           </CollapsibleTrigger>
                           <CollapsibleContent>
@@ -848,7 +848,7 @@ export function PositionPurchasesEditor({
                   </p>
                   {estimate.proxy && (
                     <Collapsible>
-                      <CollapsibleTrigger>
+                      <CollapsibleTrigger layout="inline">
                         Proxy assumptions <DisclosureIndicator />
                       </CollapsibleTrigger>
                       <CollapsibleContent>
@@ -1077,7 +1077,7 @@ export function PositionPurchasesEditor({
                       : "Use my calculated shares as my full remaining position; no sales, splits or conversions."}
                   </label>
                   <Collapsible>
-                    <CollapsibleTrigger>
+                    <CollapsibleTrigger layout="inline">
                       Adjust shares <DisclosureIndicator />
                     </CollapsibleTrigger>
                     <CollapsibleContent>
@@ -1097,7 +1097,7 @@ export function PositionPurchasesEditor({
                     </CollapsibleContent>
                   </Collapsible>
                   <Collapsible>
-                    <CollapsibleTrigger>
+                    <CollapsibleTrigger layout="inline">
                       Details <DisclosureIndicator />
                     </CollapsibleTrigger>
                     <CollapsibleContent>
@@ -1252,7 +1252,7 @@ export function PositionPurchasesEditor({
                       </p>
                       {d.sourceText && (
                         <Collapsible>
-                          <CollapsibleTrigger>
+                          <CollapsibleTrigger layout="inline">
                             Original purchase notice <DisclosureIndicator />
                           </CollapsibleTrigger>
                           <CollapsibleContent>
@@ -1405,7 +1405,7 @@ export function PositionPurchasesEditor({
                         ))}
                       {watchEvidence.length > 0 && (
                         <Collapsible>
-                          <CollapsibleTrigger>
+                          <CollapsibleTrigger layout="inline">
                             Portfolio Watch context <DisclosureIndicator />
                           </CollapsibleTrigger>
                           <CollapsibleContent>
@@ -1492,7 +1492,7 @@ export function PositionPurchasesEditor({
                     </div>
                   )}
                   <Collapsible>
-                    <CollapsibleTrigger>
+                    <CollapsibleTrigger layout="inline">
                       Capital and share calculation <DisclosureIndicator />
                     </CollapsibleTrigger>
                     <CollapsibleContent>
@@ -1539,7 +1539,7 @@ export function PositionPurchasesEditor({
                   </Collapsible>
                   {mode !== "purchase" && (
                     <Collapsible defaultOpen={valuationOnly}>
-                      <CollapsibleTrigger>
+                      <CollapsibleTrigger layout="inline">
                         Valuation price evidence <DisclosureIndicator />
                       </CollapsibleTrigger>
                       <CollapsibleContent>

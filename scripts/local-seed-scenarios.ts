@@ -19,6 +19,7 @@ const LocalSeedScenarioSchema = z.enum([
   "default",
   "empty-holdings",
   "entity-review",
+  "position-links",
 ]);
 export type LocalSeedScenario = z.infer<typeof LocalSeedScenarioSchema>;
 
@@ -33,6 +34,16 @@ type LocalSeedScenarioDefinition = {
 };
 
 export const LocalSeedScenarios = {
+  "position-links": {
+    description:
+      "Synthetic duplicate sources and a replaced SPV, ready to link",
+    expectedCurrentPositionCount: 6,
+    minimumAcceptedValueDecreaseCount: 0,
+    minimumAcceptedValueIncreaseCount: 0,
+    minimumCanonicalExposureCount: 2,
+    seedFiles: ["packages/database/seed/synthetic.sql"],
+    version: 1,
+  },
   "entity-review": {
     description:
       "Tabbed investment review with synthetic agreements, conflicts, cancellation, company evidence and optional K-1 shares",
@@ -361,6 +372,26 @@ export function prepareLocalSeedScenario(options: {
     if (needsSeed) {
       for (const seedFile of LocalSeedScenarios[scenario].seedFiles) {
         applySeedFile(seedFile, persistRoot, rootDir);
+      }
+      if (scenario === "position-links") {
+        const generated = spawnSync(
+          process.execPath,
+          ["--import", "tsx", "scripts/seed-position-links.ts", persistRoot],
+          {
+            cwd: rootDir,
+            env: commandEnvironment(persistRoot),
+            stdio: "inherit",
+          },
+        );
+        if (generated.status !== 0)
+          throw new Error(
+            "Could not build the synthetic position-link scenario.",
+          );
+        applySeedFile(
+          join(persistRoot, "position-links.sql"),
+          persistRoot,
+          rootDir,
+        );
       }
       if (scenario === "entity-review") {
         const generated = spawnSync(

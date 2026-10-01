@@ -2974,3 +2974,5 @@ export * from "./schema";
 
 export * from "./company-identity";
 export * from "./public-company-links";
+
+export { D1PositionLinkRepository, PositionLinkError } from "./position-links";

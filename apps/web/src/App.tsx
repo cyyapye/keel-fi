@@ -1,3 +1,4 @@
+import { PositionLinksEditor } from "./PositionLinksEditor";
 import { estimatePurchaseValue } from "@keel/domain/position-purchases";
 import { PositionPurchasesEditor } from "./PositionPurchasesEditor";
 import { PortfolioWatchMonitor } from "./PortfolioWatchMonitor";
@@ -2237,15 +2238,18 @@ function PositionValuationSection({
   );
   const summary = accepted
     ? `${formatCurrency(accepted.valueMinor, accepted.currency)} · ${accepted.sourceLabel} · ${formatDate(accepted.effectiveDate)}`
-    : estimate
-      ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · ${estimate.proxy ? "Proxy estimate" : "Share estimate"} · ${estimate.effectiveDate ? formatDate(estimate.effectiveDate) : "Mark date unknown"}`
-      : holding.positionValueContext?.providerValueMinor != null
-        ? `${formatCurrency(holding.positionValueContext.providerValueMinor, holding.positionValueContext.currency)} · ${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`
-        : "Optional · Add a reported value or calculate from shares";
+    : holding.linkedReportedValue
+      ? `${holding.linkedReportedValue.minor === null ? "Not reported" : formatCurrency(holding.linkedReportedValue.minor, holding.purchaseContext.currency)} · ${holding.linkedReportedValue.sourceLabel} · ${formatDate(holding.linkedReportedValue.observedAt)}`
+      : estimate
+        ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · ${estimate.proxy ? "Proxy estimate" : "Share estimate"} · ${estimate.effectiveDate ? formatDate(estimate.effectiveDate) : "Mark date unknown"}`
+        : holding.positionValueContext?.providerValueMinor != null
+          ? `${formatCurrency(holding.positionValueContext.providerValueMinor, holding.positionValueContext.currency)} · ${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`
+          : "Optional · Add a reported value or calculate from shares";
   return (
     <section aria-label="Position value" className="position-valuation">
       <Collapsible>
         <CollapsibleTrigger
+          layout="inline"
           className="position-valuation__toggle"
           aria-label="Position value"
         >
@@ -2580,7 +2584,7 @@ function PositionValueAdjustmentEditor({
               sourceKind !== "gp_update" || Boolean(sourceUrl || commentary)
             }
           >
-            <CollapsibleTrigger>
+            <CollapsibleTrigger layout="inline">
               <span>
                 Supporting details
                 {sourceKind === "gp_update" ? " (optional)" : ""}
@@ -2808,7 +2812,7 @@ function PositionPerformanceSummary({
       </StatGroup>
       {!isCashLikeHolding(holding) && (
         <Collapsible className="holding-summary-details">
-          <CollapsibleTrigger>
+          <CollapsibleTrigger layout="inline">
             Return details <DisclosureIndicator />
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -2902,12 +2906,14 @@ function HoldingDetailWorkspace({
       value: administratorValueLabel(holding),
       helper: isPlaidInvestmentsHolding(holding)
         ? "Brokerage-reported market value as of the source date."
-        : isProviderTemplateHolding
-          ? "Reviewed value copied into the provider template as of the source date."
-          : holding.administratorNavState === "locked" &&
-              holding.sourceLabel === "AngelList export"
-            ? "AngelList did not disclose this value in the export."
-            : "Administrator-reported value as of the source date.",
+        : holding.linkedReportedValue
+          ? `Reported by ${holding.linkedReportedValue.sourceLabel} as of ${formatDate(holding.linkedReportedValue.observedAt)}.`
+          : isProviderTemplateHolding
+            ? "Reviewed value copied into the provider template as of the source date."
+            : holding.administratorNavState === "locked" &&
+                holding.sourceLabel === "AngelList export"
+              ? "AngelList did not disclose this value in the export."
+              : "Administrator-reported value as of the source date.",
       wide: holding.administratorNavState === "locked",
     },
     {
@@ -3016,13 +3022,13 @@ function HoldingDetailWorkspace({
                       ? holding.administratorNavState === "locked"
                         ? valueLenses[0].helper
                         : "Add a reported value or calculate from shares below."
-                      : `${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`
+                      : `${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}`
             }
           />
         }
       />
       <Collapsible className="holding-other-values">
-        <CollapsibleTrigger className="holding-section-toggle">
+        <CollapsibleTrigger layout="inline" className="holding-section-toggle">
           <strong>Other valuations</strong>
           <DisclosureIndicator />
         </CollapsibleTrigger>
@@ -3044,6 +3050,20 @@ function HoldingDetailWorkspace({
         </CollapsibleContent>
       </Collapsible>
 
+      {isImportedPosition && holding.positionKind === "spv_interest" && (
+        <PositionLinksEditor
+          key={holding.id}
+          positionId={holding.id}
+          onAccepted={onValueAccepted}
+        />
+      )}
+      {holding.linkedReportedValue && (
+        <p>
+          Reported value from {holding.linkedReportedValue.sourceLabel}, as of{" "}
+          {formatDate(holding.linkedReportedValue.observedAt)}. The SPV’s
+          investment amount and terms are kept separately.
+        </p>
+      )}
       <PositionPurchasesEditor
         mode="purchase"
         key={`${holding.id}:${holding.purchaseContext?.snapshotId}:${holding.purchaseContext?.receipt?.id}`}
@@ -3061,7 +3081,7 @@ function HoldingDetailWorkspace({
       )}
 
       <Collapsible className="holding-ownership">
-        <CollapsibleTrigger className="holding-section-toggle">
+        <CollapsibleTrigger layout="inline" className="holding-section-toggle">
           <span>
             <strong>Ownership &amp; source</strong>
             <small>

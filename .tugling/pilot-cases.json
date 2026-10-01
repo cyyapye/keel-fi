@@ -1188,7 +1188,13 @@
     "packages/database/src/position-purchases.test.ts :: projects only owned source prices with one bounded query across 120 positions",
     "packages/domain/src/position-purchases.test.ts :: prefills a single current fully funded purchase without changing accepted details",
     "packages/domain/src/position-purchases.test.ts :: records an explicit proxy without inventing class or mark date",
-    "scripts/share-price-evidence-d1-cost.test.ts :: bounds share-price evidence reads across 120 holdings, repeated history and empty results"
+    "scripts/share-price-evidence-d1-cost.test.ts :: bounds share-price evidence reads across 120 holdings, repeated history and empty results",
+    "apps/api/src/position-links.test.ts :: validates authenticated link decisions and reloads the saved current projection",
+    "packages/database/src/position-links.test.ts :: counts each investment once, retains distinct same-company SPVs, follows syncs and reverses without deleting history",
+    "packages/database/src/position-links.test.ts :: has projection-only bounded reads and indexed link lookups",
+    "packages/database/src/position-links.test.ts :: rejects self, foreign, stale, cyclic links and duplicate valuation sources",
+    "packages/database/src/position-links.test.ts :: removes reviewed duplicate baseline contributions without rewriting prior baselines",
+    "scripts/position-links-d1-cost.test.ts :: bounds 120-record link projections, positive matches, growing history, empty and unrelated households"
   ],
   "playwright": [
     "e2e/agreement-security.visual.spec.ts :: chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads",
@@ -1532,7 +1538,9 @@
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar renewal verifies expiry through the production tsx runner",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar survives the next daily capture with bounded renewal",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
-    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: a working Sydecar access token does not prove a refresh token survived another login"
+    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: a working Sydecar access token does not prove a refresh token survived another login",
+    "e2e/position-links.visual.spec.ts :: chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention",
+    "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention"
   ],
   "python": [
     "test_linux_test_run.RunnerTests.test_signal_cleans_checkout",

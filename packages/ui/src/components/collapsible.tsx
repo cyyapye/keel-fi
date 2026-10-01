@@ -6,11 +6,18 @@ export function Collapsible(
   return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />;
 }
 
-export function CollapsibleTrigger(
-  props: React.ComponentProps<typeof CollapsiblePrimitive.Trigger>,
-) {
+export function CollapsibleTrigger({
+  layout,
+  ...props
+}: React.ComponentProps<typeof CollapsiblePrimitive.Trigger> & {
+  layout?: "inline";
+}) {
   return (
-    <CollapsiblePrimitive.Trigger data-slot="collapsible-trigger" {...props} />
+    <CollapsiblePrimitive.Trigger
+      data-slot="collapsible-trigger"
+      data-layout={layout}
+      {...props}
+    />
   );
 }
 

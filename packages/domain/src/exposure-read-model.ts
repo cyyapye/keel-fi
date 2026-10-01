@@ -1,3 +1,4 @@
+import { reportedPositionValue } from "./position-read-model";
 import {
   estimatePurchaseValue,
   ShareValueEstimateSchema,
@@ -303,8 +304,9 @@ function usesInvestedAmountFallback(
   position: InvestmentPositionRecord,
 ): boolean {
   return (
+    position.linkedReportedValue == null &&
     position.snapshot.providerStatus === "live" &&
-    position.snapshot.unrealizedValue.state === "not_reported" &&
+    reportedPositionValue(position).state === "not_reported" &&
     position.snapshot.investedMinor > 0 &&
     position.snapshot.instrumentType.trim().toLowerCase() !== "cash"
   );
@@ -428,8 +430,8 @@ export function createInvestmentExposureView(
           adjustment?.sourceKind === "gp_update" ? adjustment : null;
         const providerMark =
           adjustment === null &&
-          position.snapshot.unrealizedValue.state === "reported"
-            ? position.snapshot.unrealizedValue.minor
+          reportedPositionValue(position).state === "reported"
+            ? reportedPositionValue(position).minor
             : null;
         const currentValueMinor =
           acceptedGpMark?.valueMinor ?? providerMark ?? null;
@@ -445,14 +447,21 @@ export function createInvestmentExposureView(
               acceptedGpMark?.effectiveDate ??
               (providerMark === null
                 ? null
-                : position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length)),
+                : (
+                    position.linkedReportedValue?.observedAt ??
+                    position.snapshot.observedAt
+                  ).slice(0, "YYYY-MM-DD".length)),
             markSourceLabel:
               acceptedGpMark?.sourceLabel ??
-              (providerMark === null ? null : position.source.label),
+              (providerMark === null
+                ? null
+                : (position.linkedReportedValue?.sourceLabel ??
+                  position.source.label)),
             estimateEligible:
+              position.linkedReportedValue == null &&
               adjustment === null &&
               position.snapshot.providerStatus === "live" &&
-              position.snapshot.unrealizedValue.state === "not_reported" &&
+              reportedPositionValue(position).state === "not_reported" &&
               position.snapshot.instrumentType.trim().toLowerCase() !== "cash",
           },
         ];
@@ -482,6 +491,7 @@ export function createInvestmentExposureView(
         const privateValueEstimate =
           privateValueEstimates.get(position.id) ?? null;
         const shareValueEstimate =
+          position.linkedReportedValue == null &&
           position.snapshot.providerStatus === "live"
             ? estimatePurchaseValue(
                 position.purchaseReceipt,
@@ -489,8 +499,9 @@ export function createInvestmentExposureView(
               )
             : null;
         const useShareEstimate =
+          position.linkedReportedValue == null &&
           adjustment === null &&
-          position.snapshot.unrealizedValue.state === "not_reported" &&
+          reportedPositionValue(position).state === "not_reported" &&
           shareValueEstimate !== null;
         const investedAmountFallback =
           adjustment === null &&
@@ -503,7 +514,7 @@ export function createInvestmentExposureView(
           privateValueEstimate !== null ||
           investedAmountFallback
             ? "reported"
-            : position.snapshot.unrealizedValue.state;
+            : reportedPositionValue(position).state;
         const valueMinor =
           adjustment !== null
             ? adjustment.valueMinor
@@ -513,7 +524,7 @@ export function createInvestmentExposureView(
                 ? privateValueEstimate.valueMinor
                 : investedAmountFallback
                   ? position.snapshot.investedMinor
-                  : position.snapshot.unrealizedValue.minor;
+                  : reportedPositionValue(position).minor;
         const allocatedValues: number[] = [];
         const mappingViews = positionMappings.map((mapping) => {
           const allocatedValueMinor =
@@ -610,7 +621,10 @@ export function createInvestmentExposureView(
             (useShareEstimate
               ? shareValueEstimate.effectiveDate
               : (privateValueEstimate?.effectiveDate ??
-                position.snapshot.observedAt.slice(0, "YYYY-MM-DD".length))),
+                (
+                  position.linkedReportedValue?.observedAt ??
+                  position.snapshot.observedAt
+                ).slice(0, "YYYY-MM-DD".length))),
           valueSourceLabel:
             adjustment?.sourceLabel ??
             (useShareEstimate
@@ -619,11 +633,18 @@ export function createInvestmentExposureView(
                 : "Reviewed underlying share prices"
               : null) ??
             (privateValueEstimate === null
-              ? position.source.label
+              ? (position.linkedReportedValue?.sourceLabel ??
+                position.source.label)
               : `Portfolio Watch + ${privateValueEstimate.referenceSourceLabel}`),
-          priorValueState: position.priorValue?.state ?? null,
-          priorValueMinor: position.priorValue?.minor ?? null,
-          priorValueObservedAt: position.priorValue?.observedAt ?? null,
+          priorValueState: position.linkedReportedValue
+            ? null
+            : (position.priorValue?.state ?? null),
+          priorValueMinor: position.linkedReportedValue
+            ? null
+            : (position.priorValue?.minor ?? null),
+          priorValueObservedAt: position.linkedReportedValue
+            ? null
+            : (position.priorValue?.observedAt ?? null),
           isPrivateCompanyPosition: privateCompanyByPositionId.has(position.id),
           privateValueEstimate,
           shareValueEstimate,

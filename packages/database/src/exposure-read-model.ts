@@ -273,6 +273,7 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
                  WHERE current_mapping.exposure_id = canonical_exposures.id
                    AND current_mapping.household_id = canonical_exposures.household_id
                    AND current_mapping.status = 'active'
+                   AND NOT EXISTS (SELECT 1 FROM holding_position_link_heads link WHERE link.source_position_id=current_mapping.position_id AND link.state='linked')
                    AND NOT EXISTS (
                      SELECT 1
                      FROM holding_position_continuities continuity
@@ -303,6 +304,7 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
              FROM holding_position_exposure_mappings mapping
              WHERE mapping.household_id = ?
                AND mapping.status = 'active'
+               AND NOT EXISTS (SELECT 1 FROM holding_position_link_heads link WHERE link.source_position_id=mapping.position_id AND link.state='linked')
                AND NOT EXISTS (
                  SELECT 1
                  FROM holding_position_continuities continuity

@@ -24,6 +24,7 @@ export const BROWSER_TEST_LANES = {
     "observed-cash-flow.visual.spec.ts",
     "plan-actual-monitoring.visual.spec.ts",
     "purchase-details.visual.spec.ts",
+    "position-links.visual.spec.ts",
     "provider-browser-lifecycle.spec.ts",
     "provider-legal-documents.spec.ts",
     "provider-portfolio-mac-agent.spec.ts",

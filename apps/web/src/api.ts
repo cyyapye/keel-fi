@@ -1,4 +1,10 @@
 import {
+  AcceptPositionLinkSchema,
+  PositionLinkReceiptSchema,
+  PositionLinkWorkspaceSchema,
+  type AcceptPositionLink,
+} from "@keel/domain/position-links";
+import {
   CompanyIdentityCatalogSchema,
   CompanyAliasProposalSchema,
   CompanyAliasPreviewSchema,
@@ -2055,4 +2061,27 @@ export async function approvePublicCompanyRecommendation(id: string) {
       {},
     ),
   );
+}
+
+export async function loadPositionLinks(signal?: AbortSignal) {
+  const response = await fetch("/api/investment-position-links", {
+    signal: signal ?? null,
+  });
+  if (!response.ok)
+    throw new Error("Investment records are unavailable. Try again.");
+  return PositionLinkWorkspaceSchema.parse(await response.json());
+}
+export async function acceptPositionLink(input: AcceptPositionLink) {
+  const response = await fetch("/api/investment-position-links", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(AcceptPositionLinkSchema.parse(input)),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error ?? "The link could not be saved. Try again.");
+  }
+  return PositionLinkReceiptSchema.parse(await response.json());
 }
