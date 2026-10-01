@@ -58,6 +58,10 @@ elif mode == "processes":
             child.wait()
 elif mode == "timeout":
     time.sleep(60)
+elif mode == "orphan":
+    # Test-only execution barrier; excluded from the production reader image.
+    print("KEEL_PDF_ORPHAN_RUNNING_V1", flush=True)
+    time.sleep(60)
 elif mode == "output":
     sys.stdout.write("x" * (7 * 1024 * 1024))
     sys.stdout.flush()

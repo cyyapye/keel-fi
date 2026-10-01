@@ -23,7 +23,7 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 INVENTORY = ROOT / ".tugling/pilot-cases.json"
 ARTIFACTS = ROOT / ".tugling/local/pilot"
-PYTHON_SUITES = ("test_linux_test_run", "test_tugling_pilot")
+PYTHON_SUITES = ("test_linux_test_run", "test_tugling_pilot", "test_pdf_sandbox_owner")
 BROWSER_LANES = ("mocked", "mocked-development", "stateful-development", "stateful-a", "stateful-b")
 BROWSER_MAX_ACTIVE_WORKERS = 4
 BROWSER_RUNTIME = ROOT / ".keel-local/e2e-lanes"

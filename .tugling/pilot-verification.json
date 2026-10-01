@@ -41,7 +41,9 @@
         "scripts/ci-verification.py",
         ".github/workflows/native-verification.yml",
         ".github/actions/verify-native-receipt/action.yml",
-        "scripts/ci-resource-sampler.py"
+        "scripts/ci-resource-sampler.py",
+        "scripts/test_pdf_sandbox_owner.py",
+        "scripts/pdf-sandbox-owner.py"
       ],
       "runtime": {
         "owner": "native-command",
@@ -68,7 +70,10 @@
         "scripts/pdf-sandbox/reader.py",
         "scripts/pdf-sandbox/scanner.py",
         "scripts/pdf-sandbox/freshclam.conf",
-        "scripts/test-support/legal-documents.ts"
+        "scripts/test-support/legal-documents.ts",
+        "scripts/pdf-sandbox-owner.ts",
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/pdf-sandbox-error.ts"
       ],
       "runtime": {
         "owner": "native-command",
@@ -106,13 +111,20 @@
         "scripts/pdf-sandbox-verify.ts",
         "scripts/pdf-sandbox.ts",
         "scripts/pdf-sandbox/probe.py",
-        "scripts/pdf-sandbox/boundary.py"
+        "scripts/pdf-sandbox/boundary.py",
+        "scripts/pdf-sandbox-owner.ts",
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/pdf-sandbox-error.ts",
+        "scripts/test-support/pdf-sandbox-caller.ts",
+        "scripts/test-support/pdf-orphan-client.ts",
+        "scripts/legal-document-extraction.ts",
+        "scripts/test-support/legal-documents.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "The native verifier overlaps one scanner/reader sequence with one independent kernel-probe sequence, at most two owned containers with unchanged resource limits on the provisioned rootless socket.",
+        "launch": "The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
         "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
-        "cleanup": "The native launcher removes exact owned containers; no shared daemon or image cleanup."
+        "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
       },
       "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
     },
@@ -129,7 +141,9 @@
         "scripts/pilot_native.py",
         "scripts/test_tugling_pilot.py",
         "scripts/reset-e2e-state.mjs",
-        "packages/database/seed/synthetic.sql"
+        "packages/database/seed/synthetic.sql",
+        "scripts/test_pdf_sandbox_owner.py",
+        "scripts/pdf-sandbox-owner.py"
       ],
       "runtime": {
         "owner": "native-command",

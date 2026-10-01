@@ -299,13 +299,7 @@ describe("local legal document extraction", () => {
       vi.unstubAllEnvs();
     }
   });
-  it("extracts a synthetic PDF with the real isolated reader", async () => {
-    expect(
-      await extractLegalNameFromPdf(syntheticAgreementPdf()),
-    ).toMatchObject({
-      problem: null,
-      pageCount: 1,
-      citations: [{ legalName: "Synthetic Atlas SPV LLC", page: 1 }],
-    });
-  });
+  // Real Docker/Poppler proof lives in mandatory pdf-sandbox-verify, outside
+  // Vitest's general 5-second unit-test pool. Its exact name/page assertions
+  // remain release gates, alongside the adversarial runtime probes.
 });

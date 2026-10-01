@@ -45,6 +45,26 @@ do not automatically apply to another producer or deployment.
 
 ## Provider agent contract
 
+PDF reader/scanner admission uses one local owner per rootless daemon across all
+processes. It adds zero provider/API/D1/object operations on idle, outage or
+useful-work days; provider scheduling, download ceilings and failure retries
+remain unchanged. No owner runs while there is no extraction request. At most
+eight requests occupy local admission slots, one container executes, and a
+waiting request selects its parent pipe every 50 ms for at most 120 seconds
+(2,400 local waits, no daemon polling). Admission failures do not retry. Each
+admitted document operation makes four execution control calls, one preflight
+occupancy call, one exact removal, and at most five absence checks: 11 local
+Docker calls, each control call bounded at 10 seconds. Only retained containers
+cause the four 250-ms cleanup settling waits. The owner cancels after 180
+seconds and completes bounded cleanup before releasing capacity; reader/scanner
+execution remains 30/90 seconds with unchanged memory, CPU, input/output and
+independent 35/95-second watchdog limits. A dirty ownership journal, including a
+create without a recorded completion acknowledgment, stops admission until
+explicit operator recovery; age or missing PIDs never authorize concurrent work.
+The runtime inventory's reader timer changes its error classification only; it
+does not raise the deadline. Process races, caller death, supervisor death and
+cleanup barriers are native regression gates.
+
 The envelope is one always-on process per provider, three providers, and one
 deployment. Additional workers, households, or deployments require a new shared
 account budget. Do not silently multiply this envelope.
