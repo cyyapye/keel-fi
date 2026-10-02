@@ -160,6 +160,19 @@ export function automaticEconomics(
   issue: AutomaticReviewIssue | null;
   reported: ReportedPositionEconomicsTerms | null;
 } {
+  if (purchase?.details.investmentTerms)
+    return {
+      input: null,
+      issue:
+        purchase.snapshotId !== context.snapshotId
+          ? issue(
+              "economics",
+              "unsupported",
+              "Review investment details against the new source snapshot.",
+            )
+          : null,
+      reported: context.reportedTerms,
+    };
   const citations = documents
     .filter((doc) => doc.scan?.outcome === "clean")
     .flatMap((doc) => doc.economicsCitations ?? []);

@@ -482,8 +482,10 @@ function exposurePositionPerformance(position: InvestmentExposurePosition) {
     providerCostBasisMinor: position.providerCostBasisMinor,
     fundedMinor: position.investedMinor,
     economicsContext:
-      position.positionKind === "spv_interest" && position.committedMinor > 0
+      position.positionKind === "spv_interest" &&
+      (position.committedMinor > 0 || position.reviewedInvestment !== undefined)
         ? {
+            reviewedInvestment: position.reviewedInvestment,
             snapshotId: position.snapshotId,
             currency: position.currency,
             committedMinor: position.committedMinor,

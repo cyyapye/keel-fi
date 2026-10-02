@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReviewedInvestmentSchema } from "./investment-details";
 
 const PARTS_PER_MILLION = 1_000_000n;
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
@@ -100,10 +101,11 @@ export const ReportedPositionEconomicsTermsSchema = z
   });
 
 export const PositionEconomicsContextSchema = z.object({
+  reviewedInvestment: ReviewedInvestmentSchema.optional(),
   snapshotId: z.string().min(1),
   amountCorrectionNote: z.string().max(500).nullable().optional(),
   currency: z.string().regex(/^[A-Z]{3}$/u),
-  committedMinor: PositiveMoneyMinorSchema,
+  committedMinor: NonNegativeMoneyMinorSchema,
   fundedMinor: NonNegativeMoneyMinorSchema,
   acceptedTerms: PositionEconomicsTermsSchema.nullable(),
   reportedTerms: ReportedPositionEconomicsTermsSchema.nullable().default(null),
@@ -159,7 +161,10 @@ export function calculatePositionEconomics(
   context: PositionEconomicsContext,
 ): CalculatedPositionEconomics | null {
   const parsed = PositionEconomicsContextSchema.parse(context);
-  if (parsed.acceptedTerms === null) {
+  if (
+    parsed.reviewedInvestment !== undefined ||
+    parsed.acceptedTerms === null
+  ) {
     return null;
   }
   if (
@@ -257,13 +262,19 @@ export function calculatePositionPerformance(input: {
   const netImport =
     input.economicsContext?.acceptedTerms?.capitalBasis === "net_invested";
   const funded = input.economicsContext?.fundedMinor ?? input.fundedMinor;
-  const contributed = netImport
-    ? economics !== null &&
-      (funded === input.economicsContext?.committedMinor ||
-        funded === economics.committedMinor)
-      ? economics.committedMinor
-      : null
-    : funded;
+  const reviewed = input.economicsContext?.reviewedInvestment;
+  const contributed =
+    reviewed !== undefined
+      ? reviewed.snapshotId === input.economicsContext?.snapshotId
+        ? reviewed.cashPaidMinor
+        : null
+      : netImport
+        ? economics !== null &&
+          (funded === input.economicsContext?.committedMinor ||
+            funded === economics.committedMinor)
+          ? economics.committedMinor
+          : null
+        : funded;
   const privatePosition =
     input.economicsContext !== null ||
     (input.allowFundedAmountEstimate && input.providerCostBasisMinor === null);
@@ -276,7 +287,7 @@ export function calculatePositionPerformance(input: {
     costBasisMinor === null
       ? null
       : privatePosition
-        ? economics !== null
+        ? reviewed !== undefined || economics !== null
           ? ("reviewed_spv_terms" as const)
           : ("funded_amount_estimate" as const)
         : ("provider" as const);

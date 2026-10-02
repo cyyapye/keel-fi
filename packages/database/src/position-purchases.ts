@@ -171,6 +171,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       }
     }
     const receipt = PurchaseReceiptSchema.parse({
+      supersedesEconomicsTermsId: input.expectedTermsId,
       id: crypto.randomUUID(),
       positionId,
       snapshotId: input.expectedSnapshotId,
@@ -197,7 +198,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
     } catch (error) {
       if (
         error instanceof Error &&
-        /purchase (?:review stale|snapshot stale|provenance mismatch|price evidence stale)/u.test(
+        /purchase (?:review stale|snapshot stale|provenance mismatch|price evidence stale|value evidence stale|unified terms downgrade|economics review stale|capital does not reconcile)/u.test(
           error.message,
         )
       )

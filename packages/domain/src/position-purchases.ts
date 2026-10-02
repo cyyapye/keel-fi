@@ -1,5 +1,10 @@
 import { z } from "zod";
 import {
+  InvestmentTermsSchema,
+  reconcileInvestmentCapital,
+  type ReviewedInvestment,
+} from "./investment-details";
+import {
   calculatePositionEconomics,
   type PositionEconomicsContext,
 } from "./position-economics";
@@ -36,10 +41,16 @@ export const PurchaseLotSchema = z
       .nullable()
       .optional(),
     sourceText: z.string().max(12_000).nullable().optional(),
+    sourceKind: z
+      .enum(["executed", "deal_snapshot", "other", "unknown"])
+      .optional(),
+    sourceObservedOn: z.iso.date().nullable().optional(),
     purchasedOn: z.iso.date().nullable(),
     shareClass: text.nullable(),
     priceMicros: positive.nullable(),
     referencePriceMicros: positive.nullable(),
+    upfrontDeductionsMinor: money.max(10_000_000_000_000).nullable().optional(),
+    nominalSpvUnitsMicros: money.max(1_000_000_000_000).nullable().optional(),
     grossCashMinor: money.max(10_000_000_000_000).nullable(),
     netCapitalMinor: money.max(10_000_000_000_000).nullable(),
     feePpm: z.number().int().min(0).max(1_000_000).nullable(),
@@ -129,11 +140,16 @@ export const PurchaseLotSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["netCapitalMinor"],
-        message: "Cash, share capital and the one-time fee do not reconcile.",
+        message:
+          lot.upfrontDeductionsMinor !== undefined
+            ? "Cash, net capital and upfront deductions do not reconcile."
+            : "Cash, share capital and the one-time fee do not reconcile.",
       });
   });
 export const PurchaseDetailsSchema = z
   .object({
+    investmentTerms: InvestmentTermsSchema.optional(),
+    cashCoversPosition: z.boolean().optional(),
     coversPosition: z.boolean().default(false),
     lots: z.array(PurchaseLotSchema).max(20),
   })
@@ -145,8 +161,28 @@ export const PurchaseDetailsSchema = z
         path: ["lots"],
         message: "Each purchase must have a unique identifier.",
       });
+    if (value.investmentTerms && value.cashCoversPosition) {
+      const capital = value.lots.map(purchaseCapital);
+      if (capital.some((row) => row.conflict)) return;
+      for (const key of [
+        "grossCashMinor",
+        "netCapitalMinor",
+        "upfrontDeductionsMinor",
+      ] as const) {
+        if (
+          capital.reduce((total, row) => total + BigInt(row[key] ?? 0), 0n) >
+          BigInt(Number.MAX_SAFE_INTEGER)
+        )
+          ctx.addIssue({
+            code: "custom",
+            path: ["lots"],
+            message: "Purchase totals exceed supported precision.",
+          });
+      }
+    }
   });
 export const PurchaseReceiptSchema = z.object({
+  supersedesEconomicsTermsId: z.string().min(1).nullable().optional(),
   id: z.string().min(1),
   positionId: z.string().min(1),
   snapshotId: z.string().min(1),
@@ -158,10 +194,15 @@ export const AcceptPurchasesSchema = z
   .object({
     expectedSnapshotId: z.string().min(1),
     expectedReceiptId: z.string().min(1).nullable(),
+    expectedTermsId: z.string().min(1).nullable().optional(),
     details: PurchaseDetailsSchema,
   })
   .strict();
 export const PurchaseContextSchema = z.object({
+  reportedValueSnapshotId: z.string().min(1).optional(),
+  reportedValueMinor: money.nullable().optional(),
+  reportedSourceLabel: text.optional(),
+  sourceObservedOn: z.iso.date().nullable().optional(),
   snapshotId: z.string().min(1),
   currency: z.literal("USD"),
   openedOn: z.iso.date().nullable(),
@@ -218,6 +259,44 @@ export function prefillPurchaseCapital(
   });
 }
 
+// Upgrade a missing cash record from a fully funded legacy review. Preserve
+// already entered amounts; their scope still needs the whole-cash confirmation.
+export function prefillInvestmentCapital(
+  receipt: PurchaseReceipt,
+  context: PositionEconomicsContext | null | undefined,
+): PurchaseLot[] {
+  if (
+    receipt.details.investmentTerms ||
+    !context ||
+    receipt.snapshotId !== context.snapshotId ||
+    receipt.details.lots.length !== 1
+  )
+    return receipt.details.lots;
+  const economics = calculatePositionEconomics(context);
+  if (
+    !economics ||
+    (economics.fundedMinor !== economics.committedMinor &&
+      !(
+        context.acceptedTerms?.capitalBasis === "net_invested" &&
+        economics.fundedMinor === context.committedMinor
+      ))
+  )
+    return receipt.details.lots;
+  return receipt.details.lots.map((lot) =>
+    lot.grossCashMinor !== null || lot.netCapitalMinor !== null
+      ? lot
+      : {
+          ...lot,
+          grossCashMinor: economics.committedMinor,
+          netCapitalMinor: economics.positionCostBasisMinor,
+          upfrontDeductionsMinor: Number(
+            BigInt(economics.committedMinor) -
+              BigInt(economics.positionCostBasisMinor),
+          ),
+        },
+  );
+}
+
 function integer(value: bigint): number {
   const n = Number(value);
   if (!Number.isSafeInteger(n) || n < 0)
@@ -230,9 +309,19 @@ function ratio(a: number, b: bigint, d: bigint) {
 export function purchaseCapital(
   lot: Pick<
     PurchaseLot,
-    "grossCashMinor" | "netCapitalMinor" | "feePpm" | "feeBasis"
+    | "grossCashMinor"
+    | "netCapitalMinor"
+    | "feePpm"
+    | "feeBasis"
+    | "upfrontDeductionsMinor"
   >,
 ) {
+  if (lot.upfrontDeductionsMinor !== undefined)
+    return reconcileInvestmentCapital({
+      grossCashMinor: lot.grossCashMinor,
+      netCapitalMinor: lot.netCapitalMinor,
+      upfrontDeductionsMinor: lot.upfrontDeductionsMinor,
+    });
   let net = lot.netCapitalMinor;
   let gross = lot.grossCashMinor;
   let conflict = false;
@@ -264,7 +353,12 @@ export function purchaseCapital(
       }
     }
   }
-  return { netCapitalMinor: net, grossCashMinor: gross, conflict };
+  return {
+    netCapitalMinor: net,
+    grossCashMinor: gross,
+    upfrontDeductionsMinor: gross !== null && net !== null ? gross - net : null,
+    conflict,
+  };
 }
 export function purchaseShares(lot: PurchaseLot) {
   if (lot.remainingSharesMicros !== null)
@@ -368,7 +462,11 @@ function derivedPurchaseShares(net: number, price: number) {
 export function purchaseAllInPrice(lot: PurchaseLot): number | null {
   if (lot.priceMicros === null) return null;
   let numerator: bigint, denominator: bigint;
-  if (lot.feePpm !== null && lot.feeBasis !== null) {
+  if (
+    lot.upfrontDeductionsMinor === undefined &&
+    lot.feePpm !== null &&
+    lot.feeBasis !== null
+  ) {
     numerator =
       lot.feeBasis === "net_capital"
         ? 1_000_000n + BigInt(lot.feePpm)
@@ -420,3 +518,31 @@ export const PositionValuationEvidenceSchema = z.object({
     )
     .max(10),
 });
+
+// A current head is already loaded with the position: no additional read needed.
+export function reviewedInvestmentFromReceipt(
+  receipt: PurchaseReceipt | null | undefined,
+): ReviewedInvestment | undefined {
+  if (!receipt?.details.investmentTerms) return undefined;
+  const capital = receipt.details.lots.map(purchaseCapital);
+  const sum = (
+    key: "grossCashMinor" | "netCapitalMinor" | "upfrontDeductionsMinor",
+  ) => {
+    if (
+      !receipt.details.cashCoversPosition ||
+      !capital.length ||
+      capital.some((row) => row.conflict || row[key] === null)
+    )
+      return null;
+    const total = capital.reduce((total, row) => total + BigInt(row[key]!), 0n);
+    return total > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(total);
+  };
+  return {
+    snapshotId: receipt.snapshotId,
+    receiptId: receipt.id,
+    terms: receipt.details.investmentTerms,
+    cashPaidMinor: sum("grossCashMinor"),
+    netCapitalMinor: sum("netCapitalMinor"),
+    upfrontDeductionsMinor: sum("upfrontDeductionsMinor"),
+  };
+}

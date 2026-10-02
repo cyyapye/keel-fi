@@ -2725,6 +2725,28 @@ function isCashLikeHolding(holding: Holding): boolean {
   return holding.instrumentType?.trim().toLowerCase() === "cash";
 }
 
+function currentReportedValueReview(holding: Holding) {
+  const context = holding.purchaseContext;
+  const receipt = context?.receipt;
+  const review = receipt?.details.investmentTerms?.reportedValueReview;
+  return context &&
+    receipt?.snapshotId === context.snapshotId &&
+    review?.sourceSnapshotId ===
+      (context.reportedValueSnapshotId ?? context.snapshotId) &&
+    review?.valueMinor === holding.administratorNavMinor
+    ? review
+    : null;
+}
+
+function reportedCarryLabel(holding: Holding) {
+  const status = currentReportedValueReview(holding)?.carryStatus ?? "unknown";
+  return status === "before_carry"
+    ? "before carry"
+    : status === "after_carry"
+      ? "after carry"
+      : "carry unknown";
+}
+
 function PositionPerformanceSummary({
   holding,
   primary,
@@ -2787,7 +2809,9 @@ function PositionPerformanceSummary({
               value={
                 performance.costBasisMinor === null
                   ? "Not reported"
-                  : formatCompactMoney(performance.costBasisMinor)
+                  : performance.costBasisSource === "reviewed_spv_terms"
+                    ? formatMoney(performance.costBasisMinor)
+                    : formatCompactMoney(performance.costBasisMinor)
               }
             />
             {performance.totalReturnPpm !== null && (
@@ -2797,7 +2821,9 @@ function PositionPerformanceSummary({
                   holding.administratorNavMinor === null &&
                   !acceptedAdjustment
                     ? "Estimated return · before carry"
-                    : "Total return"
+                    : holding.purchaseContext && !acceptedAdjustment
+                      ? `Reported return · ${reportedCarryLabel(holding)}`
+                      : "Total return"
                 }
                 value={formatSignedProbability(performance.totalReturnPpm)}
                 detail={
@@ -2839,7 +2865,9 @@ function PositionPerformanceSummary({
                   holding.administratorNavMinor === null &&
                   !acceptedAdjustment
                     ? "Estimated return · before carry"
-                    : "Total return"
+                    : holding.purchaseContext && !acceptedAdjustment
+                      ? `Reported return · ${reportedCarryLabel(holding)}`
+                      : "Total return"
                 }
                 value={
                   holding.shareValueEstimate &&
@@ -3022,7 +3050,7 @@ function HoldingDetailWorkspace({
                       ? holding.administratorNavState === "locked"
                         ? valueLenses[0].helper
                         : "Add a reported value or calculate from shares below."
-                      : `${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}`
+                      : `${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(currentReportedValueReview(holding)?.effectiveDate ?? holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}${holding.purchaseContext ? ` · ${reportedCarryLabel(holding)}` : ""}`
             }
           />
         }
@@ -3065,13 +3093,18 @@ function HoldingDetailWorkspace({
         </p>
       )}
       <PositionPurchasesEditor
-        mode="purchase"
+        mode="combined"
         key={`${holding.id}:${holding.purchaseContext?.snapshotId}:${holding.purchaseContext?.receipt?.id}`}
         holding={holding}
         onAccepted={onValueAccepted}
       />
 
-      <PositionEconomicsEditor holding={holding} onAccepted={onValueAccepted} />
+      {!holding.purchaseContext && (
+        <PositionEconomicsEditor
+          holding={holding}
+          onAccepted={onValueAccepted}
+        />
+      )}
 
       {!isCashLikeHolding(holding) && (
         <PositionValuationSection

@@ -6,6 +6,7 @@ import {
   purchaseCapital,
   purchaseShares,
   prefillPurchaseCapital,
+  prefillInvestmentCapital,
 } from "./position-purchases";
 const lot = () =>
   PurchaseLotSchema.parse({
@@ -46,6 +47,7 @@ describe("purchase economics", () => {
     expect(purchaseCapital({ ...lot(), netCapitalMinor: null })).toEqual({
       netCapitalMinor: 10000,
       grossCashMinor: 11000,
+      upfrontDeductionsMinor: 1000,
       conflict: false,
     });
     expect(purchaseShares(lot())).toEqual({
@@ -165,6 +167,11 @@ it("prefills a single current fully funded purchase without changing accepted de
     },
   };
   expect(prefillPurchaseCapital(r, context)[0]?.netCapitalMinor).toBe(10000);
+  expect(prefillInvestmentCapital(r, context)[0]).toMatchObject({
+    grossCashMinor: 11000,
+    netCapitalMinor: 10000,
+    upfrontDeductionsMinor: 1000,
+  });
   expect(r.details.lots[0]?.netCapitalMinor).toBeNull();
   expect(
     prefillPurchaseCapital(r, {

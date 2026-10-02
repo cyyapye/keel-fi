@@ -56,11 +56,12 @@ conflicting, unsupported, blocked, or ambiguously associated evidence stays in
 the review queue. Clear fields are prefilled so the user supplies only the
 missing information.
 
-Current single-purchase notices can supply management and carry evidence.
-Disagreement with provider or agreement terms remains an exception. Underlying
-purchase fees retain their rate, basis and receipt; they apply once to capital
-after SPV fees. Multiple purchases or stale purchase evidence require review.
-The transaction checks the purchase receipt head before accepting these terms.
+Until a position has a unified Investment details review, current
+single-purchase notices can supply management and carry evidence. Disagreement
+with provider or agreement terms remains an exception. Underlying purchase fees
+retain their rate, basis and receipt; they apply once to capital after SPV fees.
+Multiple purchases or stale purchase evidence require review. The transaction
+checks the purchase receipt head before accepting these terms.
 
 Each automatic decision records its policy, source revision, accepted sections,
 exceptions and supporting evidence. Manual identity, participation, company and
@@ -255,29 +256,49 @@ snapshots, documents and review decisions remain unchanged. Only the successor
 appears in the position inventory; historical successors remain excluded from
 current holdings. Reads perform no reconciliation.
 
-### Optional private purchase details
+### Unified investment details
 
-USD SPV positions can record up to 20 purchases through an explicit
-authenticated save. One purchase is offered initially; partial records and no
-record are both valid. Purchase details never gate source acceptance or
-investment review. The form prefills the reported purchase date and source
-label, and gross/net capital only when accepted fee terms support that
-distinction. It does not treat SPV membership units as underlying company shares
-or infer missing fees as zero. Holdings detail and Investment review use the
-same purchase record. A manual Paste GP notice action extracts only explicit,
-bounded purchase terms into editable fields and retains the notice text with the
-accepted review. It does not create a merger/conversion, fetch documents, or
-save until confirmation. Conflicting or unsupported values remain unknown.
-Existing entered values are not overwritten. PDF extraction remains separate.
+USD SPV positions use one Investment details editor in Holdings detail and
+Investment review. A single explicit Save records up to 20 purchases, canonical
+reviewed economic terms and a review of the provider mark. Partial data and
+carry-only terms are valid. This optional workflow never gates source
+acceptance. The separate shares view shows saved calculations and links to this
+editor.
 
-The editable form saves directly after validation; a separate preview is not
-required. Share prices display at least two decimal places while retaining
-additional recorded precision. Purchase and reference prices, one-time fees and
-their basis are visible together. A quoted premium is retained separately from
-calculated price and fee-inclusive premiums. A fee rate with unknown basis can
-be saved but does not affect capital or per-share calculations. Explicit
-reported annual management fees and carry are retained as purchase evidence;
-they do not replace accepted investment fee terms.
+Cash paid, total upfront deductions and net capital invested are exact integer
+money per purchase. Any two determine the third; conflicting or negative totals
+cannot be saved. Optional fee component rates do not determine or need to add up
+to the total deductions. Nominal SPV units are separate from underlying shares;
+no conversion is inferred. Whole-position cash coverage is an explicit decision
+separate from remaining-share coverage. Reviewed cash drives return cost basis,
+regardless of whether the unchanged imported amount is gross, net or unknown. An
+already-net import is never reduced by the fees again.
+
+Annual management fees and carry have independently nullable rates and explicit
+cash/net/unknown bases. Blank is unknown; zero is an evidenced absence of a fee.
+Annual fees are not multiplied by a prepaid term or folded into upfront totals.
+Carry applies to positive gains above the chosen capital basis. The provider
+mark records source snapshot, source label, optional valuation date and
+before-carry/after-carry/unknown classification. Capture date is not valuation
+date. Classification only applies to that exact source snapshot and amount. A
+carry-only proceeds illustration never replaces the provider mark, charges an
+after-carry mark again or claims to model annual fees, distributions, taxes and
+exit expenses. Unknown inputs are visible and prevent reliable net estimates.
+
+Executed evidence, historical deal snapshots, source dates and disagreement
+notes are retained as provenance. Paste GP notice extracts only explicit bounded
+facts and keeps the source text. It prefills blank reviewed rates only when
+explicit and unopposed by provider observations; it never fabricates a rate or
+basis. Source observations stay read-only. An explicit choice can adopt a notice
+rate into the one canonical reviewed record. PDF extraction remains separate.
+
+Legacy receipts and fee reviews remain immutable. Opening an old receipt can
+prefill missing exact cash from current, fully funded legacy economics, but the
+new draft needs review and Save. Migration `0079` binds the unified receipt to
+the current legacy fee review and prevents parallel fee writers or a downgrade
+to a legacy receipt. Automatic reviews retain the unified manual terms; a later
+source snapshot requires fresh review. No import or historical review is
+rewritten.
 
 Each purchase can retain a share class, integer micro-unit share price, entry
 reference price, gross cash, net share capital, one-time fee and its gross/net
@@ -297,14 +318,15 @@ Accepted purchase records are append-only and atomically advance an indexed
 current head. The POST checks household ownership, position, snapshot and prior
 review in the write transaction. Stale submissions fail without overwriting
 newer work. GETs join current heads and perform no writes or source reads.
-Migration `0070` must precede the API and web release. The 120-position holdout
-covers empty heads, repeated reviews and unrelated-household lookups, with fixed
-three-round-trip position reads and two-round-trip purchase writes. Saving sends
-one POST per explicit confirmation, with the action disabled while saving. It
-adds no polling, automatic retry or idle request; the existing holdings reload
-follows success. It counts actual D1 rows and index writes. Existing fee reviews
-and historical performance are unchanged; purchase-based return on gross cash is
-separately labeled before carry.
+Migrations `0070` and `0079` must precede the API and web release. The
+120-position holdout covers empty heads, repeated reviews and
+unrelated-household lookups, with fixed three-round-trip position reads and
+two-round-trip purchase writes. Saving sends one POST per explicit confirmation,
+with the action disabled while saving. It adds no polling, automatic retry or
+idle request; the existing holdings reload follows success. It counts actual D1
+rows and index writes. Historical fee reviews remain available as evidence.
+Current summaries use the same saved cash and terms; reported return keeps the
+mark's reviewed carry status separate from estimated proceeds.
 
 ### Public issuer grouping recommendations
 

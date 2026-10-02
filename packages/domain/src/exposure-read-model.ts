@@ -1,3 +1,5 @@
+import { ReviewedInvestmentSchema } from "./investment-details";
+import { reviewedInvestmentFromReceipt } from "./position-purchases";
 import { reportedPositionValue } from "./position-read-model";
 import {
   estimatePurchaseValue,
@@ -128,6 +130,7 @@ export const InvestmentExposurePositionSchema = z
       InvestmentPositionRecordSchema.shape.snapshot.shape.realizedValueMinor,
     providerCostBasisMinor:
       InvestmentPositionRecordSchema.shape.snapshot.shape.costBasisMinor,
+    reviewedInvestment: ReviewedInvestmentSchema.optional(),
     acceptedEconomicsTerms:
       InvestmentPositionRecordSchema.shape.acceptedEconomicsTerms,
     reportedEconomicsTerms:
@@ -322,8 +325,13 @@ function privatePositionCostBasis(
     providerCostBasisMinor: position.snapshot.costBasisMinor,
     fundedMinor: position.snapshot.investedMinor,
     economicsContext:
-      position.kind === "spv_interest" && investmentAmount(position) > 0
+      position.kind === "spv_interest" &&
+      (investmentAmount(position) > 0 ||
+        position.purchaseReceipt?.details.investmentTerms)
         ? {
+            reviewedInvestment: reviewedInvestmentFromReceipt(
+              position.purchaseReceipt,
+            ),
             snapshotId: position.snapshot.id,
             currency: position.snapshot.currency,
             committedMinor: investmentAmount(position),
@@ -604,6 +612,9 @@ export function createInvestmentExposureView(
           committedMinor: investmentAmount(position),
           realizedValueMinor: position.snapshot.realizedValueMinor,
           providerCostBasisMinor: position.snapshot.costBasisMinor,
+          reviewedInvestment: reviewedInvestmentFromReceipt(
+            position.purchaseReceipt,
+          ),
           acceptedEconomicsTerms: position.acceptedEconomicsTerms ?? null,
           reportedEconomicsTerms: position.reportedEconomicsTerms ?? null,
           valueSource:
