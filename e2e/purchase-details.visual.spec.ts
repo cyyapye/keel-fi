@@ -149,6 +149,21 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     exact: true,
   });
   await section.getByRole("button", { name: "Add investment details" }).click();
+  await expect(
+    section.getByRole("heading", { name: "Purchases · 1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("group", { name: "Purchase 1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: /Remove purchase/ }),
+  ).toHaveCount(0);
+  if (info.project.name === "mobile-chromium")
+    expect(
+      await section
+        .getByRole("button", { name: "Add another purchase", exact: true })
+        .evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
   const cash = section.getByRole("textbox", {
     name: "Cash paid · USD",
     exact: true,
@@ -269,9 +284,23 @@ test("unified investment details reconcile cash, retain failed drafts and share 
   await edit.click();
   await expect(cash).toHaveValue("2400");
   await expect(save).toBeDisabled();
+  await expect(
+    section.getByRole("button", { name: /Remove purchase/ }),
+  ).toHaveCount(0);
   await section
-    .getByRole("button", { name: "+ Add another purchase", exact: true })
+    .getByRole("button", { name: "Add another purchase", exact: true })
     .click();
+  await expect(
+    section.getByRole("heading", { name: "Purchases · 2", exact: true }),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: /Remove purchase/ }),
+  ).toHaveCount(2);
+  await expect(
+    section.locator(".purchase-collection-heading"),
+  ).toHaveScreenshot("investment-details-multiple-purchases.png", {
+    animations: "disabled",
+  });
   await section
     .getByRole("textbox", { name: "Cash paid · USD", exact: true })
     .nth(1)
@@ -281,6 +310,24 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     .nth(1)
     .fill("200");
   await expect(section).toContainText("3,600.00");
+  await section
+    .getByRole("button", { name: "Remove purchase 2", exact: true })
+    .click();
+  await expect(
+    section.getByRole("heading", { name: "Purchases · 1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: /Remove purchase/ }),
+  ).toHaveCount(0);
+  await section.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(
+    section.getByRole("heading", { name: "Purchases · 2", exact: true }),
+  ).toBeVisible();
+  await expect(
+    section
+      .getByRole("textbox", { name: "Cash paid · USD", exact: true })
+      .nth(1),
+  ).toHaveValue("1200");
   await save.click();
   expect(PurchaseReceiptSchema.parse(receipt).details.lots).toHaveLength(2);
   await edit.click();

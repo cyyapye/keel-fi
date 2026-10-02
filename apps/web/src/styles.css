@@ -8885,8 +8885,22 @@ h1,
   grid-column: 1 / -1;
   color: var(--muted);
 }
-.purchase-add {
-  margin-top: 20px;
+.purchase-details .purchase-collection-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  margin: 28px 0 20px;
+}
+.purchase-collection-heading h4 {
+  margin: 0;
+}
+.purchase-collection-heading p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 52ch;
 }
 .purchase-actions {
   margin-top: 28px;
@@ -8896,6 +8910,12 @@ h1,
   color: var(--muted);
 }
 @media (max-width: 767px) {
+  .purchase-details .purchase-collection-heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .purchase-collection-heading > .button {
+    justify-self: start;
+  }
   .position-valuation__toggle {
     flex-wrap: wrap;
   }

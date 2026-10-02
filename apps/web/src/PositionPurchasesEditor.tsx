@@ -56,6 +56,7 @@ import {
   SelectValue,
   Stat,
   StatGroup,
+  SectionHeader,
 } from "@keel/ui";
 import { formatCurrency, formatDate, formatMoney } from "./format";
 
@@ -1240,15 +1241,27 @@ function InvestmentDetailsEditor({
           {noticeWarnings.length > 0 && (
             <Notice>{noticeWarnings.join(" ")}</Notice>
           )}
+          <SectionHeader
+            className="purchase-collection-heading"
+            headingAs="h4"
+            title={`Purchases · ${drafts.length}`}
+            description="An investment can have multiple purchases or top-ups. Record each one separately."
+            descriptionPlacement="title-group"
+            action={
+              <Button
+                tone="secondary"
+                disabled={busy || drafts.length >= 20}
+                onClick={() => setDrafts((old) => [...old, blank(false)])}
+              >
+                Add another purchase
+              </Button>
+            }
+          />
           {drafts.map((d, i) => (
             <fieldset key={d.id} className="purchase-fields">
               <legend className="purchase-fields__heading">
-                <span>
-                  {drafts.length > 1
-                    ? `Purchase ${i + 1}`
-                    : d.shareClass || "Purchase"}
-                </span>
-                {
+                <span>Purchase {i + 1}</span>
+                {drafts.length > 1 && (
                   <Button
                     tone="quiet"
                     disabled={busy}
@@ -1258,9 +1271,9 @@ function InvestmentDetailsEditor({
                       setDrafts((old) => old.filter((_, j) => j !== i));
                     }}
                   >
-                    Remove
+                    Remove purchase
                   </Button>
-                }
+                )}
               </legend>
               {
                 <>
@@ -1894,15 +1907,6 @@ function InvestmentDetailsEditor({
               </Button>
             </Notice>
           ))}
-          {drafts.length < 20 && (
-            <Button
-              className="purchase-add"
-              tone="quiet"
-              onClick={() => setDrafts((old) => [...old, blank(false)])}
-            >
-              + Add another purchase
-            </Button>
-          )}
           <ActionGroup
             className="purchase-actions"
             align="end"
