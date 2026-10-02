@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { extractLegalNameFromPdf } from "./legal-document-extraction";
+import { describeSandboxFailure } from "./pdf-sandbox-error";
+import { acquireSandboxOwner } from "./pdf-sandbox-owner";
 import {
   dockerCommand,
   loadSandboxConfig,
@@ -18,6 +22,7 @@ import {
   scanDocumentInSandbox,
 } from "./pdf-sandbox";
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
+import { startOrphanProbe } from "./test-support/pdf-orphan-client";
 import {
   syntheticManyFileZip,
   syntheticManyStreamPdf,
@@ -40,14 +45,117 @@ async function main() {
     if (args[0] === "create") ownedNames.add(args[2]!);
     return transport(args, options);
   };
+  command.ownership = transport.ownership;
   const priorCanary = process.env.KEEL_SYNTHETIC_SECRET;
   process.env.KEEL_SYNTHETIC_SECRET = "SYNTHETIC-ONLY-NOT-A-CREDENTIAL";
   const invoke = (mode: string) =>
     runSandbox(probe, Buffer.from(JSON.stringify({ mode, canary })), command);
   try {
-    // The scanner/reader fixtures and kernel boundary probes own independent
-    // containers. At most two containers run at once; each keeps its original
-    // CPU, memory, process, output and wall-clock limits. Await both branches
+    // A real caller process owns a live probe. SIGKILL bypasses all caller
+    // finally blocks. Competing requests must finish without retries, retain
+    // one-container capacity, and leave no caller-owned container behind.
+    const abandonedName = `keel-pdf-${randomUUID()}`;
+    ownedNames.add(abandonedName);
+    const caller = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        fileURLToPath(
+          new URL("./test-support/pdf-sandbox-caller.ts", import.meta.url),
+        ),
+        JSON.stringify(probe),
+        abandonedName,
+      ],
+      {
+        env: {
+          PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+          LANG: "C.UTF-8",
+        },
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    const callerClosed = new Promise<void>((resolve) => {
+      caller.once("close", () => resolve());
+    });
+    const callerReady = new Promise<void>((resolve, reject) => {
+      let output = "";
+      caller.once("error", reject);
+      caller.once("close", () =>
+        reject(new Error("synthetic caller exited before readiness")),
+      );
+      caller.stdout.on("data", (data: Buffer) => {
+        output += data.toString("utf8");
+        if (output === "KEEL_PDF_CALLER_RUNNING_V1\n") resolve();
+        else if (output.length > 1024)
+          reject(new Error("synthetic caller protocol"));
+      });
+    });
+    const contending: Promise<unknown>[] = [];
+    try {
+      await callerReady;
+      const checked: SandboxCommand = async (args, options) => {
+        const result = await command(args, options);
+        if (args[0] === "create" && result.code === 0) {
+          const active = await command([
+            "ps",
+            "--all",
+            "--filter",
+            "label=keel.pdf-sandbox=1",
+            "--format",
+            "{{.ID}}",
+          ]);
+          assert.equal(active.code, 0);
+          assert.equal(
+            active.output.trim().split("\n").filter(Boolean).length,
+            1,
+          );
+        }
+        return result;
+      };
+      checked.ownership = command.ownership;
+      for (let index = 0; index < 4; index += 1)
+        contending.push(
+          runSandbox(config, syntheticAgreementPdf(), checked).then(
+            (result) => {
+              assert.equal(result.problem, null);
+              assert.equal(result.pageCount, 1);
+              assert.match(result.text, /Synthetic Atlas SPV LLC/u);
+            },
+          ),
+        );
+      caller.kill("SIGKILL");
+      await callerClosed;
+      const completed = await Promise.allSettled(contending);
+      const rejected = completed.filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
+      if (rejected.length)
+        throw new AggregateError(
+          rejected.map((result) => result.reason as unknown),
+        );
+      const gone = await command([
+        "ps",
+        "--all",
+        "--filter",
+        `name=^/${abandonedName}$`,
+        "--format",
+        "{{.ID}}",
+      ]);
+      assert.equal(gone.code, 0);
+      assert.equal(gone.output.trim(), "");
+      console.log(
+        "PASS: SIGKILL caller cleanup and four racing real readers keep one-container capacity without retries",
+      );
+    } finally {
+      if (caller.exitCode === null && caller.signalCode === null)
+        caller.kill("SIGTERM");
+      await callerClosed;
+      await Promise.allSettled(contending);
+    }
+    // The scanner/reader fixtures and kernel boundary probes share the same
+    // cross-process capacity owner and unchanged resource budgets. Await both branches
     // even after failure so their finally blocks finish before shared cleanup.
     const verification = await Promise.allSettled([
       (async () => {
@@ -124,7 +232,9 @@ async function main() {
         );
         const result = await extractLegalNameFromPdf(syntheticAgreementPdf());
         assert.equal(result.problem, null);
+        assert.equal(result.pageCount, 1);
         assert.equal(result.citations[0]?.legalName, "Synthetic Atlas SPV LLC");
+        assert.equal(result.citations[0]?.page, 1);
         console.log(
           "PASS: real PDF -> isolated Poppler -> exact source name and page",
         );
@@ -165,11 +275,17 @@ async function main() {
         // guard with a synthetic test only. The kernel handshake must still refuse
         // an incorrectly configured CPU limit, before consuming any input.
         const unsafeName = `keel-pdf-${randomUUID()}`;
+        const unsafeOwner = await acquireSandboxOwner(
+          config.socket,
+          temporary,
+          unsafeName,
+        );
         try {
           const args = sandboxCreateArgs(probe, unsafeName).map((arg) =>
             arg === "--cpus=1" ? "--cpus=2" : arg,
           );
           assert.equal((await command(args)).code, 0);
+          await unsafeOwner.creationSettled();
           const refused = await command(
             ["start", "--attach", "--interactive", unsafeName],
             {
@@ -183,24 +299,29 @@ async function main() {
             "PASS: kernel preflight refuses a misconfigured sandbox before reading bytes",
           );
         } finally {
-          await command(["rm", "--force", unsafeName]);
+          await unsafeOwner.release();
         }
         // Killing only the attached CLI simulates a lost caller. Deliberately leave
         // the worker running: PID 1, not parent cleanup, must terminate it by 35s.
         const orphan = `keel-pdf-${randomUUID()}`;
+        const orphanOwner = await acquireSandboxOwner(
+          config.socket,
+          temporary,
+          orphan,
+        );
         try {
           assert.equal(
             (await command(sandboxCreateArgs(probe, orphan))).code,
             0,
           );
-          await assert.rejects(
-            command(["start", "--attach", "--interactive", orphan], {
-              handshake: true,
-              input: Buffer.from('{"mode":"timeout"}'),
-              timeoutMs: 2_000,
-            }),
-            { message: "limit_reached" },
+          await orphanOwner.creationSettled();
+          const attached = await startOrphanProbe(
+            config.socket,
+            temporary,
+            orphan,
           );
+          attached.kill();
+          await attached.finished;
           const alive = await command([
             "ps",
             "--filter",
@@ -225,7 +346,7 @@ async function main() {
             "PASS: independent watchdog kills orphaned work after the caller disappears",
           );
         } finally {
-          await command(["rm", "--force", orphan]);
+          await orphanOwner.release();
         }
       })(),
     ]);
@@ -235,7 +356,7 @@ async function main() {
     if (failures.length > 0) {
       throw new AggregateError(
         failures.map((result) => result.reason as unknown),
-        failures.map((result) => String(result.reason)).join("; "),
+        "PDF sandbox runtime proof failed",
       );
     }
     const remaining = await command([
@@ -265,8 +386,6 @@ async function main() {
   }
 }
 main().catch((error: unknown) => {
-  console.error(
-    error instanceof Error ? error.message : "PDF sandbox verification failed",
-  );
+  console.error(describeSandboxFailure(error));
   process.exitCode = 1;
 });

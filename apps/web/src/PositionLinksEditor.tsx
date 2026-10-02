@@ -15,7 +15,7 @@ import {
   DisclosureIndicator,
   ActionGroup,
   Button,
-  Input,
+  SearchSelect,
   Field,
   Notice,
   Select,
@@ -55,7 +55,6 @@ export function PositionLinksEditor({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
   const [sourceId, setSourceId] = useState("");
   const [relationship, setRelationship] = useState<
     "same_investment" | "replaced"
@@ -77,12 +76,6 @@ export function PositionLinksEditor({
             (l.sourcePositionId === p.id || l.targetPositionId === p.id),
         ),
     ) ?? [];
-  const matchingCandidates = candidates.filter((p) =>
-    `${p.legalVehicleName} ${p.source.label} ${p.reportedExposureName ?? ""}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
-  const visibleCandidates = matchingCandidates.slice(0, 50);
   async function download(id: string, name: string) {
     setBusy(true);
     setError(null);
@@ -258,47 +251,25 @@ export function PositionLinksEditor({
                   </div>
                 );
               })}
-              {candidates.length > 12 && !source && (
-                <Field label="Find a record">
-                  <Input
-                    type="search"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search investment or source"
-                  />
-                </Field>
-              )}
               <Field label="Record to link">
-                <Select
+                <SearchSelect
+                  label="Record to link"
+                  searchLabel="Search investment or source"
+                  placeholder="Choose a source record"
+                  emptyMessage="No matching investment records."
                   items={candidates.map((p) => ({
                     value: p.id,
                     label: `${p.legalVehicleName} · ${p.source.label}`,
+                    searchText: p.reportedExposureName ?? "",
                   }))}
                   disabled={busy}
-                  value={sourceId || null}
-                  onValueChange={(value) => {
-                    if (typeof value === "string") setSourceId(value);
+                  value={sourceId}
+                  onChange={(value) => {
+                    setSourceId(value);
                     setUseSourceValue(false);
                   }}
-                >
-                  <SelectTrigger aria-label="Record to link">
-                    <SelectValue placeholder="Choose a source record" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {visibleCandidates.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.legalVehicleName} · {p.source.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </Field>
-              {matchingCandidates.length > 50 && !source && (
-                <p>
-                  Showing the first 50 matches. Refine your search to find
-                  another record.
-                </p>
-              )}
               {source && (
                 <>
                   <Field label="Relationship">

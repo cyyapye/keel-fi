@@ -205,7 +205,7 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "scripts/linux-agent-setup-session.ts | waitForFile | timer | sleep | 22033347b54f396b",
   "scripts/linux-agent-setup-session.ts | waitForPort | timer | sleep | 22033347b54f396b",
   "scripts/mac-agent-auth.ts | macAgentApi | network | fetchImplementation | 1de9261637a744cb",
-  "scripts/pdf-sandbox.ts | dockerCommand | timer | setTimeout | 5630f1880851a931",
+  "scripts/pdf-sandbox.ts | dockerCommand | timer | setTimeout | 1e71abe2d47baf28",
   "scripts/pdf-sandbox.ts | removeSandbox | timer | delay | d782f0ff4731ba0a",
   "scripts/preview-deployment-smoke.ts | eventually | timer | delay | 065a0b59d78671ec",
   "scripts/preview-deployment-smoke.ts | request | network | fetchImplementation | 7a10cc31e3940aec",

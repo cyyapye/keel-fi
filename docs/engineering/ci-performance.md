@@ -77,15 +77,16 @@ Migration depends on integrity checks; PDF probes depend on both integrity and
 the successful image build. Browser fixture preparation also becomes ready after
 the integrity checks and enters the three-flow schedule when a slot opens. Build
 and unit/D1 tests depend on source checks and migration completion and can run
-alongside each other. Unit/D1 tests additionally wait for the PDF image build
-because they exercise the real isolated reader. Unit tests consume TypeScript
-sources and isolated test fixtures, so they do not wait for build output.
-Browser tests depend on the sealed fixture, build and PDF isolation. This keeps
-generated outputs stable before their browser consumers start and avoids running
-browser document processing before the sandbox boundary passes. Formatting and
-linting exclude the Git-ignored runtime, fixture and cache directories, so
-concurrent integrity tests cannot change files under the source checkers.
-Repository source and test files remain in scope.
+alongside each other. Unit/D1 tests additionally wait for the PDF image build as
+an explicit provisioning prerequisite. The exact real-reader name/page
+assertions now belong to mandatory PDF isolation, outside Vitest’s unit pool.
+Unit tests consume TypeScript sources and isolated test fixtures, so they do not
+wait for build output. Browser tests depend on the sealed fixture, build and PDF
+isolation. This keeps generated outputs stable before their browser consumers
+start and avoids running browser document processing before the sandbox boundary
+passes. Formatting and linting exclude the Git-ignored runtime, fixture and
+cache directories, so concurrent integrity tests cannot change files under the
+source checkers. Repository source and test files remain in scope.
 
 The declared prerequisites are:
 
@@ -108,9 +109,11 @@ flowchart LR
 
 Only three ready flows execute at once; an arrow means the prerequisite must
 finish successfully. Source checks use at most two Make jobs, and PDF proof uses
-at most two independently limited containers. The fixture uses a slot released
-by an earlier flow and can overlap remaining source/PDF work. No browser
-consumer starts before its fixture, PDF isolation and build succeed.
+one independently limited container per daemon across processes. Kernel
+ownership serializes the scanner/reader and adversarial sequences through
+confirmed cleanup; all original probes remain required. The fixture uses a slot
+released by an earlier flow and can overlap remaining source/PDF work. No
+browser consumer starts before its fixture, PDF isolation and build succeed.
 
 The unit suite uses three workers in CI and two locally, and starts historically
 expensive files first. Browser verification produces five reports while
@@ -342,9 +345,10 @@ Execution slices:
 4. Overlap read-only source checks with `make -j2`, and permit three native
    flows so PDF isolation can overlap migration verification. Build and consumer
    prerequisites remain explicit; runtime and migration outputs are not shared.
-5. Overlap the independent PDF scanner/reader sequence and kernel-probe
-   sequence, with at most two containers and unchanged limits. Wait for both
-   branches, including their failure cleanup, before checking for leftovers.
+5. Keep scanner/reader and kernel-probe sequences independent, but serialize
+   actual containers through one cross-process daemon owner with unchanged
+   limits. Prove caller death and racing real readers without retries. Wait for
+   both branches and confirmed cleanup before checking for leftovers.
 6. Start the historically expensive Vitest files first, preserving discovered
    specifications and test order within each file. This avoids a large final
    fixture leaving the other workers idle.

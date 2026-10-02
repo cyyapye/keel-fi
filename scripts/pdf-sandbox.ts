@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
+import { PdfSandboxError, type PdfSandboxStage } from "./pdf-sandbox-error";
+import { acquireSandboxOwner } from "./pdf-sandbox-owner";
+export { PdfSandboxError } from "./pdf-sandbox-error";
 import { MAX_LEGAL_DOCUMENT_TEXT_BYTES } from "../packages/domain/src/provider-legal-documents";
 import {
   LegalDocumentScanSchema,
@@ -69,15 +72,6 @@ export const PdfSandboxConfigSchema = z
   })
   .strict();
 export type PdfSandboxConfig = z.infer<typeof PdfSandboxConfigSchema>;
-
-export class PdfSandboxError extends Error {
-  constructor(
-    public readonly problem:
-      "extractor_unavailable" | "limit_reached" | "unreadable",
-  ) {
-    super(problem);
-  }
-}
 
 export function sandboxConfigPath() {
   return (
@@ -241,19 +235,33 @@ type CommandOptions = {
   handshake?: boolean;
   timeoutMs?: number;
   maxBytes?: number;
+  signal?: AbortSignal | undefined;
 };
 type CommandResult = { code: number | null; output: string; ready: boolean };
-export type SandboxCommand = (
+export type SandboxCommand = ((
   args: string[],
   options?: CommandOptions,
-) => Promise<CommandResult>;
+) => Promise<CommandResult>) & {
+  // Only the real adapter carries daemon identity. Injected unit transports
+  // never create containers; wrappers must preserve this identity.
+  ownership?: { socket: string; directory: string } | undefined;
+};
 
 export function dockerCommand(
   socket: string,
   configDirectory: string,
 ): SandboxCommand {
-  return (args, options = {}) =>
+  const command: SandboxCommand = (args, options = {}) =>
     new Promise((fulfill, reject) => {
+      if (options.signal?.aborted) {
+        reject(
+          new PdfSandboxError("extractor_unavailable", {
+            stage: "execute",
+            reason: "owner_lost",
+          }),
+        );
+        return;
+      }
       // Only a local Unix socket, an empty Docker config, and a tiny CLI env. Never
       // inherit DOCKER_HOST/CONTEXT, proxy variables, plugins or agent credentials.
       const child = spawn(
@@ -273,12 +281,46 @@ export function dockerCommand(
       let length = 0;
       const chunks: Buffer[] = [];
       let failure: PdfSandboxError | undefined;
-      const stop = (problem: PdfSandboxError["problem"]) => {
-        failure ??= new PdfSandboxError(problem);
+      const stage: PdfSandboxStage =
+        (
+          {
+            info: "engine",
+            create: "create",
+            inspect: "attest",
+            start: "start",
+            rm: "cleanup",
+            ps: "cleanup",
+          } as Record<string, PdfSandboxStage>
+        )[args[0] ?? ""] ?? "engine";
+      const stop = (error: PdfSandboxError) => {
+        failure ??= error;
         child.kill("SIGKILL");
       };
+      const ownerLost = () =>
+        stop(
+          new PdfSandboxError("extractor_unavailable", {
+            stage: ready && options.handshake ? "execute" : stage,
+            reason: "owner_lost",
+          }),
+        );
+      options.signal?.addEventListener("abort", ownerLost, { once: true });
       const timeout = setTimeout(
-        () => stop("limit_reached"),
+        () =>
+          stop(
+            new PdfSandboxError(
+              options.handshake && ready
+                ? "limit_reached"
+                : "extractor_unavailable",
+              {
+                stage: options.handshake && ready ? "execute" : stage,
+                reason: options.handshake
+                  ? ready
+                    ? "execution_timeout"
+                    : "startup_timeout"
+                  : "control_timeout",
+              },
+            ),
+          ),
         options.timeoutMs ?? 10_000,
       );
       child.stdout.on("data", (data: Buffer) => {
@@ -288,11 +330,21 @@ export function dockerCommand(
           prefix = Buffer.concat([prefix, chunk]);
           if (prefix.length < READY.length) {
             if (!READY.subarray(0, prefix.length).equals(prefix))
-              stop("extractor_unavailable");
+              stop(
+                new PdfSandboxError("extractor_unavailable", {
+                  stage: "start",
+                  reason: "unsafe_runtime",
+                }),
+              );
             return;
           }
           if (!prefix.subarray(0, READY.length).equals(READY)) {
-            stop("extractor_unavailable");
+            stop(
+              new PdfSandboxError("extractor_unavailable", {
+                stage: "start",
+                reason: "unsafe_runtime",
+              }),
+            );
             return;
           }
           ready = true;
@@ -301,16 +353,29 @@ export function dockerCommand(
           child.stdin.end(options.input);
         }
         length += chunk.length;
-        if (length > (options.maxBytes ?? 64 * 1024)) stop("limit_reached");
+        if (length > (options.maxBytes ?? 64 * 1024))
+          stop(
+            new PdfSandboxError(
+              options.handshake ? "limit_reached" : "extractor_unavailable",
+              { stage: "output", reason: "output_limit" },
+            ),
+          );
         else chunks.push(chunk);
       });
       child.stdin.on("error", () => undefined);
       child.once("error", () => {
         clearTimeout(timeout);
-        reject(new PdfSandboxError("extractor_unavailable"));
+        options.signal?.removeEventListener("abort", ownerLost);
+        reject(
+          new PdfSandboxError("extractor_unavailable", {
+            stage,
+            reason: "unsafe_runtime",
+          }),
+        );
       });
       child.once("close", (code) => {
         clearTimeout(timeout);
+        options.signal?.removeEventListener("abort", ownerLost);
         if (failure !== undefined) reject(failure);
         else
           fulfill({
@@ -321,6 +386,8 @@ export function dockerCommand(
       });
       if (!options.handshake) child.stdin.end(options.input);
     });
+  command.ownership = { socket, directory: configDirectory };
+  return command;
 }
 
 export const SandboxTextSchema = z
@@ -375,42 +442,78 @@ async function runIsolated(
   profile: SandboxProfile,
 ) {
   if (input.byteLength > MAX_LEGAL_DOCUMENT_BYTES)
-    throw new PdfSandboxError("limit_reached");
+    throw new PdfSandboxError("limit_reached", {
+      stage: "input",
+      reason: "input_limit",
+    });
   const name = `keel-pdf-${randomUUID()}`;
+  if (command.ownership && command.ownership.socket !== config.socket)
+    throw new PdfSandboxError("extractor_unavailable", {
+      stage: "admission",
+      reason: "unsafe_runtime",
+    });
+  const owner = command.ownership
+    ? await acquireSandboxOwner(
+        command.ownership.socket,
+        command.ownership.directory,
+        name,
+      )
+    : undefined;
   let created = false;
+  let stage: PdfSandboxStage = "engine";
   try {
-    const info = await command(["info", "--format", "{{json .}}"]);
+    const control = (args: string[]) =>
+      command(args, { signal: owner?.signal });
+    const info = await control(["info", "--format", "{{json .}}"]);
     if (info.code !== 0) throw new Error("engine unavailable");
     assertSandboxEngine(JSON.parse(info.output));
     // Mark before create: a timed-out CLI may still have created the named
     // container. Cleanup owns exactly this unpredictable, per-attempt name.
     created = true;
-    const create = await command(sandboxCreateArgs(config, name, profile));
+    stage = "create";
+    const create = await control(sandboxCreateArgs(config, name, profile));
     if (create.code !== 0) throw new Error("create failed");
-    const inspection = await command(["inspect", name]);
+    await owner?.creationSettled();
+    stage = "attest";
+    const inspection = await control(["inspect", name]);
     if (inspection.code !== 0) throw new Error("inspect failed");
     assertSandboxContainer(
       z.array(z.unknown()).length(1).parse(JSON.parse(inspection.output))[0],
       config.image,
       profile,
     );
+    stage = "start";
     const result = await command(["start", "--attach", "--interactive", name], {
       input,
       handshake: true,
       timeoutMs: policies[profile].timeoutMs,
       maxBytes: policies[profile].outputBytes,
+      signal: owner?.signal,
     });
-    if (!result.ready) throw new PdfSandboxError("extractor_unavailable");
+    if (!result.ready)
+      throw new PdfSandboxError("extractor_unavailable", {
+        stage,
+        reason: "unsafe_runtime",
+      });
     if (result.code === 137 || result.code === 124)
-      throw new PdfSandboxError("limit_reached");
+      throw new PdfSandboxError("limit_reached", {
+        stage: "execute",
+        reason: "worker_killed",
+      });
     if (result.code !== 0) throw new PdfSandboxError("unreadable");
     return result.output;
   } catch (error) {
     throw error instanceof PdfSandboxError
       ? error
-      : new PdfSandboxError("extractor_unavailable");
+      : new PdfSandboxError("extractor_unavailable", {
+          stage,
+          reason: "unsafe_runtime",
+        });
   } finally {
-    if (created) await removeSandbox(command, name);
+    // The independent owner proves absence before releasing capacity. Parent
+    // death closes its pipe too; cleanup does not depend on this finally block.
+    if (owner) await owner.release({ creationNeverStarted: !created });
+    else if (created) await removeSandbox(command, name);
   }
 }
 

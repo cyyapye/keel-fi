@@ -3,6 +3,8 @@ import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { acquireSandboxOwner } from "./pdf-sandbox-owner";
+import { describeSandboxFailure } from "./pdf-sandbox-error";
 import {
   assertSandboxContainer,
   assertSandboxEngine,
@@ -425,6 +427,147 @@ function childProcess() {
   );
   return { child, input };
 }
+describe("PDF sandbox ownership transport", () => {
+  it("admits only after readiness and releases only after confirmed cleanup and a clean exit", async () => {
+    const { child, input } = childProcess();
+    const admission = acquireSandboxOwner(
+      config.socket,
+      "/tmp/synthetic-empty-config",
+      name,
+    );
+    child.stdout.write("KEEL_PDF_OWNER_READY_");
+    expect(input).toHaveLength(0);
+    child.stdout.write("V1\n");
+    const owner = await admission;
+    expect(owner.signal.aborted).toBe(false);
+    const release = owner.release({ creationNeverStarted: true });
+    expect(child.stdin.writableEnded).toBe(true);
+    child.stdout.write("KEEL_PDF_OWNER_RELEASED_V1\n");
+    child.emit("close", 0);
+    await release;
+    expect(owner.signal.aborted).toBe(true);
+    expect(Buffer.concat(input).toString()).toBe(
+      "KEEL_PDF_OWNER_NO_CREATE_V1\n",
+    );
+    expect(vi.mocked(spawn).mock.calls[0]).toMatchObject([
+      "python3",
+      expect.arrayContaining(["-I", "-B", config.socket, name]),
+      {
+        env: {
+          PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+          LANG: "C.UTF-8",
+        },
+        stdio: ["pipe", "pipe", "ignore"],
+      },
+    ]);
+  });
+  it("refuses busy admission and a nonzero cleanup exit without exposing raw diagnostics", async () => {
+    const first = childProcess();
+    const admission = acquireSandboxOwner(
+      config.socket,
+      "/tmp/synthetic-empty-config",
+      name,
+    );
+    first.child.stdout.write('{"reason":"runtime_busy"}\n');
+    first.child.emit("close", 1);
+    await expect(admission).rejects.toMatchObject({
+      problem: "extractor_unavailable",
+      diagnostic: { stage: "admission", reason: "runtime_busy" },
+    });
+    const next = childProcess();
+    const admitted = acquireSandboxOwner(
+      config.socket,
+      "/tmp/synthetic-empty-config",
+      name,
+    );
+    next.child.stdout.write("KEEL_PDF_OWNER_READY_V1\n");
+    const owner = await admitted;
+    const released = owner.release();
+    next.child.stdout.write("KEEL_PDF_OWNER_RELEASED_V1\n");
+    next.child.emit("close", 1);
+    await expect(released).rejects.toMatchObject({
+      diagnostic: { stage: "cleanup", reason: "cleanup_failed" },
+    });
+    expect(
+      describeSandboxFailure(
+        new AggregateError([
+          new PdfSandboxError("extractor_unavailable", {
+            stage: "admission",
+            reason: "runtime_busy",
+          }),
+          new Error("synthetic private document text"),
+        ]),
+      ),
+    ).toBe(
+      "extractor_unavailable (admission: runtime_busy); sandbox verification failed",
+    );
+  });
+  it("refuses malformed ownership output and stops an admitted operation when its owner dies", async () => {
+    const first = childProcess();
+    const admission = acquireSandboxOwner(
+      config.socket,
+      "/tmp/synthetic-empty-config",
+      name,
+    );
+    first.child.stdout.write("unexpected synthetic private text\n");
+    first.child.emit("close", 0);
+    await expect(admission).rejects.toThrow("extractor_unavailable");
+    const next = childProcess();
+    const admitted = acquireSandboxOwner(
+      config.socket,
+      "/tmp/synthetic-empty-config",
+      name,
+    );
+    next.child.stdout.write("KEEL_PDF_OWNER_READY_V1\n");
+    const owner = await admitted;
+    next.child.emit("close", null);
+    expect(owner.signal.aborted).toBe(true);
+    await expect(owner.release()).rejects.toThrow("extractor_unavailable");
+  });
+  it("waits for creation acknowledgment and refuses unconfirmed creation", async () => {
+    const first = childProcess();
+    const admitted = acquireSandboxOwner(
+      config.socket,
+      "/tmp/synthetic-empty-config",
+      name,
+    );
+    first.child.stdout.write("KEEL_PDF_OWNER_READY_V1\n");
+    const owner = await admitted;
+    let settled = false;
+    const creation = owner.creationSettled().then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    first.child.stdout.write("KEEL_PDF_OWNER_CREATE_SETTLED_V1\n");
+    await creation;
+    expect(settled).toBe(true);
+    const release = owner.release();
+    first.child.stdout.write("KEEL_PDF_OWNER_RELEASED_V1\n");
+    first.child.emit("close", 0);
+    await release;
+    expect(Buffer.concat(first.input).toString()).toBe(
+      "KEEL_PDF_OWNER_CREATE_SETTLED_V1\n",
+    );
+    const next = childProcess();
+    const admission = acquireSandboxOwner(
+      config.socket,
+      "/tmp/synthetic-empty-config",
+      name,
+    );
+    next.child.stdout.write("KEEL_PDF_OWNER_READY_V1\n");
+    const unknown = await admission;
+    const pending = unknown.creationSettled();
+    next.child.stdout.write('{"reason":"creation_unconfirmed"}\n');
+    next.child.emit("close", 1);
+    await expect(pending).rejects.toMatchObject({
+      diagnostic: { stage: "create", reason: "creation_unconfirmed" },
+    });
+    await expect(unknown.release()).rejects.toMatchObject({
+      diagnostic: { stage: "cleanup", reason: "creation_unconfirmed" },
+    });
+  });
+});
 describe("PDF sandbox byte transport", () => {
   it("sends no bytes before the kernel handshake and never forwards secrets to Docker", async () => {
     vi.stubEnv("KEEL_SYNTHETIC_SECRET", "synthetic-only");
@@ -471,18 +614,65 @@ describe("PDF sandbox byte transport", () => {
     const { child } = childProcess();
     const run = dockerCommand(config.socket, "/tmp/synthetic-empty-config")(
       ["start", name],
-      { maxBytes: 2 },
+      { handshake: true, maxBytes: 2 },
     );
-    child.stdout.write("toolarge");
+    child.stdout.write("KEEL_PDF_SANDBOX_READY_V1\ntoolarge");
     await expect(run).rejects.toThrow("limit_reached");
     const next = childProcess();
     const waiting = dockerCommand(config.socket, "/tmp/synthetic-empty-config")(
       ["info"],
       { timeoutMs: 10 },
     );
-    const failure = expect(waiting).rejects.toThrow("limit_reached");
+    const failure = expect(waiting).rejects.toMatchObject({
+      problem: "extractor_unavailable",
+      diagnostic: { stage: "engine", reason: "control_timeout" },
+    });
     await vi.advanceTimersByTimeAsync(10);
     await failure;
     expect(next.child.kill).toHaveBeenCalledWith("SIGKILL");
+  });
+  it("distinguishes a startup failure from a document execution limit", async () => {
+    vi.useFakeTimers();
+    const { input } = childProcess();
+    const run = dockerCommand(config.socket, "/tmp/synthetic-empty-config")(
+      ["start", name],
+      { handshake: true, input: Buffer.from("synthetic"), timeoutMs: 10 },
+    );
+    const failure = expect(run).rejects.toMatchObject({
+      problem: "extractor_unavailable",
+      diagnostic: { stage: "start", reason: "startup_timeout" },
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    await failure;
+    expect(input).toHaveLength(0);
+    const next = childProcess();
+    const running = dockerCommand(config.socket, "/tmp/synthetic-empty-config")(
+      ["start", name],
+      { handshake: true, timeoutMs: 10 },
+    );
+    next.child.stdout.write("KEEL_PDF_SANDBOX_READY_V1\n");
+    const execution = expect(running).rejects.toMatchObject({
+      problem: "limit_reached",
+      diagnostic: { stage: "execute", reason: "execution_timeout" },
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    await execution;
+  });
+  it("kills the attached client on ownership loss and refuses a lost owner before spawn", async () => {
+    const { child } = childProcess();
+    const controller = new AbortController();
+    const command = dockerCommand(config.socket, "/tmp/synthetic-empty-config");
+    const running = command(["start", name], { signal: controller.signal });
+    controller.abort();
+    await expect(running).rejects.toMatchObject({
+      problem: "extractor_unavailable",
+      diagnostic: { reason: "owner_lost" },
+    });
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    const count = vi.mocked(spawn).mock.calls.length;
+    await expect(
+      command(["create"], { signal: controller.signal }),
+    ).rejects.toThrow("extractor_unavailable");
+    expect(vi.mocked(spawn).mock.calls).toHaveLength(count);
   });
 });

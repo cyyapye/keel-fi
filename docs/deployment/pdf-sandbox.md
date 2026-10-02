@@ -21,18 +21,55 @@ is legally correct.
   dumps, no persistent container logs, no host directories or image volumes.
 - 256 MiB RAM, no swap, one CPU, 32 processes, 64 file descriptors, 8 MiB input,
   150 pages and 1 MiB decoded text. JSON transport is also bounded, including
-  its escaping overhead. Containers are serial within each provider run; the
-  existing 24-download/64-MiB/20-minute document-work budgets remain unchanged.
+  its escaping overhead. Containers are serial across processes and worktrees
+  sharing one daemon; the existing 24-download/64-MiB/20-minute document-work
+  budgets remain unchanged.
 
 The launcher inspects actual container settings before starting it. The worker
 then checks kernel-enforced limits, privileges, filesystem and network
 interfaces before its readiness handshake. Only after that handshake does the
-launcher send the PDF. A 30-second parent deadline force-removes the exact owned
-container; a separate 35-second PID-1 watchdog also terminates work if the
-parent disappears. Auto-removal deletes the container on exit. Failed cleanup is
-not reported as a successful extraction. Missing/unsafe infrastructure returns
-`extractor_unavailable`, with no unrestricted fallback. Existing holding capture
-can continue, and the legal-name gap remains explicit.
+launcher send the PDF. The unchanged 30-second reader and 90-second scanner
+deadlines bound execution. A separate Python 3 standard-library supervisor owns
+a kernel `flock` for the daemon, keeps it through exact-container removal and
+confirmed absence, and handles parent EOF, SIGTERM and SIGINT. Killing a caller
+cannot bypass this cleanup. A separate 35-second reader / 95-second scanner
+PID-1 watchdog remains the fallback if the supervisor itself dies. Auto-removal
+deletes the container on exit. Failed cleanup is not reported as a successful
+extraction. Missing/unsafe infrastructure returns `extractor_unavailable`, with
+no unrestricted fallback. Existing holding capture can continue, and the
+legal-name gap remains explicit.
+
+Admission is separate from execution: at most eight requests (including the
+active request) wait for one daemon, for at most 120 seconds. The owner has a
+180-second lifetime before cancellation and bounded cleanup. Excess capacity,
+legacy occupied containers, unsafe lock files, and unclean ownership return
+`extractor_unavailable`; they do not consume a document's execution budget or
+trigger automatic extraction retries. The daemon identity is the canonical local
+socket path. Owner-only lock files live in the system temporary directory under
+`keel-pdf-owners-<uid>` and are never unlinked during ordinary operation. They
+contain only synthetic container names and ownership state, never PDFs or
+credentials. Python receives no document bytes and no inherited credentials.
+
+The owner journals its container name before permitting creation. The launcher
+must acknowledge a completed Docker create and receive the owner's
+acknowledgment before proceeding, or explicitly report that creation was never
+attempted. The journal clears only after this state and exact absence are both
+proved. A caller dying during an unconfirmed create, a control timeout, or a
+forcibly killed supervisor can leave an in-flight Docker create even when `ps`
+is momentarily empty. A dirty journal therefore refuses new work without a
+time-based stale-lock override. For this exceptional recovery, stop the exact
+sandbox consumers, confirm they are stopped, restart the dedicated rootless
+daemon to cancel in-flight control requests, and confirm all
+`keel.pdf-sandbox=1` containers are absent. With consumers still stopped, remove
+only that daemon's capacity journal (SHA-256 of its canonical socket path) under
+the owner-only lock directory, then rerun the mandatory isolation proof before
+restarting consumers. Never erase a journal merely because its PID is missing or
+its age exceeds a threshold.
+
+Fixed diagnostic tokens identify admission, engine, create, attestation, start,
+execution and cleanup failures without exposing Docker stderr or document text.
+Control/startup failures are infrastructure unavailability; input/output caps
+and a running worker's deadline remain document limits.
 
 ## Prepare a Linux service account
 
@@ -94,9 +131,16 @@ image with the exact same launcher policy. It checks denied host reads/writes,
 network and credential access, process exhaustion, memory exhaustion, output
 overflow, timeout termination, and absence of retained containers. Unit tests
 separately cover tampered policy, malformed output, split/invalid handshakes,
-timeouts during creation, and cleanup failure. Never skip these tests or replace
-the reader with a mock to make CI green. Browser capture tests also use the real
-isolated reader on synthetic provider pages.
+timeouts during creation, and cleanup failure. Native Python tests race actual
+owner processes, kill callers and supervisors, hold cleanup at a barrier, fill
+the admission slots, and reject unsafe locks. The real-runtime gate kills a
+caller with SIGKILL while four real readers contend, asserts one-container
+capacity, and preserves independent PID-1 watchdog proof. Probe execution
+acknowledgments replace guessed startup sleeps. The exact synthetic legal-name
+and page assertions formerly in Vitest now run here, outside its 5-second unit
+pool; they remain mandatory in local and CI release verification. Never skip
+these tests or replace the reader with a mock to make CI green. Browser capture
+tests also use the real isolated reader on synthetic provider pages.
 
 The image pins the official Ubuntu base manifest, installs signed distribution
 updates over HTTPS, and enforces a Poppler package floor covering USN-8400-1.
