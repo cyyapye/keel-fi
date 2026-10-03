@@ -21,6 +21,73 @@ import {
 import type { TermsDraft } from "./investment-terms-draft";
 import { rateText } from "./investment-terms-draft";
 import { formatCurrency } from "./format";
+import {
+  estimatePurchaseCapital,
+  type PurchaseLot,
+} from "@keel/domain/position-purchases";
+
+export function PurchaseCapitalPreview({ lot }: { lot: PurchaseLot }) {
+  const estimate = estimatePurchaseCapital(lot);
+  const refund = lot.capitalReturn;
+  if (!estimate && !refund) return null;
+  return (
+    <div
+      className="investment-calculation"
+      aria-label="Purchase capital calculation"
+    >
+      {refund && (
+        <p>
+          Capital refund: {formatCurrency(refund.amountMinor, "USD")} ·{" "}
+          {refund.status === "received" ? "Received" : "Expected"}
+          {refund.effectiveDate ? ` · ${refund.effectiveDate}` : ""}.
+          {lot.grossCashMinor !== null && (
+            <>
+              {" "}
+              {refund.status === "received"
+                ? "Cash retained"
+                : "Cash after expected refund"}
+              :{" "}
+              {formatCurrency(
+                Number(BigInt(lot.grossCashMinor) - BigInt(refund.amountMinor)),
+                "USD",
+              )}{" "}
+              before upfront fees.
+            </>
+          )}
+        </p>
+      )}
+      {estimate && (
+        <>
+          <h4>Estimated capital from upfront fee</h4>
+          <StatGroup className="investment-capital-totals">
+            <Stat
+              label={
+                estimate.expectedRefund
+                  ? "Cash after expected refund"
+                  : "Cash before upfront fee"
+              }
+              value={formatCurrency(estimate.retainedCashMinor, "USD")}
+            />
+            <Stat
+              label="Estimated upfront fee"
+              value={formatCurrency(estimate.upfrontDeductionsMinor, "USD")}
+            />
+            <Stat
+              label="Estimated net capital"
+              value={formatCurrency(estimate.netCapitalMinor, "USD")}
+            />
+          </StatGroup>
+          <p>
+            Uses the one-time fee rate and its selected basis
+            {refund ? " after the capital refund" : ""}. Enter final allocation
+            amounts above when known; this estimate does not establish
+            underlying shares.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
 
 const capitalChoices = [
   { value: "unknown", label: "Unknown" },
@@ -154,7 +221,13 @@ export function InvestmentCalculationPreview({
     ? estimateProceedsAfterCarry({
         valueMinor: boundValue.valueMinor,
         carryStatus: boundValue.carryStatus,
-        cashPaidMinor: reviewed.cashPaidMinor,
+        cashPaidMinor:
+          reviewed.cashPaidMinor === null
+            ? null
+            : Number(
+                BigInt(reviewed.cashPaidMinor) -
+                  BigInt(reviewed.returnedCapitalMinor ?? 0),
+              ),
         netCapitalMinor: reviewed.netCapitalMinor,
         carryPpm: terms.carryPpm,
         carryBasis: terms.carryBasis,
@@ -181,6 +254,13 @@ export function InvestmentCalculationPreview({
           value={money(reviewed.netCapitalMinor)}
         />
       </StatGroup>
+      {(reviewed.returnedCapitalMinor ?? 0) > 0 && (
+        <p>
+          Received capital refunds: {money(reviewed.returnedCapitalMinor!)}.
+          Cash paid is preserved; fees reconcile against cash retained after the
+          refund.
+        </p>
+      )}
       <DataList>
         <DataItem
           label="Annual management fee"
@@ -201,9 +281,13 @@ export function InvestmentCalculationPreview({
       </DataList>
       {terms.note && <p>Terms source / disagreements: {terms.note}</p>}
       <p>
-        Cash paid − upfront deductions = net capital invested. Reported return
-        compares the current mark plus reported distributions with cash paid; it
-        does not deduct carry again.
+        Cash paid
+        {(reviewed.returnedCapitalMinor ?? 0) > 0
+          ? " − received capital refunds"
+          : ""}{" "}
+        − upfront deductions = net capital invested. Reported return compares
+        the current mark plus reported distributions with cash paid; it does not
+        deduct carry again.
       </p>
       {boundValue && (
         <p>
@@ -244,13 +328,15 @@ export function InvestmentCalculationPreview({
           ? "The source changed. Review these details again."
           : reviewed.cashPaidMinor === null
             ? "Confirm all cash contributions and record cash paid to calculate return."
-            : !estimate
-              ? "A reliable estimate after carry needs a reported value basis, carry rate and capital basis."
-              : unknownAnnual
-                ? "Annual management fees are unknown. Reliable net proceeds are unavailable."
-                : (terms.annualManagementFeePpm ?? 0) > 0
-                  ? "Remaining annual fees and the exit date are not modeled. Reliable net proceeds are unavailable."
-                  : "Proceeds remain an illustration; other exit expenses and taxes are not modeled."}
+            : reviewed.returnedCapitalReconciliationPending
+              ? "Confirm whether provider distributions include the received capital refund before calculating return."
+              : !estimate
+                ? "A reliable estimate after carry needs a reported value basis, carry rate and capital basis."
+                : unknownAnnual
+                  ? "Annual management fees are unknown. Reliable net proceeds are unavailable."
+                  : (terms.annualManagementFeePpm ?? 0) > 0
+                    ? "Remaining annual fees and the exit date are not modeled. Reliable net proceeds are unavailable."
+                    : "Proceeds remain an illustration; other exit expenses and taxes are not modeled."}
       </Notice>
       {terms.importedAmountBasis === "unknown" && (
         <p>

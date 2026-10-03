@@ -31,6 +31,10 @@ export const ReviewedInvestmentSchema = z.object({
   receiptId: z.string().min(1),
   cashPaidMinor: money.nullable(),
   upfrontDeductionsMinor: money.nullable(),
+  returnedCapitalMinor: money.optional(),
+  additionalReturnedCapitalMinor: money.optional(),
+  includedReturnedCapitalMinor: money.optional(),
+  returnedCapitalReconciliationPending: z.boolean().optional(),
   netCapitalMinor: money.nullable(),
   terms: InvestmentTermsSchema,
 });

@@ -20,6 +20,7 @@ import { D1HoldingsPageRepository } from "./holdings-page";
 import {
   PurchaseLotSchema,
   reviewedInvestmentFromReceipt,
+  estimatePurchaseCapital,
 } from "@keel/domain/position-purchases";
 import { unknownInvestmentTerms } from "@keel/domain/investment-details";
 import { automaticEconomics as proposeEconomics } from "@keel/domain/automatic-investment-review";
@@ -29,6 +30,134 @@ beforeEach(async () => {
   await seedCostHoldings(db.asD1());
 });
 afterEach(() => db.sqlite.close());
+it("persists allocation refunds and rate estimates without converting them into accepted net capital", async () => {
+  const reader = new D1InvestmentPositionViewRepository(db.asD1());
+  const position = (await reader.list(COST_SUBJECT)).connections.flatMap((c) =>
+    c.containers.flatMap((c) => c.positions),
+  )[0]!;
+  const repo = new D1PositionPurchaseRepository(db.asD1());
+  const lot = PurchaseLotSchema.parse({
+    id: "synthetic-allocation",
+    purchasedOn: null,
+    shareClass: "Preferred",
+    priceMicros: 17500000,
+    referencePriceMicros: null,
+    grossCashMinor: 640000,
+    netCapitalMinor: null,
+    upfrontDeductionsMinor: null,
+    feePpm: 90000,
+    feeBasis: "gross_cash",
+    feeLabel: "Synthetic prepaid fee",
+    remainingSharesMicros: null,
+    sharesAsOf: null,
+    sourceLabel: "Synthetic allocation notice",
+    sourceUrl: null,
+    mark: null,
+    capitalReturn: {
+      amountMinor: 154321,
+      status: "expected",
+      effectiveDate: "2026-03-05",
+      reportedDistributions: "unknown",
+    },
+  });
+  const input = {
+    expectedSnapshotId: position.snapshot.id,
+    expectedReceiptId: null,
+    details: {
+      investmentTerms: unknownInvestmentTerms(),
+      cashCoversPosition: true,
+      coversPosition: false,
+      lots: [lot],
+    },
+  };
+  const expected = await repo.accept(COST_SUBJECT, position.id, input);
+  const read = async () =>
+    (
+      await new D1HoldingsPageRepository(db.asD1()).getPage(
+        COST_SUBJECT,
+        "configuration_required",
+      )
+    ).holdings.find((row) => row.id === position.id)!;
+  const first = await read();
+  expect(first.purchaseContext?.receipt).toEqual(expected);
+  expect(
+    estimatePurchaseCapital(first.purchaseContext!.receipt!.details.lots[0]!),
+  ).toMatchObject({
+    netCapitalMinor: 441968,
+    upfrontDeductionsMinor: 43711,
+    expectedRefund: true,
+  });
+  expect(first.positionEconomicsContext?.reviewedInvestment).toMatchObject({
+    cashPaidMinor: 640000,
+    netCapitalMinor: null,
+    returnedCapitalMinor: 0,
+  });
+  const received = await repo.accept(COST_SUBJECT, position.id, {
+    ...input,
+    expectedReceiptId: expected.id,
+    details: {
+      ...input.details,
+      lots: [
+        {
+          ...lot,
+          capitalReturn: {
+            ...lot.capitalReturn!,
+            status: "received",
+            reportedDistributions: "excluded",
+          },
+          netCapitalMinor: 441968,
+          upfrontDeductionsMinor: 43711,
+        },
+      ],
+    },
+  });
+  expect(
+    (await read()).positionEconomicsContext?.reviewedInvestment,
+  ).toMatchObject({
+    cashPaidMinor: 640000,
+    returnedCapitalMinor: 154321,
+    additionalReturnedCapitalMinor: 154321,
+    netCapitalMinor: 441968,
+    upfrontDeductionsMinor: 43711,
+  });
+  expect(
+    db.sqlite
+      .prepare("SELECT receipt_json FROM holding_purchase_reviews WHERE id=?")
+      .get(expected.id)?.receipt_json,
+  ).toBe(JSON.stringify(expected));
+  const rawInsert = (details: unknown) =>
+    db.sqlite
+      .prepare(
+        "INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) SELECT ?,household_id,position_id,snapshot_id,?,?,reviewer_user_id,accepted_at FROM holding_purchase_reviews WHERE id=?",
+      )
+      .run(
+        "invalid-refund",
+        received.id,
+        JSON.stringify({ ...received, id: "invalid-refund", details }),
+        received.id,
+      );
+  expect(() =>
+    rawInsert({
+      ...received.details,
+      lots: [
+        {
+          ...received.details.lots[0]!,
+          capitalReturn: {
+            ...lot.capitalReturn!,
+            status: "received",
+            effectiveDate: null,
+          },
+        },
+      ],
+    }),
+  ).toThrow(/capital refund invalid/u);
+  expect(() =>
+    rawInsert({
+      ...received.details,
+      lots: [{ ...received.details.lots[0]!, upfrontDeductionsMinor: 43710 }],
+    }),
+  ).toThrow(/capital does not reconcile/u);
+});
 it("binds carry classification to the current reported mark while preserving unknown dates and annual fees", async () => {
   await seedCostHoldings(db.asD1(), COST_SUBJECT, 2);
   const reader = new D1InvestmentPositionViewRepository(db.asD1());

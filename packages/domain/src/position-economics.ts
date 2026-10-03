@@ -301,16 +301,27 @@ export function calculatePositionPerformance(input: {
     };
   }
 
+  const currentReview =
+    reviewed && reviewed.snapshotId === input.economicsContext?.snapshotId
+      ? reviewed
+      : null;
   const totalValue =
-    BigInt(input.currentValueMinor) + BigInt(input.realizedValueMinor);
+    BigInt(input.currentValueMinor) +
+    BigInt(input.realizedValueMinor) +
+    BigInt(currentReview?.additionalReturnedCapitalMinor ?? 0);
   const totalValueMinor = safeNonNegativeNumber(
     totalValue,
     "Position total value",
   );
-  if (costBasisMinor === null) {
+  if (
+    costBasisMinor === null ||
+    currentReview?.returnedCapitalReconciliationPending ||
+    (currentReview?.includedReturnedCapitalMinor ?? 0) >
+      input.realizedValueMinor
+  ) {
     return {
-      costBasisMinor: null,
-      costBasisSource: null,
+      costBasisMinor,
+      costBasisSource,
       totalValueMinor,
       totalGainMinor: null,
       totalReturnPpm: null,
