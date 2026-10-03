@@ -1244,8 +1244,8 @@ function InvestmentDetailsEditor({
           <SectionHeader
             className="purchase-collection-heading"
             headingAs="h4"
-            title={`Purchases · ${drafts.length}`}
-            description="An investment can have multiple purchases or top-ups. Record each one separately."
+            title="Purchases"
+            description="Record each purchase or top-up separately."
             descriptionPlacement="title-group"
             action={
               <Button
@@ -1258,9 +1258,16 @@ function InvestmentDetailsEditor({
             }
           />
           {drafts.map((d, i) => (
-            <fieldset key={d.id} className="purchase-fields">
+            <Collapsible
+              key={`${d.id}:${drafts.length === 1}`}
+              render={<fieldset className="purchase-fields" />}
+              defaultOpen={drafts.length === 1}
+              disabled={busy}
+            >
               <legend className="purchase-fields__heading">
-                <span>Purchase {i + 1}</span>
+                <CollapsibleTrigger layout="inline">
+                  Purchase {i + 1} <DisclosureIndicator />
+                </CollapsibleTrigger>
                 {drafts.length > 1 && (
                   <Button
                     tone="quiet"
@@ -1276,7 +1283,10 @@ function InvestmentDetailsEditor({
                 )}
               </legend>
               {
-                <>
+                <CollapsibleContent
+                  keepMounted
+                  className="purchase-entry__content"
+                >
                   {
                     <>
                       <h4>Cash and upfront deductions</h4>
@@ -1805,9 +1815,9 @@ function InvestmentDetailsEditor({
                       </CollapsibleContent>
                     </Collapsible>
                   )}
-                </>
+                </CollapsibleContent>
               }
-            </fieldset>
+            </Collapsible>
           ))}
           {
             <InvestmentTermsFields

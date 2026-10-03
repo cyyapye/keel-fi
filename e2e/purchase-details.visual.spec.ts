@@ -150,8 +150,11 @@ test("unified investment details reconcile cash, retain failed drafts and share 
   });
   await section.getByRole("button", { name: "Add investment details" }).click();
   await expect(
-    section.getByRole("heading", { name: "Purchases · 1", exact: true }),
+    section.getByRole("heading", { name: "Purchases", exact: true }),
   ).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: "Purchase 1", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
   await expect(
     section.getByRole("group", { name: "Purchase 1", exact: true }),
   ).toBeVisible();
@@ -291,47 +294,83 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     .getByRole("button", { name: "Add another purchase", exact: true })
     .click();
   await expect(
-    section.getByRole("heading", { name: "Purchases · 2", exact: true }),
+    section.getByRole("heading", { name: "Purchases", exact: true }),
+  ).toBeVisible();
+  const firstPurchase = section.getByRole("button", {
+    name: "Purchase 1",
+    exact: true,
+  });
+  const secondPurchase = section.getByRole("button", {
+    name: "Purchase 2",
+    exact: true,
+  });
+  await expect(firstPurchase).toHaveAttribute("aria-expanded", "false");
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "false");
+  await expect(cash).toHaveCount(0);
+  await expect(
+    section.getByRole("group", { name: /^Purchase 1\b/ }),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("group", { name: /^Purchase 2\b/ }),
   ).toBeVisible();
   await expect(
     section.getByRole("button", { name: /Remove purchase/ }),
   ).toHaveCount(2);
-  await expect(
-    section.locator(".purchase-collection-heading"),
-  ).toHaveScreenshot("investment-details-multiple-purchases.png", {
-    animations: "disabled",
+  if (info.project.name === "mobile-chromium") {
+    expect(
+      await firstPurchase.evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+    expect(
+      await section
+        .getByRole("button", { name: "Remove purchase 2", exact: true })
+        .evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+  }
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
+  await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await expect(section.locator("form")).toHaveScreenshot(
+    "investment-details-multiple-purchases.png",
+    {
+      animations: "disabled",
+    },
+  );
+  await secondPurchase.press("Enter");
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "true");
   await section
     .getByRole("textbox", { name: "Cash paid · USD", exact: true })
-    .nth(1)
     .fill("1200");
   await section
     .getByRole("textbox", { name: "Upfront deductions · USD", exact: true })
-    .nth(1)
     .fill("200");
   await expect(section).toContainText("3,600.00");
+  await secondPurchase.click();
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "false");
   await section
     .getByRole("button", { name: "Remove purchase 2", exact: true })
     .click();
-  await expect(
-    section.getByRole("heading", { name: "Purchases · 1", exact: true }),
-  ).toBeVisible();
+  await expect(firstPurchase).toHaveAttribute("aria-expanded", "true");
+  await expect(cash).toHaveValue("2400");
   await expect(
     section.getByRole("button", { name: /Remove purchase/ }),
   ).toHaveCount(0);
   await section.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(firstPurchase).toHaveAttribute("aria-expanded", "false");
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "false");
+  await secondPurchase.click();
   await expect(
-    section.getByRole("heading", { name: "Purchases · 2", exact: true }),
-  ).toBeVisible();
-  await expect(
-    section
-      .getByRole("textbox", { name: "Cash paid · USD", exact: true })
-      .nth(1),
+    section.getByRole("textbox", { name: "Cash paid · USD", exact: true }),
   ).toHaveValue("1200");
   await save.click();
-  expect(PurchaseReceiptSchema.parse(receipt).details.lots).toHaveLength(2);
+  expect(PurchaseReceiptSchema.parse(receipt).details.lots).toMatchObject([
+    { grossCashMinor: 240000, netCapitalMinor: 211234 },
+    { grossCashMinor: 120000, upfrontDeductionsMinor: 20000 },
+  ]);
   await edit.click();
   await expect(save).toBeDisabled();
+  await expect(firstPurchase).toHaveAttribute("aria-expanded", "false");
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "false");
   await section.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByText("Position value", { exact: true }).click();
   await page
@@ -369,6 +408,9 @@ test("unified investment details reconcile cash, retain failed drafts and share 
   await expect(save).toBeEnabled();
   for (let i = 0; i < 2; i++) {
     const purchase = section.locator("fieldset.purchase-fields").nth(i);
+    await purchase
+      .getByRole("button", { name: `Purchase ${i + 1}`, exact: true })
+      .click();
     await purchase
       .getByRole("button", { name: /Underlying shares and source evidence/ })
       .click();

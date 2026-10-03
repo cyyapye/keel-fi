@@ -8463,7 +8463,7 @@ h1,
   font-weight: 600;
   margin-bottom: 1rem;
 }
-.purchase-fields > [data-slot="collapsible"] {
+.purchase-entry__content > [data-slot="collapsible"] {
   margin: 1rem 0;
 }
 
@@ -9237,7 +9237,7 @@ h1,
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.purchase-details fieldset > h4 {
+.purchase-entry__content > h4 {
   margin: 16px 0;
 }
 
