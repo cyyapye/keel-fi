@@ -1977,6 +1977,7 @@ test("captures a GP purchase notice directly in investment review without a corp
     })
     .check();
   await expect(section).toContainText("100.00");
+  await page.mouse.move(0, 0);
   await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
   await expect(section).toHaveScreenshot("investment-unified-notice.png", {
     animations: "disabled",
@@ -1997,6 +1998,10 @@ test("captures a GP purchase notice directly in investment review without a corp
     netCapitalMinor: 100000,
     feePpm: 60000,
     reportedCarryPpm: 120000,
+  });
+  await page.addStyleTag({
+    content:
+      ".purchase-details { scroll-margin-top: 0 !important; } html { text-size-adjust: 100%; -webkit-text-size-adjust: 100%; }",
   });
   await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
   await expect(section).toHaveScreenshot("investment-unified-saved.png", {

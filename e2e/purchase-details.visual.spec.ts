@@ -256,6 +256,19 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     section.getByRole("button", { name: "Edit investment details" }),
   ).toBeVisible();
   await expect(section).toContainText("2,400.00");
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  // The navigation is hidden for capture, so its scroll offset would crop
+  // a saved summary that is just shorter than the desktop viewport.
+  await page.addStyleTag({
+    content:
+      ".purchase-details { scroll-margin-top: 0 !important; } html { text-size-adjust: 100%; -webkit-text-size-adjust: 100%; }",
+  });
   await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
   await expect(section).toHaveScreenshot("investment-details-saved.png", {
     animations: "disabled",
