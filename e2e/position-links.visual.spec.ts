@@ -616,6 +616,75 @@ test("reviews historical company rename from a pending card, keeps the existing 
   expect(info.project.name).toMatch(/chromium/);
 });
 
+test("suggests a unique retained historical source without accepting missing account or company identity", async ({
+  page,
+}) => {
+  const fixture = await openHistoricalRenameReview(page);
+  const { section, availablePositions, unrelatedPositions } = fixture;
+  const retained = {
+    ...availablePositions[0]!,
+    ownershipContainerId: "synthetic-history-container",
+    sourceProvider: "angellist" as const,
+    reviewedHistory: true,
+    companyReview: null,
+  };
+  const current = {
+    ...availablePositions[1]!,
+    sourceProvider: "angellist" as const,
+    reviewedHistory: false,
+    companyReview: null,
+  };
+  fixture.setPositions([retained, current, ...unrelatedPositions]);
+  await page.reload();
+  const keep = section.getByRole("combobox", {
+    name: "Investment record to keep",
+  });
+  const member = section.getByRole("combobox", { name: "Record to link" });
+  await expect(keep).toContainText("Sep 2, 2026");
+  await expect(member).toContainText("Sep 1, 2026");
+  await expect(
+    section.getByRole("combobox", { name: "Relationship" }),
+  ).toContainText("company renamed");
+  await expect(
+    section.getByText(/This older source needs its provider account/),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: "Apply link" }),
+  ).toBeDisabled();
+  expect(fixture.links()).toHaveLength(0);
+  await expect(section).toHaveScreenshot("retained-rename-suggestion.png", {
+    animations: "disabled",
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  for (const mismatch of [
+    { sourceProvider: "sydecar" as const },
+    { reviewedHistory: false },
+    { ownerLabel: "Synthetic Other Owner" },
+    { openedOn: "2024-07-10" },
+  ]) {
+    fixture.setPositions([
+      { ...retained, ...mismatch },
+      current,
+      ...unrelatedPositions,
+    ]);
+    await page.reload();
+    await expect(member).toContainText("Choose a source record");
+  }
+  fixture.setPositions([
+    retained,
+    { ...retained, id: "synthetic-ambiguous-history" },
+    current,
+    ...unrelatedPositions,
+  ]);
+  await page.reload();
+  await expect(member).toContainText("Choose a source record");
+  expect(fixture.links()).toHaveLength(0);
+});
+
 test("prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts", async ({
   page,
 }) => {

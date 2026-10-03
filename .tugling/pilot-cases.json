@@ -1220,7 +1220,8 @@
     "packages/database/src/renamed-investments.test.ts :: rejects historical valuation, replacement, status conflicts, and unreviewed company mismatches",
     "packages/database/src/renamed-investments.test.ts :: reuses a reviewed provider/account/SPV/date identity for a known alias, and quarantines unknown aliases after reversal",
     "scripts/renamed-investments-d1-cost.test.ts :: bounds 120 reviewed rename aliases and projections across decision and repeated-date source history, empty results and unrelated households",
-    "packages/database/src/renamed-investments.test.ts :: rejects a rename when the source maps to a different reviewed company"
+    "packages/database/src/renamed-investments.test.ts :: rejects a rename when the source maps to a different reviewed company",
+    "scripts/position-links-d1-cost.test.ts :: includes 120 retained private sources with bounded projection-only workspace reads"
   ],
   "playwright": [
     "e2e/agreement-security.visual.spec.ts :: chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads",
@@ -1570,7 +1571,9 @@
     "e2e/position-links.visual.spec.ts :: chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
     "e2e/position-links.visual.spec.ts :: mobile-chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
     "e2e/position-links.visual.spec.ts :: chromium :: prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts",
-    "e2e/position-links.visual.spec.ts :: mobile-chromium :: prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts"
+    "e2e/position-links.visual.spec.ts :: mobile-chromium :: prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts",
+    "e2e/position-links.visual.spec.ts :: chromium :: suggests a unique retained historical source without accepting missing account or company identity",
+    "e2e/position-links.visual.spec.ts :: mobile-chromium :: suggests a unique retained historical source without accepting missing account or company identity"
   ],
   "python": [
     "test_linux_test_run.RunnerTests.test_signal_cleans_checkout",

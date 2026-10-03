@@ -51,6 +51,8 @@ export const PositionLinkWorkspaceSchema = z.object({
   positions: z.array(
     InvestmentPositionRecordSchema.extend({
       ownershipContainerId: z.string().optional(),
+      sourceProvider: z.enum(["angellist", "sydecar", "tokenfolio"]).optional(),
+      reviewedHistory: z.boolean().optional(),
     }),
   ),
   links: z.array(PositionLinkReceiptSchema),

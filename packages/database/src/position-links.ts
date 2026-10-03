@@ -58,15 +58,22 @@ export class D1PositionLinkRepository {
         >(),
     ]);
     return PositionLinkWorkspaceSchema.parse({
-      positions: view.connections
-        .filter((c) =>
-          ["tokenfolio", "sydecar", "angellist"].includes(c.institutionKey),
-        )
-        .flatMap((c) =>
-          c.containers.flatMap((c) =>
-            c.positions.map((p) => ({ ...p, ownershipContainerId: c.id })),
-          ),
-        ),
+      positions: view.connections.flatMap((connection) => {
+        const reviewedHistory = connection.purpose === "reviewed_history";
+        const sourceProvider = reviewedHistory
+          ? connection.institutionKey.replace(/^reviewed-history:/u, "")
+          : connection.institutionKey;
+        if (!["tokenfolio", "sydecar", "angellist"].includes(sourceProvider))
+          return [];
+        return connection.containers.flatMap((container) =>
+          container.positions.map((position) => ({
+            ...position,
+            ownershipContainerId: container.id,
+            sourceProvider,
+            reviewedHistory,
+          })),
+        );
+      }),
       history: history.results.map((r) => ({
         ...r,
         useSourceValue: r.useSourceValue === 1,
