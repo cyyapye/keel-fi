@@ -1,3 +1,5 @@
+import { LinkedReportedValueSchema } from "@keel/domain/position-read-model";
+import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
 import { PurchaseReceiptSchema } from "@keel/domain/position-purchases";
 import {
   InvestmentEventSchema,
@@ -64,6 +66,9 @@ type Position = {
   reported_management_fee_ppm: number | null;
   reported_carry_ppm: number | null;
   observed_at: string | null;
+  unrealized_value_minor: number | null;
+  source_label: string | null;
+  linked_value_json: string | null;
 };
 type Mapping = {
   id: string;
@@ -163,8 +168,22 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     const position = await this.db
       .prepare(
         `SELECT p.id, p.legal_vehicle_name, p.owner_label, p.currency, p.position_kind, p.provider, p.opened_on,
-      purchase.receipt_json purchase_json,
-      s.realized_value_minor, s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status,
+      purchase.receipt_json purchase_json, source_document.source_label,
+             (SELECT json_object('reviewId',link.review_id,'sourcePositionId',link.source_position_id,
+               'snapshotId',ls.id,'sourceLabel',CASE lp.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' ELSE 'AngelList' END,'observedAt',ls.observed_at,
+               'state',CASE WHEN ls.provider_status='live' AND COALESCE(json_extract(lr.state_json,'$.participationStatus'),'current') NOT IN ('historical','cancelled') THEN ls.unrealized_value_state ELSE 'not_reported' END,
+               'minor',CASE WHEN ls.provider_status='live' AND COALESCE(json_extract(lr.state_json,'$.participationStatus'),'current') NOT IN ('historical','cancelled') THEN ls.unrealized_value_minor ELSE NULL END)
+               FROM holding_position_link_heads link
+               JOIN holding_positions lp ON lp.id=link.source_position_id
+               JOIN holding_import_applications la ON la.id=(
+                 SELECT a.id FROM holding_import_applications a JOIN holding_position_snapshots ss ON ss.id=a.snapshot_id
+                 WHERE a.position_id=lp.id ORDER BY a.applied_at DESC,ss.observed_at DESC,a.id DESC LIMIT 1)
+               JOIN holding_position_snapshots ls ON ls.id=la.snapshot_id
+               LEFT JOIN holding_investment_reviews lr ON lr.id=(SELECT id FROM holding_investment_reviews WHERE household_id=lp.household_id AND position_id=lp.id ORDER BY version DESC LIMIT 1)
+               WHERE link.household_id=p.household_id AND link.target_position_id=p.id AND link.state='linked' AND link.use_source_value=1
+             ) AS linked_value_json,
+
+      s.realized_value_minor, s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status, s.unrealized_value_minor,
       observation.evidence_json, observation.id observation_id, origin.source_json origin_json, review.state_json,
       reported_terms.management_fee_ppm reported_management_fee_ppm, reported_terms.carry_ppm reported_carry_ppm, s.observed_at,
       COALESCE(alias_receipt.receipt_json, company_review.receipt_json, json_extract(automatic.details_json, '$.company.receipt')) receipt_json,
@@ -187,6 +206,8 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       LEFT JOIN holding_import_applications a ON a.id = (SELECT candidate.id FROM holding_import_applications candidate JOIN holding_position_snapshots snapshot ON snapshot.id = candidate.snapshot_id WHERE candidate.position_id = p.id ORDER BY candidate.applied_at DESC, snapshot.observed_at DESC, candidate.id DESC LIMIT 1)
       LEFT JOIN holding_position_snapshots s ON s.id = a.snapshot_id
       LEFT JOIN holding_import_rows r ON r.id = a.import_row_id
+      LEFT JOIN holding_imports source_import ON source_import.id = r.import_id
+      LEFT JOIN source_documents source_document ON source_document.id = source_import.source_document_id
       LEFT JOIN holding_import_row_reported_economics_evidence reported_terms ON reported_terms.import_row_id = r.id
       LEFT JOIN holding_import_row_provider_investments provider_identity ON provider_identity.import_row_id = r.id
       LEFT JOIN provider_legal_document_latest latest ON latest.household_id = p.household_id AND latest.provider = p.provider AND latest.position_fingerprint = r.position_fingerprint
@@ -347,6 +368,12 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
           );
     const amountMinor =
       review?.amountCorrection?.amountMinor ?? sourceAmountMinor;
+    const linkedValue =
+      position.linked_value_json == null
+        ? null
+        : LinkedReportedValueSchema.parse(
+            JSON.parse(position.linked_value_json),
+          );
     const context = InvestmentReviewContextSchema.parse({
       positionId,
       positionLabel: position.legal_vehicle_name,
@@ -360,6 +387,20 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
               snapshotId: position.snapshot_id,
               currency: "USD",
               openedOn: position.opened_on,
+              reportedValueSnapshotId:
+                linkedValue?.snapshotId ?? position.snapshot_id,
+              reportedValueMinor: linkedValue
+                ? linkedValue.minor
+                : position.unrealized_value_minor,
+              reportedSourceLabel:
+                linkedValue?.sourceLabel ??
+                position.source_label ??
+                position.provider,
+              sourceObservedOn:
+                (linkedValue?.observedAt ?? position.observed_at)?.slice(
+                  0,
+                  10,
+                ) ?? null,
               receipt:
                 position.purchase_json == null
                   ? null
@@ -383,10 +424,17 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       currency: position.currency,
       economics:
         position.snapshot_id === null ||
-        (amountMinor ?? 0) <= 0 ||
+        ((amountMinor ?? 0) <= 0 && !position.purchase_json) ||
         position.position_kind !== "spv_interest"
           ? null
           : {
+              reviewedInvestment: reviewedInvestmentFromReceipt(
+                position.purchase_json == null
+                  ? null
+                  : PurchaseReceiptSchema.parse(
+                      JSON.parse(position.purchase_json),
+                    ),
+              ),
               snapshotId: position.snapshot_id,
               currency: position.currency,
               committedMinor: amountMinor,

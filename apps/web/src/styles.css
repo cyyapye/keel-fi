@@ -8463,7 +8463,7 @@ h1,
   font-weight: 600;
   margin-bottom: 1rem;
 }
-.purchase-fields > [data-slot="collapsible"] {
+.purchase-entry__content > [data-slot="collapsible"] {
   margin: 1rem 0;
 }
 
@@ -8885,8 +8885,22 @@ h1,
   grid-column: 1 / -1;
   color: var(--muted);
 }
-.purchase-add {
-  margin-top: 20px;
+.purchase-details .purchase-collection-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  margin: 28px 0 20px;
+}
+.purchase-collection-heading h4 {
+  margin: 0;
+}
+.purchase-collection-heading p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 52ch;
 }
 .purchase-actions {
   margin-top: 28px;
@@ -8896,6 +8910,12 @@ h1,
   color: var(--muted);
 }
 @media (max-width: 767px) {
+  .purchase-details .purchase-collection-heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .purchase-collection-heading > .button {
+    justify-self: start;
+  }
   .position-valuation__toggle {
     flex-wrap: wrap;
   }
@@ -9197,4 +9217,76 @@ h1,
   .position-links .position-link-comparison {
     row-gap: 2rem;
   }
+}
+
+.investment-terms,
+.investment-calculation {
+  margin: 32px 0;
+}
+.investment-terms h4,
+.investment-calculation h4 {
+  margin: 24px 0 12px;
+  font-size: 16px;
+}
+.investment-calculation > .data-list {
+  margin: 20px 0;
+}
+.investment-calculation p,
+.investment-terms p {
+  max-width: 68ch;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.purchase-entry__content > h4 {
+  margin: 16px 0;
+}
+
+.investment-capital-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin: 24px 0;
+}
+.investment-capital-totals .stat__value {
+  display: block;
+  margin-top: 8px;
+  font-size: clamp(20px, 2vw, 28px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.investment-calculation > .data-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.investment-calculation .data-list__value {
+  margin-top: 8px;
+  font-size: 14px;
+}
+.investment-terms > p,
+.investment-calculation > p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.investment-terms .position-economics__fields + p {
+  margin: 16px 0 28px;
+}
+.investment-calculation > .form-message {
+  margin: 24px 0;
+  font-size: 12px;
+}
+@media (max-width: 767px) {
+  .investment-capital-totals {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .investment-calculation > .data-list {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+}
+
+.purchase-details {
+  scroll-margin-top: 96px;
 }

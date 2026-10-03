@@ -209,13 +209,13 @@ export class D1PositionEconomicsRepository implements PositionEconomicsRepositor
     } catch (error) {
       if (
         error instanceof Error &&
-        /UNIQUE|position economics (?:purchase evidence changed|proposal (?:provenance mismatch|snapshot is stale))/u.test(
+        /UNIQUE|position economics (?:use investment details|purchase evidence changed|proposal (?:provenance mismatch|snapshot is stale))/u.test(
           error.message,
         )
       ) {
         throw new PositionEconomicsError(
           "stale",
-          "Newer reviewed position economics are already available.",
+          "Investment details changed. Use the unified Investment details editor.",
         );
       }
       throw error;

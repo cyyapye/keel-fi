@@ -17,12 +17,238 @@ import {
 import { D1PositionPurchaseRepository } from "./position-purchases";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1HoldingsPageRepository } from "./holdings-page";
+import {
+  PurchaseLotSchema,
+  reviewedInvestmentFromReceipt,
+} from "@keel/domain/position-purchases";
+import { unknownInvestmentTerms } from "@keel/domain/investment-details";
+import { automaticEconomics as proposeEconomics } from "@keel/domain/automatic-investment-review";
 let db: LegalDocumentTestD1;
 beforeEach(async () => {
   db = legalDocumentTestDatabase();
   await seedCostHoldings(db.asD1());
 });
 afterEach(() => db.sqlite.close());
+it("binds carry classification to the current reported mark while preserving unknown dates and annual fees", async () => {
+  await seedCostHoldings(db.asD1(), COST_SUBJECT, 2);
+  const reader = new D1InvestmentPositionViewRepository(db.asD1());
+  const positions = (await reader.list(COST_SUBJECT)).connections.flatMap((c) =>
+    c.containers.flatMap((c) => c.positions),
+  );
+  const position = positions[0]!;
+  const repo = new D1PositionPurchaseRepository(db.asD1());
+  const valueReview = {
+    sourceSnapshotId: position.snapshot.id,
+    valueMinor: 100002,
+    sourceLabel: "Synthetic provider statement",
+    effectiveDate: null,
+    carryStatus: "unknown" as const,
+  };
+  const input = {
+    expectedSnapshotId: position.snapshot.id,
+    expectedReceiptId: null,
+    details: {
+      investmentTerms: {
+        ...unknownInvestmentTerms(),
+        reportedValueReview: valueReview,
+      },
+      cashCoversPosition: true,
+      coversPosition: false,
+      lots: [
+        PurchaseLotSchema.parse({
+          id: "synthetic-current-mark",
+          purchasedOn: null,
+          shareClass: null,
+          priceMicros: null,
+          referencePriceMicros: null,
+          grossCashMinor: 240000,
+          netCapitalMinor: null,
+          upfrontDeductionsMinor: 28766,
+          feePpm: null,
+          feeBasis: null,
+          feeLabel: null,
+          remainingSharesMicros: null,
+          sharesAsOf: null,
+          sourceLabel: "Synthetic executed receipt",
+          sourceUrl: null,
+          mark: null,
+        }),
+      ],
+    },
+  };
+  for (const badReview of [
+    { ...valueReview, valueMinor: 100003 },
+    { ...valueReview, sourceSnapshotId: positions[1]!.snapshot.id },
+  ]) {
+    await expect(
+      repo.accept(COST_SUBJECT, position.id, {
+        ...input,
+        details: {
+          ...input.details,
+          investmentTerms: {
+            ...input.details.investmentTerms,
+            reportedValueReview: badReview,
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: "stale" });
+  }
+  const saved = await repo.accept(COST_SUBJECT, position.id, input);
+  const page = await new D1HoldingsPageRepository(db.asD1()).getPage(
+    COST_SUBJECT,
+    "configuration_required",
+  );
+  const holding = page.holdings.find((row) => row.id === position.id)!;
+  expect(
+    holding.positionEconomicsContext?.reviewedInvestment?.cashPaidMinor,
+  ).toBe(240000);
+  expect(holding.purchaseContext?.reportedValueSnapshotId).toBe(
+    position.snapshot.id,
+  );
+  const review = await new D1InvestmentReviewRepository(db.asD1()).getContext(
+    COST_SUBJECT,
+    position.id,
+  );
+  expect(review.economics?.reviewedInvestment).toEqual(
+    reviewedInvestmentFromReceipt(saved),
+  );
+  expect(review.purchaseContext?.reportedValueMinor).toBe(100002);
+});
+it("upgrades legacy receipts atomically, uses exact cash across projections and blocks parallel fee writers", async () => {
+  const reader = new D1InvestmentPositionViewRepository(db.asD1());
+  const position = (await reader.list(COST_SUBJECT)).connections.flatMap((c) =>
+    c.containers.flatMap((c) => c.positions),
+  )[0]!;
+  const repo = new D1PositionPurchaseRepository(db.asD1());
+  const baseLot = PurchaseLotSchema.parse({
+    id: "synthetic-tranche",
+    purchasedOn: null,
+    shareClass: null,
+    priceMicros: null,
+    referencePriceMicros: null,
+    grossCashMinor: null,
+    netCapitalMinor: null,
+    feePpm: null,
+    feeBasis: null,
+    feeLabel: null,
+    remainingSharesMicros: null,
+    sharesAsOf: null,
+    sourceLabel: "Synthetic executed receipt",
+    sourceUrl: null,
+    mark: null,
+  });
+  const legacy = await repo.accept(COST_SUBJECT, position.id, {
+    expectedSnapshotId: position.snapshot.id,
+    expectedReceiptId: null,
+    details: { coversPosition: false, lots: [baseLot] },
+  });
+  const context = (
+    await new D1InvestmentReviewRepository(db.asD1()).getContext(
+      COST_SUBJECT,
+      position.id,
+    )
+  ).economics!;
+  const economics = new D1PositionEconomicsRepository(db.asD1());
+  const legacyTermsInput = {
+    expectedSnapshotId: position.snapshot.id,
+    expectedCommitmentMinor: context.committedMinor,
+    expectedTermsId: null,
+    annualAdminFeePpm: 0,
+    adminFeeYears: 1,
+    carryPpm: 100000,
+    note: "Synthetic prior agreement",
+  };
+  const legacyTerms = await economics.accept(
+    COST_SUBJECT,
+    position.id,
+    legacyTermsInput,
+  );
+  const request = {
+    expectedSnapshotId: position.snapshot.id,
+    expectedReceiptId: legacy.id,
+    expectedTermsId: legacyTerms.id,
+    details: {
+      investmentTerms: {
+        ...unknownInvestmentTerms(),
+        importedAmountBasis: "net_capital" as const,
+        carryPpm: 200000,
+        carryBasis: "net_capital" as const,
+        note: "Executed receipt differs from historical deal snapshot.",
+      },
+      cashCoversPosition: true,
+      coversPosition: false,
+      lots: [
+        {
+          ...baseLot,
+          grossCashMinor: 240000,
+          netCapitalMinor: 211234,
+          upfrontDeductionsMinor: null,
+          feePpm: 60000,
+          feeBasis: "net_capital" as const,
+          nominalSpvUnitsMicros: 500000000,
+        },
+      ],
+    },
+  };
+  await expect(
+    repo.accept(COST_SUBJECT, position.id, {
+      ...request,
+      expectedTermsId: null,
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  const accepted = await repo.accept(COST_SUBJECT, position.id, request);
+  const page = await new D1HoldingsPageRepository(db.asD1()).getPage(
+    COST_SUBJECT,
+    "configuration_required",
+  );
+  const holding = page.holdings.find((row) => row.id === position.id)!;
+  expect(holding.purchaseContext?.receipt).toEqual(accepted);
+  expect(holding.positionEconomicsContext?.reviewedInvestment).toMatchObject({
+    cashPaidMinor: 240000,
+    netCapitalMinor: 211234,
+    upfrontDeductionsMinor: 28766,
+    terms: { annualManagementFeePpm: null, carryPpm: 200000 },
+  });
+  const readback = await new D1InvestmentReviewRepository(db.asD1()).getContext(
+    COST_SUBJECT,
+    position.id,
+  );
+  expect(readback.economics?.reviewedInvestment).toEqual(
+    reviewedInvestmentFromReceipt(accepted),
+  );
+  expect(proposeEconomics(readback.economics!, [], accepted).input).toBeNull();
+  await expect(
+    economics.accept(COST_SUBJECT, position.id, {
+      ...legacyTermsInput,
+      expectedTermsId: legacyTerms.id,
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  await expect(
+    repo.accept(COST_SUBJECT, position.id, {
+      expectedSnapshotId: position.snapshot.id,
+      expectedReceiptId: accepted.id,
+      details: legacy.details,
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  expect(
+    db.sqlite
+      .prepare("SELECT receipt_json FROM holding_purchase_reviews WHERE id=?")
+      .get(legacy.id)?.receipt_json,
+  ).toBe(JSON.stringify(legacy));
+  await expect(
+    repo.accept(COST_SUBJECT, position.id, request),
+  ).rejects.toMatchObject({ code: "stale" });
+  await expect(
+    repo.accept(COST_SUBJECT, position.id, {
+      ...request,
+      expectedReceiptId: accepted.id,
+      details: {
+        ...request.details,
+        lots: [{ ...request.details.lots[0]!, upfrontDeductionsMinor: 1 }],
+      },
+    }),
+  ).rejects.toThrow(/reconcile/u);
+});
 it("persists optional details, reads them through holdings, versions edits and rejects stale or foreign writes", async () => {
   // Local SQLite accepts this construct, but remote D1's statement parser
   // does not: https://github.com/cloudflare/workers-sdk/issues/4727.

@@ -31,6 +31,7 @@ export function investmentReviewSections(
     (context?.economics == null ||
       (context.economics.reportedTerms === null &&
         context.economics.acceptedTerms === null) ||
+      context.economics.reviewedInvestment?.snapshotId === context.snapshotId ||
       calculatePositionEconomics(context.economics) !== null);
   const documents = context?.documents ?? [];
   const assignments = new Map(

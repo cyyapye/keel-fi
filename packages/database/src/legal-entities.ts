@@ -1,3 +1,4 @@
+import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
 import { investmentAmount } from "@keel/domain/investment-review";
 import {
   CreateLegalEntityInputSchema,
@@ -151,6 +152,10 @@ function positionSourceSummary(
     position.snapshot.id
       ? position.acceptedEconomicsTerms
       : null;
+  const reviewed = reviewedInvestmentFromReceipt(position.purchaseReceipt);
+  const currentReviewed =
+    reviewed?.snapshotId === position.snapshot.id ? reviewed : null;
+  const hasUnifiedTerms = reviewed !== undefined;
   return {
     source: { kind: "holding_position", id: position.id },
     sourceDisplayName:
@@ -169,12 +174,24 @@ function positionSourceSummary(
       currency: position.snapshot.currency,
       commitmentMinor: investmentAmount(position),
       fundedMinor: position.snapshot.investedMinor,
-      capitalBasis: terms?.capitalBasis ?? null,
-      grossCommitmentMinor: terms?.grossCommitmentMinor ?? null,
-      setupFeePpm: terms?.setupFeePpm ?? null,
-      annualAdminFeePpm: terms?.annualAdminFeePpm ?? null,
-      adminFeeYears: terms?.adminFeeYears ?? null,
-      carryPpm: terms?.carryPpm ?? null,
+      capitalBasis: hasUnifiedTerms
+        ? currentReviewed?.terms.importedAmountBasis === "gross_cash"
+          ? "gross_commitment"
+          : currentReviewed?.terms.importedAmountBasis === "net_capital"
+            ? "net_invested"
+            : null
+        : (terms?.capitalBasis ?? null),
+      grossCommitmentMinor: hasUnifiedTerms
+        ? currentReviewed?.cashPaidMinor || null
+        : (terms?.grossCommitmentMinor ?? null),
+      setupFeePpm: hasUnifiedTerms ? null : (terms?.setupFeePpm ?? null),
+      annualAdminFeePpm: hasUnifiedTerms
+        ? (currentReviewed?.terms.annualManagementFeePpm ?? null)
+        : (terms?.annualAdminFeePpm ?? null),
+      adminFeeYears: hasUnifiedTerms ? null : (terms?.adminFeeYears ?? null),
+      carryPpm: hasUnifiedTerms
+        ? (currentReviewed?.terms.carryPpm ?? null)
+        : (terms?.carryPpm ?? null),
       currentValue: currentPositionValue(position),
     },
     currentDecisionId: null,

@@ -835,7 +835,21 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
                   observedAt: row.observed_at,
                 },
         };
-        if (currentTerms !== null && row.economics_source !== "policy") {
+        const reviewedPurchase = row.purchase_json
+          ? PurchaseReceiptSchema.parse(JSON.parse(row.purchase_json))
+          : null;
+        if (reviewedPurchase?.details.investmentTerms) {
+          if (reviewedPurchase.snapshotId === row.snapshot_id)
+            resolved.push("economics");
+          else
+            issues.push(
+              issue(
+                "economics",
+                "stale",
+                "Review investment details against the new source snapshot.",
+              ),
+            );
+        } else if (currentTerms !== null && row.economics_source !== "policy") {
           if (calculatePositionEconomics(context) !== null)
             resolved.push("economics");
           else

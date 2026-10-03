@@ -1,3 +1,4 @@
+import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
 import { reportedPositionValue } from "@keel/domain/position-read-model";
 import { investmentAmount } from "@keel/domain/investment-review";
 import { includesCurrentInvestment } from "@keel/domain/investment-review";
@@ -121,6 +122,16 @@ function importedHoldingFrom(
             currency: "USD",
             openedOn: position.openedOn,
             receipt: position.purchaseReceipt ?? null,
+            reportedValueSnapshotId:
+              position.linkedReportedValue?.snapshotId ?? position.snapshot.id,
+            reportedValueMinor: reportedPositionValue(position).minor,
+            reportedSourceLabel:
+              position.linkedReportedValue?.sourceLabel ??
+              position.source.label,
+            sourceObservedOn: (
+              position.linkedReportedValue?.observedAt ??
+              position.snapshot.observedAt
+            ).slice(0, 10),
           }
         : null,
     shareValueEstimate: exposurePosition.shareValueEstimate ?? null,
@@ -155,9 +166,14 @@ function importedHoldingFrom(
     realizedValueMinor: position.snapshot.realizedValueMinor,
     instrumentType: position.snapshot.instrumentType,
     positionEconomicsContext:
-      position.kind !== "spv_interest" || investmentAmount(position) <= 0
+      position.kind !== "spv_interest" ||
+      (investmentAmount(position) <= 0 &&
+        !position.purchaseReceipt?.details.investmentTerms)
         ? undefined
         : {
+            reviewedInvestment: reviewedInvestmentFromReceipt(
+              position.purchaseReceipt,
+            ),
             snapshotId: position.snapshot.id,
             currency: position.snapshot.currency,
             committedMinor: investmentAmount(position),

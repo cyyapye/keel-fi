@@ -3,13 +3,13 @@ import { HoldingSchema } from "../packages/domain/src/index";
 import {
   PurchaseReceiptSchema,
   estimatePurchaseValue,
+  reviewedInvestmentFromReceipt,
   type PurchaseReceipt,
 } from "../packages/domain/src/position-purchases";
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
-import { navigateToScreen } from "./navigation";
 
-test("optional purchase details save directly, preserve failed drafts and reload shares", async ({
+test("unified investment details reconcile cash, retain failed drafts and share one saved record", async ({
   page,
 }, info) => {
   test.setTimeout(120000);
@@ -17,8 +17,9 @@ test("optional purchase details save directly, preserve failed drafts and reload
   let receipt: PurchaseReceipt | null = null;
   let reject = false;
   let attempts = 0;
-  let proxyEvidence = false;
-  let reportedValue = true;
+  const proxyEvidence = false;
+  const reportedValue = true;
+  let currentValueSnapshotId = "snapshot_purchase-spv";
   const holding = () =>
     HoldingSchema.parse({
       id: "purchase-spv",
@@ -27,7 +28,7 @@ test("optional purchase details save directly, preserve failed drafts and reload
       exposureName: "Synthetic Purchase Company",
       ownerLabel: "Demo Family LLC",
       positionKind: "spv_interest",
-      administratorNavMinor: reportedValue ? 150000 : null,
+      administratorNavMinor: reportedValue ? 420000 : null,
       administratorNavState: reportedValue ? "reported" : "not_set",
       shareValueEstimate: estimatePurchaseValue(
         receipt,
@@ -54,7 +55,19 @@ test("optional purchase details save directly, preserve failed drafts and reload
         acceptedAdjustment: null,
         projectedEstimate: null,
       },
+      positionEconomicsContext: {
+        snapshotId: "snapshot_purchase-spv",
+        currency: "USD",
+        committedMinor: 211234,
+        fundedMinor: 211234,
+        acceptedTerms: null,
+        reportedTerms: null,
+        reviewedInvestment: reviewedInvestmentFromReceipt(receipt),
+      },
       purchaseContext: {
+        reportedValueSnapshotId: currentValueSnapshotId,
+        reportedValueMinor: 420000,
+        reportedSourceLabel: "Synthetic import",
         snapshotId: "snapshot_purchase-spv",
         currency: "USD",
         openedOn: "2026-01-01",
@@ -122,12 +135,7 @@ test("optional purchase details save directly, preserve failed drafts and reload
         },
       }),
   );
-  await page.goto("/");
-  await navigateToScreen(
-    page,
-    info.project.name === "mobile-chromium",
-    "Holdings",
-  );
+  await page.goto("/holdings");
   await page
     .getByRole("button", { name: /Synthetic Purchase Company 1 position/u })
     .click();
@@ -137,40 +145,79 @@ test("optional purchase details save directly, preserve failed drafts and reload
     })
     .click();
   const section = page.getByRole("region", {
-    name: "Purchase details",
+    name: "Investment details",
     exact: true,
   });
+  await section.getByRole("button", { name: "Add investment details" }).click();
   await expect(
-    section.getByRole("button", { name: "Add purchase details" }),
+    section.getByRole("heading", { name: "Purchases", exact: true }),
   ).toBeVisible();
-  await section.getByRole("button", { name: "Add purchase details" }).click();
   await expect(
-    section.getByRole("textbox", { name: "Purchase source", exact: true }),
-  ).toHaveValue("Synthetic import");
+    section.getByRole("button", { name: "Purchase 1", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    section.getByRole("group", { name: "Purchase 1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: /Remove purchase/ }),
+  ).toHaveCount(0);
+  if (info.project.name === "mobile-chromium")
+    expect(
+      await section
+        .getByRole("button", { name: "Add another purchase", exact: true })
+        .evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+  const cash = section.getByRole("textbox", {
+    name: "Cash paid · USD",
+    exact: true,
+  });
+  const deductions = section.getByRole("textbox", {
+    name: "Upfront deductions · USD",
+    exact: true,
+  });
+  const net = section.getByRole("textbox", {
+    name: "Net capital invested · USD",
+    exact: true,
+  });
+  const save = section.getByRole("button", {
+    name: "Save investment details",
+    exact: true,
+  });
+  await cash.fill("2400");
+  await net.fill("2112.34");
   await section
-    .getByRole("textbox", { name: "Underlying share class", exact: true })
-    .fill("Series B");
-  await section
-    .getByRole("textbox", { name: "Purchase price / share · USD", exact: true })
-    .fill("12.5");
-  await section
-    .getByText("Capital and share calculation", { exact: true })
+    .getByRole("checkbox", {
+      name: "These purchases include all cash paid for this position.",
+    })
+    .check();
+  await section.getByRole("textbox", { name: "Carry on gains · %" }).fill("20");
+  await section.getByRole("combobox", { name: "Carry gains above" }).click();
+  await page
+    .getByRole("option", { name: "Net capital invested", exact: true })
     .click();
+  await section
+    .getByRole("combobox", { name: "Imported amount represents" })
+    .click();
+  await page
+    .getByRole("option", { name: "Net capital invested", exact: true })
+    .click();
+  await section
+    .getByRole("combobox", { name: "Reported value carry status" })
+    .click();
+  await page.getByRole("option", { name: "Before carry", exact: true }).click();
   await expect(
-    section.getByRole("textbox", {
-      name: "Purchase price / share · USD",
-      exact: true,
-    }),
-  ).toHaveValue("12.50");
-  await section
-    .getByRole("textbox", { name: "Gross cash contributed · USD", exact: true })
-    .fill("1100");
-  await section
-    .getByRole("textbox", { name: "One-time fee · %", exact: true })
-    .fill("10");
-  await section.getByRole("combobox", { name: "Fee basis" }).click();
-  await page.getByRole("option", { name: "Added to share capital" }).click();
-  await section.getByRole("checkbox", { name: /No sales, splits/u }).check();
+    section.getByRole("textbox", { name: "Annual management fee · %" }),
+  ).toHaveValue("");
+  await expect(section).toContainText("287.66");
+  await expect(section).toContainText("Annual management fees are unknown");
+  await expect(save).toBeEnabled();
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await expect(section).toHaveScreenshot("investment-details-draft.png", {
+    animations: "disabled",
+  });
   expect(
     await page.evaluate(
       () =>
@@ -178,212 +225,184 @@ test("optional purchase details save directly, preserve failed drafts and reload
         document.documentElement.clientWidth,
     ),
   ).toBe(true);
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await expect.soft(page).toHaveScreenshot("purchase-form.png", {
-    animations: "disabled",
-    fullPage: true,
+  if (info.project.name === "mobile-chromium")
+    expect(
+      await save.evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+  await deductions.fill("1");
+  await expect(section).toContainText("do not reconcile");
+  await expect(save).toBeDisabled();
+  await deductions.fill("");
+  reject = true;
+  await save.click();
+  await expect(section).toContainText("The position changed. Review again.");
+  await expect(cash).toHaveValue("2400");
+  await expect(net).toHaveValue("2112.34");
+  reject = false;
+  await save.click();
+  expect(
+    PurchaseReceiptSchema.parse(receipt).details.investmentTerms,
+  ).toMatchObject({
+    carryPpm: 200000,
+    annualManagementFeePpm: null,
+    importedAmountBasis: "net_capital",
   });
-  await section.getByRole("button", { name: "Remove purchase 1" }).click();
+  expect(PurchaseReceiptSchema.parse(receipt).details.lots[0]).toMatchObject({
+    grossCashMinor: 240000,
+    netCapitalMinor: 211234,
+    upfrontDeductionsMinor: null,
+  });
   await expect(
-    section.getByRole("textbox", {
-      name: "Purchase price / share · USD",
-      exact: true,
-    }),
+    section.getByRole("button", { name: "Edit investment details" }),
+  ).toBeVisible();
+  await expect(section).toContainText("2,400.00");
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  // The navigation is hidden for capture, so its scroll offset would crop
+  // a saved summary that is just shorter than the desktop viewport.
+  await page.addStyleTag({
+    content:
+      ".purchase-details { scroll-margin-top: 0 !important; } html { text-size-adjust: 100%; -webkit-text-size-adjust: 100%; }",
+  });
+  await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await expect(section).toHaveScreenshot("investment-details-saved.png", {
+    animations: "disabled",
+  });
+  await page.reload();
+  await page
+    .getByRole("button", { name: /Synthetic Purchase Company 1 position/u })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "View Synthetic Purchase SPV holding details",
+    })
+    .click();
+  const edit = section.getByRole("button", {
+    name: "Edit investment details",
+    exact: true,
+  });
+  await edit.click();
+  await expect(save).toBeDisabled();
+  await expect(deductions).toHaveValue("287.66");
+  await section.getByRole("textbox", { name: "Carry on gains · %" }).fill("25");
+  await save.click();
+  expect(
+    PurchaseReceiptSchema.parse(receipt).details.investmentTerms?.carryPpm,
+  ).toBe(250000);
+  await edit.click();
+  await cash.fill("2600");
+  await section.getByRole("button", { name: "Cancel", exact: true }).click();
+  await edit.click();
+  await expect(cash).toHaveValue("2400");
+  await expect(save).toBeDisabled();
+  await expect(
+    section.getByRole("button", { name: /Remove purchase/ }),
+  ).toHaveCount(0);
+  await section
+    .getByRole("button", { name: "Add another purchase", exact: true })
+    .click();
+  await expect(
+    section.getByRole("heading", { name: "Purchases", exact: true }),
+  ).toBeVisible();
+  const firstPurchase = section.getByRole("button", {
+    name: "Purchase 1",
+    exact: true,
+  });
+  const secondPurchase = section.getByRole("button", {
+    name: "Purchase 2",
+    exact: true,
+  });
+  await expect(firstPurchase).toHaveAttribute("aria-expanded", "false");
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "false");
+  await expect(cash).toHaveCount(0);
+  await expect(
+    section.getByRole("group", { name: /^Purchase 1\b/ }),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("group", { name: /^Purchase 2\b/ }),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: /Remove purchase/ }),
+  ).toHaveCount(2);
+  if (info.project.name === "mobile-chromium") {
+    expect(
+      await firstPurchase.evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+    expect(
+      await section
+        .getByRole("button", { name: "Remove purchase 2", exact: true })
+        .evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+  }
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await expect(section.locator("form")).toHaveScreenshot(
+    "investment-details-multiple-purchases.png",
+    {
+      animations: "disabled",
+    },
+  );
+  await secondPurchase.press("Enter");
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "true");
+  await section
+    .getByRole("textbox", { name: "Cash paid · USD", exact: true })
+    .fill("1200");
+  await section
+    .getByRole("textbox", { name: "Upfront deductions · USD", exact: true })
+    .fill("200");
+  await expect(section).toContainText("3,600.00");
+  await secondPurchase.click();
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "false");
+  await section
+    .getByRole("button", { name: "Remove purchase 2", exact: true })
+    .click();
+  await expect(firstPurchase).toHaveAttribute("aria-expanded", "true");
+  await expect(cash).toHaveValue("2400");
+  await expect(
+    section.getByRole("button", { name: /Remove purchase/ }),
   ).toHaveCount(0);
   await section.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(firstPurchase).toHaveAttribute("aria-expanded", "false");
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "false");
+  await secondPurchase.click();
   await expect(
-    section.getByRole("textbox", {
-      name: "Purchase price / share · USD",
-      exact: true,
-    }),
-  ).toHaveValue("12.50");
-  expect(attempts).toBe(0);
-  reject = true;
-  await section
-    .getByRole("button", { name: "Save purchase details", exact: true })
-    .click();
-  await expect(
-    section.getByText("The position changed. Review again."),
-  ).toBeVisible();
-  expect(attempts).toBe(1);
-  await expect(
-    section.getByRole("textbox", {
-      name: "Purchase price / share · USD",
-      exact: true,
-    }),
-  ).toHaveValue("12.50");
-  reject = false;
-  await section
-    .getByRole("button", { name: "Save purchase details", exact: true })
-    .click();
-  await expect(
-    section.getByRole("button", { name: "Edit purchases" }),
-  ).toBeVisible();
-  await expect(section).toContainText("Share price");
-  await expect(section).toContainText("$12.50");
-  await expect(
-    section.getByText("Valuation price evidence", { exact: true }),
-  ).toHaveCount(0);
-  const valuation = page.getByRole("region", {
-    name: "Position value",
-    exact: true,
-  });
-  await expect(valuation).toHaveCount(1);
-  const valueToggle = valuation.getByRole("button", {
-    name: "Position value",
-    exact: true,
-  });
-  await expect(valueToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(
-    valuation.getByRole("tab", { name: "Enter a reported value" }),
-  ).toBeHidden();
-  await valueToggle.click();
-  await valuation.getByRole("tab", { name: "Enter a reported value" }).click();
-  await expect(
-    valuation.getByRole("button", { name: "Add value evidence" }),
-  ).toHaveCount(0);
-  await valuation
-    .getByRole("textbox", { name: "Source name", exact: true })
-    .fill("Synthetic reported total");
-  await valuation.getByRole("textbox", { name: /Value · USD/u }).fill("1800");
-  await expect(
-    valuation.getByRole("button", { name: "Review value", exact: true }),
-  ).toBeEnabled();
-  await expect(
-    valuation.getByRole("button", { name: "Supporting details (optional)" }),
-  ).toHaveAttribute("aria-expanded", "false");
-  await valueToggle.click();
-  await expect(
-    valuation.getByText("Unsaved changes", { exact: true }),
-  ).toBeVisible();
-  await valueToggle.click();
-  await expect(
-    valuation.getByRole("textbox", { name: "Source name", exact: true }),
-  ).toHaveValue("Synthetic reported total");
-  await valuation.getByRole("tab", { name: "Calculate from shares" }).click();
-  await expect(
-    valuation.getByRole("button", { name: "Add share details" }),
-  ).toHaveCount(0);
-  await valuation
-    .getByRole("button", { name: "Use this price", exact: true })
-    .click();
-  await expect(
-    valuation.getByRole("textbox", {
-      name: "Valuation price / share · USD",
-      exact: true,
-    }),
-  ).toHaveValue("20.00");
-  await expect(
-    valuation.getByRole("button", { name: "Save valuation details" }),
-  ).toBeDisabled();
-  await valuation
-    .getByRole("checkbox", {
-      name: "I confirmed this price applies to the same underlying share class.",
-    })
-    .check();
-  await expect(
-    valuation.getByRole("button", { name: "Portfolio Watch context" }),
-  ).toBeVisible();
-  await valuation
-    .getByRole("textbox", {
-      name: "Valuation price / share · USD",
-      exact: true,
-    })
-    .fill("20");
-  await valuation
-    .getByRole("textbox", { name: "Valuation share class", exact: true })
-    .fill("Series B");
-  await valuation
-    .getByRole("textbox", { name: "Valuation source", exact: true })
-    .fill("Synthetic GP statement");
-  await valuation
-    .getByRole("checkbox", { name: /These purchases cover/u })
-    .check();
-  // Use the shared accessible calendar.
-  await valuation
-    .getByRole("button", { name: "Valuation price as of", exact: true })
-    .click();
+    section.getByRole("textbox", { name: "Cash paid · USD", exact: true }),
+  ).toHaveValue("1200");
+  await save.click();
+  expect(PurchaseReceiptSchema.parse(receipt).details.lots).toMatchObject([
+    { grossCashMinor: 240000, netCapitalMinor: 211234 },
+    { grossCashMinor: 120000, upfrontDeductionsMinor: 20000 },
+  ]);
+  await edit.click();
+  await expect(save).toBeDisabled();
+  await expect(firstPurchase).toHaveAttribute("aria-expanded", "false");
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "false");
+  await section.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByText("Position value", { exact: true }).click();
   await page
-    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
-    .click();
-  await valuation
-    .getByRole("textbox", { name: "Valuation source", exact: true })
-    .focus();
-  await valuation
-    .getByRole("checkbox", {
-      name: "I confirmed this price applies to the same underlying share class.",
-    })
-    .check();
-
-  await valuation.getByRole("tab", { name: "Enter a reported value" }).click();
-  await expect(
-    valuation.getByRole("textbox", { name: "Source name", exact: true }),
-  ).toHaveValue("Synthetic reported total");
-  const sectionCaptureStyle = await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await expect(valuation).toHaveScreenshot("position-value-reported.png", {
-    animations: "disabled",
-  });
-  await valuation.getByRole("tab", { name: "Calculate from shares" }).click();
-  await expect(
-    valuation.getByRole("textbox", {
-      name: "Valuation price / share · USD",
-      exact: true,
-    }),
-  ).toHaveValue("20.00");
-  await expect(valuation).toHaveScreenshot("position-value-shares.png", {
-    animations: "disabled",
-  });
-  await sectionCaptureStyle.evaluate((element) => {
-    element.parentNode?.removeChild(element);
-  });
-  reject = true;
-  await valuation
-    .getByRole("button", { name: "Save valuation details" })
+    .getByRole("tab", { name: "Calculate from shares", exact: true })
     .click();
   await expect(
-    valuation.getByText("The position changed. Review again."),
+    page
+      .getByRole("region", { name: "Share-based valuation" })
+      .getByRole("link", { name: "Edit investment details" }),
   ).toBeVisible();
-  await expect(
-    valuation.getByRole("textbox", {
-      name: "Valuation price / share · USD",
-      exact: true,
-    }),
-  ).toHaveValue("20.00");
-  reject = false;
-  await valuation
-    .getByRole("button", { name: "Save valuation details" })
-    .click();
-  await expect(
-    valuation.getByText("80 shares × $20.00", { exact: false }),
-  ).toBeVisible();
-
   expect(
-    await page.evaluate(
-      () =>
-        document.documentElement.scrollWidth <=
-        document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await expect.soft(page).toHaveScreenshot("purchase-saved.png", {
-    animations: "disabled",
-    fullPage: true,
-  });
+    await page
+      .getByRole("region", { name: "Share-based valuation" })
+      .getByRole("textbox")
+      .count(),
+  ).toBe(0);
+  // A new source snapshot with the same mark must not inherit its carry status.
+  currentValueSnapshotId = "synthetic-linked-refresh";
   await page.reload();
-  // The deferred loading shell also has navigation. Wait for the real app so
-  // replacing that shell cannot discard a just-opened mobile menu.
-  await expect(
-    page.getByRole("button", {
-      name: /Synthetic Purchase Company 1 position/u,
-    }),
-  ).toBeVisible();
-  await navigateToScreen(
-    page,
-    info.project.name === "mobile-chromium",
-    "Holdings",
-  );
   await page
     .getByRole("button", { name: /Synthetic Purchase Company 1 position/u })
     .click();
@@ -392,140 +411,72 @@ test("optional purchase details save directly, preserve failed drafts and reload
       name: "View Synthetic Purchase SPV holding details",
     })
     .click();
-  await valueToggle.click();
-  await valuation.getByRole("tab", { name: "Calculate from shares" }).click();
+  await edit.click();
   await expect(
-    valuation.getByText("80 shares × $20.00", { exact: false }),
-  ).toBeVisible();
-  await section.getByRole("button", { name: "Edit purchases" }).click();
+    section.getByRole("combobox", { name: "Reported value carry status" }),
+  ).toContainText("Unknown");
+  await expect(
+    section.getByRole("textbox", { name: "Carry on gains · %" }),
+  ).toHaveValue("25");
+  await expect(save).toBeEnabled();
+  for (let i = 0; i < 2; i++) {
+    const purchase = section.locator("fieldset.purchase-fields").nth(i);
+    await purchase
+      .getByRole("button", { name: `Purchase ${i + 1}`, exact: true })
+      .click();
+    await purchase
+      .getByRole("button", { name: /Underlying shares and source evidence/ })
+      .click();
+    await purchase
+      .getByRole("textbox", { name: "Underlying share class", exact: true })
+      .fill("Series B");
+    await purchase
+      .getByRole("textbox", { name: "Purchase source", exact: true })
+      .fill(`Synthetic executed receipt ${i + 1}`);
+    await purchase
+      .getByRole("textbox", { name: "Purchase price / share · USD" })
+      .fill("10");
+    await purchase
+      .getByRole("button", { name: /Remaining underlying shares/ })
+      .click();
+    await purchase
+      .getByRole("checkbox", { name: /No sales, splits or conversions/ })
+      .check();
+    await purchase
+      .getByRole("button", { name: "Valuation price evidence", exact: true })
+      .click();
+    await purchase
+      .getByRole("button", { name: /Available share price evidence/ })
+      .click();
+    await purchase
+      .getByRole("button", { name: "Use this price", exact: true })
+      .click();
+    await purchase
+      .getByRole("checkbox", {
+        name: "I confirmed this price applies to the same underlying share class.",
+      })
+      .check();
+  }
   await section
-    .getByRole("textbox", { name: "Purchase price / share · USD", exact: true })
-    .fill("10");
-  await section
-    .getByRole("button", { name: "Save purchase details", exact: true })
-    .click();
-  await expect(
-    valuation.getByText("100 shares × $20.00", { exact: false }),
-  ).toBeVisible();
-  await expect(section).toContainText("$10.00");
-  const widths = await page.evaluate(() => ({
-    client: document.documentElement.clientWidth,
-    scroll: document.documentElement.scrollWidth,
-  }));
-  expect(widths.scroll).toBe(widths.client);
-  proxyEvidence = true;
-  await valuation
-    .getByRole("button", { name: "Edit share calculation" })
-    .click();
-  await valuation
-    .getByRole("button", { name: "Use as proxy estimate" })
-    .click();
-  await expect(
-    valuation.getByRole("button", { name: "Apply proxy estimate" }),
-  ).toBeDisabled();
-  await expect(valuation.getByRole("checkbox")).toHaveCount(1);
-  await expect(valuation.getByRole("textbox")).toHaveCount(0);
-  await expect(valuation).toContainText("100 shares × $20.00");
-  await valuation.getByRole("checkbox").check();
-  await expect(
-    valuation.getByRole("button", { name: "Apply proxy estimate" }),
-  ).toBeEnabled();
-  await valuation
-    .getByRole("button", { name: "Adjust shares", exact: true })
-    .click();
-  await valuation
-    .getByRole("textbox", { name: "Remaining underlying shares", exact: true })
-    .fill("90");
-  await expect(
-    valuation.getByRole("button", { name: "Apply proxy estimate" }),
-  ).toBeDisabled();
-  await valuation
-    .getByRole("button", { name: "Shares as of", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
-    .click();
-  await expect(valuation).toContainText("90 shares × $20.00");
-  await expect(
-    valuation.getByRole("button", { name: "Apply proxy estimate" }),
-  ).toBeEnabled();
-  await valuation
-    .getByRole("textbox", { name: "Remaining underlying shares", exact: true })
-    .fill("");
-  await expect(valuation).toContainText("100 shares × $20.00");
-  await valuation
-    .getByRole("button", { name: "Adjust shares", exact: true })
-    .click();
-  const proxyStyle = await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await expect(valuation).toHaveScreenshot("position-value-proxy-draft.png", {
-    animations: "disabled",
-  });
-  reject = true;
-  await valuation.getByRole("button", { name: "Apply proxy estimate" }).click();
-  await expect(
-    valuation.getByText("The position changed. Review again."),
-  ).toBeVisible();
-  await expect(valuation.getByRole("checkbox")).toBeChecked();
-  reject = false;
-  await valuation.getByRole("button", { name: "Apply proxy estimate" }).click();
-  await expect(
-    valuation.getByText("Estimated value · proxy", { exact: true }),
-  ).toBeVisible();
-  await valuation.getByRole("button", { name: "Proxy assumptions" }).click();
-  await expect(valuation).toContainText("Common applied to Series B");
-  await expect(valuation).toContainText("mark date unknown");
-  await expect(valuation).toHaveScreenshot("position-value-proxy-saved.png", {
-    animations: "disabled",
-  });
-  await proxyStyle.evaluate((el) => el.parentNode?.removeChild(el));
-  await expect(
-    page.getByRole("region", { name: "Position summary" }),
-  ).toContainText("Administrator NAV");
-  expect(receipt!.details.lots[0]!.mark!.effectiveDate).toBeNull();
-  expect(receipt!.details.lots[0]!.mark!.proxy!.confirmed).toBe(true);
-  expect(receipt!.details.lots[0]!.mark!.proxy!.reason).toBe(
-    "Closest available imported share price.",
-  );
-  expect(receipt!.details.coversPosition).toBe(true);
-  await page.reload();
-  await page
-    .getByRole("button", { name: /Synthetic Purchase Company 1 position/u })
-    .click();
-  await page
-    .getByRole("button", {
-      name: "View Synthetic Purchase SPV holding details",
+    .getByRole("checkbox", {
+      name: "These purchases cover all my remaining shares in this SPV.",
     })
+    .check();
+  await save.click();
+  expect(
+    PurchaseReceiptSchema.parse(receipt).details.investmentTerms
+      ?.reportedValueReview,
+  ).toMatchObject({
+    sourceSnapshotId: "synthetic-linked-refresh",
+    carryStatus: "unknown",
+    effectiveDate: null,
+  });
+  await expect(section).toContainText("6,224.68");
+  await page.getByText("Position value", { exact: true }).click();
+  await page
+    .getByRole("tab", { name: "Calculate from shares", exact: true })
     .click();
-  await valueToggle.click();
-  await valuation.getByRole("tab", { name: "Calculate from shares" }).click();
   await expect(
-    valuation.getByText("Estimated value · proxy", { exact: true }),
-  ).toBeVisible();
-  await valuation
-    .getByRole("button", { name: "Edit share calculation" })
-    .click();
-  await valuation.getByRole("button", { name: "Details", exact: true }).click();
-  await valuation
-    .getByRole("textbox", { name: "Note (optional)" })
-    .fill("Updated proxy rationale after review.");
-  await valuation.getByRole("button", { name: "Apply proxy estimate" }).click();
-  await valuation.getByRole("button", { name: "Proxy assumptions" }).click();
-  await expect(valuation).toContainText(
-    "Updated proxy rationale after review.",
-  );
-  reportedValue = false;
-  await page.reload();
-  await page
-    .getByRole("button", { name: /Synthetic Purchase Company 1 position/u })
-    .click();
-  await page
-    .getByRole("button", {
-      name: "View Synthetic Purchase SPV holding details",
-    })
-    .click();
-  const summary = page.getByRole("region", { name: "Position summary" });
-  await expect(summary).toContainText("Estimated value · proxy");
-  await expect(summary).toContainText("Estimated return · before carry");
+    page.getByRole("region", { name: "Share-based valuation" }),
+  ).toContainText("6,224.68");
 });

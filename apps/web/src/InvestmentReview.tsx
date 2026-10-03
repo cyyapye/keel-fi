@@ -1692,7 +1692,7 @@ export function InvestmentReview({
               <ParticipationReview context={context} save={save} busy={busy} />
               <InvestmentAmountReview context={context} save={save} busy={busy}>
                 {({ action, editor, detail }) =>
-                  context.economics !== null ? (
+                  context.economics !== null && !context.purchaseContext ? (
                     <PositionEconomicsEditor
                       presentation="review"
                       amountAction={action}
