@@ -84,6 +84,32 @@ invented fee terms. Existing agents need the verified revision and their normal
 bounded capture to obtain new citations. Tests do not establish that a live
 backlog has been recaptured or automatically accepted.
 
+## Renamed investment records
+
+A reviewed same-investment link can keep one current or historical SPV while
+preserving both dated source records, fee evidence, documents, purchases and
+events. Historical records cannot supply a current valuation. A replacement
+requires a current surviving SPV; a company rename requires the same reviewed
+company, provider account, legal vehicle, owner and investment date. Neither a
+rename nor an underlying stock disposal establishes an investor distribution or
+vehicle winding-up. Tax basis is not a cash contribution.
+
+The review shows the surviving contribution, ownership, status, source dates and
+fee terms before applying. For duplicate records, the single exact saved
+legal-entity match is preselected for its separate identity decision; no entity
+is created or linked just by opening the review. Missing or conflicting terms
+keep their own acceptance boundary.
+
+Migration `0080` extends the existing `0078` link ledger with source-backed old
+and new company names. A later rotated import key can reuse the reviewed
+provider/account/SPV/date/instrument identity only for those known names and
+matching contribution amounts and participation. Unknown names, ambiguous
+groups, changed cash amounts and a live report for a historical survivor require
+review. Each reused alias records its governing link decision; concurrent
+reversal fails closed. Unlinking appends a reversal, restores separate counting
+and removes the rename display and future alias reuse. It does not undo
+subsequent source updates or delete their evidence.
+
 ## Cash accounts
 
 `cash-balances-auto-v1` accepts a newer valid live balance for a previously

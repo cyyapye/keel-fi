@@ -1,3 +1,4 @@
+import { reviewedRenameScopes } from "./reviewed-rename-scope";
 import {
   isPlaidInvestmentsFiPlanningSecurityType,
   isPlaidInvestmentsOutsideFiSecurityType,
@@ -781,11 +782,18 @@ export class D1HoldingImportRepository {
         preview: refreshed,
       };
     }
+    const resolvedScopes = await reviewedRenameScopes(
+      this.db,
+      identity.household_id,
+      canonical.connectionId,
+      input,
+      canonical.containersByKey,
+    );
     const rowScopes = new Map(
-      input.canonicalScope.rows.map((scope) => [scope.sourceRowNumber, scope]),
+      resolvedScopes.map((scope) => [scope.sourceRowNumber, scope]),
     );
     const duplicateCounts = new Map<string, number>();
-    input.canonicalScope.rows.forEach((row) => {
+    resolvedScopes.forEach((row) => {
       duplicateCounts.set(
         row.protectedPositionKey,
         (duplicateCounts.get(row.protectedPositionKey) ?? 0) + 1,
@@ -984,6 +992,19 @@ export class D1HoldingImportRepository {
               ),
           );
         }
+        if (scope.renameReviewId)
+          statements.push(
+            this.db
+              .prepare(
+                `INSERT INTO holding_import_rename_aliases(import_row_id,household_id,rename_review_id,target_position_id) VALUES(?,?,?,?)`,
+              )
+              .bind(
+                rowId,
+                identity.household_id,
+                scope.renameReviewId,
+                scope.renameTargetPositionId!,
+              ),
+          );
         if (economicsEvidence !== null) {
           statements.push(
             this.reportedEconomicsEvidenceInsert(
@@ -1071,13 +1092,16 @@ export class D1HoldingImportRepository {
         currency_hint: string | null;
         completeness: string;
         parse_status: string;
+        provider_status: string;
+        invested_minor: number;
+        allocation_minor: number;
       }>(
         this.db
           .prepare(
             `
         SELECT row.id, scope.container_id, row.position_fingerprint,
           row.snapshot_fingerprint, row.legal_vehicle_name, row.instrument_type,
-          row.currency_hint, coverage.completeness, row.parse_status
+          row.currency_hint, coverage.completeness, row.parse_status, row.provider_status, row.invested_minor, row.allocation_minor
         FROM holding_import_rows row
         JOIN holding_import_row_containers scope ON scope.import_row_id = row.id
         JOIN holding_import_coverages coverage ON coverage.import_id = row.import_id
@@ -1096,12 +1120,16 @@ export class D1HoldingImportRepository {
         instrument_type: string;
         currency: string;
         observed_at: string;
+        historical_rename: number;
+        rename_cash_json: string | null;
       }>(
         this.db
           .prepare(
             `
         SELECT position.id, ownership.container_id, ownership.protected_position_key,
           position.legal_vehicle_name, position.currency,
+          EXISTS(SELECT 1 FROM holding_position_link_heads link JOIN holding_position_link_reviews r ON r.id=link.review_id JOIN holding_position_snapshots prior ON prior.id=r.target_snapshot_id WHERE link.household_id=position.household_id AND link.target_position_id=position.id AND link.state='linked' AND r.company_renamed=1 AND prior.provider_status='realized') historical_rename,
+          (SELECT json_object('investedMinor',prior.invested_minor,'allocationMinor',prior.allocation_minor) FROM holding_position_link_heads link JOIN holding_position_link_reviews r ON r.id=link.review_id JOIN holding_position_snapshots prior ON prior.id=r.target_snapshot_id WHERE link.household_id=position.household_id AND link.target_position_id=position.id AND link.state='linked' AND r.company_renamed=1 AND prior.provider_status='realized' ORDER BY r.accepted_at DESC,r.id DESC LIMIT 1) rename_cash_json,
           (SELECT snapshot.instrument_type FROM holding_position_snapshots snapshot
             WHERE snapshot.position_id = position.id
             ORDER BY snapshot.observed_at DESC, snapshot.created_at DESC, snapshot.id DESC
@@ -1186,6 +1214,15 @@ export class D1HoldingImportRepository {
         row.currency_hint !== "USD" ||
         !["complete", "partial"].includes(row.completeness) ||
         (position !== undefined && position.currency !== row.currency_hint);
+      const renamedCash =
+        position?.rename_cash_json == null
+          ? null
+          : z
+              .object({
+                investedMinor: z.number().int().safe(),
+                allocationMinor: z.number().int().safe(),
+              })
+              .parse(JSON.parse(position.rename_cash_json));
       const possibleIdentityChange =
         position === undefined
           ? missingContainers.has(row.container_id) ||
@@ -1200,7 +1237,12 @@ export class D1HoldingImportRepository {
                   ),
                 ),
             )
-          : position.instrument_type !== row.instrument_type;
+          : position.instrument_type !== row.instrument_type ||
+            (position.historical_rename === 1 &&
+              (row.provider_status !== "realized" ||
+                (renamedCash !== null &&
+                  (row.invested_minor !== renamedCash.investedMinor ||
+                    row.allocation_minor !== renamedCash.allocationMinor))));
       if (invalid || possibleIdentityChange) {
         quarantines.push(
           this.db

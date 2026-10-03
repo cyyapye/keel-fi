@@ -13,6 +13,7 @@ export const AcceptPositionLinkSchema = z
     relationship: z.enum(["same_investment", "replaced"]),
     state: z.enum(["linked", "unlinked"]),
     useSourceValue: z.boolean(),
+    companyRenamed: z.boolean().default(false),
     note: z.string().trim().max(1000).default(""),
   })
   .strict()
@@ -21,6 +22,11 @@ export const AcceptPositionLinkSchema = z
       ctx.addIssue({
         code: "custom",
         message: "Choose two different records.",
+      });
+    if (input.companyRenamed && input.relationship !== "same_investment")
+      ctx.addIssue({
+        code: "custom",
+        message: "A company rename must be the same investment.",
       });
     if (input.relationship === "replaced" && input.useSourceValue)
       ctx.addIssue({
@@ -35,13 +41,21 @@ export const PositionLinkReceiptSchema = z.object({
   relationship: z.enum(["same_investment", "replaced"]),
   state: z.enum(["linked", "unlinked"]),
   useSourceValue: z.boolean(),
+  companyRenamed: z.boolean().default(false),
+  companyName: z.string().nullable().default(null),
+  formerCompanyName: z.string().nullable().default(null),
   note: z.string(),
   acceptedAt: z.iso.datetime({ offset: true }),
 });
 export const PositionLinkWorkspaceSchema = z.object({
-  positions: z.array(InvestmentPositionRecordSchema),
+  positions: z.array(
+    InvestmentPositionRecordSchema.extend({
+      ownershipContainerId: z.string().optional(),
+    }),
+  ),
   links: z.array(PositionLinkReceiptSchema),
+  history: z.array(PositionLinkReceiptSchema).default([]),
 });
-export type AcceptPositionLink = z.infer<typeof AcceptPositionLinkSchema>;
+export type AcceptPositionLink = z.input<typeof AcceptPositionLinkSchema>;
 export type PositionLinkReceipt = z.infer<typeof PositionLinkReceiptSchema>;
 export type PositionLinkWorkspace = z.infer<typeof PositionLinkWorkspaceSchema>;

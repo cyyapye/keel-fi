@@ -3,6 +3,7 @@ import {
   LinkedReportedValueSchema,
   investmentSourceFreshness,
   InvestmentPositionViewSchema,
+  InvestmentPositionRecordSchema,
   LegalEntityNameEvidenceSchema,
   reviewedInvestmentNameEvidence,
   type InvestmentCoverageCompleteness,
@@ -58,6 +59,7 @@ type InvestmentContainerRow = {
 type InvestmentPositionRow = {
   purchase_receipt_json?: string | null;
   linked_value_json: string | null;
+  renamed_company_json: string | null;
   container_id: string;
   position_id: string;
   legal_vehicle_name: string;
@@ -277,6 +279,12 @@ function positionFromRow(
     ),
     ownerLabel: row.owner_label,
     reportedExposureName: row.reported_exposure_name,
+    renamedCompany:
+      row.renamed_company_json == null
+        ? null
+        : InvestmentPositionRecordSchema.shape.renamedCompany.parse(
+            JSON.parse(row.renamed_company_json),
+          ),
     kind: row.position_kind,
     openedOn: row.opened_on,
     reviewStatus: "accepted",
@@ -396,7 +404,11 @@ function groupRows(
 }
 
 export interface InvestmentPositionViewRepository {
-  list(accessSubject: string, asOf?: string): Promise<InvestmentPositionView>;
+  list(
+    accessSubject: string,
+    asOf?: string,
+    includeLinked?: boolean,
+  ): Promise<InvestmentPositionView>;
 }
 
 export class D1InvestmentPositionViewRepository implements InvestmentPositionViewRepository {
@@ -405,10 +417,11 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
   public async list(
     accessSubject: string,
     asOf = new Date().toISOString(),
+    includeLinked = false,
   ): Promise<InvestmentPositionView> {
     InvestmentPositionViewSchema.shape.asOf.parse(asOf);
     const identity = await this.findIdentity(accessSubject);
-    return this.listForHousehold(identity.household_id, asOf);
+    return this.listForHousehold(identity.household_id, asOf, includeLinked);
   }
 
   public async listForHousehold(
@@ -502,6 +515,10 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                LEFT JOIN holding_investment_reviews lr ON lr.id=(SELECT id FROM holding_investment_reviews WHERE household_id=lp.household_id AND position_id=lp.id ORDER BY version DESC LIMIT 1)
                WHERE link.household_id=position.household_id AND link.target_position_id=position.id AND link.state='linked' AND link.use_source_value=1
              ) AS linked_value_json,
+             (SELECT json_object('name',r.company_name,'formerName',r.former_company_name,'reviewId',r.id)
+              FROM holding_position_link_heads link JOIN holding_position_link_reviews r ON r.id=link.review_id
+              WHERE link.household_id=position.household_id AND link.target_position_id=position.id AND link.state='linked' AND r.company_renamed=1
+              ORDER BY r.accepted_at DESC,r.id DESC LIMIT 1) AS renamed_company_json,
              position.position_kind,
              position.opened_on,
              ownership.version AS ownership_version,

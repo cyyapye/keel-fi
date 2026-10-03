@@ -74,6 +74,8 @@ const migrationFiles = [
   "packages/database/migrations/0064_watch_read_receipts.sql",
   "packages/database/migrations/0065_watch_website_confirmation.sql",
   "packages/database/migrations/0078_reviewed_position_links.sql",
+  "packages/database/migrations/0079_unified_investment_details.sql",
+  "packages/database/migrations/0080_renamed_investment_links.sql",
 ] as const;
 
 class TestD1Statement {

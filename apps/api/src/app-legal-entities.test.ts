@@ -350,6 +350,7 @@ describe("legal entity API", () => {
     expect(options.positionList).toHaveBeenCalledWith(
       "synthetic-access-subject",
       expect.any(String),
+      true,
     );
     expect(options.legalEntityRepository.getState).toHaveBeenCalledWith(
       "synthetic-access-subject",

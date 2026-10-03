@@ -158,8 +158,9 @@ function positionSourceSummary(
   const hasUnifiedTerms = reviewed !== undefined;
   return {
     source: { kind: "holding_position", id: position.id },
-    sourceDisplayName:
-      position.reportedExposureName ?? position.legalVehicleName,
+    sourceDisplayName: position.renamedCompany
+      ? `${position.renamedCompany.name} (formerly ${position.renamedCompany.formerName})`
+      : (position.reportedExposureName ?? position.legalVehicleName),
     legalEntityNameEvidence: position.legalEntityNameEvidence,
     suggestedEntityType:
       legalName === null ? null : exactLegalEntityTypeFromName(legalName),
