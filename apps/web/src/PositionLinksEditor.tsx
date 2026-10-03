@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
+import { useState, useEffect, useCallback } from "react";
 import {
   includesCurrentInvestment,
+  effectiveParticipation,
   investmentAmount,
 } from "@keel/domain/investment-review";
 import type { InvestmentPositionRecord } from "@keel/domain/position-read-model";
@@ -25,6 +27,7 @@ import {
   SelectValue,
   DataList,
   DataItem,
+  TextLink,
 } from "@keel/ui";
 import {
   acceptPositionLink,
@@ -32,7 +35,36 @@ import {
   refreshPortfolioBaseline,
   downloadLegalEntityDocument,
 } from "./api";
+import { entityReviewUrl } from "./legal-entity-navigation";
 import { formatCurrency, formatDate } from "./format";
+
+function amountLabel(position: InvestmentPositionRecord) {
+  const reviewed = reviewedInvestmentFromReceipt(position.purchaseReceipt);
+  const amount = reviewed
+    ? reviewed.snapshotId === position.snapshot.id
+      ? reviewed.cashPaidMinor
+      : null
+    : investmentAmount(position);
+  return amount === null
+    ? "Not reviewed for this source"
+    : formatCurrency(amount, position.snapshot.currency);
+}
+
+function termsLabel(position: InvestmentPositionRecord) {
+  const reviewed = reviewedInvestmentFromReceipt(position.purchaseReceipt);
+  if (reviewed) {
+    const percent = (value: number | null) =>
+      value === null ? "unknown" : `${value / 10_000}%`;
+    return `Management ${percent(reviewed.terms.annualManagementFeePpm)} · Carry ${percent(reviewed.terms.carryPpm)} · ${reviewed.snapshotId === position.snapshot.id ? "Reviewed" : "Earlier reviewed terms"}`;
+  }
+  const accepted = position.acceptedEconomicsTerms;
+  const reported = position.reportedEconomicsTerms;
+  if (!accepted && !reported) return "No fee terms reported";
+  const percent = (value: number | null | undefined) =>
+    value == null ? "not reported" : `${value / 10_000}%`;
+  const years = accepted?.adminFeeYears ?? reported?.adminFeeYears;
+  return `Management ${percent(accepted?.annualAdminFeePpm ?? reported?.managementFeePpm)} · Prepaid term ${years == null ? "not reported" : `${years} years`} · Setup ${percent(accepted?.setupFeePpm ?? reported?.setupFeePpm)} · Carry ${percent(accepted?.carryPpm ?? reported?.carryPpm)} · ${accepted ? "Reviewed" : "Source reported, not accepted"}`;
+}
 
 function valueLabel(position: InvestmentPositionRecord) {
   return position.snapshot.unrealizedValue.minor === null
@@ -45,37 +77,73 @@ function valueLabel(position: InvestmentPositionRecord) {
 export function PositionLinksEditor({
   positionId,
   onAccepted,
+  reviewEntry = false,
+  initialOpen = false,
 }: {
   positionId: string;
+  reviewEntry?: boolean;
+  initialOpen?: boolean;
   onAccepted: () => Promise<void>;
 }) {
   const [workspace, setWorkspace] = useState<PositionLinkWorkspace | null>(
     null,
   );
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
+  const [busy, setBusy] = useState(initialOpen);
   const [error, setError] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState("");
   const [relationship, setRelationship] = useState<
-    "same_investment" | "replaced"
+    "same_investment" | "replaced" | "company_renamed"
   >("same_investment");
   const [useSourceValue, setUseSourceValue] = useState(false);
-  const target = workspace?.positions.find((p) => p.id === positionId);
+  const [targetId, setTargetId] = useState(positionId);
+  const target = workspace?.positions.find((p) => p.id === targetId);
   const source = workspace?.positions.find((p) => p.id === sourceId);
+  const newerName =
+    source && target && source.snapshot.observedAt > target.snapshot.observedAt
+      ? source
+      : target;
+  const formerName = newerName === source ? target : source;
+  const renameDisplay = `${newerName?.reportedExposureName ?? "Unresolved"} (formerly ${formerName?.reportedExposureName ?? "Unresolved"})`;
   const activeLinks =
     workspace?.links.filter(
-      (l) => l.targetPositionId === positionId && l.state === "linked",
+      (l) => l.targetPositionId === targetId && l.state === "linked",
     ) ?? [];
   const candidates =
     workspace?.positions.filter(
       (p) =>
-        p.id !== positionId &&
+        p.id !== targetId &&
         !workspace.links.some(
           (l) =>
             l.state === "linked" &&
             (l.sourcePositionId === p.id || l.targetPositionId === p.id),
         ),
     ) ?? [];
+  const conflict =
+    source && target
+      ? source.snapshot.currency !== target.snapshot.currency
+        ? "The source currencies differ. Review corrected source records before linking."
+        : relationship === "replaced" && !includesCurrentInvestment(target)
+          ? "A replacement needs a current surviving SPV."
+          : relationship !== "replaced" &&
+              effectiveParticipation(source) !== effectiveParticipation(target)
+            ? "Participation differs. Review both records before linking."
+            : relationship === "company_renamed" &&
+                (source.ownershipContainerId !== target.ownershipContainerId ||
+                  source.legalVehicleName !== target.legalVehicleName ||
+                  source.ownerLabel !== target.ownerLabel ||
+                  !source.openedOn ||
+                  source.openedOn !== target.openedOn ||
+                  !source.companyReview ||
+                  source.companyReview.companyId !==
+                    target.companyReview?.companyId ||
+                  !source.reportedExposureName ||
+                  !target.reportedExposureName ||
+                  source.reportedExposureName === target.reportedExposureName ||
+                  source.snapshot.observedAt === target.snapshot.observedAt)
+              ? "Confirm the same provider account, legal vehicle, owner, date and company first. The source dates must establish the old and new names."
+              : null
+      : null;
   async function download(id: string, name: string) {
     setBusy(true);
     setError(null);
@@ -99,18 +167,54 @@ export function PositionLinksEditor({
       setBusy(false);
     }
   }
-  async function load() {
+  const load = useCallback(async () => {
     setBusy(true);
     setError(null);
     setOpen(true);
     try {
-      setWorkspace(await loadPositionLinks());
+      const loaded = await loadPositionLinks();
+      setWorkspace(loaded);
+      setTargetId(
+        (previous) =>
+          loaded.links.find(
+            (l) => l.sourcePositionId === positionId && l.state === "linked",
+          )?.targetPositionId ?? previous,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load records.");
     } finally {
       setBusy(false);
     }
-  }
+  }, [positionId]);
+  useEffect(() => {
+    if (!initialOpen) return;
+    let active = true;
+    void loadPositionLinks()
+      .then((loaded) => {
+        if (!active) return;
+        setWorkspace(loaded);
+        setTargetId(
+          (previous) =>
+            loaded.links.find(
+              (l) => l.sourcePositionId === positionId && l.state === "linked",
+            )?.targetPositionId ?? previous,
+        );
+      })
+      .catch((failure: unknown) => {
+        if (active)
+          setError(
+            failure instanceof Error
+              ? failure.message
+              : "Could not load records.",
+          );
+      })
+      .finally(() => {
+        if (active) setBusy(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [initialOpen, positionId]);
   async function save(remove?: PositionLinkReceipt) {
     const member = remove
       ? workspace?.positions.find((p) => p.id === remove.sourcePositionId)
@@ -131,7 +235,13 @@ export function PositionLinksEditor({
         expectedReviewId:
           workspace?.links.find((l) => l.sourcePositionId === member.id)?.id ??
           null,
-        relationship: remove?.relationship ?? relationship,
+        relationship:
+          remove?.relationship ??
+          (relationship === "company_renamed"
+            ? "same_investment"
+            : relationship),
+        companyRenamed:
+          remove?.companyRenamed ?? relationship === "company_renamed",
         state: remove ? "unlinked" : "linked",
         useSourceValue: remove?.useSourceValue ?? useSourceValue,
         note: "",
@@ -157,12 +267,16 @@ export function PositionLinksEditor({
     <section className="position-links" aria-labelledby="position-links-title">
       <h3 id="position-links-title">Linked investment records</h3>
       {!open ? (
-        <Button onClick={() => void load()}>Link investment records</Button>
+        <Button onClick={() => void load()}>
+          {reviewEntry
+            ? "Same investment / company renamed"
+            : "Link investment records"}
+        </Button>
       ) : (
         <>
           <p>
-            Keep this SPV as one current investment. Other source records and
-            replaced SPVs stay in its history.
+            Keep this SPV as one investment. Dated source records, documents and
+            terms remain available in its history.
           </p>
           {error && (
             <Notice tone="error">
@@ -177,6 +291,83 @@ export function PositionLinksEditor({
           )}
           {target && (
             <>
+              {workspace!.history.some(
+                (link) =>
+                  link.targetPositionId === targetId ||
+                  link.sourcePositionId === targetId,
+              ) && (
+                <Collapsible>
+                  <CollapsibleTrigger layout="inline">
+                    Review history
+                    <DisclosureIndicator />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    {workspace!.history
+                      .filter(
+                        (link) =>
+                          link.targetPositionId === targetId ||
+                          link.sourcePositionId === targetId,
+                      )
+                      .map((link) => (
+                        <p key={link.id}>
+                          {link.companyRenamed
+                            ? "Company rename"
+                            : link.relationship === "replaced"
+                              ? "SPV replacement"
+                              : "Same investment"}{" "}
+                          · {link.state === "linked" ? "Linked" : "Unlinked"} ·{" "}
+                          {formatDate(link.acceptedAt)}
+                        </p>
+                      ))}
+                    <p>
+                      Showing decisions from the 50 most recent investment-link
+                      reviews.
+                    </p>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+              {reviewEntry && (
+                <Field label="Investment record to keep">
+                  <SearchSelect
+                    label="Investment record to keep"
+                    searchLabel="Search surviving investment"
+                    placeholder="Choose the surviving investment"
+                    emptyMessage="No available SPV records."
+                    items={workspace!.positions
+                      .filter(
+                        (p) =>
+                          p.kind === "spv_interest" &&
+                          !workspace!.links.some(
+                            (l) =>
+                              l.sourcePositionId === p.id &&
+                              l.state === "linked",
+                          ),
+                      )
+                      .map((p) => ({
+                        value: p.id,
+                        label: `${p.legalVehicleName} · ${p.source.label} · ${formatDate(p.snapshot.observedAt)}`,
+                      }))}
+                    value={targetId}
+                    disabled={busy}
+                    onChange={(id) => {
+                      setTargetId(id);
+                      setSourceId(id === positionId ? "" : positionId);
+                      setUseSourceValue(false);
+                    }}
+                  />
+                </Field>
+              )}
+              {workspace?.links
+                .filter(
+                  (l) =>
+                    l.targetPositionId === targetId && l.state === "unlinked",
+                )
+                .map((l) => (
+                  <p key={l.id}>
+                    Record unlinked · {formatDate(l.acceptedAt)}. Both sources
+                    are separate again.
+                  </p>
+                ))}
               {activeLinks.map((link) => {
                 const member = workspace?.positions.find(
                   (p) => p.id === link.sourcePositionId,
@@ -189,7 +380,9 @@ export function PositionLinksEditor({
                     <p>
                       {link.relationship === "replaced"
                         ? "Historical · replaced by this SPV"
-                        : "Same investment"}{" "}
+                        : link.companyRenamed
+                          ? `${link.companyName} (formerly ${link.formerCompanyName})`
+                          : "Same investment"}{" "}
                       · {member?.source.label}
                       {link.useSourceValue ? " · Supplies reported value" : ""}
                     </p>
@@ -200,13 +393,22 @@ export function PositionLinksEditor({
                           <DisclosureIndicator />
                         </CollapsibleTrigger>
                         <CollapsibleContent>
+                          <TextLink
+                            href={entityReviewUrl(
+                              { kind: "holding_position", id: member.id },
+                              "investment",
+                            )}
+                          >
+                            Review this source’s terms, purchases and events
+                          </TextLink>
                           <DataList>
                             <DataItem
+                              label="Source terms"
+                              value={termsLabel(member)}
+                            />
+                            <DataItem
                               label="Investment amount"
-                              value={formatCurrency(
-                                investmentAmount(member),
-                                member.snapshot.currency,
-                              )}
+                              value={amountLabel(member)}
                             />
                             <DataItem
                               label="Reported value"
@@ -259,7 +461,7 @@ export function PositionLinksEditor({
                   emptyMessage="No matching investment records."
                   items={candidates.map((p) => ({
                     value: p.id,
-                    label: `${p.legalVehicleName} · ${p.source.label}`,
+                    label: `${p.legalVehicleName} · ${p.source.label} · ${formatDate(p.snapshot.observedAt)}`,
                     searchText: p.reportedExposureName ?? "",
                   }))}
                   disabled={busy}
@@ -280,6 +482,10 @@ export function PositionLinksEditor({
                           label: "Same investment, another source",
                         },
                         {
+                          value: "company_renamed",
+                          label: "Same investment, company renamed",
+                        },
+                        {
                           value: "replaced",
                           label: "Earlier SPV replaced by this one",
                         },
@@ -298,6 +504,9 @@ export function PositionLinksEditor({
                         <SelectItem value="same_investment">
                           Same investment, another source
                         </SelectItem>
+                        <SelectItem value="company_renamed">
+                          Same investment, company renamed
+                        </SelectItem>
                         <SelectItem value="replaced">
                           Earlier SPV replaced by this one
                         </SelectItem>
@@ -306,12 +515,11 @@ export function PositionLinksEditor({
                   </Field>
                   <p className="position-link-result">
                     <strong>{target.legalVehicleName}</strong> stays as the
-                    current investment, with an investment amount of{" "}
-                    {formatCurrency(
-                      investmentAmount(target),
-                      target.snapshot.currency,
-                    )}
-                    . Linked amounts are not added.
+                    investment, with{" "}
+                    {target.purchaseReceipt?.details.investmentTerms
+                      ? "a reviewed cash contribution"
+                      : "an investment amount"}{" "}
+                    of {amountLabel(target)}. Linked amounts are not added.
                   </p>
                   {source.ownerLabel !== target.ownerLabel && (
                     <p>
@@ -320,17 +528,33 @@ export function PositionLinksEditor({
                       these represent the same ownership.
                     </p>
                   )}
+                  <p>
+                    Participation kept: {effectiveParticipation(target)}.{" "}
+                    {includesCurrentInvestment(target)
+                      ? "One contribution remains in the portfolio."
+                      : "No current exposure or cash distribution is created."}
+                  </p>
+                  {relationship === "company_renamed" && (
+                    <p>
+                      A rename keeps the same company and legal vehicle. A
+                      merger or conversion needs a separate identity review.
+                      Disposal of underlying stock does not establish an
+                      investor distribution or that the vehicle wound up.
+                    </p>
+                  )}
                   <DataList className="position-link-comparison">
                     <DataItem
-                      label="Current SPV"
+                      label="Surviving SPV"
                       value={target.legalVehicleName}
                     />
                     <DataItem
                       label="Exposure kept"
                       value={
-                        target.companyReview?.companyName ??
-                        target.reportedExposureName ??
-                        "Unresolved"
+                        relationship === "company_renamed"
+                          ? renameDisplay
+                          : (target.companyReview?.companyName ??
+                            target.reportedExposureName ??
+                            "Unresolved")
                       }
                     />
                     <DataItem
@@ -342,13 +566,14 @@ export function PositionLinksEditor({
                       value={source.ownerLabel ?? "Not reported"}
                     />
                     <DataItem
-                      label="Investment amount kept"
+                      label={
+                        target.purchaseReceipt?.details.investmentTerms
+                          ? "Reviewed cash contribution kept"
+                          : "Investment amount kept"
+                      }
                       value={
                         <>
-                          {formatCurrency(
-                            investmentAmount(target),
-                            target.snapshot.currency,
-                          )}
+                          {amountLabel(target)}
                           <small>
                             {target.source.label}; linked amounts are not added.
                           </small>
@@ -356,11 +581,21 @@ export function PositionLinksEditor({
                       }
                     />
                     <DataItem
-                      label="Other source amount"
-                      value={formatCurrency(
-                        investmentAmount(source),
-                        source.snapshot.currency,
-                      )}
+                      label={
+                        source.purchaseReceipt?.details.investmentTerms
+                          ? "Other reviewed cash contribution"
+                          : "Other source amount"
+                      }
+                      value={amountLabel(source)}
+                    />
+                    <DataItem label="Terms kept" value={termsLabel(target)} />
+                    <DataItem
+                      label="Other source terms"
+                      value={termsLabel(source)}
+                    />
+                    <DataItem
+                      label="Source dates"
+                      value={`${formatDate(target.snapshot.observedAt)} / ${formatDate(source.snapshot.observedAt)}`}
                     />
                     <DataItem
                       label="SPV reported value"
@@ -387,7 +622,8 @@ export function PositionLinksEditor({
                       }
                     />
                   </DataList>
-                  {relationship === "same_investment" &&
+                  {relationship !== "replaced" &&
+                    includesCurrentInvestment(target) &&
                     includesCurrentInvestment(source) &&
                     !activeLinks.some((l) => l.useSourceValue) && (
                       <Field label="Reported valuation to use">
@@ -425,13 +661,14 @@ export function PositionLinksEditor({
                   <p>
                     {relationship === "replaced"
                       ? "The earlier SPV moves to history. No sale or new contribution is recorded."
-                      : "Both records count as one investment. Future updates use the selected valuation source."}{" "}
+                      : "Both records count as one investment. Terms stay with their dated source and require their own review; missing terms are not zero."}{" "}
                     You can unlink the records later.
                   </p>
+                  {conflict && <Notice tone="error">{conflict}</Notice>}
                   <ActionGroup>
                     <Button
                       tone="primary"
-                      disabled={busy}
+                      disabled={busy || conflict !== null}
                       onClick={() => void save()}
                     >
                       {busy ? "Saving…" : "Apply link"}

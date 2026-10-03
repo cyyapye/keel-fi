@@ -2507,7 +2507,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       const positionView = investmentPositionViewRepositoryFor(
         context.env,
-      ).list(accessSubject, asOf);
+      ).list(accessSubject, asOf, true);
       const inventory = await legalEntityRepositoryFor(context.env).getState(
         accessSubject,
         positionView,
@@ -2538,7 +2538,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       const positionView = await investmentPositionViewRepositoryFor(
         context.env,
-      ).list(accessSubject, asOf);
+      ).list(accessSubject, asOf, true);
       const entity = await legalEntityRepositoryFor(context.env).create(
         accessSubject,
         input.data,
@@ -2599,7 +2599,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       const positionView = await investmentPositionViewRepositoryFor(
         context.env,
-      ).list(accessSubject, asOf);
+      ).list(accessSubject, asOf, true);
       const result = await legalEntityRepositoryFor(context.env).reviewSource(
         accessSubject,
         input.data,
@@ -2635,7 +2635,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       const positionView = await investmentPositionViewRepositoryFor(
         context.env,
-      ).list(accessSubject, asOf);
+      ).list(accessSubject, asOf, true);
       const result = await legalEntityRepositoryFor(
         context.env,
       ).applyExactBatch(accessSubject, input.data, positionView);
@@ -2680,7 +2680,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       const positionView = await investmentPositionViewRepositoryFor(
         context.env,
-      ).list(accessSubject, asOf);
+      ).list(accessSubject, asOf, true);
       const inventory = await legalEntityRepositoryFor(context.env).getState(
         accessSubject,
         positionView,

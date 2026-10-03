@@ -34,7 +34,7 @@ it("bounds 120-record link projections, positive matches, growing history, empty
       useSourceValue: true,
       note: "",
     });
-    expect(meter.cost.roundTrips).toBe(7);
+    expect(meter.cost.roundTrips).toBe(8);
     expect(meter.cost.rowsWritten).toBeLessThanOrEqual(16);
     expect(meter.cost.rowsRead).toBeLessThanOrEqual(20_000);
     const acceptance = { ...meter.cost };

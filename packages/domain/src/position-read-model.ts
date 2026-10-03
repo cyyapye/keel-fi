@@ -133,6 +133,10 @@ export const InvestmentPositionRecordSchema = z.object({
   companyReview: InvestmentCompanyReceiptSchema.nullable().optional(),
   automaticReview: AutomaticInvestmentReviewSchema.nullable().optional(),
   linkedReportedValue: LinkedReportedValueSchema.nullable().optional(),
+  renamedCompany: z
+    .object({ name: z.string(), formerName: z.string(), reviewId: z.string() })
+    .nullable()
+    .optional(),
   priorValue: PriorPositionValueSchema.nullable().optional(),
 });
 

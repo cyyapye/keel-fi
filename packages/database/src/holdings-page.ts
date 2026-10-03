@@ -138,7 +138,9 @@ function importedHoldingFrom(
     id: position.id,
     companyId,
     positionName: position.legalVehicleName,
-    exposureName: canonicalCompanyNames.at(-1) ?? position.reportedExposureName,
+    exposureName: position.renamedCompany
+      ? `${position.renamedCompany.name} (formerly ${position.renamedCompany.formerName})`
+      : (canonicalCompanyNames.at(-1) ?? position.reportedExposureName),
     ownerLabel: position.ownerLabel ?? ownerLabel,
     positionKind: position.kind,
     administratorNavMinor: reportedPositionValue(position).minor,

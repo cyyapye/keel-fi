@@ -1,3 +1,4 @@
+import { PositionLinksEditor } from "./PositionLinksEditor";
 import { PublicCompanyLinkEditor } from "./PublicCompanyLinkEditor";
 import { CompanyNames } from "./CompanyNames";
 import {
@@ -1105,16 +1106,27 @@ function candidateAction(candidate: LegalEntitySourceSummary): string {
 function CandidateRow({
   candidate,
   excluded,
+  canLinkInvestment = false,
   onOpen,
   searchQuery = "",
 }: {
   candidate: LegalEntitySourceSummary;
   excluded?: boolean;
+  canLinkInvestment?: boolean;
   onOpen: () => void;
   searchQuery?: string;
 }) {
   const kind = legalEntityReviewKind(candidate);
   const exception = candidate.automaticReview?.issues[0];
+  const reviewButton = (
+    <Button tone="secondary" onClick={onOpen}>
+      {exception?.section === "economics"
+        ? "Review terms"
+        : exception?.section === "company"
+          ? "Review company"
+          : candidateAction(candidate)}
+    </Button>
+  );
   return (
     <article className="legal-entity-candidate">
       <div className="legal-entity-candidate__copy">
@@ -1158,13 +1170,20 @@ function CandidateRow({
                     : "Open source options to see what is missing."}
         </p>
       </div>
-      <Button tone="secondary" onClick={onOpen}>
-        {exception?.section === "economics"
-          ? "Review terms"
-          : exception?.section === "company"
-            ? "Review company"
-            : candidateAction(candidate)}
-      </Button>
+      {candidate.source.kind === "holding_position" &&
+      !excluded &&
+      canLinkInvestment ? (
+        <ActionGroup className="legal-entity-candidate__actions">
+          {reviewButton}
+          <TextLink
+            href={`${entityReviewUrl({ kind: "holding_position", id: candidate.source.id })}&link=1`}
+          >
+            Same investment / company renamed
+          </TextLink>
+        </ActionGroup>
+      ) : (
+        reviewButton
+      )}
     </article>
   );
 }
@@ -1190,7 +1209,7 @@ function EntityReviewWorkspace({
 }) {
   const [resolution, setResolution] = useState<LegalNameResolutionInput>();
   const [editingEntity, setEditingEntity] = useState(false);
-  const [mode, setMode] = useState("new");
+  const [modeChoice, setMode] = useState<string | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState("");
   const [selectedPositionId, setSelectedPositionId] = useState("");
   const saved = async () => {
@@ -1251,6 +1270,23 @@ function EntityReviewWorkspace({
   const matches = inventory.entities.filter(
     (item) => item.legalName === legalName,
   );
+  const duplicateSource =
+    source?.source.kind === "holding_position" &&
+    [
+      ...inventory.candidates,
+      ...inventory.entities.flatMap((item) => item.sources),
+    ].some(
+      (item) =>
+        item.source.kind === "holding_position" &&
+        item.source.id !== source.source.id &&
+        item.legalEntityNameEvidence.legalName !== null &&
+        item.legalEntityNameEvidence.legalName ===
+          source.legalEntityNameEvidence.legalName,
+    );
+  const exactDuplicateEntity = duplicateSource && matches.length === 1;
+  const mode = modeChoice ?? (exactDuplicateEntity ? "existing" : "new");
+  const effectiveEntityId =
+    selectedEntityId || (exactDuplicateEntity ? matches[0]!.id : "");
   const reviewKind =
     source === undefined ? "waiting" : legalEntityReviewKind(source);
   const editor =
@@ -1272,7 +1308,7 @@ function EntityReviewWorkspace({
       source === undefined ||
       working ||
       (kind === "linked" &&
-        !matches.some((item) => item.id === selectedEntityId))
+        !matches.some((item) => item.id === effectiveEntityId))
     )
       return;
     setWorking(true);
@@ -1283,7 +1319,7 @@ function EntityReviewWorkspace({
         expectedDecisionId: source.currentDecisionId,
         decision:
           kind === "linked"
-            ? { kind, legalEntityId: selectedEntityId }
+            ? { kind, legalEntityId: effectiveEntityId }
             : { kind },
         ...(kind === "linked" && resolution !== undefined
           ? { nameResolution: resolution }
@@ -1408,7 +1444,7 @@ function EntityReviewWorkspace({
                     value: item.id,
                     label: item.legalName,
                   }))}
-                  value={selectedEntityId || null}
+                  value={effectiveEntityId || null}
                   onValueChange={(value) =>
                     setSelectedEntityId(typeof value === "string" ? value : "")
                   }
@@ -1428,7 +1464,7 @@ function EntityReviewWorkspace({
               <Button
                 disabled={
                   working ||
-                  !matches.some((item) => item.id === selectedEntityId)
+                  !matches.some((item) => item.id === effectiveEntityId)
                 }
                 onClick={() => void decide("linked")}
               >
@@ -1547,6 +1583,15 @@ function EntityReviewWorkspace({
             </SelectContent>
           </Select>
         </Field>
+      )}
+      {duplicateSource && source?.source.kind === "holding_position" && (
+        <PositionLinksEditor
+          key={`links:${source.source.id}`}
+          positionId={source.source.id}
+          onAccepted={onSaved}
+          reviewEntry
+          initialOpen={new URLSearchParams(window.location.search).has("link")}
+        />
       )}
       {source?.source.kind === "holding_position" ? (
         <InvestmentReview
@@ -2277,6 +2322,23 @@ function LegalEntitiesInventory({
     [inventory, searchMatches],
   );
 
+  const duplicateLegalNames = useMemo(() => {
+    const counts = new Map<string, Set<string>>();
+    for (const item of [
+      ...(inventory?.candidates ?? []),
+      ...(inventory?.entities.flatMap((entity) => entity.sources) ?? []),
+    ]) {
+      const name = item.legalEntityNameEvidence.legalName;
+      if (item.source.kind !== "holding_position" || name === null) continue;
+      const ids = counts.get(name) ?? new Set<string>();
+      ids.add(item.source.id);
+      counts.set(name, ids);
+    }
+    return new Set(
+      [...counts].filter(([, ids]) => ids.size > 1).map(([name]) => name),
+    );
+  }, [inventory]);
+
   const visibleCandidates = useMemo(
     () =>
       searchMatches === null
@@ -2470,6 +2532,12 @@ function LegalEntitiesInventory({
                   <CandidateRow
                     candidate={candidate}
                     key={candidateKey(candidate)}
+                    canLinkInvestment={
+                      candidate.legalEntityNameEvidence.legalName !== null &&
+                      duplicateLegalNames.has(
+                        candidate.legalEntityNameEvidence.legalName,
+                      )
+                    }
                     onOpen={() => openSource(candidate)}
                     searchQuery={searchQuery}
                   />

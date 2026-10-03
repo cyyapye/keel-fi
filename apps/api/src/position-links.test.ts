@@ -56,6 +56,18 @@ it("validates authenticated link decisions and reloads the saved current project
       PositionLinkWorkspaceSchema.parse(await loaded.json()).links,
     ).toHaveLength(1);
     expect((await request(input)).status).toBe(409);
+    const legal = await app.request("/api/legal-entities", {}, env);
+    expect(legal.status).toBe(200);
+    const inventory = await legal.json<{
+      candidates: { source: { id: string } }[];
+      entities: { sources: { source: { id: string } }[] }[];
+    }>();
+    expect(
+      [
+        ...inventory.candidates,
+        ...inventory.entities.flatMap((e) => e.sources),
+      ].some((s) => s.source.id === source.id),
+    ).toBe(true);
     const holdings = await app.request("/api/holdings-page", {}, env);
     expect(holdings.status).toBe(200);
     const body = await holdings.json<{

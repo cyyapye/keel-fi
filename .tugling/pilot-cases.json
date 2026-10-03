@@ -1211,7 +1211,16 @@
     "packages/domain/src/investment-details.test.ts :: unified investment details > uses exact totals despite optional component rates and never converts SPV units",
     "packages/domain/src/investment-details.test.ts :: unified investment details > uses reviewed cash for returns without double deductions for gross_cash imports",
     "packages/domain/src/investment-details.test.ts :: unified investment details > uses reviewed cash for returns without double deductions for net_capital imports",
-    "packages/domain/src/investment-details.test.ts :: unified investment details > uses reviewed cash for returns without double deductions for unknown imports"
+    "packages/domain/src/investment-details.test.ts :: unified investment details > uses reviewed cash for returns without double deductions for unknown imports",
+    "packages/database/src/renamed-investments.test.ts :: fails closed when the reviewed alias is reversed before the import transaction applies",
+    "packages/database/src/renamed-investments.test.ts :: keeps conflicting cash contributions behind review instead of substituting a source amount",
+    "packages/database/src/renamed-investments.test.ts :: keeps one reviewed historical legal entity while both dated sources remain reviewable",
+    "packages/database/src/renamed-investments.test.ts :: links a historical renamed investment once with dated terms, no distribution or resurrection, and reversible display",
+    "packages/database/src/renamed-investments.test.ts :: quarantines a later live report for a historical survivor instead of restoring current exposure",
+    "packages/database/src/renamed-investments.test.ts :: rejects historical valuation, replacement, status conflicts, and unreviewed company mismatches",
+    "packages/database/src/renamed-investments.test.ts :: reuses a reviewed provider/account/SPV/date identity for a known alias, and quarantines unknown aliases after reversal",
+    "scripts/renamed-investments-d1-cost.test.ts :: bounds 120 reviewed rename aliases and projections across decision and repeated-date source history, empty results and unrelated households",
+    "packages/database/src/renamed-investments.test.ts :: rejects a rename when the source maps to a different reviewed company"
   ],
   "playwright": [
     "e2e/agreement-security.visual.spec.ts :: chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads",
@@ -1557,7 +1566,9 @@
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: a working Sydecar access token does not prove a refresh token survived another login",
     "e2e/position-links.visual.spec.ts :: chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention",
-    "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention"
+    "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention",
+    "e2e/position-links.visual.spec.ts :: chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
+    "e2e/position-links.visual.spec.ts :: mobile-chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing"
   ],
   "python": [
     "test_linux_test_run.RunnerTests.test_signal_cleans_checkout",

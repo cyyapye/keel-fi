@@ -1,3 +1,5 @@
+import { renamedInvestmentDetails } from "../scripts/test-support/renamed-investments";
+import { PurchaseReceiptSchema } from "../packages/domain/src/position-purchases";
 import { expect, test } from "@playwright/test";
 import { HoldingSchema } from "../packages/domain/src/index";
 import {
@@ -132,6 +134,8 @@ test("review duplicate sources and replacement history with no typing, saved rel
     );
     const receipt = {
       ...input,
+      companyName: null,
+      formerCompanyName: null,
       id: crypto.randomUUID(),
       acceptedAt: "2026-09-20T12:00:00.000Z",
     };
@@ -282,4 +286,284 @@ test("review duplicate sources and replacement history with no typing, saved rel
         document.documentElement.clientWidth,
     ),
   ).toBe(true);
+});
+
+test("reviews historical company rename from a pending card, keeps the existing identity and reverses without typing", async ({
+  page,
+}, info) => {
+  const { LegalEntityInventorySchema } =
+    await import("../packages/domain/src/legal-entities");
+  const { InvestmentPositionRecordSchema } =
+    await import("../packages/domain/src/position-read-model");
+  const { InvestmentCompanyReceiptSchema } =
+    await import("../packages/domain/src/investment-review");
+  const { routeInvestmentReview } =
+    await import("./investment-review-fixtures");
+  await page.clock.setFixedTime(new Date("2026-09-20T12:00:00.000Z"));
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      const style = document.createElement("style");
+      style.textContent =
+        ".topbar, .mobile-nav { visibility: hidden !important; }";
+      document.head.appendChild(style);
+    });
+  });
+  const positions = ["Synthetic Circuit Labs", "Synthetic Circuit Works"].map(
+    (name, index) =>
+      InvestmentPositionRecordSchema.parse({
+        id: `synthetic-rename-${index}`,
+        legalVehicleName: "Synthetic Circuit SPV, LP",
+        ownerLabel: "Synthetic Family LLC",
+        reportedExposureName: name,
+        kind: "spv_interest",
+        openedOn: "2024-06-10",
+        reviewStatus: "accepted",
+        acceptedAt: "2026-09-01T12:00:00.000Z",
+        ownershipVersion: 1,
+        ownershipBasis: "provider_provenance",
+        legalEntityNameEvidence: {
+          state: "provider_reported",
+          legalName: "Synthetic Circuit SPV, LP",
+          sourceField: "Fund Name",
+        },
+        source: {
+          label: "AngelList",
+          effectiveDate: `2026-09-0${index + 1}`,
+          retrievedAt: `2026-09-0${index + 1}T12:00:00.000Z`,
+          freshness: "current",
+        },
+        snapshot: {
+          id: `synthetic-snapshot-${index}`,
+          fingerprint: "a".repeat(64),
+          observedAt: `2026-09-0${index + 1}T12:00:00.000Z`,
+          providerStatus: "realized",
+          investedMinor: 310000,
+          allocationMinor: 310000,
+          unrealizedValue: { state: "reported", minor: 0 },
+          realizedValueMinor: 0,
+          netValue: { state: "not_reported", minor: null },
+          instrumentType: "SPV interest",
+          currency: "USD",
+          quantityMicros: null,
+          ticker: null,
+          costBasisMinor: null,
+        },
+        reportedEconomicsTerms: index
+          ? {
+              managementFeePpm: null,
+              carryPpm: 175000,
+              sourceLabel: "AngelList",
+              observedAt: "2026-09-02T12:00:00.000Z",
+            }
+          : null,
+        companyReview: InvestmentCompanyReceiptSchema.parse({
+          requestId: crypto.randomUUID(),
+          expectedSnapshotId: `synthetic-snapshot-${index}`,
+          expectedEvidenceRevision: "a".repeat(64),
+          expectedMappingIds: [],
+          company: { mode: "existing", companyId: "synthetic-circuit-company" },
+          basis: "user_confirmed",
+          citation: null,
+          reason: null,
+          positionId: `synthetic-rename-${index}`,
+          companyId: "synthetic-circuit-company",
+          companyName: "Synthetic Circuit Labs",
+          mappingId: `synthetic-mapping-${index}`,
+          recordedAt: "2026-09-03T12:00:00.000Z",
+          sourceDocument: null,
+        }),
+      }),
+  );
+  const sources = positions.map((p) => ({
+    source: { kind: "holding_position" as const, id: p.id },
+    sourceDisplayName: p.reportedExposureName!,
+    sourceLabel: p.source.label,
+    sourceAsOf: p.source.effectiveDate,
+    currentOwner: p.ownerLabel!,
+    currentDecisionId: null,
+    suggestedEntityType: "limited_partnership" as const,
+    relationship: "investment_vehicle" as const,
+    interestStatus: "historical" as const,
+    financials: null,
+    openedOn: p.openedOn,
+    legalEntityNameEvidence: p.legalEntityNameEvidence,
+  }));
+  const inventory = LegalEntityInventorySchema.parse({
+    version: 3,
+    asOf: "2026-09-20T12:00:00.000Z",
+    entities: [
+      {
+        id: "synthetic-existing-entity",
+        versionId: "synthetic-existing-version",
+        version: 1,
+        recordedAt: "2026-09-01T12:00:00.000Z",
+        legalName: "Synthetic Circuit SPV, LP",
+        entityType: "limited_partnership",
+        relationship: "investment_vehicle",
+        currentOwner: "Synthetic Family LLC",
+        jurisdiction: null,
+        formedOn: null,
+        einLastFour: null,
+        ownershipInterestPpm: null,
+        interestStatus: "historical",
+        taxClassification: null,
+        notes: null,
+        sources: [],
+      },
+    ],
+    candidates: sources,
+    excludedCandidates: [],
+    exactBatch: {
+      revision: "a".repeat(64),
+      sourceCount: 0,
+      entityCount: 0,
+      existingEntityCount: 0,
+      newEntityCount: 0,
+      llcEntityCount: 0,
+      limitedPartnershipEntityCount: 0,
+      remainingCandidateCount: 2,
+    },
+  });
+  await page.route("**/api/legal-entities", (route) =>
+    route.fulfill({ json: inventory }),
+  );
+  for (const source of sources)
+    await routeInvestmentReview(page, source, {
+      snapshotId: positions.find((p) => p.id === source.source.id)!.snapshot.id,
+      positionKind: "spv_interest",
+      committedMinor: 310000,
+      fundedMinor: 310000,
+    });
+  positions[0]!.purchaseReceipt = PurchaseReceiptSchema.parse({
+    id: "synthetic-original-contribution",
+    positionId: positions[0]!.id,
+    snapshotId: positions[0]!.snapshot.id,
+    currency: "USD",
+    details: renamedInvestmentDetails(),
+    acceptedAt: "2026-09-01T12:00:00.000Z",
+  });
+  let links: PositionLinkReceipt[] = [];
+  const history: PositionLinkReceipt[] = [];
+  let reject = false;
+  await page.route("**/api/investment-position-links", (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({
+        json: {
+          positions: positions.map((p) => ({
+            ...p,
+            ownershipContainerId: "synthetic-account",
+          })),
+          links,
+          history,
+        },
+      });
+    if (reject)
+      return route.fulfill({
+        status: 409,
+        json: { error: "Source terms changed. Reload and review again." },
+      });
+    const input = AcceptPositionLinkSchema.parse(
+      route.request().postDataJSON(),
+    );
+    const receipt = {
+      ...input,
+      id: crypto.randomUUID(),
+      acceptedAt: "2026-09-20T12:00:00.000Z",
+      companyName: "Synthetic Circuit Works",
+      formerCompanyName: "Synthetic Circuit Labs",
+    };
+    links = [receipt];
+    history.unshift(receipt);
+    return route.fulfill({ status: 201, json: receipt });
+  });
+  await page.goto("/holdings/entities");
+  await page
+    .getByRole("link", { name: "Same investment / company renamed" })
+    .last()
+    .click();
+  const section = page.getByRole("region", {
+    name: "Linked investment records",
+  });
+  await expect(
+    section.getByRole("combobox", { name: "Investment record to keep" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("radio", { name: "Link existing entity" }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole("combobox", { name: "Existing legal entity" }),
+  ).toContainText("Synthetic Circuit SPV, LP");
+  await section
+    .getByRole("combobox", { name: "Investment record to keep" })
+    .click();
+  await page.getByRole("option", { name: /Sep 1, 2026/ }).click();
+  await section.getByRole("combobox", { name: "Relationship" }).click();
+  await page
+    .getByRole("option", {
+      name: "Same investment, company renamed",
+      exact: true,
+    })
+    .click();
+  await expect(
+    section.getByText(/Participation kept: historical/),
+  ).toBeVisible();
+  await expect(
+    section.getByText(/Management unknown · Carry unknown · Reviewed/),
+  ).toBeVisible();
+  await expect(
+    section
+      .locator(".data-list__item")
+      .filter({ hasText: "Reviewed cash contribution kept" }),
+  ).toContainText("USD 3,350.00");
+  await expect(
+    section.getByRole("combobox", { name: "Reported valuation to use" }),
+  ).toHaveCount(0);
+  await expect(
+    section.getByText(/Carry 17.5%.*Source reported, not accepted/),
+  ).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: "Apply link" }),
+  ).toBeEnabled();
+  await expect(section).toHaveScreenshot("historical-rename-review.png", {
+    animations: "disabled",
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  reject = true;
+  await section.getByRole("button", { name: "Apply link" }).click();
+  await expect(section.getByRole("alert")).toContainText(
+    "Source terms changed",
+  );
+  await expect(
+    section.getByRole("combobox", { name: "Relationship" }),
+  ).toContainText("company renamed");
+  reject = false;
+  await section.getByRole("button", { name: "Apply link" }).click();
+  await expect(
+    section.getByText(
+      "Synthetic Circuit Works (formerly Synthetic Circuit Labs)",
+    ),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    section.getByText(
+      "Synthetic Circuit Works (formerly Synthetic Circuit Labs)",
+    ),
+  ).toBeVisible();
+  await section.getByRole("button", { name: "Unlink record" }).click();
+  await expect(
+    section.getByText(/Both sources are separate again/),
+  ).toBeVisible();
+  await section.getByRole("button", { name: "Review history" }).click();
+  await expect(section.getByText(/Company rename · Unlinked/)).toBeVisible();
+  await expect(section.getByText(/Company rename · Linked/)).toBeVisible();
+  await expect(section).toHaveScreenshot("historical-rename-history.png", {
+    animations: "disabled",
+  });
+  expect(links[0]?.state).toBe("unlinked");
+  expect(links[0]?.useSourceValue).toBe(false);
+  expect(info.project.name).toMatch(/chromium/);
 });
