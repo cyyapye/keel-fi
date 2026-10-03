@@ -1568,7 +1568,9 @@
     "e2e/position-links.visual.spec.ts :: chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention",
     "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention",
     "e2e/position-links.visual.spec.ts :: chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
-    "e2e/position-links.visual.spec.ts :: mobile-chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing"
+    "e2e/position-links.visual.spec.ts :: mobile-chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
+    "e2e/position-links.visual.spec.ts :: chromium :: prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts",
+    "e2e/position-links.visual.spec.ts :: mobile-chromium :: prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts"
   ],
   "python": [
     "test_linux_test_run.RunnerTests.test_signal_cleans_checkout",

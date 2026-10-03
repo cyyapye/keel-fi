@@ -1,10 +1,11 @@
 import { renamedInvestmentDetails } from "../scripts/test-support/renamed-investments";
 import { PurchaseReceiptSchema } from "../packages/domain/src/position-purchases";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { HoldingSchema } from "../packages/domain/src/index";
 import {
   AcceptPositionLinkSchema,
   type PositionLinkReceipt,
+  type PositionLinkWorkspace,
 } from "../packages/domain/src/position-links";
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
@@ -288,9 +289,7 @@ test("review duplicate sources and replacement history with no typing, saved rel
   ).toBe(true);
 });
 
-test("reviews historical company rename from a pending card, keeps the existing identity and reverses without typing", async ({
-  page,
-}, info) => {
+async function openHistoricalRenameReview(page: Page) {
   const { LegalEntityInventorySchema } =
     await import("../packages/domain/src/legal-entities");
   const { InvestmentPositionRecordSchema } =
@@ -442,6 +441,19 @@ test("reviews historical company rename from a pending card, keeps the existing 
     details: renamedInvestmentDetails(),
     acceptedAt: "2026-09-01T12:00:00.000Z",
   });
+  const availablePositions = positions.map((p) => ({
+    ...p,
+    ownershipContainerId: "synthetic-account",
+  }));
+  const unrelatedPositions = Array.from({ length: 120 }, (_, index) => ({
+    ...availablePositions[0]!,
+    id: `synthetic-unrelated-${index}`,
+    ownershipContainerId: `synthetic-other-account-${index}`,
+  }));
+  let returnedPositions: PositionLinkWorkspace["positions"] = [
+    ...availablePositions,
+    ...unrelatedPositions,
+  ];
   let links: PositionLinkReceipt[] = [];
   const history: PositionLinkReceipt[] = [];
   let reject = false;
@@ -449,10 +461,7 @@ test("reviews historical company rename from a pending card, keeps the existing 
     if (route.request().method() === "GET")
       return route.fulfill({
         json: {
-          positions: positions.map((p) => ({
-            ...p,
-            ownershipContainerId: "synthetic-account",
-          })),
+          positions: returnedPositions,
           links,
           history,
         },
@@ -484,6 +493,25 @@ test("reviews historical company rename from a pending card, keeps the existing 
   const section = page.getByRole("region", {
     name: "Linked investment records",
   });
+  return {
+    section,
+    availablePositions,
+    unrelatedPositions,
+    links: () => links,
+    setPositions: (next: PositionLinkWorkspace["positions"]) => {
+      returnedPositions = next;
+    },
+    reject: (value: boolean) => {
+      reject = value;
+    },
+  };
+}
+
+test("reviews historical company rename from a pending card, keeps the existing identity and reverses without typing", async ({
+  page,
+}, info) => {
+  const fixture = await openHistoricalRenameReview(page);
+  const { section } = fixture;
   await expect(
     section.getByRole("combobox", { name: "Investment record to keep" }),
   ).toBeVisible();
@@ -493,17 +521,20 @@ test("reviews historical company rename from a pending card, keeps the existing 
   await expect(
     page.getByRole("combobox", { name: "Existing legal entity" }),
   ).toContainText("Synthetic Circuit SPV, LP");
-  await section
-    .getByRole("combobox", { name: "Investment record to keep" })
-    .click();
-  await page.getByRole("option", { name: /Sep 1, 2026/ }).click();
-  await section.getByRole("combobox", { name: "Relationship" }).click();
-  await page
-    .getByRole("option", {
-      name: "Same investment, company renamed",
-      exact: true,
-    })
-    .click();
+  await expect(
+    section.getByRole("combobox", { name: "Investment record to keep" }),
+  ).toContainText("Sep 1, 2026");
+  await expect(
+    section.getByRole("combobox", { name: "Record to link" }),
+  ).toContainText("Sep 2, 2026");
+  await expect(
+    section.getByRole("combobox", { name: "Relationship" }),
+  ).toContainText("company renamed");
+  expect(fixture.links()).toHaveLength(0);
+  const keep = section.getByRole("combobox", {
+    name: "Investment record to keep",
+  });
+  const member = section.getByRole("combobox", { name: "Record to link" });
   await expect(
     section.getByText(/Participation kept: historical/),
   ).toBeVisible();
@@ -532,15 +563,32 @@ test("reviews historical company rename from a pending card, keeps the existing 
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  reject = true;
+  fixture.reject(true);
+  await section.getByRole("combobox", { name: "Relationship" }).click();
+  await page
+    .getByRole("option", {
+      name: "Same investment, another source",
+      exact: true,
+    })
+    .click();
   await section.getByRole("button", { name: "Apply link" }).click();
   await expect(section.getByRole("alert")).toContainText(
     "Source terms changed",
   );
+  await section.getByRole("button", { name: "Reload records" }).click();
+  await expect(keep).toContainText("Sep 1, 2026");
+  await expect(member).toContainText("Sep 2, 2026");
   await expect(
     section.getByRole("combobox", { name: "Relationship" }),
-  ).toContainText("company renamed");
-  reject = false;
+  ).toContainText("Same investment, another source");
+  await section.getByRole("combobox", { name: "Relationship" }).click();
+  await page
+    .getByRole("option", {
+      name: "Same investment, company renamed",
+      exact: true,
+    })
+    .click();
+  fixture.reject(false);
   await section.getByRole("button", { name: "Apply link" }).click();
   await expect(
     section.getByText(
@@ -563,7 +611,108 @@ test("reviews historical company rename from a pending card, keeps the existing 
   await expect(section).toHaveScreenshot("historical-rename-history.png", {
     animations: "disabled",
   });
-  expect(links[0]?.state).toBe("unlinked");
-  expect(links[0]?.useSourceValue).toBe(false);
+  expect(fixture.links()[0]?.state).toBe("unlinked");
+  expect(fixture.links()[0]?.useSourceValue).toBe(false);
   expect(info.project.name).toMatch(/chromium/);
+});
+
+test("prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts", async ({
+  page,
+}) => {
+  const fixture = await openHistoricalRenameReview(page);
+  const { section, availablePositions, unrelatedPositions } = fixture;
+  const keep = section.getByRole("combobox", {
+    name: "Investment record to keep",
+  });
+  const member = section.getByRole("combobox", { name: "Record to link" });
+  for (const mismatch of [
+    { ownershipContainerId: "synthetic-other-account" },
+    { ownershipContainerId: undefined },
+    { ownerLabel: "Synthetic Other Owner" },
+    { openedOn: "2024-07-10" },
+    { companyReview: null },
+    {
+      snapshot: {
+        ...availablePositions[0]!.snapshot,
+        currency: "EUR" as const,
+      },
+    },
+    {
+      snapshot: {
+        ...availablePositions[0]!.snapshot,
+        providerStatus: "live" as const,
+      },
+    },
+    {
+      companyReview: {
+        ...availablePositions[0]!.companyReview!,
+        companyId: "synthetic-other-company",
+      },
+    },
+  ]) {
+    fixture.setPositions([
+      { ...availablePositions[0]!, ...mismatch },
+      availablePositions[1]!,
+      ...unrelatedPositions,
+    ]);
+    await page.reload();
+    await expect(member).toContainText("Choose a source record");
+    await expect(
+      section.getByRole("button", { name: "Apply link" }),
+    ).toHaveCount(0);
+  }
+  fixture.setPositions([
+    ...availablePositions,
+    { ...availablePositions[0]!, id: "synthetic-third-match" },
+    ...unrelatedPositions,
+  ]);
+  await page.reload();
+  await expect(member).toContainText("Choose a source record");
+  await expect(section.getByRole("button", { name: "Apply link" })).toHaveCount(
+    0,
+  );
+  // Same-name duplicates infer the ordinary same-investment relationship.
+  fixture.setPositions([
+    availablePositions[0]!,
+    {
+      ...availablePositions[1]!,
+      reportedExposureName: "Synthetic Circuit Labs",
+    },
+    ...unrelatedPositions,
+  ]);
+  await page.reload();
+  await expect(
+    section.getByRole("combobox", { name: "Relationship" }),
+  ).toContainText("Same investment, another source");
+  // A reviewed receipt wins even when it belongs to the newer source.
+  fixture.setPositions([
+    { ...availablePositions[0]!, purchaseReceipt: null },
+    {
+      ...availablePositions[1]!,
+      purchaseReceipt: {
+        ...availablePositions[0]!.purchaseReceipt!,
+        positionId: availablePositions[1]!.id,
+        snapshotId: availablePositions[1]!.snapshot.id,
+      },
+    },
+    ...unrelatedPositions,
+  ]);
+  await page.reload();
+  await expect(keep).toContainText("Sep 2, 2026");
+  await expect(member).toContainText("Sep 1, 2026");
+  fixture.setPositions([...availablePositions, ...unrelatedPositions]);
+  await page.reload();
+  await expect(keep).toContainText("Sep 1, 2026");
+  await expect(member).toContainText("Sep 2, 2026");
+  expect(fixture.links()).toHaveLength(0);
+  // An optional manual survivor choice remains editable and is never saved on open.
+  await keep.click();
+  await page.getByRole("option", { name: /Sep 2, 2026/ }).click();
+  await expect(member).toContainText("Choose a source record");
+  await keep.click();
+  await page
+    .getByRole("option", { name: /Sep 1, 2026/ })
+    .first()
+    .click();
+  await expect(member).toContainText("Sep 2, 2026");
 });

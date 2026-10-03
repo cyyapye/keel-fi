@@ -94,6 +94,15 @@ company, provider account, legal vehicle, owner and investment date. Neither a
 rename nor an underlying stock disposal establishes an investor distribution or
 vehicle winding-up. Tax basis is not a cash contribution.
 
+Opening a duplicate-record review prefills a unique matching pair and its
+same-investment or rename relationship. The suggestion requires the same
+provider account, legal vehicle, owner, investment date, reviewed company,
+currency and participation. It prefers a reviewed cash receipt, then reviewed
+terms or participation; otherwise it keeps the earlier source. Multiple matches,
+missing identity evidence or conflicting identity fields remain manual choices.
+Opening or reloading the form does not accept a link, and reloading after a
+failed save does not replace the user's selected draft.
+
 The review shows the surviving contribution, ownership, status, source dates and
 fee terms before applying. For duplicate records, the single exact saved
 legal-entity match is preselected for its separate identity decision; no entity
