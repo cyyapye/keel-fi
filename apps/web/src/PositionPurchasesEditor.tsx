@@ -1410,13 +1410,14 @@ function InvestmentDetailsEditor({
                               i,
                               "capitalReturnDate",
                               d.capitalReturnStatus === "received"
-                                ? "Capital refund received on"
+                                ? "Capital refund received on (optional)"
                                 : "Capital refund expected on (optional)",
                             )}
                             {d.capitalReturnStatus === "received" && (
                               <Field
-                                label="Refund in provider distributions"
+                                label="Refund already in reported distributions?"
                                 variant="filled"
+                                description="Check the provider’s distribution total shown in Keel. Already included avoids counting the refund twice; Not included adds it once. Choose Unknown if unsure."
                               >
                                 <Select
                                   items={[
@@ -1441,7 +1442,7 @@ function InvestmentDetailsEditor({
                                     )
                                   }
                                 >
-                                  <SelectTrigger aria-label="Refund in provider distributions">
+                                  <SelectTrigger aria-label="Refund already in reported distributions?">
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>

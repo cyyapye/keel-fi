@@ -103,6 +103,7 @@ it("persists allocation refunds and rate estimates without converting them into 
           capitalReturn: {
             ...lot.capitalReturn!,
             status: "received",
+            effectiveDate: null,
             reportedDistributions: "excluded",
           },
           netCapitalMinor: 441968,
@@ -120,6 +121,9 @@ it("persists allocation refunds and rate estimates without converting them into 
     netCapitalMinor: 441968,
     upfrontDeductionsMinor: 43711,
   });
+  expect(
+    (await read()).purchaseContext?.receipt?.details.lots[0]?.capitalReturn,
+  ).toMatchObject({ status: "received", effectiveDate: null });
   expect(
     db.sqlite
       .prepare("SELECT receipt_json FROM holding_purchase_reviews WHERE id=?")
@@ -145,7 +149,7 @@ it("persists allocation refunds and rate estimates without converting them into 
           capitalReturn: {
             ...lot.capitalReturn!,
             status: "received",
-            effectiveDate: null,
+            effectiveDate: "unknown",
           },
         },
       ],

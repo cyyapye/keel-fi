@@ -110,6 +110,7 @@ describe("unified investment details", () => {
   it("reconciles received refunds independently of exact fees and preserves original cash paid", () => {
     const l = allocationLot();
     l.capitalReturn!.status = "received";
+    l.capitalReturn!.effectiveDate = null;
     l.netCapitalMinor = 441968;
     l.upfrontDeductionsMinor = 43711;
     l.feePpm = 300000; // An optional component never replaces an exact statement.
@@ -134,7 +135,7 @@ describe("unified investment details", () => {
     expect(
       PurchaseLotSchema.safeParse({
         ...l,
-        capitalReturn: { ...l.capitalReturn!, effectiveDate: null },
+        capitalReturn: { ...l.capitalReturn!, effectiveDate: "unknown" },
       }).success,
     ).toBe(false);
     expect(

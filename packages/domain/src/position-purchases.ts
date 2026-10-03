@@ -108,12 +108,6 @@ export const PurchaseLotSchema = z
           path: ["capitalReturn", "amountMinor"],
           message: "Record cash paid; the capital refund cannot exceed it.",
         });
-      if (refund.status === "received" && refund.effectiveDate === null)
-        ctx.addIssue({
-          code: "custom",
-          path: ["capitalReturn", "effectiveDate"],
-          message: "Date the received capital refund.",
-        });
       if (
         refund.status === "expected" &&
         refund.reportedDistributions !== "unknown"
