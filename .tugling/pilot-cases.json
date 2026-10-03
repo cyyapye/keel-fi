@@ -1199,7 +1199,19 @@
     "packages/database/src/position-links.test.ts :: has projection-only bounded reads and indexed link lookups",
     "packages/database/src/position-links.test.ts :: rejects self, foreign, stale, cyclic links and duplicate valuation sources",
     "packages/database/src/position-links.test.ts :: removes reviewed duplicate baseline contributions without rewriting prior baselines",
-    "scripts/position-links-d1-cost.test.ts :: bounds 120-record link projections, positive matches, growing history, empty and unrelated households"
+    "scripts/position-links-d1-cost.test.ts :: bounds 120-record link projections, positive matches, growing history, empty and unrelated households",
+    "packages/database/src/position-purchases.test.ts :: binds carry classification to the current reported mark while preserving unknown dates and annual fees",
+    "packages/database/src/position-purchases.test.ts :: upgrades legacy receipts atomically, uses exact cash across projections and blocks parallel fee writers",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > calculates carry on positive gains only and never charges an after-carry mark again",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > reconciles any two exact amounts without deriving fee components: {\"grossCashMinor\":240000,\"netCapitalMinor\":211234,\"upfrontDeductionsMinor\":null}",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > reconciles any two exact amounts without deriving fee components: {\"grossCashMinor\":240000,\"netCapitalMinor\":null,\"upfrontDeductionsMinor\":28766}",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > reconciles any two exact amounts without deriving fee components: {\"grossCashMinor\":null,\"netCapitalMinor\":211234,\"upfrontDeductionsMinor\":28766}",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > rejects exact conflicts, negative capital and unsafe sums",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > sums multiple tranches only with whole-position cash coverage and keeps partial terms unknown",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > uses exact totals despite optional component rates and never converts SPV units",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > uses reviewed cash for returns without double deductions for gross_cash imports",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > uses reviewed cash for returns without double deductions for net_capital imports",
+    "packages/domain/src/investment-details.test.ts :: unified investment details > uses reviewed cash for returns without double deductions for unknown imports"
   ],
   "playwright": [
     "e2e/agreement-security.visual.spec.ts :: chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads",
