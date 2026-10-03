@@ -215,19 +215,35 @@ test("allocation refunds preview upfront fees, preserve unknown capital and reco
     .getByRole("combobox", { name: "Capital refund status", exact: true })
     .click();
   await page.getByRole("option", { name: "Received", exact: true }).click();
-  await expect(save).toBeDisabled();
-  await section
-    .getByRole("button", { name: "Capital refund received on", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Tuesday, September 15, 2026", exact: true })
-    .click();
-  await expect(section).toContainText(
-    "Confirm whether provider distributions include",
-  );
+  await expect(save).toBeEnabled();
+  await expect(
+    section.getByRole("button", {
+      name: "Capital refund received on (optional)",
+      exact: true,
+    }),
+  ).toContainText("Choose date");
+  await expect(section).toContainText("Choose Unknown if unsure.");
+  await expect(section).toContainText("Return stays unknown until you confirm");
+  await expect(
+    section
+      .getByRole("button", {
+        name: "Capital refund (optional)",
+        exact: true,
+      })
+      .locator(".."),
+  ).toHaveScreenshot("allocation-refund-received.png", {
+    animations: "disabled",
+  });
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
   await section
     .getByRole("combobox", {
-      name: "Refund in provider distributions",
+      name: "Refund already in reported distributions?",
       exact: true,
     })
     .click();
@@ -235,6 +251,9 @@ test("allocation refunds preview upfront fees, preserve unknown capital and reco
   await net.fill("4419.68");
   await expect(section).not.toContainText("Estimated capital from upfront fee");
   await save.click();
+  expect(
+    PurchaseReceiptSchema.parse(receipt).details.lots[0]!.capitalReturn,
+  ).toMatchObject({ status: "received", effectiveDate: null });
   expect(reviewedInvestmentFromReceipt(receipt)).toMatchObject({
     cashPaidMinor: 640000,
     returnedCapitalMinor: 154321,
@@ -247,6 +266,7 @@ test("allocation refunds preview upfront fees, preserve unknown capital and reco
   await page.reload();
   await openPosition();
   await expect(section).toContainText("Received capital refunds: USD 1,543.21");
+  await expect(section).toContainText("Date unknown");
 });
 
 test("unified investment details reconcile cash, retain failed drafts and share one saved record", async ({

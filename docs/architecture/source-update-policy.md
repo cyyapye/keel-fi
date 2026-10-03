@@ -311,15 +311,17 @@ editor.
 
 Cash paid, total upfront deductions and net capital invested are exact integer
 money per purchase. A received allocation refund is recorded separately from
-fees, with its receipt date. Cash paid minus received refunds is the capital
-available before upfront deductions; any two capital amounts determine the third
-after that refund. Conflicting or negative totals cannot be saved. Optional fee
-component rates do not determine or need to add up to the entered total
-deductions. When final net capital and deductions are unknown, a one-time rate
-with an explicit gross/net basis previews estimated fees and net capital after
-the allocation refund. Expected refunds affect this preview only. The estimate
-never becomes accepted invested capital, an underlying share count, or a
-provider valuation. Entered allocation amounts take precedence over rate
+fees, with its receipt date when known. An unknown date does not prevent
+recording an already received refund; the date remains null and is never
+inferred from a scheduled payout. Cash paid minus received refunds is the
+capital available before upfront deductions; any two capital amounts determine
+the third after that refund. Conflicting or negative totals cannot be saved.
+Optional fee component rates do not determine or need to add up to the entered
+total deductions. When final net capital and deductions are unknown, a one-time
+rate with an explicit gross/net basis previews estimated fees and net capital
+after the allocation refund. Expected refunds affect this preview only. The
+estimate never becomes accepted invested capital, an underlying share count, or
+a provider valuation. Entered allocation amounts take precedence over rate
 estimates. Nominal SPV units are separate from underlying shares; no conversion
 is inferred. Whole-position cash coverage is an explicit decision separate from
 remaining-share coverage. Reviewed cash drives return cost basis, regardless of

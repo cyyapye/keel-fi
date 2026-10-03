@@ -39,7 +39,12 @@ export function PurchaseCapitalPreview({ lot }: { lot: PurchaseLot }) {
         <p>
           Capital refund: {formatCurrency(refund.amountMinor, "USD")} ·{" "}
           {refund.status === "received" ? "Received" : "Expected"}
-          {refund.effectiveDate ? ` · ${refund.effectiveDate}` : ""}.
+          {refund.effectiveDate
+            ? ` · ${refund.effectiveDate}`
+            : refund.status === "received"
+              ? " · Date unknown"
+              : ""}
+          .
           {lot.grossCashMinor !== null && (
             <>
               {" "}
@@ -329,7 +334,7 @@ export function InvestmentCalculationPreview({
           : reviewed.cashPaidMinor === null
             ? "Confirm all cash contributions and record cash paid to calculate return."
             : reviewed.returnedCapitalReconciliationPending
-              ? "Confirm whether provider distributions include the received capital refund before calculating return."
+              ? "Return stays unknown until you confirm whether the reported distributions include this refund."
               : !estimate
                 ? "A reliable estimate after carry needs a reported value basis, carry rate and capital basis."
                 : unknownAnnual
