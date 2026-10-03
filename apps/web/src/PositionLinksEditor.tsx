@@ -1,5 +1,5 @@
 import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   includesCurrentInvestment,
   effectiveParticipation,
@@ -37,6 +37,7 @@ import {
 } from "./api";
 import { entityReviewUrl } from "./legal-entity-navigation";
 import { formatCurrency, formatDate } from "./format";
+import { suggestPositionLink } from "./position-link-suggestion";
 
 function amountLabel(position: InvestmentPositionRecord) {
   const reviewed = reviewedInvestmentFromReceipt(position.purchaseReceipt);
@@ -97,6 +98,7 @@ export function PositionLinksEditor({
   >("same_investment");
   const [useSourceValue, setUseSourceValue] = useState(false);
   const [targetId, setTargetId] = useState(positionId);
+  const initializedPositionId = useRef<string | null>(null);
   const target = workspace?.positions.find((p) => p.id === targetId);
   const source = workspace?.positions.find((p) => p.id === sourceId);
   const newerName =
@@ -167,38 +169,46 @@ export function PositionLinksEditor({
       setBusy(false);
     }
   }
+  const receiveWorkspace = useCallback(
+    (loaded: PositionLinkWorkspace) => {
+      setWorkspace(loaded);
+      if (initializedPositionId.current === positionId) return;
+      initializedPositionId.current = positionId;
+      const active = loaded.links.find(
+        (link) =>
+          link.sourcePositionId === positionId && link.state === "linked",
+      );
+      const suggestion = reviewEntry
+        ? suggestPositionLink(loaded, positionId)
+        : null;
+      setTargetId(
+        active?.targetPositionId ?? suggestion?.targetId ?? positionId,
+      );
+      setSourceId(suggestion?.sourceId ?? "");
+      setRelationship(suggestion?.relationship ?? "same_investment");
+      setUseSourceValue(false);
+    },
+    [positionId, reviewEntry],
+  );
   const load = useCallback(async () => {
     setBusy(true);
     setError(null);
     setOpen(true);
     try {
-      const loaded = await loadPositionLinks();
-      setWorkspace(loaded);
-      setTargetId(
-        (previous) =>
-          loaded.links.find(
-            (l) => l.sourcePositionId === positionId && l.state === "linked",
-          )?.targetPositionId ?? previous,
-      );
+      receiveWorkspace(await loadPositionLinks());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load records.");
     } finally {
       setBusy(false);
     }
-  }, [positionId]);
+  }, [receiveWorkspace]);
   useEffect(() => {
     if (!initialOpen) return;
     let active = true;
     void loadPositionLinks()
       .then((loaded) => {
         if (!active) return;
-        setWorkspace(loaded);
-        setTargetId(
-          (previous) =>
-            loaded.links.find(
-              (l) => l.sourcePositionId === positionId && l.state === "linked",
-            )?.targetPositionId ?? previous,
-        );
+        receiveWorkspace(loaded);
       })
       .catch((failure: unknown) => {
         if (active)
@@ -214,7 +224,7 @@ export function PositionLinksEditor({
     return () => {
       active = false;
     };
-  }, [initialOpen, positionId]);
+  }, [initialOpen, receiveWorkspace]);
   async function save(remove?: PositionLinkReceipt) {
     const member = remove
       ? workspace?.positions.find((p) => p.id === remove.sourcePositionId)
