@@ -143,7 +143,9 @@ export function PositionLinksEditor({
                   !target.reportedExposureName ||
                   source.reportedExposureName === target.reportedExposureName ||
                   source.snapshot.observedAt === target.snapshot.observedAt)
-              ? "Confirm the same provider account, legal vehicle, owner, date and company first. The source dates must establish the old and new names."
+              ? source.reviewedHistory || target.reviewedHistory
+                ? "This older source needs its provider account and company identity confirmed before applying a rename. The suggested pair has not been linked."
+                : "Confirm the same provider account, legal vehicle, owner, date and company first. The source dates must establish the old and new names."
               : null
       : null;
   async function download(id: string, name: string) {

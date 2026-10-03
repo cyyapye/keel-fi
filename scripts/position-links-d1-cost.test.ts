@@ -5,6 +5,78 @@ import { D1InvestmentPositionViewRepository } from "../packages/database/src/pos
 import { D1PositionLinkRepository } from "../packages/database/src/position-links";
 import { COST_SUBJECT } from "./test-support/cost-fixtures";
 
+it("includes 120 retained private sources with bounded projection-only workspace reads", async () => {
+  const fixture = await createCostFixtureDatabase({
+    operation: "holdings",
+    legacy: true,
+    observations: { status: "Realized" },
+  });
+  try {
+    await fixture.execute(`INSERT INTO investment_connection_versions
+      (id,household_id,connection_id,version,institution_key,institution_label,lifecycle_state,credential_reference,supersedes_version_id,recorded_by_user_id,recorded_at,immutable)
+      SELECT id||':history',household_id,connection_id,version+1,'reviewed-history:sydecar','Synthetic reviewed history',lifecycle_state,NULL,id,recorded_by_user_id,recorded_at,1
+      FROM investment_connection_versions WHERE connection_id='reconciled-holding-connection-v1:hh_demo:sydecar';`);
+    const meter = measureD1(fixture.database);
+    const repo = new D1PositionLinkRepository(meter.database);
+    const workspace = await repo.workspace(COST_SUBJECT);
+    expect(workspace.positions).toHaveLength(120);
+    expect(
+      workspace.positions.every(
+        (p) => p.reviewedHistory && p.sourceProvider === "sydecar",
+      ),
+    ).toBe(true);
+    expect(workspace.positions.every((p) => p.ownershipContainerId)).toBe(true);
+    expect(workspace.links).toEqual([]);
+    expect(meter.cost.roundTrips).toBe(6);
+    expect(meter.cost.rowsWritten).toBe(0);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(12_000);
+    const history = { ...meter.cost };
+    for (const sql of [...meter.queries].filter((q) =>
+      q.includes("AS linked_value_json"),
+    )) {
+      const plan = (
+        await fixture.database
+          .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+          .bind("hh_demo")
+          .all<{ detail: string }>()
+      ).results;
+      expect(
+        plan.filter((r) => /SCAN (link|lp|la|ls|lr|a|ss)\b/u.test(r.detail)),
+      ).toEqual([]);
+    }
+    await fixture.execute(
+      `INSERT INTO users VALUES('retained-other-user','retained-other-subject','other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z'); INSERT INTO households VALUES('retained-other-household','retained-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z');`,
+    );
+    await fixture.setup({
+      operation: "holdings",
+      subject: "retained-other-subject",
+    });
+    meter.reset();
+    expect((await repo.workspace(COST_SUBJECT)).positions).toHaveLength(120);
+    expect(meter.cost.roundTrips).toBe(6);
+    expect(meter.cost.rowsWritten).toBe(0);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(history.rowsRead + 10);
+    // A provider label alone must not turn an ordinary account into history.
+    await fixture.execute(`INSERT INTO investment_connection_versions
+      (id,household_id,connection_id,version,institution_key,institution_label,lifecycle_state,credential_reference,supersedes_version_id,recorded_by_user_id,recorded_at,immutable)
+      SELECT id||':misleading-label',household_id,connection_id,version+1,'reviewed-history:sydecar',institution_label,lifecycle_state,NULL,id,recorded_by_user_id,recorded_at,1
+      FROM investment_connection_versions WHERE household_id='retained-other-household';`);
+    meter.reset();
+    expect((await repo.workspace("retained-other-subject")).positions).toEqual(
+      [],
+    );
+    expect(meter.cost.roundTrips).toBe(6);
+    expect(meter.cost.rowsWritten).toBe(0);
+    console.info(
+      JSON.stringify({
+        retainedPositionLinks: { history, unrelated: meter.cost },
+      }),
+    );
+  } finally {
+    await fixture.close();
+  }
+}, 120_000);
+
 it("bounds 120-record link projections, positive matches, growing history, empty and unrelated households", async () => {
   const fixture = await createCostFixtureDatabase({ operation: "holdings" });
   try {

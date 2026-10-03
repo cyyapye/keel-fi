@@ -18,7 +18,6 @@ export function suggestPositionLink(
     !current.ownershipContainerId ||
     !current.ownerLabel ||
     !current.openedOn ||
-    !current.companyReview ||
     !current.reportedExposureName
   )
     return null;
@@ -27,11 +26,19 @@ export function suggestPositionLink(
       p.id !== current.id &&
       !linked.has(p.id) &&
       p.kind === current.kind &&
-      p.ownershipContainerId === current.ownershipContainerId &&
       p.legalVehicleName === current.legalVehicleName &&
       p.ownerLabel === current.ownerLabel &&
       p.openedOn === current.openedOn &&
-      p.companyReview?.companyId === current.companyReview!.companyId &&
+      ((p.ownershipContainerId === current.ownershipContainerId &&
+        current.companyReview &&
+        p.companyReview?.companyId === current.companyReview.companyId) ||
+        // A retained source can be proposed without inventing an account or
+        // company identity. Rename acceptance keeps its separate strict guard.
+        (((p.reviewedHistory === true && current.reviewedHistory === false) ||
+          (p.reviewedHistory === false && current.reviewedHistory === true)) &&
+          p.sourceProvider &&
+          p.sourceProvider === current.sourceProvider &&
+          effectiveParticipation(p) === "historical")) &&
       p.snapshot.currency === current.snapshot.currency &&
       effectiveParticipation(p) === effectiveParticipation(current) &&
       p.reportedExposureName &&
@@ -49,12 +56,16 @@ export function suggestPositionLink(
         : p.investmentReview
           ? 1
           : 0;
-  // Preserve an existing reviewed record; otherwise keep the earlier source.
+  // Keep a source-account record over a historical fallback. Within the same
+  // scope, prefer reviewed contribution evidence, then the earlier source.
   const keepOther =
-    reviewed(other) !== reviewed(current)
-      ? reviewed(other) > reviewed(current)
-      : Date.parse(other.snapshot.observedAt) <
-        Date.parse(current.snapshot.observedAt);
+    other.reviewedHistory !== current.reviewedHistory &&
+    (other.reviewedHistory || current.reviewedHistory)
+      ? !other.reviewedHistory
+      : reviewed(other) !== reviewed(current)
+        ? reviewed(other) > reviewed(current)
+        : Date.parse(other.snapshot.observedAt) <
+          Date.parse(current.snapshot.observedAt);
   return {
     targetId: keepOther ? other.id : current.id,
     sourceId: keepOther ? current.id : other.id,

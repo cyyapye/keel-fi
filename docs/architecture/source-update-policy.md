@@ -103,6 +103,15 @@ missing identity evidence or conflicting identity fields remain manual choices.
 Opening or reloading the form does not accept a link, and reloading after a
 failed save does not replace the user's selected draft.
 
+The linking workspace also includes private-provider records from reviewed
+history. A unique historical record with the same provider, legal vehicle,
+owner, investment date, currency and participation can prefill a proposed pair
+with a source-account record, even when the older account or company identity
+has not been confirmed. The source-account record stays selected to keep;
+historical fallback containers never establish account equivalence. The rename
+acceptance guard still requires the same confirmed account and reviewed company,
+and the form explains the outstanding identity review before allowing Apply.
+
 The review shows the surviving contribution, ownership, status, source dates and
 fee terms before applying. For duplicate records, the single exact saved
 legal-entity match is preselected for its separate identity decision; no entity
