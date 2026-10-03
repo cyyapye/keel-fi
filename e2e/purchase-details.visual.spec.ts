@@ -4,10 +4,250 @@ import {
   PurchaseReceiptSchema,
   estimatePurchaseValue,
   reviewedInvestmentFromReceipt,
+  estimatePurchaseCapital,
   type PurchaseReceipt,
 } from "../packages/domain/src/position-purchases";
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
+
+test("allocation refunds preview upfront fees, preserve unknown capital and reconcile received cash", async ({
+  page,
+}, info) => {
+  test.setTimeout(120000);
+  await page.clock.setFixedTime(new Date("2026-09-20T12:00:00.000Z"));
+  let receipt: PurchaseReceipt | null = null;
+  let reject = false;
+  const holding = () =>
+    HoldingSchema.parse({
+      id: "refund-spv",
+      companyId: "synthetic-refund-company",
+      positionName: "Synthetic Allocation SPV",
+      exposureName: "Synthetic Allocation Company",
+      ownerLabel: "Demo Family LLC",
+      positionKind: "spv_interest",
+      administratorNavMinor: 900000,
+      administratorNavState: "reported",
+      externalMarkMinor: null,
+      underwritingValueMinor: null,
+      scenarioValueMinor: null,
+      usableLiquidityMinor: null,
+      sourceStatus: "verified",
+      sourceLabel: "Synthetic statement",
+      effectiveDate: "2026-09-01",
+      retrievedAt: "2026-09-01T12:00:00.000Z",
+      confidencePpm: null,
+      investedMinor: 640000,
+      committedMinor: 640000,
+      realizedValueMinor: 0,
+      instrumentType: "SPV interest",
+      positionValueContext: {
+        snapshotId: "synthetic-refund-snapshot",
+        currency: "USD",
+        providerValueState: "not_reported",
+        providerValueMinor: null,
+        acceptedAdjustment: null,
+        projectedEstimate: null,
+      },
+      positionEconomicsContext: {
+        snapshotId: "synthetic-refund-snapshot",
+        currency: "USD",
+        committedMinor: 640000,
+        fundedMinor: 640000,
+        acceptedTerms: null,
+        reportedTerms: null,
+        reviewedInvestment: reviewedInvestmentFromReceipt(receipt),
+      },
+      purchaseContext: {
+        snapshotId: "synthetic-refund-snapshot",
+        currency: "USD",
+        openedOn: "2026-03-01",
+        receipt,
+      },
+    });
+  await routeHoldingsPage(page, () => ({
+    householdName: "Demo Household",
+    holdings: [holding()],
+    investmentHoldings: investmentHoldingsViewFor([holding()]),
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  }));
+  await page.route(
+    "**/api/investment-positions/refund-spv/share-price-evidence",
+    (route) => route.fulfill({ json: { prices: [], watch: [] } }),
+  );
+  await page.route(
+    "**/api/investment-positions/refund-spv/purchases",
+    async (route) => {
+      if (reject) {
+        await route.fulfill({
+          status: 409,
+          json: { error: "The position changed. Review again." },
+        });
+        return;
+      }
+      const input = route.request().postDataJSON();
+      receipt = PurchaseReceiptSchema.parse({
+        id: `synthetic-refund-${receipt ? "changed" : "initial"}`,
+        positionId: "refund-spv",
+        snapshotId: input.expectedSnapshotId,
+        currency: "USD",
+        details: input.details,
+        acceptedAt: "2026-09-20T12:00:00.000Z",
+      });
+      await route.fulfill({ status: 201, json: receipt });
+    },
+  );
+  const openPosition = async () => {
+    await page
+      .getByRole("button", { name: /Synthetic Allocation Company 1 position/u })
+      .click();
+    await page
+      .getByRole("button", {
+        name: "View Synthetic Allocation SPV holding details",
+      })
+      .click();
+  };
+  await page.goto("/holdings");
+  await openPosition();
+  const section = page.getByRole("region", {
+    name: "Investment details",
+    exact: true,
+  });
+  await section
+    .getByRole("button", { name: "Add investment details", exact: true })
+    .click();
+  const cash = section.getByRole("textbox", {
+    name: "Cash paid · USD",
+    exact: true,
+  });
+  const net = section.getByRole("textbox", {
+    name: "Net capital invested · USD",
+    exact: true,
+  });
+  const save = section.getByRole("button", {
+    name: "Save investment details",
+    exact: true,
+  });
+  await cash.fill("6400");
+  await section
+    .getByRole("button", { name: "Capital refund (optional)", exact: true })
+    .click();
+  await section
+    .getByRole("textbox", { name: "Capital refund · USD", exact: true })
+    .fill("1543.21");
+  await section
+    .getByRole("button", {
+      name: "Underlying shares and source evidence (optional)",
+      exact: true,
+    })
+    .click();
+  await section
+    .getByRole("textbox", { name: "One-time fee · %", exact: true })
+    .fill("9");
+  await section
+    .getByRole("combobox", { name: "Fee basis", exact: true })
+    .click();
+  await page
+    .getByRole("option", { name: "Deducted from gross cash", exact: true })
+    .click();
+  await section
+    .getByRole("checkbox", {
+      name: "These purchases include all cash paid for this position.",
+    })
+    .check();
+  const calculation = section.getByLabel("Purchase capital calculation");
+  await expect(calculation).toContainText("4,856.79");
+  await expect(calculation).toContainText("437.11");
+  await expect(calculation).toContainText("4,419.68");
+  await expect(calculation).toContainText("Expected");
+  await expect(net).toHaveValue("");
+  await expect(
+    section.getByRole("textbox", {
+      name: "Upfront deductions · USD",
+      exact: true,
+    }),
+  ).toHaveValue("");
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await expect(section).toHaveScreenshot("allocation-refund-estimate.png", {
+    animations: "disabled",
+  });
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  if (info.project.name === "mobile-chromium")
+    expect(
+      await save.evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+  reject = true;
+  await save.click();
+  await expect(section).toContainText("The position changed. Review again.");
+  await expect(
+    section.getByRole("textbox", { name: "Capital refund · USD", exact: true }),
+  ).toHaveValue("1543.21");
+  reject = false;
+  await save.click();
+  expect(
+    estimatePurchaseCapital(
+      PurchaseReceiptSchema.parse(receipt).details.lots[0]!,
+    )?.netCapitalMinor,
+  ).toBe(441968);
+  expect(reviewedInvestmentFromReceipt(receipt)).toMatchObject({
+    cashPaidMinor: 640000,
+    netCapitalMinor: null,
+    returnedCapitalMinor: 0,
+  });
+  await expect(section).toContainText("Estimated net capital");
+  await page.reload();
+  await openPosition();
+  await section
+    .getByRole("button", { name: "Edit investment details", exact: true })
+    .click();
+  await expect(net).toHaveValue("");
+  await expect(save).toBeDisabled();
+  await section
+    .getByRole("combobox", { name: "Capital refund status", exact: true })
+    .click();
+  await page.getByRole("option", { name: "Received", exact: true }).click();
+  await expect(save).toBeDisabled();
+  await section
+    .getByRole("button", { name: "Capital refund received on", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Tuesday, September 15, 2026", exact: true })
+    .click();
+  await expect(section).toContainText(
+    "Confirm whether provider distributions include",
+  );
+  await section
+    .getByRole("combobox", {
+      name: "Refund in provider distributions",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("option", { name: "Not included", exact: true }).click();
+  await net.fill("4419.68");
+  await expect(section).not.toContainText("Estimated capital from upfront fee");
+  await save.click();
+  expect(reviewedInvestmentFromReceipt(receipt)).toMatchObject({
+    cashPaidMinor: 640000,
+    returnedCapitalMinor: 154321,
+    additionalReturnedCapitalMinor: 154321,
+    netCapitalMinor: 441968,
+    upfrontDeductionsMinor: 43711,
+  });
+  await expect(section).toContainText("Cash retained: USD 4,856.79");
+  await expect(section).not.toContainText("Estimated net capital");
+  await page.reload();
+  await openPosition();
+  await expect(section).toContainText("Received capital refunds: USD 1,543.21");
+});
 
 test("unified investment details reconcile cash, retain failed drafts and share one saved record", async ({
   page,

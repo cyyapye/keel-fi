@@ -310,13 +310,31 @@ acceptance. The separate shares view shows saved calculations and links to this
 editor.
 
 Cash paid, total upfront deductions and net capital invested are exact integer
-money per purchase. Any two determine the third; conflicting or negative totals
-cannot be saved. Optional fee component rates do not determine or need to add up
-to the total deductions. Nominal SPV units are separate from underlying shares;
-no conversion is inferred. Whole-position cash coverage is an explicit decision
-separate from remaining-share coverage. Reviewed cash drives return cost basis,
-regardless of whether the unchanged imported amount is gross, net or unknown. An
-already-net import is never reduced by the fees again.
+money per purchase. A received allocation refund is recorded separately from
+fees, with its receipt date. Cash paid minus received refunds is the capital
+available before upfront deductions; any two capital amounts determine the third
+after that refund. Conflicting or negative totals cannot be saved. Optional fee
+component rates do not determine or need to add up to the entered total
+deductions. When final net capital and deductions are unknown, a one-time rate
+with an explicit gross/net basis previews estimated fees and net capital after
+the allocation refund. Expected refunds affect this preview only. The estimate
+never becomes accepted invested capital, an underlying share count, or a
+provider valuation. Entered allocation amounts take precedence over rate
+estimates. Nominal SPV units are separate from underlying shares; no conversion
+is inferred. Whole-position cash coverage is an explicit decision separate from
+remaining-share coverage. Reviewed cash drives return cost basis, regardless of
+whether the unchanged imported amount is gross, net or unknown. An already-net
+import is never reduced by the fees again.
+
+A received allocation refund preserves the original cash contribution. The
+review records whether that refund is already included in provider-reported
+distributions. Excluded refunds are added once to return proceeds; included
+refunds are not added again. Unknown inclusion withholds gain and return rather
+than assuming either treatment. That decision is bound to the receipt's source
+snapshot; a new source requires renewed review. Carry above cash uses cash
+retained after received allocation refunds. Allocation-refund capture does not
+change cash-account balances or automatically refresh the FI baseline, and does
+not replace the actual-liquidity and forecast-reconciliation ledger.
 
 Annual management fees and carry have independently nullable rates and explicit
 cash/net/unknown bases. Blank is unknown; zero is an evidenced absence of a fee.

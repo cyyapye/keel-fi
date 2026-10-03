@@ -11,6 +11,7 @@ import {
   purchaseCapital,
   purchaseShares,
   reviewedInvestmentFromReceipt,
+  estimatePurchaseCapital,
 } from "./position-purchases";
 import {
   calculatePositionPerformance,
@@ -55,6 +56,147 @@ const receipt = () =>
     },
   });
 describe("unified investment details", () => {
+  const allocationLot = () =>
+    PurchaseLotSchema.parse({
+      ...lot(),
+      grossCashMinor: 640000,
+      netCapitalMinor: null,
+      upfrontDeductionsMinor: null,
+      feePpm: 90000,
+      feeBasis: "gross_cash",
+      capitalReturn: {
+        amountMinor: 154321,
+        status: "expected",
+        effectiveDate: "2026-03-05",
+        reportedDistributions: "unknown",
+      },
+    });
+  it("previews the upfront rate after an expected allocation refund without accepting invested capital or shares", () => {
+    const l = allocationLot();
+    expect(estimatePurchaseCapital(l)).toEqual({
+      retainedCashMinor: 485679,
+      upfrontDeductionsMinor: 43711,
+      netCapitalMinor: 441968,
+      expectedRefund: true,
+    });
+    expect(purchaseCapital(l)).toMatchObject({
+      grossCashMinor: 640000,
+      netCapitalMinor: null,
+      upfrontDeductionsMinor: null,
+    });
+    expect(
+      purchaseShares({
+        ...l,
+        priceMicros: 17500000,
+        originalSharesUnchanged: true,
+      }),
+    ).toBeNull();
+    const r = receipt();
+    r.details.lots = [l];
+    expect(reviewedInvestmentFromReceipt(r)).toMatchObject({
+      cashPaidMinor: 640000,
+      netCapitalMinor: null,
+      upfrontDeductionsMinor: null,
+      returnedCapitalMinor: 0,
+      additionalReturnedCapitalMinor: 0,
+    });
+    expect(estimatePurchaseCapital({ ...l, feeBasis: null })).toBeNull();
+    expect(estimatePurchaseCapital({ ...l, feePpm: null })).toBeNull();
+    expect(
+      estimatePurchaseCapital({ ...l, feeBasis: "net_capital" })
+        ?.netCapitalMinor,
+    ).toBe(445577);
+  });
+  it("reconciles received refunds independently of exact fees and preserves original cash paid", () => {
+    const l = allocationLot();
+    l.capitalReturn!.status = "received";
+    l.netCapitalMinor = 441968;
+    l.upfrontDeductionsMinor = 43711;
+    l.feePpm = 300000; // An optional component never replaces an exact statement.
+    expect(PurchaseLotSchema.safeParse(l).success).toBe(true);
+    expect(purchaseCapital(l)).toEqual({
+      grossCashMinor: 640000,
+      netCapitalMinor: 441968,
+      upfrontDeductionsMinor: 43711,
+      conflict: false,
+    });
+    expect(estimatePurchaseCapital(l)).toBeNull();
+    expect(
+      PurchaseLotSchema.safeParse({ ...l, upfrontDeductionsMinor: 43710 })
+        .success,
+    ).toBe(false);
+    expect(
+      PurchaseLotSchema.safeParse({
+        ...l,
+        capitalReturn: { ...l.capitalReturn!, amountMinor: 640001 },
+      }).success,
+    ).toBe(false);
+    expect(
+      PurchaseLotSchema.safeParse({
+        ...l,
+        capitalReturn: { ...l.capitalReturn!, effectiveDate: null },
+      }).success,
+    ).toBe(false);
+    expect(
+      PurchaseLotSchema.safeParse({
+        ...l,
+        capitalReturn: {
+          ...l.capitalReturn!,
+          status: "expected",
+          reportedDistributions: "included",
+        },
+      }).success,
+    ).toBe(false);
+  });
+  it("counts a received refund once in returns and withholds gains while its provider inclusion is unknown", () => {
+    const r = receipt();
+    const l = allocationLot();
+    l.capitalReturn!.status = "received";
+    r.details.lots = [l];
+    const performance = (realizedValueMinor: number) =>
+      calculatePositionPerformance({
+        currentValueMinor: 900000,
+        currentValueReported: true,
+        realizedValueMinor,
+        providerCostBasisMinor: null,
+        fundedMinor: 640000,
+        allowFundedAmountEstimate: true,
+        economicsContext: {
+          snapshotId: r.snapshotId,
+          currency: "USD",
+          committedMinor: 640000,
+          fundedMinor: 640000,
+          acceptedTerms: null,
+          reportedTerms: null,
+          reviewedInvestment: reviewedInvestmentFromReceipt(r),
+        },
+      });
+    expect(performance(0)).toMatchObject({
+      costBasisMinor: 640000,
+      totalGainMinor: null,
+      totalReturnPpm: null,
+    });
+    l.capitalReturn!.reportedDistributions = "excluded";
+    const excluded = performance(0);
+    expect(excluded).toMatchObject({
+      costBasisMinor: 640000,
+      totalValueMinor: 1054321,
+      totalGainMinor: 414321,
+    });
+    l.capitalReturn!.reportedDistributions = "included";
+    expect(performance(0)).toMatchObject({
+      totalGainMinor: null,
+      totalReturnPpm: null,
+    });
+    expect(performance(154321)).toEqual(excluded);
+    l.capitalReturn!.status = "expected";
+    l.capitalReturn!.reportedDistributions = "unknown";
+    expect(performance(0)).toMatchObject({
+      costBasisMinor: 640000,
+      totalValueMinor: 900000,
+      totalGainMinor: 260000,
+    });
+  });
   it.each([
     {
       grossCashMinor: 240000,

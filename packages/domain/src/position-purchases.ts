@@ -50,6 +50,15 @@ export const PurchaseLotSchema = z
     priceMicros: positive.nullable(),
     referencePriceMicros: positive.nullable(),
     upfrontDeductionsMinor: money.max(10_000_000_000_000).nullable().optional(),
+    capitalReturn: z
+      .object({
+        amountMinor: money.positive().max(10_000_000_000_000),
+        status: z.enum(["expected", "received"]),
+        effectiveDate: z.iso.date().nullable(),
+        reportedDistributions: z.enum(["unknown", "included", "excluded"]),
+      })
+      .strict()
+      .optional(),
     nominalSpvUnitsMicros: money.max(1_000_000_000_000).nullable().optional(),
     grossCashMinor: money.max(10_000_000_000_000).nullable(),
     netCapitalMinor: money.max(10_000_000_000_000).nullable(),
@@ -88,6 +97,33 @@ export const PurchaseLotSchema = z
   })
   .strict()
   .superRefine((lot, ctx) => {
+    const refund = lot.capitalReturn;
+    if (refund) {
+      if (
+        lot.grossCashMinor === null ||
+        refund.amountMinor > lot.grossCashMinor
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: ["capitalReturn", "amountMinor"],
+          message: "Record cash paid; the capital refund cannot exceed it.",
+        });
+      if (refund.status === "received" && refund.effectiveDate === null)
+        ctx.addIssue({
+          code: "custom",
+          path: ["capitalReturn", "effectiveDate"],
+          message: "Date the received capital refund.",
+        });
+      if (
+        refund.status === "expected" &&
+        refund.reportedDistributions !== "unknown"
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: ["capitalReturn", "reportedDistributions"],
+          message: "An expected refund cannot be a received distribution.",
+        });
+    }
     if (lot.mark) {
       const mark = lot.mark;
       if (
@@ -236,7 +272,12 @@ export function prefillPurchaseCapital(
   )
     return lots;
   return lots.map((lot) => {
-    if (lot.grossCashMinor !== null || lot.netCapitalMinor !== null) return lot;
+    if (
+      lot.capitalReturn ||
+      lot.grossCashMinor !== null ||
+      lot.netCapitalMinor !== null
+    )
+      return lot;
     // Purchase capital excludes SPV fees; preserve the separately paid cash in
     // position economics instead of charging those fees again in the lot.
     const acceptedFee = context.acceptedTerms?.purchaseFee;
@@ -283,7 +324,9 @@ export function prefillInvestmentCapital(
   )
     return receipt.details.lots;
   return receipt.details.lots.map((lot) =>
-    lot.grossCashMinor !== null || lot.netCapitalMinor !== null
+    lot.capitalReturn ||
+    lot.grossCashMinor !== null ||
+    lot.netCapitalMinor !== null
       ? lot
       : {
           ...lot,
@@ -314,16 +357,40 @@ export function purchaseCapital(
     | "feePpm"
     | "feeBasis"
     | "upfrontDeductionsMinor"
+    | "capitalReturn"
   >,
 ) {
-  if (lot.upfrontDeductionsMinor !== undefined)
-    return reconcileInvestmentCapital({
+  const refund =
+    lot.capitalReturn?.status === "received"
+      ? lot.capitalReturn.amountMinor
+      : 0;
+  const retained =
+    lot.grossCashMinor === null
+      ? null
+      : Number(BigInt(lot.grossCashMinor) - BigInt(refund));
+  if (retained !== null && retained < 0)
+    return {
       grossCashMinor: lot.grossCashMinor,
       netCapitalMinor: lot.netCapitalMinor,
-      upfrontDeductionsMinor: lot.upfrontDeductionsMinor,
+      upfrontDeductionsMinor: lot.upfrontDeductionsMinor ?? null,
+      conflict: true,
+    };
+  if (lot.upfrontDeductionsMinor !== undefined || lot.capitalReturn) {
+    const capital = reconcileInvestmentCapital({
+      grossCashMinor: retained,
+      netCapitalMinor: lot.netCapitalMinor,
+      upfrontDeductionsMinor: lot.upfrontDeductionsMinor ?? null,
     });
+    return {
+      ...capital,
+      grossCashMinor:
+        capital.grossCashMinor === null
+          ? null
+          : integer(BigInt(capital.grossCashMinor) + BigInt(refund)),
+    };
+  }
   let net = lot.netCapitalMinor;
-  let gross = lot.grossCashMinor;
+  let gross = retained;
   let conflict = false;
   const rate = lot.feePpm;
   if (rate !== null && lot.feeBasis !== null) {
@@ -355,9 +422,44 @@ export function purchaseCapital(
   }
   return {
     netCapitalMinor: net,
-    grossCashMinor: gross,
-    upfrontDeductionsMinor: gross !== null && net !== null ? gross - net : null,
+    grossCashMinor:
+      gross === null ? null : integer(BigInt(gross) + BigInt(refund)),
+    upfrontDeductionsMinor:
+      gross !== null && net !== null
+        ? Number(BigInt(gross) - BigInt(net))
+        : null,
     conflict,
+  };
+}
+
+// A rate can preview a purchase's economics without inventing an executed
+// allocation. This result never supplies reviewed capital or underlying shares.
+export function estimatePurchaseCapital(lot: PurchaseLot) {
+  const exact = purchaseCapital(lot);
+  if (
+    exact.conflict ||
+    exact.netCapitalMinor !== null ||
+    lot.grossCashMinor === null ||
+    lot.feePpm === null ||
+    lot.feeBasis === null
+  )
+    return null;
+  const retained = Number(
+    BigInt(lot.grossCashMinor) - BigInt(lot.capitalReturn?.amountMinor ?? 0),
+  );
+  if (retained < 0) return null;
+  const net =
+    lot.feeBasis === "gross_cash"
+      ? integer(
+          BigInt(retained) -
+            BigInt(ratio(retained, BigInt(lot.feePpm), 1_000_000n)),
+        )
+      : ratio(retained, 1_000_000n, 1_000_000n + BigInt(lot.feePpm));
+  return {
+    retainedCashMinor: retained,
+    upfrontDeductionsMinor: integer(BigInt(retained) - BigInt(net)),
+    netCapitalMinor: net,
+    expectedRefund: lot.capitalReturn?.status === "expected",
   };
 }
 export function purchaseShares(lot: PurchaseLot) {
@@ -479,7 +581,13 @@ export function purchaseAllInPrice(lot: PurchaseLot): number | null {
     const capital = purchaseCapital(lot);
     if (capital.grossCashMinor === null || capital.netCapitalMinor === null)
       return null;
-    numerator = BigInt(capital.grossCashMinor);
+    numerator =
+      BigInt(capital.grossCashMinor) -
+      BigInt(
+        lot.capitalReturn?.status === "received"
+          ? lot.capitalReturn.amountMinor
+          : 0,
+      );
     denominator = BigInt(capital.netCapitalMinor);
   }
   if (denominator <= 0n) return null;
@@ -537,6 +645,32 @@ export function reviewedInvestmentFromReceipt(
     const total = capital.reduce((total, row) => total + BigInt(row[key]!), 0n);
     return total > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(total);
   };
+  const returnedCapital = receipt.details.lots.reduce(
+    (total, lot) =>
+      total +
+      (lot.capitalReturn?.status === "received"
+        ? BigInt(lot.capitalReturn.amountMinor)
+        : 0n),
+    0n,
+  );
+  const additionalReturnedCapital = receipt.details.lots.reduce(
+    (total, lot) =>
+      total +
+      (lot.capitalReturn?.status === "received" &&
+      lot.capitalReturn.reportedDistributions === "excluded"
+        ? BigInt(lot.capitalReturn.amountMinor)
+        : 0n),
+    0n,
+  );
+  const includedReturnedCapital = receipt.details.lots.reduce(
+    (total, lot) =>
+      total +
+      (lot.capitalReturn?.status === "received" &&
+      lot.capitalReturn.reportedDistributions === "included"
+        ? BigInt(lot.capitalReturn.amountMinor)
+        : 0n),
+    0n,
+  );
   return {
     snapshotId: receipt.snapshotId,
     receiptId: receipt.id,
@@ -544,5 +678,17 @@ export function reviewedInvestmentFromReceipt(
     cashPaidMinor: sum("grossCashMinor"),
     netCapitalMinor: sum("netCapitalMinor"),
     upfrontDeductionsMinor: sum("upfrontDeductionsMinor"),
+    ...(receipt.details.lots.some((lot) => lot.capitalReturn)
+      ? {
+          returnedCapitalMinor: integer(returnedCapital),
+          additionalReturnedCapitalMinor: integer(additionalReturnedCapital),
+          includedReturnedCapitalMinor: integer(includedReturnedCapital),
+          returnedCapitalReconciliationPending: receipt.details.lots.some(
+            (lot) =>
+              lot.capitalReturn?.status === "received" &&
+              lot.capitalReturn.reportedDistributions === "unknown",
+          ),
+        }
+      : {}),
   };
 }

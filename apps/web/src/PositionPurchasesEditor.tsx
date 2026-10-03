@@ -6,6 +6,7 @@ import {
 import {
   InvestmentCalculationPreview,
   InvestmentTermsFields,
+  PurchaseCapitalPreview,
 } from "./InvestmentTermsPanel";
 import { unknownInvestmentTerms } from "@keel/domain/investment-details";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,6 +20,7 @@ import {
   PurchaseLotSchema,
   PurchaseDetailsSchema,
   estimatePurchaseValue,
+  estimatePurchaseCapital,
   purchaseCapital,
   purchaseShares,
   purchaseAllInPrice,
@@ -119,6 +121,11 @@ function draftFor(lot: PurchaseLot): Draft {
       purchaseCapital(lot).upfrontDeductionsMinor,
       2,
     ),
+    capitalReturnAmount: decimal(lot.capitalReturn?.amountMinor, 2),
+    capitalReturnStatus: lot.capitalReturn?.status ?? "expected",
+    capitalReturnDate: lot.capitalReturn?.effectiveDate ?? "",
+    capitalReturnDistributions:
+      lot.capitalReturn?.reportedDistributions ?? "unknown",
     nominalSpvUnitsMicros: decimal(lot.nominalSpvUnitsMicros, 6),
     feePpm: decimal(lot.feePpm, 4),
     feeBasis: lot.feeBasis ?? "",
@@ -156,6 +163,19 @@ function lotFor(d: Draft) {
     priceMicros: scaled(d.priceMicros, 6),
     referencePriceMicros: scaled(d.referencePriceMicros, 6),
     upfrontDeductionsMinor: scaled(d.upfrontDeductionsMinor, 2),
+    ...(d.capitalReturnAmount || d.capitalReturnDate
+      ? {
+          capitalReturn: {
+            amountMinor: scaled(d.capitalReturnAmount, 2),
+            status: d.capitalReturnStatus || "expected",
+            effectiveDate: d.capitalReturnDate || null,
+            reportedDistributions:
+              d.capitalReturnStatus === "received"
+                ? d.capitalReturnDistributions || "unknown"
+                : "unknown",
+          },
+        }
+      : {}),
     nominalSpvUnitsMicros: scaled(d.nominalSpvUnitsMicros, 6),
     grossCashMinor: scaled(d.grossCashMinor, 2),
     netCapitalMinor: scaled(d.netCapitalMinor, 2),
@@ -678,7 +698,9 @@ function InvestmentDetailsEditor({
                 receipt.details.lots.length === 1 &&
                 !lot.priceMicros &&
                 !lot.remainingSharesMicros &&
-                !lot.sourceText
+                !lot.sourceText &&
+                !lot.capitalReturn &&
+                !estimatePurchaseCapital(lot)
               )
                 return (
                   <p key={lot.id} className="purchase-summary__metadata">
@@ -706,6 +728,7 @@ function InvestmentDetailsEditor({
               return (
                 <div key={lot.id} className="purchase-summary">
                   {receipt.details.lots.length > 1 && <h4>Purchase {i + 1}</h4>}
+                  <PurchaseCapitalPreview lot={lot} />
                   <p className="purchase-summary__metadata">
                     {[
                       lot.shareClass,
@@ -1322,7 +1345,15 @@ function InvestmentDetailsEditor({
                               Cash paid{" "}
                               {capital.grossCashMinor === null
                                 ? "unknown"
-                                : money(capital.grossCashMinor)}{" "}
+                                : money(capital.grossCashMinor)}
+                              {lot.data?.capitalReturn?.status ===
+                                "received" && (
+                                <>
+                                  {" "}
+                                  − refund{" "}
+                                  {money(lot.data.capitalReturn.amountMinor)}
+                                </>
+                              )}{" "}
                               − deductions{" "}
                               {capital.upfrontDeductionsMinor === null
                                 ? "unknown"
@@ -1336,6 +1367,106 @@ function InvestmentDetailsEditor({
                           )
                         );
                       })()}
+                      <Collapsible defaultOpen={Boolean(d.capitalReturnAmount)}>
+                        <CollapsibleTrigger layout="inline">
+                          Capital refund (optional) <DisclosureIndicator />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="position-economics__fields">
+                            {field(
+                              i,
+                              "capitalReturnAmount",
+                              "Capital refund · USD",
+                              true,
+                            )}
+                            <Field
+                              label="Capital refund status"
+                              variant="filled"
+                            >
+                              <Select
+                                items={[
+                                  { value: "expected", label: "Expected" },
+                                  { value: "received", label: "Received" },
+                                ]}
+                                value={d.capitalReturnStatus || "expected"}
+                                onValueChange={(v) =>
+                                  update(i, "capitalReturnStatus", String(v))
+                                }
+                              >
+                                <SelectTrigger aria-label="Capital refund status">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="expected">
+                                    Expected
+                                  </SelectItem>
+                                  <SelectItem value="received">
+                                    Received
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            {date(
+                              i,
+                              "capitalReturnDate",
+                              d.capitalReturnStatus === "received"
+                                ? "Capital refund received on"
+                                : "Capital refund expected on (optional)",
+                            )}
+                            {d.capitalReturnStatus === "received" && (
+                              <Field
+                                label="Refund in provider distributions"
+                                variant="filled"
+                              >
+                                <Select
+                                  items={[
+                                    { value: "unknown", label: "Unknown" },
+                                    {
+                                      value: "included",
+                                      label: "Already included",
+                                    },
+                                    {
+                                      value: "excluded",
+                                      label: "Not included",
+                                    },
+                                  ]}
+                                  value={
+                                    d.capitalReturnDistributions || "unknown"
+                                  }
+                                  onValueChange={(v) =>
+                                    update(
+                                      i,
+                                      "capitalReturnDistributions",
+                                      String(v),
+                                    )
+                                  }
+                                >
+                                  <SelectTrigger aria-label="Refund in provider distributions">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="unknown">
+                                      Unknown
+                                    </SelectItem>
+                                    <SelectItem value="included">
+                                      Already included
+                                    </SelectItem>
+                                    <SelectItem value="excluded">
+                                      Not included
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+                            )}
+                          </div>
+                          <p>
+                            Use this for uninvested cash returned after an
+                            allocation cutback. Expected refunds affect the
+                            estimate only. Received refunds reduce cash
+                            available for investment; they are not fees.
+                          </p>
+                        </CollapsibleContent>
+                      </Collapsible>
                       <p>
                         SPV units represent your interest in the vehicle. They
                         are not company shares; no conversion is inferred.
@@ -1483,10 +1614,17 @@ function InvestmentDetailsEditor({
                             {field(i, "sourceUrl", "Purchase source link")}
                           </div>
                           <p>
-                            Optional fee rates describe components of the
-                            upfront deductions; they are not added to the
-                            totals.
+                            The one-time fee previews net capital when final
+                            amounts are unknown. Entered upfront totals take
+                            precedence; annual management fees and carry stay
+                            separate.
                           </p>
+                          {(() => {
+                            const lot = PurchaseLotSchema.safeParse(lotFor(d));
+                            return lot.success ? (
+                              <PurchaseCapitalPreview lot={lot.data} />
+                            ) : null;
+                          })()}
                           {(d.reportedManagementFeePpm ||
                             d.reportedCarryPpm) && (
                             <Notice>
