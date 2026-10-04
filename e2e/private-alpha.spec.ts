@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { PortfolioWatchScanResultSchema } from "../packages/domain/src/index";
 import { PortfolioWatchActivitySchema } from "../packages/domain/src/portfolio-watch-activity";
+import { HoldingsPageSchema } from "../packages/domain/src/holdings-page";
 
 import { navigateToScreen } from "./navigation";
 
@@ -41,6 +42,14 @@ test("loads the database-backed dashboard and primary views", async ({
 
   const mobile = test.info().project.name === "mobile-chromium";
 
+  const holdingsResponse = await page.request.get("/api/holdings-page");
+  expect(holdingsResponse.ok()).toBe(true);
+  const holdingsPage = HoldingsPageSchema.parse(await holdingsResponse.json());
+  const hasNoHoldings =
+    holdingsPage.holdings.length === 0 &&
+    holdingsPage.acceptedCashAccounts.length === 0 &&
+    holdingsPage.investmentHoldings.exposureView.positions.length === 0;
+
   await fiEligibleMetric.getByRole("button", { name: "View holdings" }).click();
   await expect(
     page.getByRole("heading", { name: "Holdings", exact: true }),
@@ -48,9 +57,24 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "Exposures", exact: true }),
-  ).toBeVisible();
+  const welcome = page.getByRole("heading", {
+    name: "Your holdings, in one place",
+    exact: true,
+  });
+  const exposures = page.getByRole("heading", {
+    name: "Exposures",
+    exact: true,
+  });
+  if (hasNoHoldings) {
+    await expect(welcome).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Manage sources" }),
+    ).toHaveAttribute("href", "/holdings/sources");
+    await expect(exposures).toHaveCount(0);
+  } else {
+    await expect(exposures).toBeVisible();
+    await expect(welcome).toHaveCount(0);
+  }
   for (const retiredCompany of [
     "Harbor Health Systems",
     "Lattice Grove Energy",
