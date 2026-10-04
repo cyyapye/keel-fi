@@ -821,8 +821,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
   });
   await summitAction.click();
   await expect(
-    page.getByText("Via Summit Demo SPV", { exact: true }),
+    page.getByText("Summit Demo SPV · Demo Family LLC", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: /^Fees & carry/ }).click();
   await expect(
     page.getByText("Management fee is not included in this source.", {
       exact: true,
@@ -887,8 +888,38 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     page.getByRole("button", { name: "Back to holdings" }),
   ).toHaveAttribute("data-slot", "text-link");
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-detail-summary.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  const planningToggle = page.getByRole("button", {
+    name: /^Planning & liquidity/u,
+  });
+  await planningToggle.click();
+  const planningRow = page
+    .locator(".holding-planning .data-list__item")
+    .filter({ hasText: "Planning value" });
+  await expect(planningRow).toContainText(
+    "Amount counted toward financial independence.",
+  );
+  const planningLabel = await planningRow.locator("dt").boundingBox();
+  const planningValue = await planningRow.locator("dd strong").boundingBox();
+  const planningHelp = await planningRow.locator("dd small").boundingBox();
+  expect(planningLabel).not.toBeNull();
+  expect(planningValue).not.toBeNull();
+  expect(planningHelp).not.toBeNull();
+  expect(planningValue!.x).toBeGreaterThan(planningLabel!.x);
+  expect(planningHelp!.y).toBeGreaterThanOrEqual(
+    planningValue!.y + planningValue!.height,
+  );
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-planning-values.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await planningToggle.click();
   const ownershipToggle = page.getByRole("button", {
-    name: /^Ownership & source/u,
+    name: /^Ownership, sources & history/u,
   });
   await expect(ownershipToggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("Legal SPV")).not.toBeVisible();
@@ -898,7 +929,6 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     page.getByText("Imported source", { exact: true }),
   ).toBeVisible();
-  await ownershipToggle.click();
   const otherValuesToggle = page.getByRole("button", {
     name: "Other valuations",
     exact: true,
@@ -909,14 +939,13 @@ test("leads with the investment and opens a truthful holding detail", async ({
       "Reviewed value copied into the provider template as of the source date.",
     ),
   ).toBeVisible();
-  await ownershipToggle.click();
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "holding-detail-supporting-details.png",
     { animations: "disabled", caret: "hide" },
   );
   await ownershipToggle.click();
-  await otherValuesToggle.click();
+  await page.getByRole("button", { name: /^Fees & carry/ }).click();
   await expect(page.getByText("Allocation", { exact: true })).toBeVisible();
   await expect(
     page.locator(".position-economics__rows").getByText("$100k"),
@@ -1009,6 +1038,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     },
   );
 
+  await page.getByRole("button", { name: /^Value & return/ }).click();
   await page.getByRole("button", { name: "Add value evidence" }).click();
   await page.getByLabel("Value · USD").fill("150000");
   await page.getByRole("button", { name: "As of", exact: true }).click();
@@ -1072,7 +1102,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
       "Reviewed value accepted. Exposure totals now use this mark.",
     ),
   ).toBeVisible();
-  await page.getByRole("button", { name: /^Ownership & source/u }).click();
+  await page
+    .getByRole("button", { name: /^Ownership, sources & history/u })
+    .click();
   const reviewedMark = page.locator(".holding-reviewed-mark");
   await expect(reviewedMark).toContainText("Synthetic Health Journal");
   await expect(reviewedMark).toContainText("$150k");
@@ -1132,7 +1164,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
       name: "View SYN holding details",
     })
     .click();
-  await page.getByRole("button", { name: /^Ownership & source/u }).click();
+  await page
+    .getByRole("button", { name: /^Ownership, sources & history/u })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Brokerage source" }),
   ).toBeVisible();

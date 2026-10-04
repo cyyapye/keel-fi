@@ -1,6 +1,9 @@
 import { PositionLinksEditor } from "./PositionLinksEditor";
 import { estimatePurchaseValue } from "@keel/domain/position-purchases";
-import { PositionPurchasesEditor } from "./PositionPurchasesEditor";
+import {
+  PositionPurchasesEditor,
+  type InvestmentDetailsHandle,
+} from "./PositionPurchasesEditor";
 import { PortfolioWatchMonitor } from "./PortfolioWatchMonitor";
 import { formatWatchTime, mergeWatchReadState } from "./portfolio-watch-format";
 import {
@@ -1669,14 +1672,6 @@ function holdingPrimaryName(holding: Holding): string {
   return holding.exposureName ?? holding.positionName;
 }
 
-function holdingKindLabel(holding: Holding): string {
-  return {
-    direct: "Direct holding",
-    spv_interest: "SPV interest",
-    fund_interest: "Fund interest",
-  }[holding.positionKind];
-}
-
 function holdingLegalPositionLabel(holding: Holding): string {
   if (holding.positionKind === "direct") {
     return "Direct position";
@@ -2218,18 +2213,36 @@ function positionValueSourceUrlIsValid(value: string): boolean {
 function PositionValuationSection({
   holding,
   onAccepted,
+  onEditInvestmentDetails,
 }: {
   holding: Holding;
   onAccepted: () => Promise<void>;
+  onEditInvestmentDetails?: () => void;
 }) {
   const [reportedDirty, setReportedDirty] = useState(false);
   const [sharesDirty, setSharesDirty] = useState(false);
   if (!holding.purchaseContext)
     return (
-      <PositionValueAdjustmentEditor
-        holding={holding}
-        onAccepted={onAccepted}
-      />
+      <Collapsible className="holding-detail-section position-valuation">
+        <CollapsibleTrigger layout="inline" className="holding-section-toggle">
+          <span>
+            <strong>Value &amp; return</strong>
+            <small>Reported and reviewed value evidence</small>
+          </span>
+          <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent keepMounted>
+          <PositionPerformanceSummary
+            holding={holding}
+            primary={null}
+            detailsOnly
+          />
+          <PositionValueAdjustmentEditor
+            holding={holding}
+            onAccepted={onAccepted}
+          />
+        </CollapsibleContent>
+      </Collapsible>
     );
   const accepted = holding.positionValueContext?.acceptedAdjustment;
   const estimate = estimatePurchaseValue(
@@ -2238,23 +2251,26 @@ function PositionValuationSection({
   );
   const summary = accepted
     ? `${formatCurrency(accepted.valueMinor, accepted.currency)} · ${accepted.sourceLabel} · ${formatDate(accepted.effectiveDate)}`
-    : holding.linkedReportedValue
-      ? `${holding.linkedReportedValue.minor === null ? "Not reported" : formatCurrency(holding.linkedReportedValue.minor, holding.purchaseContext.currency)} · ${holding.linkedReportedValue.sourceLabel} · ${formatDate(holding.linkedReportedValue.observedAt)}`
+    : holding.administratorNavMinor !== null
+      ? `${formatCurrency(holding.administratorNavMinor, holding.purchaseContext.currency)} · ${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}`
       : estimate
         ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · ${estimate.proxy ? "Proxy estimate" : "Share estimate"} · ${estimate.effectiveDate ? formatDate(estimate.effectiveDate) : "Mark date unknown"}`
-        : holding.positionValueContext?.providerValueMinor != null
-          ? `${formatCurrency(holding.positionValueContext.providerValueMinor, holding.positionValueContext.currency)} · ${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`
+        : holding.positionValueContext?.projectedEstimate
+          ? `${formatCurrency(holding.positionValueContext.projectedEstimate.valueMinor, holding.purchaseContext.currency)} · Portfolio Watch estimate`
           : "Optional · Add a reported value or calculate from shares";
   return (
-    <section aria-label="Position value" className="position-valuation">
+    <section
+      aria-label="Value & return"
+      className="position-valuation holding-detail-section"
+    >
       <Collapsible>
         <CollapsibleTrigger
           layout="inline"
           className="position-valuation__toggle"
-          aria-label="Position value"
+          aria-label="Value & return"
         >
           <span>
-            <strong>Position value</strong>
+            <strong>Value &amp; return</strong>
             <small>{summary}</small>
           </span>
           {(reportedDirty || sharesDirty) && (
@@ -2263,6 +2279,11 @@ function PositionValuationSection({
           <DisclosureIndicator />
         </CollapsibleTrigger>
         <CollapsibleContent keepMounted>
+          <PositionPerformanceSummary
+            holding={holding}
+            primary={null}
+            detailsOnly
+          />
           <Tabs
             defaultValue={holding.positionValueContext ? "reported" : "shares"}
           >
@@ -2294,6 +2315,9 @@ function PositionValuationSection({
                 holding={holding}
                 onAccepted={onAccepted}
                 mode="valuation"
+                {...(onEditInvestmentDetails
+                  ? { onEditInvestmentDetails }
+                  : {})}
                 onDirtyChange={setSharesDirty}
               />
             </TabsContent>
@@ -2750,9 +2774,11 @@ function reportedCarryLabel(holding: Holding) {
 function PositionPerformanceSummary({
   holding,
   primary,
+  detailsOnly = false,
 }: {
   holding: Holding;
   primary: ReactNode;
+  detailsOnly?: boolean;
 }) {
   const acceptedAdjustment =
     holding.positionValueContext?.acceptedAdjustment ?? null;
@@ -2786,7 +2812,7 @@ function PositionPerformanceSummary({
     (holding.positionKind === "spv_interest" ||
       holding.positionKind === "fund_interest" ||
       holding.companyId !== null);
-  const basisLabel = contributionBasis ? "Cash contributed" : "Cost basis";
+  const basisLabel = contributionBasis ? "Cash paid" : "Cost basis";
   const basisHelper = {
     provider: "Reported by the brokerage source.",
     reviewed_spv_terms: "Cash contributed, including reviewed upfront fees.",
@@ -2795,26 +2821,29 @@ function PositionPerformanceSummary({
   }[performance.costBasisSource ?? "funded_amount_estimate"];
 
   return (
-    <section aria-label="Position summary" className="holding-headline">
-      <StatGroup className="holding-headline__values">
-        {primary}
-        {!isCashLikeHolding(holding) && (
-          <>
-            <Stat
-              label={
-                performance.costBasisSource === "funded_amount_estimate"
-                  ? `${basisLabel} · reported`
-                  : basisLabel
-              }
-              value={
-                performance.costBasisMinor === null
-                  ? "Not reported"
-                  : performance.costBasisSource === "reviewed_spv_terms"
-                    ? formatMoney(performance.costBasisMinor)
-                    : formatCompactMoney(performance.costBasisMinor)
-              }
-            />
-            {performance.totalReturnPpm !== null && (
+    <section
+      aria-label={detailsOnly ? "Return explanation" : "Position summary"}
+      className={detailsOnly ? "holding-return-details" : "holding-headline"}
+    >
+      {!detailsOnly && (
+        <StatGroup className="holding-headline__values">
+          {primary}
+          {!isCashLikeHolding(holding) && (
+            <>
+              <Stat
+                label={
+                  performance.costBasisSource === "funded_amount_estimate"
+                    ? `${basisLabel} · reported`
+                    : basisLabel
+                }
+                value={
+                  performance.costBasisMinor === null
+                    ? "Not reported"
+                    : performance.costBasisSource === "reviewed_spv_terms"
+                      ? formatMoney(performance.costBasisMinor)
+                      : formatCompactMoney(performance.costBasisMinor)
+                }
+              />
               <Stat
                 label={
                   holding.shareValueEstimate?.proxy &&
@@ -2825,19 +2854,23 @@ function PositionPerformanceSummary({
                       ? `Reported return · ${reportedCarryLabel(holding)}`
                       : "Total return"
                 }
-                value={formatSignedProbability(performance.totalReturnPpm)}
+                value={
+                  performance.totalReturnPpm === null
+                    ? "Unavailable"
+                    : formatSignedProbability(performance.totalReturnPpm)
+                }
                 detail={
                   performance.totalGainMinor === null
                     ? undefined
                     : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)} total gain / loss`
                 }
               />
-            )}
-          </>
-        )}
-      </StatGroup>
-      {!isCashLikeHolding(holding) && (
-        <Collapsible className="holding-summary-details">
+            </>
+          )}
+        </StatGroup>
+      )}
+      {detailsOnly && !isCashLikeHolding(holding) && (
+        <Collapsible defaultOpen className="holding-summary-details">
           <CollapsibleTrigger layout="inline">
             Return details <DisclosureIndicator />
           </CollapsibleTrigger>
@@ -2905,6 +2938,9 @@ function HoldingDetailWorkspace({
   onValueAccepted: () => Promise<void>;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const purchaseEditor = useRef<InvestmentDetailsHandle>(null);
+  const [purchaseEditing, setPurchaseEditing] = useState(false);
+  const [legacyFeesExpanded, setLegacyFeesExpanded] = useState(false);
   const primaryName = holdingPrimaryName(holding);
   const legalPositionLabel = holdingLegalPositionLabel(holding);
   const acceptedAdjustment =
@@ -2965,21 +3001,21 @@ function HoldingDetailWorkspace({
       wide: false,
     },
     {
-      label: "FI planning value",
+      label: "Planning value",
       value: holdingValueLabel(holding.underwritingValueMinor),
-      helper: "Conservative value allowed into FI planning.",
+      helper: "Amount counted toward financial independence.",
       wide: false,
     },
     {
       label: "Scenario value",
       value: holdingValueLabel(holding.scenarioValueMinor),
-      helper: "Thesis-weighted conditional economic value.",
+      helper: "Value assumed in what-if scenarios.",
       wide: false,
     },
     {
       label: "Usable liquidity",
       value: holdingValueLabel(holding.usableLiquidityMinor),
-      helper: "Capital currently available for actual decisions.",
+      helper: "Amount available to fund your goals.",
       wide: false,
     },
   ] as const;
@@ -2991,78 +3027,140 @@ function HoldingDetailWorkspace({
   return (
     <section
       aria-labelledby="holding-detail-title"
-      className="holding-detail-workspace"
+      className={`holding-detail-workspace${purchaseEditing ? " holding-detail-workspace--editing" : ""}`}
     >
       <header className="holding-detail-heading">
-        <p className="eyebrow">Holding detail</p>
         <h2 id="holding-detail-title" ref={headingRef} tabIndex={-1}>
           {primaryName}
         </h2>
-        {(holding.exposureName === null ||
-          holding.positionKind === "direct" ||
-          holding.positionName !== primaryName) && (
-          <p>
-            {holding.exposureName === null
-              ? holdingKindLabel(holding)
-              : holding.positionKind === "direct"
-                ? "Direct position"
-                : `Via ${holding.positionName}`}
-          </p>
-        )}
+        <p>
+          {holding.positionName} · {holding.ownerLabel}
+        </p>
       </header>
 
-      <PositionPerformanceSummary
-        holding={holding}
-        primary={
-          <Stat
-            className="holding-headline__primary"
-            label={
-              acceptedAdjustment
-                ? "Reviewed value"
-                : holding.shareValueEstimate &&
-                    holding.administratorNavMinor === null
-                  ? holding.shareValueEstimate.proxy
-                    ? "Estimated value · proxy"
-                    : "Estimated value · shares"
-                  : projectedEstimate && holding.administratorNavMinor === null
-                    ? "Estimated value"
-                    : valueLenses[0].label
-            }
-            value={
-              acceptedAdjustment
-                ? holdingValueLabel(acceptedAdjustment.valueMinor)
-                : holding.shareValueEstimate &&
-                    holding.administratorNavMinor === null
-                  ? holdingValueLabel(holding.shareValueEstimate.valueMinor)
-                  : projectedEstimate && holding.administratorNavMinor === null
-                    ? holdingValueLabel(projectedEstimate.valueMinor)
-                    : valueLenses[0].value
-            }
-            detail={
-              acceptedAdjustment
-                ? `${acceptedAdjustment.sourceLabel} · ${formatDate(acceptedAdjustment.effectiveDate)}`
-                : holding.shareValueEstimate &&
-                    holding.administratorNavMinor === null
-                  ? "Before carry and remaining expenses · See valuation assumptions below"
-                  : projectedEstimate && holding.administratorNavMinor === null
-                    ? "Portfolio Watch estimate · Not an accepted mark"
-                    : holding.administratorNavMinor === null
-                      ? holding.administratorNavState === "locked"
-                        ? valueLenses[0].helper
-                        : "Add a reported value or calculate from shares below."
-                      : `${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(currentReportedValueReview(holding)?.effectiveDate ?? holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}${holding.purchaseContext ? ` · ${reportedCarryLabel(holding)}` : ""}`
-            }
-          />
-        }
-      />
-      <Collapsible className="holding-other-values">
+      <div className="holding-summary">
+        <PositionPerformanceSummary
+          holding={holding}
+          primary={
+            <Stat
+              className="holding-headline__primary"
+              label={
+                acceptedAdjustment
+                  ? "Reviewed value"
+                  : holding.shareValueEstimate &&
+                      holding.administratorNavMinor === null
+                    ? holding.shareValueEstimate.proxy
+                      ? "Estimated value · proxy"
+                      : "Estimated value · shares"
+                    : projectedEstimate &&
+                        holding.administratorNavMinor === null
+                      ? "Estimated value"
+                      : valueLenses[0].label
+              }
+              value={
+                acceptedAdjustment
+                  ? holdingValueLabel(acceptedAdjustment.valueMinor)
+                  : holding.shareValueEstimate &&
+                      holding.administratorNavMinor === null
+                    ? holdingValueLabel(holding.shareValueEstimate.valueMinor)
+                    : projectedEstimate &&
+                        holding.administratorNavMinor === null
+                      ? holdingValueLabel(projectedEstimate.valueMinor)
+                      : valueLenses[0].value
+              }
+              detail={
+                acceptedAdjustment
+                  ? `${acceptedAdjustment.sourceLabel} · ${formatDate(acceptedAdjustment.effectiveDate)}`
+                  : holding.shareValueEstimate &&
+                      holding.administratorNavMinor === null
+                    ? "Before carry and remaining expenses · See valuation assumptions below"
+                    : projectedEstimate &&
+                        holding.administratorNavMinor === null
+                      ? "Portfolio Watch estimate · Not an accepted mark"
+                      : holding.administratorNavMinor === null
+                        ? holding.administratorNavState === "locked"
+                          ? valueLenses[0].helper
+                          : "Add a reported value or calculate from shares below."
+                        : `${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(currentReportedValueReview(holding)?.effectiveDate ?? holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}${holding.purchaseContext ? ` · ${reportedCarryLabel(holding)}` : ""}`
+              }
+            />
+          }
+        />
+        {holding.purchaseContext && !purchaseEditing && (
+          <Button
+            className="holding-edit-purchases"
+            tone="secondary"
+            onClick={() => purchaseEditor.current?.edit()}
+          >
+            Edit purchases
+          </Button>
+        )}
+      </div>
+      {holding.purchaseContext ? (
+        <PositionPurchasesEditor
+          mode="combined"
+          summaryFirst
+          editorRef={purchaseEditor}
+          onEditingChange={setPurchaseEditing}
+          valuationSection={
+            <PositionValuationSection
+              holding={holding}
+              onAccepted={onValueAccepted}
+              onEditInvestmentDetails={() => purchaseEditor.current?.edit()}
+            />
+          }
+          key={`${holding.id}:${holding.purchaseContext.snapshotId}`}
+          holding={holding}
+          onAccepted={onValueAccepted}
+        />
+      ) : (
+        <>
+          {holding.positionEconomicsContext && (
+            <Collapsible
+              open={legacyFeesExpanded}
+              onOpenChange={setLegacyFeesExpanded}
+              className="holding-detail-section"
+            >
+              <CollapsibleTrigger
+                layout="inline"
+                className="holding-section-toggle"
+              >
+                <span>
+                  <strong>Fees &amp; carry</strong>
+                  <small>Investment amounts and reviewed terms</small>
+                </span>
+                <DisclosureIndicator />
+              </CollapsibleTrigger>
+              <CollapsibleContent keepMounted>
+                <PositionEconomicsEditor
+                  holding={holding}
+                  onAccepted={onValueAccepted}
+                />
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+          {!isCashLikeHolding(holding) && (
+            <PositionValuationSection
+              holding={holding}
+              onAccepted={onValueAccepted}
+            />
+          )}
+        </>
+      )}
+      <Collapsible className="holding-planning holding-detail-section">
         <CollapsibleTrigger layout="inline" className="holding-section-toggle">
-          <strong>Other valuations</strong>
+          <span>
+            <strong>Planning &amp; liquidity</strong>
+            <small>
+              FI planning {holdingValueLabel(holding.underwritingValueMinor)} ·
+              Usable liquidity {holdingValueLabel(holding.usableLiquidityMinor)}
+            </small>
+          </span>
           <DisclosureIndicator />
         </CollapsibleTrigger>
         <CollapsibleContent>
           <DataList>
-            {valueLenses.map((lens) => (
+            {valueLenses.slice(2).map((lens) => (
               <DataItem
                 key={lens.label}
                 label={lens.label}
@@ -3075,48 +3173,15 @@ function HoldingDetailWorkspace({
               />
             ))}
           </DataList>
+          <p className="holding-detail-help">
+            A new position value does not change planning values automatically.
+          </p>
         </CollapsibleContent>
       </Collapsible>
-
-      {isImportedPosition && holding.positionKind === "spv_interest" && (
-        <PositionLinksEditor
-          key={holding.id}
-          positionId={holding.id}
-          onAccepted={onValueAccepted}
-        />
-      )}
-      {holding.linkedReportedValue && (
-        <p>
-          Reported value from {holding.linkedReportedValue.sourceLabel}, as of{" "}
-          {formatDate(holding.linkedReportedValue.observedAt)}. The SPV’s
-          investment amount and terms are kept separately.
-        </p>
-      )}
-      <PositionPurchasesEditor
-        mode="combined"
-        key={`${holding.id}:${holding.purchaseContext?.snapshotId}:${holding.purchaseContext?.receipt?.id}`}
-        holding={holding}
-        onAccepted={onValueAccepted}
-      />
-
-      {!holding.purchaseContext && (
-        <PositionEconomicsEditor
-          holding={holding}
-          onAccepted={onValueAccepted}
-        />
-      )}
-
-      {!isCashLikeHolding(holding) && (
-        <PositionValuationSection
-          holding={holding}
-          onAccepted={onValueAccepted}
-        />
-      )}
-
-      <Collapsible className="holding-ownership">
+      <Collapsible className="holding-ownership holding-detail-section">
         <CollapsibleTrigger layout="inline" className="holding-section-toggle">
           <span>
-            <strong>Ownership &amp; source</strong>
+            <strong>Ownership, sources &amp; history</strong>
             <small>
               {holding.ownerLabel} · {holding.sourceLabel} ·{" "}
               {formatDate(holding.effectiveDate)}
@@ -3125,6 +3190,45 @@ function HoldingDetailWorkspace({
           <DisclosureIndicator />
         </CollapsibleTrigger>
         <CollapsibleContent>
+          <Collapsible className="holding-other-values holding-source-values">
+            <CollapsibleTrigger
+              layout="inline"
+              className="holding-section-toggle"
+            >
+              <strong>Other valuations</strong>
+              <DisclosureIndicator />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <DataList>
+                {valueLenses.slice(0, 2).map((lens) => (
+                  <DataItem
+                    key={lens.label}
+                    label={lens.label}
+                    value={
+                      <>
+                        <strong>{lens.value}</strong>
+                        <small>{lens.helper}</small>
+                      </>
+                    }
+                  />
+                ))}
+              </DataList>
+            </CollapsibleContent>
+          </Collapsible>
+          {isImportedPosition && holding.positionKind === "spv_interest" && (
+            <PositionLinksEditor
+              key={holding.id}
+              positionId={holding.id}
+              onAccepted={onValueAccepted}
+            />
+          )}
+          {holding.linkedReportedValue && (
+            <p className="holding-detail-help">
+              Value from {holding.linkedReportedValue.sourceLabel} ·{" "}
+              {formatDate(holding.linkedReportedValue.observedAt)}. Investment
+              amounts and terms stay with this SPV.
+            </p>
+          )}
           <div className="holding-detail-records">
             <section aria-labelledby="holding-position-title">
               <p className="eyebrow">Accepted record</p>
@@ -7036,32 +7140,36 @@ function Holdings({
           : undefined
       }
     >
-      <PageHeader
-        actions={
-          selectedHolding !== null ? (
-            <TextLink onClick={closeHoldingDetail}>Back to holdings</TextLink>
-          ) : importerVisible ? (
-            <TextLink onClick={closeImporter}>Close import</TextLink>
-          ) : sourcesVisible ? (
-            <Button
-              onClick={() => {
-                setSelectedHoldingId(null);
-                setShowImporter(true);
-              }}
-              tone="primary"
-            >
-              Import holdings
-            </Button>
-          ) : undefined
-        }
-        description={
-          sourcesVisible
-            ? "Manage bank accounts, brokerages, and private investments."
-            : "See shared economic exposure, then open each legal position for ownership and source details."
-        }
-        eyebrow={sourcesVisible ? "Holdings" : "Portfolio evidence"}
-        title={sourcesVisible ? "Holding sources" : "Holdings"}
-      />
+      {selectedHolding !== null ? (
+        <div className="holding-detail-back">
+          <TextLink onClick={closeHoldingDetail}>Back to holdings</TextLink>
+        </div>
+      ) : (
+        <PageHeader
+          actions={
+            importerVisible ? (
+              <TextLink onClick={closeImporter}>Close import</TextLink>
+            ) : sourcesVisible ? (
+              <Button
+                onClick={() => {
+                  setSelectedHoldingId(null);
+                  setShowImporter(true);
+                }}
+                tone="primary"
+              >
+                Import holdings
+              </Button>
+            ) : undefined
+          }
+          description={
+            sourcesVisible
+              ? "Manage bank accounts, brokerages, and private investments."
+              : "See shared economic exposure, then open each legal position for ownership and source details."
+          }
+          eyebrow={sourcesVisible ? "Holdings" : "Portfolio evidence"}
+          title={sourcesVisible ? "Holding sources" : "Holdings"}
+        />
+      )}
 
       {selectedHolding === null && !importerVisible && !sourcesVisible && (
         <SearchField

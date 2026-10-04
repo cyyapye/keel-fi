@@ -1431,8 +1431,9 @@ h1,
 
 .holding-detail-workspace {
   display: grid;
-  gap: 58px;
+  gap: 0;
   padding: 8px 3px 36px;
+  position: relative;
 }
 
 .holding-detail-heading {
@@ -1440,8 +1441,8 @@ h1,
 }
 
 .holding-detail-heading h2 {
-  margin-bottom: 11px;
-  font-size: clamp(32px, 4vw, 48px);
+  margin-bottom: 9px;
+  font-size: clamp(28px, 3.4vw, 36px);
   font-weight: 620;
   letter-spacing: -0.052em;
 }
@@ -1449,7 +1450,7 @@ h1,
 .holding-detail-heading > p:last-child {
   margin-bottom: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.65;
 }
 
@@ -8927,14 +8928,15 @@ h1,
 /* Holding detail: one headline, supporting facts in compact disclosures. */
 .holding-headline__values {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr;
-  gap: 32px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  margin-top: 28px;
 }
 .holding-headline__values .stat-value {
   font-variant-numeric: tabular-nums;
 }
 .holding-headline__primary strong {
-  font-size: clamp(28px, 3vw, 40px);
+  font-size: clamp(36px, 4.8vw, 48px);
 }
 .holding-summary-details {
   margin-top: 20px;
@@ -9103,17 +9105,20 @@ h1,
     padding-top: 44px;
   }
 }
+.holding-planning .data-list,
 .holding-other-values .data-list,
 .holding-summary-details .data-list {
   display: grid;
   gap: 18px;
 }
+.holding-planning .data-list__item,
 .holding-other-values .data-list__item,
 .holding-summary-details .data-list__item {
   display: grid;
   grid-template-columns: minmax(130px, 0.6fr) minmax(0, 1.4fr);
   gap: 24px;
 }
+.holding-planning .data-list__label,
 .holding-other-values .data-list__label,
 .holding-summary-details .data-list__label {
   color: var(--muted);
@@ -9122,16 +9127,20 @@ h1,
   text-transform: none;
   letter-spacing: normal;
 }
+.holding-planning .data-list__value,
 .holding-other-values .data-list__value,
 .holding-summary-details .data-list__value {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
 }
+.holding-planning .data-list__value small,
 .holding-other-values .data-list__value small {
+  display: block;
   margin-top: 4px;
 }
 @media (max-width: 767px) {
+  .holding-planning .data-list__item,
   .holding-other-values .data-list__item,
   .holding-summary-details .data-list__item {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
@@ -9289,4 +9298,202 @@ h1,
 
 .purchase-details {
   scroll-margin-top: 96px;
+}
+
+/* Summary first: legal identity and value lead; detail opens where it is used. */
+.holding-detail-back {
+  margin-bottom: 8px;
+}
+.holding-headline {
+  margin-bottom: 26px;
+}
+.holding-headline__primary {
+  grid-column: 1 / -1;
+}
+.holding-headline__values .stat__label {
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.holding-headline__values .stat__value {
+  font-size: 26px;
+}
+.holding-headline__values .holding-headline__primary .stat__value {
+  font-size: clamp(36px, 4.8vw, 48px);
+}
+.holding-headline__values .stat__detail {
+  max-width: 60ch;
+  font-size: 12px;
+}
+.holding-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 28px;
+  align-items: start;
+}
+.holding-summary > :only-child {
+  grid-column: 1 / -1;
+}
+.holding-edit-purchases {
+  margin-top: 60px;
+}
+.holding-detail-section,
+.holding-detail-workspace > .position-valuation {
+  border-top: 1px solid var(--line);
+}
+.holding-detail-section > [data-slot="collapsible-trigger"],
+.holding-detail-section
+  > [data-slot="collapsible"]
+  > [data-slot="collapsible-trigger"] {
+  width: 100%;
+  min-height: 72px;
+  padding-block: 16px;
+  justify-content: flex-start;
+  text-align: left;
+}
+.holding-section-toggle strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.holding-detail-section [data-slot="collapsible-content"] {
+  padding-bottom: 22px;
+}
+.holding-detail-section [data-slot="collapsible-content"][hidden] {
+  padding: 0;
+}
+.holding-investment-details > .notice {
+  margin: 0 0 22px;
+}
+.holding-detail-help {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 70ch;
+}
+.holding-source-values {
+  margin-top: 0;
+}
+.holding-source-values + .position-links {
+  margin-top: 20px;
+}
+.holding-detail-workspace--editing > .holding-planning,
+.holding-detail-workspace--editing > .holding-ownership {
+  display: none;
+}
+.holding-detail-workspace--editing .holding-headline__values {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 22px;
+}
+.holding-detail-workspace--editing .holding-headline__primary {
+  grid-column: auto;
+}
+.holding-detail-workspace--editing .holding-headline__values .stat__value,
+.holding-detail-workspace--editing .holding-headline__primary .stat__value {
+  font-size: 22px;
+}
+.holding-detail-workspace--editing .holding-headline__values .stat__detail,
+.holding-detail-workspace--editing .holding-summary-details {
+  display: none;
+}
+.purchase-details--summary {
+  margin: 0;
+  padding-top: 20px;
+}
+.purchase-details--summary .purchase-summary__heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+.purchase-summary__heading [data-slot="collapsible-trigger"] {
+  flex: 1;
+  min-height: 44px;
+  text-align: left;
+}
+.purchase-summary__heading [data-slot="collapsible-trigger"] > span {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.purchase-summary__heading small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.purchase-details--summary .purchase-summary {
+  margin: 20px 0;
+}
+.purchase-details--summary .purchase-summary + .purchase-summary {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.purchase-details--summary .purchase-summary__layout {
+  gap: 28px;
+  margin-block: 20px;
+}
+.purchase-details--summary .purchase-cost .stat__value {
+  font-size: 26px;
+}
+.purchase-details--summary .purchase-valuation-result,
+.purchase-details--summary .purchase-valuation-prompt {
+  background: none;
+  padding-inline: 0;
+}
+.purchase-details--summary .purchase-shared-terms {
+  margin-top: 24px;
+}
+.purchase-details--summary
+  .purchase-shared-terms
+  > [data-slot="collapsible-trigger"] {
+  min-height: 44px;
+  font-size: 14px;
+}
+.purchase-details--summary .purchase-fields {
+  padding-bottom: 16px;
+}
+.holding-detail-section .investment-calculation {
+  margin-top: 0;
+}
+@media (max-width: 767px) {
+  .holding-detail-workspace {
+    gap: 0;
+    padding-inline: 0;
+  }
+  .holding-headline__values {
+    gap: 24px;
+  }
+  .holding-summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .holding-edit-purchases {
+    justify-self: start;
+    margin: -10px 0 24px;
+  }
+  .holding-detail-workspace--editing .holding-headline__values {
+    gap: 12px;
+  }
+  .holding-detail-workspace--editing .holding-headline__values .stat__value,
+  .holding-detail-workspace--editing .holding-headline__primary .stat__value {
+    font-size: clamp(14px, 4.6vw, 18px);
+  }
+  .purchase-details--summary .position-economics__heading .button {
+    width: auto;
+  }
+  .purchase-details--summary .purchase-summary__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.holding-return-details {
+  margin-bottom: 26px;
+}
+
+.holding-welcome {
+  padding-block: 52px;
+}
+.holding-welcome [data-slot="text-link"] {
+  margin-top: 20px;
 }

@@ -205,11 +205,13 @@ export function InvestmentCalculationPreview({
   reportedValueMinor,
   currentSnapshotId,
   currentReportedValueSnapshotId,
+  view = "full",
 }: {
   reviewed: ReviewedInvestment;
   reportedValueMinor: number | null;
   currentSnapshotId: string;
   currentReportedValueSnapshotId: string;
+  view?: "full" | "cash" | "terms";
 }) {
   const current = reviewed.snapshotId === currentSnapshotId;
   const money = (n: number | null) =>
@@ -247,103 +249,118 @@ export function InvestmentCalculationPreview({
       className="investment-calculation"
       aria-label="Investment calculation preview"
     >
-      <h4>Calculation preview</h4>
-      <StatGroup className="investment-capital-totals">
-        <Stat label="Cash paid" value={money(reviewed.cashPaidMinor)} />
-        <Stat
-          label="Upfront deductions"
-          value={money(reviewed.upfrontDeductionsMinor)}
-        />
-        <Stat
-          label="Net capital invested"
-          value={money(reviewed.netCapitalMinor)}
-        />
-      </StatGroup>
-      {(reviewed.returnedCapitalMinor ?? 0) > 0 && (
-        <p>
-          Received capital refunds: {money(reviewed.returnedCapitalMinor!)}.
-          Cash paid is preserved; fees reconcile against cash retained after the
-          refund.
-        </p>
-      )}
-      <DataList>
-        <DataItem
-          label="Annual management fee"
-          value={
-            terms.annualManagementFeePpm === null
-              ? "Unknown"
-              : `${rateText(terms.annualManagementFeePpm)}% · ${terms.annualManagementBasis === "unknown" ? "basis unknown" : terms.annualManagementBasis === "gross_cash" ? "on cash paid" : "on net capital"}`
-          }
-        />
-        <DataItem
-          label="Carry on gains"
-          value={
-            terms.carryPpm === null
-              ? "Unknown"
-              : `${rateText(terms.carryPpm)}% · ${terms.carryBasis === "unknown" ? "basis unknown" : terms.carryBasis === "gross_cash" ? "above cash paid" : "above net capital"}`
-          }
-        />
-      </DataList>
-      {terms.note && <p>Terms source / disagreements: {terms.note}</p>}
-      <p>
-        Cash paid
-        {(reviewed.returnedCapitalMinor ?? 0) > 0
-          ? " − received capital refunds"
-          : ""}{" "}
-        − upfront deductions = net capital invested. Reported return compares
-        the current mark plus reported distributions with cash paid; it does not
-        deduct carry again.
-      </p>
-      {boundValue && (
-        <p>
-          Reported mark: {formatCurrency(boundValue.valueMinor, "USD")} ·{" "}
-          {boundValue.sourceLabel} ·{" "}
-          {boundValue.effectiveDate ?? "Value date unknown"} ·{" "}
-          {boundValue.carryStatus.replaceAll("_", " ")}
-          {boundValue.carryStatus === "unknown" ? " carry status" : ""}.
-        </p>
-      )}
-      {estimate && (
-        <DataList>
-          <DataItem
-            label={
-              estimate.alreadyAfterCarry
-                ? "Reported value · after carry"
-                : "Illustrative proceeds after carry"
-            }
-            value={formatCurrency(estimate.proceedsMinor, "USD")}
-          />
-          {estimate.carryMinor !== null && (
-            <DataItem
-              label="Estimated carry on unrealized gains"
-              value={formatCurrency(estimate.carryMinor, "USD")}
+      {view !== "terms" && (
+        <>
+          <h4>{view === "cash" ? "Purchase totals" : "Calculation preview"}</h4>
+          <StatGroup className="investment-capital-totals">
+            <Stat label="Cash paid" value={money(reviewed.cashPaidMinor)} />
+            <Stat
+              label="Upfront deductions"
+              value={money(reviewed.upfrontDeductionsMinor)}
             />
+            <Stat
+              label="Net capital invested"
+              value={money(reviewed.netCapitalMinor)}
+            />
+          </StatGroup>
+          {(reviewed.returnedCapitalMinor ?? 0) > 0 && (
+            <p>
+              Received capital refunds: {money(reviewed.returnedCapitalMinor!)}.
+              Cash paid is preserved; fees reconcile against cash retained after
+              the refund.
+            </p>
           )}
-        </DataList>
+        </>
       )}
-      {estimate && !estimate.alreadyAfterCarry && (
-        <p>
-          Carry on remaining value above{" "}
-          {terms.carryBasis === "gross_cash" ? "cash paid" : "net capital"}.
-          Excludes distributions, fees, taxes and exit expenses.
-        </p>
+      {view !== "cash" && (
+        <>
+          <DataList>
+            <DataItem
+              label="Annual management fee"
+              value={
+                terms.annualManagementFeePpm === null
+                  ? "Unknown"
+                  : `${rateText(terms.annualManagementFeePpm)}% · ${terms.annualManagementBasis === "unknown" ? "basis unknown" : terms.annualManagementBasis === "gross_cash" ? "on cash paid" : "on net capital"}`
+              }
+            />
+            <DataItem
+              label="Carry on gains"
+              value={
+                terms.carryPpm === null
+                  ? "Unknown"
+                  : `${rateText(terms.carryPpm)}% · ${terms.carryBasis === "unknown" ? "basis unknown" : terms.carryBasis === "gross_cash" ? "above cash paid" : "above net capital"}`
+              }
+            />
+          </DataList>
+          {terms.note && <p>Terms source / disagreements: {terms.note}</p>}
+          {view === "full" && (
+            <p>
+              Cash paid
+              {(reviewed.returnedCapitalMinor ?? 0) > 0
+                ? " − received capital refunds"
+                : ""}{" "}
+              − upfront deductions = net capital invested. Reported return
+              compares the current mark plus reported distributions with cash
+              paid; it does not deduct carry again.
+            </p>
+          )}
+          {boundValue && (
+            <p>
+              Reported mark: {formatCurrency(boundValue.valueMinor, "USD")} ·{" "}
+              {boundValue.sourceLabel} ·{" "}
+              {boundValue.effectiveDate ?? "Value date unknown"} ·{" "}
+              {boundValue.carryStatus.replaceAll("_", " ")}
+              {boundValue.carryStatus === "unknown" ? " carry status" : ""}.
+            </p>
+          )}
+          {estimate && (
+            <DataList>
+              <DataItem
+                label={
+                  estimate.alreadyAfterCarry
+                    ? "Reported value · after carry"
+                    : "Illustrative proceeds after carry"
+                }
+                value={formatCurrency(estimate.proceedsMinor, "USD")}
+              />
+              {estimate.carryMinor !== null && (
+                <DataItem
+                  label="Estimated carry on unrealized gains"
+                  value={formatCurrency(estimate.carryMinor, "USD")}
+                />
+              )}
+            </DataList>
+          )}
+          {estimate && !estimate.alreadyAfterCarry && (
+            <p>
+              Carry on remaining value above{" "}
+              {terms.carryBasis === "gross_cash" ? "cash paid" : "net capital"}.
+              Excludes distributions, fees, taxes and exit expenses.
+            </p>
+          )}
+        </>
       )}
-      <Notice>
-        {!current
-          ? "The source changed. Review these details again."
-          : reviewed.cashPaidMinor === null
-            ? "Confirm all cash contributions and record cash paid to calculate return."
-            : reviewed.returnedCapitalReconciliationPending
-              ? "Return stays unknown until you confirm whether the reported distributions include this refund."
-              : !estimate
-                ? "A reliable estimate after carry needs a reported value basis, carry rate and capital basis."
-                : unknownAnnual
-                  ? "Annual management fees are unknown. Reliable net proceeds are unavailable."
-                  : (terms.annualManagementFeePpm ?? 0) > 0
-                    ? "Remaining annual fees and the exit date are not modeled. Reliable net proceeds are unavailable."
-                    : "Proceeds remain an illustration; other exit expenses and taxes are not modeled."}
-      </Notice>
-      {terms.importedAmountBasis === "unknown" && (
+      {(view !== "cash" ||
+        !current ||
+        reviewed.cashPaidMinor === null ||
+        reviewed.returnedCapitalReconciliationPending) && (
+        <Notice>
+          {!current
+            ? "The source changed. Review these details again."
+            : reviewed.cashPaidMinor === null
+              ? "Confirm all cash contributions and record cash paid to calculate return."
+              : reviewed.returnedCapitalReconciliationPending
+                ? "Return stays unknown until you confirm whether the reported distributions include this refund."
+                : !estimate
+                  ? "A reliable estimate after carry needs a reported value basis, carry rate and capital basis."
+                  : unknownAnnual
+                    ? "Annual management fees are unknown. Reliable net proceeds are unavailable."
+                    : (terms.annualManagementFeePpm ?? 0) > 0
+                      ? "Remaining annual fees and the exit date are not modeled. Reliable net proceeds are unavailable."
+                      : "Proceeds remain an illustration; other exit expenses and taxes are not modeled."}
+        </Notice>
+      )}
+      {view !== "cash" && terms.importedAmountBasis === "unknown" && (
         <p>
           Imported amount basis is unknown. No fees are deducted from it
           automatically.

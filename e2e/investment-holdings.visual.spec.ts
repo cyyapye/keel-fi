@@ -689,12 +689,15 @@ test("shows compact empty exposure and account states", async ({ page }) => {
   await expect(
     exposureView.getByRole("heading", {
       level: 3,
-      name: "No company exposures",
+      name: "Your holdings, in one place",
     }),
   ).toBeVisible();
   await expect(
     exposureView.locator('[data-slot="empty-state"] > span'),
   ).toHaveCount(0);
+  await expect(
+    exposureView.getByRole("link", { name: "Manage sources" }),
+  ).toHaveAttribute("href", "/holdings/sources");
   await expectNoHorizontalOverflow(page);
   await expect(exposureView).toHaveScreenshot(
     "investment-holdings-empty-exposures.png",
@@ -1287,11 +1290,16 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page.getByRole("region", { name: "Position summary" }),
   ).toBeVisible();
-  await expect(page.getByText("Total return").locator("..")).toContainText(
-    "+50.0%",
-  );
+  await expect(
+    page
+      .getByRole("region", { name: "Position summary" })
+      .getByText("Total return")
+      .locator(".."),
+  ).toContainText("+50.0%");
   await expect(page.getByText("Day gain / loss")).toHaveCount(0);
-  await page.getByRole("button", { name: /Ownership & source/ }).click();
+  await page
+    .getByRole("button", { name: /Ownership, sources & history/ })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Portfolio Watch estimate" }),
   ).toBeVisible();
@@ -1306,6 +1314,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       threshold: 0.25,
     },
   );
+  await page.getByRole("button", { name: /^Value & return/ }).click();
   await page.getByRole("button", { name: "Review estimate" }).click();
   await expect(page.getByLabel("Value · USD")).toHaveValue("60000");
   await expect(page.getByLabel("Position value source type")).toContainText(
@@ -1670,7 +1679,7 @@ test("keeps reviewed history in exposures without showing fake brokerage account
       exact: true,
     }),
   ).toBeFocused();
-  await expect(page.getByText("Via Demo Pharmacy SPV 01")).toBeVisible();
+  await expect(page.getByText(/Demo Pharmacy SPV 01 ·/)).toBeVisible();
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(firstPositionAction).toBeFocused();
 });
