@@ -9105,17 +9105,20 @@ h1,
     padding-top: 44px;
   }
 }
+.holding-planning .data-list,
 .holding-other-values .data-list,
 .holding-summary-details .data-list {
   display: grid;
   gap: 18px;
 }
+.holding-planning .data-list__item,
 .holding-other-values .data-list__item,
 .holding-summary-details .data-list__item {
   display: grid;
   grid-template-columns: minmax(130px, 0.6fr) minmax(0, 1.4fr);
   gap: 24px;
 }
+.holding-planning .data-list__label,
 .holding-other-values .data-list__label,
 .holding-summary-details .data-list__label {
   color: var(--muted);
@@ -9124,16 +9127,20 @@ h1,
   text-transform: none;
   letter-spacing: normal;
 }
+.holding-planning .data-list__value,
 .holding-other-values .data-list__value,
 .holding-summary-details .data-list__value {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
 }
+.holding-planning .data-list__value small,
 .holding-other-values .data-list__value small {
+  display: block;
   margin-top: 4px;
 }
 @media (max-width: 767px) {
+  .holding-planning .data-list__item,
   .holding-other-values .data-list__item,
   .holding-summary-details .data-list__item {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);

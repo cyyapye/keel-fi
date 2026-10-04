@@ -3001,21 +3001,21 @@ function HoldingDetailWorkspace({
       wide: false,
     },
     {
-      label: "FI planning value",
+      label: "Planning value",
       value: holdingValueLabel(holding.underwritingValueMinor),
-      helper: "Conservative value allowed into FI planning.",
+      helper: "Amount counted toward financial independence.",
       wide: false,
     },
     {
       label: "Scenario value",
       value: holdingValueLabel(holding.scenarioValueMinor),
-      helper: "Thesis-weighted conditional economic value.",
+      helper: "Value assumed in what-if scenarios.",
       wide: false,
     },
     {
       label: "Usable liquidity",
       value: holdingValueLabel(holding.usableLiquidityMinor),
-      helper: "Capital currently available for actual decisions.",
+      helper: "Amount available to fund your goals.",
       wide: false,
     },
   ] as const;

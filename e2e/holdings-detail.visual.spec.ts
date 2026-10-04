@@ -892,6 +892,32 @@ test("leads with the investment and opens a truthful holding detail", async ({
     "holding-detail-summary.png",
     { animations: "disabled", caret: "hide" },
   );
+  const planningToggle = page.getByRole("button", {
+    name: /^Planning & liquidity/u,
+  });
+  await planningToggle.click();
+  const planningRow = page
+    .locator(".holding-planning .data-list__item")
+    .filter({ hasText: "Planning value" });
+  await expect(planningRow).toContainText(
+    "Amount counted toward financial independence.",
+  );
+  const planningLabel = await planningRow.locator("dt").boundingBox();
+  const planningValue = await planningRow.locator("dd strong").boundingBox();
+  const planningHelp = await planningRow.locator("dd small").boundingBox();
+  expect(planningLabel).not.toBeNull();
+  expect(planningValue).not.toBeNull();
+  expect(planningHelp).not.toBeNull();
+  expect(planningValue!.x).toBeGreaterThan(planningLabel!.x);
+  expect(planningHelp!.y).toBeGreaterThanOrEqual(
+    planningValue!.y + planningValue!.height,
+  );
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holding-planning-values.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await planningToggle.click();
   const ownershipToggle = page.getByRole("button", {
     name: /^Ownership, sources & history/u,
   });
