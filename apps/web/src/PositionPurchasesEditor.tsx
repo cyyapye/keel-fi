@@ -248,7 +248,10 @@ type PurchaseEditorProps = {
     Partial<
       Pick<
         Holding,
-        "administratorNavMinor" | "effectiveDate" | "linkedReportedValue"
+        | "administratorNavMinor"
+        | "effectiveDate"
+        | "linkedReportedValue"
+        | "positionValueContext"
       >
     >;
   onAccepted: () => Promise<void>;
@@ -409,6 +412,7 @@ function InvestmentDetailsEditor({
   const editButton = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(false);
   const editorHeading = useRef<HTMLHeadingElement>(null);
+  const proxyPreview = useRef<HTMLElement>(null);
   useEffect(() => {
     if (open && summaryFirst) editorHeading.current?.focus();
     if (!open && wasOpen.current) editButton.current?.focus();
@@ -527,6 +531,41 @@ function InvestmentDetailsEditor({
               })
             : { coversPosition: false, lots: [] },
         ));
+  const draftReceipt = parsed.success
+    ? {
+        id: "draft",
+        positionId: holding.id,
+        snapshotId: context.snapshotId,
+        currency: context.currency,
+        acceptedAt: new Date().toISOString(),
+        details: parsed.data.details,
+      }
+    : null;
+  const draftEstimate = estimatePurchaseValue(draftReceipt, context.snapshotId);
+  const usesProxy = drafts.some((draft) => draft.markProxy === "true");
+  const reviewedValue = holding.positionValueContext?.acceptedAdjustment;
+  // Conditional preview only: inferred original shares become reviewed evidence
+  // only when the user confirms the entire remaining position before saving.
+  const conditionalProxyEstimate =
+    usesProxy && draftReceipt
+      ? estimatePurchaseValue(
+          {
+            ...draftReceipt,
+            details: {
+              ...draftReceipt.details,
+              coversPosition: true,
+              lots: draftReceipt.details.lots.map((lot) => ({
+                ...lot,
+                originalSharesUnchanged:
+                  lot.remainingSharesMicros === null
+                    ? true
+                    : lot.originalSharesUnchanged,
+              })),
+            },
+          },
+          context.snapshotId,
+        )
+      : null;
   const estimate = estimatePurchaseValue(receipt, context.snapshotId);
   const estimatedPerformance =
     estimate && holding.realizedValueMinor != null
@@ -1941,6 +1980,12 @@ function InvestmentDetailsEditor({
                                       tone="quiet"
                                       onClick={() => {
                                         setCoversPosition(false);
+                                        window.requestAnimationFrame(() => {
+                                          proxyPreview.current?.focus();
+                                          proxyPreview.current?.scrollIntoView({
+                                            block: "center",
+                                          });
+                                        });
                                         setDrafts((old) =>
                                           old.map((draft, index) =>
                                             index !== i
@@ -2141,16 +2186,77 @@ function InvestmentDetailsEditor({
             />
           )}
           {mode !== "purchase" && (
-            <label className="purchase-coverage">
-              <Input
-                type="checkbox"
-                checked={coversPosition}
-                onChange={(event) =>
-                  setCoversPosition(event.currentTarget.checked)
-                }
-              />{" "}
-              These purchases cover all my remaining shares in this SPV.
-            </label>
+            <>
+              {usesProxy && (
+                <section
+                  aria-label="Proxy estimate preview"
+                  ref={proxyPreview}
+                  tabIndex={-1}
+                  className="investment-calculation purchase-proxy-confirmation"
+                >
+                  <Stat
+                    label="Estimated value · proxy"
+                    value={
+                      conditionalProxyEstimate
+                        ? money(conditionalProxyEstimate.valueMinor)
+                        : "Not ready"
+                    }
+                    detail="Before carry and remaining expenses"
+                  />
+                  <p>
+                    {conditionalProxyEstimate
+                      ? reviewedValue
+                        ? "Remaining shares × selected prices. Confirm coverage below to save this estimate alongside your reviewed value."
+                        : "Remaining shares × selected prices. Confirm coverage below, then save to update your position value. Provider values and planning values stay separate."
+                      : "A price alone cannot value this position. Each purchase needs a sourced price and either dated remaining shares or confirmed net capital and purchase price. Unknown fees cannot supply a share count."}
+                  </p>
+                  {draftEstimate && (
+                    <p>
+                      {reviewedValue
+                        ? `This estimate is kept in valuation details. Your reviewed value from ${reviewedValue.sourceLabel} stays primary.`
+                        : "This estimate will appear in your position summary after saving."}
+                    </p>
+                  )}
+                </section>
+              )}
+              <label className="purchase-coverage">
+                <Input
+                  type="checkbox"
+                  checked={
+                    coversPosition &&
+                    (!usesProxy ||
+                      drafts.every(
+                        (draft) =>
+                          Boolean(draft.remainingSharesMicros) ||
+                          draft.originalSharesUnchanged === "true",
+                      ))
+                  }
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+                    setCoversPosition(checked);
+                    if (usesProxy)
+                      setDrafts((old) =>
+                        old.map((draft) => ({
+                          ...draft,
+                          originalSharesUnchanged: draft.remainingSharesMicros
+                            ? (draft.originalSharesUnchanged ?? "false")
+                            : String(checked),
+                        })),
+                      );
+                  }}
+                />{" "}
+                {usesProxy
+                  ? "These purchases cover all my remaining shares. Any shares calculated from net capital are still held, with no sales, splits or conversions."
+                  : "These purchases cover all my remaining shares in this SPV."}
+              </label>
+              {usesProxy && !draftEstimate && (
+                <Notice>
+                  Saving these details will record the price but will not update
+                  the position value until the share count and full position
+                  coverage are confirmed.
+                </Notice>
+              )}
+            </>
           )}
 
           {drafts.some(

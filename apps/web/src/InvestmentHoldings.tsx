@@ -1,3 +1,4 @@
+import { HoldingLinkButton } from "./HoldingLinkButton";
 import { includesCurrentInvestment } from "@keel/domain/investment-review";
 import {
   addMinorUnits,
@@ -1669,6 +1670,7 @@ function ExposureView({
               <DisclosureIndicator className="exposure-group__indicator" />
             </CollapsibleTrigger>
             <CollapsibleContent>
+              <HoldingLinkButton kind="holding" id={group.exposure.id} />
               <div className="exposure-group__positions">
                 {matchingPositions.slice(0, positionLimit).map((position) => {
                   const positionName = positionDisplayName(position);
