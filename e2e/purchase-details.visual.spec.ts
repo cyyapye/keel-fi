@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import { HoldingSchema } from "../packages/domain/src/index";
 import {
   PurchaseReceiptSchema,
@@ -9,6 +9,34 @@ import {
 } from "../packages/domain/src/position-purchases";
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
+
+async function screenshotHolding(page: Page, name: string) {
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await expect(page.locator(".holding-detail-workspace")).toHaveScreenshot(
+    name,
+    {
+      animations: "disabled",
+    },
+  );
+}
+
+async function showPurchases(page: Page) {
+  const toggle = page.getByRole("button", { name: /^Purchases & refunds/ });
+  await expect(toggle).toBeVisible();
+  if ((await toggle.getAttribute("aria-expanded")) === "false")
+    await toggle.click();
+}
+
+async function showTerms(section: Locator) {
+  const toggle = section.getByRole("button", {
+    name: "Fees & carry",
+    exact: true,
+  });
+  if ((await toggle.getAttribute("aria-expanded")) === "false")
+    await toggle.click();
+}
 
 test("allocation refunds preview upfront fees, preserve unknown capital and reconcile received cash", async ({
   page,
@@ -109,12 +137,16 @@ test("allocation refunds preview upfront fees, preserve unknown capital and reco
   };
   await page.goto("/holdings");
   await openPosition();
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await screenshotHolding(page, "holding-purchases-empty.png");
   const section = page.getByRole("region", {
     name: "Investment details",
     exact: true,
   });
-  await section
-    .getByRole("button", { name: "Add investment details", exact: true })
+  await page
+    .getByRole("button", { name: "Edit purchases", exact: true })
     .click();
   const cash = section.getByRole("textbox", {
     name: "Cash paid · USD",
@@ -203,11 +235,17 @@ test("allocation refunds preview upfront fees, preserve unknown capital and reco
     netCapitalMinor: null,
     returnedCapitalMinor: 0,
   });
+  await page.getByRole("button", { name: /^Purchases & refunds/ }).click();
+  await screenshotHolding(page, "holding-refund-expected-summary.png");
+  await showPurchases(page);
+  await section
+    .locator(".purchase-summary__heading [data-slot=collapsible-trigger]")
+    .click();
   await expect(section).toContainText("Estimated net capital");
   await page.reload();
   await openPosition();
-  await section
-    .getByRole("button", { name: "Edit investment details", exact: true })
+  await page
+    .getByRole("button", { name: "Edit purchases", exact: true })
     .click();
   await expect(net).toHaveValue("");
   await expect(save).toBeDisabled();
@@ -241,6 +279,18 @@ test("allocation refunds preview upfront fees, preserve unknown capital and reco
         document.documentElement.clientWidth,
     ),
   ).toBe(true);
+  await save.click();
+  await expect(
+    page.getByRole("region", { name: "Position summary" }),
+  ).toContainText("Unavailable");
+  await expect(
+    page.getByRole("button", { name: "Confirm refund", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /^Purchases & refunds/ }).click();
+  await screenshotHolding(page, "holding-refund-needs-review.png");
+  await page
+    .getByRole("button", { name: "Confirm refund", exact: true })
+    .click();
   await section
     .getByRole("combobox", {
       name: "Refund already in reported distributions?",
@@ -261,10 +311,12 @@ test("allocation refunds preview upfront fees, preserve unknown capital and reco
     netCapitalMinor: 441968,
     upfrontDeductionsMinor: 43711,
   });
+  await showPurchases(page);
   await expect(section).toContainText("Cash retained: USD 4,856.79");
   await expect(section).not.toContainText("Estimated net capital");
   await page.reload();
   await openPosition();
+  await showPurchases(page);
   await expect(section).toContainText("Received capital refunds: USD 1,543.21");
   await expect(section).toContainText("Date unknown");
 });
@@ -408,7 +460,9 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     name: "Investment details",
     exact: true,
   });
-  await section.getByRole("button", { name: "Add investment details" }).click();
+  await page
+    .getByRole("button", { name: "Edit purchases", exact: true })
+    .click();
   await expect(
     section.getByRole("heading", { name: "Purchases", exact: true }),
   ).toBeVisible();
@@ -443,6 +497,22 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     name: "Save investment details",
     exact: true,
   });
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await screenshotHolding(page, "holding-detail-editing.png");
+  if (info.project.name === "mobile-chromium") {
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ ...viewport, width: 320 });
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    await page.setViewportSize(viewport);
+  }
   await cash.fill("2400");
   await net.fill("2112.34");
   await section
@@ -450,6 +520,7 @@ test("unified investment details reconcile cash, retain failed drafts and share 
       name: "These purchases include all cash paid for this position.",
     })
     .check();
+  await showTerms(section);
   await section.getByRole("textbox", { name: "Carry on gains · %" }).fill("20");
   await section.getByRole("combobox", { name: "Carry gains above" }).click();
   await page
@@ -469,7 +540,9 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     section.getByRole("textbox", { name: "Annual management fee · %" }),
   ).toHaveValue("");
   await expect(section).toContainText("287.66");
-  await expect(section).toContainText("Annual management fees are unknown");
+  await expect(
+    section.getByRole("textbox", { name: "Annual management fee · %" }),
+  ).toHaveValue("");
   await expect(save).toBeEnabled();
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
@@ -512,6 +585,7 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     netCapitalMinor: 211234,
     upfrontDeductionsMinor: null,
   });
+  await showPurchases(page);
   await expect(
     section.getByRole("button", { name: "Edit investment details" }),
   ).toBeVisible();
@@ -542,11 +616,12 @@ test("unified investment details reconcile cash, retain failed drafts and share 
       name: "View Synthetic Purchase SPV holding details",
     })
     .click();
-  const edit = section.getByRole("button", {
-    name: "Edit investment details",
+  const edit = page.getByRole("button", {
+    name: "Edit purchases",
     exact: true,
   });
   await edit.click();
+  await showTerms(section);
   await expect(save).toBeDisabled();
   await expect(deductions).toHaveValue("287.66");
   await section.getByRole("textbox", { name: "Carry on gains · %" }).fill("25");
@@ -555,9 +630,11 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     PurchaseReceiptSchema.parse(receipt).details.investmentTerms?.carryPpm,
   ).toBe(250000);
   await edit.click();
+  await showTerms(section);
   await cash.fill("2600");
   await section.getByRole("button", { name: "Cancel", exact: true }).click();
   await edit.click();
+  await showTerms(section);
   await expect(cash).toHaveValue("2400");
   await expect(save).toBeDisabled();
   await expect(
@@ -640,12 +717,36 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     { grossCashMinor: 240000, netCapitalMinor: 211234 },
     { grossCashMinor: 120000, upfrontDeductionsMinor: 20000 },
   ]);
+  await screenshotHolding(page, "holding-multiple-purchases.png");
+  await section
+    .getByRole("button", { name: "Edit purchase 2", exact: true })
+    .click();
+  await expect(firstPurchase).toHaveAttribute("aria-expanded", "false");
+  await expect(secondPurchase).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    section.getByRole("textbox", { name: "Cash paid · USD", exact: true }),
+  ).toHaveValue("1200");
+  await section.getByRole("button", { name: "Cancel", exact: true }).click();
   await edit.click();
+  await showTerms(section);
   await expect(save).toBeDisabled();
   await expect(firstPurchase).toHaveAttribute("aria-expanded", "false");
   await expect(secondPurchase).toHaveAttribute("aria-expanded", "false");
   await section.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.getByText("Position value", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "Value & return", exact: true })
+    .click();
+
+  await page.getByRole("textbox", { name: /Value · USD/ }).fill("6000");
+  await edit.click();
+  await section.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: /Value · USD/ })).toHaveValue(
+    "6000",
+  );
+  await page
+    .locator(".position-value-adjustment")
+    .getByRole("button", { name: "Reset", exact: true })
+    .click();
   await page
     .getByRole("tab", { name: "Calculate from shares", exact: true })
     .click();
@@ -660,6 +761,17 @@ test("unified investment details reconcile cash, retain failed drafts and share 
       .getByRole("textbox")
       .count(),
   ).toBe(0);
+  await page
+    .getByRole("region", { name: "Share-based valuation" })
+    .getByRole("link", { name: "Edit investment details" })
+    .click();
+  await expect(
+    section.getByRole("heading", {
+      name: "Edit investment details",
+      exact: true,
+    }),
+  ).toBeFocused();
+  await section.getByRole("button", { name: "Cancel", exact: true }).click();
   // A new source snapshot with the same mark must not inherit its carry status.
   currentValueSnapshotId = "synthetic-linked-refresh";
   await page.reload();
@@ -672,6 +784,7 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     })
     .click();
   await edit.click();
+  await showTerms(section);
   await expect(
     section.getByRole("combobox", { name: "Reported value carry status" }),
   ).toContainText("Unknown");
@@ -731,8 +844,13 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     carryStatus: "unknown",
     effectiveDate: null,
   });
-  await expect(section).toContainText("6,224.68");
-  await page.getByText("Position value", { exact: true }).click();
+  await page.getByRole("button", { name: /^Fees & carry/ }).click();
+  await expect(page.locator(".holding-investment-details")).toContainText(
+    "6,224.68",
+  );
+  await page
+    .getByRole("button", { name: "Value & return", exact: true })
+    .click();
   await page
     .getByRole("tab", { name: "Calculate from shares", exact: true })
     .click();

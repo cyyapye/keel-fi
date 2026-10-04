@@ -156,6 +156,9 @@ test("review duplicate sources and replacement history with no typing, saved rel
   await page
     .getByRole("button", { name: "View Demo Orbit VII SPV holding details" })
     .click();
+  await page
+    .getByRole("button", { name: /^Ownership, sources & history/ })
+    .click();
   const section = page.getByRole("region", {
     name: "Linked investment records",
   });
@@ -254,13 +257,18 @@ test("review duplicate sources and replacement history with no typing, saved rel
   await page
     .getByRole("button", { name: "View Demo Orbit VII SPV holding details" })
     .click();
+  await page
+    .getByRole("button", { name: /^Ownership, sources & history/ })
+    .click();
   await section
     .getByRole("button", { name: "Link investment records" })
     .click();
   await expect(section.getByText(/Historical · replaced/)).toBeVisible();
   await expect(section.getByText(/Supplies reported value/)).toBeVisible();
   for (const trigger of await page
-    .locator('.holding-detail-workspace [data-slot="collapsible-trigger"]')
+    .locator(
+      '.holding-detail-workspace [data-slot="collapsible-trigger"]:visible',
+    )
     .all()) {
     await expect(trigger).toHaveAttribute("data-layout", "inline");
     await expect(trigger).toHaveCSS("column-gap", "12px");

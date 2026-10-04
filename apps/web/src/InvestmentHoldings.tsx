@@ -2751,6 +2751,29 @@ export function InvestmentHoldings({
     );
   }
 
+  if (
+    searchMatches === null &&
+    holdings.length === 0 &&
+    acceptedCashAccounts.length === 0 &&
+    data.exposureView.positions.length === 0
+  ) {
+    return (
+      <section className="investment-views">
+        <EmptyState
+          className="holding-welcome"
+          headingAs="h3"
+          icon={null}
+          title="Your holdings, in one place"
+        >
+          Connect an account or import a statement. Reviewed holdings will
+          appear here.
+          <br />
+          <TextLink href="/holdings/sources">Manage sources</TextLink>
+        </EmptyState>
+      </section>
+    );
+  }
+
   return (
     <>
       <CashHoldingsView

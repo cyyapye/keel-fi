@@ -9,8 +9,16 @@ import {
   PurchaseCapitalPreview,
 } from "./InvestmentTermsPanel";
 import { unknownInvestmentTerms } from "@keel/domain/investment-details";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Holding } from "@keel/domain";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
+import { addMinorUnits, type Holding } from "@keel/domain";
 import {
   AcceptPurchasesSchema,
   type SharePriceEvidenceListSchema,
@@ -224,6 +232,10 @@ const feeChoices = [
   { value: "gross_cash", label: "Deducted from gross cash" },
 ];
 
+export type InvestmentDetailsHandle = {
+  edit: () => void;
+};
+
 type PurchaseEditorProps = {
   holding: Pick<
     Holding,
@@ -242,11 +254,16 @@ type PurchaseEditorProps = {
   onAccepted: () => Promise<void>;
   mode?: "combined" | "purchase" | "valuation";
   onDirtyChange?: (dirty: boolean) => void;
+  summaryFirst?: boolean;
+  editorRef?: Ref<InvestmentDetailsHandle>;
+  onEditingChange?: (editing: boolean) => void;
+  valuationSection?: ReactNode;
+  onEditInvestmentDetails?: () => void;
 };
 export function PositionPurchasesEditor(props: PurchaseEditorProps) {
+  const context = props.holding.purchaseContext;
+  if (!context) return null;
   if (props.mode === "valuation") {
-    const context = props.holding.purchaseContext;
-    if (!context) return null;
     const estimate = estimatePurchaseValue(context.receipt, context.snapshotId);
     return (
       <section className="purchase-details" aria-label="Share-based valuation">
@@ -255,21 +272,32 @@ export function PositionPurchasesEditor(props: PurchaseEditorProps) {
             ? `Estimated value before carry: ${formatCurrency(estimate.valueMinor, context.currency)}. Remaining shares × recorded price; excludes remaining expenses.`
             : "Add underlying shares and sourced prices in Investment details."}
         </p>
-        <TextLink href={`#investment-details-${props.holding.id}`}>
+        <TextLink
+          href={`#investment-details-${props.holding.id}`}
+          onClick={(event) => {
+            if (!props.onEditInvestmentDetails) return;
+            event.preventDefault();
+            props.onEditInvestmentDetails();
+          }}
+        >
           Edit investment details
         </TextLink>
       </section>
     );
   }
-  return <InvestmentDetailsEditor {...props} />;
+  return <InvestmentDetailsEditor {...props} context={context} />;
 }
 function InvestmentDetailsEditor({
   holding,
+  context,
   onAccepted,
   mode = "combined",
   onDirtyChange,
-}: PurchaseEditorProps) {
-  const context = holding.purchaseContext;
+  summaryFirst = false,
+  editorRef,
+  onEditingChange,
+  valuationSection,
+}: PurchaseEditorProps & { context: NonNullable<Holding["purchaseContext"]> }) {
   const [receipt, setReceipt] = useState<PurchaseReceipt | null>(
     context?.receipt ?? null,
   );
@@ -326,6 +354,11 @@ function InvestmentDetailsEditor({
     receipt?.details.coversPosition ?? false,
   );
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [editIntent, setEditIntent] = useState<"purchases" | "terms">(
+    "purchases",
+  );
+  const [editLotIndex, setEditLotIndex] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [priceEvidence, setPriceEvidence] = useState<
     ReturnType<typeof SharePriceEvidenceListSchema.parse>
@@ -375,10 +408,12 @@ function InvestmentDetailsEditor({
   const [noticeWarnings, setNoticeWarnings] = useState<string[]>([]);
   const editButton = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(false);
+  const editorHeading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
+    if (open && summaryFirst) editorHeading.current?.focus();
     if (!open && wasOpen.current) editButton.current?.focus();
     wasOpen.current = open;
-  }, [open]);
+  }, [open, summaryFirst]);
   useEffect(() => {
     onDirtyChange?.(
       open &&
@@ -408,7 +443,10 @@ function InvestmentDetailsEditor({
     initialTerms,
   ]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
-  if (!context) return null;
+  useEffect(() => {
+    onEditingChange?.(open);
+  }, [open, onEditingChange]);
+
   const blank = (prefill: boolean): Draft => {
     const economics =
       prefill && holding.positionEconomicsContext
@@ -557,7 +595,10 @@ function InvestmentDetailsEditor({
       />
     </Field>
   );
-  const edit = () => {
+  const edit = (
+    lotIndex: number | null = null,
+    intent: "purchases" | "terms" = "purchases",
+  ) => {
     setRemoved([]);
     setTermDraft(initialTerms());
     setCashCoversPosition(receipt?.details.cashCoversPosition ?? false);
@@ -573,8 +614,12 @@ function InvestmentDetailsEditor({
     setError(null);
     setNoticeIndex(null);
     setNoticeWarnings([]);
+    setEditLotIndex(lotIndex);
+    setEditIntent(intent);
+    setExpanded(true);
     setOpen(true);
   };
+  useImperativeHandle(editorRef, () => ({ edit: () => edit() }));
   const save = async () => {
     if (!parsed.success) return;
     setBusy(true);
@@ -609,10 +654,25 @@ function InvestmentDetailsEditor({
       setBusy(false);
     }
   };
-  return (
+  const reviewed = reviewedInvestmentFromReceipt(receipt);
+  const refundNeedsReview =
+    receipt?.snapshotId === context.snapshotId &&
+    (reviewed?.returnedCapitalReconciliationPending ||
+      (reviewed?.includedReturnedCapitalMinor ?? 0) >
+        (holding.realizedValueMinor ?? 0));
+  const expectedRefundMinor = addMinorUnits(
+    ...(receipt?.details.lots ?? [])
+      .filter((lot) => lot.capitalReturn?.status === "expected")
+      .map((lot) => lot.capitalReturn!.amountMinor),
+  );
+  const purchaseSummary = receipt?.details.lots.length
+    ? `${receipt.details.lots.length} purchase${receipt.details.lots.length === 1 ? "" : "s"} · ${reviewed?.cashPaidMinor == null ? "Cash paid not confirmed" : `${money(reviewed.cashPaidMinor)} paid`}${(reviewed?.returnedCapitalMinor ?? 0) > 0 ? ` · ${money(reviewed!.returnedCapitalMinor!)} refunded` : ""}`
+    : "Optional · Add what you know";
+
+  const purchaseContent = (
     <section
       id={`investment-details-${holding.id}`}
-      className="position-economics purchase-details"
+      className={`position-economics purchase-details${summaryFirst ? " purchase-details--summary" : ""}`}
       aria-label={
         mode === "valuation" ? "Share-based valuation" : "Investment details"
       }
@@ -626,7 +686,18 @@ function InvestmentDetailsEditor({
       )}
       <div className="position-economics__heading">
         <div>
-          {mode !== "valuation" && <h3>{"Investment details"}</h3>}
+          {mode !== "valuation" && (
+            <h3
+              ref={editorHeading}
+              tabIndex={summaryFirst && open ? -1 : undefined}
+            >
+              {summaryFirst
+                ? open
+                  ? "Edit investment details"
+                  : "Purchases"
+                : "Investment details"}
+            </h3>
+          )}
           {(open || !receipt?.details.lots.length) && mode !== "valuation" && (
             <p>
               {
@@ -670,16 +741,19 @@ function InvestmentDetailsEditor({
           </ActionGroup>
         )}
       </div>
-      {receipt && receipt.snapshotId !== context.snapshotId && (
-        <Notice tone="error">
-          The source position changed. Review cash, terms and value evidence
-          again before using calculations.
-        </Notice>
-      )}
+      {!summaryFirst &&
+        receipt &&
+        receipt.snapshotId !== context.snapshotId && (
+          <Notice tone="error">
+            The source position changed. Review cash, terms and value evidence
+            again before using calculations.
+          </Notice>
+        )}
       {error && <Notice tone="error">{error}</Notice>}
       {!open && mode !== "valuation" && receipt?.details.investmentTerms && (
         <InvestmentCalculationPreview
           reviewed={reviewedInvestmentFromReceipt(receipt)!}
+          view={summaryFirst ? "cash" : "full"}
           reportedValueMinor={reportedValueMinor}
           currentReportedValueSnapshotId={
             context.reportedValueSnapshotId ??
@@ -694,6 +768,7 @@ function InvestmentDetailsEditor({
           {mode !== "valuation" &&
             receipt.details.lots.map((lot, i) => {
               if (
+                !summaryFirst &&
                 receipt.details.investmentTerms &&
                 receipt.details.lots.length === 1 &&
                 !lot.priceMicros &&
@@ -726,257 +801,308 @@ function InvestmentDetailsEditor({
               const capital = purchaseCapital(lot);
               const allIn = purchaseAllInPrice(lot);
               return (
-                <div key={lot.id} className="purchase-summary">
-                  {receipt.details.lots.length > 1 && <h4>Purchase {i + 1}</h4>}
-                  <PurchaseCapitalPreview lot={lot} />
-                  <p className="purchase-summary__metadata">
-                    {[
-                      lot.shareClass,
-                      lot.transactionType
-                        ? lot.transactionType === "secondary"
-                          ? "Secondary"
-                          : "Primary"
-                        : null,
-                      lot.purchasedOn ? formatDate(lot.purchasedOn) : null,
-                      lot.sourceKind === "executed"
-                        ? "Executed evidence"
-                        : lot.sourceKind === "deal_snapshot"
-                          ? "Historical deal snapshot"
-                          : null,
-                      lot.sourceObservedOn
-                        ? `Evidence dated ${formatDate(lot.sourceObservedOn)}`
-                        : null,
-                      lot.sourceLabel,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
-                  <div className="purchase-summary__layout">
-                    <div className="purchase-summary__cost">
-                      <StatGroup
-                        className="purchase-cost"
-                        aria-label="Cost per share"
+                <Collapsible
+                  key={lot.id}
+                  className="purchase-summary"
+                  defaultOpen={!summaryFirst}
+                >
+                  {summaryFirst && (
+                    <div className="purchase-summary__heading">
+                      <CollapsibleTrigger layout="inline">
+                        <span>
+                          <strong>
+                            {lot.purchasedOn
+                              ? formatDate(lot.purchasedOn)
+                              : `Purchase ${i + 1}`}
+                          </strong>
+                          <small>
+                            {capital.grossCashMinor === null
+                              ? "Cash paid unknown"
+                              : `${money(capital.grossCashMinor)} paid`}{" "}
+                            ·{" "}
+                            {capital.netCapitalMinor === null
+                              ? "Final allocation unknown"
+                              : `${money(capital.netCapitalMinor)} invested`}
+                          </small>
+                          {lot.capitalReturn && (
+                            <small>
+                              {money(lot.capitalReturn.amountMinor)} refund ·{" "}
+                              {lot.capitalReturn.status === "received"
+                                ? "Received"
+                                : "Expected"}
+                              {lot.capitalReturn.effectiveDate
+                                ? ` · ${formatDate(lot.capitalReturn.effectiveDate)}`
+                                : " · Date unknown"}
+                            </small>
+                          )}
+                        </span>
+                        <DisclosureIndicator />
+                      </CollapsibleTrigger>
+                      <Button
+                        tone="quiet"
+                        onClick={() => edit(i)}
+                        aria-label={`Edit purchase ${i + 1}`}
                       >
-                        {lot.priceMicros !== null && (
-                          <Stat
-                            label="Share price"
-                            value={displayedUnitPrice(lot.priceMicros)}
-                          />
-                        )}
-                        {allIn !== null && lot.priceMicros !== null && (
-                          <>
-                            <span
-                              className="purchase-cost__operator"
-                              aria-hidden="true"
-                            >
-                              +
-                            </span>
+                        Edit
+                      </Button>
+                    </div>
+                  )}
+                  <CollapsibleContent keepMounted>
+                    {!summaryFirst && receipt.details.lots.length > 1 && (
+                      <h4>Purchase {i + 1}</h4>
+                    )}
+                    <PurchaseCapitalPreview lot={lot} />
+                    <p className="purchase-summary__metadata">
+                      {[
+                        lot.shareClass,
+                        lot.transactionType
+                          ? lot.transactionType === "secondary"
+                            ? "Secondary"
+                            : "Primary"
+                          : null,
+                        lot.purchasedOn ? formatDate(lot.purchasedOn) : null,
+                        lot.sourceKind === "executed"
+                          ? "Executed evidence"
+                          : lot.sourceKind === "deal_snapshot"
+                            ? "Historical deal snapshot"
+                            : null,
+                        lot.sourceObservedOn
+                          ? `Evidence dated ${formatDate(lot.sourceObservedOn)}`
+                          : null,
+                        lot.sourceLabel,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                    <div className="purchase-summary__layout">
+                      <div className="purchase-summary__cost">
+                        <StatGroup
+                          className="purchase-cost"
+                          aria-label="Cost per share"
+                        >
+                          {lot.priceMicros !== null && (
                             <Stat
-                              label={
-                                lot.upfrontDeductionsMinor === undefined &&
-                                lot.feePpm !== null &&
-                                lot.feeBasis
-                                  ? `Upfront fee · ${decimal(lot.feePpm, 4)}% ${lot.feeBasis === "net_capital" ? "on share capital" : "of gross cash"}`
-                                  : "Upfront fees / share"
-                              }
-                              value={displayedUnitPrice(
-                                Number(BigInt(allIn) - BigInt(lot.priceMicros)),
-                              )}
+                              label="Share price"
+                              value={displayedUnitPrice(lot.priceMicros)}
                             />
-                            <span
-                              className="purchase-cost__operator"
-                              aria-hidden="true"
-                            >
-                              =
-                            </span>
-                            <Stat
-                              className="purchase-cost__total"
-                              label="All-in / share"
-                              value={displayedUnitPrice(allIn)}
-                            />
-                          </>
-                        )}
-                      </StatGroup>
-                      {lot.feePpm !== null && allIn === null && (
-                        <p>
-                          {lot.feeLabel ?? "One-time fee"}:{" "}
-                          {decimal(lot.feePpm, 4)}%
-                          {lot.feeBasis === null
-                            ? " · basis unknown; excluded from calculations"
-                            : ""}
-                          .
-                        </p>
-                      )}
-                      {lot.referencePriceMicros !== null && (
-                        <p className="purchase-reference-line">
-                          {lot.referenceRound ?? "Entry"} reference $
-                          {unitPrice(lot.referencePriceMicros)} / share
-                          {allIn !== null && (
+                          )}
+                          {allIn !== null && lot.priceMicros !== null && (
                             <>
-                              {" "}
-                              · All-in premium{" "}
-                              <strong>
-                                {percent(
-                                  ((BigInt(allIn) -
-                                    BigInt(lot.referencePriceMicros)) *
-                                    1_000_000n) /
-                                    BigInt(lot.referencePriceMicros),
+                              <span
+                                className="purchase-cost__operator"
+                                aria-hidden="true"
+                              >
+                                +
+                              </span>
+                              <Stat
+                                label={
+                                  lot.upfrontDeductionsMinor === undefined &&
+                                  lot.feePpm !== null &&
+                                  lot.feeBasis
+                                    ? `Upfront fee · ${decimal(lot.feePpm, 4)}% ${lot.feeBasis === "net_capital" ? "on share capital" : "of gross cash"}`
+                                    : "Upfront fees / share"
+                                }
+                                value={displayedUnitPrice(
+                                  Number(
+                                    BigInt(allIn) - BigInt(lot.priceMicros),
+                                  ),
                                 )}
-                                %
-                              </strong>
+                              />
+                              <span
+                                className="purchase-cost__operator"
+                                aria-hidden="true"
+                              >
+                                =
+                              </span>
+                              <Stat
+                                className="purchase-cost__total"
+                                label="All-in / share"
+                                value={displayedUnitPrice(allIn)}
+                              />
                             </>
                           )}
-                        </p>
-                      )}
-                      {(lot.reportedPremiumPpm != null ||
-                        (lot.priceMicros !== null &&
-                          lot.referencePriceMicros !== null)) && (
-                        <Collapsible>
-                          <CollapsibleTrigger layout="inline">
-                            Calculation details <DisclosureIndicator />
-                          </CollapsibleTrigger>
-                          <CollapsibleContent>
-                            {lot.priceMicros !== null &&
-                              lot.referencePriceMicros !== null && (
-                                <p>
-                                  Purchase premium:{" "}
+                        </StatGroup>
+                        {lot.feePpm !== null && allIn === null && (
+                          <p>
+                            {lot.feeLabel ?? "One-time fee"}:{" "}
+                            {decimal(lot.feePpm, 4)}%
+                            {lot.feeBasis === null
+                              ? " · basis unknown; excluded from calculations"
+                              : ""}
+                            .
+                          </p>
+                        )}
+                        {lot.referencePriceMicros !== null && (
+                          <p className="purchase-reference-line">
+                            {lot.referenceRound ?? "Entry"} reference $
+                            {unitPrice(lot.referencePriceMicros)} / share
+                            {allIn !== null && (
+                              <>
+                                {" "}
+                                · All-in premium{" "}
+                                <strong>
                                   {percent(
-                                    ((BigInt(lot.priceMicros) -
+                                    ((BigInt(allIn) -
                                       BigInt(lot.referencePriceMicros)) *
                                       1_000_000n) /
                                       BigInt(lot.referencePriceMicros),
                                   )}
-                                  % before upfront fees.
-                                </p>
-                              )}
-                            {allIn !== null &&
-                              lot.referencePriceMicros !== null && (
-                                <p>
-                                  All-in premium is calculated from the share
-                                  price plus recorded upfront fees relative to
-                                  the reference price.
-                                </p>
-                              )}
-                            {lot.reportedPremiumPpm != null && (
-                              <p>
-                                Notice-quoted premium:{" "}
-                                {percent(BigInt(lot.reportedPremiumPpm))}%. Kept
-                                separately from the calculated premium.
-                              </p>
-                            )}
-                          </CollapsibleContent>
-                        </Collapsible>
-                      )}
-                    </div>
-                    <aside
-                      className="purchase-summary__context"
-                      aria-label="Purchase terms and source"
-                    >
-                      {lot.feeLabel && (
-                        <p>
-                          Fee component: {lot.feeLabel}
-                          {lot.feePpm !== null
-                            ? ` · ${decimal(lot.feePpm, 4)}%`
-                            : ""}
-                          .
-                        </p>
-                      )}
-                      {lot.referenceRound &&
-                        lot.referencePriceMicros === null && (
-                          <p>Reference: {lot.referenceRound}.</p>
-                        )}
-                      {(lot.sourceText ||
-                        lot.reportedManagementFeePpm != null ||
-                        lot.reportedCarryPpm != null) && (
-                        <Collapsible>
-                          <CollapsibleTrigger layout="inline">
-                            Source notice <DisclosureIndicator />
-                          </CollapsibleTrigger>
-                          <CollapsibleContent>
-                            {(lot.reportedManagementFeePpm != null ||
-                              lot.reportedCarryPpm != null) && (
-                              <>
-                                <h4>Reported terms</h4>
-                                <DataList className="purchase-reported-terms">
-                                  {lot.reportedManagementFeePpm != null && (
-                                    <DataItem
-                                      label="Reported management fee"
-                                      value={`${decimal(lot.reportedManagementFeePpm, 4)}%`}
-                                    />
-                                  )}
-                                  {lot.reportedCarryPpm != null && (
-                                    <DataItem
-                                      label="Carry"
-                                      value={`${decimal(lot.reportedCarryPpm, 4)}%`}
-                                    />
-                                  )}
-                                </DataList>
+                                  %
+                                </strong>
                               </>
                             )}
-                            <p className="purchase-notice-text">
-                              {lot.sourceText}
-                            </p>
-                          </CollapsibleContent>
-                        </Collapsible>
-                      )}
-                    </aside>
-                  </div>
-                  {(shares ||
-                    capital.grossCashMinor !== null ||
-                    capital.netCapitalMinor !== null) && (
-                    <DataList className="purchase-summary__terms purchase-summary__capital">
-                      {lot.nominalSpvUnitsMicros != null && (
+                          </p>
+                        )}
+                        {(lot.reportedPremiumPpm != null ||
+                          (lot.priceMicros !== null &&
+                            lot.referencePriceMicros !== null)) && (
+                          <Collapsible>
+                            <CollapsibleTrigger layout="inline">
+                              Calculation details <DisclosureIndicator />
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              {lot.priceMicros !== null &&
+                                lot.referencePriceMicros !== null && (
+                                  <p>
+                                    Purchase premium:{" "}
+                                    {percent(
+                                      ((BigInt(lot.priceMicros) -
+                                        BigInt(lot.referencePriceMicros)) *
+                                        1_000_000n) /
+                                        BigInt(lot.referencePriceMicros),
+                                    )}
+                                    % before upfront fees.
+                                  </p>
+                                )}
+                              {allIn !== null &&
+                                lot.referencePriceMicros !== null && (
+                                  <p>
+                                    All-in premium is calculated from the share
+                                    price plus recorded upfront fees relative to
+                                    the reference price.
+                                  </p>
+                                )}
+                              {lot.reportedPremiumPpm != null && (
+                                <p>
+                                  Notice-quoted premium:{" "}
+                                  {percent(BigInt(lot.reportedPremiumPpm))}%.
+                                  Kept separately from the calculated premium.
+                                </p>
+                              )}
+                            </CollapsibleContent>
+                          </Collapsible>
+                        )}
+                      </div>
+                      <aside
+                        className="purchase-summary__context"
+                        aria-label="Purchase terms and source"
+                      >
+                        {lot.feeLabel && (
+                          <p>
+                            Fee component: {lot.feeLabel}
+                            {lot.feePpm !== null
+                              ? ` · ${decimal(lot.feePpm, 4)}%`
+                              : ""}
+                            .
+                          </p>
+                        )}
+                        {lot.referenceRound &&
+                          lot.referencePriceMicros === null && (
+                            <p>Reference: {lot.referenceRound}.</p>
+                          )}
+                        {(lot.sourceText ||
+                          lot.reportedManagementFeePpm != null ||
+                          lot.reportedCarryPpm != null) && (
+                          <Collapsible>
+                            <CollapsibleTrigger layout="inline">
+                              Source notice <DisclosureIndicator />
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              {(lot.reportedManagementFeePpm != null ||
+                                lot.reportedCarryPpm != null) && (
+                                <>
+                                  <h4>Reported terms</h4>
+                                  <DataList className="purchase-reported-terms">
+                                    {lot.reportedManagementFeePpm != null && (
+                                      <DataItem
+                                        label="Reported management fee"
+                                        value={`${decimal(lot.reportedManagementFeePpm, 4)}%`}
+                                      />
+                                    )}
+                                    {lot.reportedCarryPpm != null && (
+                                      <DataItem
+                                        label="Carry"
+                                        value={`${decimal(lot.reportedCarryPpm, 4)}%`}
+                                      />
+                                    )}
+                                  </DataList>
+                                </>
+                              )}
+                              <p className="purchase-notice-text">
+                                {lot.sourceText}
+                              </p>
+                            </CollapsibleContent>
+                          </Collapsible>
+                        )}
+                      </aside>
+                    </div>
+                    {(shares ||
+                      capital.grossCashMinor !== null ||
+                      capital.netCapitalMinor !== null) && (
+                      <DataList className="purchase-summary__terms purchase-summary__capital">
+                        {lot.nominalSpvUnitsMicros != null && (
+                          <DataItem
+                            label="Nominal SPV units"
+                            value={decimal(lot.nominalSpvUnitsMicros, 6)}
+                          />
+                        )}
+                        {shares && (
+                          <DataItem
+                            label={
+                              <>
+                                {shares.derived
+                                  ? "Calculated original shares"
+                                  : "Remaining underlying shares"}
+                              </>
+                            }
+                            value={decimal(shares.quantityMicros, 6)}
+                          />
+                        )}
+                        {capital.grossCashMinor !== null && (
+                          <DataItem
+                            label="Cash paid"
+                            value={money(capital.grossCashMinor)}
+                          />
+                        )}
+                        {capital.netCapitalMinor !== null && (
+                          <DataItem
+                            label="Net capital invested"
+                            value={money(capital.netCapitalMinor)}
+                          />
+                        )}
+                      </DataList>
+                    )}
+                    {mode !== "purchase" && lot.mark && (
+                      <DataList className="purchase-summary__terms">
                         <DataItem
-                          label="Nominal SPV units"
-                          value={decimal(lot.nominalSpvUnitsMicros, 6)}
-                        />
-                      )}
-                      {shares && (
-                        <DataItem
-                          label={
+                          label="Valuation price"
+                          value={
                             <>
-                              {shares.derived
-                                ? "Calculated original shares"
-                                : "Remaining underlying shares"}
+                              ${unitPrice(lot.mark.priceMicros)} / share
+                              <small>
+                                {lot.mark.shareClass} ·{" "}
+                                {lot.mark.effectiveDate
+                                  ? formatDate(lot.mark.effectiveDate)
+                                  : "Mark date unknown"}{" "}
+                                · {lot.mark.sourceLabel}
+                              </small>
                             </>
                           }
-                          value={decimal(shares.quantityMicros, 6)}
                         />
-                      )}
-                      {capital.grossCashMinor !== null && (
-                        <DataItem
-                          label="Cash paid"
-                          value={money(capital.grossCashMinor)}
-                        />
-                      )}
-                      {capital.netCapitalMinor !== null && (
-                        <DataItem
-                          label="Net capital invested"
-                          value={money(capital.netCapitalMinor)}
-                        />
-                      )}
-                    </DataList>
-                  )}
-                  {mode !== "purchase" && lot.mark && (
-                    <DataList className="purchase-summary__terms">
-                      <DataItem
-                        label="Valuation price"
-                        value={
-                          <>
-                            ${unitPrice(lot.mark.priceMicros)} / share
-                            <small>
-                              {lot.mark.shareClass} ·{" "}
-                              {lot.mark.effectiveDate
-                                ? formatDate(lot.mark.effectiveDate)
-                                : "Mark date unknown"}{" "}
-                              · {lot.mark.sourceLabel}
-                            </small>
-                          </>
-                        }
-                      />
-                    </DataList>
-                  )}
-                </div>
+                      </DataList>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
               );
             })}
           {mode === "valuation" &&
@@ -1284,7 +1410,7 @@ function InvestmentDetailsEditor({
             <Collapsible
               key={`${d.id}:${drafts.length === 1}`}
               render={<fieldset className="purchase-fields" />}
-              defaultOpen={drafts.length === 1}
+              defaultOpen={drafts.length === 1 || editLotIndex === i}
               disabled={busy}
             >
               <legend className="purchase-fields__heading">
@@ -1958,19 +2084,30 @@ function InvestmentDetailsEditor({
               }
             </Collapsible>
           ))}
-          {
-            <InvestmentTermsFields
-              draft={termDraft}
-              update={(key, value) =>
-                setTermDraft((old) => ({ ...old, [key]: value }))
-              }
-              importedMinor={
-                holding.positionEconomicsContext?.committedMinor ?? null
-              }
-              reportedValueMinor={reportedValueMinor}
-              reportedSource={reportedSource}
-            />
-          }
+          <Collapsible
+            defaultOpen={!summaryFirst || editIntent === "terms"}
+            className="purchase-shared-terms"
+          >
+            {summaryFirst && (
+              <CollapsibleTrigger layout="inline">
+                <strong>Fees &amp; carry</strong>
+                <DisclosureIndicator />
+              </CollapsibleTrigger>
+            )}
+            <CollapsibleContent keepMounted>
+              <InvestmentTermsFields
+                draft={termDraft}
+                update={(key, value) =>
+                  setTermDraft((old) => ({ ...old, [key]: value }))
+                }
+                importedMinor={
+                  holding.positionEconomicsContext?.committedMinor ?? null
+                }
+                reportedValueMinor={reportedValueMinor}
+                reportedSource={reportedSource}
+              />
+            </CollapsibleContent>
+          </Collapsible>
           {
             <label className="purchase-coverage">
               <Input
@@ -1985,6 +2122,7 @@ function InvestmentDetailsEditor({
           }
           {parsed.success && (
             <InvestmentCalculationPreview
+              view={summaryFirst ? "cash" : "full"}
               reviewed={reviewedInvestmentFromReceipt({
                 id: "draft",
                 positionId: holding.id,
@@ -2072,5 +2210,122 @@ function InvestmentDetailsEditor({
         </form>
       )}
     </section>
+  );
+  if (!summaryFirst) return purchaseContent;
+  return (
+    <div className="holding-investment-details">
+      {receipt && receipt.snapshotId !== context.snapshotId && (
+        <Notice tone="error">
+          The source changed. Review cash, terms and value evidence before using
+          earlier calculations.
+          <Button tone="quiet" onClick={() => edit()}>
+            Review changes
+          </Button>
+        </Notice>
+      )}
+      {!open && refundNeedsReview && (
+        <Notice>
+          Confirm whether reported distributions{" "}
+          {holding.realizedValueMinor == null
+            ? "(total unknown)"
+            : `of ${money(holding.realizedValueMinor)}`}{" "}
+          include the refund. Return stays unknown until checked.
+          <Button
+            tone="quiet"
+            onClick={() =>
+              edit(
+                receipt.details.lots.findIndex(
+                  (lot) => lot.capitalReturn?.status === "received",
+                ),
+              )
+            }
+          >
+            Confirm refund
+          </Button>
+        </Notice>
+      )}
+      {!open && !refundNeedsReview && expectedRefundMinor > 0 && (
+        <Notice>
+          {money(expectedRefundMinor)} refund expected · Not counted as received
+          cash.
+          <Button
+            tone="quiet"
+            onClick={() =>
+              edit(
+                receipt!.details.lots.findIndex(
+                  (lot) => lot.capitalReturn?.status === "expected",
+                ),
+              )
+            }
+          >
+            Update refund
+          </Button>
+        </Notice>
+      )}
+      <Collapsible
+        open={expanded || open}
+        onOpenChange={setExpanded}
+        className="holding-detail-section"
+      >
+        {!open && (
+          <CollapsibleTrigger
+            layout="inline"
+            className="holding-section-toggle"
+          >
+            <span>
+              <strong>Purchases &amp; refunds</strong>
+              <small>{purchaseSummary}</small>
+            </span>
+            <DisclosureIndicator />
+          </CollapsibleTrigger>
+        )}
+        <CollapsibleContent keepMounted>{purchaseContent}</CollapsibleContent>
+      </Collapsible>
+      <div hidden={open}>{valuationSection}</div>
+      {!open && (
+        <Collapsible className="holding-detail-section">
+          <CollapsibleTrigger
+            layout="inline"
+            className="holding-section-toggle"
+          >
+            <span>
+              <strong>Fees &amp; carry</strong>
+              <small>
+                {reviewed?.terms.carryPpm == null
+                  ? "Carry unknown"
+                  : `${decimal(reviewed.terms.carryPpm, 4)}% carry`}{" "}
+                ·{" "}
+                {reviewed?.terms.annualManagementFeePpm == null
+                  ? "Annual fee unknown"
+                  : `${decimal(reviewed.terms.annualManagementFeePpm, 4)}% annual fee`}
+              </small>
+            </span>
+            <DisclosureIndicator />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            {reviewed ? (
+              <InvestmentCalculationPreview
+                reviewed={reviewed}
+                view="terms"
+                reportedValueMinor={reportedValueMinor}
+                currentReportedValueSnapshotId={
+                  context.reportedValueSnapshotId ??
+                  holding.linkedReportedValue?.snapshotId ??
+                  context.snapshotId
+                }
+                currentSnapshotId={context.snapshotId}
+              />
+            ) : (
+              <p className="holding-detail-help">
+                Add the terms you know. Unknown fees and carry stay unknown.
+              </p>
+            )}
+            <Button tone="quiet" onClick={() => edit(null, "terms")}>
+              Edit fees &amp; carry
+            </Button>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </div>
   );
 }
