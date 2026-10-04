@@ -725,7 +725,7 @@
     "packages/domain/src/exposure-read-model.test.ts :: investment exposure read model > rolls reviewed public and SPV positions into one company without changing their values",
     "packages/domain/src/exposure-read-model.test.ts :: investment exposure read model > uses a GP mark and accepted financing rounds for a tranche-aware private estimate",
     "packages/domain/src/exposure-read-model.test.ts :: investment exposure read model > uses invested amount for a live exposure when current value is not reported",
-    "packages/domain/src/exposure-read-model.test.ts :: uses a share estimate for missing values while preserving a provider mark alongside it",
+    "packages/domain/src/exposure-read-model.test.ts :: uses a reviewed share estimate while preserving the provider mark separately",
     "packages/domain/src/index.test.ts :: Mac agent authorization boundary > accepts HTTPS or loopback origins and rejects an insecure remote host",
     "packages/domain/src/index.test.ts :: accepted cash account boundaries > allows reviewed facts and rejects provider-only unavailable states",
     "packages/domain/src/index.test.ts :: deterministic financial calculations > accepts only an explicit other-liquid amount for baseline confirmation",

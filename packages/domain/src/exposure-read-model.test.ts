@@ -606,7 +606,7 @@ it.each(["historical", "cancelled"] as const)(
   },
 );
 
-it("uses a share estimate for missing values while preserving a provider mark alongside it", () => {
+it("uses a reviewed share estimate while preserving the provider mark separately", () => {
   const p = position("position_1", null, "not_reported");
   p.kind = "spv_interest";
   p.purchaseReceipt = {
@@ -674,8 +674,50 @@ it("uses a share estimate for missing values while preserving a provider mark al
   expect(
     createInvestmentExposureView(positionView([p]), [], []).positions[0],
   ).toMatchObject({
-    valueSource: "provider",
-    valueMinor: 18_000,
+    valueSource: "share_price_estimate",
+    valueMinor: 20_000,
+    shareValueEstimate: { valueMinor: 20_000 },
+  });
+  expect(p.snapshot.unrealizedValue).toEqual({
+    state: "reported",
+    minor: 18_000,
+  });
+  p.linkedReportedValue = {
+    state: "reported",
+    minor: 17_000,
+    reviewId: "synthetic-link-review",
+    sourcePositionId: "synthetic-source-position",
+    snapshotId: "synthetic-source-snapshot",
+    sourceLabel: "Synthetic linked statement",
+    observedAt: "2026-08-15T00:00:00.000Z",
+  };
+  expect(
+    createInvestmentExposureView(positionView([p]), [], []).positions[0],
+  ).toMatchObject({
+    valueSource: "share_price_estimate",
+    valueMinor: 20_000,
+  });
+  expect(p.linkedReportedValue.minor).toBe(17_000);
+  p.acceptedValueAdjustment = {
+    id: "synthetic-value-review",
+    positionId: p.id,
+    snapshotId: p.snapshot.id,
+    priorValueState: "reported",
+    priorValueMinor: 17_000,
+    valueMinor: 22_000,
+    currency: "USD",
+    effectiveDate: "2026-08-15",
+    sourceKind: "gp_update",
+    sourceLabel: "Synthetic GP update",
+    sourceUrl: null,
+    commentary: "Reviewed synthetic value.",
+    acceptedAt: "2026-08-15T12:00:00.000Z",
+  };
+  expect(
+    createInvestmentExposureView(positionView([p]), [], []).positions[0],
+  ).toMatchObject({
+    valueSource: "reviewed_adjustment",
+    valueMinor: 22_000,
     shareValueEstimate: { valueMinor: 20_000 },
   });
   p.snapshot.id = "new-snapshot";

@@ -499,7 +499,6 @@ export function createInvestmentExposureView(
         const privateValueEstimate =
           privateValueEstimates.get(position.id) ?? null;
         const shareValueEstimate =
-          position.linkedReportedValue == null &&
           position.snapshot.providerStatus === "live"
             ? estimatePurchaseValue(
                 position.purchaseReceipt,
@@ -507,10 +506,7 @@ export function createInvestmentExposureView(
               )
             : null;
         const useShareEstimate =
-          position.linkedReportedValue == null &&
-          adjustment === null &&
-          reportedPositionValue(position).state === "not_reported" &&
-          shareValueEstimate !== null;
+          adjustment === null && shareValueEstimate !== null;
         const investedAmountFallback =
           adjustment === null &&
           privateValueEstimate === null &&

@@ -9158,6 +9158,12 @@ h1,
   line-height: 1.15;
   letter-spacing: -0.035em;
 }
+.purchase-proxy-confirmation .stat__detail {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
 .purchase-proxy-confirmation > [data-slot="collapsible"] {
   margin-top: 8px;
 }
@@ -9496,4 +9502,23 @@ h1,
 }
 .holding-welcome [data-slot="text-link"] {
   margin-top: 20px;
+}
+
+.holding-copy-link {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 16px;
+}
+.holding-copy-link > [role="status"] {
+  font-size: 12px;
+  color: var(--muted);
+}
+.holding-copy-link > .field {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.investment-capital-totals:has(> :nth-child(4)) > :first-child {
+  grid-column: 1 / -1;
 }

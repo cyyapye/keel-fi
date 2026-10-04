@@ -251,12 +251,9 @@ test("review duplicate sources and replacement history with no typing, saved rel
   await section.getByRole("button", { name: "Apply link" }).click();
   await expect(section.getByText(/Historical · replaced/)).toBeVisible();
   await page.reload();
-  await page
-    .getByRole("button", { name: /Demo Orbit Aerospace \d position/ })
-    .click();
-  await page
-    .getByRole("button", { name: "View Demo Orbit VII SPV holding details" })
-    .click();
+  await expect(
+    page.getByRole("heading", { name: "Demo Orbit Aerospace", exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: /^Ownership, sources & history/ })
     .click();

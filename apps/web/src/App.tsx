@@ -1,3 +1,4 @@
+import { HoldingLinkButton } from "./HoldingLinkButton";
 import { PositionLinksEditor } from "./PositionLinksEditor";
 import { estimatePurchaseValue } from "@keel/domain/position-purchases";
 import {
@@ -197,6 +198,7 @@ const isRealCompanyAcceptanceProfile =
 type AppRoute = {
   screen: Screen;
   holdingImportId: string | null;
+  holdingPositionId: string | null;
   holdingsDrilldown: PortfolioSnapshotDrilldown | null;
   holdingsView: "entities" | "overview" | "sources";
 };
@@ -238,6 +240,7 @@ function routeFromLocation(): AppRoute {
     return {
       screen: "holdings",
       holdingImportId: null,
+      holdingPositionId: null,
       holdingsDrilldown: null,
       holdingsView: "entities",
     };
@@ -246,6 +249,7 @@ function routeFromLocation(): AppRoute {
     return {
       screen: "holdings",
       holdingImportId: null,
+      holdingPositionId: null,
       holdingsDrilldown: null,
       holdingsView: "sources",
     };
@@ -258,6 +262,7 @@ function routeFromLocation(): AppRoute {
       return {
         screen: "holdings",
         holdingImportId: decodeURIComponent(importMatch[1]),
+        holdingPositionId: null,
         holdingsDrilldown: null,
         holdingsView: "overview",
       };
@@ -265,6 +270,7 @@ function routeFromLocation(): AppRoute {
       return {
         screen: "holdings",
         holdingImportId: null,
+        holdingPositionId: null,
         holdingsDrilldown: null,
         holdingsView: "overview",
       };
@@ -278,8 +284,15 @@ function routeFromLocation(): AppRoute {
     holdingImportId: null,
     holdingsDrilldown:
       screen === "holdings" ? holdingsDrilldownFromLocation() : null,
+    holdingPositionId:
+      screen === "holdings" ? holdingPositionFromLocation() : null,
     holdingsView: "overview",
   };
+}
+
+function holdingPositionFromLocation(): string | null {
+  const id = new URLSearchParams(window.location.search).get("position");
+  return id && id.trim().length > 0 && id.length <= 200 ? id : null;
 }
 
 function SourceBadge({
@@ -2251,10 +2264,10 @@ function PositionValuationSection({
   );
   const summary = accepted
     ? `${formatCurrency(accepted.valueMinor, accepted.currency)} · ${accepted.sourceLabel} · ${formatDate(accepted.effectiveDate)}`
-    : holding.administratorNavMinor !== null
-      ? `${formatCurrency(holding.administratorNavMinor, holding.purchaseContext.currency)} · ${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}`
-      : estimate
-        ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · ${estimate.proxy ? "Proxy estimate" : "Share estimate"} · ${estimate.effectiveDate ? formatDate(estimate.effectiveDate) : "Mark date unknown"}`
+    : estimate
+      ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · ${estimate.proxy ? "Proxy estimate" : "Share estimate"} · ${estimate.effectiveDate ? formatDate(estimate.effectiveDate) : "Mark date unknown"}`
+      : holding.administratorNavMinor !== null
+        ? `${formatCurrency(holding.administratorNavMinor, holding.purchaseContext.currency)} · ${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}`
         : holding.positionValueContext?.projectedEstimate
           ? `${formatCurrency(holding.positionValueContext.projectedEstimate.valueMinor, holding.purchaseContext.currency)} · Portfolio Watch estimate`
           : "Optional · Add a reported value or calculate from shares";
@@ -2786,8 +2799,8 @@ function PositionPerformanceSummary({
     holding.positionValueContext?.projectedEstimate ?? null;
   const currentValueMinor =
     acceptedAdjustment?.valueMinor ??
-    holding.administratorNavMinor ??
     holding.shareValueEstimate?.valueMinor ??
+    holding.administratorNavMinor ??
     projectedEstimate?.valueMinor ??
     null;
   const currentValueReported =
@@ -2813,6 +2826,16 @@ function PositionPerformanceSummary({
       holding.positionKind === "fund_interest" ||
       holding.companyId !== null);
   const basisLabel = contributionBasis ? "Cash paid" : "Cost basis";
+  const reviewedCash = holding.positionEconomicsContext?.reviewedInvestment;
+  const cashAfterRefunds =
+    reviewedCash?.cashPaidMinor != null &&
+    reviewedCash.snapshotId === holding.positionEconomicsContext?.snapshotId &&
+    (reviewedCash.returnedCapitalMinor ?? 0) > 0
+      ? Number(
+          BigInt(reviewedCash.cashPaidMinor) -
+            BigInt(reviewedCash.returnedCapitalMinor ?? 0),
+        )
+      : null;
   const basisHelper = {
     provider: "Reported by the brokerage source.",
     reviewed_spv_terms: "Cash contributed, including reviewed upfront fees.",
@@ -2832,23 +2855,30 @@ function PositionPerformanceSummary({
             <>
               <Stat
                 label={
-                  performance.costBasisSource === "funded_amount_estimate"
-                    ? `${basisLabel} · reported`
-                    : basisLabel
+                  cashAfterRefunds !== null
+                    ? "Cash after refunds"
+                    : performance.costBasisSource === "funded_amount_estimate"
+                      ? `${basisLabel} · reported`
+                      : basisLabel
                 }
                 value={
-                  performance.costBasisMinor === null
-                    ? "Not reported"
-                    : performance.costBasisSource === "reviewed_spv_terms"
-                      ? formatMoney(performance.costBasisMinor)
-                      : formatCompactMoney(performance.costBasisMinor)
+                  cashAfterRefunds !== null
+                    ? formatMoney(cashAfterRefunds)
+                    : performance.costBasisMinor === null
+                      ? "Not reported"
+                      : performance.costBasisSource === "reviewed_spv_terms"
+                        ? formatMoney(performance.costBasisMinor)
+                        : formatCompactMoney(performance.costBasisMinor)
+                }
+                detail={
+                  cashAfterRefunds !== null
+                    ? "Before upfront fees · Original cash paid retained in Purchases"
+                    : undefined
                 }
               />
               <Stat
                 label={
-                  holding.shareValueEstimate?.proxy &&
-                  holding.administratorNavMinor === null &&
-                  !acceptedAdjustment
+                  holding.shareValueEstimate && !acceptedAdjustment
                     ? "Estimated return · before carry"
                     : holding.purchaseContext && !acceptedAdjustment
                       ? `Reported return · ${reportedCarryLabel(holding)}`
@@ -2894,18 +2924,14 @@ function PositionPerformanceSummary({
               />
               <DataItem
                 label={
-                  holding.shareValueEstimate?.proxy &&
-                  holding.administratorNavMinor === null &&
-                  !acceptedAdjustment
+                  holding.shareValueEstimate && !acceptedAdjustment
                     ? "Estimated return · before carry"
                     : holding.purchaseContext && !acceptedAdjustment
                       ? `Reported return · ${reportedCarryLabel(holding)}`
                       : "Total return"
                 }
                 value={
-                  holding.shareValueEstimate &&
-                  holding.administratorNavMinor === null &&
-                  !acceptedAdjustment
+                  holding.shareValueEstimate && !acceptedAdjustment
                     ? "Not annualized. Uses the estimated value and reported proceeds, before carry and remaining expenses."
                     : "Not annualized. Uses the reported value and proceeds; no additional carry is deducted."
                 }
@@ -3036,6 +3062,7 @@ function HoldingDetailWorkspace({
         <p>
           {holding.positionName} · {holding.ownerLabel}
         </p>
+        <HoldingLinkButton key={holding.id} kind="position" id={holding.id} />
       </header>
 
       <div className="holding-summary">
@@ -3047,8 +3074,7 @@ function HoldingDetailWorkspace({
               label={
                 acceptedAdjustment
                   ? "Reviewed value"
-                  : holding.shareValueEstimate &&
-                      holding.administratorNavMinor === null
+                  : holding.shareValueEstimate
                     ? holding.shareValueEstimate.proxy
                       ? "Estimated value · proxy"
                       : "Estimated value · shares"
@@ -3060,8 +3086,7 @@ function HoldingDetailWorkspace({
               value={
                 acceptedAdjustment
                   ? holdingValueLabel(acceptedAdjustment.valueMinor)
-                  : holding.shareValueEstimate &&
-                      holding.administratorNavMinor === null
+                  : holding.shareValueEstimate
                     ? holdingValueLabel(holding.shareValueEstimate.valueMinor)
                     : projectedEstimate &&
                         holding.administratorNavMinor === null
@@ -3071,8 +3096,7 @@ function HoldingDetailWorkspace({
               detail={
                 acceptedAdjustment
                   ? `${acceptedAdjustment.sourceLabel} · ${formatDate(acceptedAdjustment.effectiveDate)}`
-                  : holding.shareValueEstimate &&
-                      holding.administratorNavMinor === null
+                  : holding.shareValueEstimate
                     ? "Before carry and remaining expenses · See valuation assumptions below"
                     : projectedEstimate &&
                         holding.administratorNavMinor === null
@@ -6877,6 +6901,8 @@ function Holdings({
   onPreviewImport,
   requestedDrilldown,
   requestedImportId,
+  requestedPositionId,
+  onPositionRouteChange,
   requestedView,
 }: {
   data: HoldingsPage;
@@ -6895,6 +6921,8 @@ function Holdings({
   ) => Promise<HoldingImportPreview>;
   requestedDrilldown: PortfolioSnapshotDrilldown | null;
   requestedImportId: string | null;
+  requestedPositionId: string | null;
+  onPositionRouteChange: (positionId: string | null) => void;
   requestedView: "overview" | "sources";
 }) {
   const [showImporter, setShowImporter] = useState(false);
@@ -6923,9 +6951,7 @@ function Holdings({
     importId: string;
     message: string;
   } | null>(null);
-  const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(
-    null,
-  );
+  const selectedHoldingId = requestedPositionId;
   const [openExposureIds, setOpenExposureIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -6947,7 +6973,6 @@ function Holdings({
     workspaceLocation.navigationVersion !== navigationVersion
   ) {
     setWorkspaceLocation({ view: requestedView, navigationVersion });
-    setSelectedHoldingId(null);
     setShowImporter(false);
     setRoutedPreview(null);
     setRoutedPreviewError(null);
@@ -7090,25 +7115,28 @@ function Holdings({
     });
   }, []);
 
-  const openHoldingDetail = useCallback((holdingId: string) => {
-    const action = document.querySelector<HTMLElement>(
-      `[data-holding-id="${CSS.escape(holdingId)}"]`,
-    );
-    const exposureId = action
-      ?.closest<HTMLElement>("[data-exposure-id]")
-      ?.getAttribute("data-exposure-id");
+  const openHoldingDetail = useCallback(
+    (holdingId: string) => {
+      const action = document.querySelector<HTMLElement>(
+        `[data-holding-id="${CSS.escape(holdingId)}"]`,
+      );
+      const exposureId = action
+        ?.closest<HTMLElement>("[data-exposure-id]")
+        ?.getAttribute("data-exposure-id");
 
-    setOpenExposureIds(
-      exposureId === null || exposureId === undefined
-        ? new Set()
-        : new Set([exposureId]),
-    );
-    setSelectedHoldingId(holdingId);
-  }, []);
+      setOpenExposureIds(
+        exposureId === null || exposureId === undefined
+          ? new Set()
+          : new Set([exposureId]),
+      );
+      onPositionRouteChange(holdingId);
+    },
+    [onPositionRouteChange],
+  );
 
   const closeHoldingDetail = () => {
     const returnFocusId = selectedHoldingId;
-    setSelectedHoldingId(null);
+    onPositionRouteChange(null);
     if (returnFocusId !== null) {
       let attempts = 0;
       const restoreFocus = () => {
@@ -7150,13 +7178,7 @@ function Holdings({
             importerVisible ? (
               <TextLink onClick={closeImporter}>Close import</TextLink>
             ) : sourcesVisible ? (
-              <Button
-                onClick={() => {
-                  setSelectedHoldingId(null);
-                  setShowImporter(true);
-                }}
-                tone="primary"
-              >
+              <Button onClick={() => setShowImporter(true)} tone="primary">
                 Import holdings
               </Button>
             ) : undefined
@@ -7186,7 +7208,12 @@ function Holdings({
         />
       )}
 
-      {selectedHolding !== null ? (
+      {selectedHoldingId !== null && selectedHolding === null ? (
+        <Notice tone="error">
+          This position is unavailable.
+          <TextLink onClick={closeHoldingDetail}>Back to holdings</TextLink>
+        </Notice>
+      ) : selectedHolding !== null ? (
         <HoldingDetailWorkspace
           holding={selectedHolding}
           onValueAccepted={onExposureResolved}
@@ -8763,6 +8790,9 @@ export function App() {
   const [holdingImportId, setHoldingImportId] = useState<string | null>(
     () => routeFromLocation().holdingImportId,
   );
+  const [holdingPositionId, setHoldingPositionId] = useState<string | null>(
+    () => routeFromLocation().holdingPositionId ?? null,
+  );
   const [holdingsDrilldown, setHoldingsDrilldown] =
     useState<PortfolioSnapshotDrilldown | null>(
       () => routeFromLocation().holdingsDrilldown,
@@ -8857,6 +8887,7 @@ export function App() {
     }
     setFocusedEventId(null);
     setActiveScreen(screen);
+    setHoldingPositionId(null);
     setHoldingImportId(null);
     setHoldingsDrilldown(null);
     setHoldingsView("overview");
@@ -8869,6 +8900,7 @@ export function App() {
       window.history.pushState(null, "", path);
     }
     setActiveScreen("goals");
+    setHoldingPositionId(null);
     setHoldingImportId(null);
     setHoldingsDrilldown(null);
     setHoldingsView("overview");
@@ -8884,9 +8916,23 @@ export function App() {
       window.history.pushState(null, "", path);
     }
     setActiveScreen("holdings");
+    setHoldingPositionId(null);
     setHoldingImportId(importId);
     setHoldingsDrilldown(null);
     setHoldingsView("overview");
+  }, []);
+
+  const navigateToHoldingPosition = useCallback((positionId: string | null) => {
+    const search = new URLSearchParams();
+    if (positionId !== null) search.set("position", positionId);
+    const path = `/holdings${positionId === null ? "" : `?${search.toString()}`}`;
+    if (`${window.location.pathname}${window.location.search}` !== path)
+      window.history.pushState(null, "", path);
+    setActiveScreen("holdings");
+    setHoldingImportId(null);
+    setHoldingsDrilldown(null);
+    setHoldingsView("overview");
+    setHoldingPositionId(positionId);
   }, []);
 
   const navigateToHoldingsView = useCallback((view: HoldingsView) => {
@@ -8895,6 +8941,7 @@ export function App() {
       window.history.pushState(null, "", path);
     }
     setActiveScreen("holdings");
+    setHoldingPositionId(null);
     setHoldingImportId(null);
     setHoldingsDrilldown(null);
     setHoldingsView(view);
@@ -8916,6 +8963,7 @@ export function App() {
         window.history.pushState(null, "", path);
       }
       setActiveScreen("holdings");
+      setHoldingPositionId(null);
       setHoldingImportId(null);
       setHoldingsDrilldown(drilldown);
       setHoldingsView("overview");
@@ -8930,6 +8978,7 @@ export function App() {
         new URLSearchParams(window.location.search).get("event"),
       );
       setActiveScreen(route.screen);
+      setHoldingPositionId(route.holdingPositionId ?? null);
       setHoldingImportId(route.holdingImportId);
       setHoldingsDrilldown(route.holdingsDrilldown);
       setHoldingsView(route.holdingsView);
@@ -8955,7 +9004,13 @@ export function App() {
 
   useEffect(() => {
     window.scrollTo({ behavior: "auto", top: 0 });
-  }, [activeScreen, holdingImportId, holdingsDrilldown, holdingsView]);
+  }, [
+    activeScreen,
+    holdingImportId,
+    holdingPositionId,
+    holdingsDrilldown,
+    holdingsView,
+  ]);
 
   const content = useMemo(() => {
     if (activeScreen === "holdings") {
@@ -9006,6 +9061,8 @@ export function App() {
             await refreshReviewedHoldings();
             return preview;
           }}
+          requestedPositionId={holdingPositionId}
+          onPositionRouteChange={navigateToHoldingPosition}
           requestedImportId={holdingImportId}
           requestedDrilldown={holdingsDrilldown}
           requestedView={holdingsView}
@@ -9169,6 +9226,8 @@ export function App() {
     busyEvent,
     data,
     holdingImportId,
+    holdingPositionId,
+    navigateToHoldingPosition,
     holdingsDrilldown,
     holdingsLoadError,
     holdingsNavigationVersion,

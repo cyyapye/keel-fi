@@ -253,6 +253,20 @@ export function InvestmentCalculationPreview({
         <>
           <h4>{view === "cash" ? "Purchase totals" : "Calculation preview"}</h4>
           <StatGroup className="investment-capital-totals">
+            {(reviewed.returnedCapitalMinor ?? 0) > 0 && (
+              <Stat
+                label="Cash after refunds"
+                value={money(
+                  reviewed.cashPaidMinor == null
+                    ? null
+                    : Number(
+                        BigInt(reviewed.cashPaidMinor) -
+                          BigInt(reviewed.returnedCapitalMinor ?? 0),
+                      ),
+                )}
+                detail="Before upfront fees"
+              />
+            )}
             <Stat label="Cash paid" value={money(reviewed.cashPaidMinor)} />
             <Stat
               label="Upfront deductions"
@@ -266,8 +280,10 @@ export function InvestmentCalculationPreview({
           {(reviewed.returnedCapitalMinor ?? 0) > 0 && (
             <p>
               Received capital refunds: {money(reviewed.returnedCapitalMinor!)}.
-              Cash paid is preserved; fees reconcile against cash retained after
-              the refund.
+              Original cash paid stays in your history. Net capital subtracts
+              received refunds and upfront deductions.
+              {reviewed.netCapitalMinor === null &&
+                " Confirm upfront deductions or the final allocation to calculate net capital invested."}
             </p>
           )}
         </>
