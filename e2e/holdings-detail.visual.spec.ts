@@ -1076,13 +1076,16 @@ test("leads with the investment and opens a truthful holding detail", async ({
     })
     .toBe(true);
   await expectNoHorizontalOverflow(page);
-  // A tall element capture scrolls the page and can flip the open calendar.
-  await expect(page).toHaveScreenshot("holding-value-evidence-calendar.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
+  // The form/review captures cover its context; this capture keeps the anchor still.
+  await expect(valueDateCalendar).toHaveScreenshot(
+    "holding-value-evidence-calendar.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
   await valueDateCalendar
     .getByRole("button", { name: "Tuesday, August 18, 2026" })
     .click();
