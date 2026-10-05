@@ -22,6 +22,14 @@ async function screenshotHolding(page: Page, name: string) {
   );
 }
 
+async function screenshotValuation(page: Page, region: Locator, name: string) {
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await region.evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await expect(region).toHaveScreenshot(name, { animations: "disabled" });
+}
+
 async function showPurchases(page: Page) {
   const toggle = page.getByRole("button", { name: /^Purchases & refunds/ });
   await expect(toggle).toBeVisible();
@@ -321,36 +329,66 @@ test("allocation refunds preview upfront fees, preserve unknown capital and reco
   );
   await screenshotHolding(page, "holding-refund-needs-review.png");
   await page
-    .getByRole("button", { name: "Confirm refund", exact: true })
+    .getByRole("button", { name: "Value & return", exact: true })
     .click();
-  await section
-    .getByRole("button", { name: /Underlying shares and source evidence/ })
-    .click();
-  await section
+  const valuation = page.getByRole("region", { name: "Share-based valuation" });
+  await expect(
+    valuation.getByRole("button", {
+      name: "Use as proxy estimate",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    valuation.getByRole("button", { name: "Apply estimate", exact: true }),
+  ).toBeDisabled();
+  await valuation
     .getByRole("textbox", { name: "Underlying share class", exact: true })
     .fill("Preferred");
-  await section
+  await valuation
     .getByRole("textbox", { name: "Purchase source", exact: true })
     .fill("Synthetic refund receipt");
-  await section
+  await valuation
     .getByRole("textbox", { name: "Purchase price / share · USD" })
     .fill("10");
-  await section
-    .getByRole("button", { name: "Valuation price evidence", exact: true })
-    .click();
-  await section
-    .getByRole("button", { name: /Available share price evidence/ })
-    .click();
-  await section
+  await valuation
     .getByRole("button", { name: "Use as proxy estimate", exact: true })
     .click();
   await expect(
-    section.getByRole("region", { name: "Proxy estimate preview" }),
+    valuation.getByRole("region", { name: "Proxy estimate preview" }),
   ).toContainText("Not ready");
-  await expect(section).toContainText(
+  await expect(valuation).toContainText(
     "Unknown fees cannot supply a share count",
   );
-  await section.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    valuation.getByRole("button", { name: "Apply estimate", exact: true }),
+  ).toBeDisabled();
+  await screenshotValuation(
+    page,
+    valuation,
+    "share-valuation-missing-capital.png",
+  );
+  await valuation
+    .getByRole("textbox", { name: "Remaining underlying shares", exact: true })
+    .fill("40");
+  await valuation
+    .getByRole("button", { name: "Shares as of", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Sunday, September 20, 2026", exact: true })
+    .click();
+  await expect(
+    valuation.getByRole("region", { name: "Proxy estimate preview" }),
+  ).toContainText("800.00");
+  await valuation.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(
+    valuation.getByRole("textbox", {
+      name: "Remaining underlying shares",
+      exact: true,
+    }),
+  ).toHaveValue("");
+  await page
+    .getByRole("button", { name: "Value & return", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Confirm refund", exact: true })
     .click();
@@ -397,7 +435,7 @@ test("unified investment details reconcile cash, retain failed drafts and share 
   let receipt: PurchaseReceipt | null = null;
   let reject = false;
   let attempts = 0;
-  const proxyEvidence = true;
+  let proxyEvidence = true;
   const reportedValue = true;
   let currentValueSnapshotId = "snapshot_purchase-spv";
   const holding = () =>
@@ -499,7 +537,7 @@ test("unified investment details reconcile cash, retain failed drafts and share 
               capturedAt: "2026-09-02T12:00:00.000Z",
               costMicros: 10000000,
               markMicros: 20000000,
-              markDate: proxyEvidence ? null : "2026-09-01",
+              markDate: proxyEvidence ? null : "2026-09-20",
               shareClass: proxyEvidence ? "Common" : "Series B",
             },
           ],
@@ -866,6 +904,9 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     .getByRole("button", { name: "Value & return", exact: true })
     .click();
 
+  await page
+    .getByRole("tab", { name: "Enter a reported value", exact: true })
+    .click();
   await page.getByRole("textbox", { name: /Value · USD/ }).fill("6000");
   await edit.click();
   await section.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -882,25 +923,20 @@ test("unified investment details reconcile cash, retain failed drafts and share 
   await expect(
     page
       .getByRole("region", { name: "Share-based valuation" })
-      .getByRole("link", { name: "Edit investment details" }),
+      .getByRole("button", { name: "Use as proxy estimate", exact: true }),
   ).toBeVisible();
-  expect(
-    await page
-      .getByRole("region", { name: "Share-based valuation" })
-      .getByRole("textbox")
-      .count(),
-  ).toBe(0);
-  await page
-    .getByRole("region", { name: "Share-based valuation" })
-    .getByRole("link", { name: "Edit investment details" })
-    .click();
+  const valuation = page.getByRole("region", { name: "Share-based valuation" });
+  await expect(valuation.getByRole("textbox")).not.toHaveCount(0);
   await expect(
-    section.getByRole("heading", {
-      name: "Edit investment details",
-      exact: true,
-    }),
-  ).toBeFocused();
-  await section.getByRole("button", { name: "Cancel", exact: true }).click();
+    valuation.getByRole("link", { name: "Edit investment details" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Return details", exact: true }),
+  ).toHaveCount(0);
+  await screenshotValuation(page, valuation, "share-valuation-empty.png");
+  await expect(
+    valuation.getByRole("button", { name: "Apply estimate", exact: true }),
+  ).toBeDisabled();
   // A new source snapshot with the same mark must not inherit its carry status.
   currentValueSnapshotId = "synthetic-linked-refresh";
   await page.reload();
@@ -936,38 +972,74 @@ test("unified investment details reconcile cash, retain failed drafts and share 
     await purchase
       .getByRole("textbox", { name: "Purchase price / share · USD" })
       .fill("10");
-    await purchase
-      .getByRole("button", { name: /Remaining underlying shares/ })
-      .click();
-    await purchase
-      .getByRole("checkbox", { name: /No sales, splits or conversions/ })
-      .check();
-    await purchase
-      .getByRole("button", { name: "Valuation price evidence", exact: true })
-      .click();
-    await purchase
-      .getByRole("button", { name: /Available share price evidence/ })
-      .click();
-    await purchase
-      .getByRole("button", { name: "Use as proxy estimate", exact: true })
-      .click();
   }
-  const proxyPreview = section.getByRole("region", {
+  await save.click();
+  const beforeValuation = PurchaseReceiptSchema.parse(receipt);
+  await page
+    .getByRole("button", { name: "Value & return", exact: true })
+    .click();
+  await expect(
+    valuation.getByRole("button", {
+      name: "Use as proxy estimate",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await valuation
+    .getByRole("button", { name: "Use as proxy estimate", exact: true })
+    .click();
+  const proxyPreview = valuation.getByRole("region", {
     name: "Proxy estimate preview",
   });
   await expect(proxyPreview).toBeFocused();
   await expect(proxyPreview).toContainText("6,224.68");
-  await expect(section).toContainText("will not update the position value");
-  await section
+  await expect(
+    valuation.getByRole("button", { name: "Apply estimate", exact: true }),
+  ).toBeDisabled();
+  await valuation
     .getByRole("checkbox", {
-      name: /These purchases cover all my remaining shares\. Any shares calculated/,
+      name: /These purchases cover all my remaining shares/,
     })
     .check();
-  await expect(proxyPreview).toContainText(
-    "will appear in your position summary",
+  await screenshotValuation(page, proxyPreview, "proxy-estimate-preview.png");
+  const apply = valuation.getByRole("button", {
+    name: "Apply estimate",
+    exact: true,
+  });
+  await expect(apply).toBeEnabled();
+  reject = true;
+  await apply.click();
+  await expect(valuation).toContainText("The position changed. Review again.");
+  await expect(proxyPreview).toContainText("6,224.68");
+  await expect(
+    valuation.getByRole("checkbox", {
+      name: /These purchases cover all my remaining shares/,
+    }),
+  ).toBeChecked();
+  await screenshotValuation(
+    page,
+    valuation,
+    "share-valuation-failed-apply.png",
   );
-  await expect(proxyPreview).toHaveScreenshot("proxy-estimate-preview.png");
-  await save.click();
+  reject = false;
+  await apply.click();
+  await expect(
+    valuation.getByRole("button", { name: "Apply estimate", exact: true }),
+  ).toBeDisabled();
+  const afterValuation = PurchaseReceiptSchema.parse(receipt);
+  expect(afterValuation.details.investmentTerms).toEqual(
+    beforeValuation.details.investmentTerms,
+  );
+  expect(afterValuation.details.cashCoversPosition).toEqual(
+    beforeValuation.details.cashCoversPosition,
+  );
+  for (let i = 0; i < beforeValuation.details.lots.length; i++) {
+    const before = beforeValuation.details.lots[i]!;
+    const after = afterValuation.details.lots[i]!;
+    for (const key of Object.keys(before) as (keyof typeof before)[]) {
+      if (key !== "mark" && key !== "originalSharesUnchanged")
+        expect(after[key]).toEqual(before[key]);
+    }
+  }
   expect(
     PurchaseReceiptSchema.parse(receipt).details.investmentTerms
       ?.reportedValueReview,
@@ -984,9 +1056,12 @@ test("unified investment details reconcile cash, retain failed drafts and share 
   await page.reload();
   await expect(summary).toContainText("Estimated value · proxy");
   await page.getByRole("button", { name: /^Fees & carry/ }).click();
-  await expect(page.locator(".holding-investment-details")).toContainText(
-    "6,224.68",
-  );
+  await showPurchases(page);
+  await expect(section).not.toContainText("Estimate your position");
+  await expect(
+    section.getByRole("button", { name: "Add valuation details" }),
+  ).toHaveCount(0);
+  await expect(section).not.toContainText("6,224.68");
   await page
     .getByRole("button", { name: "Value & return", exact: true })
     .click();
@@ -996,6 +1071,67 @@ test("unified investment details reconcile cash, retain failed drafts and share 
   await expect(
     page.getByRole("region", { name: "Share-based valuation" }),
   ).toContainText("6,224.68");
+  // Matching prices and dated remaining shares use the same valuation editor.
+  proxyEvidence = false;
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Value & return", exact: true })
+    .click();
+  await valuation
+    .getByRole("button", { name: "Use matching price", exact: true })
+    .click();
+  const firstValuation = valuation.getByRole("group", { name: /^Purchase 1/ });
+  await firstValuation
+    .getByRole("button", { name: "Details & share inputs", exact: true })
+    .click();
+  await firstValuation
+    .getByRole("textbox", { name: "Remaining underlying shares", exact: true })
+    .fill("112");
+  await firstValuation
+    .getByRole("button", { name: "Shares as of", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Sunday, September 20, 2026", exact: true })
+    .click();
+  await expect(
+    valuation.getByRole("region", { name: "Share estimate preview" }),
+  ).toContainText("4,240.00");
+  await valuation
+    .getByRole("checkbox", {
+      name: /These purchases cover all my remaining shares/,
+    })
+    .check();
+  await apply.click();
+  await expect(summary).toContainText("Estimated value · shares");
+  expect(
+    estimatePurchaseValue(receipt, "snapshot_purchase-spv")?.valueMinor,
+  ).toBe(424000);
+  expect(
+    PurchaseReceiptSchema.parse(receipt).details.lots[0]?.mark,
+  ).toMatchObject({ comparableConfirmed: true });
+  expect(
+    PurchaseReceiptSchema.parse(receipt).details.lots[0]?.mark?.proxy,
+  ).toBeUndefined();
+  await screenshotValuation(
+    page,
+    valuation,
+    "share-valuation-matching-saved.png",
+  );
+  // Reclassifying a purchase invalidates its matching mark without blocking its save.
+  await edit.click();
+  const firstLot = section.locator("fieldset.purchase-fields").first();
+  await firstLot
+    .getByRole("button", { name: "Purchase 1", exact: true })
+    .click();
+  await firstLot
+    .getByRole("button", { name: /Underlying shares and source evidence/ })
+    .click();
+  await firstLot
+    .getByRole("textbox", { name: "Underlying share class", exact: true })
+    .fill("Series C");
+  await expect(save).toBeEnabled();
+  await save.click();
+  expect(PurchaseReceiptSchema.parse(receipt).details.lots[0]?.mark).toBeNull();
   await page.goto(holdingUrl);
   await expect(
     page.getByRole("button", {

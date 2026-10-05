@@ -69,22 +69,13 @@ import {
   SectionHeader,
 } from "@keel/ui";
 import { formatCurrency, formatDate, formatMoney } from "./format";
+import { decimal, scaled } from "./decimal-input";
 
 type Draft = Record<string, string>;
 function percent(ppm: bigint) {
   const sign = ppm < 0n ? "-" : "";
   const n = ppm < 0n ? -ppm : ppm;
   return `${sign}${n / 10000n}.${((n % 10000n) / 100n).toString().padStart(2, "0")}`;
-}
-function decimal(value: number | null | undefined, digits: number) {
-  if (value == null) return "";
-  if (value === 0) return "0";
-  const unit = 10n ** BigInt(digits),
-    n = BigInt(value);
-  return `${n / unit}.${(n % unit).toString().padStart(digits, "0")}`.replace(
-    /\.?0+$/u,
-    "",
-  );
 }
 function unitPrice(value: number | null | undefined) {
   const raw = decimal(value, 6);
@@ -96,16 +87,6 @@ function unitPrice(value: number | null | undefined) {
 function displayedUnitPrice(value: number | null | undefined) {
   if (value == null) return "";
   return formatMoney(Number((BigInt(value) + 5_000n) / 10_000n));
-}
-function scaled(value: string | undefined, digits: number): number | null {
-  if (!value?.trim()) return null;
-  if (!new RegExp(`^\\d+(?:\\.\\d{0,${digits}})?$`, "u").test(value.trim()))
-    return NaN;
-  const [whole = "0", fraction = ""] = value.trim().split(".");
-  const n =
-    BigInt(whole) * 10n ** BigInt(digits) +
-    BigInt(fraction.padEnd(digits, "0"));
-  return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : NaN;
 }
 function draftFor(lot: PurchaseLot): Draft {
   return {
@@ -261,33 +242,10 @@ type PurchaseEditorProps = {
   editorRef?: Ref<InvestmentDetailsHandle>;
   onEditingChange?: (editing: boolean) => void;
   valuationSection?: ReactNode;
-  onEditInvestmentDetails?: () => void;
 };
 export function PositionPurchasesEditor(props: PurchaseEditorProps) {
   const context = props.holding.purchaseContext;
   if (!context) return null;
-  if (props.mode === "valuation") {
-    const estimate = estimatePurchaseValue(context.receipt, context.snapshotId);
-    return (
-      <section className="purchase-details" aria-label="Share-based valuation">
-        <p>
-          {estimate
-            ? `Estimated value before carry: ${formatCurrency(estimate.valueMinor, context.currency)}. Remaining shares × recorded price; excludes remaining expenses.`
-            : "Add underlying shares and sourced prices in Investment details."}
-        </p>
-        <TextLink
-          href={`#investment-details-${props.holding.id}`}
-          onClick={(event) => {
-            if (!props.onEditInvestmentDetails) return;
-            event.preventDefault();
-            props.onEditInvestmentDetails();
-          }}
-        >
-          Edit investment details
-        </TextLink>
-      </section>
-    );
-  }
   return <InvestmentDetailsEditor {...props} context={context} />;
 }
 function InvestmentDetailsEditor({
@@ -358,6 +316,13 @@ function InvestmentDetailsEditor({
   );
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const externalReceiptId = useRef(context.receipt?.id);
+  useEffect(() => {
+    if (!open && externalReceiptId.current !== context.receipt?.id) {
+      externalReceiptId.current = context.receipt?.id;
+      setReceipt(context.receipt);
+    }
+  }, [context.receipt, open]);
   const [editIntent, setEditIntent] = useState<"purchases" | "terms">(
     "purchases",
   );
@@ -601,6 +566,21 @@ function InvestmentDetailsEditor({
               !d.markClass &&
               d.shareClass
                 ? { markClass: d.shareClass }
+                : {}),
+              ...(mode === "purchase" &&
+              key === "shareClass" &&
+              d.shareClass !== value &&
+              d.markEvidenceId &&
+              d.markProxy !== "true"
+                ? {
+                    markEvidenceId: "",
+                    markComparable: "false",
+                    markPrice: "",
+                    markDate: "",
+                    markClass: "",
+                    markSource: "",
+                    markUrl: "",
+                  }
                 : {}),
             }
           : d,

@@ -1041,14 +1041,43 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await page.getByRole("button", { name: /^Value & return/ }).click();
   await page.getByRole("button", { name: "Add value evidence" }).click();
   await page.getByLabel("Value · USD").fill("150000");
-  await page.getByRole("button", { name: "As of", exact: true }).click();
+  const valueDateTrigger = page.getByRole("button", {
+    name: "As of",
+    exact: true,
+  });
+  await valueDateTrigger.evaluate((element) => {
+    window.scrollBy({
+      top: element.getBoundingClientRect().top - 160,
+      behavior: "instant",
+    });
+  });
+  await valueDateTrigger.click();
   const valueDateCalendar = page.getByRole("dialog", {
     name: "As of calendar",
   });
   await expect(valueDateCalendar).toBeVisible();
   await expect(valueDateCalendar).toContainText("August 2026");
+  await expect
+    .poll(async () => {
+      const trigger = await valueDateTrigger.boundingBox();
+      const calendar = await valueDateCalendar.boundingBox();
+      const viewport = page.viewportSize();
+      if (trigger === null || calendar === null || viewport === null)
+        return false;
+      const above = Math.abs(calendar.y + calendar.height - trigger.y + 8) <= 1;
+      const below = Math.abs(calendar.y - trigger.y - trigger.height - 8) <= 1;
+      return (
+        calendar.y >= 0 &&
+        calendar.y + calendar.height <= viewport.height &&
+        Math.abs(calendar.x + calendar.width - trigger.x - trigger.width) <=
+          1 &&
+        (above || below)
+      );
+    })
+    .toBe(true);
   await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+  // The form/review captures cover its context; this capture keeps the anchor still.
+  await expect(valueDateCalendar).toHaveScreenshot(
     "holding-value-evidence-calendar.png",
     {
       animations: "disabled",
