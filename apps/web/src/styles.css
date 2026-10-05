@@ -8818,6 +8818,72 @@ h1,
 .position-valuation .tabs-list {
   margin: 24px 0;
 }
+.share-valuation form {
+  display: grid;
+  gap: 28px;
+}
+.share-valuation__prices {
+  display: grid;
+  gap: 20px;
+}
+.share-valuation__prices h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.share-valuation__price {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 0;
+  border-block: 1px solid var(--line);
+}
+.share-valuation__price > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.share-valuation__price p {
+  margin: 8px 0;
+}
+.share-valuation__price small {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.share-valuation__preview {
+  margin: 0;
+}
+.share-valuation__preview:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 6px;
+}
+.share-valuation__lot {
+  min-width: 0;
+  margin: 0;
+  padding: 20px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.share-valuation__lot legend {
+  font-weight: 600;
+  padding: 0 12px 0 0;
+}
+.share-valuation__lot > p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.share-valuation__lot .position-economics__fields {
+  margin: 20px 0;
+}
+@media (max-width: 767px) {
+  .share-valuation__price {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .share-valuation__price .action-group {
+    width: 100%;
+  }
+}
 .position-valuation .position-value-adjustment {
   padding-top: 0;
   border-top: 0;

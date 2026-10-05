@@ -1,4 +1,5 @@
 import { HoldingLinkButton } from "./HoldingLinkButton";
+import { PositionShareValuationEditor } from "./PositionShareValuationEditor";
 import { PositionLinksEditor } from "./PositionLinksEditor";
 import { estimatePurchaseValue } from "@keel/domain/position-purchases";
 import {
@@ -2226,14 +2227,14 @@ function positionValueSourceUrlIsValid(value: string): boolean {
 function PositionValuationSection({
   holding,
   onAccepted,
-  onEditInvestmentDetails,
 }: {
   holding: Holding;
   onAccepted: () => Promise<void>;
-  onEditInvestmentDetails?: () => void;
 }) {
   const [reportedDirty, setReportedDirty] = useState(false);
   const [sharesDirty, setSharesDirty] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [method, setMethod] = useState("shares");
   if (!holding.purchaseContext)
     return (
       <Collapsible className="holding-detail-section position-valuation">
@@ -2245,11 +2246,6 @@ function PositionValuationSection({
           <DisclosureIndicator />
         </CollapsibleTrigger>
         <CollapsibleContent keepMounted>
-          <PositionPerformanceSummary
-            holding={holding}
-            primary={null}
-            detailsOnly
-          />
           <PositionValueAdjustmentEditor
             holding={holding}
             onAccepted={onAccepted}
@@ -2276,7 +2272,7 @@ function PositionValuationSection({
       aria-label="Value & return"
       className="position-valuation holding-detail-section"
     >
-      <Collapsible>
+      <Collapsible open={expanded} onOpenChange={setExpanded}>
         <CollapsibleTrigger
           layout="inline"
           className="position-valuation__toggle"
@@ -2292,14 +2288,7 @@ function PositionValuationSection({
           <DisclosureIndicator />
         </CollapsibleTrigger>
         <CollapsibleContent keepMounted>
-          <PositionPerformanceSummary
-            holding={holding}
-            primary={null}
-            detailsOnly
-          />
-          <Tabs
-            defaultValue={holding.positionValueContext ? "reported" : "shares"}
-          >
+          <Tabs value={method} onValueChange={setMethod}>
             <TabsList
               className="scenario-tabs"
               variant="line"
@@ -2323,14 +2312,11 @@ function PositionValuationSection({
               </TabsContent>
             )}
             <TabsContent value="shares" keepMounted>
-              <PositionPurchasesEditor
+              <PositionShareValuationEditor
                 key={`${holding.id}:${holding.purchaseContext.snapshotId}:${holding.purchaseContext.receipt?.id}`}
                 holding={holding}
+                enabled={expanded && method === "shares"}
                 onAccepted={onAccepted}
-                mode="valuation"
-                {...(onEditInvestmentDetails
-                  ? { onEditInvestmentDetails }
-                  : {})}
                 onDirtyChange={setSharesDirty}
               />
             </TabsContent>
@@ -2787,11 +2773,9 @@ function reportedCarryLabel(holding: Holding) {
 function PositionPerformanceSummary({
   holding,
   primary,
-  detailsOnly = false,
 }: {
   holding: Holding;
   primary: ReactNode;
-  detailsOnly?: boolean;
 }) {
   const acceptedAdjustment =
     holding.positionValueContext?.acceptedAdjustment ?? null;
@@ -2836,122 +2820,58 @@ function PositionPerformanceSummary({
             BigInt(reviewedCash.returnedCapitalMinor ?? 0),
         )
       : null;
-  const basisHelper = {
-    provider: "Reported by the brokerage source.",
-    reviewed_spv_terms: "Cash contributed, including reviewed upfront fees.",
-    funded_amount_estimate:
-      "Reported funded amount; confirm that it includes all fees paid.",
-  }[performance.costBasisSource ?? "funded_amount_estimate"];
 
   return (
-    <section
-      aria-label={detailsOnly ? "Return explanation" : "Position summary"}
-      className={detailsOnly ? "holding-return-details" : "holding-headline"}
-    >
-      {!detailsOnly && (
-        <StatGroup className="holding-headline__values">
-          {primary}
-          {!isCashLikeHolding(holding) && (
-            <>
-              <Stat
-                label={
-                  cashAfterRefunds !== null
-                    ? "Cash after refunds"
-                    : performance.costBasisSource === "funded_amount_estimate"
-                      ? `${basisLabel} · reported`
-                      : basisLabel
-                }
-                value={
-                  cashAfterRefunds !== null
-                    ? formatMoney(cashAfterRefunds)
-                    : performance.costBasisMinor === null
-                      ? "Not reported"
-                      : performance.costBasisSource === "reviewed_spv_terms"
-                        ? formatMoney(performance.costBasisMinor)
-                        : formatCompactMoney(performance.costBasisMinor)
-                }
-                detail={
-                  cashAfterRefunds !== null
-                    ? "Before upfront fees · Original cash paid retained in Purchases"
-                    : undefined
-                }
-              />
-              <Stat
-                label={
-                  holding.shareValueEstimate && !acceptedAdjustment
-                    ? "Estimated return · before carry"
-                    : holding.purchaseContext && !acceptedAdjustment
-                      ? `Reported return · ${reportedCarryLabel(holding)}`
-                      : "Total return"
-                }
-                value={
-                  performance.totalReturnPpm === null
-                    ? "Unavailable"
-                    : formatSignedProbability(performance.totalReturnPpm)
-                }
-                detail={
-                  performance.totalGainMinor === null
-                    ? undefined
-                    : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)} total gain / loss`
-                }
-              />
-            </>
-          )}
-        </StatGroup>
-      )}
-      {detailsOnly && !isCashLikeHolding(holding) && (
-        <Collapsible defaultOpen className="holding-summary-details">
-          <CollapsibleTrigger layout="inline">
-            Return details <DisclosureIndicator />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <DataList>
-              <DataItem
-                label={basisLabel}
-                value={
-                  performance.costBasisMinor === null
-                    ? "Return needs the total cash paid, including fees."
-                    : basisHelper
-                }
-              />
-              <DataItem
-                label="Total gain / loss"
-                value={
-                  performance.totalGainMinor === null
-                    ? "Available when current value and cash contributed are known."
-                    : `${formatCompactMoney(performance.totalGainMinor)} · Current value plus realized proceeds, less ${basisLabel.toLowerCase()}.`
-                }
-              />
-              <DataItem
-                label={
-                  holding.shareValueEstimate && !acceptedAdjustment
-                    ? "Estimated return · before carry"
-                    : holding.purchaseContext && !acceptedAdjustment
-                      ? `Reported return · ${reportedCarryLabel(holding)}`
-                      : "Total return"
-                }
-                value={
-                  holding.shareValueEstimate && !acceptedAdjustment
-                    ? "Not annualized. Uses the estimated value and reported proceeds, before carry and remaining expenses."
-                    : "Not annualized. Uses the reported value and proceeds; no additional carry is deducted."
-                }
-              />
-              {projectedEstimate !== null && acceptedAdjustment === null && (
-                <DataItem
-                  label="Value source"
-                  value="Uses the Portfolio Watch estimate until stronger evidence is reviewed."
-                />
-              )}
-              {isPlaidInvestmentsHolding(holding) && (
-                <DataItem
-                  label="Day gain / loss"
-                  value="Needs a prior daily price at the same share count."
-                />
-              )}
-            </DataList>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
+    <section aria-label="Position summary" className="holding-headline">
+      <StatGroup className="holding-headline__values">
+        {primary}
+        {!isCashLikeHolding(holding) && (
+          <>
+            <Stat
+              label={
+                cashAfterRefunds !== null
+                  ? "Cash after refunds"
+                  : performance.costBasisSource === "funded_amount_estimate"
+                    ? `${basisLabel} · reported`
+                    : basisLabel
+              }
+              value={
+                cashAfterRefunds !== null
+                  ? formatMoney(cashAfterRefunds)
+                  : performance.costBasisMinor === null
+                    ? "Not reported"
+                    : performance.costBasisSource === "reviewed_spv_terms"
+                      ? formatMoney(performance.costBasisMinor)
+                      : formatCompactMoney(performance.costBasisMinor)
+              }
+              detail={
+                cashAfterRefunds !== null
+                  ? "Before upfront fees · Original cash paid retained in Purchases"
+                  : undefined
+              }
+            />
+            <Stat
+              label={
+                holding.shareValueEstimate && !acceptedAdjustment
+                  ? "Estimated return · before carry"
+                  : holding.purchaseContext && !acceptedAdjustment
+                    ? `Reported return · ${reportedCarryLabel(holding)}`
+                    : "Total return"
+              }
+              value={
+                performance.totalReturnPpm === null
+                  ? "Unavailable"
+                  : formatSignedProbability(performance.totalReturnPpm)
+              }
+              detail={
+                performance.totalGainMinor === null
+                  ? undefined
+                  : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)} total gain / loss`
+              }
+            />
+          </>
+        )}
+      </StatGroup>
     </section>
   );
 }
@@ -3122,7 +3042,7 @@ function HoldingDetailWorkspace({
       </div>
       {holding.purchaseContext ? (
         <PositionPurchasesEditor
-          mode="combined"
+          mode="purchase"
           summaryFirst
           editorRef={purchaseEditor}
           onEditingChange={setPurchaseEditing}
@@ -3130,7 +3050,6 @@ function HoldingDetailWorkspace({
             <PositionValuationSection
               holding={holding}
               onAccepted={onValueAccepted}
-              onEditInvestmentDetails={() => purchaseEditor.current?.edit()}
             />
           }
           key={`${holding.id}:${holding.purchaseContext.snapshotId}`}
