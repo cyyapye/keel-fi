@@ -14,8 +14,10 @@ finite maintenance queue lives in
   do not introduce semantic colors unless the trust boundary cannot be
   communicated another way.
 - Use whitespace and section rhythm before adding a container or rule.
-- Use type hierarchy in this order: page title, section heading, primary value
-  or action, supporting copy, metadata.
+- Use type, reading order and space to express the user's task priorities.
+  Primary answers or actions must not be subordinate to section headings or
+  metadata. Keep a clear page identity and consistent sibling headings without
+  imposing a fixed prominence order on every screen.
 - Add a border or divider only when it separates a real data group, state, or
   interaction. Do not box every concept.
 - Use badges for exceptional status, not repeated metadata or labels that are
@@ -25,6 +27,143 @@ finite maintenance queue lives in
   the default reference for interactive controls.
 - Reuse established visual patterns, and make labels and apparent affordances
   match implemented behavior.
+- Give sibling section headings the same shared size and spacing. Use body-size
+  text for actionable purchase summaries; metadata must not carry the task.
+
+## Design before implementation
+
+### Resolve meaning before layout
+
+Tugling's `ui-design` owns the reusable design method when installed: priority
+mapping, complete input representations, conditional effort and an independent
+challenge of the rendered task. Keel owns the financial definitions, product
+choices and approval boundaries below. Retain these local checks while the
+generic skill is a candidate; a source change alone does not prove installation
+or improved behavior.
+
+For a holding, make supported value, invested capital and performance
+immediately legible before transaction mechanics. Identify the value's
+reported/estimated status and cost treatment; a fallback to net invested is not
+a market valuation. Use the canonical contribution and cash-flow definitions for
+performance rather than assuming net share capital is its denominator. An
+evidenced urgent action may change emphasis; missing optional metadata may not.
+
+Treat value and performance as related comparisons. Group a supported
+before-carry value with its before-carry return, and an after-carry value with
+its after-carry return. Label a calculated after-carry value as estimated. Keep
+net invested visible as a separate capital measure; it is neither current value
+after carry nor the cumulative-return denominator. Preserve these relationships
+when the layout stacks on mobile. Supported before-carry return remains useful
+when carry terms are missing; an after-carry source alone cannot establish a
+before-carry value or return.
+
+For this holding summary, show both supported return treatments using original
+cash contributed and the same included cash flows. Count a refund once and do
+not deduct upfront fees again when they were paid from the original
+contribution. Keep the calculation basis reachable whenever a supported return
+is shown, including when estimated carry is absent. Do not use blanket caveats
+such as "before other costs". Name an excluded cost only when a recorded
+obligation or an explicit source limitation establishes it; retain that specific
+qualification beside the affected result. An absent cost record does not prove
+that the holding is free of all future costs.
+
+An investment editor must support the terms it displays: a known fee amount or a
+percentage with its supported basis, and an annual management rate with the
+duration needed for a prepaid calculation. A known paid amount does not require
+unknown inputs that are needed only to derive it. Preserve paid versus estimated
+amounts and source-backed coverage. Require a date or ownership scope only for
+the selected calculation or evidence assertion that needs it, reuse its actual
+source when available, and do not block unrelated investment edits. A capture
+timestamp must not be relabelled as a historical effective date.
+
+Start with the ordinary user task and the user's established domain model.
+Identify the primary object, its legal or economic parent, and which records are
+transactions or evidence about it. Record why the initial scenario is
+representative, using stated workflow or inspected evidence; a schema's maximum
+cardinality and a complex synthetic test do not establish frequency. Keep edge
+cases in regression coverage and reveal their extra structure only when the
+actual record requires it. Test the ordinary default separately: a design can
+handle every exception correctly and still impose the wrong everyday model.
+
+For an SPV holding, default to one investment with its applicable terms, paid
+amounts and refund history together. Preserve separate legal SPVs within a
+reviewed company grouping. Several payments toward one subscription are not
+automatically several purchases; additional accepted acquisitions within the
+same vehicle can justify transaction detail. Do not infer a split, identity, fee
+coverage or unchanged ownership from names or absent history. Prefer "Shares"
+for ordinary share information; explain remaining ownership when a partial
+disposal or other evidenced change makes that distinction relevant. Retain
+source-backed scope and date requirements for valuation calculations.
+
+For a new concept or changed information architecture, make a concise concept
+map before a mockup. Cover the affected user task and adjacent concepts that
+could overlap. For each concept, identify its meaning, scope, lifecycle or
+timing, evidence, dependencies and calculations, and editing owner. Separate
+facts, contractual terms, estimates and derived displays. Where an item is a
+component of a total or a different representation of another item, record that
+relationship explicitly. Do not choose its UI location from its database table,
+component name, or current section.
+
+Then justify each proposed section with a distinct user question and action.
+Challenge existing sections too. Combine overlapping questions or explain the
+necessary relationship in the design. A list assigning fields to existing
+sections is not a concept review. One editing owner does not by itself justify a
+separate visible section.
+
+Check the complete map against at least one realistic combination of related
+concepts and one incomplete-evidence case. Calculate expected results using the
+domain rules, and check that each input affects the result exactly as intended.
+For fees, a rate, paid amount, covered period and future obligation are related
+but different facts: an annual label cannot establish a future charge or prove
+that nothing was prepaid. Inspect schema and policy limitations; never fill a
+gap by inventing a financial fact.
+
+For each derived metric, record its canonical formula, units, numerator and
+denominator, and included/excluded cash flows. Verify those definitions against
+domain policy before calculating. Shared inputs do not make two metrics' bases
+interchangeable. Keep one checked calculation sheet in integer minor units and
+reuse its results in summaries, detail rows, examples and explanatory prose.
+Before presenting, reconcile every amount, percentage, label and explanation in
+the final artifact against those definitions and results, including the
+challenge pass. Correct arithmetic elsewhere does not excuse contradictory
+display text or a wrong calculation rule; any mismatch fails the proposal check.
+
+Before presenting the mockup, perform a separate challenge pass: can a user
+explain where each fact belongs, what changes the result, and why each section
+exists without knowing the implementation? Reject a layout that merely passes
+component, click-count and screenshot checks while failing those questions. For
+the holding summary, also ask the reviewer to identify which value each return
+describes, its denominator and the effect of carry. A misplaced return, missing
+supported comparison or unsupported cost caveat fails this check even when the
+arithmetic is correct. Record the rationale and unresolved assumptions in the
+task brief; resolve material ambiguity before implementing its dependent
+behavior. Reuse a valid map for routine repairs rather than adding this work to
+every visual fix.
+
+The [Holdings concept map](holdings-concept-map.md) is the first worked example.
+
+### Propose and approve the interaction
+
+A new UI concept changes navigation, task steps, editing ownership, decision
+semantics, or introduces a pattern absent from the approved library. Before
+implementing it, prepare a task brief and a clickable proposal using synthetic
+data. Include ordinary, empty, incomplete, saving, failed-save and later-edit
+states on desktop and mobile. Review and simplify it before presenting it.
+
+Record the proposal version, scenario coverage, and the user's approval of that
+version. Approval of a plan is not approval of its later mockup. Stop before
+application implementation until that design is approved. Material departures
+from the approved flow require an updated proposal; routine fixes and reuse of
+an approved pattern within its recorded bounds do not require renewed approval.
+Never mark a proposal approved on the user's behalf.
+
+Complete the required shared patterns and their state examples before composing
+the page. Reuse existing components first; build only missing patterns required
+by the approved flow. Generic behavior belongs in `packages/ui`; financial
+rules, provider meaning and domain composition belong in the application. A
+catalogue entry must show keyboard, mobile, loading, disabled and error behavior
+where applicable. A complete library means coverage of the approved task, not
+every imaginable component.
 
 ## Shared implementation layer
 
@@ -65,22 +204,95 @@ finite maintenance queue lives in
 
 ## User effort contract
 
-Before building a form, separate facts Keel already knows, values it can
-calculate, and decisions only the user can make. Show the proposed result first.
-Keep source metadata and calculations read-only under Details; offer explicit
-adjustments for exceptions. Unknown facts stay unknown.
+Before building a form, record its outcome, entry point, known facts, permitted
+calculations, actual user decisions, single editing owner, and effort budget.
+Show the proposed result first when it can be supported by the evidence.
 
-When existing evidence is sufficient, the ordinary path must require no typing:
-one meaningful confirmation followed by one Apply action. Combine confirmations
-that express the same decision. Do not require a written justification for a
-routine explicit choice; record the selected action and evidence automatically,
-with an optional personal note. Preserve necessary trust boundaries in concise
-copy beside the decision.
+- Ordinary tasks with sufficient evidence target at most three action
+  activations from the named entry point through successful save. Count opening
+  sections, switching modes, confirmations and submitting; count required fields
+  separately. Record any justified exception before implementation. Do not hide
+  work behind a narrower entry point, exclude confirmations, or remove a
+  necessary financial decision to meet the count.
+- Existing sufficient evidence requires zero re-entry. Prefill known facts and
+  derive supported calculations. Show only the inputs missing for the selected
+  task. Selecting imported evidence and entering replacement evidence are
+  mutually exclusive modes; selecting a source supplies its known metadata.
+- Apply can record the decision expressed by the selected action. Do not add a
+  generic acknowledgement checkbox or written rationale to every save. Ask a
+  focused question only when unresolved evidence changes the result or
+  acceptance boundary. Existing domain acceptance requirements remain
+  authoritative until deliberately revised and verified; hiding a checkbox
+  cannot manufacture its financial assertion.
+- Give each fact one editing owner and each action one visible entry within a
+  task. Reuse its canonical editor. A second entry needs a concrete navigation
+  benefit that cannot be met by the existing entry, recorded in the task brief.
+- Display a fact once within the current reading context. A collapsed summary
+  may identify an item, and an editor may show that fact for editing; do not
+  repeat it in the expanded metadata, another metric and another terms block.
+  Necessary cross-context repetition must have a stated user purpose.
+- Suppress absent optional rows, empty sections, unknown placeholders and zero
+  fee rows in summaries. A meaningful zero (such as an evidenced zero balance or
+  a user's explicit zero input) remains visible where needed. Unknown remains
+  distinct from zero in storage and calculations.
+- Show a notice only for a current failure, conflict, required decision, or a
+  material limit on the result the user is using. Put it beside that result or
+  action. Optional enrichment and missing optional metadata are not warnings.
+- Keep consequential estimate/proxy labels visible. A cost fallback must be
+  labelled net invested, not current market value. Missing fee bases, share
+  counts, dates, coverage and distribution treatment cannot become confirmed
+  facts through a cleaner presentation.
 
-For example, choosing an imported share price as a proxy shows the estimated
-value immediately, asks whether the shares cover the remaining position, and
-records that choice on Apply. Source dates, class and capture metadata do not
-become homework for the user.
+Choose section navigation by the task. Use tabs for related alternate views,
+visible sections for information needed together, and disclosure for supporting
+detail. Section count alone does not choose tabs or accordions. Avoid nested
+disclosure and never hide the sole primary action behind optional detail.
+
+For imported valuation evidence, show the source, proposed estimate and the
+single action that adopts it. Keep the manual alternative in the valuation
+editor, opened with Edit. Reuse valid saved purchase evidence; do not recreate a
+purchase editor or summary under valuation. If the evidence cannot establish
+remaining shares or coverage, ask only for that unresolved information in its
+owning workflow. A captured date is never a substitute for an absent valuation
+date.
+
+Treat valuation source, representation and selection as separate dimensions. A
+position's GP report may contain both a position value and a share price; retain
+both with their dates, scope and cost treatment. Prefer the directly reported
+position value for that position unless the user selects a supported
+alternative. Surface a material unexplained discrepancy with a comparable share
+calculation without overwriting either fact or inventing a reconciliation. An
+after-carry total is not directly comparable with a gross share calculation.
+
+Another GP's evidence may supply a compatible price for this company's shares,
+but its vehicle's total or after-carry value is not this position's value. Use
+this position's supported shares and terms, preserve share-class and date
+limits, and label the result a proxy estimate even when classes match. A user's
+judgment estimate may contain a total, share price or both and reference
+Portfolio Watch evidence; it remains a user estimate. Selecting it must preserve
+original reports and allow switching back. Reusing a company-level valuation
+requires a supported ownership/dilution basis; never treat it as a position
+value.
+
+## Enforcement boundaries
+
+Use existing shared-component usage checks for structural rules and shared
+tokens for type, spacing, focus and target sizes. Extend repository-native
+browser tests with task-specific assertions for mode exclusivity, duplicate
+actions, visible fields, absent optional content, interaction budgets, failure
+recovery and stored-state readback. Match facts by semantic identity (entity,
+field and context), not by repeated strings or equal dollar amounts.
+
+For each regression, specify an old behavior that must fail the new assertion.
+Screenshot changes cannot waive these assertions. Keep visual inspection and
+human approval for hierarchy, useful copy, information ownership and genuinely
+new concepts; a keyword linter cannot prove those judgments. CI may check a
+proposal reference and scenario coverage, but must not claim to authenticate
+human approval from an agent-written flag.
+
+The first application of this contract is the
+[Holdings UX pilot](holdings-ux-pilot.md). Its scenario matrix separates
+proposal checks from application tests that will be added after design approval.
 
 ## Copy filter
 
@@ -113,6 +325,10 @@ punctuation correction is material, including source and review disclosures.
 
 Before handing off a material interface change:
 
+- For a new concept or changed information architecture, verify the concept map,
+  section rationale and combined/incomplete cases before accepting visual proof.
+- Verify that the flow reuses an approved pattern or has approval of its exact
+  proposal version. Confirm required component examples are complete.
 - Test the ordinary-path effort budget: visible required inputs, confirmations,
   and actions. A screenshot passing is not sufficient. Exercise the path without
   typing when existing evidence is sufficient, and verify optional adjustments

@@ -111,7 +111,7 @@ const alphaFixture = {
       administratorNavMinor: 12_500_000,
       administratorNavState: "reported",
       externalMarkMinor: null,
-      underwritingValueMinor: null,
+      underwritingValueMinor: 6_000_000,
       scenarioValueMinor: null,
       usableLiquidityMinor: null,
       sourceStatus: "verified",
@@ -896,6 +896,12 @@ test("leads with the investment and opens a truthful holding detail", async ({
     name: /^Planning & liquidity/u,
   });
   await planningToggle.click();
+  await expect(page.locator(".holding-planning")).not.toContainText(
+    /Not set|Unknown|Unavailable/,
+  );
+  await expect(page.locator(".holding-planning .data-list__item")).toHaveCount(
+    1,
+  );
   const planningRow = page
     .locator(".holding-planning .data-list__item")
     .filter({ hasText: "Planning value" });
@@ -1040,7 +1046,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
 
   await page.getByRole("button", { name: /^Value & return/ }).click();
   await page.getByRole("button", { name: "Add value evidence" }).click();
-  await page.getByLabel("Value · USD").fill("150000");
+  await page.getByLabel("Value · $").fill("150000");
   const valueDateTrigger = page.getByRole("button", {
     name: "As of",
     exact: true,
@@ -1180,10 +1186,10 @@ test("leads with the investment and opens a truthful holding detail", async ({
       name: "View Ridge Demo SPV holding details",
     })
     .click();
-  await expect(page.getByText("Locked by AngelList")).toBeVisible();
   await expect(
-    page.getByText("AngelList did not disclose this value in the export."),
-  ).toBeVisible();
+    page.getByRole("region", { name: "Position summary" }),
+  ).toHaveCount(0);
+  await expect(page.getByText("Locked by AngelList")).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 
   await page.getByRole("button", { name: "Back to holdings" }).click();

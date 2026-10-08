@@ -3,6 +3,7 @@ import { reviewedInvestmentFromReceipt } from "./position-purchases";
 import { reportedPositionValue } from "./position-read-model";
 import {
   estimatePurchaseValue,
+  effectivePositionValuation,
   ShareValueEstimateSchema,
 } from "./position-purchases";
 import { investmentAmount } from "./investment-review";
@@ -433,6 +434,7 @@ export function createInvestmentExposureView(
         ) {
           return [];
         }
+
         const adjustment = position.acceptedValueAdjustment ?? null;
         const acceptedGpMark =
           adjustment?.sourceKind === "gp_update" ? adjustment : null;
@@ -495,6 +497,10 @@ export function createInvestmentExposureView(
             "Exposure read model allocations exceed one million ppm.",
           );
         }
+        const selected = effectivePositionValuation(
+          position.purchaseReceipt,
+          position.snapshot.id,
+        );
         const adjustment = position.acceptedValueAdjustment ?? null;
         const privateValueEstimate =
           privateValueEstimates.get(position.id) ?? null;
@@ -513,14 +519,16 @@ export function createInvestmentExposureView(
           !useShareEstimate &&
           usesInvestedAmountFallback(position);
         const valueState =
+          selected !== null ||
           adjustment !== null ||
           useShareEstimate ||
           privateValueEstimate !== null ||
           investedAmountFallback
             ? "reported"
             : reportedPositionValue(position).state;
-        const valueMinor =
-          adjustment !== null
+        const valueMinor = selected
+          ? selected.valueMinor
+          : adjustment !== null
             ? adjustment.valueMinor
             : useShareEstimate
               ? shareValueEstimate.valueMinor
@@ -613,8 +621,11 @@ export function createInvestmentExposureView(
           ),
           acceptedEconomicsTerms: position.acceptedEconomicsTerms ?? null,
           reportedEconomicsTerms: position.reportedEconomicsTerms ?? null,
-          valueSource:
-            adjustment !== null
+          valueSource: selected
+            ? selected.method === "shares"
+              ? "share_price_estimate"
+              : "reviewed_adjustment"
+            : adjustment !== null
               ? "reviewed_adjustment"
               : useShareEstimate
                 ? "share_price_estimate"
@@ -624,6 +635,7 @@ export function createInvestmentExposureView(
                     ? "invested_amount"
                     : "provider",
           valueEffectiveDate:
+            selected?.effectiveDate ??
             adjustment?.effectiveDate ??
             (useShareEstimate
               ? shareValueEstimate.effectiveDate
@@ -632,17 +644,22 @@ export function createInvestmentExposureView(
                   position.linkedReportedValue?.observedAt ??
                   position.snapshot.observedAt
                 ).slice(0, "YYYY-MM-DD".length))),
-          valueSourceLabel:
-            adjustment?.sourceLabel ??
-            (useShareEstimate
-              ? shareValueEstimate.proxy
-                ? "Proxy share price estimate"
-                : "Reviewed underlying share prices"
-              : null) ??
-            (privateValueEstimate === null
-              ? (position.linkedReportedValue?.sourceLabel ??
-                position.source.label)
-              : `Portfolio Watch + ${privateValueEstimate.referenceSourceLabel}`),
+          valueSourceLabel: selected
+            ? selected.origin === "proxy"
+              ? `Proxy estimate · ${selected.sourceLabel}`
+              : selected.origin === "judgment"
+                ? "My estimate"
+                : selected.sourceLabel
+            : (adjustment?.sourceLabel ??
+              (useShareEstimate
+                ? shareValueEstimate.proxy
+                  ? "Proxy share price estimate"
+                  : "Reviewed underlying share prices"
+                : null) ??
+              (privateValueEstimate === null
+                ? (position.linkedReportedValue?.sourceLabel ??
+                  position.source.label)
+                : `Portfolio Watch + ${privateValueEstimate.referenceSourceLabel}`)),
           priorValueState: position.linkedReportedValue
             ? null
             : (position.priorValue?.state ?? null),

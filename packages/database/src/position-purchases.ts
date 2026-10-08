@@ -1,12 +1,21 @@
 import {
   AcceptPurchasesSchema,
+  InvestmentHistorySchema,
   SharePriceEvidenceListSchema,
   SharePriceEvidenceSchema,
   PositionValuationEvidenceSchema,
   PurchaseReceiptSchema,
   type AcceptPurchases,
   type PurchaseReceipt,
+  calculateValuationFromShares,
+  valuationSharesKey,
+  purchaseFeeSummary,
 } from "@keel/domain/position-purchases";
+import {
+  AcceptValuationSchema,
+  type AcceptValuation,
+} from "@keel/domain/valuation-record";
+import { unknownInvestmentTerms } from "@keel/domain/investment-details";
 
 export class PositionPurchaseError extends Error {
   constructor(
@@ -26,6 +35,184 @@ export interface PositionPurchaseRepository {
 }
 export class D1PositionPurchaseRepository implements PositionPurchaseRepository {
   constructor(private readonly db: D1Database) {}
+  private async current(subject: string, positionId: string) {
+    const row = await this.db
+      .prepare(
+        `SELECT r.receipt_json FROM users u
+      JOIN households h ON h.owner_user_id=u.id
+      JOIN holding_purchase_heads head ON head.household_id=h.id AND head.position_id=?
+      JOIN holding_purchase_reviews r ON r.id=head.review_id WHERE u.access_subject=?`,
+      )
+      .bind(positionId, subject)
+      .first<{ receipt_json: string }>();
+    return row
+      ? PurchaseReceiptSchema.parse(JSON.parse(row.receipt_json))
+      : null;
+  }
+
+  private historyQuery(hasCursor: boolean) {
+    return this.db.prepare(
+      `SELECT r.receipt_json FROM holding_purchase_reviews r
+      WHERE r.household_id=(SELECT p.household_id FROM holding_positions p JOIN households h ON h.id=p.household_id JOIN users u ON u.id=h.owner_user_id WHERE p.id=? AND u.access_subject=?)
+      AND r.position_id=? ${hasCursor ? "AND (r.accepted_at,r.id) < (?,?)" : ""}
+      ORDER BY r.accepted_at DESC,r.id DESC LIMIT 31`,
+    );
+  }
+
+  async history(
+    subject: string,
+    positionId: string,
+    cursor?: { date: string; id: string },
+  ) {
+    const result = await this.historyQuery(Boolean(cursor))
+      .bind(
+        positionId,
+        subject,
+        positionId,
+        ...(cursor ? [cursor.date, cursor.id] : []),
+      )
+      .all<{ receipt_json: string }>();
+    const receipts = result.results
+      .slice(0, 30)
+      .map((r) => PurchaseReceiptSchema.parse(JSON.parse(r.receipt_json)));
+    const last = receipts.at(-1);
+    return InvestmentHistorySchema.parse({
+      receipts,
+      next:
+        result.results.length > 30 && last
+          ? { date: last.acceptedAt, id: last.id }
+          : null,
+    });
+  }
+
+  async acceptValuation(
+    subject: string,
+    positionId: string,
+    raw: AcceptValuation,
+  ) {
+    const input = AcceptValuationSchema.parse(raw);
+    const prior = await this.current(subject, positionId);
+    if ((prior?.id ?? null) !== input.expectedReceiptId)
+      throw new PositionPurchaseError(
+        "stale",
+        "The investment changed. Reload before saving.",
+      );
+    const record = input.record;
+    if (
+      [record.effectiveDate, record.priceDate].some(
+        (date) => date && date > new Date().toISOString().slice(0, 10),
+      )
+    )
+      throw new PositionPurchaseError(
+        "unsupported",
+        "A valuation cannot be dated in the future.",
+      );
+    if (record.sourceEvidenceId || record.watchEvidenceId) {
+      const evidence = await this.valuationEvidence(subject, positionId);
+      if (record.sourceEvidenceId) {
+        const source = evidence.prices.find(
+          (p) => p.id === record.sourceEvidenceId,
+        );
+        if (
+          !source ||
+          source.positionId !== record.sourcePositionId ||
+          source.capturedAt !== record.sourceCapturedAt ||
+          source.markMicros !== record.priceMicros ||
+          source.markDate !== record.priceDate ||
+          source.shareClass !== record.shareClass ||
+          (source.positionId !== positionId &&
+            (record.origin !== "proxy" || record.totalMinor !== null))
+        )
+          throw new PositionPurchaseError(
+            "stale",
+            "This source price changed. Reload the available sources.",
+          );
+      }
+      if (
+        record.watchEvidenceId &&
+        !evidence.watch.some((w) => w.id === record.watchEvidenceId)
+      )
+        throw new PositionPurchaseError(
+          "stale",
+          "This evidence is no longer available for the holding.",
+        );
+    }
+    const details: PurchaseReceipt["details"] = prior?.details ?? {
+      investmentTerms: unknownInvestmentTerms(),
+      coversPosition: false,
+      lots: [],
+    };
+    const investmentSnapshotId =
+      details.investmentSnapshotId ??
+      prior?.snapshotId ??
+      input.expectedSnapshotId;
+    const calculation =
+      investmentSnapshotId === input.expectedSnapshotId
+        ? calculateValuationFromShares(details, record)
+        : null;
+    if (
+      (input.method === "total" && record.totalMinor === null) ||
+      (input.method === "shares" && calculation === null)
+    )
+      throw new PositionPurchaseError(
+        "unsupported",
+        "This valuation needs supported, dated shares in Investment.",
+      );
+    const preserved = [...(details.valuation?.records ?? [])];
+    const reported = details.investmentTerms?.reportedValueReview;
+    if (
+      record.id !== "gp" &&
+      reported?.effectiveDate &&
+      !preserved.some((r) => r.id === "gp")
+    )
+      preserved.push({
+        id: "gp",
+        origin: "gp",
+        totalMinor: reported.valueMinor,
+        priceMicros: null,
+        priceDate: null,
+        effectiveDate: reported.effectiveDate,
+        shareClass: null,
+        carryStatus: reported.carryStatus,
+        sourceLabel: reported.sourceLabel,
+        sourceUrl: null,
+        sourceEvidenceId: null,
+        sourcePositionId: null,
+        sourceCapturedAt: null,
+        watchEvidenceId: null,
+      });
+    const records = preserved.filter((r) => r.id !== record.id);
+    // Source identifiers are bounded; append-only receipts preserve earlier versions.
+    if (records.length >= 30)
+      throw new PositionPurchaseError(
+        "unsupported",
+        "Edit an existing valuation source.",
+      );
+    return this.append(subject, positionId, {
+      expectedSnapshotId: input.expectedSnapshotId,
+      expectedReceiptId: input.expectedReceiptId,
+      expectedTermsId: input.expectedTermsId,
+      details: {
+        ...details,
+        investmentSnapshotId,
+        investmentTerms: {
+          ...(details.investmentTerms ?? unknownInvestmentTerms()),
+          reportedValueReview: null,
+        },
+        lots: details.lots.map((lot) => ({ ...lot, mark: null })),
+        valuation: {
+          snapshotId: input.expectedSnapshotId,
+          records: [...records, record],
+          selected: {
+            recordId: record.id,
+            method: input.method,
+            sharesKey:
+              input.method === "shares" ? valuationSharesKey(details) : null,
+          },
+        },
+      },
+    });
+  }
   async valuationEvidence(subject: string, positionId: string) {
     const prices = await this.evidence(subject, positionId);
     const watch = await this.db
@@ -111,6 +298,103 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
     );
   }
   async accept(
+    subject: string,
+    positionId: string,
+    raw: AcceptPurchases,
+  ): Promise<PurchaseReceipt> {
+    const input = AcceptPurchasesSchema.parse(raw);
+    const prior = await this.current(subject, positionId);
+    if ((prior?.id ?? null) !== input.expectedReceiptId)
+      throw new PositionPurchaseError(
+        "stale",
+        "The investment changed. Reload before saving.",
+      );
+    // A purchase editor cannot overwrite the valuation partition.
+    delete input.details.valuation;
+    input.details.investmentSnapshotId = input.expectedSnapshotId;
+    if (prior?.details.valuation) {
+      input.details.valuation = prior.details.valuation;
+      input.details.lots = input.details.lots.map((lot) => ({
+        ...lot,
+        mark: null,
+      }));
+      if (input.details.investmentTerms)
+        input.details.investmentTerms.reportedValueReview = null;
+    }
+    const feeIds = new Set<string>();
+    const lotIds = new Set(input.details.lots.map((l) => l.id));
+    for (const lot of input.details.lots) {
+      if (!lot.fees) continue;
+      for (const fee of lot.fees) {
+        if (fee.paymentStatus === "unpaid") fee.treatment = "separate";
+        if (
+          feeIds.has(fee.id) ||
+          fee.coveredLotIds.some((id) => !lotIds.has(id))
+        )
+          throw new PositionPurchaseError(
+            "unsupported",
+            "Record each fee once and link it only to this investment's acquisitions.",
+          );
+        feeIds.add(fee.id);
+      }
+      if (new Set(lot.fees.map((f) => f.id)).size !== lot.fees.length)
+        throw new PositionPurchaseError(
+          "unsupported",
+          "Fee identifiers must be unique within an acquisition.",
+        );
+      const fees = purchaseFeeSummary(lot);
+      if (lot.feesComplete && !fees)
+        throw new PositionPurchaseError(
+          "unsupported",
+          "Complete the fee basis and prepaid duration.",
+        );
+      if (fees) {
+        const retained =
+          lot.grossCashMinor === null
+            ? null
+            : BigInt(lot.grossCashMinor) -
+              BigInt(
+                lot.capitalReturn?.status === "received"
+                  ? lot.capitalReturn.amountMinor
+                  : 0,
+              );
+        if (retained !== null && BigInt(fees.amountMinor) > retained)
+          throw new PositionPurchaseError(
+            "unsupported",
+            "Upfront fees exceed cash after refunds.",
+          );
+        // Explicit net-capital bases remain evidence even when the fee is estimated.
+        for (const fee of lot.fees)
+          if (
+            fee.method === "percentage" &&
+            fee.basis === "net_capital" &&
+            fee.basisMinor === null
+          )
+            fee.basisMinor = lot.netCapitalMinor;
+        lot.upfrontDeductionsMinor = fees.estimated ? null : fees.amountMinor;
+        lot.netCapitalMinor =
+          fees.estimated || lot.grossCashMinor === null
+            ? null
+            : Number(
+                BigInt(lot.grossCashMinor) -
+                  BigInt(
+                    lot.capitalReturn?.status === "received"
+                      ? lot.capitalReturn.amountMinor
+                      : 0,
+                  ) -
+                  BigInt(fees.amountMinor),
+              );
+      }
+    }
+    if (
+      prior?.details.valuation?.selected?.method === "shares" &&
+      valuationSharesKey(input.details) !== valuationSharesKey(prior.details)
+    )
+      input.details.valuation = { ...prior.details.valuation, selected: null };
+    return this.append(subject, positionId, input);
+  }
+
+  private async append(
     subject: string,
     positionId: string,
     raw: AcceptPurchases,

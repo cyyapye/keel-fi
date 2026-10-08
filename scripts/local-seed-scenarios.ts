@@ -20,6 +20,7 @@ const LocalSeedScenarioSchema = z.enum([
   "empty-holdings",
   "entity-review",
   "position-links",
+  "purchase-refund",
 ]);
 export type LocalSeedScenario = z.infer<typeof LocalSeedScenarioSchema>;
 
@@ -34,6 +35,16 @@ type LocalSeedScenarioDefinition = {
 };
 
 export const LocalSeedScenarios = {
+  "purchase-refund": {
+    description:
+      "Synthetic SPV with a received refund, unknown upfront fees and imported proxy share prices",
+    expectedCurrentPositionCount: 6,
+    minimumAcceptedValueDecreaseCount: 0,
+    minimumAcceptedValueIncreaseCount: 0,
+    minimumCanonicalExposureCount: 2,
+    seedFiles: ["packages/database/seed/synthetic.sql"],
+    version: 1,
+  },
   "position-links": {
     description:
       "Synthetic duplicate sources and a replaced SPV, ready to link",
@@ -373,7 +384,7 @@ export function prepareLocalSeedScenario(options: {
       for (const seedFile of LocalSeedScenarios[scenario].seedFiles) {
         applySeedFile(seedFile, persistRoot, rootDir);
       }
-      if (scenario === "position-links") {
+      if (scenario === "position-links" || scenario === "purchase-refund") {
         const generated = spawnSync(
           process.execPath,
           ["--import", "tsx", "scripts/seed-position-links.ts", persistRoot],

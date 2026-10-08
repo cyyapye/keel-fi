@@ -1,0 +1,380 @@
+import { useEffect, useRef, useState } from "react";
+import type { Holding } from "@keel/domain";
+import type { calculatePositionPerformance } from "@keel/domain/position-economics";
+import {
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  DataItem,
+  DataList,
+  DisclosureIndicator,
+  TextLink,
+} from "@keel/ui";
+import { investmentFeeAmount } from "@keel/domain/investment-fees";
+import { holdingValueSummary, signedReturn } from "./holding-value";
+import { HoldingHistory } from "./HoldingHistory";
+import { HoldingLinkButton } from "./HoldingLinkButton";
+import { HoldingInvestment } from "./HoldingInvestment";
+import { HoldingValuationEditor } from "./HoldingValuation";
+import { PositionLinksEditor } from "./PositionLinksEditor";
+import {
+  capitalSummaryLabel,
+  positionCapitalSummary,
+} from "./position-capital-summary";
+import { formatDate, formatMoney } from "./format";
+import { decimal } from "./decimal-input";
+
+export function SpvHoldingDetail({
+  holding,
+  onAccepted,
+  related = [],
+}: {
+  holding: Holding;
+  onAccepted: () => Promise<void>;
+  related?: Holding[];
+}) {
+  const [payment, setPayment] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [investmentEditing, setInvestmentEditing] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const edit = useRef<HTMLButtonElement>(null);
+  const { record, reviewed, after, beforeReturn, afterReturn } =
+    holdingValueSummary(holding);
+  const unpaid =
+    holding.purchaseContext?.receipt?.details.lots.flatMap((lot) =>
+      (lot.fees ?? [])
+        .filter((f) => f.paymentStatus === "unpaid")
+        .map((fee) => ({
+          ...fee,
+          amount: investmentFeeAmount(fee, {
+            grossCashMinor: lot.grossCashMinor,
+            refundMinor:
+              lot.capitalReturn?.status === "received"
+                ? lot.capitalReturn.amountMinor
+                : 0,
+            netCapitalMinor: lot.netCapitalMinor,
+          }),
+        })),
+    ) ?? [];
+  const paymentDetail = unpaid.find((f) => f.id === payment);
+  const capital = positionCapitalSummary(
+    holding.purchaseContext?.receipt,
+    holding.purchaseContext?.snapshotId,
+  );
+  useEffect(() => {
+    heading.current?.focus();
+  }, [holding.id]);
+  const close = () => {
+    setEditing(false);
+    requestAnimationFrame(() => edit.current?.focus());
+  };
+  const label =
+    record?.origin === "judgment"
+      ? "My estimate"
+      : record?.origin === "proxy"
+        ? "Proxy estimate"
+        : record?.method === "shares"
+          ? "Estimated value"
+          : "Reported value";
+  const source = record && (
+    <p className="holding-metadata">
+      {formatDate(record.effectiveDate)}
+      {record.origin !== "judgment" ? ` · ${record.sourceLabel}` : ""}
+    </p>
+  );
+  const editButton = !editing && (
+    <Button
+      ref={edit}
+      tone="quiet"
+      aria-label="Edit valuation"
+      disabled={investmentEditing}
+      onClick={() => setEditing(true)}
+    >
+      Edit
+    </Button>
+  );
+  const value = (
+    amount: number,
+    title: string,
+    performance: ReturnType<typeof calculatePositionPerformance> | null,
+    editable: boolean,
+    provenance: boolean,
+  ) => (
+    <div className="holding-value-metric" role="group" aria-label={title}>
+      <div className="holding-metric-heading">
+        <p>{title}</p>
+        {editable && editButton}
+      </div>
+      <strong className="holding-value-amount">{formatMoney(amount)}</strong>
+      {performance?.totalReturnPpm != null && (
+        <strong
+          className="holding-value-return"
+          aria-label={`Return ${title.toLowerCase().includes("before") ? "before" : "after"} carry ${signedReturn(performance.totalReturnPpm)}`}
+        >
+          {signedReturn(performance.totalReturnPpm)}
+        </strong>
+      )}
+      {provenance && source}
+      {title.includes("After carry") &&
+        unpaid.map((f) => (
+          <p className="holding-metadata" key={f.id}>
+            Excludes {f.amount !== null ? `${formatMoney(f.amount)} ` : ""}
+            unpaid {f.label.toLowerCase()}
+          </p>
+        ))}
+    </div>
+  );
+  if (paymentDetail)
+    return (
+      <section
+        className="holding-detail-workspace spv-holding"
+        aria-label="Payment details"
+      >
+        <Button tone="quiet" onClick={() => setPayment(null)}>
+          Back to holding
+        </Button>
+        <h2>Payment details</h2>
+        <p>{holding.positionName}</p>
+        <DataList layout="rows">
+          <DataItem
+            label={paymentDetail.label}
+            value={
+              paymentDetail.amount === null
+                ? "Amount unknown"
+                : formatMoney(paymentDetail.amount)
+            }
+          />
+          <DataItem
+            label="Due"
+            value={
+              paymentDetail.dueDate
+                ? formatDate(paymentDetail.dueDate)
+                : "Date unknown"
+            }
+          />
+          <DataItem label="Status" value="Unpaid" />
+        </DataList>
+      </section>
+    );
+  return (
+    <section
+      className="holding-detail-workspace spv-holding"
+      aria-labelledby="holding-detail-title"
+    >
+      <header className="holding-detail-heading">
+        <div className="holding-detail-title">
+          <h2 id="holding-detail-title" ref={heading} tabIndex={-1}>
+            {holding.exposureName ?? holding.positionName}
+          </h2>
+          <HoldingLinkButton kind="position" id={holding.id} icon />
+        </div>
+        <p>
+          {holding.positionName} · {holding.ownerLabel}
+        </p>
+        {related.length > 0 && (
+          <p className="holding-related">
+            Also held through{" "}
+            {related.map((item, i) => (
+              <span key={item.id}>
+                {i > 0 ? ", " : ""}
+                <TextLink
+                  href={`/holdings?position=${encodeURIComponent(item.id)}`}
+                >
+                  {item.positionName}
+                </TextLink>
+              </span>
+            ))}
+          </p>
+        )}
+      </header>
+      <section aria-label="Position summary" className="holding-value-summary">
+        {record?.carryStatus === "before_carry" &&
+          value(
+            record.valueMinor,
+            `${label} · Before carry`,
+            beforeReturn,
+            true,
+            true,
+          )}
+        {after &&
+          value(
+            after.proceedsMinor,
+            `${record?.carryStatus === "after_carry" ? label : "Estimated value"} · After carry`,
+            afterReturn,
+            record?.carryStatus === "after_carry",
+            record?.carryStatus === "after_carry",
+          )}
+        {record?.carryStatus === "unknown" &&
+          value(
+            record.valueMinor,
+            `${label} · Carry unspecified`,
+            null,
+            true,
+            true,
+          )}
+        {capital?.amountMinor != null ? (
+          <div
+            role="group"
+            aria-label="Invested capital"
+            className="holding-value-metric"
+          >
+            <p>{capitalSummaryLabel(capital)}</p>
+            <strong className="holding-value-amount">
+              {formatMoney(capital.amountMinor)}
+            </strong>
+          </div>
+        ) : !record && holding.investedMinor != null ? (
+          <div className="holding-value-metric">
+            <p>Cash paid</p>
+            <strong className="holding-value-amount">
+              {formatMoney(holding.investedMinor)}
+            </strong>
+          </div>
+        ) : null}
+      </section>
+      {editing ? (
+        <HoldingValuationEditor
+          key={holding.id}
+          holding={holding}
+          onAccepted={onAccepted}
+          onClose={close}
+        />
+      ) : !record ? (
+        <Button
+          tone="quiet"
+          disabled={investmentEditing}
+          onClick={() => setEditing(true)}
+        >
+          Add valuation
+        </Button>
+      ) : (
+        <Collapsible className="holding-calculation">
+          <CollapsibleTrigger layout="inline">
+            Calculation
+            <DisclosureIndicator />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <DataList layout="rows">
+              <DataItem label={label} value={formatMoney(record.valueMinor)} />
+              {record.method === "shares" && (
+                <DataItem
+                  label="Shares × price"
+                  value={`${decimal(record.quantityMicros, 6)} × $${decimal(record.priceMicros, 6)}`}
+                />
+              )}
+              {after?.carryMinor != null && (
+                <DataItem
+                  label="Estimated carry"
+                  value={formatMoney(after.carryMinor)}
+                />
+              )}
+              {reviewed?.cashPaidMinor != null && (
+                <DataItem
+                  label="Cash contributed"
+                  value={formatMoney(reviewed.cashPaidMinor)}
+                />
+              )}
+              {(holding.realizedValueMinor ?? 0) > 0 && (
+                <DataItem
+                  label="Reported distributions"
+                  value={formatMoney(holding.realizedValueMinor!)}
+                />
+              )}
+              {(reviewed?.additionalReturnedCapitalMinor ?? 0) > 0 && (
+                <DataItem
+                  label="Refund outside distributions"
+                  value={formatMoney(reviewed!.additionalReturnedCapitalMinor!)}
+                />
+              )}
+            </DataList>
+            {(beforeReturn?.totalReturnPpm != null ||
+              afterReturn?.totalReturnPpm != null) && (
+              <p className="holding-metadata">
+                (Value + included cash flows − cash contributed) ÷ cash
+                contributed
+              </p>
+            )}
+            {reviewed?.returnedCapitalReconciliationPending && (
+              <p>
+                Refund inclusion in reported distributions is unknown. Review it
+                in Investment to calculate return.
+              </p>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+      {unpaid.map((f) => (
+        <div
+          className="holding-section-heading holding-payment-summary"
+          key={f.id}
+        >
+          <div>
+            <h3>
+              {f.label}
+              {f.amount !== null ? ` · ${formatMoney(f.amount)}` : ""}
+            </h3>
+            <p className="holding-metadata">
+              {f.dueDate ? `Due ${formatDate(f.dueDate)} · ` : ""}Unpaid
+            </p>
+          </div>
+          <Button tone="quiet" onClick={() => setPayment(f.id)}>
+            Review payment
+          </Button>
+        </div>
+      ))}
+      <HoldingInvestment
+        key={`${holding.id}:${holding.purchaseContext?.receipt?.id ?? "new"}`}
+        holding={holding}
+        disabled={editing}
+        onAccepted={onAccepted}
+        onEditingChange={setInvestmentEditing}
+      />
+      <Collapsible className="holding-history">
+        <CollapsibleTrigger
+          layout="inline"
+          disabled={editing || investmentEditing}
+        >
+          <h3>Sources &amp; history</h3>
+          <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <DataList layout="rows">
+            <DataItem
+              label="Source"
+              value={`${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`}
+            />
+            {holding.purchaseContext?.receipt?.details.valuation?.records.map(
+              (r) => (
+                <DataItem
+                  key={r.id}
+                  label={
+                    r.origin === "judgment"
+                      ? "My estimate"
+                      : r.origin === "proxy"
+                        ? `${r.sourceLabel} · Other SPV`
+                        : r.sourceLabel
+                  }
+                  value={
+                    <>
+                      {r.totalMinor !== null && formatMoney(r.totalMinor)}
+                      {r.priceMicros !== null && (
+                        <small>${decimal(r.priceMicros, 6)}/share</small>
+                      )}
+                      <small>{formatDate(r.effectiveDate)}</small>
+                    </>
+                  }
+                />
+              ),
+            )}
+          </DataList>
+          <HoldingHistory positionId={holding.id} />
+          <PositionLinksEditor
+            positionId={holding.id}
+            onAccepted={onAccepted}
+          />
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
+  );
+}

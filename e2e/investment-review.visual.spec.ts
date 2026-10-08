@@ -1950,7 +1950,7 @@ test("captures a GP purchase notice directly in investment review without a corp
     .getByRole("button", { name: /Underlying shares and source evidence/ })
     .click();
   await expect(
-    section.getByLabel("Purchase price / share · USD", { exact: true }),
+    section.getByLabel("Purchase price / share · $", { exact: true }),
   ).toHaveValue("24.13");
   await expect(
     section.getByLabel("Reported annual management fee · %", { exact: true }),
@@ -1967,9 +1967,9 @@ test("captures a GP purchase notice directly in investment review without a corp
   await expect(
     section.getByLabel("Carry on gains · %", { exact: true }),
   ).toHaveValue("12");
-  await section.getByLabel("Cash paid · USD", { exact: true }).fill("1100");
+  await section.getByLabel("Cash paid · $", { exact: true }).fill("1100");
   await section
-    .getByLabel("Net capital invested · USD", { exact: true })
+    .getByLabel("Net capital invested · $", { exact: true })
     .fill("1000");
   await section
     .getByRole("checkbox", {

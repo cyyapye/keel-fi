@@ -457,6 +457,11 @@ function exposureSharePricePresentation(
 function exposureValueSourceLabel(
   position: InvestmentExposurePosition,
 ): string | null {
+  if (
+    position.valueSourceLabel === "My estimate" ||
+    position.valueSourceLabel?.startsWith("Proxy estimate")
+  )
+    return position.valueSourceLabel;
   if (position.valueSource === "reviewed_adjustment") {
     return "Reviewed mark";
   }

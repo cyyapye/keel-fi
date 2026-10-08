@@ -1,4 +1,9 @@
+import { SpvHoldingDetail } from "./SpvHoldingDetail";
 import { HoldingLinkButton } from "./HoldingLinkButton";
+import {
+  capitalSummaryLabel,
+  positionCapitalSummary,
+} from "./position-capital-summary";
 import { PositionShareValuationEditor } from "./PositionShareValuationEditor";
 import { PositionLinksEditor } from "./PositionLinksEditor";
 import { estimatePurchaseValue } from "@keel/domain/position-purchases";
@@ -157,7 +162,7 @@ import {
   type Screen,
 } from "./app-navigation";
 import {
-  formatCurrency,
+  formatPositionCurrency as formatCurrency,
   formatCompactCurrency,
   formatCompactMoney,
   formatDate,
@@ -2227,9 +2232,13 @@ function positionValueSourceUrlIsValid(value: string): boolean {
 function PositionValuationSection({
   holding,
   onAccepted,
+  onReviewRefund,
+  onEditPurchase,
 }: {
   holding: Holding;
   onAccepted: () => Promise<void>;
+  onReviewRefund?: () => void;
+  onEditPurchase?: (index: number) => void;
 }) {
   const [reportedDirty, setReportedDirty] = useState(false);
   const [sharesDirty, setSharesDirty] = useState(false);
@@ -2261,7 +2270,7 @@ function PositionValuationSection({
   const summary = accepted
     ? `${formatCurrency(accepted.valueMinor, accepted.currency)} · ${accepted.sourceLabel} · ${formatDate(accepted.effectiveDate)}`
     : estimate
-      ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · ${estimate.proxy ? "Proxy estimate" : "Share estimate"} · ${estimate.effectiveDate ? formatDate(estimate.effectiveDate) : "Mark date unknown"}`
+      ? `${formatCurrency(estimate.valueMinor, holding.purchaseContext.currency)} · ${estimate.proxy ? "Proxy estimate" : "Share estimate"}${estimate.effectiveDate ? ` · ${formatDate(estimate.effectiveDate)}` : ""}`
       : holding.administratorNavMinor !== null
         ? `${formatCurrency(holding.administratorNavMinor, holding.purchaseContext.currency)} · ${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}`
         : holding.positionValueContext?.projectedEstimate
@@ -2288,6 +2297,16 @@ function PositionValuationSection({
           <DisclosureIndicator />
         </CollapsibleTrigger>
         <CollapsibleContent keepMounted>
+          {holding.positionEconomicsContext?.reviewedInvestment
+            ?.returnedCapitalReconciliationPending &&
+            onReviewRefund && (
+              <Notice>
+                Check whether the refund is already included in distributions.{" "}
+                <Button tone="quiet" onClick={onReviewRefund}>
+                  Review refund
+                </Button>
+              </Notice>
+            )}
           <Tabs value={method} onValueChange={setMethod}>
             <TabsList
               className="scenario-tabs"
@@ -2313,11 +2332,12 @@ function PositionValuationSection({
             )}
             <TabsContent value="shares" keepMounted>
               <PositionShareValuationEditor
-                key={`${holding.id}:${holding.purchaseContext.snapshotId}:${holding.purchaseContext.receipt?.id}`}
+                key={`${holding.id}:${holding.purchaseContext.snapshotId}`}
                 holding={holding}
                 enabled={expanded && method === "shares"}
                 onAccepted={onAccepted}
                 onDirtyChange={setSharesDirty}
+                onEditPurchase={onEditPurchase}
               />
             </TabsContent>
           </Tabs>
@@ -2544,7 +2564,10 @@ function PositionValueAdjustmentEditor({
             Value, date and source name are required. Source type is prefilled.
           </p>
           <div className="position-value-adjustment__fields">
-            <Field label={`Value · ${context.currency}`} variant="filled">
+            <Field
+              label={`Value · ${context.currency === "USD" ? "$" : context.currency}`}
+              variant="filled"
+            >
               <InputGroup
                 prefix={context.currency === "USD" ? "$" : context.currency}
               >
@@ -2810,16 +2833,24 @@ function PositionPerformanceSummary({
       holding.positionKind === "fund_interest" ||
       holding.companyId !== null);
   const basisLabel = contributionBasis ? "Cash paid" : "Cost basis";
-  const reviewedCash = holding.positionEconomicsContext?.reviewedInvestment;
-  const cashAfterRefunds =
-    reviewedCash?.cashPaidMinor != null &&
-    reviewedCash.snapshotId === holding.positionEconomicsContext?.snapshotId &&
-    (reviewedCash.returnedCapitalMinor ?? 0) > 0
-      ? Number(
-          BigInt(reviewedCash.cashPaidMinor) -
-            BigInt(reviewedCash.returnedCapitalMinor ?? 0),
-        )
-      : null;
+  const invested = positionCapitalSummary(
+    holding.purchaseContext?.receipt,
+    holding.purchaseContext?.snapshotId,
+  );
+  const showInvested =
+    currentValueMinor !== null && invested?.amountMinor != null;
+  const showBasis =
+    currentValueMinor !== null &&
+    !invested &&
+    performance.costBasisMinor !== null;
+
+  if (
+    primary === null &&
+    !showInvested &&
+    !showBasis &&
+    performance.totalReturnPpm === null
+  )
+    return null;
 
   return (
     <section aria-label="Position summary" className="holding-headline">
@@ -2827,48 +2858,33 @@ function PositionPerformanceSummary({
         {primary}
         {!isCashLikeHolding(holding) && (
           <>
-            <Stat
-              label={
-                cashAfterRefunds !== null
-                  ? "Cash after refunds"
-                  : performance.costBasisSource === "funded_amount_estimate"
-                    ? `${basisLabel} · reported`
-                    : basisLabel
-              }
-              value={
-                cashAfterRefunds !== null
-                  ? formatMoney(cashAfterRefunds)
-                  : performance.costBasisMinor === null
-                    ? "Not reported"
-                    : performance.costBasisSource === "reviewed_spv_terms"
-                      ? formatMoney(performance.costBasisMinor)
-                      : formatCompactMoney(performance.costBasisMinor)
-              }
-              detail={
-                cashAfterRefunds !== null
-                  ? "Before upfront fees · Original cash paid retained in Purchases"
-                  : undefined
-              }
-            />
-            <Stat
-              label={
-                holding.shareValueEstimate && !acceptedAdjustment
-                  ? "Estimated return · before carry"
-                  : holding.purchaseContext && !acceptedAdjustment
-                    ? `Reported return · ${reportedCarryLabel(holding)}`
+            {showInvested && (
+              <Stat
+                label={capitalSummaryLabel(invested)}
+                value={formatCompactMoney(invested.amountMinor!)}
+              />
+            )}
+            {showBasis && (
+              <Stat
+                label={basisLabel}
+                value={formatCompactMoney(performance.costBasisMinor!)}
+              />
+            )}
+            {performance.totalReturnPpm !== null && (
+              <Stat
+                label={
+                  holding.shareValueEstimate && !acceptedAdjustment
+                    ? "Estimated return · before carry"
                     : "Total return"
-              }
-              value={
-                performance.totalReturnPpm === null
-                  ? "Unavailable"
-                  : formatSignedProbability(performance.totalReturnPpm)
-              }
-              detail={
-                performance.totalGainMinor === null
-                  ? undefined
-                  : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)} total gain / loss`
-              }
-            />
+                }
+                value={formatSignedProbability(performance.totalReturnPpm)}
+                detail={
+                  performance.totalGainMinor === null
+                    ? undefined
+                    : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)} total gain / loss`
+                }
+              />
+            )}
           </>
         )}
       </StatGroup>
@@ -2879,13 +2895,47 @@ function PositionPerformanceSummary({
 function HoldingDetailWorkspace({
   holding,
   onValueAccepted,
+  related = [],
+}: {
+  holding: Holding;
+  onValueAccepted: () => Promise<void>;
+  related?: Holding[];
+}) {
+  return holding.purchaseContext ? (
+    <SpvHoldingDetail
+      holding={holding}
+      onAccepted={onValueAccepted}
+      related={related}
+    />
+  ) : (
+    <LegacyHoldingDetailWorkspace
+      holding={holding}
+      onValueAccepted={onValueAccepted}
+    />
+  );
+}
+
+function LegacyHoldingDetailWorkspace({
+  holding,
+  onValueAccepted,
 }: {
   holding: Holding;
   onValueAccepted: () => Promise<void>;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const purchaseEditor = useRef<InvestmentDetailsHandle>(null);
+  const detailRef = useRef<HTMLElement>(null);
+  const purchaseReturnFocus = useRef<HTMLElement | null>(null);
   const [purchaseEditing, setPurchaseEditing] = useState(false);
+  const purchaseEditButton = useRef<HTMLButtonElement>(null);
+  const wasPurchaseEditing = useRef(false);
+  useEffect(() => {
+    if (!purchaseEditing && wasPurchaseEditing.current) {
+      (purchaseReturnFocus.current ?? purchaseEditButton.current)?.focus();
+      purchaseReturnFocus.current = null;
+    }
+    wasPurchaseEditing.current = purchaseEditing;
+  }, [purchaseEditing]);
   const [legacyFeesExpanded, setLegacyFeesExpanded] = useState(false);
   const primaryName = holdingPrimaryName(holding);
   const legalPositionLabel = holdingLegalPositionLabel(holding);
@@ -2966,73 +3016,124 @@ function HoldingDetailWorkspace({
     },
   ] as const;
 
+  const planningLenses = valueLenses
+    .slice(2)
+    .filter(
+      (_, i) =>
+        [
+          holding.underwritingValueMinor,
+          holding.scenarioValueMinor,
+          holding.usableLiquidityMinor,
+        ][i] != null,
+    );
+  const sourceValueLenses = valueLenses
+    .slice(0, 2)
+    .filter((_, i) =>
+      i === 0
+        ? holding.administratorNavMinor !== null
+        : (acceptedAdjustment?.valueMinor ??
+            projectedEstimate?.valueMinor ??
+            holding.externalMarkMinor) != null,
+    );
+  const invested = positionCapitalSummary(
+    holding.purchaseContext?.receipt,
+    holding.purchaseContext?.snapshotId,
+  );
+  const noValue =
+    acceptedAdjustment === null &&
+    !holding.shareValueEstimate &&
+    projectedEstimate === null &&
+    holding.administratorNavMinor === null;
+  const fallbackCapital =
+    invested?.amountMinor ?? holding.costBasisMinor ?? holding.investedMinor;
   useEffect(() => {
     headingRef.current?.focus();
   }, []);
 
   return (
     <section
+      ref={detailRef}
       aria-labelledby="holding-detail-title"
       className={`holding-detail-workspace${purchaseEditing ? " holding-detail-workspace--editing" : ""}`}
     >
       <header className="holding-detail-heading">
-        <h2 id="holding-detail-title" ref={headingRef} tabIndex={-1}>
-          {primaryName}
-        </h2>
+        <div className="holding-detail-title">
+          <h2 id="holding-detail-title" ref={headingRef} tabIndex={-1}>
+            {primaryName}
+          </h2>
+          <HoldingLinkButton
+            key={holding.id}
+            kind="position"
+            id={holding.id}
+            icon
+          />
+        </div>
         <p>
           {holding.positionName} · {holding.ownerLabel}
         </p>
-        <HoldingLinkButton key={holding.id} kind="position" id={holding.id} />
       </header>
 
       <div className="holding-summary">
         <PositionPerformanceSummary
           holding={holding}
           primary={
-            <Stat
-              className="holding-headline__primary"
-              label={
-                acceptedAdjustment
-                  ? "Reviewed value"
-                  : holding.shareValueEstimate
-                    ? holding.shareValueEstimate.proxy
-                      ? "Estimated value · proxy"
-                      : "Estimated value · shares"
-                    : projectedEstimate &&
-                        holding.administratorNavMinor === null
-                      ? "Estimated value"
-                      : valueLenses[0].label
-              }
-              value={
-                acceptedAdjustment
-                  ? holdingValueLabel(acceptedAdjustment.valueMinor)
-                  : holding.shareValueEstimate
-                    ? holdingValueLabel(holding.shareValueEstimate.valueMinor)
-                    : projectedEstimate &&
-                        holding.administratorNavMinor === null
-                      ? holdingValueLabel(projectedEstimate.valueMinor)
-                      : valueLenses[0].value
-              }
-              detail={
-                acceptedAdjustment
-                  ? `${acceptedAdjustment.sourceLabel} · ${formatDate(acceptedAdjustment.effectiveDate)}`
-                  : holding.shareValueEstimate
-                    ? "Before carry and remaining expenses · See valuation assumptions below"
-                    : projectedEstimate &&
-                        holding.administratorNavMinor === null
-                      ? "Portfolio Watch estimate · Not an accepted mark"
-                      : holding.administratorNavMinor === null
-                        ? holding.administratorNavState === "locked"
-                          ? valueLenses[0].helper
-                          : "Add a reported value or calculate from shares below."
-                        : `${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(currentReportedValueReview(holding)?.effectiveDate ?? holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}${holding.purchaseContext ? ` · ${reportedCarryLabel(holding)}` : ""}`
-              }
-            />
+            noValue && fallbackCapital == null ? null : (
+              <Stat
+                className="holding-headline__primary"
+                label={
+                  noValue
+                    ? invested
+                      ? capitalSummaryLabel(invested)
+                      : "Cash invested"
+                    : acceptedAdjustment
+                      ? "Reviewed value"
+                      : holding.shareValueEstimate
+                        ? holding.shareValueEstimate.proxy
+                          ? "Estimated value · proxy"
+                          : "Estimated value · shares"
+                        : projectedEstimate &&
+                            holding.administratorNavMinor === null
+                          ? "Estimated value"
+                          : valueLenses[0].label
+                }
+                value={
+                  noValue
+                    ? formatCompactMoney(fallbackCapital!)
+                    : acceptedAdjustment
+                      ? holdingValueLabel(acceptedAdjustment.valueMinor)
+                      : holding.shareValueEstimate
+                        ? holdingValueLabel(
+                            holding.shareValueEstimate.valueMinor,
+                          )
+                        : projectedEstimate &&
+                            holding.administratorNavMinor === null
+                          ? holdingValueLabel(projectedEstimate.valueMinor)
+                          : valueLenses[0].value
+                }
+                detail={
+                  noValue
+                    ? undefined
+                    : acceptedAdjustment
+                      ? `${acceptedAdjustment.sourceLabel} · ${formatDate(acceptedAdjustment.effectiveDate)}`
+                      : holding.shareValueEstimate
+                        ? "Before carry and remaining expenses · See valuation assumptions below"
+                        : projectedEstimate &&
+                            holding.administratorNavMinor === null
+                          ? "Portfolio Watch estimate · Not an accepted mark"
+                          : holding.administratorNavMinor === null
+                            ? holding.administratorNavState === "locked"
+                              ? valueLenses[0].helper
+                              : "Add a reported value or calculate from shares below."
+                            : `${holding.linkedReportedValue?.sourceLabel ?? holding.sourceLabel} · ${formatDate(currentReportedValueReview(holding)?.effectiveDate ?? holding.linkedReportedValue?.observedAt ?? holding.effectiveDate)}${holding.purchaseContext && reportedCarryLabel(holding) !== "carry unknown" ? ` · ${reportedCarryLabel(holding)}` : ""}`
+                }
+              />
+            )
           }
         />
         {holding.purchaseContext && !purchaseEditing && (
           <Button
             className="holding-edit-purchases"
+            ref={purchaseEditButton}
             tone="secondary"
             onClick={() => purchaseEditor.current?.edit()}
           >
@@ -3050,6 +3151,20 @@ function HoldingDetailWorkspace({
             <PositionValuationSection
               holding={holding}
               onAccepted={onValueAccepted}
+              onEditPurchase={(index) => {
+                purchaseReturnFocus.current =
+                  detailRef.current?.querySelector<HTMLElement>(
+                    ".share-valuation__preview",
+                  ) ?? null;
+                purchaseEditor.current?.edit(index, "shares");
+              }}
+              onReviewRefund={() =>
+                purchaseEditor.current?.edit(
+                  holding.purchaseContext!.receipt?.details.lots.findIndex(
+                    (lot) => lot.capitalReturn?.status === "received",
+                  ),
+                )
+              }
             />
           }
           key={`${holding.id}:${holding.purchaseContext.snapshotId}`}
@@ -3090,37 +3205,44 @@ function HoldingDetailWorkspace({
           )}
         </>
       )}
-      <Collapsible className="holding-planning holding-detail-section">
-        <CollapsibleTrigger layout="inline" className="holding-section-toggle">
-          <span>
-            <strong>Planning &amp; liquidity</strong>
-            <small>
-              FI planning {holdingValueLabel(holding.underwritingValueMinor)} ·
-              Usable liquidity {holdingValueLabel(holding.usableLiquidityMinor)}
-            </small>
-          </span>
-          <DisclosureIndicator />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <DataList>
-            {valueLenses.slice(2).map((lens) => (
-              <DataItem
-                key={lens.label}
-                label={lens.label}
-                value={
-                  <>
-                    <strong>{lens.value}</strong>
-                    <small>{lens.helper}</small>
-                  </>
-                }
-              />
-            ))}
-          </DataList>
-          <p className="holding-detail-help">
-            A new position value does not change planning values automatically.
-          </p>
-        </CollapsibleContent>
-      </Collapsible>
+      {planningLenses.length > 0 && (
+        <Collapsible className="holding-planning holding-detail-section">
+          <CollapsibleTrigger
+            layout="inline"
+            className="holding-section-toggle"
+          >
+            <span>
+              <strong>Planning &amp; liquidity</strong>
+              <small>
+                {planningLenses
+                  .map((lens) => `${lens.label} ${lens.value}`)
+                  .join(" · ")}
+              </small>
+            </span>
+            <DisclosureIndicator />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <DataList>
+              {planningLenses.map((lens) => (
+                <DataItem
+                  key={lens.label}
+                  label={lens.label}
+                  value={
+                    <>
+                      <strong>{lens.value}</strong>
+                      <small>{lens.helper}</small>
+                    </>
+                  }
+                />
+              ))}
+            </DataList>
+            <p className="holding-detail-help">
+              A new position value does not change planning values
+              automatically.
+            </p>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
       <Collapsible className="holding-ownership holding-detail-section">
         <CollapsibleTrigger layout="inline" className="holding-section-toggle">
           <span>
@@ -3133,31 +3255,33 @@ function HoldingDetailWorkspace({
           <DisclosureIndicator />
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <Collapsible className="holding-other-values holding-source-values">
-            <CollapsibleTrigger
-              layout="inline"
-              className="holding-section-toggle"
-            >
-              <strong>Other valuations</strong>
-              <DisclosureIndicator />
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <DataList>
-                {valueLenses.slice(0, 2).map((lens) => (
-                  <DataItem
-                    key={lens.label}
-                    label={lens.label}
-                    value={
-                      <>
-                        <strong>{lens.value}</strong>
-                        <small>{lens.helper}</small>
-                      </>
-                    }
-                  />
-                ))}
-              </DataList>
-            </CollapsibleContent>
-          </Collapsible>
+          {sourceValueLenses.length > 0 && (
+            <Collapsible className="holding-other-values holding-source-values">
+              <CollapsibleTrigger
+                layout="inline"
+                className="holding-section-toggle"
+              >
+                <strong>Other valuations</strong>
+                <DisclosureIndicator />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <DataList>
+                  {sourceValueLenses.map((lens) => (
+                    <DataItem
+                      key={lens.label}
+                      label={lens.label}
+                      value={
+                        <>
+                          <strong>{lens.value}</strong>
+                          <small>{lens.helper}</small>
+                        </>
+                      }
+                    />
+                  ))}
+                </DataList>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
           {isImportedPosition && holding.positionKind === "spv_interest" && (
             <PositionLinksEditor
               key={holding.id}
@@ -3184,18 +3308,21 @@ function HoldingDetailWorkspace({
                 <DataItem label="Held through" value={holding.ownerLabel} />
                 {isPlaidInvestmentsHolding(holding) && (
                   <>
-                    <DataItem
-                      label="Ticker"
-                      value={holding.ticker ?? "Not reported"}
-                    />
-                    <DataItem
-                      label="Shares"
-                      value={formatQuantityMicros(holding.quantityMicros)}
-                    />
-                    <DataItem
-                      label="Cost basis"
-                      value={holdingValueLabel(holding.costBasisMinor)}
-                    />
+                    {holding.ticker && (
+                      <DataItem label="Ticker" value={holding.ticker} />
+                    )}
+                    {holding.quantityMicros != null && (
+                      <DataItem
+                        label="Shares"
+                        value={formatQuantityMicros(holding.quantityMicros)}
+                      />
+                    )}
+                    {holding.costBasisMinor !== null && (
+                      <DataItem
+                        label="Cost basis"
+                        value={holdingValueLabel(holding.costBasisMinor)}
+                      />
+                    )}
                   </>
                 )}
               </DataList>
@@ -7135,6 +7262,16 @@ function Holdings({
       ) : selectedHolding !== null ? (
         <HoldingDetailWorkspace
           holding={selectedHolding}
+          related={
+            selectedHolding.companyId
+              ? data.holdings.filter(
+                  (item) =>
+                    item.id !== selectedHolding.id &&
+                    item.companyId === selectedHolding.companyId &&
+                    item.positionKind === "spv_interest",
+                )
+              : []
+          }
           onValueAccepted={onExposureResolved}
         />
       ) : importerVisible ? (

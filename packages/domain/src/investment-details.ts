@@ -30,6 +30,7 @@ export const ReviewedInvestmentSchema = z.object({
   snapshotId: z.string().min(1),
   receiptId: z.string().min(1),
   cashPaidMinor: money.nullable(),
+  additionalPaidFeesMinor: money.nullable().optional(),
   upfrontDeductionsMinor: money.nullable(),
   returnedCapitalMinor: money.optional(),
   additionalReturnedCapitalMinor: money.optional(),
