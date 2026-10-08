@@ -378,6 +378,13 @@ lint stayed at 48.41 seconds while typecheck rose to 40.75 seconds. Separate
 ESLint workers duplicate their TypeScript project services and increased CPU
 work. Keep lint concurrency disabled.
 
+The lint command gives its single Node process a 4 GiB old-space ceiling. PR run
+`37834913601` exhausted Node 22's default 2 GiB heap while the runner still had
+at least 5 GiB available throughout the sampled gate. Apply this limit only to
+ESLint, whose type-aware project services retain the workspace type graph; do
+not increase every concurrent Node process's allowance. Full file selection,
+type-aware rules and zero-warning enforcement remain unchanged.
+
 OVH run `35764220712` is diagnostic evidence, not a successful-gate benchmark:
 source checks took 167.974 seconds, with typecheck finishing approximately 28
 seconds before lint. A TypeScript-only cache cannot advance that source

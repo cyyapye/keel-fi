@@ -28,7 +28,7 @@
     "dev": "tsx scripts/dev.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "node --max-old-space-size=4096 node_modules/eslint/bin/eslint.js . --max-warnings=0",
     "local:acceptance:apply": "tsx scripts/local-acceptance-profile.ts apply",
     "local:acceptance:clean": "tsx scripts/local-acceptance-profile.ts clean",
     "local:acceptance:invariants": "tsx scripts/local-acceptance-invariants.ts",
