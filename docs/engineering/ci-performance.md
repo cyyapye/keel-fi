@@ -309,6 +309,15 @@ failed runs diagnose scheduling and contention; they do not prove the revised
 schedule's readiness or performance. Only a complete exact-revision receipt can
 establish that.
 
+Run `37963326704` completed 1,259 unit cases but timed out the remaining rename
+scale fixture at 300 seconds. It started late, during browser execution; host
+samples during it averaged 90.3% CPU busy with pressure reaching 73.74%. That
+fixture lacked a scheduling hint despite its completed 200-second execution in
+run `37951901830`. Include that observed duration in the existing longest-first
+sequencer so the fixture starts in the early native pool. Its 120-position
+scale, historical and foreign-household cases, D1 limits and watchdog remain
+unchanged.
+
 Native CI uses loopback web ports 31031–31035 and API ports 32032, 32033 and
 32035, outside local development ranges and OVH's Linux ephemeral range
 (32768-60999). A preflight checks port availability and the live kernel range
