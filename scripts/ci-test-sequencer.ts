@@ -1,13 +1,15 @@
 import path from "node:path";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 
-// Whole-file wall times from successful OVH run 35690710837. These are only
+// Whole-file wall times from successful OVH run 35690710837, plus the rename
+// fixture's completed 200-second execution in run 37951901830. These are only
 // scheduling hints: neither test selection nor within-file execution changes.
 // Start expensive files first so one large fixture cannot leave the second
 // worker idle at the end of a clean CI checkout with no Vitest timing cache.
 const seconds: Readonly<Record<string, number>> = {
   "provider-agent-d1-cost.test.ts": 448,
   "portfolio-watch-activity.test.ts": 255,
+  "renamed-investments-d1-cost.test.ts": 200,
   "portfolio-baseline-d1-cost.test.ts": 107,
   "automatic-investment-review-d1-cost.test.ts": 104,
   "participation-d1-cost.test.ts": 104,

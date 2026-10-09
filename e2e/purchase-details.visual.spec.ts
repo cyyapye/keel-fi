@@ -234,9 +234,10 @@ async function setup(
     (route) =>
       route.fulfill({
         json: {
-          receipts: history.map((r, i) => ({
-            ...r,
-            previousReceiptId: history[i + 1]?.id ?? null,
+          entries: history.map((r, i) => ({
+            kind: "investment",
+            receipt: r,
+            previous: history[i + 1] ?? null,
           })),
           next: null,
         },
@@ -326,6 +327,10 @@ async function setup(
   ).toBeVisible();
   return {
     receipt: () => receipt,
+    positions: () =>
+      investmentHoldings().positionView.connections.flatMap((c) =>
+        c.containers.flatMap((c) => c.positions),
+      ),
     reject: (value: boolean) => {
       reject = value;
     },
@@ -430,8 +435,11 @@ test("valuation choices compare both amounts and preserve investment shares afte
     .first()
     .click();
   await expect(page.locator(".holding-receipt-history")).toContainText(
-    "$200.00/share · Date unknown",
+    "Sep 30, 2026 → Cleared",
   );
+  await expect(
+    page.locator(".holding-receipt-history .data-list"),
+  ).not.toContainText("$200.00/share");
   await expect(page.locator(".holding-receipt-history")).not.toContainText(
     "1970",
   );
@@ -554,11 +562,149 @@ test("saved history distinguishes same-day changes and avoids a duplicate curren
       name: "Linked investment records",
       exact: true,
     }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Link investment records", exact: true }),
   ).toBeVisible();
+  const disclosure = page.getByRole("button", {
+    name: "Linked investment records",
+    exact: true,
+  });
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  const newest = history.locator('[data-slot="collapsible"]').first();
+  await newest.getByRole("button").click();
+  await expect(newest).toContainText("$18,000.00 → $19,000.00");
+  await expect(newest).not.toContainText("Cash paid");
+  await expect(newest).not.toContainText("Shares");
   await screenshot(page, "holding-history.png");
+});
+
+test("one timeline refreshes after unlink, keeps failed decisions unapplied and omits unchanged investment fields", async ({
+  page,
+}) => {
+  const state = await setup(page);
+  const target = state.positions()[0]!;
+  const source = {
+    ...target,
+    id: "synthetic-source",
+    legalVehicleName: "Demo Cedar source",
+    snapshot: { ...target.snapshot, id: "source-snapshot" },
+  };
+  let link = {
+    id: "synthetic-link",
+    sourcePositionId: source.id,
+    targetPositionId: target.id,
+    relationship: "same_investment",
+    state: "linked",
+    useSourceValue: true,
+    companyRenamed: false,
+    companyName: null,
+    formerCompanyName: null,
+    note: "",
+    acceptedAt: "2026-10-01T12:00:10.000Z",
+  };
+  const initial = structuredClone(state.receipt());
+  const changed = structuredClone(initial);
+  changed.id = "changed-fee";
+  changed.acceptedAt = "2026-10-01T12:00:20.000Z";
+  changed.details.lots[0]!.fees![0]!.paidMinor = 25_000;
+  const history: unknown[] = [
+    { kind: "investment", receipt: changed, previous: initial },
+    {
+      kind: "link",
+      receipt: link,
+      sourceLabel: source.legalVehicleName,
+      targetLabel: target.legalVehicleName,
+    },
+    { kind: "investment", receipt: initial, previous: null },
+  ];
+  await page.route(
+    "**/api/investment-positions/synthetic-holding/history",
+    (route) => route.fulfill({ json: { entries: history, next: null } }),
+  );
+  let reject = true,
+    writes = 0;
+  await page.route("**/api/investment-position-links", (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({
+        json: { positions: [target, source], links: [link] },
+      });
+    writes++;
+    if (reject)
+      return route.fulfill({
+        status: 409,
+        json: { error: "The records changed. Reload and review again." },
+      });
+    link = {
+      ...link,
+      state: "unlinked",
+      id: "synthetic-unlink",
+      acceptedAt: "2026-10-01T12:00:30.000Z",
+    };
+    history.unshift({
+      kind: "link",
+      receipt: link,
+      sourceLabel: source.legalVehicleName,
+      targetLabel: target.legalVehicleName,
+    });
+    return route.fulfill({ status: 201, json: link });
+  });
+  await page
+    .getByRole("button", { name: "Sources & history", exact: true })
+    .click();
+  const timeline = page.locator(".holding-receipt-history");
+  await expect(
+    timeline.getByRole("button", { name: /^Linked ·/ }),
+  ).toBeVisible();
+  const fee = timeline.locator('[data-slot="collapsible"]').first();
+  await fee.getByRole("button").click();
+  await expect(fee.locator(".data-list__item")).toHaveCount(1);
+  await expect(fee).not.toContainText("Cash paid");
+  await expect(fee).not.toContainText("Shares");
+  const links = page.getByRole("region", {
+    name: "Linked investment records",
+    exact: true,
+  });
+  const disclosure = links.getByRole("button", {
+    name: "Linked investment records",
+    exact: true,
+  });
+  await disclosure.click();
+  await expect(links.getByText("Review history", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(links).not.toContainText("Keep this SPV as one investment");
+  await links
+    .getByRole("button", { name: "Unlink record", exact: true })
+    .click();
+  await expect(links).toContainText(
+    "This link will stop supplying reported value.",
+  );
+  await links.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(writes).toBe(0);
+  await expect(
+    links.getByRole("button", { name: "Unlink record", exact: true }),
+  ).toBeFocused();
+  await links
+    .getByRole("button", { name: "Unlink record", exact: true })
+    .click();
+  await links.getByRole("button", { name: "Unlink", exact: true }).click();
+  await expect(links.getByRole("alert")).toContainText("The records changed");
+  await expect(
+    timeline.getByRole("button", { name: /^Unlinked ·/ }),
+  ).toHaveCount(0);
+  reject = false;
+  await links.getByRole("button", { name: "Unlink", exact: true }).click();
+  await expect(
+    timeline.getByRole("button", { name: /^Unlinked ·/ }),
+  ).toBeVisible();
+  await expect(
+    timeline.getByRole("button", { name: /^Investment · One-time fee/ }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await expect(disclosure).toBeFocused();
+  await expect(
+    links.getByRole("button", { name: "Unlink record", exact: true }),
+  ).toHaveCount(0);
+  await disclosure.click();
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  await screenshot(page, "holding-unified-history.png");
 });
 
 test("sources restore GP facts and estimates without duplicate forms or acknowledgments", async ({

@@ -137,7 +137,12 @@ it("validates optional purchase details and scopes accepted writes to the authen
     expect(history.status).toBe(200);
     expect(history.headers.get("Cache-Control")).toBe("private, no-store");
     expect(await history.json()).toMatchObject({
-      receipts: [{ details: { valuation: { records: [valuation.record] } } }],
+      entries: [
+        {
+          kind: "investment",
+          receipt: { details: { valuation: { records: [valuation.record] } } },
+        },
+      ],
       next: null,
     });
     expect(

@@ -158,14 +158,19 @@ it("links a historical renamed investment once with dated terms, no distribution
     .flatMap((c) => c.containers.flatMap((c) => c.positions))
     .filter((p) => p.legalVehicleName === "Synthetic Circuit SPV, LP");
   expect(unlinked).toHaveLength(2);
-  const history = (await links.workspace(subject)).history;
+  const history = (
+    await new D1PositionPurchaseRepository(db.asD1()).history(
+      subject,
+      before.targetPositionId,
+    )
+  ).entries.filter((entry) => entry.kind === "link");
   expect(history).toHaveLength(2);
   expect(
     unlinked.find((p) => p.id === before.targetPositionId)?.purchaseReceipt,
   ).toEqual(purchase);
   expect(
     history.every(
-      (review) => review.formerCompanyName === "Synthetic Circuit Labs",
+      (entry) => entry.receipt.formerCompanyName === "Synthetic Circuit Labs",
     ),
   ).toBe(true);
   expect(

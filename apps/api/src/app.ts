@@ -2834,7 +2834,11 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/api/investment-positions/:positionId/history", async (context) => {
     const query = z
-      .object({ date: z.iso.datetime(), id: z.string().min(1).max(200) })
+      .object({
+        date: z.iso.datetime(),
+        id: z.string().min(1).max(200),
+        kind: z.enum(["investment", "link"]),
+      })
       .safeParse(context.req.query());
     if (Object.keys(context.req.query()).length && !query.success)
       return context.json({ error: "Invalid history cursor." }, 400);

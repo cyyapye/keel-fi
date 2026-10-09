@@ -1,10 +1,8 @@
 import { expect, it } from "vitest";
 import { PurchaseReceiptSchema } from "@keel/domain/position-purchases";
 import { unknownInvestmentTerms } from "@keel/domain/investment-details";
-import {
-  holdingHistorySummary,
-  previousHistoryReceipt,
-} from "./holding-history-summary";
+import { holdingHistorySummary } from "./holding-history-summary";
+import { holdingHistoryChanges } from "./holding-history-changes";
 
 const receipt = () =>
   PurchaseReceiptSchema.parse({
@@ -49,23 +47,59 @@ it("identifies the changed amount rather than repeating the saved day", () => {
   expect(holdingHistorySummary(before, null)).not.toContain("removed");
 });
 
-it("follows the saved predecessor when equal timestamps sort revisions out of causal order", () => {
-  const first = { ...receipt(), id: "z-first", previousReceiptId: null };
-  const second = { ...receipt(), id: "a-second", previousReceiptId: "z-first" };
-  const third = { ...receipt(), id: "m-third", previousReceiptId: "a-second" };
-  const history = {
-    receipts: [first, third, second],
-    previous: null,
-    next: null,
-  };
-  expect(previousHistoryReceipt(history, 1)).toBe(second);
-  expect(previousHistoryReceipt(history, 0)).toBeNull();
-  expect(
-    previousHistoryReceipt(
-      { ...history, receipts: [third], previous: second },
-      0,
-    ),
-  ).toBe(second);
+it("shows only changed fields and preserves cleared values", () => {
+  const before = receipt(),
+    after = receipt();
+  after.details.lots[0]!.grossCashMinor = 120_000;
+  after.details.lots[0]!.shareClass = null;
+  expect(holdingHistoryChanges(after, before)).toEqual([
+    {
+      key: "lot:lot:cash",
+      label: "Cash paid",
+      before: "$1,000.00",
+      after: "$1,200.00",
+    },
+    {
+      key: "lot:lot:class",
+      label: "Share class",
+      before: "Common",
+      after: null,
+    },
+  ]);
+  expect(holdingHistoryChanges(before, before)).toEqual([]);
+  expect(holdingHistoryChanges(before, null).map((c) => c.label)).toContain(
+    "Purchase price",
+  );
+});
+it("isolates a fee rate change from unchanged cash and shares", () => {
+  const before = receipt();
+  before.details.lots[0]!.fees = [
+    {
+      id: "fee",
+      label: "One-time fee",
+      kind: "one_time",
+      method: "percentage",
+      ratePpm: 100_000,
+      paidMinor: null,
+      basis: "cash",
+      basisMinor: null,
+      prepaidMonths: null,
+      coveredLotIds: [],
+      treatment: "upfront",
+      paymentStatus: "paid",
+      dueDate: null,
+    },
+  ];
+  const after = structuredClone(before);
+  after.details.lots[0]!.fees![0]!.ratePpm = 130_000;
+  expect(holdingHistoryChanges(after, before)).toEqual([
+    {
+      key: "lot:lot:fee:fee:rate",
+      label: "One-time fee · Rate",
+      before: "10%",
+      after: "13%",
+    },
+  ]);
 });
 it("distinguishes a carry change from a shares change", () => {
   const before = receipt(),

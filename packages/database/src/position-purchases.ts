@@ -51,45 +51,98 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
   }
 
   private historyQuery(hasCursor: boolean) {
-    return this.db.prepare(
-      `SELECT r.receipt_json,r.prior_id FROM holding_purchase_reviews r
-      WHERE r.household_id=(SELECT p.household_id FROM holding_positions p JOIN households h ON h.id=p.household_id JOIN users u ON u.id=h.owner_user_id WHERE p.id=? AND u.access_subject=?)
-      AND r.position_id=? ${hasCursor ? "AND (r.accepted_at,r.id) < (?,?)" : ""}
-      ORDER BY r.accepted_at DESC,r.id DESC LIMIT 31`,
-    );
+    const range = hasCursor ? "AND (r.accepted_at,r.id,?) < (?,?,?)" : "";
+    return this.db.prepare(`
+      WITH owned AS (SELECT p.household_id FROM holding_positions p
+        JOIN households h ON h.id=p.household_id
+        JOIN users u ON u.id=h.owner_user_id WHERE p.id=? AND u.access_subject=?),
+      candidates AS (
+        SELECT * FROM (SELECT r.id,r.accepted_at,'investment' AS kind
+        FROM holding_purchase_reviews r JOIN owned o ON o.household_id=r.household_id
+        WHERE r.position_id=? ${range}
+        ORDER BY r.accepted_at DESC,r.id DESC LIMIT 31)
+        UNION ALL SELECT * FROM (SELECT r.id,r.accepted_at,'link' AS kind
+        FROM holding_position_link_reviews r JOIN owned o ON o.household_id=r.household_id
+        WHERE r.source_position_id=? ${range}
+        ORDER BY r.accepted_at DESC,r.id DESC LIMIT 31)
+        UNION ALL SELECT * FROM (SELECT r.id,r.accepted_at,'link' AS kind
+        FROM holding_position_link_reviews r JOIN owned o ON o.household_id=r.household_id
+        WHERE r.target_position_id=? ${range}
+        ORDER BY r.accepted_at DESC,r.id DESC LIMIT 31)
+      ), page AS (SELECT * FROM candidates ORDER BY accepted_at DESC,id DESC,kind DESC LIMIT 31)
+      SELECT page.kind,page.id,page.accepted_at,r.receipt_json,
+        prior.receipt_json AS previous_json,
+        s.legal_vehicle_name AS source_label,t.legal_vehicle_name AS target_label,
+        json_object('id',l.id,'sourcePositionId',l.source_position_id,
+          'targetPositionId',l.target_position_id,'relationship',l.relationship,
+          'state',l.state,'useSourceValue',json(CASE l.use_source_value WHEN 1 THEN 'true' ELSE 'false' END),
+          'companyRenamed',json(CASE l.company_renamed WHEN 1 THEN 'true' ELSE 'false' END),
+          'companyName',l.company_name,'formerCompanyName',l.former_company_name,
+          'note',l.note,'acceptedAt',l.accepted_at) AS link_json
+      FROM page
+      LEFT JOIN holding_purchase_reviews r ON page.kind='investment' AND r.id=page.id
+      LEFT JOIN holding_purchase_reviews prior ON prior.id=r.prior_id
+        AND prior.household_id=r.household_id AND prior.position_id=r.position_id
+      LEFT JOIN holding_position_link_reviews l ON page.kind='link' AND l.id=page.id
+      LEFT JOIN holding_positions s ON s.id=l.source_position_id
+      LEFT JOIN holding_positions t ON t.id=l.target_position_id
+      ORDER BY page.accepted_at DESC,page.id DESC,page.kind DESC
+    `);
   }
 
   async history(
     subject: string,
     positionId: string,
-    cursor?: { date: string; id: string },
+    cursor?: { date: string; id: string; kind: "investment" | "link" },
   ) {
+    // Each indexed branch reads at most one page plus lookahead. Predecessors
+    // follow saved identities, including tied timestamps and page boundaries.
+    const bindBranch = (kind: string) => [
+      positionId,
+      ...(cursor ? [kind, cursor.date, cursor.id, cursor.kind] : []),
+    ];
     const result = await this.historyQuery(Boolean(cursor))
       .bind(
         positionId,
         subject,
-        positionId,
-        ...(cursor ? [cursor.date, cursor.id] : []),
+        ...bindBranch("investment"),
+        ...bindBranch("link"),
+        ...bindBranch("link"),
       )
-      .all<{ receipt_json: string; prior_id: string | null }>();
-    const receipts = result.results.slice(0, 30).map((r) => ({
-      ...PurchaseReceiptSchema.parse(JSON.parse(r.receipt_json)),
-      previousReceiptId: r.prior_id,
-    }));
-    const last = receipts.at(-1);
+      .all<{
+        kind: "investment" | "link";
+        id: string;
+        accepted_at: string;
+        receipt_json: string | null;
+        previous_json: string | null;
+        source_label: string | null;
+        target_label: string | null;
+        link_json: string;
+      }>();
+    const rows = result.results.slice(0, 30);
+    const last = rows.at(-1);
     return InvestmentHistorySchema.parse({
-      receipts,
-      previous: result.results[30]
-        ? {
-            ...PurchaseReceiptSchema.parse(
-              JSON.parse(result.results[30].receipt_json),
-            ),
-            previousReceiptId: result.results[30].prior_id,
-          }
-        : null,
+      entries: rows.map((row) =>
+        row.kind === "investment"
+          ? {
+              kind: row.kind,
+              receipt: PurchaseReceiptSchema.parse(
+                JSON.parse(row.receipt_json!),
+              ),
+              previous: row.previous_json
+                ? PurchaseReceiptSchema.parse(JSON.parse(row.previous_json))
+                : null,
+            }
+          : {
+              kind: row.kind,
+              receipt: JSON.parse(row.link_json) as unknown,
+              sourceLabel: row.source_label,
+              targetLabel: row.target_label,
+            },
+      ),
       next:
         result.results.length > 30 && last
-          ? { date: last.acceptedAt, id: last.id }
+          ? { date: last.accepted_at, id: last.id, kind: last.kind }
           : null,
     });
   }

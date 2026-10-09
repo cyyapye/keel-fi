@@ -20,5 +20,5 @@ runs:
       working-directory: keel
       env:
         TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
-        TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v4
+        TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v7
       run: python3 -I scripts/ci-verification.py check

@@ -27,7 +27,7 @@ it("includes 120 retained private sources with bounded projection-only workspace
     ).toBe(true);
     expect(workspace.positions.every((p) => p.ownershipContainerId)).toBe(true);
     expect(workspace.links).toEqual([]);
-    expect(meter.cost.roundTrips).toBe(6);
+    expect(meter.cost.roundTrips).toBe(5);
     expect(meter.cost.rowsWritten).toBe(0);
     expect(meter.cost.rowsRead).toBeLessThanOrEqual(12_000);
     const history = { ...meter.cost };
@@ -53,7 +53,7 @@ it("includes 120 retained private sources with bounded projection-only workspace
     });
     meter.reset();
     expect((await repo.workspace(COST_SUBJECT)).positions).toHaveLength(120);
-    expect(meter.cost.roundTrips).toBe(6);
+    expect(meter.cost.roundTrips).toBe(5);
     expect(meter.cost.rowsWritten).toBe(0);
     expect(meter.cost.rowsRead).toBeLessThanOrEqual(history.rowsRead + 10);
     // A provider label alone must not turn an ordinary account into history.
@@ -65,7 +65,7 @@ it("includes 120 retained private sources with bounded projection-only workspace
     expect((await repo.workspace("retained-other-subject")).positions).toEqual(
       [],
     );
-    expect(meter.cost.roundTrips).toBe(6);
+    expect(meter.cost.roundTrips).toBe(5);
     expect(meter.cost.rowsWritten).toBe(0);
     console.info(
       JSON.stringify({
@@ -106,7 +106,7 @@ it("bounds 120-record link projections, positive matches, growing history, empty
       useSourceValue: true,
       note: "",
     });
-    expect(meter.cost.roundTrips).toBe(8);
+    expect(meter.cost.roundTrips).toBe(7);
     expect(meter.cost.rowsWritten).toBeLessThanOrEqual(16);
     expect(meter.cost.rowsRead).toBeLessThanOrEqual(20_000);
     const acceptance = { ...meter.cost };

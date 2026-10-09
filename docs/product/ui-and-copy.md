@@ -100,6 +100,14 @@ for ordinary share information; explain remaining ownership when a partial
 disposal or other evidenced change makes that distinction relevant. Retain
 source-backed scope and date requirements for valuation calculations.
 
+Use one chronological holding history for investment edits, valuation changes,
+and link decisions. Identify the change and its timestamp in the closed entry;
+expansion shows changed fields with their previous and new values, rather than
+repeating an unchanged snapshot. An initial record may show its recorded facts.
+Link management uses the standard disclosure header. Before unlinking, explain
+its effect on investment visibility and value sourcing, retain the records and
+history, and offer cancellation.
+
 For a new concept or changed information architecture, make a concise concept
 map before a mockup. Cover the affected user task and adjacent concepts that
 could overlap. For each concept, identify its meaning, scope, lifecycle or

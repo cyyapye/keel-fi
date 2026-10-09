@@ -9283,7 +9283,13 @@ h1,
 }
 
 .position-links h3 {
-  margin-bottom: 0.5rem;
+  margin: 0;
+}
+.position-link-confirmation {
+  margin-block: 1rem;
+}
+.position-link-confirmation p {
+  margin-bottom: 1rem;
 }
 .position-links .data-list {
   display: grid;

@@ -163,7 +163,7 @@ test("review duplicate sources and replacement history with no typing, saved rel
     name: "Linked investment records",
   });
   await section
-    .getByRole("button", { name: "Link investment records" })
+    .getByRole("button", { name: "Linked investment records" })
     .click();
   await section.getByRole("combobox", { name: "Record to link" }).click();
   const search = page.getByRole("combobox", {
@@ -258,7 +258,7 @@ test("review duplicate sources and replacement history with no typing, saved rel
     .getByRole("button", { name: /^Ownership, sources & history/ })
     .click();
   await section
-    .getByRole("button", { name: "Link investment records" })
+    .getByRole("button", { name: "Linked investment records" })
     .click();
   await expect(section.getByText(/Historical · replaced/)).toBeVisible();
   await expect(section.getByText(/Supplies reported value/)).toBeVisible();
@@ -284,7 +284,63 @@ test("review duplicate sources and replacement history with no typing, saved rel
     .filter({ hasText: "Demo Orbit V SPV" })
     .getByRole("button", { name: "Unlink record" })
     .click();
+  await expect(
+    recordsInSection.filter({ hasText: "Demo Orbit V SPV" }),
+  ).toContainText("separate investment again");
+  await expect(section.getByText(/Historical · replaced/)).toBeVisible();
+  await recordsInSection
+    .filter({ hasText: "Demo Orbit V SPV" })
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  await expect(section.getByText(/Historical · replaced/)).toBeVisible();
+  await recordsInSection
+    .filter({ hasText: "Demo Orbit V SPV" })
+    .getByRole("button", { name: "Unlink record" })
+    .click();
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await expect(section).toHaveScreenshot("position-unlink-review.png", {
+    animations: "disabled",
+  });
+  await recordsInSection
+    .filter({ hasText: "Demo Orbit V SPV" })
+    .getByRole("button", { name: "Unlink", exact: true })
+    .click();
   await expect(section.getByText(/Historical · replaced/)).toHaveCount(0);
+  const disclosure = section.getByRole("button", {
+    name: "Linked investment records",
+    exact: true,
+  });
+  await disclosure.click();
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    section.getByRole("combobox", { name: "Record to link" }),
+  ).toHaveCount(0);
+  await disclosure.click();
+  await expect(section.getByText(/Supplies reported value/)).toBeVisible();
+  await expect(
+    section.getByText("Review history", { exact: true }),
+  ).toHaveCount(0);
+  const sourcedRecord = recordsInSection.filter({
+    hasText: "Demo Orbit Aerospace source",
+  });
+  const acceptedBeforeCancel = links.length;
+  await sourcedRecord.getByRole("button", { name: "Unlink record" }).click();
+  await expect(sourcedRecord).toContainText(
+    "This link will stop supplying reported value.",
+  );
+  await expect(sourcedRecord).toContainText("Records and history are kept.");
+  await expect(section).toHaveScreenshot("position-unlink-sourced-review.png", {
+    animations: "disabled",
+  });
+  await sourcedRecord
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  expect(links).toHaveLength(acceptedBeforeCancel);
+  await expect(
+    sourcedRecord.getByRole("button", { name: "Unlink record" }),
+  ).toBeFocused();
   expect(
     await page.evaluate(
       () =>
@@ -462,6 +518,21 @@ async function openHistoricalRenameReview(page: Page) {
   let links: PositionLinkReceipt[] = [];
   const history: PositionLinkReceipt[] = [];
   let reject = false;
+  await page.route("**/api/investment-positions/*/history", (route) =>
+    route.fulfill({
+      json: {
+        entries: history.map((receipt) => ({
+          kind: "link",
+          receipt,
+          sourceLabel: positions.find((p) => p.id === receipt.sourcePositionId)!
+            .legalVehicleName,
+          targetLabel: positions.find((p) => p.id === receipt.targetPositionId)!
+            .legalVehicleName,
+        })),
+        next: null,
+      },
+    }),
+  );
   await page.route("**/api/investment-position-links", (route) => {
     if (route.request().method() === "GET")
       return route.fulfill({
@@ -607,12 +678,19 @@ test("reviews historical company rename from a pending card, keeps the existing 
     ),
   ).toBeVisible();
   await section.getByRole("button", { name: "Unlink record" }).click();
+  await section.getByRole("button", { name: "Unlink", exact: true }).click();
+  await section.getByRole("button", { name: "History", exact: true }).click();
   await expect(
-    section.getByText(/Both sources are separate again/),
+    section.getByRole("button", { name: /^Unlinked ·/ }),
   ).toBeVisible();
-  await section.getByRole("button", { name: "Review history" }).click();
-  await expect(section.getByText(/Company rename · Unlinked/)).toBeVisible();
-  await expect(section.getByText(/Company rename · Linked/)).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: /^Linked ·/ }),
+  ).toBeVisible();
+  await section.getByRole("button", { name: /^Unlinked ·/ }).click();
+  await expect(section).toContainText(
+    "Synthetic Circuit Labs → Synthetic Circuit Works",
+  );
+  await expect(section).toContainText("The source is separate again");
   await expect(section).toHaveScreenshot("historical-rename-history.png", {
     animations: "disabled",
   });
