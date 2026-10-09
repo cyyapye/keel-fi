@@ -821,8 +821,11 @@ class NativeAccountingTests(unittest.TestCase):
         )
         self.assertEqual(
             flows["native-unit-and-cost"]["depends_on"],
-            ["source-quality", "migration-and-seed", "pdf-sandbox-build"],
+            ["gate-and-artifact-integrity", "pdf-sandbox-build"],
         )
+        flow_order = [flow["id"] for flow in plan["flows"]]
+        self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("migration-and-seed"))
+        self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["source-quality", "migration-and-seed"])
         self.assertIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
         self.assertEqual(plan["execution"]["max_parallel"], 3)
         self.assertLessEqual(

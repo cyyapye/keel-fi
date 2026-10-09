@@ -76,17 +76,19 @@ checks, integrity checks and the PDF security-image build can start together.
 Migration depends on integrity checks; PDF probes depend on both integrity and
 the successful image build. Browser fixture preparation also becomes ready after
 the integrity checks and enters the three-flow schedule when a slot opens. Build
-and unit/D1 tests depend on source checks and migration completion and can run
-alongside each other. Unit/D1 tests additionally wait for the PDF image build as
-an explicit provisioning prerequisite. The exact real-reader name/page
-assertions now belong to mandatory PDF isolation, outside Vitest’s unit pool.
-Unit tests consume TypeScript sources and isolated test fixtures, so they do not
-wait for build output. Browser tests depend on the sealed fixture, build and PDF
-isolation. This keeps generated outputs stable before their browser consumers
-start and avoids running browser document processing before the sandbox boundary
-passes. Formatting and linting exclude the Git-ignored runtime, fixture and
-cache directories, so concurrent integrity tests cannot change files under the
-source checkers. Repository source and test files remain in scope.
+depends on source checks and migration completion. Unit/D1 tests become ready
+after integrity checks and the PDF image build, and take the first available
+slot before migration and fixture preparation. They own isolated D1 fixtures and
+consume TypeScript sources, so source checks, the shared scenario seed and build
+output are not inputs to this flow. Source checks and migration remain required
+for the complete gate. The exact real-reader name/page assertions now belong to
+mandatory PDF isolation, outside Vitest’s unit pool. Browser tests depend on the
+sealed fixture, build and PDF isolation. This keeps generated outputs stable
+before their browser consumers start and avoids running browser document
+processing before the sandbox boundary passes. Formatting and linting exclude
+the Git-ignored runtime, fixture and cache directories, so concurrent integrity
+tests cannot change files under the source checkers. Repository source and test
+files remain in scope.
 
 The declared prerequisites are:
 
@@ -97,11 +99,10 @@ flowchart LR
   integrity --> migrations[Migrations and seed]
   integrity --> pdf[PDF isolation]
   pdfBuild[PDF security-image build] --> pdf
-  pdfBuild --> unit
+  pdfBuild --> unit[Unit and D1 tests]
+  integrity --> unit
   integrity --> browserFixture[Browser fixture]
   migrations --> build
-  source --> unit[Unit and D1 tests]
-  migrations --> unit
   build --> browser[Browser suite]
   pdf --> browser
   browserFixture --> browser
@@ -115,8 +116,9 @@ confirmed cleanup; all original probes remain required. The fixture uses a slot
 released by an earlier flow and can overlap remaining source/PDF work. No
 browser consumer starts before its fixture, PDF isolation and build succeed.
 
-The unit suite uses two workers in CI and locally, and starts historically
-expensive files first. Browser verification produces five reports while
+The unit suite uses three workers in CI and two locally, and starts historically
+expensive files first. Its early admission reduces overlap between expensive D1
+fixtures and browser startup. Browser verification produces five reports while
 admitting at most four workers: three stateful partitions, 74 API-mocked
 executions served from the verified production build, and 32 API-mocked
 executions that require Vite development modules. The initial four lanes each
@@ -295,10 +297,15 @@ PR run `37951901830` exposed contention across independent native and browser
 fixtures: one attempt timed out an unchanged cash cost case at 60 seconds; the
 next timed out an unchanged cash integration case at five seconds and a browser
 waiting for its initial portfolio read at 30 seconds. Host samples around the
-second failures averaged 90.1% CPU busy with CPU pressure reaching 66.19%. Limit
-Vitest to two workers to leave capacity for the browser lanes. Keep all cases,
-assertions, watchdogs, retries and the 900-second complete-gate budget
-unchanged. These failed runs diagnose contention; they do not prove the new
+second failures averaged 90.1% CPU busy with CPU pressure reaching 66.19%.
+Reducing Vitest to two workers removed those failures in run `37960063713`: all
+328 browser cases passed, but the complete gate exhausted its 900-second budget
+with unit work still unfinished. Admit the unit flow immediately after its real
+integrity and image prerequisites, before migration and browser preparation, and
+retain three CI workers. This starts the costly native fixtures earlier instead
+of reducing throughput across the entire suite. Keep all cases, assertions,
+watchdogs, retries and the 900-second complete-gate budget unchanged. These
+failed runs diagnose scheduling and contention; they do not prove the revised
 schedule's readiness or performance. Only a complete exact-revision receipt can
 establish that.
 
