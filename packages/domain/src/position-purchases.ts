@@ -221,7 +221,18 @@ export const PurchaseReceiptSchema = z.object({
   acceptedAt: z.iso.datetime(),
 });
 export const InvestmentHistorySchema = z.object({
-  receipts: z.array(PurchaseReceiptSchema).max(30),
+  receipts: z
+    .array(
+      PurchaseReceiptSchema.extend({
+        previousReceiptId: z.string().nullable().optional(),
+      }),
+    )
+    .max(30),
+  previous: PurchaseReceiptSchema.extend({
+    previousReceiptId: z.string().nullable().optional(),
+  })
+    .nullable()
+    .default(null),
   next: z
     .object({ date: z.iso.datetime(), id: z.string().min(1).max(200) })
     .nullable(),

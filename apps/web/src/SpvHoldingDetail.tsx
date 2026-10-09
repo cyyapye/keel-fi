@@ -22,7 +22,7 @@ import {
   capitalSummaryLabel,
   positionCapitalSummary,
 } from "./position-capital-summary";
-import { formatDate, formatMoney } from "./format";
+import { formatDate, formatMoney, formatSharePrice } from "./format";
 import { decimal } from "./decimal-input";
 
 export function SpvHoldingDetail({
@@ -260,7 +260,7 @@ export function SpvHoldingDetail({
               {record.method === "shares" && (
                 <DataItem
                   label="Shares × price"
-                  value={`${decimal(record.quantityMicros, 6)} × $${decimal(record.priceMicros, 6)}`}
+                  value={`${decimal(record.quantityMicros, 6)} × ${formatSharePrice(record.priceMicros!)}`}
                 />
               )}
               {after?.carryMinor != null && (
@@ -344,34 +344,12 @@ export function SpvHoldingDetail({
               label="Source"
               value={`${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`}
             />
-            {holding.purchaseContext?.receipt?.details.valuation?.records.map(
-              (r) => (
-                <DataItem
-                  key={r.id}
-                  label={
-                    r.origin === "judgment"
-                      ? "My estimate"
-                      : r.origin === "proxy"
-                        ? `${r.sourceLabel} · Other SPV`
-                        : r.sourceLabel
-                  }
-                  value={
-                    <>
-                      {r.totalMinor !== null && formatMoney(r.totalMinor)}
-                      {r.priceMicros !== null && (
-                        <small>${decimal(r.priceMicros, 6)}/share</small>
-                      )}
-                      <small>{formatDate(r.effectiveDate)}</small>
-                    </>
-                  }
-                />
-              ),
-            )}
           </DataList>
           <HoldingHistory positionId={holding.id} />
           <PositionLinksEditor
             positionId={holding.id}
             onAccepted={onAccepted}
+            compact
           />
         </CollapsibleContent>
       </Collapsible>

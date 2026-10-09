@@ -10,8 +10,17 @@ import {
   DisclosureIndicator,
   Notice,
 } from "@keel/ui";
-import { formatDate, formatMoney } from "./format";
+import {
+  formatDate,
+  formatMoney,
+  formatSavedAt,
+  formatSharePrice,
+} from "./format";
 import { decimal } from "./decimal-input";
+import {
+  holdingHistorySummary,
+  previousHistoryReceipt,
+} from "./holding-history-summary";
 type History = ReturnType<typeof InvestmentHistorySchema.parse>;
 export function HoldingHistory({ positionId }: { positionId: string }) {
   const [page, setPage] = useState<History | null>(null);
@@ -49,10 +58,18 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
   if (!page) return <p>Loading history…</p>;
   return (
     <div className="holding-receipt-history">
-      {page.receipts.map((receipt) => (
+      {page.receipts.map((receipt, i) => (
         <Collapsible key={receipt.id}>
           <CollapsibleTrigger layout="inline">
-            Saved {formatDate(receipt.acceptedAt)}
+            <span className="holding-history-entry">
+              <span>
+                {holdingHistorySummary(
+                  receipt,
+                  previousHistoryReceipt(page, i),
+                )}
+              </span>
+              <small>{formatSavedAt(receipt.acceptedAt)}</small>
+            </span>
             <DisclosureIndicator />
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -96,7 +113,7 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
                         formatMoney(record.totalMinor)}
                       {record.priceMicros !== null && (
                         <small>
-                          ${decimal(record.priceMicros, 6)}/share ·{" "}
+                          {formatSharePrice(record.priceMicros)}/share ·{" "}
                           {record.priceDate
                             ? formatDate(record.priceDate)
                             : "Date unknown"}

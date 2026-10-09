@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Holding } from "@keel/domain";
 import {
   AcceptPurchasesSchema,
@@ -27,7 +27,7 @@ import {
 } from "@keel/ui";
 import { HoldingDate, HoldingInput, HoldingSelect } from "./HoldingFields";
 import { decimal, scaled } from "./decimal-input";
-import { formatDate, formatMoney } from "./format";
+import { formatDate, formatMoney, formatSharePrice } from "./format";
 
 const basisOptions = [
   { value: "unknown", label: "Not specified" },
@@ -294,6 +294,7 @@ export function HoldingInvestment({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initial, setInitial] = useState("");
+  const addAcquisition = useRef<HTMLButtonElement>(null);
   const start = () => {
     const lots = (
       receipt?.details.lots.length
@@ -451,7 +452,32 @@ export function HoldingInvestment({
           <fieldset disabled={busy} className="holding-form-fieldset">
             {draft.map((d, i) => (
               <div className="holding-acquisition" key={d.original.id}>
-                {draft.length > 1 && <h4>Acquisition {i + 1}</h4>}
+                {draft.length > 1 && (
+                  <div className="holding-section-heading">
+                    <h4>Acquisition {i + 1}</h4>
+                    {!receipt?.details.lots.some(
+                      (lot) => lot.id === d.original.id,
+                    ) &&
+                      i > 0 && (
+                        <Button
+                          tone="quiet"
+                          aria-label={`Remove acquisition ${i + 1}`}
+                          onClick={() => {
+                            setDraft((old) =>
+                              old!.filter(
+                                (lot) => lot.original.id !== d.original.id,
+                              ),
+                            );
+                            requestAnimationFrame(() =>
+                              addAcquisition.current?.focus(),
+                            );
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                  </div>
+                )}
                 <div className="holding-fields">
                   <HoldingInput
                     label="Cash paid · $"
@@ -631,17 +657,21 @@ export function HoldingInvestment({
                 </Collapsible>
               </div>
             ))}
-            <Button
-              tone="quiet"
-              onClick={() =>
-                setDraft((old) => [
-                  ...old!,
-                  draftLot({ ...initialLot(holding), grossCashMinor: null }),
-                ])
-              }
-            >
-              Add acquisition
-            </Button>
+            <ActionGroup align="end" className="holding-acquisition-actions">
+              <Button
+                ref={addAcquisition}
+                tone="quiet"
+                disabled={draft.length >= 20}
+                onClick={() =>
+                  setDraft((old) => [
+                    ...old!,
+                    draftLot({ ...initialLot(holding), grossCashMinor: null }),
+                  ])
+                }
+              >
+                Add acquisition
+              </Button>
+            </ActionGroup>
             <div className="holding-fields">
               <HoldingInput
                 label="Carry · %"
@@ -831,7 +861,7 @@ function InvestmentFacts({ lot }: { lot: PurchaseLot }) {
       {lot.priceMicros !== null && (
         <DataItem
           label="Purchase price"
-          value={`$${decimal(lot.priceMicros, 6)}/share`}
+          value={`${formatSharePrice(lot.priceMicros)}/share`}
         />
       )}
       {shares && (

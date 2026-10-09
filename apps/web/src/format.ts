@@ -28,6 +28,18 @@ export function formatMoney(minorUnits: number): string {
     .padStart(2, "0")}`;
 }
 
+/** Share prices retain source precision and always display at least cents. */
+export function formatSharePrice(priceMicros: number): string {
+  const amount = BigInt(priceMicros);
+  const absolute = amount < 0n ? -amount : amount;
+  const fraction = (absolute % 1_000_000n)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/u, "")
+    .padEnd(2, "0");
+  return `${amount < 0n ? "-" : ""}$${integerFormatter.format(absolute / 1_000_000n)}.${fraction}`;
+}
+
 /** Format exact minor units without compacting or floating-point conversion. */
 export function formatCurrency(minorUnits: number, currency: string): string {
   const code = currency.toUpperCase();
@@ -176,6 +188,19 @@ export function formatDate(value: string): string {
     day: "numeric",
     year: "numeric",
     timeZone: "UTC",
+  }).format(new Date(value));
+}
+
+export function formatSavedAt(value: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
   }).format(new Date(value));
 }
 
