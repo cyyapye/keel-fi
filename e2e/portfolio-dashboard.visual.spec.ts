@@ -392,6 +392,11 @@ test("drills each portfolio chart into its corresponding Holdings detail without
   expect(topExposureTarget?.height).toBeGreaterThanOrEqual(44);
   await topExposureLink.press("Enter");
   await expectExposureOpen(exposureIdFor("Orion Compute"));
+  const unknownCapitalSummary = page.locator(
+    `[data-exposure-id="${exposureIdFor("Meridian Bio")}"] .exposure-group__summary`,
+  );
+  await expect(unknownCapitalSummary).toContainText("$400k");
+  await expect(unknownCapitalSummary).not.toContainText("%");
   await page.addStyleTag({
     content: ".topbar { visibility: hidden !important; }",
   });

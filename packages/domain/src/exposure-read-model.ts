@@ -28,7 +28,7 @@ import {
   type InvestmentPositionView,
 } from "./position-read-model";
 import { includesCurrentInvestment } from "./investment-review";
-import { calculatePositionPerformance } from "./position-economics";
+import { positionContributionBasis } from "./position-economics";
 import {
   estimatePrivatePositionValues,
   PrivateCompanyRoundValuationSchema,
@@ -319,10 +319,7 @@ function usesInvestedAmountFallback(
 function privatePositionCostBasis(
   position: InvestmentPositionRecord,
 ): number | null {
-  return calculatePositionPerformance({
-    currentValueMinor: null,
-    currentValueReported: false,
-    realizedValueMinor: position.snapshot.realizedValueMinor,
+  return positionContributionBasis({
     providerCostBasisMinor: position.snapshot.costBasisMinor,
     fundedMinor: position.snapshot.investedMinor,
     economicsContext:
@@ -343,8 +340,7 @@ function privatePositionCostBasis(
             reportedTerms: position.reportedEconomicsTerms ?? null,
           }
         : null,
-    allowFundedAmountEstimate: true,
-  }).costBasisMinor;
+  });
 }
 
 export function createInvestmentExposureView(

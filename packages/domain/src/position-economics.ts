@@ -237,11 +237,40 @@ export function calculatePositionEconomics(
 export type PositionPerformance = {
   costBasisMinor: number | null;
   costBasisSource:
-    "provider" | "reviewed_spv_terms" | "funded_amount_estimate" | null;
+    | "provider"
+    | "reviewed_spv_terms"
+    | "reviewed_spv_estimate"
+    | "funded_amount_estimate"
+    | null;
   totalValueMinor: number | null;
   totalGainMinor: number | null;
   totalReturnPpm: number | null;
 };
+
+/** Contribution basis for existing tranche-ratio valuation estimates, not returns. */
+export function positionContributionBasis(input: {
+  providerCostBasisMinor: number | null;
+  fundedMinor: number | null;
+  economicsContext: PositionEconomicsContext | null;
+}): number | null {
+  const context = input.economicsContext;
+  const reviewed = context?.reviewedInvestment;
+  if (reviewed)
+    return reviewed.snapshotId === context?.snapshotId
+      ? reviewed.cashPaidMinor
+      : null;
+  if (context?.acceptedTerms?.capitalBasis === "net_invested") {
+    const economics = calculatePositionEconomics(context);
+    return economics &&
+      (context.fundedMinor === context.committedMinor ||
+        context.fundedMinor === economics.committedMinor)
+      ? economics.committedMinor
+      : null;
+  }
+  const basis =
+    context?.fundedMinor ?? input.providerCostBasisMinor ?? input.fundedMinor;
+  return basis !== null && basis > 0 ? basis : null;
+}
 
 export function calculatePositionPerformance(input: {
   currentValueMinor: number | null;
@@ -256,40 +285,50 @@ export function calculatePositionPerformance(input: {
     input.economicsContext === null
       ? null
       : calculatePositionEconomics(input.economicsContext);
-  // Investor return includes fees paid. Net share capital is not cash outlay.
-  // A fully funded net import can be reconciled to its reviewed gross amount;
-  // a partial net import cannot establish gross paid-in cash on its own.
-  const netImport =
-    input.economicsContext?.acceptedTerms?.capitalBasis === "net_invested";
+  // SPV performance compares value with capital actually invested after upfront
+  // deductions and received refunds. A commitment or unclassified cash amount
+  // cannot establish net capital for a partially funded or unreviewed position.
   const funded = input.economicsContext?.fundedMinor ?? input.fundedMinor;
   const reviewed = input.economicsContext?.reviewedInvestment;
-  const contributed =
+  const currentReview =
+    reviewed && reviewed.snapshotId === input.economicsContext?.snapshotId
+      ? reviewed
+      : null;
+  const netCapital =
     reviewed !== undefined
-      ? reviewed.snapshotId === input.economicsContext?.snapshotId
-        ? reviewed.cashPaidMinor
-        : null
-      : netImport
-        ? economics !== null &&
+      ? (currentReview?.netCapitalMinor ??
+        currentReview?.estimatedNetCapitalMinor ??
+        null)
+      : economics !== null &&
           (funded === input.economicsContext?.committedMinor ||
             funded === economics.committedMinor)
-          ? economics.committedMinor
-          : null
-        : funded;
+        ? economics.positionCostBasisMinor
+        : null;
   const privatePosition =
     input.economicsContext !== null ||
     (input.allowFundedAmountEstimate && input.providerCostBasisMinor === null);
+  // Preserve the existing direct-investment estimate when no SPV economics
+  // context exists. An SPV with unknown deductions cannot use that fallback.
+  const privateBasis =
+    netCapital ??
+    (input.economicsContext === null && input.allowFundedAmountEstimate
+      ? funded
+      : null);
   const costBasisMinor = privatePosition
-    ? contributed !== null && contributed > 0
-      ? contributed
+    ? privateBasis !== null && privateBasis > 0
+      ? privateBasis
       : null
     : input.providerCostBasisMinor;
   const costBasisSource =
     costBasisMinor === null
       ? null
       : privatePosition
-        ? reviewed !== undefined || economics !== null
-          ? ("reviewed_spv_terms" as const)
-          : ("funded_amount_estimate" as const)
+        ? input.economicsContext === null
+          ? ("funded_amount_estimate" as const)
+          : currentReview?.netCapitalMinor == null &&
+              currentReview?.estimatedNetCapitalMinor != null
+            ? ("reviewed_spv_estimate" as const)
+            : ("reviewed_spv_terms" as const)
         : ("provider" as const);
   if (!input.currentValueReported || input.currentValueMinor === null) {
     return {
@@ -301,14 +340,16 @@ export function calculatePositionPerformance(input: {
     };
   }
 
-  const currentReview =
-    reviewed && reviewed.snapshotId === input.economicsContext?.snapshotId
-      ? reviewed
-      : null;
+  // Received refunds already reduce net capital. Remove refunds included in
+  // provider distributions; never add an excluded refund to the numerator.
+  const includedRefund = BigInt(
+    currentReview?.includedReturnedCapitalMinor ?? 0,
+  );
+  const realized = BigInt(input.realizedValueMinor);
   const totalValue =
     BigInt(input.currentValueMinor) +
-    BigInt(input.realizedValueMinor) +
-    BigInt(currentReview?.additionalReturnedCapitalMinor ?? 0);
+    realized -
+    (includedRefund <= realized ? includedRefund : 0n);
   const totalValueMinor = safeNonNegativeNumber(
     totalValue,
     "Position total value",

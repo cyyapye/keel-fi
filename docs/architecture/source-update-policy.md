@@ -447,7 +447,11 @@ current accepted economics. Existing capital and actual remaining-share counts
 are preserved. The user confirms unchanged shares and comparable securities,
 provides missing price evidence, and saves a purchase review. The server rejects
 changed source prices and class mismatches. Estimates remain before carry and
-separate from reported values; returns use the position's cash contributed.
+separate from reported values; returns use the position's reviewed net capital,
+or a separately identified estimate from complete reviewed fee terms. Received
+capital refunds reduce that basis and are excluded from return distributions;
+unknown inclusion keeps return pending. Source investment amounts with an
+unknown gross/net basis never become net capital automatically.
 
 ### Explicit proxy share estimates
 

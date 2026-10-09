@@ -44,28 +44,33 @@ or improved behavior.
 For a holding, make supported value, invested capital and performance
 immediately legible before transaction mechanics. Identify the value's
 reported/estimated status and cost treatment; a fallback to net invested is not
-a market valuation. Use the canonical contribution and cash-flow definitions for
-performance rather than assuming net share capital is its denominator. An
-evidenced urgent action may change emphasis; missing optional metadata may not.
+a market valuation. Use net invested capital and the canonical cash-flow
+definitions for performance. An evidenced urgent action may change emphasis;
+missing optional metadata may not.
 
 Treat value and performance as related comparisons. Group a supported
 before-carry value with its before-carry return, and an after-carry value with
 its after-carry return. Label a calculated after-carry value as estimated. Keep
-net invested visible as a separate capital measure; it is neither current value
-after carry nor the cumulative-return denominator. Preserve these relationships
-when the layout stacks on mobile. Supported before-carry return remains useful
-when carry terms are missing; an after-carry source alone cannot establish a
-before-carry value or return.
+net invested visible as a separate capital measure and the return denominator;
+it is not current value after carry. Preserve these relationships when the
+layout stacks on mobile. Supported before-carry return remains useful when carry
+terms are missing; an after-carry source alone cannot establish a before-carry
+value or return.
 
-For this holding summary, show both supported return treatments using original
-cash contributed and the same included cash flows. Count a refund once and do
-not deduct upfront fees again when they were paid from the original
-contribution. Keep the calculation basis reachable whenever a supported return
-is shown, including when estimated carry is absent. Do not use blanket caveats
-such as "before other costs". Name an excluded cost only when a recorded
-obligation or an explicit source limitation establishes it; retain that specific
-qualification beside the affected result. An absent cost record does not prove
-that the holding is free of all future costs.
+For this holding summary, show both supported return treatments using net
+capital after upfront deductions and received capital refunds, with the same
+distributions excluding capital refunds. Refunds already reduce this
+denominator; remove any refund included in reported distributions and do not add
+an excluded refund to the numerator. Keep exact net capital distinct from an
+estimate based on complete reviewed fee terms. Unknown deductions, partial
+funding, stale reviews or unknown refund inclusion cannot establish a supported
+return. Do not deduct upfront fees again from the value. Keep the calculation
+basis reachable whenever a supported return is shown, including when estimated
+carry is absent. Do not use blanket caveats such as "before other costs". Name
+an excluded cost only when a recorded obligation or an explicit source
+limitation establishes it; retain that specific qualification beside the
+affected result. An absent cost record does not prove that the holding is free
+of all future costs.
 
 An investment editor must support the terms it displays: a known fee amount or a
 percentage with its supported basis, and an annual management rate with the

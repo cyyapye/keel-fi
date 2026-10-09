@@ -179,10 +179,22 @@ async function setup(
         reviewedInvestment: reviewedInvestmentFromReceipt(receipt),
       },
     });
+  const investmentHoldings = () => {
+    const view = investmentHoldingsViewFor([holding()]);
+    for (const connection of view.positionView.connections)
+      for (const container of connection.containers)
+        for (const position of container.positions)
+          position.snapshot.id = receipt.snapshotId;
+    for (const position of view.exposureView.positions) {
+      position.snapshotId = receipt.snapshotId;
+      position.reviewedInvestment = reviewedInvestmentFromReceipt(receipt);
+    }
+    return view;
+  };
   await routeHoldingsPage(page, () => ({
     householdName: "Demo Household",
     holdings: [holding()],
-    investmentHoldings: investmentHoldingsViewFor([holding()]),
+    investmentHoldings: investmentHoldings(),
     acceptedCashAccounts: [],
     pendingImports: [],
   }));
@@ -332,13 +344,13 @@ test("holding summary pairs value and return and keeps fees in Investment", asyn
     exact: true,
   });
   await expect(before).toContainText("$16,880.00");
-  await expect(before).toContainText("+78.80%");
+  await expect(before).toContainText("+100.00%");
   const after = page.getByRole("group", {
     name: "Estimated value · After carry",
     exact: true,
   });
   await expect(after).toContainText("$15,698.00");
-  await expect(after).toContainText("+66.98%");
+  await expect(after).toContainText("+85.99%");
   await expect(
     page.getByRole("group", { name: "Invested capital" }),
   ).toContainText("$8,440.00");
@@ -354,6 +366,12 @@ test("holding summary pairs value and return and keeps fees in Investment", asyn
   await screenshot(page, "holding-summary.png");
   await page.getByRole("button", { name: "Calculation", exact: true }).click();
   await expect(page.locator(".holding-calculation")).toContainText("$1,182.00");
+  await expect(page.locator(".holding-calculation")).toContainText(
+    "Net capital$8,440.00",
+  );
+  await expect(page.locator(".holding-calculation")).toContainText(
+    "÷ net capital",
+  );
   await screenshot(page, "holding-calculation.png");
 });
 
@@ -417,6 +435,56 @@ test("valuation choices compare both amounts and preserve investment shares afte
   await expect(page.locator(".holding-receipt-history")).not.toContainText(
     "1970",
   );
+});
+
+test("returns use complete fee estimates without treating unknown fees as zero", async ({
+  page,
+}) => {
+  await setup(page, (r) => {
+    const lot = r.details.lots[0]!;
+    lot.netCapitalMinor = null;
+    lot.upfrontDeductionsMinor = null;
+    for (const fee of lot.fees!) {
+      fee.method = "percentage";
+      fee.paidMinor = null;
+    }
+  });
+  await expect(
+    page.getByRole("group", { name: "Invested capital" }),
+  ).toContainText("Estimated net invested$8,440.00");
+  await expect(
+    page.getByRole("group", {
+      name: "Reported value · Before carry",
+      exact: true,
+    }),
+  ).toContainText("+100.00%");
+  await expect(
+    page.getByRole("group", {
+      name: "Estimated value · After carry",
+      exact: true,
+    }),
+  ).toContainText("+85.99%");
+  await page.getByRole("button", { name: "Calculation", exact: true }).click();
+  await expect(page.locator(".holding-calculation")).toContainText(
+    "Estimated net capital$8,440.00",
+  );
+  await page.getByRole("button", { name: "Edit investment" }).click();
+  await select(page, "Upfront fees", "Some fees are unknown");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator(".holding-value-return")).toHaveCount(0);
+});
+
+test("unknown refund inclusion withholds returns in the holding and exposure summaries", async ({
+  page,
+}) => {
+  await setup(page, (r) => {
+    r.details.lots[0]!.capitalReturn!.reportedDistributions = "unknown";
+  });
+  await expect(page.locator(".holding-value-return")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Back to holdings", exact: true })
+    .click();
+  await expect(page.locator(".exposure-group")).not.toContainText("%");
 });
 
 test("new acquisitions can be removed without discarding other investment edits", async ({
@@ -538,7 +606,7 @@ test("sources restore GP facts and estimates without duplicate forms or acknowle
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(
     page.getByRole("group", { name: "Reported value · Before carry" }),
-  ).toContainText("+78.80%");
+  ).toContainText("+100.00%");
 });
 
 test("investment fee percentages preserve unknown refund dates and failed drafts", async ({

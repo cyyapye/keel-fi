@@ -153,6 +153,7 @@ describe("unified investment details", () => {
     const r = receipt();
     const l = allocationLot();
     l.capitalReturn!.status = "received";
+    l.upfrontDeductionsMinor = 43_711;
     r.details.lots = [l];
     const performance = (realizedValueMinor: number) =>
       calculatePositionPerformance({
@@ -173,16 +174,16 @@ describe("unified investment details", () => {
         },
       });
     expect(performance(0)).toMatchObject({
-      costBasisMinor: 640000,
+      costBasisMinor: 441968,
       totalGainMinor: null,
       totalReturnPpm: null,
     });
     l.capitalReturn!.reportedDistributions = "excluded";
     const excluded = performance(0);
     expect(excluded).toMatchObject({
-      costBasisMinor: 640000,
-      totalValueMinor: 1054321,
-      totalGainMinor: 414321,
+      costBasisMinor: 441968,
+      totalValueMinor: 900000,
+      totalGainMinor: 458032,
     });
     l.capitalReturn!.reportedDistributions = "included";
     expect(performance(0)).toMatchObject({
@@ -193,9 +194,9 @@ describe("unified investment details", () => {
     l.capitalReturn!.status = "expected";
     l.capitalReturn!.reportedDistributions = "unknown";
     expect(performance(0)).toMatchObject({
-      costBasisMinor: 640000,
+      costBasisMinor: 596289,
       totalValueMinor: 900000,
-      totalGainMinor: 260000,
+      totalGainMinor: 303711,
     });
   });
   it.each([
@@ -287,7 +288,7 @@ describe("unified investment details", () => {
     expect(purchaseCapital(legacy).netCapitalMinor).toBe(226415);
   });
   it.each(["unknown", "gross_cash", "net_capital"] as const)(
-    "uses reviewed cash for returns without double deductions for %s imports",
+    "uses reviewed net capital for returns without double deductions for %s imports",
     (basis) => {
       const r = receipt();
       r.details.investmentTerms!.importedAmountBasis = basis;
@@ -311,10 +312,10 @@ describe("unified investment details", () => {
           allowFundedAmountEstimate: true,
         }),
       ).toMatchObject({
-        costBasisMinor: 240000,
+        costBasisMinor: 211234,
         costBasisSource: "reviewed_spv_terms",
-        totalGainMinor: 180000,
-        totalReturnPpm: 750000,
+        totalGainMinor: 208766,
+        totalReturnPpm: 988316,
       });
       expect(calculatePositionEconomics(context)).toBeNull();
       const stale = calculatePositionPerformance({
@@ -349,6 +350,53 @@ describe("unified investment details", () => {
     r.details.lots[1]!.grossCashMinor = null;
     r.details.lots[1]!.netCapitalMinor = null;
     expect(reviewedInvestmentFromReceipt(r)?.cashPaidMinor).toBeNull();
+  });
+  it("projects complete fee estimates without creating accepted net capital or shares", () => {
+    const r = receipt();
+    const l = r.details.lots[0]!;
+    l.netCapitalMinor = null;
+    l.upfrontDeductionsMinor = null;
+    l.feePpm = null;
+    l.feeBasis = null;
+    l.feesComplete = true;
+    l.fees = [
+      {
+        id: "synthetic-fee",
+        label: "One-time fee",
+        kind: "one_time",
+        method: "percentage",
+        paymentStatus: "paid",
+        treatment: "upfront",
+        ratePpm: 100_000,
+        paidMinor: null,
+        basis: "cash",
+        basisMinor: null,
+        coveredLotIds: [],
+        prepaidMonths: null,
+        dueDate: null,
+      },
+    ];
+    const original = JSON.stringify(r);
+    expect(reviewedInvestmentFromReceipt(r)).toMatchObject({
+      netCapitalMinor: null,
+      estimatedNetCapitalMinor: 216_000,
+    });
+    expect(purchaseShares(l)).toBeNull();
+    expect(JSON.stringify(r)).toBe(original);
+    l.feesComplete = false;
+    expect(
+      reviewedInvestmentFromReceipt(r)?.estimatedNetCapitalMinor,
+    ).toBeNull();
+    l.feesComplete = true;
+    l.fees[0]!.basis = "unknown";
+    expect(
+      reviewedInvestmentFromReceipt(r)?.estimatedNetCapitalMinor,
+    ).toBeNull();
+    l.fees[0]!.basis = "cash";
+    r.details.cashCoversPosition = false;
+    expect(
+      reviewedInvestmentFromReceipt(r)?.estimatedNetCapitalMinor,
+    ).toBeNull();
   });
   it("calculates carry on positive gains only and never charges an after-carry mark again", () => {
     const input = {

@@ -137,27 +137,28 @@ All monetary calculations use integer cents; rates use parts per million and
 shares use millionths. The display formatter does not calculate money. The
 following definitions apply only when the corresponding evidence is established.
 
-| Metric                    | Definition and scope                                                                                                                                                                                                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Original cash contributed | Sum accepted cash paid. Refunds do not reduce this return denominator.                                                                                                                                                                                                   |
-| Cash retained             | Original cash contributed minus received capital refunds. This is the reviewed cash basis for the synthetic carry illustration.                                                                                                                                          |
-| Net invested              | Cash retained minus accepted upfront deduction totals. A component explains its total and is not deducted again. If those totals are unknown, show the known cash amount with its own label.                                                                             |
-| Share estimate            | Dated remaining shares, with accepted whole-position coverage, multiplied by the selected dated share price. Round once to cents. No share count is inferred from original cash.                                                                                         |
-| Illustrative carry        | Positive excess of a before-carry mark over its reviewed basis, multiplied by the carry rate. Do not subtract carry from an after-carry mark; unknown classification/basis prevents this illustration.                                                                   |
-| Value after carry         | Before-carry mark minus illustrative carry. Keep the source mark separate; qualify an excluded cost only when a recorded obligation or source limitation supports it.                                                                                                    |
-| Cumulative simple return  | (Selected value plus included distributions plus refunds explicitly excluded from those distributions minus original cash contributed) divided by original cash contributed. Label the selected value's carry/cost treatment. Unknown refund inclusion withholds return. |
+| Metric                    | Definition and scope                                                                                                                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Original cash contributed | Sum accepted cash paid, retained as contribution history. This is not the net-capital return denominator.                                                                                                             |
+| Cash retained             | Original cash contributed minus received capital refunds. This is the reviewed cash basis for the synthetic carry illustration.                                                                                       |
+| Net invested              | Cash retained minus accepted upfront deduction totals. A component explains its total and is not deducted again. If those totals are unknown, show the known cash amount with its own label.                          |
+| Share estimate            | Dated remaining shares, with accepted whole-position coverage, multiplied by the selected dated share price. Round once to cents. No share count is inferred from original cash.                                      |
+| Illustrative carry        | Positive excess of a before-carry mark over its reviewed basis, multiplied by the carry rate. Do not subtract carry from an after-carry mark; unknown classification/basis prevents this illustration.                |
+| Value after carry         | Before-carry mark minus illustrative carry. Keep the source mark separate; qualify an excluded cost only when a recorded obligation or source limitation supports it.                                                 |
+| Cumulative simple return  | (Selected value plus distributions excluding capital refunds minus net invested capital) divided by net invested capital. Label the selected value's carry/cost treatment. Unknown refund inclusion withholds return. |
 
 For Cedar's combined fixture, original cash is 1,500,000 cents, retained cash
 1,400,000, deductions 66,000 and net invested 1,334,000. The before-carry mark
-is 1,600,000, carry 30,000 and the carry-only illustration 1,570,000. Adding the
-excluded refund once gives proceeds of 1,670,000, gain of 170,000 and an 11.33%
-cumulative simple return after carry. The before-carry return is 13.33%. Show
+is 1,600,000, carry 30,000 and the carry-only illustration 1,570,000. Both
+returns use net invested of 1,334,000 cents. The received refund already reduces
+that basis and is not added to proceeds. The before-carry gain is 266,000 cents
+and return 19.94%; after-carry gain is 236,000 cents and return 17.69%. Show
 each supported return with its corresponding value: 1,600,000 cents before carry
-with 13.33%, and 1,570,000 cents after carry with 11.33%. Net invested is a
-separate capital measure. Neither return uses net invested or retained cash as
-its denominator. If only an after-carry source value is available, preserve that
-value and supported return without inventing a before-carry counterpart. Name
-specific evidenced excluded costs rather than adding a generic cost disclaimer.
+with 19.94%, and 1,570,000 cents after carry with 17.69%. Net invested remains a
+separate capital measure and the denominator for both returns. If only an
+after-carry source value is available, preserve that value and supported return
+without inventing a before-carry counterpart. Name specific evidenced excluded
+costs rather than adding a generic cost disclaimer.
 
 The v2 due-payment fixture retains two independent setup charges of 10,000 cents
 each and one management payment of 10,000 referenced by both purchases. Total
@@ -165,9 +166,9 @@ paid deductions are 30,000 and net invested is 970,000 against original cash of
 1,000,000. An additional accepted management obligation of 10,000 is unpaid, due
 October 31, and remains an action in the existing Obligations workflow. It is
 not a historical deduction. Its 1,200,000 after-carry mark is not reduced by
-carry again; the displayed 20% return names the excluded $100 unpaid management
-fee. This fixture demonstrates a valid fee action without reinstating a generic
-Fees & carry section.
+carry again; the displayed 23.71% return names the excluded $100 unpaid
+management fee. This fixture demonstrates a valid fee action without reinstating
+a generic Fees & carry section.
 
 The incomplete fixture has 750,000 cents paid, rate-only notices and a captured
 45,000-cent price without a valuation date or remaining-share evidence. It has

@@ -570,7 +570,10 @@ function exposurePerformanceLabel(
         contribution.allocationPpm,
       ),
     );
-    if (performance.totalValueMinor === null) {
+    if (
+      performance.totalValueMinor === null ||
+      performance.totalReturnPpm === null
+    ) {
       returnAvailable = false;
     } else {
       allocatedValues.push(

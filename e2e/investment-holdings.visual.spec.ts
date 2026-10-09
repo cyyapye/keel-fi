@@ -1108,7 +1108,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "$120k",
   );
   await expect(beacon.locator(".exposure-group__summary")).toContainText(
-    "1 estimate · $60k · +100%",
+    "1 estimate",
   );
   await beacon.locator(".exposure-group__summary").click();
   await expect(beacon.getByText("Synthetic Beacon SPV")).toBeVisible();
@@ -1122,8 +1122,8 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     beaconEstimateRow.locator(".position-row__value"),
   ).toHaveAttribute("title", "Portfolio Watch estimate as of Aug 15, 2026");
-  await expect(beaconEstimateRow).toContainText("$40k · +50%");
-  await expect(beaconEstimateRow).not.toContainText("Portfolio Watch estimate");
+  await expect(beaconEstimateRow).not.toContainText("%");
+  await expect(beaconEstimateRow).toContainText("Portfolio Watch estimate");
   expect(
     await beaconEstimateRow
       .locator(".position-row__value small")
@@ -1293,9 +1293,8 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page
       .getByRole("region", { name: "Position summary" })
-      .getByText("Total return")
-      .locator(".."),
-  ).toContainText("+50.0%");
+      .getByText("Total return"),
+  ).toHaveCount(0);
   await expect(page.getByText("Day gain / loss")).toHaveCount(0);
   await page
     .getByRole("button", { name: /Ownership, sources & history/ })

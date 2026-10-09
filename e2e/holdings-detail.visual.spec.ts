@@ -600,7 +600,10 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await publicExposure.locator(".exposure-group__summary").click();
   await expect(
     harborExposure.locator(".exposure-group__summary"),
-  ).toContainText("$185k · +14%");
+  ).not.toContainText("%");
+  await expect(
+    harborExposure.locator(".exposure-group__performance"),
+  ).toHaveCount(0);
   await expect(
     publicExposure.locator(".exposure-group__summary"),
   ).toContainText("$183k · $190.4 · +30%");
@@ -629,7 +632,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
         return range.getClientRects().length;
       }),
     ),
-  ).toEqual([1, 1, 1]);
+  ).toEqual([1, 1]);
   await expect(
     northstarExposure.locator(".exposure-group__summary"),
   ).toContainText("$400k · +200%");
@@ -1051,6 +1054,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
     name: "As of",
     exact: true,
   });
+  // Give the vertical-placement capture enough scroll room on both renderers.
+  // A shorter collapsed page legitimately uses the calendar's side fallback.
+  await ownershipToggle.click();
   await valueDateTrigger.evaluate((element) => {
     window.scrollBy({
       top: element.getBoundingClientRect().top - 160,
@@ -1098,6 +1104,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     page.getByRole("button", { name: "As of", exact: true }),
   ).toContainText("Aug 18, 2026");
+  await ownershipToggle.click();
   await page
     .getByRole("combobox", { name: "Position value source type" })
     .click();
@@ -1165,7 +1172,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(harborExposure).toContainText("$240k");
   await expect(
     harborExposure.locator(".exposure-group__summary"),
-  ).toContainText("$185k · +27%");
+  ).not.toContainText("%");
   await expect(
     harborExposure.locator(".exposure-group__summary"),
   ).toHaveAttribute("aria-expanded", "true");
