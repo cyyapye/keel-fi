@@ -125,7 +125,7 @@ describe("purchase economics", () => {
         remainingSharesMicros: 1,
         sharesAsOf: null,
       }).success,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       PurchaseReceiptSchema.safeParse({
         ...receipt(),

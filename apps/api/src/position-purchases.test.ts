@@ -1,7 +1,10 @@
 import { expect, it, vi } from "vitest";
 import { createApp } from "./app";
 import type { Env } from "./types";
-import { PositionPurchaseError } from "@keel/database";
+import {
+  D1InvestmentPositionViewRepository,
+  PositionPurchaseError,
+} from "@keel/database";
 import { legalDocumentTestDatabase } from "../../../scripts/test-support/legal-documents";
 import { seedCostHoldings } from "../../../scripts/test-support/cost-fixtures";
 const env = { ENVIRONMENT: "local" } as Env;
@@ -70,6 +73,99 @@ it("validates optional purchase details and scopes accepted writes to the authen
       "private, no-store",
     );
     expect(await evidenceResponse.json()).toEqual({ prices: [], watch: [] });
+    const current = (
+      await new D1InvestmentPositionViewRepository(database.asD1()).list(
+        "synthetic-access-subject",
+      )
+    ).connections
+      .flatMap((connection) =>
+        connection.containers.flatMap((c) => c.positions),
+      )
+      .find((p) => p.id === position.id)!;
+    const valuation = {
+      expectedSnapshotId: current.snapshot.id,
+      expectedReceiptId: null,
+      method: "total",
+      record: {
+        id: "gp",
+        origin: "gp",
+        totalMinor: 120000,
+        priceMicros: 200000000,
+        effectiveDate: "2026-09-01",
+        priceDate: null,
+        shareClass: null,
+        carryStatus: "before_carry",
+        sourceLabel: "Synthetic GP",
+        sourceUrl: null,
+        sourceEvidenceId: null,
+        sourcePositionId: null,
+        sourceCapturedAt: null,
+        watchEvidenceId: null,
+      },
+    };
+    const postValuation = (body: unknown, id = position.id) =>
+      app.request(
+        `/api/investment-positions/${id}/valuation`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        { ...env, DB: database.asD1() },
+      );
+    expect((await postValuation({ ...valuation, unknown: true })).status).toBe(
+      400,
+    );
+    const acceptedValuation = await postValuation(valuation);
+    expect(acceptedValuation.status).toBe(201);
+    expect(acceptedValuation.headers.get("Cache-Control")).toBe(
+      "private, no-store",
+    );
+    expect(await acceptedValuation.json()).toMatchObject({
+      details: { valuation: { records: [valuation.record] } },
+    });
+    expect((await postValuation(valuation)).status).toBe(409);
+    expect((await postValuation(valuation, "foreign-position")).status).toBe(
+      404,
+    );
+    const historyUrl = `/api/investment-positions/${position.id}/history`;
+    const history = await app.request(
+      historyUrl,
+      {},
+      { ...env, DB: database.asD1() },
+    );
+    expect(history.status).toBe(200);
+    expect(history.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await history.json()).toMatchObject({
+      receipts: [{ details: { valuation: { records: [valuation.record] } } }],
+      next: null,
+    });
+    expect(
+      (
+        await app.request(
+          `${historyUrl}?date=invalid`,
+          {},
+          { ...env, DB: database.asD1() },
+        )
+      ).status,
+    ).toBe(400);
+    for (const path of [
+      historyUrl,
+      `/api/investment-positions/${position.id}/valuation`,
+    ]) {
+      const response = await app.request(
+        path,
+        path.endsWith("valuation")
+          ? {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(valuation),
+            }
+          : {},
+        { ...env, ENVIRONMENT: "preview", DB: database.asD1() },
+      );
+      expect(response.status).not.toBe(path.endsWith("valuation") ? 201 : 200);
+    }
     expect(
       (
         await app.request(

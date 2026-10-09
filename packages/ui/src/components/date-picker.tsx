@@ -136,7 +136,7 @@ export function DatePicker({
 
   useEffect(() => {
     if (open) {
-      activeButtonRef.current?.focus();
+      activeButtonRef.current?.focus({ preventScroll: true });
     }
   }, [activeDate, open, visibleMonth]);
 

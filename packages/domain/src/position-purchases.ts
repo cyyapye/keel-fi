@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { InvestmentFeeSchema, investmentFeeAmount } from "./investment-fees";
+import { ValuationStateSchema, type ValuationRecord } from "./valuation-record";
 import {
   InvestmentTermsSchema,
   reconcileInvestmentCapital,
@@ -17,6 +19,8 @@ const text = z.string().trim().min(1).max(500);
 export const PurchaseLotSchema = z
   .object({
     id: z.string().min(1).max(100),
+    fees: z.array(InvestmentFeeSchema).max(12).optional(),
+    feesComplete: z.boolean().optional(),
     transactionType: z.enum(["primary", "secondary"]).nullable().optional(),
     referenceRound: text.nullable().optional(),
     reportedPremiumPpm: z
@@ -149,12 +153,6 @@ export const PurchaseLotSchema = z
         path: ["netCapitalMinor"],
         message: "Share capital cannot exceed cash contributed.",
       });
-    if (lot.remainingSharesMicros !== null && lot.sharesAsOf === null)
-      ctx.addIssue({
-        code: "custom",
-        path: ["sharesAsOf"],
-        message: "Date the remaining underlying share count.",
-      });
     if (
       lot.mark?.effectiveDate &&
       lot.purchasedOn &&
@@ -178,6 +176,8 @@ export const PurchaseLotSchema = z
   });
 export const PurchaseDetailsSchema = z
   .object({
+    valuation: ValuationStateSchema.optional(),
+    investmentSnapshotId: z.string().min(1).optional(),
     investmentTerms: InvestmentTermsSchema.optional(),
     cashCoversPosition: z.boolean().optional(),
     coversPosition: z.boolean().default(false),
@@ -220,6 +220,12 @@ export const PurchaseReceiptSchema = z.object({
   details: PurchaseDetailsSchema,
   acceptedAt: z.iso.datetime(),
 });
+export const InvestmentHistorySchema = z.object({
+  receipts: z.array(PurchaseReceiptSchema).max(30),
+  next: z
+    .object({ date: z.iso.datetime(), id: z.string().min(1).max(200) })
+    .nullable(),
+});
 export const AcceptPurchasesSchema = z
   .object({
     expectedSnapshotId: z.string().min(1),
@@ -241,6 +247,158 @@ export const PurchaseContextSchema = z.object({
 export type PurchaseLot = z.infer<typeof PurchaseLotSchema>;
 export type PurchaseReceipt = z.infer<typeof PurchaseReceiptSchema>;
 export type AcceptPurchases = z.infer<typeof AcceptPurchasesSchema>;
+
+export function purchaseFeeSummary(lot: PurchaseLot) {
+  if (!lot.fees || !lot.feesComplete) return null;
+  const amounts = lot.fees
+    .filter(
+      (fee) => fee.paymentStatus !== "unpaid" && fee.treatment === "upfront",
+    )
+    .map((fee) =>
+      investmentFeeAmount(fee, {
+        grossCashMinor: lot.grossCashMinor,
+        refundMinor:
+          lot.capitalReturn?.status === "received"
+            ? lot.capitalReturn.amountMinor
+            : 0,
+        netCapitalMinor: lot.netCapitalMinor,
+      }),
+    );
+  if (amounts.some((amount) => amount === null)) return null;
+  const total = amounts.reduce<bigint>(
+    (sum, amount) => sum + BigInt(amount!),
+    0n,
+  );
+  if (total > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  return {
+    amountMinor: Number(total),
+    estimated: lot.fees.some(
+      (fee) =>
+        fee.paymentStatus !== "unpaid" &&
+        fee.treatment === "upfront" &&
+        fee.method === "percentage",
+    ),
+  };
+}
+
+/** Only effective ownership dependencies: metadata corrections do not reprice. */
+export function valuationSharesKey(details: PurchaseReceipt["details"]) {
+  return JSON.stringify({
+    coversPosition: details.coversPosition,
+    shares: details.lots
+      .map((lot) => ({
+        id: lot.id,
+        quantity: purchaseShares(lot)?.quantityMicros ?? null,
+        shareClass: lot.shareClass?.trim().toLowerCase() ?? null,
+        date: lot.sharesAsOf,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  });
+}
+
+export function calculateValuationFromShares(
+  details: PurchaseReceipt["details"],
+  record: ValuationRecord,
+) {
+  if (
+    !details.coversPosition ||
+    !details.lots.length ||
+    record.priceMicros === null ||
+    !record.shareClass ||
+    !record.priceDate
+  )
+    return null;
+  let quantity = 0n;
+  for (const lot of details.lots) {
+    const shares = purchaseShares(lot);
+    if (
+      !shares ||
+      !lot.sharesAsOf ||
+      lot.sharesAsOf > record.priceDate ||
+      (lot.purchasedOn !== null && lot.purchasedOn > record.priceDate) ||
+      !lot.shareClass ||
+      (record.origin !== "proxy" &&
+        lot.shareClass.trim().toLowerCase() !==
+          record.shareClass.trim().toLowerCase())
+    )
+      return null;
+    quantity += BigInt(shares.quantityMicros);
+  }
+  const value =
+    (quantity * BigInt(record.priceMicros) + 5_000_000_000n) / 10_000_000_000n;
+  if (
+    value > BigInt(Number.MAX_SAFE_INTEGER) ||
+    quantity > BigInt(Number.MAX_SAFE_INTEGER)
+  )
+    return null;
+  return { valueMinor: Number(value), quantityMicros: Number(quantity) };
+}
+
+export function selectedPositionValuation(
+  receipt: PurchaseReceipt | null | undefined,
+  snapshotId: string,
+) {
+  if (
+    !receipt ||
+    receipt.snapshotId !== snapshotId ||
+    receipt.details.valuation?.snapshotId !== snapshotId
+  )
+    return null;
+  const selection = receipt.details.valuation?.selected;
+  const record = receipt.details.valuation?.records.find(
+    (r) => r.id === selection?.recordId,
+  );
+  if (!selection || !record) return null;
+  const calculated =
+    selection.method === "shares" &&
+    selection.sharesKey === valuationSharesKey(receipt.details) &&
+    (receipt.details.investmentSnapshotId ?? receipt.snapshotId) === snapshotId
+      ? calculateValuationFromShares(receipt.details, record)
+      : null;
+  const valueMinor =
+    selection.method === "total"
+      ? record.totalMinor
+      : (calculated?.valueMinor ?? null);
+  if (valueMinor === null) return null;
+  return {
+    ...record,
+    method: selection.method,
+    effectiveDate:
+      selection.method === "shares" ? record.priceDate! : record.effectiveDate,
+    valueMinor,
+    quantityMicros: calculated?.quantityMicros ?? null,
+    carryStatus:
+      selection.method === "shares"
+        ? ("before_carry" as const)
+        : record.carryStatus,
+  };
+}
+
+/** A reviewed GP total remains usable when its independent share calculation expires. */
+export function effectivePositionValuation(
+  receipt: PurchaseReceipt | null | undefined,
+  snapshotId: string,
+) {
+  const selected = selectedPositionValuation(receipt, snapshotId);
+  if (selected) return selected;
+  if (
+    !receipt ||
+    receipt.snapshotId !== snapshotId ||
+    receipt.details.valuation?.snapshotId !== snapshotId
+  )
+    return null;
+  const gp = receipt.details.valuation?.records.find(
+    (r) => r.id === "gp" && r.origin === "gp" && r.totalMinor !== null,
+  );
+  return gp
+    ? {
+        ...gp,
+        method: "total" as const,
+        valueMinor: gp.totalMinor!,
+        quantityMicros: null,
+      }
+    : null;
+}
 
 // Only a single, fully funded purchase can inherit the position's capital.
 // This fills missing evidence in an editable draft, never an accepted receipt.
@@ -639,6 +797,19 @@ export function reviewedInvestmentFromReceipt(
     const total = capital.reduce((total, row) => total + BigInt(row[key]!), 0n);
     return total > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(total);
   };
+  const separateFees = receipt.details.lots.flatMap((lot) =>
+    (lot.fees ?? []).filter(
+      (fee) => fee.treatment === "separate" && fee.paymentStatus === "paid",
+    ),
+  );
+  const additionalPaidFeesMinor = separateFees.some(
+    (fee) => fee.method !== "paid" || fee.paidMinor === null,
+  )
+    ? null
+    : Number(
+        separateFees.reduce((sum, fee) => sum + BigInt(fee.paidMinor!), 0n),
+      );
+  const cashContributed = sum("grossCashMinor");
   const returnedCapital = receipt.details.lots.reduce(
     (total, lot) =>
       total +
@@ -666,10 +837,14 @@ export function reviewedInvestmentFromReceipt(
     0n,
   );
   return {
-    snapshotId: receipt.snapshotId,
+    snapshotId: receipt.details.investmentSnapshotId ?? receipt.snapshotId,
     receiptId: receipt.id,
     terms: receipt.details.investmentTerms,
-    cashPaidMinor: sum("grossCashMinor"),
+    additionalPaidFeesMinor,
+    cashPaidMinor:
+      cashContributed !== null && additionalPaidFeesMinor !== null
+        ? Number(BigInt(cashContributed) + BigInt(additionalPaidFeesMinor))
+        : null,
     netCapitalMinor: sum("netCapitalMinor"),
     upfrontDeductionsMinor: sum("upfrontDeductionsMinor"),
     ...(receipt.details.lots.some((lot) => lot.capitalReturn)

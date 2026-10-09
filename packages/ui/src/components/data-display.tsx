@@ -3,13 +3,15 @@ import { type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../lib/utils";
 
 export function DataList({
+  layout,
   className,
   ...props
-}: HTMLAttributes<HTMLDListElement>) {
+}: HTMLAttributes<HTMLDListElement> & { layout?: "rows" }) {
   return (
     <dl
       className={cn("data-list", className)}
       data-slot="data-list"
+      data-layout={layout}
       {...props}
     />
   );

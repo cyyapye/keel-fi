@@ -178,3 +178,22 @@ export function formatDate(value: string): string {
     timeZone: "UTC",
   }).format(new Date(value));
 }
+
+/** Position displays use $ for USD; other currencies retain their explicit code. */
+export function formatPositionCurrency(
+  minorUnits: number,
+  currency: string,
+): string {
+  return currency.toUpperCase() === "USD"
+    ? formatMoney(minorUnits)
+    : formatCurrency(minorUnits, currency);
+}
+
+export function formatCompactPositionCurrency(
+  minorUnits: number,
+  currency: string,
+): string {
+  return currency.toUpperCase() === "USD"
+    ? formatCompactMoney(minorUnits)
+    : formatRoundedCompactCurrency(minorUnits, currency, 1_000);
+}

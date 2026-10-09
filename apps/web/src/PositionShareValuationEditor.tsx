@@ -7,6 +7,7 @@ import {
   PurchaseReceiptSchema,
   estimatePurchaseValue,
   purchaseCapital,
+  purchaseShares,
   type PurchaseLot,
 } from "@keel/domain/position-purchases";
 import {
@@ -15,6 +16,8 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
+  DataList,
+  DataItem,
   DatePicker,
   DisclosureIndicator,
   Field,
@@ -24,16 +27,10 @@ import {
   TextLink,
 } from "@keel/ui";
 import { decimal, scaled } from "./decimal-input";
-import { formatCurrency, formatDate } from "./format";
+import { formatPositionCurrency as formatCurrency, formatDate } from "./format";
 
 type Draft = {
   lot: PurchaseLot;
-  shares: string;
-  sharesDate: string;
-  shareClass: string;
-  purchasePrice: string;
-  purchaseSource: string;
-  netCapital: string;
   markPrice: string;
   markDate: string;
   markClass: string;
@@ -44,12 +41,6 @@ type Draft = {
 function draftFor(lot: PurchaseLot): Draft {
   return {
     lot,
-    shares: decimal(lot.remainingSharesMicros, 6),
-    sharesDate: lot.sharesAsOf ?? "",
-    shareClass: lot.shareClass ?? "",
-    purchasePrice: decimal(lot.priceMicros, 6),
-    purchaseSource: lot.sourceLabel ?? "",
-    netCapital: decimal(lot.netCapitalMinor, 2),
     markPrice: decimal(lot.mark?.priceMicros, 6),
     markDate: lot.mark?.effectiveDate ?? "",
     markClass: lot.mark?.shareClass ?? "",
@@ -58,16 +49,22 @@ function draftFor(lot: PurchaseLot): Draft {
   };
 }
 
+function priceSelection(draft: Draft) {
+  return {
+    mark: draft.lot.mark,
+    markPrice: draft.markPrice,
+    markDate: draft.markDate,
+    markClass: draft.markClass,
+    markSource: draft.markSource,
+    markUrl: draft.markUrl,
+  };
+}
+
 function lotFor(draft: Draft, confirmed: boolean) {
   return {
     ...draft.lot,
-    remainingSharesMicros: scaled(draft.shares, 6),
-    sharesAsOf: draft.sharesDate || null,
-    shareClass: draft.shareClass || null,
-    priceMicros: scaled(draft.purchasePrice, 6),
-    sourceLabel: draft.purchaseSource || null,
-    netCapitalMinor: scaled(draft.netCapital, 2),
-    originalSharesUnchanged: !draft.shares && confirmed,
+    originalSharesUnchanged:
+      draft.lot.remainingSharesMicros === null && confirmed,
     mark:
       draft.markPrice || draft.markSource
         ? {
@@ -87,11 +84,13 @@ export function PositionShareValuationEditor({
   enabled,
   onAccepted,
   onDirtyChange,
+  onEditPurchase,
 }: {
   holding: Holding;
   enabled: boolean;
   onAccepted: () => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
+  onEditPurchase?: ((index: number) => void) | undefined;
 }) {
   const context = holding.purchaseContext!;
   const receipt = context.receipt;
@@ -119,8 +118,11 @@ export function PositionShareValuationEditor({
       ),
     ];
   });
-  const [initialDrafts] = useState(drafts);
-  const initiallyConfirmed = Boolean(
+  const [initialDrafts, setInitialDrafts] = useState(drafts);
+  const receiptId = useRef(receipt?.id);
+  const receiptLots = useRef(receipt?.details.lots.length ?? 0);
+  const appliedReceiptId = useRef<string | null>(null);
+  const acceptedCoverage = Boolean(
     receipt?.snapshotId === context.snapshotId &&
     receipt?.details.coversPosition &&
     receipt.details.lots.every(
@@ -128,6 +130,8 @@ export function PositionShareValuationEditor({
         lot.remainingSharesMicros !== null || lot.originalSharesUnchanged,
     ),
   );
+  const [initiallyConfirmed, setInitiallyConfirmed] =
+    useState(acceptedCoverage);
   const [confirmed, setConfirmed] = useState(initiallyConfirmed);
   const [evidence, setEvidence] = useState<ReturnType<
     typeof PositionValuationEvidenceSchema.parse
@@ -137,6 +141,54 @@ export function PositionShareValuationEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const preview = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (receiptId.current === receipt?.id) return;
+    const accepted = receipt?.details.lots.map(draftFor) ?? [];
+    const ownApply = receipt?.id === appliedReceiptId.current;
+    // Only pending prices survive a purchase edit. Purchase facts always come
+    // from the newly accepted receipt, and coverage needs fresh confirmation.
+    const rebased = accepted.map((next) => {
+      if (ownApply) return next;
+      const pending =
+        drafts.find((draft) => draft.lot.id === next.lot.id) ??
+        (receiptLots.current === 0 && drafts.length === 1
+          ? drafts[0]
+          : undefined);
+      const baseline = initialDrafts.find(
+        (draft) => draft.lot.id === pending?.lot.id,
+      );
+      if (
+        !pending ||
+        !baseline ||
+        JSON.stringify(priceSelection(pending)) ===
+          JSON.stringify(priceSelection(baseline))
+      )
+        return next;
+      if (
+        !pending.lot.mark?.proxy &&
+        next.lot.shareClass?.trim().toLowerCase() !==
+          pending.markClass.trim().toLowerCase()
+      )
+        return next;
+      return {
+        ...next,
+        markPrice: pending.markPrice,
+        markDate: pending.markDate,
+        markClass: pending.markClass,
+        markSource: pending.markSource,
+        markUrl: pending.markUrl,
+        lot: { ...next.lot, mark: pending.lot.mark },
+      };
+    });
+    receiptId.current = receipt?.id;
+    receiptLots.current = accepted.length;
+    appliedReceiptId.current = null;
+    setInitialDrafts(accepted);
+    setDrafts(rebased);
+    setInitiallyConfirmed(acceptedCoverage);
+    setConfirmed(ownApply && acceptedCoverage);
+    setError(null);
+  }, [receipt, acceptedCoverage, drafts, initialDrafts]);
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
@@ -158,7 +210,7 @@ export function PositionShareValuationEditor({
       .catch(() => {
         if (!controller.signal.aborted)
           setEvidenceError(
-            "Price evidence could not be loaded. Retry or enter a sourced price in Details.",
+            "Price evidence could not be loaded. Retry or enter a sourced price below.",
           );
       });
     return () => controller.abort();
@@ -202,6 +254,14 @@ export function PositionShareValuationEditor({
   const estimate = estimateFor(conditional);
   const ready = estimateFor(parsed);
   const usesProxy = drafts.some((draft) => Boolean(draft.lot.mark?.proxy));
+  const missingShares = drafts
+    .map(({ lot }, index) => ({ lot, index }))
+    .filter(
+      ({ lot }) =>
+        !purchaseShares({ ...lot, originalSharesUnchanged: true }) ||
+        !lot.shareClass ||
+        !lot.sourceLabel,
+    );
   const money = (minor: number) => formatCurrency(minor, context.currency);
   const update = (
     index: number,
@@ -215,15 +275,7 @@ export function PositionShareValuationEditor({
           ? {
               ...draft,
               [key]: value,
-              ...(([
-                "markPrice",
-                "markDate",
-                "markClass",
-                "markSource",
-                "markUrl",
-              ].includes(key) ||
-                (key === "shareClass" && !draft.lot.mark?.proxy)) &&
-              draft.lot.mark?.sourceEvidenceId
+              ...(draft.lot.mark?.sourceEvidenceId
                 ? { lot: { ...draft.lot, mark: null } }
                 : {}),
             }
@@ -285,11 +337,7 @@ export function PositionShareValuationEditor({
       />
     </Field>
   );
-  const date = (
-    index: number,
-    key: "sharesDate" | "markDate",
-    label: string,
-  ) => (
+  const date = (index: number, key: "markDate", label: string) => (
     <Field label={label} variant="filled">
       <DatePicker
         aria-label={label}
@@ -304,7 +352,14 @@ export function PositionShareValuationEditor({
     setError(null);
   };
   const save = async () => {
-    if (!parsed.success || !ready || !dirty || busy) return;
+    if (
+      !parsed.success ||
+      !ready ||
+      !dirty ||
+      busy ||
+      receiptId.current !== receipt?.id
+    )
+      return;
     setBusy(true);
     setError(null);
     try {
@@ -324,7 +379,7 @@ export function PositionShareValuationEditor({
             ? String(body.error)
             : "The estimate could not be applied.",
         );
-      PurchaseReceiptSchema.parse(body);
+      appliedReceiptId.current = PurchaseReceiptSchema.parse(body).id;
       await onAccepted();
     } catch (cause) {
       setError(
@@ -366,10 +421,7 @@ export function PositionShareValuationEditor({
           )}
           {evidence &&
             !evidence.prices.some((item) => item.markMicros !== null) && (
-              <p>
-                No imported share price yet. Enter a sourced price in Details
-                below.
-              </p>
+              <p>No imported share price yet. Enter a sourced price below.</p>
             )}
           {evidence?.prices
             .filter((item) => item.markMicros !== null)
@@ -379,7 +431,7 @@ export function PositionShareValuationEditor({
                 item.shareClass &&
                 drafts.every(
                   (draft) =>
-                    draft.shareClass.trim().toLowerCase() ===
+                    draft.lot.shareClass?.trim().toLowerCase() ===
                     item.shareClass!.trim().toLowerCase(),
                 ),
               );
@@ -388,15 +440,13 @@ export function PositionShareValuationEditor({
                   <div>
                     <strong>{item.sourceLabel}</strong>
                     <p>
-                      {`USD ${decimal(item.markMicros, 6)} / share`} ·{" "}
-                      {item.shareClass ?? "Share class unknown"}
+                      {`$${decimal(item.markMicros, 6)} / share`}
+                      {item.shareClass ? ` · ${item.shareClass}` : ""}
                     </p>
                     <small>
-                      {item.positionLabel} ·{" "}
-                      {item.markDate
-                        ? formatDate(item.markDate)
-                        : "Mark date unknown"}{" "}
-                      · Captured {formatDate(item.capturedAt.slice(0, 10))}
+                      {item.positionLabel}
+                      {item.markDate ? ` · ${formatDate(item.markDate)}` : ""} ·
+                      Captured {formatDate(item.capturedAt.slice(0, 10))}
                     </small>
                   </div>
                   <ActionGroup wrap mobileLayout="stack">
@@ -421,7 +471,7 @@ export function PositionShareValuationEditor({
           {drafts.length > 1 && (
             <p className="holding-detail-help">
               Selecting a price applies it to all {drafts.length} purchases
-              below. You can set individual prices in Details.
+              below. You can also set a price for each purchase.
             </p>
           )}
         </section>
@@ -433,13 +483,17 @@ export function PositionShareValuationEditor({
           }
           className="investment-calculation purchase-proxy-confirmation share-valuation__preview"
         >
-          <Stat
-            label={
-              usesProxy ? "Estimated value · proxy" : "Estimated value · shares"
-            }
-            value={estimate ? money(estimate.valueMinor) : "Not ready"}
-            detail="Before carry and remaining expenses"
-          />
+          {estimate && (
+            <Stat
+              label={
+                usesProxy
+                  ? "Estimated value · proxy"
+                  : "Estimated value · shares"
+              }
+              value={money(estimate.valueMinor)}
+              detail="Before carry and remaining expenses"
+            />
+          )}
           {estimate ? (
             <p>
               Remaining shares × selected prices.{" "}
@@ -449,9 +503,9 @@ export function PositionShareValuationEditor({
             </p>
           ) : (
             <p>
-              A price alone cannot value this position. Add dated remaining
-              shares, or confirmed net capital and purchase price. Unknown fees
-              cannot supply a share count.
+              {missingShares.length
+                ? "Add dated remaining shares, or confirm net capital and purchase price, in Purchases."
+                : "Choose a price above or enter a sourced price below."}
             </p>
           )}
           {holding.positionValueContext?.acceptedAdjustment && (
@@ -463,119 +517,141 @@ export function PositionShareValuationEditor({
           )}
           {usesProxy && (
             <p className="holding-detail-help">
-              Proxy prices may represent another share class.{" "}
-              {drafts.some((draft) => !draft.markDate)
-                ? "Mark date unknown; the capture date is not a mark date."
-                : "Provider marks stay separate."}
+              Proxy prices may represent another share class. Provider marks
+              stay separate.
             </p>
           )}
           {drafts[0]?.lot.mark && (
             <p className="holding-detail-help">
-              {drafts[0].markSource} · USD {drafts[0].markPrice} / share ·{" "}
-              {drafts[0].markClass || "Share class unknown"}
+              {drafts[0].markSource} · ${drafts[0].markPrice} / share
+              {drafts[0].markClass ? ` · ${drafts[0].markClass}` : ""}
             </p>
           )}
         </section>
-        {drafts.map((draft, index) => {
-          const capital = purchaseCapital(draft.lot);
-          const derivesShares =
-            !draft.shares &&
-            capital.netCapitalMinor !== null &&
-            Boolean(draft.purchasePrice);
-          return (
-            <fieldset key={draft.lot.id} className="share-valuation__lot">
-              <legend>
-                Purchase {index + 1}
-                {draft.lot.purchasedOn
-                  ? ` · ${formatDate(draft.lot.purchasedOn)}`
-                  : ""}
-              </legend>
-              {derivesShares && (
-                <p>
-                  {money(capital.netCapitalMinor!)} net capital ÷ USD{" "}
-                  {draft.purchasePrice} purchase price. Confirm below that these
-                  shares are still held, or enter the remaining count.
-                </p>
-              )}
-              <Collapsible
-                defaultOpen={
-                  (!derivesShares && !draft.shares) || !draft.shareClass
+        {missingShares.length > 0 && onEditPurchase && (
+          <ActionGroup wrap mobileLayout="stack">
+            {missingShares.map(({ index, lot }) => (
+              <Button
+                key={lot.id}
+                tone="quiet"
+                onClick={() => onEditPurchase(index)}
+                aria-label={
+                  drafts.length === 1
+                    ? "Add share details"
+                    : `Add share details for purchase ${index + 1}`
                 }
               >
-                <CollapsibleTrigger layout="inline">
-                  Details &amp; share inputs <DisclosureIndicator />
-                </CollapsibleTrigger>
-                <CollapsibleContent keepMounted>
-                  <div className="position-economics__fields">
-                    {field(
-                      index,
-                      "shares",
-                      "Remaining underlying shares",
-                      true,
+                {drafts.length === 1
+                  ? "Add share details"
+                  : `Purchase ${index + 1} · Add share details`}
+              </Button>
+            ))}
+          </ActionGroup>
+        )}
+        {drafts.length > 0 && (
+          <Collapsible>
+            <CollapsibleTrigger layout="inline">
+              Share details <DisclosureIndicator />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              {drafts.map(({ lot }, index) => {
+                const shares = purchaseShares({
+                  ...lot,
+                  originalSharesUnchanged: true,
+                });
+                const capital = purchaseCapital(lot);
+                return (
+                  <div key={lot.id} className="share-valuation__share-details">
+                    {drafts.length > 1 && (
+                      <h4>
+                        Purchase {index + 1}
+                        {lot.purchasedOn
+                          ? ` · ${formatDate(lot.purchasedOn)}`
+                          : ""}
+                      </h4>
                     )}
-                    {date(index, "sharesDate", "Shares as of")}
-                    {field(index, "shareClass", "Underlying share class")}
-                    {field(index, "purchaseSource", "Purchase source")}
-                    {field(
-                      index,
-                      "purchasePrice",
-                      "Purchase price / share · USD",
-                      true,
-                    )}
-                    {capital.netCapitalMinor === null &&
-                      field(
-                        index,
-                        "netCapital",
-                        "Confirmed net capital · USD",
-                        true,
+                    <DataList>
+                      {shares && (
+                        <DataItem
+                          label={
+                            shares.derived
+                              ? "Calculated shares"
+                              : "Remaining shares"
+                          }
+                          value={decimal(shares.quantityMicros, 6)}
+                        />
                       )}
+                      {lot.sharesAsOf && (
+                        <DataItem
+                          label="Shares as of"
+                          value={formatDate(lot.sharesAsOf)}
+                        />
+                      )}
+                      {shares?.derived && (
+                        <DataItem
+                          label="Calculation"
+                          value={`${money(capital.netCapitalMinor!)} ÷ $${decimal(lot.priceMicros, 6)}/share`}
+                        />
+                      )}
+                      {lot.shareClass && (
+                        <DataItem label="Share class" value={lot.shareClass} />
+                      )}
+                    </DataList>
+                    {onEditPurchase && (
+                      <Button
+                        tone="quiet"
+                        onClick={() => onEditPurchase(index)}
+                        aria-label={`Edit share details for purchase ${index + 1}`}
+                      >
+                        Edit share details
+                      </Button>
+                    )}
                   </div>
-                  <p className="holding-detail-help">
-                    Use underlying company shares. Nominal SPV units are not a
-                    share count.
-                  </p>
-                  <Collapsible>
-                    <CollapsibleTrigger layout="inline">
-                      {draft.lot.mark
-                        ? "Enter a different price"
-                        : "Enter a sourced price"}{" "}
-                      <DisclosureIndicator />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent keepMounted>
-                      <div className="position-economics__fields">
-                        {field(
-                          index,
-                          "markPrice",
-                          "Valuation price / share · USD",
-                          true,
-                        )}
-                        {date(index, "markDate", "Valuation price as of")}
-                        {field(index, "markClass", "Valuation share class")}
-                        {field(index, "markSource", "Valuation source")}
-                        {field(index, "markUrl", "Valuation source link")}
-                      </div>
-                      <p className="holding-detail-help">
-                        A manually entered price needs a date, source and
-                        matching share class. To use another share class, choose
-                        an imported proxy above.
-                      </p>
-                    </CollapsibleContent>
-                  </Collapsible>
-                  {draft.lot.mark?.proxy && (
-                    <p>
-                      Selected proxy: {draft.markSource} ·{" "}
-                      {draft.markClass || "Share class unknown"} ·{" "}
-                      {draft.markDate
-                        ? formatDate(draft.markDate)
-                        : "Mark date unknown"}
-                      .
-                    </p>
+                );
+              })}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        <Collapsible>
+          <CollapsibleTrigger layout="inline">
+            {drafts.length > 1
+              ? "Set prices per purchase"
+              : drafts[0]?.markPrice
+                ? "Enter a different price"
+                : "Enter a sourced price"}{" "}
+            <DisclosureIndicator />
+          </CollapsibleTrigger>
+          <CollapsibleContent keepMounted>
+            {drafts.map((draft, index) => (
+              <fieldset key={draft.lot.id} className="share-valuation__lot">
+                {drafts.length > 1 && (
+                  <legend>
+                    Purchase {index + 1}
+                    {draft.lot.purchasedOn
+                      ? ` · ${formatDate(draft.lot.purchasedOn)}`
+                      : ""}
+                  </legend>
+                )}
+                <div className="position-economics__fields">
+                  {field(
+                    index,
+                    "markPrice",
+                    "Valuation price / share · $",
+                    true,
                   )}
-                </CollapsibleContent>
-              </Collapsible>
-            </fieldset>
-          );
-        })}
+                  {date(index, "markDate", "Valuation price as of")}
+                  {field(index, "markClass", "Valuation share class")}
+                  {field(index, "markSource", "Valuation source")}
+                  {field(index, "markUrl", "Valuation source link")}
+                </div>
+              </fieldset>
+            ))}
+            <p className="holding-detail-help">
+              A manually entered price needs a date, source and matching share
+              class. To use another share class, choose an imported proxy above.
+            </p>
+          </CollapsibleContent>
+        </Collapsible>
         {evidence?.watch.length ? (
           <Collapsible>
             <CollapsibleTrigger layout="inline">

@@ -43,6 +43,23 @@ those paths:
 Read the workload sections affected by the change; the measured envelopes below
 do not automatically apply to another producer or deployment.
 
+## Holding detail interactions
+
+Holding valuation evidence loads once when its editor mounts. History loads one
+page when its disclosure mounts, then one page per explicit pagination or retry
+action. Both reads abort on unmount, do not poll, and make no application
+writes. History uses one indexed repository query for at most 31 receipts; the
+120-position and growing-history D1 cost test bounds actual reads, including
+empty and foreign results. Valuation evidence retains its existing fixed
+two-query cost envelope.
+
+Investment and valuation each submit one request per explicit Save. The pending
+form disables duplicate submissions; failures preserve the draft and have no
+automatic retry. A successful save refreshes the existing holdings projection.
+These interactions add zero idle-day or unattended failure-day network requests.
+The link-copy confirmation uses one cancellable 1.6-second local timer after a
+successful copy, with zero network or storage operations.
+
 ## Provider agent contract
 
 PDF reader/scanner admission uses one local owner per rootless daemon across all

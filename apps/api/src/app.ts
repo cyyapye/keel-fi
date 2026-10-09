@@ -1,6 +1,7 @@
 import { AcceptPositionLinkSchema } from "@keel/domain/position-links";
 import { D1PositionLinkRepository, PositionLinkError } from "@keel/database";
 import { searchIssuerEvidence } from "./public-company-search";
+import { AcceptValuationSchema } from "@keel/domain/valuation-record";
 import {
   AcceptPurchasesSchema,
   PurchaseReceiptSchema,
@@ -2826,6 +2827,62 @@ export function createApp(options: AppOptions = {}) {
           { error: "SPV fee and carry terms could not be accepted." },
           500,
           { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
+  app.get("/api/investment-positions/:positionId/history", async (context) => {
+    const query = z
+      .object({ date: z.iso.datetime(), id: z.string().min(1).max(200) })
+      .safeParse(context.req.query());
+    if (Object.keys(context.req.query()).length && !query.success)
+      return context.json({ error: "Invalid history cursor." }, 400);
+    const history = await new D1PositionPurchaseRepository(
+      context.env.DB,
+    ).history(
+      context.get("identity").subject,
+      context.req.param("positionId"),
+      query.success ? query.data : undefined,
+    );
+    return context.json(history, 200, { "Cache-Control": "private, no-store" });
+  });
+
+  app.post(
+    "/api/investment-positions/:positionId/valuation",
+    async (context) => {
+      let raw: unknown;
+      try {
+        raw = await context.req.json();
+      } catch {
+        return context.json({ error: "A JSON request body is required." }, 400);
+      }
+      const parsed = AcceptValuationSchema.safeParse(raw);
+      if (!parsed.success)
+        return context.json(
+          { error: parsed.error.issues[0]?.message ?? "Invalid valuation." },
+          400,
+        );
+      try {
+        const receipt = await new D1PositionPurchaseRepository(
+          context.env.DB,
+        ).acceptValuation(
+          context.get("identity").subject,
+          context.req.param("positionId"),
+          parsed.data,
+        );
+        return context.json(PurchaseReceiptSchema.parse(receipt), 201, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        if (error instanceof PositionPurchaseError)
+          return context.json(
+            { error: error.message },
+            error.code === "not_found" ? 404 : 409,
+          );
+        return context.json(
+          { error: "The valuation could not be saved." },
+          500,
         );
       }
     },

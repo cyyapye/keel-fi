@@ -9,6 +9,9 @@ import {
 } from "../packages/database/src/holding-imports";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
 import { D1InvestmentReviewRepository } from "../packages/database/src/investment-review";
+import { D1PositionPurchaseRepository } from "../packages/database/src/position-purchases";
+import { PurchaseLotSchema } from "../packages/domain/src/position-purchases";
+import { unknownInvestmentTerms } from "../packages/domain/src/investment-details";
 export const LINK_DEMO_SUBJECT = "synthetic-access-subject";
 const digest = (text: string) =>
   createHash("sha256").update(text).digest("hex");
@@ -62,12 +65,16 @@ export const LINK_DEMO_CASES = [
     date: "2025-06-10",
   },
 ] as const;
-export async function seedPositionLinks(db: D1Database, revision = 1) {
+export async function seedPositionLinks(
+  db: D1Database,
+  revision = 1,
+  purchasePractice = false,
+) {
   for (const provider of ["sydecar", "tokenfolio"] as const) {
     const cases = LINK_DEMO_CASES.filter((c) => c.provider === provider);
     const input: HoldingImportStageInput = {
       provider,
-      formatVersion: provider === "sydecar" ? 3 : 1,
+      formatVersion: provider === "sydecar" ? 3 : purchasePractice ? 4 : 1,
       objectKey: `holding-imports/demo-links-${provider}-${revision}.csv`,
       sha256: digest(`demo-links-${provider}-${revision}`),
       byteSize: 4096,
@@ -91,6 +98,16 @@ export async function seedPositionLinks(db: D1Database, revision = 1) {
         netValueState: "not_reported",
         positionKind: "spv_interest",
         dealMetadata: {
+          ...(purchasePractice && provider === "tokenfolio"
+            ? {
+                sharePrices: {
+                  costMicros: 165_000_000,
+                  markMicros: 495_000_000,
+                  markDate: null,
+                  shareClass: "Common",
+                },
+              }
+            : {}),
           allocationMinor: c.amount,
           instrument: "SPV interest",
           managementFeePpm: provider === "sydecar" ? 10_000 : null,
@@ -168,7 +185,65 @@ export async function seedPositionLinks(db: D1Database, revision = 1) {
     }
   }
 }
-export async function buildPositionLinksSeed() {
+export async function seedPurchaseRefundPractice(db: D1Database) {
+  await seedPositionLinks(db, 1, true);
+  const positions = (
+    await new D1InvestmentPositionViewRepository(db).list(LINK_DEMO_SUBJECT)
+  ).connections.flatMap((c) => c.containers.flatMap((c) => c.positions));
+  const position = positions.find(
+    (p) => p.legalVehicleName === "Demo Atlas Separate SPV",
+  );
+  if (!position) throw new Error("Synthetic practice SPV missing.");
+  const context = await new D1InvestmentReviewRepository(db).getContext(
+    LINK_DEMO_SUBJECT,
+    position.id,
+  );
+  if (!context.snapshotId)
+    throw new Error("Synthetic practice snapshot missing.");
+  await new D1PositionPurchaseRepository(db).accept(
+    LINK_DEMO_SUBJECT,
+    position.id,
+    {
+      expectedSnapshotId: context.snapshotId,
+      expectedReceiptId: null,
+      expectedTermsId: null,
+      details: {
+        coversPosition: false,
+        cashCoversPosition: true,
+        investmentTerms: { ...unknownInvestmentTerms(), carryPpm: 150_000 },
+        lots: [
+          PurchaseLotSchema.parse({
+            id: "demo-refund-purchase",
+            purchasedOn: "2025-06-10",
+            shareClass: "Preferred",
+            transactionType: "secondary",
+            priceMicros: 165_000_000,
+            referencePriceMicros: null,
+            grossCashMinor: 800_000,
+            netCapitalMinor: null,
+            upfrontDeductionsMinor: null,
+            capitalReturn: {
+              amountMinor: 187_654,
+              status: "received",
+              effectiveDate: null,
+              reportedDistributions: "unknown",
+            },
+            feePpm: 90_000,
+            feeBasis: null,
+            feeLabel: "One-time fee",
+            remainingSharesMicros: null,
+            sharesAsOf: null,
+            sourceKind: "executed",
+            sourceLabel: "Demo purchase confirmation",
+            sourceUrl: null,
+            mark: null,
+          }),
+        ],
+      },
+    },
+  );
+}
+export async function buildPositionLinksSeed(purchasePractice = false) {
   const d1 = legalDocumentTestDatabase();
   const statements: string[] = [];
   const prepare = d1.prepare.bind(d1);
@@ -209,7 +284,8 @@ export async function buildPositionLinksSeed() {
     });
   d1.prepare = (sql) => track(prepare(sql));
   try {
-    await seedPositionLinks(d1.asD1());
+    if (purchasePractice) await seedPurchaseRefundPractice(d1.asD1());
+    else await seedPositionLinks(d1.asD1());
     return [
       "-- Fabricated position-link practice records.",
       "PRAGMA defer_foreign_keys=ON;",
@@ -224,13 +300,19 @@ if (
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   const root = resolve(process.argv[2] ?? "");
-  if (root !== resolve(".keel-local/scenarios/position-links"))
+  if (
+    !["position-links", "purchase-refund"].some(
+      (scenario) => root === resolve(`.keel-local/scenarios/${scenario}`),
+    )
+  )
     throw new Error(
       "Position-link seed requires its exact local scenario directory.",
     );
   mkdirSync(root, { recursive: true });
   writeFileSync(
     join(root, "position-links.sql"),
-    await buildPositionLinksSeed(),
+    await buildPositionLinksSeed(
+      root === resolve(".keel-local/scenarios/purchase-refund"),
+    ),
   );
 }

@@ -1,3 +1,4 @@
+import { D1PositionPurchaseRepository } from "../packages/database/src/position-purchases";
 import { D1InvestmentReviewRepository } from "../packages/database/src/investment-review";
 import { expect, it } from "vitest";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
@@ -43,7 +44,7 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
       expect(operation.positionId).toBe(
         positions[index % positions.length]!.id,
       );
-      expect(operation.cost.roundTrips).toBe(2);
+      expect(operation.cost.roundTrips).toBe(3);
       expect(operation.cost.rowsWritten).toBeLessThanOrEqual(12);
       expect(operation.cost.rowsRead).toBeLessThanOrEqual(60);
     }
@@ -55,13 +56,39 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
       expect(read.cost.rowsRead).toBeLessThanOrEqual(empty.rowsRead + 480);
     }
     expect(history.stored).toEqual({ receiptCount: 960, positionCount: 120 });
+    const purchases = new D1PositionPurchaseRepository(meter.database);
+    const target = positions[0]!;
+    let priorId = history.acceptances.findLast(
+      (row) => row.positionId === target.id,
+    )!.receiptId;
+    for (let version = 0; version < 120; version++) {
+      const receipt = await purchases.accept(COST_SUBJECT, target.id, {
+        expectedSnapshotId: target.snapshot.id,
+        expectedReceiptId: priorId,
+        details: { coversPosition: true, lots: [] },
+      });
+      priorId = receipt.id;
+    }
+    meter.reset();
+    const historyPage = await purchases.history(COST_SUBJECT, target.id);
+    expect(historyPage.receipts).toHaveLength(30);
+    expect(historyPage.next).not.toBeNull();
+    expect(meter.cost.roundTrips).toBe(1);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(40);
+    expect(meter.cost.rowsWritten).toBe(0);
+    meter.reset();
+    await purchases.history(COST_SUBJECT, target.id, historyPage.next!);
+    expect(meter.cost.roundTrips).toBe(1);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(40);
+    meter.reset();
+    expect(
+      (await purchases.history("purchase-other-subject", target.id)).receipts,
+    ).toEqual([]);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(10);
+
     meter.reset();
     const reviewed = await review.getContext(COST_SUBJECT, positions[0]!.id);
-    expect(reviewed.purchaseContext?.receipt?.id).toBe(
-      history.acceptances.findLast(
-        (entry) => entry.positionId === positions[0]!.id,
-      )?.receiptId,
-    );
+    expect(reviewed.purchaseContext?.receipt?.id).toBe(priorId);
     expect(meter.cost.roundTrips).toBe(reviewEmpty.roundTrips);
     expect(meter.cost.rowsWritten).toBe(0);
     expect(meter.cost.rowsRead).toBeLessThanOrEqual(reviewEmpty.rowsRead + 4);

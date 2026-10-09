@@ -52,3 +52,4 @@ export {
   type SectionTab,
 } from "./components/tabs";
 export { TextLink, type TextLinkProps } from "./components/text-link";
+export { ChoiceGroup, type ChoiceOption } from "./components/choice-group";

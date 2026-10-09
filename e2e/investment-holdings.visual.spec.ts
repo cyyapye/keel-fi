@@ -1316,7 +1316,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   );
   await page.getByRole("button", { name: /^Value & return/ }).click();
   await page.getByRole("button", { name: "Review estimate" }).click();
-  await expect(page.getByLabel("Value · USD")).toHaveValue("60000");
+  await expect(page.getByLabel("Value · $")).toHaveValue("60000");
   await expect(page.getByLabel("Position value source type")).toContainText(
     "Other",
   );
