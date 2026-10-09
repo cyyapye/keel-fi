@@ -93,7 +93,10 @@ export function holdingValueSummary(holding: Holding) {
                   BigInt(reviewed.additionalPaidFeesMinor ?? 0) -
                   BigInt(reviewed.returnedCapitalMinor ?? 0),
               ),
-        netCapitalMinor: reviewed?.netCapitalMinor ?? null,
+        netCapitalMinor:
+          reviewed?.netCapitalMinor ??
+          reviewed?.estimatedNetCapitalMinor ??
+          null,
         carryPpm: reviewed?.terms.carryPpm ?? null,
         carryBasis: reviewed?.terms.carryBasis ?? "unknown",
       })

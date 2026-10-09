@@ -37,6 +37,8 @@ export const ReviewedInvestmentSchema = z.object({
   includedReturnedCapitalMinor: money.optional(),
   returnedCapitalReconciliationPending: z.boolean().optional(),
   netCapitalMinor: money.nullable(),
+  // A projection from complete reviewed fee terms, never an accepted allocation.
+  estimatedNetCapitalMinor: money.nullable().optional(),
   terms: InvestmentTermsSchema,
 });
 

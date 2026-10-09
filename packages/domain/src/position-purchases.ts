@@ -796,6 +796,22 @@ export function reviewedInvestmentFromReceipt(
 ): ReviewedInvestment | undefined {
   if (!receipt?.details.investmentTerms) return undefined;
   const capital = receipt.details.lots.map(purchaseCapital);
+  const estimatedCapital = receipt.details.lots.map((lot, index) => {
+    if (capital[index]!.conflict) return null;
+    if (capital[index]!.netCapitalMinor !== null)
+      return capital[index]!.netCapitalMinor;
+    const fees = purchaseFeeSummary(lot);
+    if (!fees || lot.grossCashMinor === null) return null;
+    const net =
+      BigInt(lot.grossCashMinor) -
+      BigInt(
+        lot.capitalReturn?.status === "received"
+          ? lot.capitalReturn.amountMinor
+          : 0,
+      ) -
+      BigInt(fees.amountMinor);
+    return net >= 0n ? integer(net) : null;
+  });
   const sum = (
     key: "grossCashMinor" | "netCapitalMinor" | "upfrontDeductionsMinor",
   ) => {
@@ -857,6 +873,17 @@ export function reviewedInvestmentFromReceipt(
         ? Number(BigInt(cashContributed) + BigInt(additionalPaidFeesMinor))
         : null,
     netCapitalMinor: sum("netCapitalMinor"),
+    estimatedNetCapitalMinor:
+      !receipt.details.cashCoversPosition ||
+      !estimatedCapital.length ||
+      estimatedCapital.some((amount) => amount === null)
+        ? null
+        : integer(
+            estimatedCapital.reduce<bigint>(
+              (sum, amount) => sum + BigInt(amount!),
+              0n,
+            ),
+          ),
     upfrontDeductionsMinor: sum("upfrontDeductionsMinor"),
     ...(receipt.details.lots.some((lot) => lot.capitalReturn)
       ? {

@@ -378,8 +378,8 @@ export function InvestmentCalculationPreview({
                 ? " − received capital refunds"
                 : ""}{" "}
               − upfront deductions = net capital invested. Reported return
-              compares the current mark plus reported distributions with cash
-              paid; it does not deduct carry again.
+              compares the current mark plus distributions excluding capital
+              refunds with net capital; it does not deduct carry again.
             </p>
           )}
           {view === "full" && boundValue && (
@@ -427,7 +427,7 @@ export function InvestmentCalculationPreview({
             {!current
               ? "The source changed. Review these details again."
               : reviewed.cashPaidMinor === null
-                ? "Confirm all cash contributions and record cash paid to calculate return."
+                ? "Confirm cash contributions to complete the investment record."
                 : reviewed.returnedCapitalReconciliationPending
                   ? "Return stays unknown until you confirm whether the reported distributions include this refund."
                   : !estimate

@@ -2832,7 +2832,13 @@ function PositionPerformanceSummary({
     (holding.positionKind === "spv_interest" ||
       holding.positionKind === "fund_interest" ||
       holding.companyId !== null);
-  const basisLabel = contributionBasis ? "Cash paid" : "Cost basis";
+  const basisLabel = contributionBasis
+    ? performance.costBasisSource === "funded_amount_estimate"
+      ? "Cash paid"
+      : performance.costBasisSource === "reviewed_spv_estimate"
+        ? "Estimated net invested"
+        : "Net invested"
+    : "Cost basis";
   const invested = positionCapitalSummary(
     holding.purchaseContext?.receipt,
     holding.purchaseContext?.snapshotId,

@@ -269,10 +269,19 @@ export function SpvHoldingDetail({
                   value={formatMoney(after.carryMinor)}
                 />
               )}
-              {reviewed?.cashPaidMinor != null && (
+              {(beforeReturn?.costBasisMinor ?? afterReturn?.costBasisMinor) !=
+                null && (
                 <DataItem
-                  label="Cash contributed"
-                  value={formatMoney(reviewed.cashPaidMinor)}
+                  label={
+                    (beforeReturn?.costBasisSource ??
+                      afterReturn?.costBasisSource) === "reviewed_spv_estimate"
+                      ? "Estimated net capital"
+                      : "Net capital"
+                  }
+                  value={formatMoney(
+                    (beforeReturn?.costBasisMinor ??
+                      afterReturn?.costBasisMinor)!,
+                  )}
                 />
               )}
               {(holding.realizedValueMinor ?? 0) > 0 && (
@@ -281,18 +290,21 @@ export function SpvHoldingDetail({
                   value={formatMoney(holding.realizedValueMinor!)}
                 />
               )}
-              {(reviewed?.additionalReturnedCapitalMinor ?? 0) > 0 && (
+              {(reviewed?.includedReturnedCapitalMinor ?? 0) > 0 && (
                 <DataItem
-                  label="Refund outside distributions"
-                  value={formatMoney(reviewed!.additionalReturnedCapitalMinor!)}
+                  label="Capital refunds in distributions"
+                  value={formatMoney(reviewed!.includedReturnedCapitalMinor!)}
                 />
               )}
             </DataList>
             {(beforeReturn?.totalReturnPpm != null ||
               afterReturn?.totalReturnPpm != null) && (
               <p className="holding-metadata">
-                (Value + included cash flows − cash contributed) ÷ cash
-                contributed
+                (Value + distributions
+                {(reviewed?.includedReturnedCapitalMinor ?? 0) > 0
+                  ? " − capital refunds in distributions"
+                  : ""}{" "}
+                − net capital) ÷ net capital
               </p>
             )}
             {reviewed?.returnedCapitalReconciliationPending && (

@@ -168,4 +168,29 @@ describe("position capital display", () => {
       ),
     ).toMatchObject({ amountMinor: null, upfrontFeesMinor: null });
   });
+  it("prefers confirmed net capital to a rounded percentage fee display", () => {
+    const source = lot({
+      netCapitalMinor: 71_111,
+      upfrontDeductionsMinor: 8_889,
+      feesComplete: true,
+      fees: [
+        {
+          id: "fee",
+          label: "One-time fee",
+          kind: "one_time",
+          method: "percentage",
+          ratePpm: 100_000,
+          paidMinor: null,
+          basis: "cash",
+          basisMinor: null,
+          prepaidMonths: null,
+        },
+      ],
+    });
+    expect(purchaseCapitalSummary(source)).toMatchObject({
+      amountMinor: 71_111,
+      upfrontFeesMinor: 8_889,
+      kind: "net",
+    });
+  });
 });

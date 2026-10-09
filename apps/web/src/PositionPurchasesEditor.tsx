@@ -1315,7 +1315,7 @@ function InvestmentDetailsEditor({
                   )}
                   {estimatedPerformance?.totalReturnPpm != null && (
                     <p>
-                      Estimated return on cash contributed, before carry:{" "}
+                      Estimated return on net capital, before carry:{" "}
                       {percent(BigInt(estimatedPerformance.totalReturnPpm))}
                       %. Includes reported distributions and the recorded
                       upfront fees; not tax basis.

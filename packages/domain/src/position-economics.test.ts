@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { unknownInvestmentTerms } from "./investment-details";
 
 import {
   AcceptPositionEconomicsInputSchema,
@@ -158,7 +159,11 @@ describe("position economics", () => {
         economicsContext: netContext,
         allowFundedAmountEstimate: true,
       }),
-    ).toMatchObject({ costBasisMinor: 3_000_000, totalGainMinor: -270_000 });
+    ).toMatchObject({
+      costBasisMinor: 2_730_000,
+      totalGainMinor: 0,
+      totalReturnPpm: 0,
+    });
   });
 
   it("rejects fee terms above the commitment", () => {
@@ -254,7 +259,7 @@ describe("position economics", () => {
     ).toBeNull();
   });
 
-  it("uses paid cash including fees and distributions without counting unfunded commitments", () => {
+  it("withholds net-capital returns when only a partially funded commitment is known", () => {
     const input = {
       currentValueMinor: 3_500_000,
       currentValueReported: true,
@@ -278,9 +283,9 @@ describe("position economics", () => {
       },
     };
     expect(calculatePositionPerformance(input)).toMatchObject({
-      costBasisMinor: 2_500_000,
-      totalGainMinor: 1_500_000,
-      totalReturnPpm: 600_000,
+      costBasisMinor: null,
+      totalGainMinor: null,
+      totalReturnPpm: null,
     });
     expect(
       calculatePositionPerformance({
@@ -313,11 +318,11 @@ describe("position economics", () => {
         allowFundedAmountEstimate: true,
       }),
     ).toEqual({
-      costBasisMinor: 10_000_000,
+      costBasisMinor: 9_000_000,
       costBasisSource: "reviewed_spv_terms",
       totalValueMinor: 13_500_000,
-      totalGainMinor: 3_500_000,
-      totalReturnPpm: 350_000,
+      totalGainMinor: 4_500_000,
+      totalReturnPpm: 500_000,
     });
 
     expect(
@@ -331,9 +336,110 @@ describe("position economics", () => {
         allowFundedAmountEstimate: true,
       }),
     ).toMatchObject({
-      costBasisMinor: 10_000_000,
+      costBasisMinor: 9_000_000,
       totalGainMinor: null,
       totalReturnPpm: null,
+    });
+  });
+
+  it("uses exact net capital ahead of rounded fee estimates for both carry treatments", () => {
+    const economicsContext = {
+      ...context,
+      reviewedInvestment: {
+        snapshotId: context.snapshotId,
+        receiptId: "synthetic-review",
+        cashPaidMinor: 1_000_000,
+        netCapitalMinor: 870_123,
+        estimatedNetCapitalMinor: 870_000,
+        upfrontDeductionsMinor: 129_877,
+        terms: unknownInvestmentTerms(),
+      },
+    };
+    const input = {
+      currentValueMinor: 1_740_246,
+      currentValueReported: true,
+      realizedValueMinor: 0,
+      providerCostBasisMinor: null,
+      fundedMinor: 1_000_000,
+      allowFundedAmountEstimate: true,
+      economicsContext,
+    };
+    expect(calculatePositionPerformance(input)).toMatchObject({
+      costBasisMinor: 870_123,
+      costBasisSource: "reviewed_spv_terms",
+      totalGainMinor: 870_123,
+      totalReturnPpm: 1_000_000,
+    });
+    expect(
+      calculatePositionPerformance({ ...input, currentValueMinor: 1_566_221 }),
+    ).toMatchObject({
+      costBasisMinor: 870_123,
+      totalReturnPpm: 799_999,
+    });
+  });
+
+  it("identifies estimated net capital and withholds returns for missing, zero or stale capital", () => {
+    const reviewedInvestment = {
+      snapshotId: context.snapshotId,
+      receiptId: "synthetic-review",
+      cashPaidMinor: 1_000_000,
+      netCapitalMinor: null,
+      estimatedNetCapitalMinor: 870_000,
+      upfrontDeductionsMinor: null,
+      terms: unknownInvestmentTerms(),
+    };
+    const input = {
+      currentValueMinor: 1_740_000,
+      currentValueReported: true,
+      realizedValueMinor: 0,
+      providerCostBasisMinor: null,
+      fundedMinor: 1_000_000,
+      allowFundedAmountEstimate: true,
+      economicsContext: { ...context, reviewedInvestment },
+    };
+    expect(calculatePositionPerformance(input)).toMatchObject({
+      costBasisMinor: 870_000,
+      costBasisSource: "reviewed_spv_estimate",
+      totalReturnPpm: 1_000_000,
+    });
+    for (const changes of [
+      { estimatedNetCapitalMinor: null },
+      { netCapitalMinor: 0 },
+      { snapshotId: "stale" },
+    ]) {
+      expect(
+        calculatePositionPerformance({
+          ...input,
+          economicsContext: {
+            ...context,
+            reviewedInvestment: { ...reviewedInvestment, ...changes },
+          },
+        }),
+      ).toMatchObject({ costBasisMinor: null, totalReturnPpm: null });
+    }
+    expect(
+      calculatePositionPerformance({
+        ...input,
+        economicsContext: { ...context, acceptedTerms: null },
+      }),
+    ).toMatchObject({ costBasisMinor: null, totalReturnPpm: null });
+  });
+
+  it("preserves brokerage cost basis and distributions without requiring SPV terms", () => {
+    expect(
+      calculatePositionPerformance({
+        currentValueMinor: 140_000,
+        currentValueReported: true,
+        realizedValueMinor: 10_000,
+        providerCostBasisMinor: 100_000,
+        fundedMinor: null,
+        allowFundedAmountEstimate: false,
+        economicsContext: null,
+      }),
+    ).toMatchObject({
+      costBasisMinor: 100_000,
+      costBasisSource: "provider",
+      totalReturnPpm: 500_000,
     });
   });
 });

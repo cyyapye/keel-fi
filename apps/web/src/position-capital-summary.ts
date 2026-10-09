@@ -22,6 +22,21 @@ export const capitalSummaryLabel = (summary: CapitalSummary) =>
 
 /** Display only. Estimated capital never supplies accepted capital or shares. */
 export function purchaseCapitalSummary(lot: PurchaseLot): CapitalSummary {
+  const capital = purchaseCapital(lot);
+  if (capital.conflict)
+    return {
+      amountMinor: null,
+      upfrontFeesMinor: null,
+      kind: "before_fees",
+      assumedFeeBasis: false,
+    };
+  if (capital.netCapitalMinor !== null)
+    return {
+      amountMinor: capital.netCapitalMinor,
+      upfrontFeesMinor: capital.upfrontDeductionsMinor,
+      kind: "net",
+      assumedFeeBasis: false,
+    };
   const fees = purchaseFeeSummary(lot);
   if (fees && lot.grossCashMinor !== null) {
     const net =
@@ -40,21 +55,6 @@ export function purchaseCapitalSummary(lot: PurchaseLot): CapitalSummary {
         assumedFeeBasis: false,
       };
   }
-  const capital = purchaseCapital(lot);
-  if (capital.conflict)
-    return {
-      amountMinor: null,
-      upfrontFeesMinor: null,
-      kind: "before_fees",
-      assumedFeeBasis: false,
-    };
-  if (capital.netCapitalMinor !== null)
-    return {
-      amountMinor: capital.netCapitalMinor,
-      upfrontFeesMinor: capital.upfrontDeductionsMinor,
-      kind: "net",
-      assumedFeeBasis: false,
-    };
   // Received cash alone reduces current capital. A promised refund does not.
   const received =
     lot.capitalReturn?.status === "received" ? lot.capitalReturn : undefined;
