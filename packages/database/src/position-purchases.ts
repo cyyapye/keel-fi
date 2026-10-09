@@ -52,7 +52,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
 
   private historyQuery(hasCursor: boolean) {
     return this.db.prepare(
-      `SELECT r.receipt_json FROM holding_purchase_reviews r
+      `SELECT r.receipt_json,r.prior_id FROM holding_purchase_reviews r
       WHERE r.household_id=(SELECT p.household_id FROM holding_positions p JOIN households h ON h.id=p.household_id JOIN users u ON u.id=h.owner_user_id WHERE p.id=? AND u.access_subject=?)
       AND r.position_id=? ${hasCursor ? "AND (r.accepted_at,r.id) < (?,?)" : ""}
       ORDER BY r.accepted_at DESC,r.id DESC LIMIT 31`,
@@ -71,13 +71,22 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
         positionId,
         ...(cursor ? [cursor.date, cursor.id] : []),
       )
-      .all<{ receipt_json: string }>();
-    const receipts = result.results
-      .slice(0, 30)
-      .map((r) => PurchaseReceiptSchema.parse(JSON.parse(r.receipt_json)));
+      .all<{ receipt_json: string; prior_id: string | null }>();
+    const receipts = result.results.slice(0, 30).map((r) => ({
+      ...PurchaseReceiptSchema.parse(JSON.parse(r.receipt_json)),
+      previousReceiptId: r.prior_id,
+    }));
     const last = receipts.at(-1);
     return InvestmentHistorySchema.parse({
       receipts,
+      previous: result.results[30]
+        ? {
+            ...PurchaseReceiptSchema.parse(
+              JSON.parse(result.results[30].receipt_json),
+            ),
+            previousReceiptId: result.results[30].prior_id,
+          }
+        : null,
       next:
         result.results.length > 30 && last
           ? { date: last.acceptedAt, id: last.id }

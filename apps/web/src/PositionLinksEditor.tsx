@@ -80,10 +80,12 @@ export function PositionLinksEditor({
   onAccepted,
   reviewEntry = false,
   initialOpen = false,
+  compact = false,
 }: {
   positionId: string;
   reviewEntry?: boolean;
   initialOpen?: boolean;
+  compact?: boolean;
   onAccepted: () => Promise<void>;
 }) {
   const [workspace, setWorkspace] = useState<PositionLinkWorkspace | null>(
@@ -276,8 +278,14 @@ export function PositionLinksEditor({
     }
   }
   return (
-    <section className="position-links" aria-labelledby="position-links-title">
-      <h3 id="position-links-title">Linked investment records</h3>
+    <section
+      className="position-links"
+      aria-labelledby={!compact || open ? "position-links-title" : undefined}
+      aria-label={compact && !open ? "Linked investment records" : undefined}
+    >
+      {(!compact || open) && (
+        <h3 id="position-links-title">Linked investment records</h3>
+      )}
       {!open ? (
         <Button onClick={() => void load()}>
           {reviewEntry

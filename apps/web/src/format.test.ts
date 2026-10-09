@@ -5,7 +5,24 @@ import {
   formatCurrency,
   formatMagnitudeRoundedCurrency,
   formatRoundedCompactCurrency,
+  formatSharePrice,
+  formatSavedAt,
 } from "./format";
+
+describe("holding evidence precision", () => {
+  it("keeps sub-cent share prices exact while displaying at least two decimals", () => {
+    expect(formatSharePrice(24_700_000)).toBe("$24.70");
+    expect(formatSharePrice(24_712_345)).toBe("$24.712345");
+    expect(formatSharePrice(100_000_000)).toBe("$100.00");
+    expect(formatSharePrice(5_000)).toBe("$0.005");
+  });
+  it("distinguishes changes in the same day with an explicit time zone", () => {
+    expect(formatSavedAt("2026-10-01T12:00:01Z")).not.toBe(
+      formatSavedAt("2026-10-01T12:00:02Z"),
+    );
+    expect(formatSavedAt("2026-10-01T12:00:01Z")).toContain("UTC");
+  });
+});
 
 describe("formatCompactCurrency", () => {
   it("formats large two-decimal currencies without floating-point math", () => {

@@ -24,7 +24,7 @@ import {
 } from "@keel/ui";
 import { HoldingDate, HoldingInput, HoldingSelect } from "./HoldingFields";
 import { decimal, scaled } from "./decimal-input";
-import { formatDate, formatMoney } from "./format";
+import { formatDate, formatMoney, formatSharePrice } from "./format";
 
 type Evidence = ReturnType<typeof PositionValuationEvidenceSchema.parse>;
 type Draft = {
@@ -337,7 +337,7 @@ export function HoldingValuationEditor({
         )}
         {updatedPrice && record.origin !== "judgment" && (
           <p className="holding-metadata">
-            Updated price: ${decimal(updatedPrice.markMicros, 6)}/share ·{" "}
+            Updated price: {formatSharePrice(updatedPrice.markMicros!)}/share ·{" "}
             {formatDate(updatedPrice.markDate!)}{" "}
             <Button tone="quiet" onClick={adoptUpdatedPrice}>
               Use updated price
@@ -347,7 +347,11 @@ export function HoldingValuationEditor({
         {record.origin === "proxy" ? (
           <div className="holding-valuation-preview">
             <p>
-              {draft.label} · ${draft.price}/share · {draft.shareClass}
+              {draft.label} ·{" "}
+              {price !== null && Number.isSafeInteger(price)
+                ? `${formatSharePrice(price)}/share`
+                : "Price unavailable"}{" "}
+              · {draft.shareClass}
             </p>
             <p className="holding-metadata">
               {draft.priceDate
@@ -492,7 +496,7 @@ export function HoldingValuationEditor({
                   label: "Calculated from your shares",
                   content: choiceAmount(
                     calculation!.valueMinor,
-                    `${decimal(calculation!.quantityMicros, 6)} shares in Investment × $${decimal(price, 6)}/share · ${formatDate(draft.priceDate)}`,
+                    `${decimal(calculation!.quantityMicros, 6)} shares in Investment × ${formatSharePrice(price!)}/share · ${formatDate(draft.priceDate)}`,
                     "Before carry",
                   ),
                 },
@@ -510,8 +514,8 @@ export function HoldingValuationEditor({
               {formatMoney(calculation.valueMinor)}
             </strong>
             <p className="holding-metadata">
-              {decimal(calculation.quantityMicros, 6)} shares × $
-              {decimal(price, 6)}/share
+              {decimal(calculation.quantityMicros, 6)} shares ×{" "}
+              {formatSharePrice(price!)}/share
             </p>
           </div>
         )}

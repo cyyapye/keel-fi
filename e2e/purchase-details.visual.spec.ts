@@ -219,7 +219,16 @@ async function setup(
   );
   await page.route(
     "**/api/investment-positions/synthetic-holding/history",
-    (route) => route.fulfill({ json: { receipts: history, next: null } }),
+    (route) =>
+      route.fulfill({
+        json: {
+          receipts: history.map((r, i) => ({
+            ...r,
+            previousReceiptId: history[i + 1]?.id ?? null,
+          })),
+          next: null,
+        },
+      }),
   );
   await page.route(
     "**/api/investment-positions/synthetic-holding/links",
@@ -251,6 +260,7 @@ async function setup(
       receipt = PurchaseReceiptSchema.parse({
         ...receipt,
         id: `receipt-${history.length + 1}`,
+        acceptedAt: `2026-10-01T12:00:${String(history.length).padStart(2, "0")}.000Z`,
         details: {
           ...receipt.details,
           valuation: {
@@ -291,6 +301,7 @@ async function setup(
       receipt = PurchaseReceiptSchema.parse({
         ...receipt,
         id: `receipt-${history.length + 1}`,
+        acceptedAt: `2026-10-01T12:00:${String(history.length).padStart(2, "0")}.000Z`,
         details: { ...input.details, valuation: receipt.details.valuation },
       });
       history.unshift(receipt);
@@ -363,7 +374,7 @@ test("valuation choices compare both amounts and preserve investment shares afte
     page.getByRole("group", {
       name: "Choose the valuation shown for this holding",
     }),
-  ).toContainText("84.4 shares in Investment × $200/share");
+  ).toContainText("84.4 shares in Investment × $200.00/share");
   await screenshot(page, "valuation-choice.png");
   await page.getByRole("radio", { name: /Reported by GP/ }).focus();
   await page.keyboard.press("ArrowRight");
@@ -396,15 +407,90 @@ test("valuation choices compare both amounts and preserve investment shares afte
     .getByRole("button", { name: "Sources & history", exact: true })
     .click();
   await page
-    .getByRole("button", { name: /^Saved / })
+    .locator(".holding-receipt-history")
+    .getByRole("button")
     .first()
     .click();
   await expect(page.locator(".holding-receipt-history")).toContainText(
-    "$200/share · Date unknown",
+    "$200.00/share · Date unknown",
   );
   await expect(page.locator(".holding-receipt-history")).not.toContainText(
     "1970",
   );
+});
+
+test("new acquisitions can be removed without discarding other investment edits", async ({
+  page,
+}) => {
+  const state = await setup(page);
+  await page.getByRole("button", { name: "Edit investment" }).click();
+  await page
+    .getByRole("textbox", { name: "Cash paid · $", exact: true })
+    .fill("11000");
+  await page
+    .getByRole("button", { name: "Add acquisition", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Acquisition 2", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Remove acquisition 1", exact: true }),
+  ).toHaveCount(0);
+  await screenshot(page, "acquisition-draft.png");
+  await page
+    .getByRole("button", { name: "Remove acquisition 2", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Add acquisition", exact: true }),
+  ).toBeFocused();
+  await expect(
+    page.getByRole("textbox", { name: "Cash paid · $", exact: true }),
+  ).toHaveValue("11000");
+  await expect(page.locator(".holding-acquisition")).toHaveCount(1);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(state.receipt().details.lots[0]!.grossCashMinor).toBe(1_000_000);
+});
+
+test("saved history distinguishes same-day changes and avoids a duplicate current valuation", async ({
+  page,
+}) => {
+  await setup(page);
+  for (const value of ["18000", "19000"]) {
+    await page.getByRole("button", { name: "Edit valuation" }).click();
+    await page
+      .getByRole("textbox", { name: "Position total · $", exact: true })
+      .fill(value);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Edit valuation" }),
+    ).toBeVisible();
+  }
+  await page
+    .getByRole("button", { name: "Sources & history", exact: true })
+    .click();
+  const history = page.locator(".holding-receipt-history");
+  await expect(history).toContainText(
+    "Valuation · Synthetic GP $19,000.00 · before carry",
+  );
+  await expect(history).toContainText(
+    "Valuation · Synthetic GP $18,000.00 · before carry",
+  );
+  await expect(history).toContainText("UTC");
+  await expect(history).toContainText("12:00:01 PM UTC");
+  await expect(history).toContainText("12:00:02 PM UTC");
+  await expect(
+    page.locator(".holding-history > div > .data-list"),
+  ).not.toContainText("$19,000.00");
+  await expect(
+    page.getByRole("heading", {
+      name: "Linked investment records",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Link investment records", exact: true }),
+  ).toBeVisible();
+  await screenshot(page, "holding-history.png");
 });
 
 test("sources restore GP facts and estimates without duplicate forms or acknowledgments", async ({

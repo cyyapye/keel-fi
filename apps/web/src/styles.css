@@ -9816,10 +9816,30 @@ h1,
   margin: 24px 0;
 }
 .holding-acquisition + .holding-acquisition {
-  margin-top: 32px;
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--line);
+}
+.holding-receipt-history {
+  margin-top: 24px;
+}
+.holding-history-entry {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+.holding-history-entry small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.holding-receipt-history > div + div {
+  margin-top: 20px;
 }
 .holding-form-fieldset > .action-group {
   margin-top: 24px;
+}
+.holding-form-fieldset > .holding-acquisition-actions {
+  margin: 28px 0 36px;
 }
 @media (max-width: 760px) {
   .holding-value-summary {

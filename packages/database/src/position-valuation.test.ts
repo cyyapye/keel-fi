@@ -258,6 +258,14 @@ it("paginates 120 immutable revisions without per-row requests and isolates empt
   const first = await repo.history(COST_SUBJECT, positionId);
   expect(first.receipts).toHaveLength(30);
   expect(first.next).not.toBeNull();
+  expect(first.previous).not.toBeNull();
+  for (const receipt of [...first.receipts, first.previous!]) {
+    expect(receipt.previousReceiptId).toBe(
+      db.sqlite
+        .prepare("SELECT prior_id FROM holding_purchase_reviews WHERE id=?")
+        .get(receipt.id)!.prior_id,
+    );
+  }
   expect(db.queries).toHaveLength(1);
   const statement = db.statements.at(-1)!;
   const plan = db.sqlite
@@ -269,13 +277,16 @@ it("paginates 120 immutable revisions without per-row requests and isolates empt
   let page = first;
   const ids = new Set(page.receipts.map((r) => r.id));
   while (page.next) {
+    const lookahead = page.previous;
     page = await repo.history(COST_SUBJECT, positionId, page.next);
+    expect(page.receipts[0]).toEqual(lookahead);
     for (const r of page.receipts) {
       expect(ids.has(r.id)).toBe(false);
       ids.add(r.id);
     }
   }
   expect(ids.size).toBe(121);
+  expect(page.previous).toBeNull();
   expect((await repo.history("foreign-user", positionId)).receipts).toEqual([]);
   expect((await repo.history(COST_SUBJECT, "absent")).receipts).toEqual([]);
 });
