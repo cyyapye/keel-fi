@@ -322,6 +322,25 @@ test("review duplicate sources and replacement history with no typing, saved rel
   await expect(
     section.getByText("Review history", { exact: true }),
   ).toHaveCount(0);
+  const sourcedRecord = recordsInSection.filter({
+    hasText: "Demo Orbit Aerospace source",
+  });
+  const acceptedBeforeCancel = links.length;
+  await sourcedRecord.getByRole("button", { name: "Unlink record" }).click();
+  await expect(sourcedRecord).toContainText(
+    "This link will stop supplying reported value.",
+  );
+  await expect(sourcedRecord).toContainText("Records and history are kept.");
+  await expect(section).toHaveScreenshot("position-unlink-sourced-review.png", {
+    animations: "disabled",
+  });
+  await sourcedRecord
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  expect(links).toHaveLength(acceptedBeforeCancel);
+  await expect(
+    sourcedRecord.getByRole("button", { name: "Unlink record" }),
+  ).toBeFocused();
   expect(
     await page.evaluate(
       () =>

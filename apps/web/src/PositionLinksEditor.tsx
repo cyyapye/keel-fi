@@ -432,7 +432,7 @@ export function PositionLinksEditor({
                           {member?.legalVehicleName ?? "This source"} will
                           appear as a separate investment again.
                           {link.useSourceValue &&
-                            " This investment will stop using its reported value."}{" "}
+                            " This link will stop supplying reported value."}{" "}
                           Records and history are kept. You can link it again.
                         </p>
                         <ActionGroup>
