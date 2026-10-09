@@ -77,7 +77,7 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest starts expensive fixtures first, immediately after integrity and PDF-image provisioning; three CI workers finish costly D1 work before browser admission where possible, while local runs retain two workers. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state.",
+        "launch": "Vitest starts expensive fixtures first, immediately after integrity and PDF-image provisioning; two workers leave CPU capacity for browser lanes and measured priorities schedule costly files first after early admission. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },

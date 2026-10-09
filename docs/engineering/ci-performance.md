@@ -116,7 +116,7 @@ confirmed cleanup; all original probes remain required. The fixture uses a slot
 released by an earlier flow and can overlap remaining source/PDF work. No
 browser consumer starts before its fixture, PDF isolation and build succeed.
 
-The unit suite uses three workers in CI and two locally, and starts historically
+The unit suite uses two workers in CI and locally, and starts historically
 expensive files first. Its early admission reduces overlap between expensive D1
 fixtures and browser startup. Browser verification produces five reports while
 admitting at most four workers: three stateful partitions, 74 API-mocked
@@ -302,8 +302,8 @@ Reducing Vitest to two workers removed those failures in run `37960063713`: all
 328 browser cases passed, but the complete gate exhausted its 900-second budget
 with unit work still unfinished. Admit the unit flow immediately after its real
 integrity and image prerequisites, before migration and browser preparation, and
-retain three CI workers. This starts the costly native fixtures earlier instead
-of reducing throughput across the entire suite. Keep all cases, assertions,
+start the costly native fixtures earlier. The later two-worker schedule retains
+this early admission and the measured priorities. Keep all cases, assertions,
 watchdogs, retries and the 900-second complete-gate budget unchanged. These
 failed runs diagnose scheduling and contention; they do not prove the revised
 schedule's readiness or performance. Only a complete exact-revision receipt can
@@ -317,6 +317,14 @@ run `37951901830`. Include that observed duration in the existing longest-first
 sequencer so the fixture starts in the early native pool. Its 120-position
 scale, historical and foreign-household cases, D1 limits and watchdog remain
 unchanged.
+
+Run `37965665802` completed the rename fixture in 246.8 seconds after scheduling
+it early. Its remaining unit failure was a five-second runtime-inventory
+watchdog during browser overlap; nearby samples averaged 94.4% CPU busy. Restore
+two unit workers while retaining early admission and the measured priorities.
+The prior two-worker budget failure started native work 153.8 seconds later and
+had not yet included the rename timing hint. Full unchanged membership and a
+complete successful receipt remain the acceptance criteria for this schedule.
 
 Native CI uses loopback web ports 31031–31035 and API ports 32032, 32033 and
 32035, outside local development ranges and OVH's Linux ephemeral range
