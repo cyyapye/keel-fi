@@ -227,7 +227,7 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest schedules expensive files first and owns fresh workerd, synthetic D1, GPG and temporary fixtures; three CI workers (two locally) bound native process contention.",
+        "launch": "Vitest schedules expensive files first and owns fresh workerd, synthetic D1, GPG and temporary fixtures; two workers leave capacity for the independent browser lanes and bound native process contention.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },

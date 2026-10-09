@@ -115,7 +115,7 @@ confirmed cleanup; all original probes remain required. The fixture uses a slot
 released by an earlier flow and can overlap remaining source/PDF work. No
 browser consumer starts before its fixture, PDF isolation and build succeed.
 
-The unit suite uses three workers in CI and two locally, and starts historically
+The unit suite uses two workers in CI and locally, and starts historically
 expensive files first. Browser verification produces five reports while
 admitting at most four workers: three stateful partitions, 74 API-mocked
 executions served from the verified production build, and 32 API-mocked
@@ -290,6 +290,17 @@ exception, query-plan and read/write ceilings remain. Review workflow and
 stale-evidence behavior remain covered by their dedicated integration tests.
 
 ## Failure and recovery
+
+PR run `37951901830` exposed contention across independent native and browser
+fixtures: one attempt timed out an unchanged cash cost case at 60 seconds; the
+next timed out an unchanged cash integration case at five seconds and a browser
+waiting for its initial portfolio read at 30 seconds. Host samples around the
+second failures averaged 90.1% CPU busy with CPU pressure reaching 66.19%. Limit
+Vitest to two workers to leave capacity for the browser lanes. Keep all cases,
+assertions, watchdogs, retries and the 900-second complete-gate budget
+unchanged. These failed runs diagnose contention; they do not prove the new
+schedule's readiness or performance. Only a complete exact-revision receipt can
+establish that.
 
 Native CI uses loopback web ports 31031–31035 and API ports 32032, 32033 and
 32035, outside local development ranges and OVH's Linux ephemeral range
