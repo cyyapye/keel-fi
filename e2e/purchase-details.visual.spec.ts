@@ -693,6 +693,9 @@ test("one timeline refreshes after unlink, keeps failed decisions unapplied and 
   await expect(
     timeline.getByRole("button", { name: /^Unlinked ·/ }),
   ).toBeVisible();
+  await expect(
+    timeline.getByRole("button", { name: /^Investment · One-time fee/ }),
+  ).toHaveAttribute("aria-expanded", "false");
   await expect(disclosure).toBeFocused();
   await expect(
     links.getByRole("button", { name: "Unlink record", exact: true }),
