@@ -37,6 +37,11 @@ export function SpvHoldingDetail({
   const [payment, setPayment] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [investmentEditing, setInvestmentEditing] = useState(false);
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const acceptedChange = async () => {
+    await onAccepted();
+    setHistoryRevision((n) => n + 1);
+  };
   const heading = useRef<HTMLHeadingElement>(null);
   const edit = useRef<HTMLButtonElement>(null);
   const { record, reviewed, after, beforeReturn, afterReturn } =
@@ -237,7 +242,7 @@ export function SpvHoldingDetail({
         <HoldingValuationEditor
           key={holding.id}
           holding={holding}
-          onAccepted={onAccepted}
+          onAccepted={acceptedChange}
           onClose={close}
         />
       ) : !record ? (
@@ -339,7 +344,7 @@ export function SpvHoldingDetail({
         key={`${holding.id}:${holding.purchaseContext?.receipt?.id ?? "new"}`}
         holding={holding}
         disabled={editing}
-        onAccepted={onAccepted}
+        onAccepted={acceptedChange}
         onEditingChange={setInvestmentEditing}
       />
       <Collapsible className="holding-history">
@@ -357,11 +362,13 @@ export function SpvHoldingDetail({
               value={`${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`}
             />
           </DataList>
-          <HoldingHistory positionId={holding.id} />
+          <HoldingHistory
+            key={`${holding.id}:${historyRevision}`}
+            positionId={holding.id}
+          />
           <PositionLinksEditor
             positionId={holding.id}
-            onAccepted={onAccepted}
-            compact
+            onAccepted={acceptedChange}
           />
         </CollapsibleContent>
       </Collapsible>

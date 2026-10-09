@@ -256,14 +256,15 @@ it("paginates 120 immutable revisions without per-row requests and isolates empt
   for (let i = 0; i < 121; i++) previous = await saveInvestment(previous);
   db.queries.length = 0;
   const first = await repo.history(COST_SUBJECT, positionId);
-  expect(first.receipts).toHaveLength(30);
+  expect(first.entries).toHaveLength(30);
   expect(first.next).not.toBeNull();
-  expect(first.previous).not.toBeNull();
-  for (const receipt of [...first.receipts, first.previous!]) {
-    expect(receipt.previousReceiptId).toBe(
+  for (const entry of first.entries) {
+    expect(entry.kind).toBe("investment");
+    if (entry.kind !== "investment") throw new Error("Unexpected link");
+    expect(entry.previous?.id ?? null).toBe(
       db.sqlite
         .prepare("SELECT prior_id FROM holding_purchase_reviews WHERE id=?")
-        .get(receipt.id)!.prior_id,
+        .get(entry.receipt.id)!.prior_id,
     );
   }
   expect(db.queries).toHaveLength(1);
@@ -274,21 +275,20 @@ it("paginates 120 immutable revisions without per-row requests and isolates empt
     .map((r) => String(r.detail))
     .join("\n");
   expect(plan).toContain("holding_purchase_reviews_position");
+  expect(plan).toContain("holding_position_link_target_history");
+  expect(plan).not.toMatch(/SCAN (r|prior)\b/u);
   let page = first;
-  const ids = new Set(page.receipts.map((r) => r.id));
+  const ids = new Set(page.entries.map((r) => r.receipt.id));
   while (page.next) {
-    const lookahead = page.previous;
     page = await repo.history(COST_SUBJECT, positionId, page.next);
-    expect(page.receipts[0]).toEqual(lookahead);
-    for (const r of page.receipts) {
-      expect(ids.has(r.id)).toBe(false);
-      ids.add(r.id);
+    for (const r of page.entries) {
+      expect(ids.has(r.receipt.id)).toBe(false);
+      ids.add(r.receipt.id);
     }
   }
   expect(ids.size).toBe(121);
-  expect(page.previous).toBeNull();
-  expect((await repo.history("foreign-user", positionId)).receipts).toEqual([]);
-  expect((await repo.history(COST_SUBJECT, "absent")).receipts).toEqual([]);
+  expect((await repo.history("foreign-user", positionId)).entries).toEqual([]);
+  expect((await repo.history(COST_SUBJECT, "absent")).entries).toEqual([]);
 });
 
 it("keeps stale investment evidence inactive when a later source receives a new total", async () => {

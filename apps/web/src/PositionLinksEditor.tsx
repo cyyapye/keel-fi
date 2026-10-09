@@ -1,5 +1,6 @@
 import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { HoldingHistory } from "./HoldingHistory";
+import { useState, useEffect, useCallback, useRef, useId } from "react";
 import {
   includesCurrentInvestment,
   effectiveParticipation,
@@ -80,14 +81,17 @@ export function PositionLinksEditor({
   onAccepted,
   reviewEntry = false,
   initialOpen = false,
-  compact = false,
 }: {
   positionId: string;
   reviewEntry?: boolean;
   initialOpen?: boolean;
-  compact?: boolean;
   onAccepted: () => Promise<void>;
 }) {
+  const headingId = useId();
+  const disclosure = useRef<HTMLButtonElement>(null);
+  const unlinkButtons = useRef(new Map<string, HTMLButtonElement>());
+  const [unlinkId, setUnlinkId] = useState<string | null>(null);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [workspace, setWorkspace] = useState<PositionLinkWorkspace | null>(
     null,
   );
@@ -262,8 +266,11 @@ export function PositionLinksEditor({
       });
       setWorkspace(await loadPositionLinks());
       setSourceId("");
+      setUnlinkId(null);
       setUseSourceValue(false);
       await onAccepted();
+      setHistoryRevision((n) => n + 1);
+      if (remove) requestAnimationFrame(() => disclosure.current?.focus());
       try {
         await refreshPortfolioBaseline();
       } catch {
@@ -278,26 +285,24 @@ export function PositionLinksEditor({
     }
   }
   return (
-    <section
-      className="position-links"
-      aria-labelledby={!compact || open ? "position-links-title" : undefined}
-      aria-label={compact && !open ? "Linked investment records" : undefined}
-    >
-      {(!compact || open) && (
-        <h3 id="position-links-title">Linked investment records</h3>
-      )}
-      {!open ? (
-        <Button onClick={() => void load()}>
-          {reviewEntry
-            ? "Same investment / company renamed"
-            : "Link investment records"}
-        </Button>
-      ) : (
-        <>
-          <p>
-            Keep this SPV as one investment. Dated source records, documents and
-            terms remain available in its history.
-          </p>
+    <section className="position-links" aria-labelledby={headingId}>
+      <Collapsible
+        open={open}
+        onOpenChange={(value) => {
+          setOpen(value);
+          setUnlinkId(null);
+          if (value && workspace === null) void load();
+        }}
+      >
+        <CollapsibleTrigger
+          ref={disclosure}
+          layout="inline"
+          disabled={busy && workspace !== null}
+        >
+          <h3 id={headingId}>Linked investment records</h3>
+          <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
           {error && (
             <Notice tone="error">
               {error}
@@ -311,41 +316,6 @@ export function PositionLinksEditor({
           )}
           {target && (
             <>
-              {workspace!.history.some(
-                (link) =>
-                  link.targetPositionId === targetId ||
-                  link.sourcePositionId === targetId,
-              ) && (
-                <Collapsible>
-                  <CollapsibleTrigger layout="inline">
-                    Review history
-                    <DisclosureIndicator />
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    {workspace!.history
-                      .filter(
-                        (link) =>
-                          link.targetPositionId === targetId ||
-                          link.sourcePositionId === targetId,
-                      )
-                      .map((link) => (
-                        <p key={link.id}>
-                          {link.companyRenamed
-                            ? "Company rename"
-                            : link.relationship === "replaced"
-                              ? "SPV replacement"
-                              : "Same investment"}{" "}
-                          · {link.state === "linked" ? "Linked" : "Unlinked"} ·{" "}
-                          {formatDate(link.acceptedAt)}
-                        </p>
-                      ))}
-                    <p>
-                      Showing decisions from the 50 most recent investment-link
-                      reviews.
-                    </p>
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
               {reviewEntry && (
                 <Field label="Investment record to keep">
                   <SearchSelect
@@ -377,17 +347,6 @@ export function PositionLinksEditor({
                   />
                 </Field>
               )}
-              {workspace?.links
-                .filter(
-                  (l) =>
-                    l.targetPositionId === targetId && l.state === "unlinked",
-                )
-                .map((l) => (
-                  <p key={l.id}>
-                    Record unlinked · {formatDate(l.acceptedAt)}. Both sources
-                    are separate again.
-                  </p>
-                ))}
               {activeLinks.map((link) => {
                 const member = workspace?.positions.find(
                   (p) => p.id === link.sourcePositionId,
@@ -467,9 +426,50 @@ export function PositionLinksEditor({
                         </CollapsibleContent>
                       </Collapsible>
                     )}
-                    <Button disabled={busy} onClick={() => void save(link)}>
-                      Unlink record
-                    </Button>
+                    {unlinkId === link.id ? (
+                      <div className="position-link-confirmation">
+                        <p>
+                          {member?.legalVehicleName ?? "This source"} will
+                          appear as a separate investment again.
+                          {link.useSourceValue &&
+                            " This investment will stop using its reported value."}{" "}
+                          Records and history are kept. You can link it again.
+                        </p>
+                        <ActionGroup>
+                          <Button
+                            disabled={busy}
+                            onClick={() => void save(link)}
+                          >
+                            {busy ? "Unlinking…" : "Unlink"}
+                          </Button>
+                          <Button
+                            tone="quiet"
+                            disabled={busy}
+                            onClick={() => {
+                              setUnlinkId(null);
+                              requestAnimationFrame(() =>
+                                unlinkButtons.current.get(link.id)?.focus(),
+                              );
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </ActionGroup>
+                      </div>
+                    ) : (
+                      <Button
+                        ref={(element) => {
+                          if (element)
+                            unlinkButtons.current.set(link.id, element);
+                          else unlinkButtons.current.delete(link.id);
+                        }}
+                        tone="quiet"
+                        disabled={busy}
+                        onClick={() => setUnlinkId(link.id)}
+                      >
+                        Unlink record
+                      </Button>
+                    )}
                   </div>
                 );
               })}
@@ -707,10 +707,24 @@ export function PositionLinksEditor({
               {activeLinks.length === 0 && candidates.length === 0 && (
                 <p>No other private investment records are available.</p>
               )}
+              {reviewEntry && (
+                <Collapsible>
+                  <CollapsibleTrigger layout="inline">
+                    History
+                    <DisclosureIndicator />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <HoldingHistory
+                      key={`${target.id}:${historyRevision}`}
+                      positionId={target.id}
+                    />
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
             </>
           )}
-        </>
-      )}
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }

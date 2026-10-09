@@ -27,7 +27,7 @@ export class D1PositionLinkRepository {
   }
   async workspace(subject: string) {
     const identity = await this.identity(subject);
-    const [view, links, history] = await Promise.all([
+    const [view, links] = await Promise.all([
       new D1InvestmentPositionViewRepository(this.db).listForHousehold(
         identity.household_id,
         new Date().toISOString(),
@@ -37,17 +37,6 @@ export class D1PositionLinkRepository {
         .prepare(
           `SELECT r.id,r.source_position_id sourcePositionId,r.target_position_id targetPositionId,r.relationship,r.state,r.use_source_value useSourceValue,r.note,r.accepted_at acceptedAt,r.company_renamed companyRenamed,r.company_name companyName,r.former_company_name formerCompanyName
         FROM holding_position_link_heads h JOIN holding_position_link_reviews r ON r.id=h.review_id WHERE h.household_id=? ORDER BY r.accepted_at,r.id`,
-        )
-        .bind(identity.household_id)
-        .all<
-          Omit<PositionLinkReceipt, "useSourceValue" | "companyRenamed"> & {
-            useSourceValue: number;
-            companyRenamed: number;
-          }
-        >(),
-      this.db
-        .prepare(
-          `SELECT id,source_position_id sourcePositionId,target_position_id targetPositionId,relationship,state,use_source_value useSourceValue,note,accepted_at acceptedAt,company_renamed companyRenamed,company_name companyName,former_company_name formerCompanyName FROM holding_position_link_reviews WHERE household_id=? ORDER BY accepted_at DESC,id DESC LIMIT 50`,
         )
         .bind(identity.household_id)
         .all<
@@ -74,11 +63,6 @@ export class D1PositionLinkRepository {
           })),
         );
       }),
-      history: history.results.map((r) => ({
-        ...r,
-        useSourceValue: r.useSourceValue === 1,
-        companyRenamed: r.companyRenamed === 1,
-      })),
       links: links.results.map((r) => ({
         ...r,
         useSourceValue: r.useSourceValue === 1,

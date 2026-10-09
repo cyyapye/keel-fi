@@ -1,6 +1,5 @@
 import {
   effectivePositionValuation,
-  type InvestmentHistorySchema,
   type PurchaseReceipt,
 } from "@keel/domain/position-purchases";
 import { decimal } from "./decimal-input";
@@ -8,20 +7,6 @@ import { formatMoney, formatSharePrice } from "./format";
 
 const differs = (a: unknown, b: unknown) =>
   JSON.stringify(a) !== JSON.stringify(b);
-
-export function previousHistoryReceipt(
-  history: ReturnType<typeof InvestmentHistorySchema.parse>,
-  index: number,
-) {
-  const receipt = history.receipts[index]!;
-  if (receipt.previousReceiptId === undefined)
-    return history.receipts[index + 1] ?? history.previous;
-  return (
-    [...history.receipts, ...(history.previous ? [history.previous] : [])].find(
-      (r) => r.id === receipt.previousReceiptId,
-    ) ?? null
-  );
-}
 
 /** Compare saved predecessors; an unavailable predecessor yields a snapshot summary. */
 export function holdingHistorySummary(

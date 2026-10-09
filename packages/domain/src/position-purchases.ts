@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PositionLinkReceiptSchema } from "./position-link-receipt";
 import { InvestmentFeeSchema, investmentFeeAmount } from "./investment-fees";
 import { ValuationStateSchema, type ValuationRecord } from "./valuation-record";
 import {
@@ -221,20 +222,29 @@ export const PurchaseReceiptSchema = z.object({
   acceptedAt: z.iso.datetime(),
 });
 export const InvestmentHistorySchema = z.object({
-  receipts: z
+  entries: z
     .array(
-      PurchaseReceiptSchema.extend({
-        previousReceiptId: z.string().nullable().optional(),
-      }),
+      z.discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("investment"),
+          receipt: PurchaseReceiptSchema,
+          previous: PurchaseReceiptSchema.nullable(),
+        }),
+        z.object({
+          kind: z.literal("link"),
+          receipt: PositionLinkReceiptSchema,
+          sourceLabel: z.string().min(1),
+          targetLabel: z.string().min(1),
+        }),
+      ]),
     )
     .max(30),
-  previous: PurchaseReceiptSchema.extend({
-    previousReceiptId: z.string().nullable().optional(),
-  })
-    .nullable()
-    .default(null),
   next: z
-    .object({ date: z.iso.datetime(), id: z.string().min(1).max(200) })
+    .object({
+      date: z.iso.datetime(),
+      id: z.string().min(1).max(200),
+      kind: z.enum(["investment", "link"]),
+    })
     .nullable(),
 });
 export const AcceptPurchasesSchema = z

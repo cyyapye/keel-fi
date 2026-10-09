@@ -8,6 +8,7 @@ import {
   LINK_DEMO_SUBJECT,
 } from "../../../scripts/seed-position-links";
 import { D1PositionLinkRepository } from "./position-links";
+import { D1PositionPurchaseRepository } from "./position-purchases";
 import { D1HoldingsPageRepository } from "./holdings-page";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
@@ -110,6 +111,20 @@ it("counts each investment once, retains distinct same-company SPVs, follows syn
   expect(() =>
     db.sqlite.exec("DELETE FROM holding_position_link_reviews"),
   ).toThrow(/immutable/);
+  const timeline = new D1PositionPurchaseRepository(db.asD1());
+  for (const id of [atlas.sourcePositionId, atlas.targetPositionId]) {
+    const history = await timeline.history(LINK_DEMO_SUBJECT, id);
+    expect(history.entries).toHaveLength(2);
+    expect(history.entries.map((entry) => entry.receipt.id)).toContain(
+      first.id,
+    );
+    expect(history.entries.every((entry) => entry.kind === "link")).toBe(true);
+    expect(
+      history.entries
+        .map((entry) => entry.kind === "link" && entry.receipt.state)
+        .sort(),
+    ).toEqual(["linked", "unlinked"]);
+  }
 });
 it("rejects self, foreign, stale, cyclic links and duplicate valuation sources", async () => {
   const atlas = await input("Demo Atlas AI source", "Demo Atlas II SPV");
@@ -147,6 +162,100 @@ it("rejects self, foreign, stale, cyclic links and duplicate valuation sources",
       }),
     ),
   ).rejects.toThrow(/replaced/);
+});
+
+it("merges scoped link and investment history across tied timestamps and page boundaries", async () => {
+  const atlas = await input("Demo Atlas AI source", "Demo Atlas II SPV", {
+    useSourceValue: false,
+  });
+  const purchases = new D1PositionPurchaseRepository(db.asD1());
+  const initial = await purchases.accept(
+    LINK_DEMO_SUBJECT,
+    atlas.targetPositionId,
+    {
+      expectedSnapshotId: atlas.expectedTargetSnapshotId,
+      expectedReceiptId: null,
+      details: { coversPosition: false, lots: [] },
+    },
+  );
+  const insertLink = db.sqlite
+    .prepare(`INSERT INTO holding_position_link_reviews
+    (id,household_id,source_position_id,target_position_id,source_snapshot_id,target_snapshot_id,
+      source_participation_review_id,target_participation_review_id,prior_id,relationship,state,
+      use_source_value,note,reviewer_user_id,accepted_at)
+    VALUES(?,'hh_demo',?,?,?,?,NULL,NULL,
+      (SELECT review_id FROM holding_position_link_heads WHERE source_position_id=?),
+      'same_investment',?,0,'Synthetic timeline','usr_demo',?)`);
+  const date = "2026-10-02T12:00:00.000Z";
+  for (let i = 0; i < 120; i++)
+    insertLink.run(
+      `link-${String(i).padStart(3, "0")}`,
+      atlas.sourcePositionId,
+      atlas.targetPositionId,
+      atlas.expectedSourceSnapshotId,
+      atlas.expectedTargetSnapshotId,
+      atlas.sourcePositionId,
+      i % 2 ? "unlinked" : "linked",
+      date,
+    );
+  // A saved predecessor outside a page and a cross-table ID tie both remain
+  // unambiguous; chronology does not infer the causal predecessor.
+  const tied = { ...initial, id: "link-059", acceptedAt: date };
+  db.sqlite
+    .prepare(
+      `INSERT INTO holding_purchase_reviews
+    (id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at)
+    VALUES(?,'hh_demo',?,?,?,?, 'usr_demo',?)`,
+    )
+    .run(
+      tied.id,
+      tied.positionId,
+      tied.snapshotId,
+      initial.id,
+      JSON.stringify(tied),
+      date,
+    );
+  const orbit = await input(
+    "Demo Orbit Aerospace source",
+    "Demo Orbit VII SPV",
+    { useSourceValue: false },
+  );
+  for (let i = 0; i < 120; i++)
+    insertLink.run(
+      `other-${i}`,
+      orbit.sourcePositionId,
+      orbit.targetPositionId,
+      orbit.expectedSourceSnapshotId,
+      orbit.expectedTargetSnapshotId,
+      orbit.sourcePositionId,
+      i % 2 ? "unlinked" : "linked",
+      "2026-10-03T12:00:00.000Z",
+    );
+  let page = await purchases.history(LINK_DEMO_SUBJECT, atlas.targetPositionId);
+  const entries = [...page.entries];
+  while (page.next) {
+    page = await purchases.history(
+      LINK_DEMO_SUBJECT,
+      atlas.targetPositionId,
+      page.next,
+    );
+    entries.push(...page.entries);
+  }
+  expect(entries).toHaveLength(122);
+  expect(new Set(entries.map((e) => `${e.kind}:${e.receipt.id}`)).size).toBe(
+    122,
+  );
+  const revision = entries.find(
+    (e) => e.kind === "investment" && e.receipt.id === tied.id,
+  );
+  expect(revision?.kind === "investment" && revision.previous?.id).toBe(
+    initial.id,
+  );
+  expect(entries.filter((e) => e.kind === "link")).toHaveLength(120);
+  expect(
+    (await purchases.history("foreign-subject", atlas.targetPositionId))
+      .entries,
+  ).toEqual([]);
 });
 it("has projection-only bounded reads and indexed link lookups", async () => {
   await repo.accept(

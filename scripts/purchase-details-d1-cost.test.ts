@@ -71,20 +71,91 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
     }
     meter.reset();
     const historyPage = await purchases.history(COST_SUBJECT, target.id);
-    expect(historyPage.receipts).toHaveLength(30);
+    expect(historyPage.entries).toHaveLength(30);
     expect(historyPage.next).not.toBeNull();
     expect(meter.cost.roundTrips).toBe(1);
-    expect(meter.cost.rowsRead).toBeLessThanOrEqual(40);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(160);
     expect(meter.cost.rowsWritten).toBe(0);
     meter.reset();
     await purchases.history(COST_SUBJECT, target.id, historyPage.next!);
     expect(meter.cost.roundTrips).toBe(1);
-    expect(meter.cost.rowsRead).toBeLessThanOrEqual(40);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(160);
     meter.reset();
     expect(
-      (await purchases.history("purchase-other-subject", target.id)).receipts,
+      (await purchases.history("purchase-other-subject", target.id)).entries,
     ).toEqual([]);
-    expect(meter.cost.rowsRead).toBeLessThanOrEqual(10);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(16);
+
+    // Both sides of link history are indexed. Grow repeated-date link decisions
+    // alongside purchase revisions and unrelated household history; the merged
+    // page and every predecessor lookup stay bounded.
+    const source = positions[1]!;
+    const addLinks = async (count: number) => {
+      for (let i = 0; i < count; i++) {
+        meter.reset();
+        await meter.database
+          .prepare(
+            `INSERT INTO holding_position_link_reviews
+          (id,household_id,source_position_id,target_position_id,source_snapshot_id,target_snapshot_id,
+            source_participation_review_id,target_participation_review_id,prior_id,relationship,state,
+            use_source_value,note,reviewer_user_id,accepted_at)
+          VALUES(?,'hh_demo',?,?,?,?,NULL,NULL,
+            (SELECT review_id FROM holding_position_link_heads WHERE source_position_id=?),
+            'same_investment',?,0,'Synthetic history decision','usr_demo','2026-10-01T12:00:00.000Z')`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            source.id,
+            target.id,
+            source.snapshot.id,
+            target.snapshot.id,
+            source.id,
+            i % 2 === 0 ? "linked" : "unlinked",
+          )
+          .run();
+        expect(meter.cost.rowsWritten).toBeLessThanOrEqual(16);
+        expect(meter.cost.rowsRead).toBeLessThanOrEqual(80);
+      }
+    };
+    for (const count of [120, 240]) {
+      await addLinks(count);
+      for (const id of [target.id, source.id]) {
+        meter.reset();
+        const page = await purchases.history(COST_SUBJECT, id);
+        expect(page.entries).toHaveLength(30);
+        expect(meter.cost.roundTrips).toBe(1);
+        expect(meter.cost.rowsWritten).toBe(0);
+        expect(meter.cost.rowsRead).toBeLessThanOrEqual(260);
+        const sql = [...meter.queries].find(
+          (q) =>
+            q.includes("WITH owned") &&
+            !q.includes("AND (r.accepted_at,r.id,?)"),
+        )!;
+        const plan = (
+          await fixture.database
+            .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+            .bind(id, COST_SUBJECT, id, id, id)
+            .all<{ detail: string }>()
+        ).results;
+        expect(plan.map((r) => r.detail).join("\n")).toContain(
+          "holding_position_link_target_history",
+        );
+        expect(
+          plan.filter((r) => /SCAN (r|prior|l)\b/u.test(r.detail)),
+        ).toEqual([]);
+        meter.reset();
+        await purchases.history(COST_SUBJECT, id, page.next!);
+        expect(meter.cost.roundTrips).toBe(1);
+        expect(meter.cost.rowsRead).toBeLessThanOrEqual(260);
+        expect(meter.cost.rowsWritten).toBe(0);
+      }
+    }
+    meter.reset();
+    expect(
+      (await purchases.history(COST_SUBJECT, "absent-history-position"))
+        .entries,
+    ).toEqual([]);
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(16);
 
     meter.reset();
     const reviewed = await review.getContext(COST_SUBJECT, positions[0]!.id);

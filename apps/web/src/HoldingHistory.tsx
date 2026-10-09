@@ -10,17 +10,9 @@ import {
   DisclosureIndicator,
   Notice,
 } from "@keel/ui";
-import {
-  formatDate,
-  formatMoney,
-  formatSavedAt,
-  formatSharePrice,
-} from "./format";
-import { decimal } from "./decimal-input";
-import {
-  holdingHistorySummary,
-  previousHistoryReceipt,
-} from "./holding-history-summary";
+import { formatSavedAt } from "./format";
+import { holdingHistorySummary } from "./holding-history-summary";
+import { holdingHistoryChanges } from "./holding-history-changes";
 type History = ReturnType<typeof InvestmentHistorySchema.parse>;
 export function HoldingHistory({ positionId }: { positionId: string }) {
   const [page, setPage] = useState<History | null>(null);
@@ -58,79 +50,75 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
   if (!page) return <p>Loading history…</p>;
   return (
     <div className="holding-receipt-history">
-      {page.receipts.map((receipt, i) => (
-        <Collapsible key={receipt.id}>
-          <CollapsibleTrigger layout="inline">
-            <span className="holding-history-entry">
-              <span>
-                {holdingHistorySummary(
-                  receipt,
-                  previousHistoryReceipt(page, i),
-                )}
-              </span>
-              <small>{formatSavedAt(receipt.acceptedAt)}</small>
-            </span>
-            <DisclosureIndicator />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <DataList layout="rows">
-              {receipt.details.lots.map((lot, i) => (
-                <DataItem
-                  key={lot.id}
-                  label={
-                    receipt.details.lots.length > 1
-                      ? `Acquisition ${i + 1}`
-                      : "Investment"
-                  }
-                  value={
-                    <>
-                      {lot.grossCashMinor !== null &&
-                        `${formatMoney(lot.grossCashMinor)} paid`}
-                      {lot.capitalReturn && (
-                        <small>
-                          {formatMoney(lot.capitalReturn.amountMinor)}{" "}
-                          {lot.capitalReturn.status === "received"
-                            ? "refunded"
-                            : "refund expected"}
-                        </small>
-                      )}
-                      {lot.remainingSharesMicros !== null && (
-                        <small>
-                          {decimal(lot.remainingSharesMicros, 6)} shares
-                        </small>
-                      )}
-                    </>
-                  }
-                />
-              ))}
-              {receipt.details.valuation?.records.map((record) => (
-                <DataItem
-                  key={record.id}
-                  label={`${record.sourceLabel}${record.id === receipt.details.valuation?.selected?.recordId ? " · Selected" : ""}`}
-                  value={
-                    <>
-                      {record.totalMinor !== null &&
-                        formatMoney(record.totalMinor)}
-                      {record.priceMicros !== null && (
-                        <small>
-                          {formatSharePrice(record.priceMicros)}/share ·{" "}
-                          {record.priceDate
-                            ? formatDate(record.priceDate)
-                            : "Date unknown"}
-                        </small>
-                      )}
-                      <small>
-                        {formatDate(record.effectiveDate)} ·{" "}
-                        {record.carryStatus.replaceAll("_", " ")}
-                      </small>
-                    </>
-                  }
-                />
-              ))}
-            </DataList>
-          </CollapsibleContent>
-        </Collapsible>
-      ))}
+      {page.entries.map((entry) => {
+        const receipt = entry.receipt;
+        const changes =
+          entry.kind === "investment"
+            ? holdingHistoryChanges(entry.receipt, entry.previous)
+            : [];
+        const summary =
+          entry.kind === "investment"
+            ? holdingHistorySummary(entry.receipt, entry.previous)
+            : `${entry.receipt.state === "linked" ? "Linked" : "Unlinked"} · ${entry.sourceLabel} → ${entry.targetLabel}`;
+        const heading = (
+          <span className="holding-history-entry">
+            <span>{summary}</span>
+            <small>{formatSavedAt(receipt.acceptedAt)}</small>
+          </span>
+        );
+        if (entry.kind === "investment" && changes.length === 0)
+          return <div key={`${entry.kind}:${receipt.id}`}>{heading}</div>;
+        return (
+          <Collapsible key={`${entry.kind}:${receipt.id}`}>
+            <CollapsibleTrigger layout="inline">
+              {heading}
+              <DisclosureIndicator />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              {entry.kind === "investment" ? (
+                <DataList layout="rows">
+                  {changes.map((change) => (
+                    <DataItem
+                      key={change.key}
+                      label={change.label}
+                      value={
+                        change.before === null ? (
+                          (change.after ?? "Cleared")
+                        ) : (
+                          <>
+                            {change.before} → {change.after ?? "Cleared"}
+                          </>
+                        )
+                      }
+                    />
+                  ))}
+                </DataList>
+              ) : (
+                <>
+                  <p>
+                    {entry.receipt.companyRenamed
+                      ? `${entry.receipt.formerCompanyName} → ${entry.receipt.companyName}`
+                      : entry.receipt.relationship === "replaced"
+                        ? "SPV replacement"
+                        : "Same investment, another source"}
+                  </p>
+                  {entry.receipt.state === "unlinked" ? (
+                    <p>
+                      The source is separate again. Its records and history are
+                      retained.
+                    </p>
+                  ) : (
+                    entry.receipt.useSourceValue && (
+                      <p>Uses the linked source’s reported value.</p>
+                    )
+                  )}
+                  {entry.receipt.note && <p>{entry.receipt.note}</p>}
+                </>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
+        );
+      })}
       {page.next && (
         <Button tone="quiet" onClick={() => setCursor(page.next)}>
           Earlier history

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { InvestmentPositionRecordSchema } from "./position-read-model";
+import { PositionLinkReceiptSchema } from "./position-link-receipt";
+export { PositionLinkReceiptSchema } from "./position-link-receipt";
 
 export const AcceptPositionLinkSchema = z
   .object({
@@ -34,19 +36,6 @@ export const AcceptPositionLinkSchema = z
         message: "A replaced investment cannot provide the current value.",
       });
   });
-export const PositionLinkReceiptSchema = z.object({
-  id: z.string(),
-  sourcePositionId: z.string(),
-  targetPositionId: z.string(),
-  relationship: z.enum(["same_investment", "replaced"]),
-  state: z.enum(["linked", "unlinked"]),
-  useSourceValue: z.boolean(),
-  companyRenamed: z.boolean().default(false),
-  companyName: z.string().nullable().default(null),
-  formerCompanyName: z.string().nullable().default(null),
-  note: z.string(),
-  acceptedAt: z.iso.datetime({ offset: true }),
-});
 export const PositionLinkWorkspaceSchema = z.object({
   positions: z.array(
     InvestmentPositionRecordSchema.extend({
@@ -56,7 +45,6 @@ export const PositionLinkWorkspaceSchema = z.object({
     }),
   ),
   links: z.array(PositionLinkReceiptSchema),
-  history: z.array(PositionLinkReceiptSchema).default([]),
 });
 export type AcceptPositionLink = z.input<typeof AcceptPositionLinkSchema>;
 export type PositionLinkReceipt = z.infer<typeof PositionLinkReceiptSchema>;
