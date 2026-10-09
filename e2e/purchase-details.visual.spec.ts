@@ -674,7 +674,9 @@ test("one timeline refreshes after unlink, keeps failed decisions unapplied and 
   await links
     .getByRole("button", { name: "Unlink record", exact: true })
     .click();
-  await expect(links).toContainText("stop using its reported value");
+  await expect(links).toContainText(
+    "This link will stop supplying reported value.",
+  );
   await links.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(writes).toBe(0);
   await expect(
