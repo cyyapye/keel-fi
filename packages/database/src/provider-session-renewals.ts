@@ -22,12 +22,15 @@ export function recordProviderSessionVerification(
         THEN excluded.next_check_at
         ELSE MIN(provider_session_renewals.next_check_at, excluded.next_check_at) END,
       attempts = 0, lease_token_sha256 = NULL, lease_expires_at = NULL,
-      last_outcome_token_sha256 = NULL, last_error_code = NULL`,
+      last_outcome_token_sha256 = NULL, last_error_code = NULL,
+      last_failure_reason = NULL,
+      refresh_expires_at = CASE WHEN ? THEN NULL ELSE provider_session_renewals.refresh_expires_at END`,
       )
       .bind(
         now.toISOString(),
         new Date(now.getTime() + 6 * 60 * 60_000).toISOString(),
         householdId,
+        freshReconnect ? 1 : 0,
         freshReconnect ? 1 : 0,
       ),
   ];

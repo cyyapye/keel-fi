@@ -28,6 +28,7 @@ it.each([
   "renewal",
   "renewal_failure",
   "renewal_intermittent",
+  "renewal_transport_recovery",
   "revoked",
 ] as const)(
   "measures a complete three-agent %s day with real D1 counters",
@@ -134,6 +135,7 @@ it.each([
       const renewals = scenario.startsWith("renewal");
       const renewalFailure = scenario === "renewal_failure";
       const intermittentFailure = scenario === "renewal_intermittent";
+      const transportRecovery = scenario === "renewal_transport_recovery";
       // Start the maximum retry day with maintenance already due. Changing a
       // capture schedule does not verify the provider session. This exercises
       // all nine attempts in a rolling day, not just eight after a fresh login.
@@ -191,6 +193,16 @@ it.each([
                     async (_provider, _origin, operation) => {
                       browserStarts++;
                       expect(browserStarts).toBeLessThanOrEqual(9);
+                      if (transportRecovery && browserStarts <= 3)
+                        throw new __providerPortfolioMacAgentTest.SessionRenewalFailure(
+                          {
+                            errorCode: "unexpected_failure",
+                            reason: "transport",
+                            refreshExpiresAt: new Date(
+                              providerRefreshUntil,
+                            ).toISOString(),
+                          },
+                        );
                       if (
                         renewalFailure ||
                         (intermittentFailure && browserStarts % 3 !== 0)
@@ -202,7 +214,15 @@ it.each([
                       if (clock >= providerRefreshUntil)
                         throw new Error("Synthetic refresh token expired");
                       providerRefreshUntil = clock + 12 * 3_600_000;
-                      return Promise.resolve();
+                      return Promise.resolve(
+                        transportRecovery
+                          ? {
+                              refreshExpiresAt: new Date(
+                                providerRefreshUntil,
+                              ).toISOString(),
+                            }
+                          : undefined,
+                      );
                     },
                   ),
               }
@@ -230,7 +250,12 @@ it.each([
           },
           updateIntervalMs: authorization.target === "angellist" ? DAY : 60_000,
           onError: (error) => {
-            if (!rejected && !renewalFailure && !intermittentFailure)
+            if (
+              !rejected &&
+              !renewalFailure &&
+              !intermittentFailure &&
+              !transportRecovery
+            )
               throw error;
             return rejected ? "authorization" : "retryable";
           },
@@ -247,8 +272,10 @@ it.each([
       expect(workerInvocations).toBeLessThanOrEqual(rejected ? 600 : 20_000);
       expect(maxRoundTrips).toBeLessThanOrEqual(10);
       expect(sessionLeaseRequests).toBe(rejected ? 0 : 24);
-      expect(browserStarts).toBe(intermittentFailure ? 9 : renewals ? 3 : 0);
-      if (scenario === "renewal" || intermittentFailure) {
+      expect(browserStarts).toBe(
+        transportRecovery ? 6 : intermittentFailure ? 9 : renewals ? 3 : 0,
+      );
+      if (scenario === "renewal" || intermittentFailure || transportRecovery) {
         expect(providerRefreshUntil).toBeGreaterThan(START + DAY);
         const state = await portfolios.getOverview(SUBJECT, "sydecar");
         expect(state.lastCompletedAt).toBe(

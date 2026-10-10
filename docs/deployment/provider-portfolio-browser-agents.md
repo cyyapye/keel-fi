@@ -86,17 +86,21 @@ credentials, or override provider-side expiry. An expired or revoked sign-in
 still requires reconnecting. Tokenfolio keeps its existing browser lifetime.
 
 Sydecar's refresh authorization currently lasts twelve hours. While scheduled
-updates are enabled, the agent leases a separate session check six hours after
-verified renewal or reconnect. Healthy captures keep any earlier check deadline;
-a capture that recovers from an attempted renewal restarts the six-hour window
-and retry counter together. The check briefly opens the ordinary provider page,
-lets the provider renew its own session, checks expiry metadata, and closes
-Chrome. This does not import holdings or change the capture interval. Transient
-errors retry hourly, at most three times; an expired sign-in stops until
-recovery. See the
+updates are enabled, the agent leases a separate session check within six hours
+after verified renewal or reconnect, preserving at least four hours of remaining
+refresh lifetime. Healthy captures keep any earlier check deadline; a capture
+that recovers from an attempted renewal restarts the six-hour window and retry
+counter together. The check briefly opens the ordinary provider page, lets the
+provider renew its own session, checks expiry metadata, and closes Chrome. This
+does not import holdings or change the capture interval. Transient errors retry
+hourly. Three unclassified failures or crashes stop; known network or service
+failures can retry while observed refresh expiry is still usable. An independent
+rolling-day limit permits at most nine attempts, including capture and reconnect
+resets. A confirmed rejected or expired sign-in stops until recovery. See the
 [operating budget](../engineering/recurring-work-budgets.md#sydecar-session-maintenance)
 for admission, deadlines and full-day costs. Upgrade both the API/web and the
-existing worker; reinstall a macOS job to apply its hourly wake interval.
+existing worker after applying migration 0085; older workers remain compatible
+with the upgraded API. Reinstall a macOS job to apply its hourly wake interval.
 
 ## Reconnect from Holdings
 

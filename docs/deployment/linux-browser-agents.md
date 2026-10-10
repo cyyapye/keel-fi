@@ -323,11 +323,16 @@ credential activity timestamps advance at most once every five minutes during
 idle polling; authorization and revocation are checked on every request.
 
 Sydecar additionally discovers session-maintenance work hourly within that same
-process. D1 admits a brief native-provider renewal six hours after verification,
-with a five-minute lease, two-minute operation deadline, at most 150 page HTTP
-requests and three hourly attempts before stopping. Captures and managed
-reconnects exclude maintenance atomically. Setting scheduled updates off also
-disables maintenance; portfolio capture times are otherwise unchanged.
+process. D1 admits a brief native-provider renewal within six hours after
+verification, retaining four hours of refresh expiry headroom. Each attempt has
+a five-minute lease, two-minute operation deadline and at most 150 page HTTP
+requests. Three unclassified failures or crashes stop; fixed network/service
+failures may recover while observed refresh expiry remains usable. An
+independent rolling-day guard admits at most nine attempts even across
+capture/reconnect resets. Confirmed authorization rejection stops immediately.
+Captures and managed reconnects exclude maintenance atomically. Setting
+scheduled updates off also disables maintenance; portfolio capture times are
+otherwise unchanged.
 
 An active reconnect checks status every five seconds and ends within its
 15-minute lease. Failed idle checks back off from one minute to 15 minutes;

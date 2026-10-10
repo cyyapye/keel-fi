@@ -245,7 +245,7 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "scripts/provider-legal-document-capture.ts | sydecarCentralDocumentControls | network | page.goto | d991a58f9a321e5a",
   "scripts/provider-portfolio-mac-agent.ts | activeDevToolsPort | network | fetch | 68180890d490b2f1",
   "scripts/provider-portfolio-mac-agent.ts | captureSydecar | network | page.goto | dba19f259d5f2c65",
-  "scripts/provider-portfolio-mac-agent.ts | checkSessionRenewal | network | macAgentApi | 700ae3d4e0742fbb",
+  "scripts/provider-portfolio-mac-agent.ts | checkSessionRenewal | network | macAgentApi | 38d11bfc6db3558b",
   "scripts/provider-portfolio-mac-agent.ts | checkSessionRenewal | network | macAgentApi | b532c712f72e5e39",
   "scripts/provider-portfolio-mac-agent.ts | ensureChrome | timer | sleep | fd8c3d853c45aa18",
   "scripts/provider-portfolio-mac-agent.ts | keelPage | network | page.goto | e9a1be81301b0b89",

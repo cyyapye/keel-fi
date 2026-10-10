@@ -139,6 +139,7 @@ import {
   ProviderBrowserSessionReadyInputSchema,
   ProviderPortfolioAgentFailureInputSchema,
   ProviderSessionRenewalFailureSchema,
+  ProviderSessionRenewalVerificationSchema,
   ProviderPortfolioAgentProviderSchema,
   PrivateExposureExactBatchInputSchema,
   PrivateExposureExactBatchResultSchema,
@@ -4616,6 +4617,7 @@ export function createApp(options: AppOptions = {}) {
             409,
           );
         let failure = null;
+        let verification;
         if (outcome === "fail") {
           const parsed = ProviderSessionRenewalFailureSchema.safeParse(
             await context.req.json().catch(() => null),
@@ -4627,6 +4629,26 @@ export function createApp(options: AppOptions = {}) {
             );
           failure = parsed.data;
         }
+        if (outcome === "complete") {
+          const body = await context.req.text();
+          if (body !== "") {
+            const parsed = ProviderSessionRenewalVerificationSchema.safeParse(
+              (() => {
+                try {
+                  return JSON.parse(body) as unknown;
+                } catch {
+                  return null;
+                }
+              })(),
+            );
+            if (!parsed.success)
+              return context.json(
+                { error: "Provide verified expiry metadata." },
+                400,
+              );
+            verification = parsed.data;
+          }
+        }
         try {
           await providerPortfolioAgentRepositoryFor(
             context.env,
@@ -4634,6 +4656,7 @@ export function createApp(options: AppOptions = {}) {
             context.get("identity").subject,
             leaseToken,
             failure,
+            verification,
           );
           return context.json({ version: 1 }, 200, {
             "Cache-Control": "private, no-store",
