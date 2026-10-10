@@ -18,6 +18,10 @@ import {
   ProviderPortfolioAgentProviderSchema,
   ProviderPortfolioAgentRunRequestSchema,
   ProviderSessionRenewalLeaseSchema,
+  ProviderSessionRenewalFailureSchema,
+  ProviderSessionRenewalVerificationSchema,
+  type ProviderSessionRenewalFailure,
+  type ProviderSessionRenewalVerification,
   type MacAgentAuthorization,
   type ProviderPortfolioAgentErrorCode,
   type ProviderPortfolioAgentLease,
@@ -111,6 +115,12 @@ class AgentFailure extends Error {
   public constructor(public readonly code: ProviderPortfolioAgentErrorCode) {
     super(code);
     this.name = "AgentFailure";
+  }
+}
+
+class SessionRenewalFailure extends AgentFailure {
+  public constructor(public readonly failure: ProviderSessionRenewalFailure) {
+    super(failure.errorCode);
   }
 }
 
@@ -690,12 +700,33 @@ async function providerSignInVisible(
   page: Page,
   provider: ProviderPortfolioAgentProvider,
 ): Promise<boolean> {
-  // A missing portfolio control is not evidence of an expired sign-in. Only
-  // recognize authentication evidence on the provider's own origin.
+  // A missing portfolio control is not evidence of an expired sign-in.
   const url = new URL(page.url());
-  if (url.origin !== PROVIDERS[provider].origin) {
-    return false;
+  if (
+    provider === "tokenfolio" &&
+    url.origin === "https://tokenfolio.eu.auth0.com"
+  ) {
+    // Tokenfolio redirects to its dedicated Auth0 tenant. Require a recognized
+    // authentication route and visible credential controls within one form.
+    if (!/^\/u\/(?:login|mfa)(?:\/|$)/u.test(url.pathname)) return false;
+    const form = page
+      .locator("form")
+      .filter({ visible: true })
+      .filter({
+        has: page.locator(
+          'input[type="password"]:visible, input[type="email"]:visible, input[autocomplete="username"]:visible, input[autocomplete="one-time-code"]:visible',
+        ),
+      })
+      .filter({
+        has: page
+          .getByRole("button", {
+            name: /^(?:continue|sign in|log in|verify)$/iu,
+          })
+          .filter({ visible: true }),
+      });
+    return form.first().isVisible();
   }
+  if (url.origin !== PROVIDERS[provider].origin) return false;
   const credentials = page.locator(
     'input[type="password"]:visible, input[autocomplete="one-time-code"]:visible',
   );
@@ -2048,7 +2079,10 @@ function observeSydecarRefresh(context: BrowserContext) {
   context.on("response", responded);
   context.on("requestfailed", failed);
   return {
-    reportFailure: async (error: unknown) => {
+    reportFailure: async (
+      error: unknown,
+      refreshExpiresAt?: string,
+    ): Promise<ProviderSessionRenewalFailure> => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
@@ -2060,6 +2094,25 @@ function observeSydecarRefresh(context: BrowserContext) {
       } finally {
         clearTimeout(timer);
       }
+      const reason =
+        status === 401 || status === 403
+          ? "authorization"
+          : transport !== null
+            ? "transport"
+            : status !== null && status >= 500
+              ? "unavailable"
+              : error instanceof AgentFailure &&
+                  error.code === "provider_sign_in_required"
+                ? "authorization"
+                : "unverified";
+      const failure = ProviderSessionRenewalFailureSchema.parse({
+        errorCode:
+          reason === "authorization"
+            ? "provider_sign_in_required"
+            : "unexpected_failure",
+        reason,
+        ...(refreshExpiresAt === undefined ? {} : { refreshExpiresAt }),
+      });
       // The provider clears its saved login on any refresh exception, including
       // transport failures. A visible sign-in page alone cannot identify why.
       // Never log URLs, headers, bodies, token values or raw browser errors.
@@ -2067,23 +2120,16 @@ function observeSydecarRefresh(context: BrowserContext) {
         JSON.stringify({
           event: "provider_session_renewal_failed",
           provider: "sydecar",
-          code:
-            error instanceof AgentFailure ? error.code : "unexpected_failure",
+          code: failure.errorCode,
           refreshRequests: requests,
           refreshStatus: status,
           refreshTransport: transport,
           refreshErrorCode,
           refreshResponseKind,
-          reason:
-            status === 401 || status === 403
-              ? "refresh_rejected"
-              : transport !== null
-                ? "refresh_transport_failed"
-                : status !== null && status >= 500
-                  ? "refresh_unavailable"
-                  : "refresh_not_confirmed",
+          reason,
         }),
       );
+      return failure;
     },
     dispose: () => {
       context.off("request", requested);
@@ -2096,13 +2142,63 @@ function observeSydecarRefresh(context: BrowserContext) {
 async function renewSavedSydecarSession(
   context: BrowserContext,
   now = Date.now,
-): Promise<void> {
+): Promise<ProviderSessionRenewalVerification> {
+  // Preserve only an expiry number before the provider can clear its own login
+  // after a network exception. This is a retry horizon, never proof of access.
+  await context.addInitScript(() => {
+    if (location.origin !== "https://app.sydecar.io") return;
+    let expiry: number | null = null;
+    try {
+      const encoded = localStorage.getItem("refresh_token")?.split(".")[1];
+      if (encoded !== undefined) {
+        const payload: unknown = JSON.parse(
+          atob(encoded.replaceAll("-", "+").replaceAll("_", "/")),
+        );
+        if (
+          typeof payload === "object" &&
+          payload !== null &&
+          "exp" in payload &&
+          typeof payload.exp === "number" &&
+          Number.isSafeInteger(payload.exp)
+        )
+          expiry = payload.exp;
+      }
+    } catch {
+      /* Missing metadata cannot authorize extra retries. */
+    }
+    Object.defineProperty(window, "__keelRenewalExpiry", {
+      value: expiry,
+      configurable: true,
+    });
+  });
   const observation = observeSydecarRefresh(context);
   try {
-    await verifySydecarSessionRenewal(context, now);
+    return await verifySydecarSessionRenewal(context, now);
   } catch (error) {
-    await observation.reportFailure(error);
-    throw error;
+    const page = [...(controlledPages.get(context)?.pages ?? [])].find(
+      (candidate) =>
+        !candidate.isClosed() &&
+        new URL(candidate.url()).origin === PROVIDERS.sydecar.origin,
+    );
+    const value: unknown = await page
+      ?.evaluate(
+        () =>
+          (window as unknown as { __keelRenewalExpiry?: unknown })
+            .__keelRenewalExpiry,
+      )
+      .catch(() => undefined);
+    const expiry = z
+      .number()
+      .int()
+      .nonnegative()
+      .max(253_402_300_799)
+      .safeParse(value);
+    const refreshExpiresAt = expiry.success
+      ? new Date(expiry.data * 1_000).toISOString()
+      : undefined;
+    throw new SessionRenewalFailure(
+      await observation.reportFailure(error, refreshExpiresAt),
+    );
   } finally {
     observation.dispose();
   }
@@ -2111,7 +2207,7 @@ async function renewSavedSydecarSession(
 async function verifySydecarSessionRenewal(
   context: BrowserContext,
   now: () => number,
-): Promise<void> {
+): Promise<ProviderSessionRenewalVerification> {
   let admittedRequests = 0;
   let exhausted = false;
   const admit = async (route: Route) => {
@@ -2192,14 +2288,15 @@ async function verifySydecarSessionRenewal(
       refreshRemainingSeconds: Math.floor(expiry.refresh - timestamp),
     }),
   );
+  return ProviderSessionRenewalVerificationSchema.parse({
+    refreshExpiresAt: new Date(expiry.refresh * 1_000).toISOString(),
+  });
 }
 
-async function withRenewalDeadline(
-  operation: () => Promise<void>,
-): Promise<void> {
+async function withRenewalDeadline<T>(operation: () => Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([
+    return await Promise.race([
       operation(),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(
@@ -2217,7 +2314,9 @@ async function checkSessionRenewal(
   keelOrigin: URL,
   authorization = readMacAgentAuthorization(keelOrigin, "sydecar"),
   useBrowser = withProviderBrowser,
-  renew = renewSavedSydecarSession,
+  renew: (
+    context: BrowserContext,
+  ) => Promise<ProviderSessionRenewalVerification | void> = renewSavedSydecarSession,
 ): Promise<void> {
   const prefix = agentPath("sydecar", "/mac-agent/session-renewal");
   const response = await macAgentApi(authorization, `${prefix}/lease`, {
@@ -2226,17 +2325,23 @@ async function checkSessionRenewal(
   if (response.status !== 200) throw new AgentFailure("unexpected_failure");
   const { renewal } = ProviderSessionRenewalLeaseSchema.parse(response.body);
   if (renewal === null) return;
-  let failure: "provider_sign_in_required" | "unexpected_failure" | null = null;
+  let failure: ProviderSessionRenewalFailure | null = null;
+  let verification: ProviderSessionRenewalVerification | void = undefined;
   try {
-    await useBrowser("sydecar", keelOrigin, (context) =>
+    verification = await useBrowser("sydecar", keelOrigin, (context) =>
       withRenewalDeadline(() => renew(context)),
     );
   } catch (error) {
     failure =
-      error instanceof AgentFailure &&
-      error.code === "provider_sign_in_required"
-        ? "provider_sign_in_required"
-        : "unexpected_failure";
+      error instanceof SessionRenewalFailure
+        ? error.failure
+        : {
+            errorCode:
+              error instanceof AgentFailure &&
+              error.code === "provider_sign_in_required"
+                ? "provider_sign_in_required"
+                : "unexpected_failure",
+          };
   }
   const completion = await macAgentApi(
     authorization,
@@ -2248,15 +2353,17 @@ async function checkSessionRenewal(
         "X-Keel-Agent-Lease": renewal.leaseToken,
       },
       ...(failure === null
-        ? {}
-        : { body: JSON.stringify({ errorCode: failure }) }),
+        ? verification === undefined
+          ? {}
+          : { body: JSON.stringify(verification) }
+        : { body: JSON.stringify(failure) }),
     },
   );
   if (completion.status !== 200) throw new AgentFailure("unexpected_failure");
   z.object({ version: z.literal(1) })
     .strict()
     .parse(completion.body);
-  if (failure !== null) throw new AgentFailure(failure);
+  if (failure !== null) throw new SessionRenewalFailure(failure);
 }
 
 function xml(value: string): string {
@@ -2639,6 +2746,7 @@ async function main(): Promise<void> {
 }
 
 export const __providerPortfolioMacAgentTest = {
+  SessionRenewalFailure,
   queuedUpdatePollIntervalMs: POLL_INTERVAL_MS,
   lease,
   keelPage,

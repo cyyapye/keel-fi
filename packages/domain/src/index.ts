@@ -1452,8 +1452,27 @@ export const ProviderSessionRenewalLeaseSchema = z
 export const ProviderSessionRenewalFailureSchema = z
   .object({
     errorCode: z.enum(["provider_sign_in_required", "unexpected_failure"]),
+    reason: z
+      .enum(["transport", "unavailable", "unverified", "authorization"])
+      .optional(),
+    refreshExpiresAt: IsoTimestampSchema.optional(),
   })
+  .strict()
+  .refine(
+    (value) =>
+      value.reason === undefined ||
+      (value.errorCode === "provider_sign_in_required"
+        ? value.reason === "authorization"
+        : value.reason !== "authorization"),
+  );
+
+export const ProviderSessionRenewalVerificationSchema = z
+  .object({ refreshExpiresAt: IsoTimestampSchema })
   .strict();
+
+export type ProviderSessionRenewalVerification = z.infer<
+  typeof ProviderSessionRenewalVerificationSchema
+>;
 
 export type ProviderSessionRenewalLease = z.infer<
   typeof ProviderSessionRenewalLeaseSchema

@@ -405,7 +405,7 @@ test("a working Sydecar access token does not prove a refresh token survived ano
       expect.objectContaining({
         refreshStatus: 403,
         refreshErrorCode: "INVALID_REFRESH_TOKEN",
-        reason: "refresh_rejected",
+        reason: "authorization",
       }),
     ]);
     expect(runtime.state.refreshes).toBe(1);
@@ -444,13 +444,22 @@ for (const failure of [
       };
       await expect(
         renewSavedSydecarSession(next.context, () => runtime.state.now),
-      ).rejects.toThrow("provider_sign_in_required");
+      ).rejects.toMatchObject({
+        code: ["service", "dns"].includes(failure)
+          ? "unexpected_failure"
+          : "provider_sign_in_required",
+        failure: {
+          refreshExpiresAt: new Date(start + 12 * hour).toISOString(),
+        },
+      });
       expect(messages.map((message) => JSON.parse(message) as unknown)).toEqual(
         [
           {
             event: "provider_session_renewal_failed",
             provider: "sydecar",
-            code: "provider_sign_in_required",
+            code: ["service", "dns"].includes(failure)
+              ? "unexpected_failure"
+              : "provider_sign_in_required",
             refreshRequests: 1,
             refreshStatus:
               failure === "rejected"
@@ -472,10 +481,10 @@ for (const failure of [
             refreshResponseKind:
               failure === "dns" ? null : failure === "html" ? "html" : "json",
             reason: !["service", "dns"].includes(failure)
-              ? "refresh_rejected"
+              ? "authorization"
               : failure === "service"
-                ? "refresh_unavailable"
-                : "refresh_transport_failed",
+                ? "unavailable"
+                : "transport",
           },
         ],
       );

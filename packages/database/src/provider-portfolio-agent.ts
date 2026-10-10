@@ -7,6 +7,8 @@ import {
   ProviderPortfolioAgentRunRequestSchema,
   ProviderSessionRenewalLeaseSchema,
   ProviderSessionRenewalFailureSchema,
+  ProviderSessionRenewalVerificationSchema,
+  type ProviderSessionRenewalVerification,
   type ProviderSessionRenewalLease,
   type ProviderSessionRenewalFailure,
   type AngelListMacAgentInterval,
@@ -75,6 +77,7 @@ export interface ProviderPortfolioAgentRepository {
     accessSubject: string,
     leaseToken: string,
     failure: ProviderSessionRenewalFailure | null,
+    verification?: ProviderSessionRenewalVerification,
   ): Promise<void>;
   getOverview(
     accessSubject: string,
@@ -481,27 +484,40 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
       return empty;
     const now = this.now();
     const timestamp = now.toISOString();
+    const cutoff = new Date(now.getTime() - 24 * 60 * 60_000).toISOString();
     const due = await this.db
       .prepare(
-        `SELECT agent_id, attempts, lease_token_sha256 FROM provider_session_renewals
+        `SELECT agent_id, attempts, lease_token_sha256, last_failure_reason, refresh_expires_at,
+        (SELECT COUNT(*) FROM provider_session_renewal_attempts history
+          WHERE history.agent_id = renewal.agent_id AND history.attempted_at > ?) AS day_attempts
+      FROM provider_session_renewals renewal
       WHERE agent_id = ? AND next_check_at <= ?
         AND (lease_expires_at IS NULL OR lease_expires_at <= ?)`,
       )
-      .bind(agent.id, timestamp, timestamp)
+      .bind(cutoff, agent.id, timestamp, timestamp)
       .first<{
         agent_id: string;
         attempts: number;
         lease_token_sha256: string | null;
+        last_failure_reason: string | null;
+        refresh_expires_at: string | null;
+        day_attempts: number;
       }>();
     if (due === null) return empty;
-    if (due.attempts >= 3) {
+    const recoverable =
+      due.lease_token_sha256 === null &&
+      ["transport", "unavailable"].includes(due.last_failure_reason ?? "") &&
+      due.refresh_expires_at !== null &&
+      due.refresh_expires_at > timestamp;
+    if (due.attempts >= 3 && !recoverable) {
       if (due.lease_token_sha256 !== null) {
         await this.db.batch([
           this.db
             .prepare(
               `UPDATE provider_session_renewals
             SET last_outcome_token_sha256 = lease_token_sha256,
-              lease_token_sha256 = NULL, lease_expires_at = NULL, last_error_code = 'unexpected_failure'
+              lease_token_sha256 = NULL, lease_expires_at = NULL, last_error_code = 'unexpected_failure',
+              last_failure_reason = 'unverified'
             WHERE agent_id = ? AND attempts = 3 AND lease_token_sha256 = ? AND lease_expires_at <= ?`,
             )
             .bind(agent.id, due.lease_token_sha256, timestamp),
@@ -518,16 +534,28 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
       }
       return empty;
     }
+    if (due.day_attempts >= 9) return empty;
     const token = newLeaseToken();
     const digest = await sha256(token);
     const expiresAt = new Date(now.getTime() + LEASE_DURATION_MS).toISOString();
     await this.db.batch([
       this.db
         .prepare(
+          `DELETE FROM provider_session_renewal_attempts
+        WHERE agent_id = ? AND attempted_at <= ?`,
+        )
+        .bind(agent.id, cutoff),
+      this.db
+        .prepare(
           `UPDATE provider_session_renewals
-      SET lease_token_sha256 = ?, lease_expires_at = ?, attempts = attempts + 1,
+      SET lease_token_sha256 = ?, lease_expires_at = ?,
+        attempts = CASE WHEN attempts = 3 THEN 1 ELSE attempts + 1 END,
         next_check_at = ?
-      WHERE agent_id = ? AND next_check_at <= ? AND attempts < 3
+      WHERE agent_id = ? AND next_check_at <= ?
+        AND (attempts < 3 OR (attempts = 3 AND lease_token_sha256 IS NULL AND last_failure_reason IN ('transport', 'unavailable')
+          AND refresh_expires_at > ?))
+        AND (SELECT COUNT(*) FROM provider_session_renewal_attempts history
+          WHERE history.agent_id = provider_session_renewals.agent_id AND history.attempted_at > ?) < 9
         AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
         AND EXISTS (SELECT 1 FROM provider_portfolio_agents agent
           WHERE agent.id = provider_session_renewals.agent_id AND agent.interval <> 'off'
@@ -545,9 +573,19 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
           agent.id,
           timestamp,
           timestamp,
+          cutoff,
+          timestamp,
           identity.household_id,
           timestamp,
         ),
+      this.db
+        .prepare(
+          `INSERT INTO provider_session_renewal_attempts
+        (agent_id, lease_token_sha256, attempted_at)
+        SELECT agent_id, lease_token_sha256, ? FROM provider_session_renewals
+        WHERE agent_id = ? AND lease_token_sha256 = ? AND lease_expires_at > ?`,
+        )
+        .bind(timestamp, agent.id, digest, timestamp),
     ]);
     const won = await this.db
       .prepare(
@@ -566,16 +604,23 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
     accessSubject: string,
     leaseToken: string,
     rawFailure: ProviderSessionRenewalFailure | null,
+    rawVerification?: ProviderSessionRenewalVerification,
   ): Promise<void> {
     const failure =
       rawFailure === null
         ? null
         : ProviderSessionRenewalFailureSchema.parse(rawFailure);
+    const verification =
+      rawVerification === undefined
+        ? undefined
+        : ProviderSessionRenewalVerificationSchema.parse(rawVerification);
     const identity = await this.findIdentity(accessSubject);
     const agent = await this.requireAgent(identity.household_id, "sydecar");
     const digest = await sha256(leaseToken);
     const now = this.now();
     const timestamp = now.toISOString();
+    const refreshExpiresAt =
+      verification?.refreshExpiresAt ?? failure?.refreshExpiresAt ?? null;
     const current = await this.db
       .prepare(
         `SELECT lease_token_sha256, lease_expires_at,
@@ -595,7 +640,24 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
     ) {
       throw new ProviderPortfolioAgentRepositoryError("lease_invalid");
     }
+    // The browser verifies eight hours before its normal shutdown. Completion
+    // may arrive later within this five-minute lease; keep that delivery age
+    // from turning valid provider lifetime into a false maintenance failure.
+    if (
+      verification !== undefined &&
+      (failure !== null ||
+        Date.parse(verification.refreshExpiresAt) <
+          now.getTime() + 8 * 60 * 60_000 - LEASE_DURATION_MS)
+    )
+      throw new ProviderPortfolioAgentRepositoryError("lease_invalid");
     const code = failure?.errorCode ?? null;
+    const nextCheckAt =
+      code === null && refreshExpiresAt !== null
+        ? Math.min(
+            now.getTime() + 6 * 60 * 60_000,
+            Date.parse(refreshExpiresAt) - 4 * 60 * 60_000,
+          )
+        : now.getTime() + (code === null ? 6 : 1) * 60 * 60_000;
     await this.db.batch([
       this.db
         .prepare(
@@ -603,18 +665,19 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
         last_verified_at = CASE WHEN ? IS NULL THEN ? ELSE last_verified_at END,
         next_check_at = ?, attempts = CASE WHEN ? IS NULL THEN 0 ELSE attempts END,
         lease_token_sha256 = NULL, lease_expires_at = NULL,
-        last_outcome_token_sha256 = ?, last_error_code = ?
+        last_outcome_token_sha256 = ?, last_error_code = ?, last_failure_reason = ?,
+        refresh_expires_at = COALESCE(?, refresh_expires_at)
         WHERE agent_id = ? AND lease_token_sha256 = ? AND lease_expires_at > ?`,
         )
         .bind(
           code,
           timestamp,
-          new Date(
-            now.getTime() + (code === null ? 6 : 1) * 60 * 60_000,
-          ).toISOString(),
+          new Date(nextCheckAt).toISOString(),
           code,
           digest,
           code,
+          failure?.reason ?? null,
+          refreshExpiresAt,
           agent.id,
           digest,
           timestamp,

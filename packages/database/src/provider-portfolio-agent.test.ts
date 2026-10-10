@@ -356,6 +356,140 @@ describe("Sydecar session renewal admission", () => {
     expect(sql.prepare("SELECT total_changes() AS n").get()!.n).toBe(changes);
   });
 
+  it("recovers after three typed transport failures while provider lifetime remains usable", async () => {
+    const { sql, clock, repository } = await fixture();
+    clock.now += 6 * hour;
+    const refreshExpiresAt = new Date(clock.now + 12 * hour).toISOString();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const renewal = (await repository.leaseSessionRenewal(subject)).renewal!;
+      await repository.finishSessionRenewal(subject, renewal.leaseToken, {
+        errorCode: "unexpected_failure",
+        reason: "transport",
+        refreshExpiresAt,
+      });
+      clock.now += hour;
+    }
+    // A failed capture is a separate error: verifying authorization must not
+    // imply its holdings import succeeded or hide that failure from the user.
+    await repository.requestRun(subject, "sydecar");
+    const capture = (await repository.lease(subject, "sydecar")).run!;
+    await repository.fail(subject, "sydecar", capture.id, capture.leaseToken, {
+      errorCode: "unexpected_failure",
+    });
+    const recovery = (await repository.leaseSessionRenewal(subject)).renewal!;
+    expect(recovery).not.toBeNull();
+    const verifiedExpiry = new Date(clock.now + 8 * hour).toISOString();
+    clock.now += 30_000; // graceful shutdown and completion delivery
+    await repository.finishSessionRenewal(subject, recovery.leaseToken, null, {
+      refreshExpiresAt: verifiedExpiry,
+    });
+    expect((await repository.getOverview(subject, "sydecar")).errorCode).toBe(
+      "unexpected_failure",
+    );
+    expect(
+      sql
+        .prepare("SELECT last_verified_at FROM provider_session_renewals")
+        .get()!.last_verified_at,
+    ).toBe(new Date(clock.now).toISOString());
+    clock.now += 3 * hour;
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    clock.now += hour;
+    expect(
+      (await repository.leaseSessionRenewal(subject)).renewal,
+    ).not.toBeNull();
+  });
+
+  it("atomically caps rolling-day recovery at nine attempts despite concurrent callers and capture resets", async () => {
+    const { sql, clock, repository } = await fixture();
+    clock.now += 6 * hour;
+    const due = clock.now;
+    for (let attempt = 0; attempt < 9; attempt++) {
+      const contenders = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          repository.leaseSessionRenewal(subject),
+        ),
+      );
+      const winners = contenders.flatMap((result) =>
+        result.renewal === null ? [] : [result.renewal],
+      );
+      expect(winners).toHaveLength(1);
+      await repository.finishSessionRenewal(subject, winners[0]!.leaseToken, {
+        errorCode: "unexpected_failure",
+        reason: "unavailable",
+        refreshExpiresAt: new Date(clock.now + 12 * hour).toISOString(),
+      });
+      // Even a separately verified capture resetting the consecutive counter
+      // must not reset the independent rolling admission history.
+      sql.prepare("UPDATE provider_session_renewals SET attempts = 0").run();
+      clock.now += hour;
+    }
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    expect(
+      sql
+        .prepare("SELECT COUNT(*) AS n FROM provider_session_renewal_attempts")
+        .get()!.n,
+    ).toBe(9);
+    const plan = sql
+      .prepare(
+        "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM provider_session_renewal_attempts WHERE agent_id = ? AND attempted_at > ?",
+      )
+      .all("synthetic", new Date(due).toISOString());
+    expect(JSON.stringify(plan)).toContain(
+      "COVERING INDEX provider_session_renewal_attempts_window",
+    );
+    clock.now = due + 24 * hour;
+    expect(
+      (await repository.leaseSessionRenewal(subject)).renewal,
+    ).not.toBeNull();
+    expect(
+      sql
+        .prepare("SELECT COUNT(*) AS n FROM provider_session_renewal_attempts")
+        .get()!.n,
+    ).toBe(9);
+  });
+
+  it("keeps crashed recovery leases bounded and ignores late duplicate metadata", async () => {
+    const { clock, repository } = await fixture();
+    clock.now += 6 * hour;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const renewal = (await repository.leaseSessionRenewal(subject)).renewal!;
+      await repository.finishSessionRenewal(subject, renewal.leaseToken, {
+        errorCode: "unexpected_failure",
+        reason: "transport",
+        refreshExpiresAt: new Date(clock.now + 12 * hour).toISOString(),
+      });
+      clock.now += hour;
+    }
+    const third = (await repository.leaseSessionRenewal(subject)).renewal!;
+    clock.now += hour;
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    await expect(
+      repository.finishSessionRenewal(subject, third.leaseToken, null, {
+        refreshExpiresAt: new Date(clock.now + 12 * hour).toISOString(),
+      }),
+    ).resolves.toBeUndefined(); // crash cleanup owns the idempotent outcome
+  });
+
+  it("stops typed recovery at observed expiry without misclassifying it as a rejected login", async () => {
+    const { clock, repository } = await fixture();
+    clock.now += 6 * hour;
+    const refreshExpiresAt = new Date(clock.now + 3 * hour).toISOString();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const renewal = (await repository.leaseSessionRenewal(subject)).renewal!;
+      await repository.finishSessionRenewal(subject, renewal.leaseToken, {
+        errorCode: "unexpected_failure",
+        reason: "unavailable",
+        refreshExpiresAt,
+      });
+      clock.now += hour;
+    }
+    expect((await repository.leaseSessionRenewal(subject)).renewal).toBeNull();
+    expect((await repository.getOverview(subject, "sydecar")).errorCode).toBe(
+      "unexpected_failure",
+    );
+  });
+
   it("stops after provider authorization rejection instead of retrying a lost login", async () => {
     const { sql, clock, repository } = await fixture();
     clock.now += 6 * hour;

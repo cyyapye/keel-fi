@@ -187,6 +187,40 @@ test("Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without 
   ).rejects.toThrow("page_not_supported");
 });
 
+test("Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages", async ({
+  page,
+}) => {
+  const origin = "https://tokenfolio.eu.auth0.com";
+  let html =
+    '<form><input autocomplete="username"><input type="password"><button>Continue</button></form>';
+  await page.route(`${origin}/**`, (route) =>
+    route.fulfill({ body: html, contentType: "text/html" }),
+  );
+  await page.goto(`${origin}/u/login/password?state=synthetic`);
+  await expect(
+    requireProviderPageReady(page, "tokenfolio", 100),
+  ).rejects.toThrow("provider_sign_in_required");
+  await expect(requireProviderPageReady(page, "sydecar", 100)).rejects.toThrow(
+    "page_not_supported",
+  );
+  for (const content of [
+    '<form hidden><input type="password"><button>Continue</button></form>',
+    '<form><input type="password"></form><form><button>Continue</button></form>',
+    "<h1>Temporarily unavailable</h1>",
+  ]) {
+    html = content;
+    await page.reload();
+    await expect(
+      requireProviderPageReady(page, "tokenfolio", 100),
+    ).rejects.toThrow("page_not_supported");
+  }
+  html = '<form><input type="password"><button>Continue</button></form>';
+  await page.goto(`${origin}/settings`);
+  await expect(
+    requireProviderPageReady(page, "tokenfolio", 100),
+  ).rejects.toThrow("page_not_supported");
+});
+
 function tokenfolioPage(
   activeCount = 2,
   statuses: readonly [string, string] = ["Funds Received", "Completed"],
