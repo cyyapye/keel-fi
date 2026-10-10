@@ -63,7 +63,9 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
         const heading = (
           <span className="holding-history-entry">
             <span>{summary}</span>
-            <small>{formatSavedAt(receipt.acceptedAt)}</small>
+            <time dateTime={receipt.acceptedAt}>
+              {formatSavedAt(receipt.acceptedAt)}
+            </time>
           </span>
         );
         if (entry.kind === "investment" && changes.length === 0)

@@ -174,23 +174,34 @@ export function SpvHoldingDetail({
           </h2>
           <HoldingLinkButton kind="position" id={holding.id} icon />
         </div>
-        <p>
+        <p className="holding-metadata">
           {holding.positionName} · {holding.ownerLabel}
         </p>
-        {related.length > 0 && (
-          <p className="holding-related">
+        {related.length === 1 && (
+          <p className="holding-related holding-metadata">
             Also held through{" "}
-            {related.map((item, i) => (
-              <span key={item.id}>
-                {i > 0 ? ", " : ""}
-                <TextLink
-                  href={`/holdings?position=${encodeURIComponent(item.id)}`}
-                >
-                  {item.positionName}
-                </TextLink>
-              </span>
-            ))}
+            <TextLink
+              href={`/holdings?position=${encodeURIComponent(related[0]!.id)}`}
+            >
+              {related[0]!.positionName}
+            </TextLink>
           </p>
+        )}
+        {related.length > 1 && (
+          <div className="holding-related holding-metadata">
+            <p>Also held through</p>
+            <ul role="list" aria-label="Also held through">
+              {related.map((item) => (
+                <li key={item.id}>
+                  <TextLink
+                    href={`/holdings?position=${encodeURIComponent(item.id)}`}
+                  >
+                    {item.positionName}
+                  </TextLink>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </header>
       <section aria-label="Position summary" className="holding-value-summary">
@@ -356,12 +367,9 @@ export function SpvHoldingDetail({
           <DisclosureIndicator />
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <DataList layout="rows">
-            <DataItem
-              label="Source"
-              value={`${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`}
-            />
-          </DataList>
+          <p className="holding-metadata">
+            {holding.sourceLabel} · {formatDate(holding.effectiveDate)}
+          </p>
           <HoldingHistory
             key={`${holding.id}:${historyRevision}`}
             positionId={holding.id}

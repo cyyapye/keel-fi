@@ -233,6 +233,12 @@ test("review duplicate sources and replacement history with no typing, saved rel
   reject = false;
   await section.getByRole("button", { name: "Apply link" }).click();
   await expect(section.getByText(/Supplies reported value/)).toBeVisible();
+  for (const metadata of await section
+    .locator(".position-link-record > p")
+    .all()) {
+    await expect(metadata).toHaveCSS("font-size", "13px");
+    await expect(metadata).toHaveCSS("line-height", "19.5px");
+  }
   await section
     .getByRole("combobox", { name: /^(Source to link|Link another source)$/ })
     .click();
