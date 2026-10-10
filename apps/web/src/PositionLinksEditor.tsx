@@ -29,6 +29,7 @@ import {
   DataList,
   DataItem,
   TextLink,
+  InfoTip,
 } from "@keel/ui";
 import {
   acceptPositionLink,
@@ -89,8 +90,6 @@ export function PositionLinksEditor({
 }) {
   const headingId = useId();
   const disclosure = useRef<HTMLButtonElement>(null);
-  const unlinkButtons = useRef(new Map<string, HTMLButtonElement>());
-  const [unlinkId, setUnlinkId] = useState<string | null>(null);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [workspace, setWorkspace] = useState<PositionLinkWorkspace | null>(
     null,
@@ -266,7 +265,6 @@ export function PositionLinksEditor({
       });
       setWorkspace(await loadPositionLinks());
       setSourceId("");
-      setUnlinkId(null);
       setUseSourceValue(false);
       await onAccepted();
       setHistoryRevision((n) => n + 1);
@@ -290,7 +288,6 @@ export function PositionLinksEditor({
         open={open}
         onOpenChange={(value) => {
           setOpen(value);
-          setUnlinkId(null);
           if (value && workspace === null) void load();
         }}
       >
@@ -426,56 +423,38 @@ export function PositionLinksEditor({
                         </CollapsibleContent>
                       </Collapsible>
                     )}
-                    {unlinkId === link.id ? (
-                      <div className="position-link-confirmation">
-                        <p>
-                          {member?.legalVehicleName ?? "This source"} will
-                          appear as a separate investment again.
-                          {link.useSourceValue &&
-                            " This link will stop supplying reported value."}{" "}
-                          Records and history are kept. You can link it again.
-                        </p>
-                        <ActionGroup>
-                          <Button
-                            disabled={busy}
-                            onClick={() => void save(link)}
-                          >
-                            {busy ? "Unlinking…" : "Unlink"}
-                          </Button>
-                          <Button
-                            tone="quiet"
-                            disabled={busy}
-                            onClick={() => {
-                              setUnlinkId(null);
-                              requestAnimationFrame(() =>
-                                unlinkButtons.current.get(link.id)?.focus(),
-                              );
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        </ActionGroup>
-                      </div>
-                    ) : (
+                    <ActionGroup className="position-link-actions">
                       <Button
-                        ref={(element) => {
-                          if (element)
-                            unlinkButtons.current.set(link.id, element);
-                          else unlinkButtons.current.delete(link.id);
-                        }}
                         tone="quiet"
                         disabled={busy}
-                        onClick={() => setUnlinkId(link.id)}
+                        onClick={() => void save(link)}
                       >
-                        Unlink record
+                        {busy ? "Unlinking…" : "Unlink record"}
                       </Button>
-                    )}
+                      <InfoTip
+                        label={`About unlinking ${member?.legalVehicleName ?? "this record"}`}
+                        disabled={busy}
+                      >
+                        This source will appear as a separate investment again.
+                        {link.useSourceValue &&
+                          " This link will stop supplying reported value."}{" "}
+                        Records and history are kept. You can link it again.
+                      </InfoTip>
+                    </ActionGroup>
                   </div>
                 );
               })}
-              <Field label="Record to link">
+              <Field
+                label={
+                  activeLinks.length ? "Link another source" : "Source to link"
+                }
+              >
                 <SearchSelect
-                  label="Record to link"
+                  label={
+                    activeLinks.length
+                      ? "Link another source"
+                      : "Source to link"
+                  }
                   searchLabel="Search investment or source"
                   placeholder="Choose a source record"
                   emptyMessage="No matching investment records."

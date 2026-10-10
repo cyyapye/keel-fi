@@ -11,12 +11,15 @@ import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
 
+test.use({ timezoneId: "UTC" });
+
 test("review duplicate sources and replacement history with no typing, saved reload and failed-draft retention", async ({
   page,
 }, info) => {
   await page.clock.setFixedTime(new Date("2026-09-20T12:00:00.000Z"));
   const links: PositionLinkReceipt[] = [];
-  let reject = false;
+  let reject = false,
+    writes = 0;
   const records = [
     {
       id: "current",
@@ -122,6 +125,7 @@ test("review duplicate sources and replacement history with no typing, saved rel
   await page.route("**/api/investment-position-links", async (route) => {
     if (route.request().method() === "GET")
       return route.fulfill({ json: { positions: native, links } });
+    writes++;
     if (reject)
       return route.fulfill({
         status: 409,
@@ -165,7 +169,9 @@ test("review duplicate sources and replacement history with no typing, saved rel
   await section
     .getByRole("button", { name: "Linked investment records" })
     .click();
-  await section.getByRole("combobox", { name: "Record to link" }).click();
+  await section
+    .getByRole("combobox", { name: /^(Source to link|Link another source)$/ })
+    .click();
   const search = page.getByRole("combobox", {
     name: "Search investment or source",
   });
@@ -227,7 +233,9 @@ test("review duplicate sources and replacement history with no typing, saved rel
   reject = false;
   await section.getByRole("button", { name: "Apply link" }).click();
   await expect(section.getByText(/Supplies reported value/)).toBeVisible();
-  await section.getByRole("combobox", { name: "Record to link" }).click();
+  await section
+    .getByRole("combobox", { name: /^(Source to link|Link another source)$/ })
+    .click();
   await page.getByRole("option", { name: /Demo Orbit V SPV/ }).click();
   await expect(
     section
@@ -280,34 +288,53 @@ test("review duplicate sources and replacement history with no typing, saved rel
     fullPage: true,
   });
   const recordsInSection = section.locator(".position-link-record");
-  await recordsInSection
-    .filter({ hasText: "Demo Orbit V SPV" })
-    .getByRole("button", { name: "Unlink record" })
-    .click();
-  await expect(
-    recordsInSection.filter({ hasText: "Demo Orbit V SPV" }),
-  ).toContainText("separate investment again");
+  const historicalRecord = recordsInSection.filter({
+    hasText: "Demo Orbit V SPV",
+  });
+  const historicalInfo = historicalRecord.getByRole("button", {
+    name: "About unlinking Demo Orbit V SPV",
+    exact: true,
+  });
+  const writesBeforeInfo = writes;
+  await historicalInfo.scrollIntoViewIfNeeded();
+  if (info.project.name === "mobile-chromium") await historicalInfo.tap();
+  else await historicalInfo.hover();
+  const popup = page.getByRole("dialog", {
+    name: "About unlinking Demo Orbit V SPV",
+    exact: true,
+  });
+  await expect(popup).toContainText("separate investment again");
+  await expect(popup).toContainText(
+    "Records and history are kept. You can link it again.",
+  );
   await expect(section.getByText(/Historical · replaced/)).toBeVisible();
-  await recordsInSection
-    .filter({ hasText: "Demo Orbit V SPV" })
-    .getByRole("button", { name: "Cancel", exact: true })
-    .click();
-  await expect(section.getByText(/Historical · replaced/)).toBeVisible();
-  await recordsInSection
-    .filter({ hasText: "Demo Orbit V SPV" })
-    .getByRole("button", { name: "Unlink record" })
-    .click();
+  expect(writes).toBe(writesBeforeInfo);
+  expect((await historicalInfo.boundingBox())!.height).toBeGreaterThanOrEqual(
+    44,
+  );
   await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    // The popup is portaled, so capture the page. Keep unrelated sticky chrome
+    // out of this capture; its scroll position varies after keyboard focus.
+    content:
+      ".sidebar, .topbar, .mobile-nav { visibility: hidden !important; }",
   });
-  await expect(section).toHaveScreenshot("position-unlink-review.png", {
+  await expect(page).toHaveScreenshot("position-unlink-info.png", {
     animations: "disabled",
+    fullPage: true,
   });
-  await recordsInSection
-    .filter({ hasText: "Demo Orbit V SPV" })
-    .getByRole("button", { name: "Unlink", exact: true })
+  // Keyboard access does not accept a decision; Escape returns focus to the icon.
+  await page.keyboard.press("Escape");
+  await expect(popup).toHaveCount(0);
+  await historicalInfo.press("Enter");
+  await expect(popup).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(popup).toHaveCount(0);
+  await expect(historicalInfo).toBeFocused();
+  await historicalRecord
+    .getByRole("button", { name: "Unlink record", exact: true })
     .click();
   await expect(section.getByText(/Historical · replaced/)).toHaveCount(0);
+  expect(writes).toBe(writesBeforeInfo + 1);
   const disclosure = section.getByRole("button", {
     name: "Linked investment records",
     exact: true,
@@ -315,7 +342,9 @@ test("review duplicate sources and replacement history with no typing, saved rel
   await disclosure.click();
   await expect(disclosure).toHaveAttribute("aria-expanded", "false");
   await expect(
-    section.getByRole("combobox", { name: "Record to link" }),
+    section.getByRole("combobox", {
+      name: /^(Source to link|Link another source)$/,
+    }),
   ).toHaveCount(0);
   await disclosure.click();
   await expect(section.getByText(/Supplies reported value/)).toBeVisible();
@@ -325,22 +354,32 @@ test("review duplicate sources and replacement history with no typing, saved rel
   const sourcedRecord = recordsInSection.filter({
     hasText: "Demo Orbit Aerospace source",
   });
-  const acceptedBeforeCancel = links.length;
-  await sourcedRecord.getByRole("button", { name: "Unlink record" }).click();
-  await expect(sourcedRecord).toContainText(
+  const sourcedInfo = sourcedRecord.getByRole("button", {
+    name: "About unlinking Demo Orbit Aerospace source",
+    exact: true,
+  });
+  // Settle the anchor's viewport position before keyboard activation. Opening
+  // during focus scrolling can leave different subpixel popup text rendering.
+  await sourcedInfo.scrollIntoViewIfNeeded();
+  await sourcedInfo.press("Space");
+  const sourcedPopup = page.getByRole("dialog", {
+    name: "About unlinking Demo Orbit Aerospace source",
+    exact: true,
+  });
+  await expect(sourcedPopup).toContainText(
     "This link will stop supplying reported value.",
   );
-  await expect(sourcedRecord).toContainText("Records and history are kept.");
-  await expect(section).toHaveScreenshot("position-unlink-sourced-review.png", {
+  await expect(sourcedPopup).toContainText("Records and history are kept.");
+  await expect(page).toHaveScreenshot("position-unlink-sourced-info.png", {
     animations: "disabled",
+    fullPage: true,
   });
-  await sourcedRecord
-    .getByRole("button", { name: "Cancel", exact: true })
+  // An outside tap dismisses the supplementary explanation without a write.
+  await section
+    .getByRole("heading", { name: "Linked investment records", exact: true })
     .click();
-  expect(links).toHaveLength(acceptedBeforeCancel);
-  await expect(
-    sourcedRecord.getByRole("button", { name: "Unlink record" }),
-  ).toBeFocused();
+  await expect(sourcedPopup).toHaveCount(0);
+  expect(writes).toBe(writesBeforeInfo + 1);
   expect(
     await page.evaluate(
       () =>
@@ -601,7 +640,9 @@ test("reviews historical company rename from a pending card, keeps the existing 
     section.getByRole("combobox", { name: "Investment record to keep" }),
   ).toContainText("Sep 1, 2026");
   await expect(
-    section.getByRole("combobox", { name: "Record to link" }),
+    section.getByRole("combobox", {
+      name: /^(Source to link|Link another source)$/,
+    }),
   ).toContainText("Sep 2, 2026");
   await expect(
     section.getByRole("combobox", { name: "Relationship" }),
@@ -610,7 +651,9 @@ test("reviews historical company rename from a pending card, keeps the existing 
   const keep = section.getByRole("combobox", {
     name: "Investment record to keep",
   });
-  const member = section.getByRole("combobox", { name: "Record to link" });
+  const member = section.getByRole("combobox", {
+    name: /^(Source to link|Link another source)$/,
+  });
   await expect(
     section.getByText(/Participation kept: historical/),
   ).toBeVisible();
@@ -678,7 +721,6 @@ test("reviews historical company rename from a pending card, keeps the existing 
     ),
   ).toBeVisible();
   await section.getByRole("button", { name: "Unlink record" }).click();
-  await section.getByRole("button", { name: "Unlink", exact: true }).click();
   await section.getByRole("button", { name: "History", exact: true }).click();
   await expect(
     section.getByRole("button", { name: /^Unlinked ·/ }),
@@ -722,7 +764,9 @@ test("suggests a unique retained historical source without accepting missing acc
   const keep = section.getByRole("combobox", {
     name: "Investment record to keep",
   });
-  const member = section.getByRole("combobox", { name: "Record to link" });
+  const member = section.getByRole("combobox", {
+    name: /^(Source to link|Link another source)$/,
+  });
   await expect(keep).toContainText("Sep 2, 2026");
   await expect(member).toContainText("Sep 1, 2026");
   await expect(
@@ -776,7 +820,9 @@ test("prefills only one exact investment pair and preserves manual choices acros
   const keep = section.getByRole("combobox", {
     name: "Investment record to keep",
   });
-  const member = section.getByRole("combobox", { name: "Record to link" });
+  const member = section.getByRole("combobox", {
+    name: /^(Source to link|Link another source)$/,
+  });
   for (const mismatch of [
     { ownershipContainerId: "synthetic-other-account" },
     { ownershipContainerId: undefined },

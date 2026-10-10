@@ -2,8 +2,27 @@
 
 The source-owned library lives in `packages/ui`. Its normal primitives are
 exported from `@keel/ui`; domain calculations and source selection stay in the
-application. The approved holding proposal v10 introduces the following reusable
-pattern.
+application. The library provides the following reusable patterns.
+
+## InfoTip
+
+Use for a brief explanation beside an action. The info icon opens a small
+non-modal popup on hover, click/tap, or Enter/Space; Escape and outside presses
+dismiss it. Base UI supplies positioning and accessible popup semantics. This
+uses shadcn's source-owned Base UI composition rather than a hover-only tooltip,
+so touch and screen-reader users can reach the information too.
+
+```tsx
+<InfoTip label="About removing this link" disabled={saving}>
+  Records and history are kept. You can link this source again.
+</InfoTip>
+```
+
+The icon uses the shared 44px button target. Content wraps within the available
+viewport. Keep content informational; put actions outside the popup. The owning
+action supplies loading and failed-save feedback. Link-management browser cases
+cover desktop/mobile content, keyboard dismissal, retained links while reading,
+disabled actions during saving and rejected writes.
 
 ## ChoiceGroup
 

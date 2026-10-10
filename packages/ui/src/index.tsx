@@ -53,3 +53,4 @@ export {
 } from "./components/tabs";
 export { TextLink, type TextLinkProps } from "./components/text-link";
 export { ChoiceGroup, type ChoiceOption } from "./components/choice-group";
+export { InfoTip } from "./components/info-tip";

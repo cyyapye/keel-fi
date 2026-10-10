@@ -20,7 +20,9 @@ describe("holding evidence precision", () => {
     expect(formatSavedAt("2026-10-01T12:00:01Z")).not.toBe(
       formatSavedAt("2026-10-01T12:00:02Z"),
     );
-    expect(formatSavedAt("2026-10-01T12:00:01Z")).toContain("UTC");
+    expect(formatSavedAt("2026-10-01T12:00:01Z")).toMatch(
+      /\d{1,2}:\d{2}:\d{2} [AP]M \S+$/,
+    );
   });
 });
 
