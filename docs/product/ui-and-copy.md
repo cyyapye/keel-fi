@@ -29,6 +29,10 @@ finite maintenance queue lives in
   match implemented behavior.
 - Give sibling section headings the same shared size and spacing. Use body-size
   text for actionable purchase summaries; metadata must not carry the task.
+- Keep supporting source metadata in the existing secondary text style. Omit a
+  field label when its value and surrounding section already explain its
+  meaning. Present multiple related SPVs as a list with wrapping links on
+  mobile.
 
 ## Design before implementation
 
@@ -102,16 +106,16 @@ source-backed scope and date requirements for valuation calculations.
 
 Use one chronological holding history for investment edits, valuation changes,
 and link decisions. Identify the change and its timestamp in the closed entry,
-using the viewer’s local time zone for instants (calendar-only source dates
-retain their date); expansion shows changed fields with their previous and new
-values, rather than repeating an unchanged snapshot. An initial record may show
-its recorded facts. Link management uses the standard disclosure header.
-Reversible unlinking is one activation; explain its effect on investment
-visibility and value sourcing in an adjacent accessible info popup. Preserve
-records/history and support relinking. Do not add a confirmation to a reversible
-action merely to display its explanation; reserve confirmations for irreversible
-or trust-sensitive changes. Label the selector as adding another source when
-links already exist.
+using the viewer’s local time zone with minute precision and no zone suffix
+(calendar-only source dates retain their date); expansion shows changed fields
+with their previous and new values, rather than repeating an unchanged snapshot.
+An initial record may show its recorded facts. Link management uses the standard
+disclosure header. Reversible unlinking is one activation; explain its effect on
+investment visibility and value sourcing in an adjacent accessible info popup.
+Preserve records/history and support relinking. Do not add a confirmation to a
+reversible action merely to display its explanation; reserve confirmations for
+irreversible or trust-sensitive changes. Label the selector as adding another
+source when links already exist.
 
 For a new concept or changed information architecture, make a concise concept
 map before a mockup. Cover the affected user task and adjacent concepts that

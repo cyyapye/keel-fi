@@ -125,6 +125,7 @@ function initialReceipt() {
 async function setup(
   page: Page,
   configure?: (receipt: PurchaseReceipt) => void,
+  relatedNames: string[] = [],
 ) {
   await page.clock.setFixedTime(new Date("2026-10-08T12:00:00.000Z"));
   let receipt = initialReceipt();
@@ -181,21 +182,35 @@ async function setup(
         reviewedInvestment: reviewedInvestmentFromReceipt(receipt),
       },
     });
+  const holdings = () => [
+    holding(),
+    ...relatedNames.map((positionName, index) => ({
+      ...holding(),
+      id: `synthetic-related-${index}`,
+      positionName,
+      purchaseContext: null,
+      positionEconomicsContext: null,
+      positionValueContext: null,
+    })),
+  ];
   const investmentHoldings = () => {
-    const view = investmentHoldingsViewFor([holding()]);
+    const view = investmentHoldingsViewFor(holdings());
     for (const connection of view.positionView.connections)
       for (const container of connection.containers)
         for (const position of container.positions)
-          position.snapshot.id = receipt.snapshotId;
+          if (position.id === receipt.positionId)
+            position.snapshot.id = receipt.snapshotId;
     for (const position of view.exposureView.positions) {
-      position.snapshotId = receipt.snapshotId;
-      position.reviewedInvestment = reviewedInvestmentFromReceipt(receipt);
+      if (position.id === receipt.positionId) {
+        position.snapshotId = receipt.snapshotId;
+        position.reviewedInvestment = reviewedInvestmentFromReceipt(receipt);
+      }
     }
     return view;
   };
   await routeHoldingsPage(page, () => ({
     householdName: "Demo Household",
-    holdings: [holding()],
+    holdings: holdings(),
     investmentHoldings: investmentHoldings(),
     acceptedCashAccounts: [],
     pendingImports: [],
@@ -345,7 +360,32 @@ async function setup(
 test("holding summary pairs value and return and keeps fees in Investment", async ({
   page,
 }) => {
-  await setup(page);
+  const relatedNames = [
+    "Demo Cedar Growth I SPV",
+    "Demo Cedar Growth II SPV",
+    "Demo Cedar Artificial Intelligence and Enterprise Infrastructure Opportunity III SPV",
+  ];
+  await setup(page, undefined, relatedNames);
+  const related = page.getByRole("list", { name: "Also held through" });
+  await expect(related.getByRole("listitem")).toHaveCount(3);
+  for (const [index, name] of relatedNames.entries()) {
+    const link = related.getByRole("link", { name, exact: true });
+    await expect(link).toHaveAttribute(
+      "href",
+      `/holdings?position=synthetic-related-${index}`,
+    );
+    await expect(link).toHaveCSS("white-space", "normal");
+    expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(
+      page.viewportSize()!.width <= 620 ? 44 : 40,
+    );
+  }
+  const rows = await related.getByRole("listitem").all();
+  for (let i = 1; i < rows.length; i++) {
+    expect((await rows[i]!.boundingBox())!.y).toBeGreaterThanOrEqual(
+      (await rows[i - 1]!.boundingBox())!.y +
+        (await rows[i - 1]!.boundingBox())!.height,
+    );
+  }
   const before = page.getByRole("group", {
     name: "Reported value · Before carry",
     exact: true,
@@ -553,12 +593,21 @@ test("saved history distinguishes same-day changes and avoids a duplicate curren
   await expect(history).toContainText(
     "Valuation · Synthetic GP $18,000.00 · before carry",
   );
-  await expect(history).toContainText("UTC");
-  await expect(history).toContainText("12:00:01 PM UTC");
-  await expect(history).toContainText("12:00:02 PM UTC");
-  await expect(
-    page.locator(".holding-history > div > .data-list"),
-  ).not.toContainText("$19,000.00");
+  await expect(history.locator("time")).toHaveText([
+    "Oct 1, 2026, 12:00 PM",
+    "Oct 1, 2026, 12:00 PM",
+    "Oct 1, 2026, 12:00 PM",
+  ]);
+  await expect(history.locator("time").first()).toHaveAttribute(
+    "datetime",
+    "2026-10-01T12:00:02.000Z",
+  );
+  await expect(page.locator(".holding-history > div > p")).toHaveText(
+    "Synthetic GP · Sep 30, 2026",
+  );
+  await expect(page.locator(".holding-history > div > .data-list")).toHaveCount(
+    0,
+  );
   await expect(
     page.getByRole("heading", {
       name: "Linked investment records",
@@ -925,15 +974,15 @@ for (const scenario of [
       "2026-10-03T01:15:42.000Z",
     ],
     expected: [
-      "Nov 1, 2026, 1:30:00 AM PST",
-      "Nov 1, 2026, 1:30:00 AM PDT",
-      "Oct 2, 2026, 6:15:42 PM PDT",
+      "Nov 1, 2026, 1:30 AM",
+      "Nov 1, 2026, 1:30 AM",
+      "Oct 2, 2026, 6:15 PM",
     ],
   },
   {
     zone: "Asia/Singapore",
     times: ["2026-10-02T17:45:06.000Z"],
-    expected: ["Oct 3, 2026, 1:45:06 AM GMT+8"],
+    expected: ["Oct 3, 2026, 1:45 AM"],
   },
 ]) {
   test.describe(`local history in ${scenario.zone}`, () => {
@@ -968,9 +1017,11 @@ for (const scenario of [
         .getByRole("button", { name: "Sources & history", exact: true })
         .click();
       const entries = page.locator(
-        ".holding-receipt-history .holding-history-entry small",
+        ".holding-receipt-history .holding-history-entry time",
       );
       await expect(entries).toHaveText(scenario.expected);
+      for (const [index, instant] of scenario.times.entries())
+        await expect(entries.nth(index)).toHaveAttribute("datetime", instant);
     });
   });
 }

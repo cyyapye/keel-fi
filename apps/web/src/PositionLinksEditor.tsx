@@ -353,7 +353,7 @@ export function PositionLinksEditor({
                     <strong>
                       {member?.legalVehicleName ?? "Linked investment"}
                     </strong>
-                    <p>
+                    <p className="holding-metadata">
                       {link.relationship === "replaced"
                         ? "Historical · replaced by this SPV"
                         : link.companyRenamed

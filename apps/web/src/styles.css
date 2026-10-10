@@ -9765,6 +9765,23 @@ h1,
   font-size: 13px;
   line-height: 1.5;
 }
+.holding-related {
+  margin-top: 16px;
+}
+.holding-related > p {
+  margin: 0;
+}
+.holding-related > ul {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.holding-related .keel-link {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .holding-section-heading {
   display: flex;
   justify-content: space-between;
@@ -9831,7 +9848,7 @@ h1,
   gap: 6px;
   text-align: left;
 }
-.holding-history-entry small {
+.holding-history-entry time {
   color: var(--muted);
   font-size: 12px;
 }

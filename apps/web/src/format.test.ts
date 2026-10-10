@@ -16,12 +16,15 @@ describe("holding evidence precision", () => {
     expect(formatSharePrice(100_000_000)).toBe("$100.00");
     expect(formatSharePrice(5_000)).toBe("$0.005");
   });
-  it("distinguishes changes in the same day with an explicit time zone", () => {
-    expect(formatSavedAt("2026-10-01T12:00:01Z")).not.toBe(
+  it("shows local history to the minute without seconds or a zone suffix", () => {
+    expect(formatSavedAt("2026-10-01T12:00:01Z")).toBe(
       formatSavedAt("2026-10-01T12:00:02Z"),
     );
+    expect(formatSavedAt("2026-10-01T12:00:01Z")).not.toBe(
+      formatSavedAt("2026-10-01T12:01:01Z"),
+    );
     expect(formatSavedAt("2026-10-01T12:00:01Z")).toMatch(
-      /\d{1,2}:\d{2}:\d{2} [AP]M \S+$/,
+      /\d{1,2}:\d{2} [AP]M$/,
     );
   });
 });
