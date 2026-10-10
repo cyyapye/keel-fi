@@ -391,10 +391,33 @@ class NativeAccountingTests(unittest.TestCase):
                 "await new Promise(resolve=>setTimeout(resolve,60000));});\n"
             )
 
+            ephemeral_range = (49_152, 65_535)
+            if sys.platform == "linux":
+                ephemeral_range = tuple(
+                    int(value)
+                    for value in Path(
+                        "/proc/sys/net/ipv4/ip_local_port_range"
+                    ).read_text().split()
+                )
+            used_ports = set()
+
             def available_port():
-                with socket.socket() as reservation:
-                    reservation.bind(("127.0.0.1", 0))
-                    return reservation.getsockname()[1]
+                # Keep readiness connections from claiming a just-released
+                # listening port through the kernel's ephemeral allocation.
+                for port in range(20_000, 21_000):
+                    if (
+                        port in used_ports
+                        or ephemeral_range[0] <= port <= ephemeral_range[1]
+                    ):
+                        continue
+                    with socket.socket() as reservation:
+                        try:
+                            reservation.bind(("127.0.0.1", port))
+                        except OSError:
+                            continue
+                    used_ports.add(port)
+                    return port
+                self.fail("No free non-ephemeral cleanup-probe port")
 
             def port_open(port):
                 try:
@@ -486,7 +509,7 @@ class NativeAccountingTests(unittest.TestCase):
                     if fail_after_ready:
                         raise RuntimeError("synthetic startup validation failure")
                     return playwright, port, server_group
-                except BaseException:
+                except BaseException as error:
                     native.cleanup_browser_processes([playwright])
                     if server_identity.exists() and not server_identity.is_symlink():
                         try:
@@ -504,6 +527,15 @@ class NativeAccountingTests(unittest.TestCase):
                                 os.killpg(server_group, signal.SIGKILL)
                             except ProcessLookupError:
                                 pass
+                    try:
+                        os.set_blocking(playwright.stdout.fileno(), False)
+                        output = os.read(playwright.stdout.fileno(), 16_384)
+                    except BlockingIOError:
+                        output = b""
+                    error.add_note(
+                        f"Playwright {name} exit={playwright.returncode}, port={port}:\n"
+                        + output.decode("utf-8", errors="replace")
+                    )
                     playwright.stdout.close()
                     raise
 
