@@ -9285,11 +9285,8 @@ h1,
 .position-links h3 {
   margin: 0;
 }
-.position-link-confirmation {
-  margin-block: 1rem;
-}
-.position-link-confirmation p {
-  margin-bottom: 1rem;
+.position-link-actions {
+  gap: var(--space-2);
 }
 .position-links .data-list {
   display: grid;

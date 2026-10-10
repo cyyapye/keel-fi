@@ -12,6 +12,8 @@ import { unknownInvestmentTerms } from "../packages/domain/src/investment-detail
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 
+test.use({ timezoneId: "UTC" });
+
 async function select(page: Page, label: string, option: string) {
   await page.getByRole("combobox", { name: label, exact: true }).click();
   await page.getByRole("option", { name: option, exact: true }).click();
@@ -621,7 +623,11 @@ test("one timeline refreshes after unlink, keeps failed decisions unapplied and 
   );
   let reject = true,
     writes = 0;
-  await page.route("**/api/investment-position-links", (route) => {
+  let release: () => void = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/investment-position-links", async (route) => {
     if (route.request().method() === "GET")
       return route.fulfill({
         json: { positions: [target, source], links: [link] },
@@ -632,6 +638,7 @@ test("one timeline refreshes after unlink, keeps failed decisions unapplied and 
         status: 409,
         json: { error: "The records changed. Reload and review again." },
       });
+    await pending;
     link = {
       ...link,
       state: "unlinked",
@@ -671,27 +678,38 @@ test("one timeline refreshes after unlink, keeps failed decisions unapplied and 
     0,
   );
   await expect(links).not.toContainText("Keep this SPV as one investment");
-  await links
-    .getByRole("button", { name: "Unlink record", exact: true })
-    .click();
-  await expect(links).toContainText(
-    "This link will stop supplying reported value.",
-  );
-  await links.getByRole("button", { name: "Cancel", exact: true }).click();
-  expect(writes).toBe(0);
+  const info = links.getByRole("button", {
+    name: "About unlinking Demo Cedar source",
+    exact: true,
+  });
+  await info.press("Enter");
   await expect(
-    links.getByRole("button", { name: "Unlink record", exact: true }),
-  ).toBeFocused();
-  await links
-    .getByRole("button", { name: "Unlink record", exact: true })
-    .click();
-  await links.getByRole("button", { name: "Unlink", exact: true }).click();
+    page.getByRole("dialog", {
+      name: "About unlinking Demo Cedar source",
+      exact: true,
+    }),
+  ).toContainText("This link will stop supplying reported value.");
+  await page.keyboard.press("Escape");
+  expect(writes).toBe(0);
+  await expect(info).toBeFocused();
+  const unlink = links.getByRole("button", {
+    name: "Unlink record",
+    exact: true,
+  });
+  await unlink.click();
   await expect(links.getByRole("alert")).toContainText("The records changed");
+  expect(writes).toBe(1);
   await expect(
     timeline.getByRole("button", { name: /^Unlinked ·/ }),
   ).toHaveCount(0);
   reject = false;
-  await links.getByRole("button", { name: "Unlink", exact: true }).click();
+  await unlink.click();
+  await expect(
+    links.getByRole("button", { name: "Unlinking…", exact: true }),
+  ).toBeDisabled();
+  await expect(info).toBeDisabled();
+  expect(writes).toBe(2);
+  release();
   await expect(
     timeline.getByRole("button", { name: /^Unlinked ·/ }),
   ).toBeVisible();
@@ -699,6 +717,7 @@ test("one timeline refreshes after unlink, keeps failed decisions unapplied and 
     timeline.getByRole("button", { name: /^Investment · One-time fee/ }),
   ).toHaveAttribute("aria-expanded", "false");
   await expect(disclosure).toBeFocused();
+  expect(writes).toBe(2);
   await expect(
     links.getByRole("button", { name: "Unlink record", exact: true }),
   ).toHaveCount(0);
@@ -896,3 +915,62 @@ test("editing an existing partial investment preserves its recorded scope", asyn
     page.getByRole("button", { name: "Save", exact: true }),
   ).toBeDisabled();
 });
+
+for (const scenario of [
+  {
+    zone: "America/Los_Angeles",
+    times: [
+      "2026-11-01T09:30:00.000Z",
+      "2026-11-01T08:30:00.000Z",
+      "2026-10-03T01:15:42.000Z",
+    ],
+    expected: [
+      "Nov 1, 2026, 1:30:00 AM PST",
+      "Nov 1, 2026, 1:30:00 AM PDT",
+      "Oct 2, 2026, 6:15:42 PM PDT",
+    ],
+  },
+  {
+    zone: "Asia/Singapore",
+    times: ["2026-10-02T17:45:06.000Z"],
+    expected: ["Oct 3, 2026, 1:45:06 AM GMT+8"],
+  },
+]) {
+  test.describe(`local history in ${scenario.zone}`, () => {
+    test.use({ timezoneId: scenario.zone });
+    test("converts saved instants while preserving source calendar dates", async ({
+      page,
+    }) => {
+      const state = await setup(page);
+      const receipts = scenario.times.map((acceptedAt, index) => ({
+        ...state.receipt(),
+        id: `local-${index}`,
+        acceptedAt,
+      }));
+      await page.route(
+        "**/api/investment-positions/synthetic-holding/history",
+        (route) =>
+          route.fulfill({
+            json: {
+              entries: receipts.map((receipt) => ({
+                kind: "investment",
+                receipt,
+                previous: receipt,
+              })),
+              next: null,
+            },
+          }),
+      );
+      await expect(page.locator(".holding-value-summary")).toContainText(
+        "Sep 30, 2026",
+      );
+      await page
+        .getByRole("button", { name: "Sources & history", exact: true })
+        .click();
+      const entries = page.locator(
+        ".holding-receipt-history .holding-history-entry small",
+      );
+      await expect(entries).toHaveText(scenario.expected);
+    });
+  });
+}
