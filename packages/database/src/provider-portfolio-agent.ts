@@ -516,7 +516,8 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
             .prepare(
               `UPDATE provider_session_renewals
             SET last_outcome_token_sha256 = lease_token_sha256,
-              lease_token_sha256 = NULL, lease_expires_at = NULL, last_error_code = 'unexpected_failure'
+              lease_token_sha256 = NULL, lease_expires_at = NULL, last_error_code = 'unexpected_failure',
+              last_failure_reason = 'unverified'
             WHERE agent_id = ? AND attempts = 3 AND lease_token_sha256 = ? AND lease_expires_at <= ?`,
             )
             .bind(agent.id, due.lease_token_sha256, timestamp),
@@ -691,7 +692,7 @@ export class D1ProviderPortfolioAgentRepository implements ProviderPortfolioAgen
           WHERE renewal.agent_id = provider_portfolio_agents.id
             AND renewal.last_outcome_token_sha256 = ? AND renewal.last_error_code IS ?
             AND (? = 'provider_sign_in_required' OR (? IS NOT NULL AND renewal.attempts >= 3)
-              OR (? IS NULL AND provider_portfolio_agents.last_error_code IN ('provider_sign_in_required', 'unexpected_failure'))))`,
+              OR (? IS NULL AND provider_portfolio_agents.last_error_code = 'provider_sign_in_required')))`,
         )
         .bind(code, timestamp, agent.id, code, digest, code, code, code, code),
     ]);

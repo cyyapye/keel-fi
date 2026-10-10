@@ -282,7 +282,10 @@ it.each([
           new Date(lastVerifiedAt).toISOString(),
         );
         expect(state.nextRunAt).toBe(new Date(START + DAY).toISOString());
-        expect(state.errorCode).toBeNull();
+        // Maintenance proves session access, not successful capture recovery.
+        expect(state.errorCode).toBe(
+          transportRecovery ? "unexpected_failure" : null,
+        );
       }
       if (renewalFailure) {
         expect(
