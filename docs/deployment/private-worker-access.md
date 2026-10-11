@@ -63,12 +63,31 @@ For each of `angellist`, `tokenfolio`, and `sydecar`:
    belongs in command arguments or logs.
 
 Prefer systemd `LoadCredentialEncrypted` for the tunnel and readiness secrets,
-using the host TPM when available. Its decrypted, provider-owned read-only files
-can be referenced through the service credential directory. Keep encrypted
-credential inputs outside Git and backups of public source. File permissions
-alone are access controls, not encryption at rest. Browser profiles also contain
-provider credentials and need encrypted host storage and protected backups in a
-public hosted deployment.
+using the host TPM when available. Keep encrypted inputs in the provider's
+private credential directory. Copy decrypted credentials into a provider-owned
+`RuntimeDirectory` with mode 0700 and files at 0400; the gateway requires those
+permissions and must not assume systemd's credential directory has the same
+mode. Use `ExecStartPre` to copy from `%d`, and let systemd remove the runtime
+directory when the service stops. For example:
+
+```ini
+[Service]
+RuntimeDirectory=keel-reconnect-tokenfolio
+RuntimeDirectoryMode=0700
+LoadCredentialEncrypted=reconnect-tunnel-token:/var/lib/keel-agents/tokenfolio/.config/keel/reconnect/tunnel-token.cred
+LoadCredentialEncrypted=reconnect-probe:/var/lib/keel-agents/tokenfolio/.config/keel/reconnect/probe.cred
+ExecStartPre=/usr/bin/install -m0400 %d/reconnect-tunnel-token /run/keel-reconnect-tokenfolio/tunnel-token
+ExecStartPre=/usr/bin/install -m0400 %d/reconnect-probe /run/keel-reconnect-tokenfolio/probe.json
+Environment=KEEL_RECONNECT_CONFIG_FILE=/var/lib/keel-agents/tokenfolio/.config/keel/reconnect/access.json
+```
+
+Before activation, verify decryption and permissions with an isolated unit using
+the same provider UID and sandbox, then verify the temporary runtime directory
+is removed. A host-key fallback does not provide TPM protection. Keep encrypted
+credential inputs and the host key outside Git and backups of public source.
+File permissions alone are access controls, not encryption at rest. Browser
+profiles also contain provider credentials and need encrypted host storage and
+protected backups in a public hosted deployment.
 
 Synthetic configuration shape (replace privately; never commit the populated
 configuration):
@@ -82,8 +101,8 @@ configuration):
   "teamDomain": "synthetic.cloudflareaccess.com",
   "audience": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "listenPort": 16002,
-  "tunnelTokenFile": "/var/lib/keel-agents/tokenfolio/.config/keel/reconnect/tunnel-token",
-  "probeCredentialsFile": "/var/lib/keel-agents/tokenfolio/.config/keel/reconnect/probe.json"
+  "tunnelTokenFile": "/run/keel-reconnect-tokenfolio/tunnel-token",
+  "probeCredentialsFile": "/run/keel-reconnect-tokenfolio/probe.json"
 }
 ```
 
