@@ -34,6 +34,10 @@
         "scripts/participation-d1-cost.test.ts",
         "scripts/provider-agent-d1-cost.test.ts",
         "scripts/provider-agent-usage.test.ts",
+        "scripts/provider-reconnect-access.test.ts",
+        "scripts/provider-reconnect-d1-cost.test.ts",
+        "packages/database/src/provider-browser-sessions.test.ts",
+        "apps/api/src/app.test.ts",
         "scripts/keel-session-check.test.ts",
         "scripts/cash-request-d1-cost.test.ts",
         "scripts/automatic-investment-review-d1-cost.test.ts",
@@ -262,6 +266,7 @@
         "e2e/provider-browser-lifecycle.spec.ts",
         "e2e/provider-legal-documents.spec.ts",
         "e2e/provider-session.spec.ts",
+        "e2e/provider-reconnect-access.spec.ts",
         "scripts/browser-test-lanes.ts",
         "e2e/api-mocked-test.ts",
         "scripts/browser-test-server.ts",
@@ -344,6 +349,7 @@
       "sources": [
         "AGENTS.md",
         "docs/security/private-document-baseline.md",
+        "docs/deployment/private-worker-access.md",
         "docs/security/threat-model.md"
       ],
       "flows": ["native-unit-and-cost", "browser-workflows"]

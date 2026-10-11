@@ -234,7 +234,6 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "scripts/provider-browser-reconnect.ts | waitForFile | timer | sleep | 22033347b54f396b",
   "scripts/provider-browser-reconnect.ts | waitForPort | timer | sleep | 22033347b54f396b",
   "scripts/provider-browser-reconnect.ts | waitForPublicTunnel | timer | sleep | 58afccd807418bfd",
-  "scripts/provider-browser-reconnect.ts | waitForQuickTunnel | timer | setTimeout | 40763c53f98a1f7a",
   "scripts/provider-legal-document-capture.ts | agreementPopupUrl | network | request.fallback | 975052590b2127ab",
   "scripts/provider-legal-document-capture.ts | agreementPopupUrl | network | request.fallback | 975052590b2127ab",
   "scripts/provider-legal-document-capture.ts | agreementPopupUrl | timer | setTimeout | bcf948292c6e2306",
@@ -265,5 +264,8 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "scripts/provider-portfolio-mac-agent.ts | verifySydecarSessionRenewal | network | route.fallback | 52451a74adaa5f2c",
   "scripts/provider-portfolio-mac-agent.ts | waitForTokenfolioTabCount | timer | sleep | fd8c3d853c45aa18",
   "scripts/provider-portfolio-mac-agent.ts | withRenewalDeadline | timer | setTimeout | 707a7dabc0fb8531",
+  "scripts/provider-reconnect-access.ts | startReconnectAccessGateway | timer | setTimeout | 5daf285e9323e922",
+  "scripts/provider-reconnect-access.ts | startReconnectAccessGateway | timer | setTimeout | 664cf0df455af005",
+  "scripts/provider-reconnect-access.ts | startReconnectAccessGateway | timer | upstream.setTimeout | 6c8c7af871a03b41",
 ]
 `;

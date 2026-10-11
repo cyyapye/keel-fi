@@ -144,6 +144,7 @@ describe("Sydecar session renewal admission", () => {
     const reconnects = new D1ProviderBrowserSessionRepository(
       d1,
       () => new Date(clock.now),
+      "https://keel-agents.example.com",
     );
     await repository.register("synthetic-access-subject", "sydecar");
     await repository.requestRun("synthetic-access-subject", "sydecar");
@@ -236,7 +237,7 @@ describe("Sydecar session renewal admission", () => {
       .leaseToken;
     await reconnects.ready(subject, "sydecar", session.id, {
       leaseToken,
-      liveUrl: `https://synthetic-reconnect.trycloudflare.com/${"c".repeat(43)}.html`,
+      liveUrl: `https://keel-sydecar-reconnect.example.com/${"c".repeat(43)}.html`,
     });
     await reconnects.consume(subject, session.id);
     await reconnects.complete(subject, "sydecar", session.id, { leaseToken });

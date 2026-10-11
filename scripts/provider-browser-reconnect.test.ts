@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   __providerBrowserReconnectTest,
-  cloudflaredQuickTunnelUrl,
   type ProviderBrowserRuntimeOptions,
 } from "./provider-browser-reconnect";
 
@@ -31,6 +30,7 @@ function reconnectOptions(
     lease: {
       id: "11111111-1111-4111-8111-111111111111",
       leaseToken: "b".repeat(43),
+      viewerSubject: "synthetic-access-subject",
       expiresAt: "2026-09-04T12:15:00.000Z",
     },
   };
@@ -189,18 +189,6 @@ describe("managed provider browser reconnect", () => {
     expect(complete).toHaveBeenCalledTimes(1);
   });
 
-  it("accepts only the temporary HTTPS tunnel URL from bounded output", () => {
-    expect(
-      cloudflaredQuickTunnelUrl(
-        "INF Requesting new quick Tunnel\nhttps://synthetic-quiet-brook.trycloudflare.com ready",
-      )?.toString(),
-    ).toBe("https://synthetic-quiet-brook.trycloudflare.com/");
-    expect(cloudflaredQuickTunnelUrl("http://127.0.0.1:6080")).toBeNull();
-    expect(
-      cloudflaredQuickTunnelUrl("https://trycloudflare.com.invalid"),
-    ).toBeNull();
-  });
-
   it("opens only the selected provider profile in visible loopback Chrome", () => {
     const arguments_ = __providerBrowserReconnectTest.remoteChromeArguments(
       "/srv/keel/profiles/angellist",
@@ -233,6 +221,8 @@ describe("managed provider browser reconnect", () => {
     const html = __providerBrowserReconnectTest.remoteBrowserHtml(
       "AngelList",
       "synthetic-random-password",
+      "c".repeat(43),
+      "f".repeat(43),
     );
     expect(html).toContain("Reconnect AngelList");
     expect(html).toContain(
@@ -242,39 +232,49 @@ describe("managed provider browser reconnect", () => {
     expect(html).not.toContain("Terminal");
   });
 
-  it("waits for the exact public browser page instead of a tunnel URL alone", async () => {
-    const liveUrl = new URL(
-      "https://synthetic-quiet-brook.trycloudflare.com/random.html",
+  it("probes only the lease nonce with service credentials and rejects redirects", async () => {
+    const probe = {
+      clientId: "a".repeat(32) + ".access",
+      clientSecret: "synthetic-secret-".repeat(4),
+      nonce: "c".repeat(43),
+    };
+    const url = new URL(
+      `https://keel-tokenfolio-reconnect.example.com/_keel/ready/${probe.nonce}`,
     );
-    const unavailable =
-      await __providerBrowserReconnectTest.publicTunnelResponds(liveUrl, () =>
-        Promise.resolve(
-          new Response("Cloudflare Tunnel error", { status: 530 }),
-        ),
-      );
-    const wrongPage = await __providerBrowserReconnectTest.publicTunnelResponds(
-      liveUrl,
-      () =>
-        Promise.resolve(
-          new Response("<!doctype html><title>Not found</title>"),
-        ),
+    const request = vi.fn(() => Promise.resolve(new Response(probe.nonce)));
+    expect(
+      await __providerBrowserReconnectTest.publicTunnelResponds(
+        url,
+        probe,
+        request,
+      ),
+    ).toBe(true);
+    expect(request).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({
+        redirect: "manual",
+        headers: expect.objectContaining({
+          "CF-Access-Client-Id": probe.clientId,
+          "CF-Access-Client-Secret": probe.clientSecret,
+        }),
+      }),
     );
-    const ready = await __providerBrowserReconnectTest.publicTunnelResponds(
-      liveUrl,
-      () =>
-        Promise.resolve(
-          new Response(
-            __providerBrowserReconnectTest.remoteBrowserHtml(
-              "Tokenfolio",
-              "synthetic-random-password",
-            ),
-          ),
+    for (const response of [
+      new Response("wrong lease"),
+      new Response(null, {
+        status: 302,
+        headers: { Location: "https://other.example.com" },
+      }),
+      new Response("unavailable", { status: 530 }),
+    ]) {
+      expect(
+        await __providerBrowserReconnectTest.publicTunnelResponds(
+          url,
+          probe,
+          () => Promise.resolve(response),
         ),
-    );
-
-    expect(unavailable).toBe(false);
-    expect(wrongPage).toBe(false);
-    expect(ready).toBe(true);
+      ).toBe(false);
+    }
   });
 
   it("records a viewer only after its loopback VNC connection succeeds", async () => {

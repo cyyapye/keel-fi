@@ -65,17 +65,17 @@ describe("provider browser session boundary", () => {
   const leaseToken = "b".repeat(43);
   const entryPath = `${"c".repeat(43)}.html`;
 
-  it("accepts only a clean ephemeral tunnel entry URL", () => {
+  it("accepts clean named HTTPS URLs and rejects Quick Tunnels", () => {
     expect(
       ProviderBrowserSessionReadyInputSchema.safeParse({
         leaseToken,
-        liveUrl: `https://synthetic-quiet-brook.trycloudflare.com/${entryPath}`,
+        liveUrl: `https://keel-tokenfolio-reconnect.example.com/${entryPath}`,
       }).success,
     ).toBe(true);
     expect(
       ProviderBrowserSessionReadyInputSchema.safeParse({
         leaseToken,
-        liveUrl: `https://example.com/${entryPath}`,
+        liveUrl: `https://synthetic-quiet-brook.trycloudflare.com/${entryPath}`,
       }).success,
     ).toBe(false);
     expect(

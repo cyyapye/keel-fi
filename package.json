@@ -53,6 +53,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.8.0",
+    "jose": "^6.2.4",
     "miniflare": "4.20260721.0",
     "prettier": "^3.6.2",
     "tsx": "^4.20.3",

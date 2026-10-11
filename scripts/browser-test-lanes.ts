@@ -36,6 +36,7 @@ export const BROWSER_TEST_LANES = {
     "portfolio-baseline.visual.spec.ts",
     "portfolio-dashboard.visual.spec.ts",
     "private-alpha.spec.ts",
+    "provider-reconnect-access.spec.ts",
     "provider-session.spec.ts",
     "sydecar-session-renewal.spec.ts",
   ],

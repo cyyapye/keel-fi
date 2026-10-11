@@ -5,6 +5,7 @@ import {
   ProviderBrowserSessionLeaseSchema,
   ProviderBrowserSessionReadyInputSchema,
   ProviderBrowserSessionSchema,
+  providerBrowserOrigin,
   type MacAgentTarget,
   type ProviderBrowserSession,
   type ProviderBrowserSessionCompletionInput,
@@ -140,6 +141,7 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
   public constructor(
     private readonly db: D1Database,
     private readonly now: () => Date = () => new Date(),
+    private readonly apiOrigin?: string,
   ) {}
 
   public async create(
@@ -264,23 +266,37 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
       .prepare(
         `SELECT live_url
          FROM provider_browser_sessions
-         WHERE id = ? AND household_id = ? AND status = 'ready'
+         WHERE id = ? AND household_id = ? AND requested_by_user_id = ? AND status = 'ready'
            AND expires_at > ?`,
       )
-      .bind(sessionId, identity.household_id, timestamp)
+      .bind(sessionId, identity.household_id, identity.user_id, timestamp)
       .first<LiveUrlRow>();
     if (destination === null) {
       throw new ProviderBrowserSessionRepositoryError("session_not_ready");
     }
+    // Reject persisted legacy Quick Tunnel destinations before consuming them.
+    if (
+      this.apiOrigin === undefined ||
+      new URL(destination.live_url).origin !==
+        providerBrowserOrigin(this.apiOrigin, existing.provider)
+    )
+      throw new ProviderBrowserSessionRepositoryError("session_not_ready");
     const consumed = await this.db
       .prepare(
         `UPDATE provider_browser_sessions
          SET status = 'opened', live_url = NULL, opened_at = ?, updated_at = ?
-         WHERE id = ? AND household_id = ? AND status = 'ready'
+         WHERE id = ? AND household_id = ? AND requested_by_user_id = ? AND status = 'ready'
            AND expires_at > ?
          RETURNING id`,
       )
-      .bind(timestamp, timestamp, sessionId, identity.household_id, timestamp)
+      .bind(
+        timestamp,
+        timestamp,
+        sessionId,
+        identity.household_id,
+        identity.user_id,
+        timestamp,
+      )
       .first<IdRow>();
     if (consumed === null) {
       throw new ProviderBrowserSessionRepositoryError("session_not_ready");
@@ -352,13 +368,14 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
     ]);
     const leased = await this.db
       .prepare(
-        `SELECT id, expires_at
-         FROM provider_browser_sessions
-         WHERE id = ? AND household_id = ? AND provider = ?
-           AND status = 'starting' AND lease_token_sha256 = ?`,
+        `SELECT session.id, session.expires_at, viewer.access_subject AS viewer_subject
+         FROM provider_browser_sessions session
+         JOIN users viewer ON viewer.id = session.requested_by_user_id
+         WHERE session.id = ? AND session.household_id = ? AND session.provider = ?
+           AND session.status = 'starting' AND session.lease_token_sha256 = ?`,
       )
       .bind(requested.id, identity.household_id, provider, digest)
-      .first<LeasedSessionRow>();
+      .first<LeasedSessionRow & { viewer_subject: string }>();
     return ProviderBrowserSessionLeaseSchema.parse({
       version: 1,
       provider,
@@ -370,6 +387,7 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
               id: leased.id,
               leaseToken,
               expiresAt: leased.expires_at,
+              viewerSubject: leased.viewer_subject,
             },
     });
   }
@@ -382,6 +400,13 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
   ): Promise<ProviderBrowserSession> {
     const provider = MacAgentTargetSchema.parse(rawProvider);
     const input = ProviderBrowserSessionReadyInputSchema.parse(rawInput);
+    if (
+      this.apiOrigin === undefined ||
+      new URL(input.liveUrl).origin !==
+        providerBrowserOrigin(this.apiOrigin, provider)
+    ) {
+      throw new ProviderBrowserSessionRepositoryError("session_not_ready");
+    }
     const identity = await this.findIdentity(accessSubject);
     const now = this.now();
     await this.requireLease(

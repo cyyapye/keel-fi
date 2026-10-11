@@ -117,6 +117,47 @@ headroom. A synthetic browser regression fails under the former detector and
 requires passkey/MFA recovery while rejecting hidden and optional controls; the
 authenticated virtual-day usage gates continue to enforce the existing ceilings.
 
+### Authenticated reconnect gateway
+
+The provider worker owns one named Tunnel and one loopback authentication
+gateway only while an existing reconnect lease is active. D1's unique active
+provider constraint and the provider-specific fixed loopback port exclude
+duplicate owners. No gateway, key fetch, readiness probe or viewer timer runs
+while idle. Idle-day and unattended provider-failure-day API/D1 ceilings remain
+unchanged. The full virtual-day client and actual D1 counter fixtures retain
+their idle, continuous outage and intermittent recovery assertions.
+
+Each lease lasts at most 15 minutes and admits one WebSocket viewer, including
+racing upgrades. A disconnect consumes that admission. The gateway caps JWT
+verification at 256 allowed-route attempts per lease and eight concurrent
+verifications, with at most 16 inbound TCP connections. Readiness retains the
+30-second startup deadline, three-second request timeout and 250-ms retry
+interval (at most 120 probe attempts). A service identity can receive only the
+current lease nonce; viewer requests require the exact requesting user and
+application audience. There is no authorization-result cache.
+
+The JWKS client starts only on an admitted lease, times out after three seconds,
+caches public keys for five minutes and imposes a 30-second cooldown on unknown
+keys. Budget at most 31 key downloads per 15-minute lease, including a boundary
+request. Neither key downloads nor viewer/probe requests invoke Keel Workers, D1
+or object storage. Their edge/Tunnel traffic is separately counted. The Tunnel
+retains cloudflared's bounded reconnect backoff inside the lease. Gateway expiry
+and established viewer JWT expiry each use one cancellable local timer; HTTP
+backend timeout is three seconds. Closing the gateway destroys sockets. Existing
+five-second server status polling owns cancellation detection and retains its
+180-check ceiling per full lease.
+
+For three full reconnects, gateway admission adds at most 768 verification
+attempts and 93 JWKS requests, with zero new D1 writes or object operations.
+User link opening adds one passive GET followed by the existing consumption work
+on POST. The leased subject uses an indexed user join in the existing
+winning-lease query, with no extra repository round trip. The
+positive/empty/foreign and growing-history D1 holdout measures this query and
+inspects its plan. Repeated explicit user reconnects multiply these active
+costs; a multi-customer public service needs atomic aggregate admission limits
+and a new shared-account budget before launch. The current three-provider,
+one-household operating envelope is not a public tenancy budget.
+
 ### Sydecar session maintenance
 
 The provider's observed access-token lifetime is one hour and refresh-token

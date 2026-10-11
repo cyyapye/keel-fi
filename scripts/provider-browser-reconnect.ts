@@ -31,6 +31,11 @@ import {
   type ProviderBrowserSessionLease,
 } from "../packages/domain/src/index";
 import { macAgentApi } from "./mac-agent-auth";
+import {
+  loadReconnectAccess,
+  startReconnectAccessGateway,
+  type ReconnectAccessGateway,
+} from "./provider-reconnect-access";
 
 const DISPLAY_CANDIDATES = Array.from(
   { length: 40 },
@@ -489,7 +494,12 @@ function remoteChromeArguments(
   ];
 }
 
-function remoteBrowserHtml(label: string, password: string): string {
+function remoteBrowserHtml(
+  label: string,
+  password: string,
+  accessToken: string,
+  scriptNonce: string,
+): string {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -506,11 +516,11 @@ function remoteBrowserHtml(label: string, password: string): string {
   <body>
     <div id="screen"></div>
     <div id="status" role="status">Opening ${label}…</div>
-    <script type="module">
+    <script type="module" nonce="${scriptNonce}">
       import RFB from "./core/rfb.js";
       const screen = document.querySelector("#screen");
       const status = document.querySelector("#status");
-      const rfb = new RFB(screen, "wss://" + location.host + "/websockify", {
+      const rfb = new RFB(screen, "wss://" + location.host + "/${accessToken}/websockify", {
         credentials: { password: ${JSON.stringify(password)} },
       });
       rfb.scaleViewport = true;
@@ -534,7 +544,7 @@ async function prepareWebRoot(
   noVncDirectory: string,
   label: string,
   password: string,
-): Promise<{ accessToken: string; webRoot: string }> {
+): Promise<{ accessToken: string; webRoot: string; scriptNonce: string }> {
   const webRoot = path.join(temporaryDirectory, "web");
   await mkdir(webRoot, { mode: 0o700 });
   await symlink(path.join(noVncDirectory, "core"), path.join(webRoot, "core"));
@@ -548,67 +558,27 @@ async function prepareWebRoot(
     { mode: 0o600 },
   );
   const accessToken = randomBytes(32).toString("base64url");
+  const scriptNonce = randomBytes(32).toString("base64url");
   await writeFile(
     path.join(webRoot, `${accessToken}.html`),
-    remoteBrowserHtml(label, password),
+    remoteBrowserHtml(label, password, accessToken, scriptNonce),
     { mode: 0o600 },
   );
-  return { accessToken, webRoot };
-}
-
-export function cloudflaredQuickTunnelUrl(output: string): URL | null {
-  const match = /https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/iu.exec(output);
-  if (match === null) {
-    return null;
-  }
-  const parsed = new URL(match[0]);
-  return parsed.protocol === "https:" ? parsed : null;
-}
-
-async function waitForQuickTunnel(child: ChildProcess): Promise<URL> {
-  let output = "";
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error("Secure browser tunnel did not start."));
-    }, START_TIMEOUT_MS);
-    const cleanup = () => {
-      clearTimeout(timeout);
-      child.stdout?.off("data", onData);
-      child.stderr?.off("data", onData);
-      child.off("exit", onExit);
-      child.off("error", onError);
-    };
-    const onData = (chunk: Buffer | string) => {
-      output = `${output}${chunk.toString()}`.slice(-64 * 1_024);
-      const url = cloudflaredQuickTunnelUrl(output);
-      if (url !== null) {
-        cleanup();
-        resolve(url);
-      }
-    };
-    const onExit = () => {
-      cleanup();
-      reject(new Error("Secure browser tunnel stopped during startup."));
-    };
-    const onError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-    child.stdout?.on("data", onData);
-    child.stderr?.on("data", onData);
-    child.once("exit", onExit);
-    child.once("error", onError);
-  });
+  return { accessToken, webRoot, scriptNonce };
 }
 
 async function publicTunnelResponds(
   liveUrl: URL,
+  probe: { clientId: string; clientSecret: string; nonce: string },
   request: typeof fetch = fetch,
 ): Promise<boolean> {
   try {
     const response = await request(liveUrl, {
-      headers: { Accept: "text/html" },
+      headers: {
+        Accept: "text/plain",
+        "CF-Access-Client-Id": probe.clientId,
+        "CF-Access-Client-Secret": probe.clientSecret,
+      },
       redirect: "manual",
       signal: AbortSignal.timeout(PUBLIC_TUNNEL_REQUEST_TIMEOUT_MS),
     });
@@ -616,7 +586,7 @@ async function publicTunnelResponds(
       await response.body?.cancel();
       return false;
     }
-    return (await response.text()).includes(REMOTE_BROWSER_READY_MARKER);
+    return (await response.text()) === probe.nonce;
   } catch {
     return false;
   }
@@ -625,13 +595,14 @@ async function publicTunnelResponds(
 async function waitForPublicTunnel(
   liveUrl: URL,
   child: ChildProcess,
+  probe: { clientId: string; clientSecret: string; nonce: string },
 ): Promise<void> {
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error("Secure browser tunnel stopped during startup.");
     }
-    if (await publicTunnelResponds(liveUrl)) {
+    if (await publicTunnelResponds(liveUrl, probe)) {
       return;
     }
     await sleep(PUBLIC_TUNNEL_RETRY_INTERVAL_MS);
@@ -758,8 +729,13 @@ export async function runProviderBrowserSession(
   let websockify: ChildProcess | null = null;
   let cloudflared: ChildProcess | null = null;
   let chrome: ChildProcess | null = null;
+  let gateway: ReconnectAccessGateway | null = null;
   let stage: ProviderBrowserRuntimeStage = "private_storage";
   try {
+    const access = await loadReconnectAccess(
+      options.authorization.apiOrigin,
+      options.provider,
+    );
     await mkdir(options.appDirectory, { mode: 0o700, recursive: true });
     await chmod(options.appDirectory, 0o700);
     temporaryDirectory = await mkdtemp(
@@ -850,22 +826,38 @@ export async function runProviderBrowserSession(
     await waitForPort(webPort, websockify);
 
     stage = "secure_tunnel";
+    const nonce = randomBytes(32).toString("base64url");
+    gateway = await startReconnectAccessGateway({
+      config: access.config,
+      probeClientId: access.probe.clientId,
+      probeNonce: nonce,
+      viewerSubject: options.lease.viewerSubject,
+      expiresAt: options.lease.expiresAt,
+      accessToken: web.accessToken,
+      scriptNonce: web.scriptNonce,
+      backendPort: webPort,
+    });
     cloudflared = spawn(
       cloudflaredPath,
       [
         "tunnel",
         "--no-autoupdate",
-        "--url",
-        `http://127.0.0.1:${webPort.toString()}`,
+        "run",
+        "--token-file",
+        access.config.tunnelTokenFile,
       ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: "ignore" },
     );
-    const tunnelOrigin = await waitForQuickTunnel(cloudflared);
-    cloudflared.stdout?.resume();
-    cloudflared.stderr?.resume();
-    const liveUrl = new URL(`${web.accessToken}.html`, tunnelOrigin);
+    const liveUrl = new URL(
+      `${web.accessToken}.html`,
+      access.config.publicOrigin,
+    );
     stage = "public_tunnel";
-    await waitForPublicTunnel(liveUrl, cloudflared);
+    await waitForPublicTunnel(
+      new URL(`/_keel/ready/${nonce}`, access.config.publicOrigin),
+      cloudflared,
+      { ...access.probe, nonce },
+    );
 
     stage = "provider_browser";
     chrome = spawn(
@@ -897,12 +889,15 @@ export async function runProviderBrowserSession(
 
     let entryPageRemoved = false;
     const activeViewer = viewerProxy;
+    const activeGateway = gateway;
     return await pollActiveBrowserSession({
       expiresAt: options.lease.expiresAt,
       isAlive: () =>
         [xvfb, x11vnc, websockify, cloudflared, chrome].every(
           (child) => child !== null && child.exitCode === null,
-        ) && !activeViewer.failed(),
+        ) &&
+        !activeViewer.failed() &&
+        !activeGateway.failed(),
       readStatus: async () =>
         (
           await sessionApi(
@@ -956,6 +951,7 @@ export async function runProviderBrowserSession(
           "Managed provider reconnect could not start.",
         );
   } finally {
+    await gateway?.close();
     await stopChild(chrome);
     await stopChild(cloudflared);
     await stopChild(websockify);

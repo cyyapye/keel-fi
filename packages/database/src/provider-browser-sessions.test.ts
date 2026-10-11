@@ -106,10 +106,11 @@ describe("provider browser session repository", () => {
       BEFORE INSERT ON provider_browser_sessions
       BEGIN SELECT RAISE(ABORT, 'synthetic private database failure'); END`);
     await expect(
-      new D1ProviderBrowserSessionRepository(d1, () => now).create(
-        "synthetic-access-subject",
-        "sydecar",
-      ),
+      new D1ProviderBrowserSessionRepository(
+        d1,
+        () => now,
+        "https://keel-agents.example.com",
+      ).create("synthetic-access-subject", "sydecar"),
     ).rejects.toMatchObject({
       message: "Provider browser session could not be requested.",
       cause: expect.objectContaining({
@@ -133,7 +134,11 @@ describe("provider browser session repository", () => {
         "synthetic-access-subject",
         "tokenfolio",
       );
-      const repository = new D1ProviderBrowserSessionRepository(d1, () => now);
+      const repository = new D1ProviderBrowserSessionRepository(
+        d1,
+        () => now,
+        "https://keel-agents.example.com",
+      );
       const session = await repository.create(
         "synthetic-access-subject",
         "tokenfolio",
@@ -149,7 +154,7 @@ describe("provider browser session repository", () => {
         session.id,
         {
           ...input,
-          liveUrl: `https://synthetic-verification.trycloudflare.com/${"c".repeat(43)}.html`,
+          liveUrl: `https://keel-tokenfolio-reconnect.example.com/${"c".repeat(43)}.html`,
         },
       );
       await repository.consume("synthetic-access-subject", session.id);
@@ -191,7 +196,11 @@ describe("provider browser session repository", () => {
     await new D1AngelListMacAgentRepository(d1, () => now).register(
       "synthetic-access-subject",
     );
-    const repository = new D1ProviderBrowserSessionRepository(d1, () => now);
+    const repository = new D1ProviderBrowserSessionRepository(
+      d1,
+      () => now,
+      "https://keel-agents.example.com",
+    );
 
     const requested = await repository.create(
       "synthetic-access-subject",
@@ -211,17 +220,31 @@ describe("provider browser session repository", () => {
       "angellist",
     );
     const leaseToken = lease.session?.leaseToken ?? "";
+    expect(lease.session?.viewerSubject).toBe("synthetic-access-subject");
+    for (const liveUrl of [
+      `https://keel-tokenfolio-reconnect.example.com/${"c".repeat(43)}.html`,
+      `https://other.example.com/${"c".repeat(43)}.html`,
+    ]) {
+      await expect(
+        repository.ready(
+          "synthetic-access-subject",
+          "angellist",
+          requested.id,
+          { leaseToken, liveUrl },
+        ),
+      ).rejects.toMatchObject({ code: "session_not_ready" });
+    }
     await expect(
       repository.ready("synthetic-access-subject", "angellist", requested.id, {
         leaseToken,
-        liveUrl: `https://synthetic-session.trycloudflare.com/${"c".repeat(43)}.html`,
+        liveUrl: `https://keel-angellist-reconnect.example.com/${"c".repeat(43)}.html`,
       }),
     ).resolves.toMatchObject({ status: "ready" });
 
     await expect(
       repository.consume("synthetic-access-subject", requested.id),
     ).resolves.toBe(
-      `https://synthetic-session.trycloudflare.com/${"c".repeat(43)}.html`,
+      `https://keel-angellist-reconnect.example.com/${"c".repeat(43)}.html`,
     );
     expect(
       database
@@ -273,7 +296,11 @@ describe("provider browser session repository", () => {
     );
     await providerAgents.register("synthetic-access-subject", "tokenfolio");
     await providerAgents.register("synthetic-access-subject", "sydecar");
-    const repository = new D1ProviderBrowserSessionRepository(d1, () => now);
+    const repository = new D1ProviderBrowserSessionRepository(
+      d1,
+      () => now,
+      "https://keel-agents.example.com",
+    );
 
     const [tokenfolio, sydecar] = await Promise.all([
       repository.create("synthetic-access-subject", "tokenfolio"),
@@ -290,7 +317,7 @@ describe("provider browser session repository", () => {
       tokenfolio.id,
       {
         leaseToken: lease.session?.leaseToken ?? "",
-        liveUrl: `https://synthetic-tokenfolio.trycloudflare.com/${"d".repeat(43)}.html`,
+        liveUrl: `https://keel-tokenfolio-reconnect.example.com/${"d".repeat(43)}.html`,
       },
     );
 
