@@ -137,6 +137,7 @@ import {
   ProviderBrowserSessionCompletionInputSchema,
   ProviderBrowserSessionFailureInputSchema,
   ProviderBrowserSessionReadyInputSchema,
+  ProviderBrowserSessionOpenOutputSchema,
   ProviderPortfolioAgentFailureInputSchema,
   ProviderSessionRenewalFailureSchema,
   ProviderSessionRenewalVerificationSchema,
@@ -179,7 +180,7 @@ import {
 } from "@keel/domain/position-value";
 import { ReviewInputSchema } from "@keel/evidence";
 import { Hono, type Context } from "hono";
-import { secureHeaders } from "hono/secure-headers";
+import { NONCE, secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 
 import { verifyAccessToken, type AccessVerifier } from "./auth";
@@ -910,7 +911,11 @@ export function createApp(options: AppOptions = {}) {
     new D1MacAgentCredentialRepository(env.DB);
   const providerBrowserSessionRepositoryFor = (env: Env) =>
     options.providerBrowserSessionRepository ??
-    new D1ProviderBrowserSessionRepository(env.DB);
+    new D1ProviderBrowserSessionRepository(
+      env.DB,
+      undefined,
+      env.MAC_AGENT_API_ORIGIN,
+    );
   const investmentConnectionsRepositoryFor = (env: Env) =>
     options.investmentConnectionsRepository ??
     new D1InvestmentConnectionsRepository(env.DB);
@@ -1014,6 +1019,25 @@ export function createApp(options: AppOptions = {}) {
       contentSecurityPolicy: {
         defaultSrc: ["'none'"],
         frameAncestors: ["'none'"],
+        baseUri: ["'none'"],
+        scriptSrc: [
+          (context) =>
+            context.req.method === "GET" &&
+            /^\/api\/automation\/provider-browser\/sessions\/[0-9a-f-]+\/open$/u.test(
+              context.req.path,
+            )
+              ? NONCE(context, "scriptSrc")
+              : "'none'",
+        ],
+        connectSrc: [
+          (context) =>
+            context.req.method === "GET" &&
+            /^\/api\/automation\/provider-browser\/sessions\/[0-9a-f-]+\/open$/u.test(
+              context.req.path,
+            )
+              ? "'self'"
+              : "'none'",
+        ],
       },
       crossOriginResourcePolicy: "same-site",
       referrerPolicy: "no-referrer",
@@ -3471,7 +3495,38 @@ export function createApp(options: AppOptions = {}) {
 
   app.get(
     "/api/automation/provider-browser/sessions/:sessionId/open",
+    (context) => {
+      const sessionId = z.uuid().safeParse(context.req.param("sessionId"));
+      if (!sessionId.success)
+        return context.json({ error: "Reconnect session is invalid." }, 400);
+      const nonce = context.get("secureHeadersNonce");
+      return context.html(
+        `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Reconnect provider</title><p role="status">Opening your secure browser…</p><script nonce="${nonce}">
+fetch(location.pathname, { method: "POST", credentials: "same-origin", redirect: "error", headers: { "Accept": "application/json", "X-Keel-Reconnect-Open": "1" } })
+  .then(async response => { if (!response.ok) throw new Error(); return response.json(); })
+  .then(result => { location.replace(result.liveUrl); })
+  .catch(() => { document.querySelector("p").textContent = "The secure browser is not ready or was already opened. Return to Keel to check the reconnect."; });
+</script></html>`,
+        200,
+        {
+          "Cache-Control": "private, no-store",
+          "Referrer-Policy": "no-referrer",
+        },
+      );
+    },
+  );
+
+  app.post(
+    "/api/automation/provider-browser/sessions/:sessionId/open",
     async (context) => {
+      // A custom header prevents cross-site form submissions. This API does
+      // not grant CORS access; an Origin, when present, must match the user host.
+      if (
+        context.req.header("X-Keel-Reconnect-Open") !== "1" ||
+        (context.req.header("Origin") !== undefined &&
+          context.req.header("Origin") !== new URL(context.req.url).origin)
+      )
+        return context.json({ error: "Reconnect request is invalid." }, 403);
       const sessionId = z.uuid().safeParse(context.req.param("sessionId"));
       if (!sessionId.success) {
         return context.json({ error: "Reconnect session is invalid." }, 400, {
@@ -3482,14 +3537,16 @@ export function createApp(options: AppOptions = {}) {
         const destination = await providerBrowserSessionRepositoryFor(
           context.env,
         ).consume(context.get("identity").subject, sessionId.data);
-        return new Response(null, {
-          status: 302,
-          headers: {
+        return context.json(
+          ProviderBrowserSessionOpenOutputSchema.parse({
+            liveUrl: destination,
+          }),
+          200,
+          {
             "Cache-Control": "private, no-store",
-            Location: destination,
             "Referrer-Policy": "no-referrer",
           },
-        });
+        );
       } catch (error) {
         const notFound =
           error instanceof ProviderBrowserSessionRepositoryError &&

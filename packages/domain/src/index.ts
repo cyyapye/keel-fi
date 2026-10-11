@@ -1313,6 +1313,7 @@ export const ProviderBrowserSessionLeaseSchema = z
         id: z.uuid(),
         leaseToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
         expiresAt: IsoTimestampSchema,
+        viewerSubject: z.string().min(1).max(256),
       })
       .strict()
       .nullable(),
@@ -1331,22 +1332,54 @@ const ProviderBrowserLiveUrlSchema = z
       url.hash !== "" ||
       url.search !== "" ||
       url.port !== "" ||
-      !/^[a-z0-9-]+\.trycloudflare\.com$/u.test(url.hostname) ||
+      !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(url.hostname) ||
+      url.hostname.endsWith(".trycloudflare.com") ||
       !/^\/[A-Za-z0-9_-]{43}\.html$/u.test(url.pathname)
     ) {
       context.addIssue({
         code: "custom",
         message:
-          "Remote browser sessions must use a bounded ephemeral HTTPS URL.",
+          "Remote browser sessions must use an authenticated named HTTPS origin.",
       });
       return z.NEVER;
     }
     return url.toString();
   });
 
+// The API and worker independently derive the same provider-specific origin.
+// No agent-supplied redirect destination or Quick Tunnel is trusted.
+export function providerBrowserOrigin(
+  apiOrigin: string,
+  provider: MacAgentTarget,
+): string {
+  const url = new URL(apiOrigin);
+  if (
+    url.protocol !== "https:" ||
+    url.port !== "" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    url.pathname !== "/" ||
+    !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(url.hostname) ||
+    url.hostname.endsWith(".trycloudflare.com")
+  ) {
+    throw new Error("Reconnect requires a configured public HTTPS API origin.");
+  }
+  const [label, ...domain] = url.hostname.split(".");
+  url.hostname = `${label!.replace(/-agents$/u, "")}-${MacAgentTargetSchema.parse(provider)}-reconnect.${domain.join(".")}`;
+  return url.origin;
+}
+
 export const ProviderBrowserSessionReadyInputSchema = z
   .object({
     leaseToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+    liveUrl: ProviderBrowserLiveUrlSchema,
+  })
+  .strict();
+
+export const ProviderBrowserSessionOpenOutputSchema = z
+  .object({
     liveUrl: ProviderBrowserLiveUrlSchema,
   })
   .strict();

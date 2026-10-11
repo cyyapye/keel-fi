@@ -462,7 +462,7 @@ function providerBrowserSessionRepository(
     consume: vi
       .fn()
       .mockResolvedValue(
-        "https://synthetic-session.trycloudflare.com/vnc.html",
+        "https://keel-angellist-reconnect.example.com/vnc.html",
       ),
     lease: vi.fn().mockResolvedValue({
       version: 1,
@@ -472,6 +472,7 @@ function providerBrowserSessionRepository(
         id: requestedBrowserSession.id,
         leaseToken: "b".repeat(43),
         expiresAt: requestedBrowserSession.expiresAt,
+        viewerSubject: "synthetic-access-subject",
       },
     }),
     ready: vi.fn().mockResolvedValue({
@@ -1716,7 +1717,7 @@ describe("Keel API", () => {
     const consume = vi
       .fn<ProviderBrowserSessionRepository["consume"]>()
       .mockResolvedValue(
-        `https://synthetic-session.trycloudflare.com/${"c".repeat(43)}.html`,
+        `https://keel-angellist-reconnect.example.com/${"c".repeat(43)}.html`,
       );
     const sessions = providerBrowserSessionRepository({ create, consume });
     const app = createApp({ providerBrowserSessionRepository: sessions });
@@ -1734,15 +1735,41 @@ describe("Keel API", () => {
       "angellist",
     );
 
-    const opened = await app.request(
-      `/api/automation/provider-browser/sessions/${requestedBrowserSession.id}/open`,
-      {},
+    const path = `/api/automation/provider-browser/sessions/${requestedBrowserSession.id}/open`;
+    const passive = await app.request(path, {}, testEnv("local"));
+    expect(passive.status).toBe(200);
+    expect(passive.headers.get("Content-Security-Policy")).toContain(
+      "script-src 'nonce-",
+    );
+    expect(consume).not.toHaveBeenCalled();
+    const denied = await app.request(
+      path,
+      { method: "POST" },
       testEnv("local"),
     );
-    expect(opened.status).toBe(302);
-    expect(opened.headers.get("Location")).toBe(
-      `https://synthetic-session.trycloudflare.com/${"c".repeat(43)}.html`,
+    expect(denied.status).toBe(403);
+    const crossSite = await app.request(
+      path,
+      {
+        method: "POST",
+        headers: {
+          "X-Keel-Reconnect-Open": "1",
+          Origin: "https://other.example.com",
+        },
+      },
+      testEnv("local"),
     );
+    expect(crossSite.status).toBe(403);
+    expect(consume).not.toHaveBeenCalled();
+    const opened = await app.request(
+      path,
+      { method: "POST", headers: { "X-Keel-Reconnect-Open": "1" } },
+      testEnv("local"),
+    );
+    expect(opened.status).toBe(200);
+    await expect(opened.json()).resolves.toEqual({
+      liveUrl: `https://keel-angellist-reconnect.example.com/${"c".repeat(43)}.html`,
+    });
     expect(opened.headers.get("Referrer-Policy")).toBe("no-referrer");
     expect(consume).toHaveBeenCalledWith(
       "synthetic-access-subject",
@@ -1810,7 +1837,7 @@ describe("Keel API", () => {
       }),
     });
     const token = `keel_agent_v1_${"f".repeat(43)}`;
-    const liveUrl = `https://synthetic-session.trycloudflare.com/${"c".repeat(43)}.html`;
+    const liveUrl = `https://keel-angellist-reconnect.example.com/${"c".repeat(43)}.html`;
     const response = await app.request(
       `https://keel-preview-agents.example.com/api/automation/provider-browser/angellist/mac-agent/sessions/${requestedBrowserSession.id}/ready`,
       {

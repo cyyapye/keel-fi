@@ -118,25 +118,31 @@ browser consumer starts before its fixture, PDF isolation and build succeed.
 
 The unit suite uses two workers in CI and locally, and starts historically
 expensive files first. Its early admission reduces overlap between expensive D1
-fixtures and browser startup. Browser verification produces five reports while
-admitting at most four workers: three stateful partitions, 74 API-mocked
-executions served from the verified production build, and 32 API-mocked
-executions that require Vite development modules. The initial four lanes each
-use one worker. After all four reports and runtimes validate and close, the
-development mocked lane uses the released four-worker budget. No stateful lane
-is parallelized. The development stateful partition contains four specs and 58
-executions: three depend on source modules, while Portfolio Watch asserts
-development-mode demo-source disclosure. The other two stateful partitions
-contain 96 and 72 executions and use the verified production build, as does the
-production mocked lane. The partitions contain the same 106 mocked and 226
-stateful executions, including 44 reviewed platform exclusions. Each stateful
-partition receives a separate copy of the verified, closed synthetic seed and
-owns distinct API/web ports. Neither mocked lane starts an API server.
-Production serving reduces module transforms and requests; development serving
-retains the direct source-module checks and the intentional demo-source
-disclosure. Missing production JS or CSS fails startup. All lanes keep
-desktop/mobile project names, snapshots and case identities. Each lane owns its
-Vite dependency cache as well as its browser output. Development readiness
+fixtures and browser startup. The reviewed-rename cost fixture runs its
+synthetic import and 240 company-review operations inside its existing workerd
+fixture to avoid repeated Node-to-D1 bridge calls. It uses the same repository
+methods, accepted decisions and link records. The test still meters every
+positive, history, empty and unrelated-household read against real D1, with the
+same 120-position scale, row budgets and query-plan assertions.
+
+Browser verification produces five reports while admitting at most four workers:
+three stateful partitions, 74 API-mocked executions served from the verified
+production build, and 32 API-mocked executions that require Vite development
+modules. The initial four lanes each use one worker. After all four reports and
+runtimes validate and close, the development mocked lane uses the released
+four-worker budget. No stateful lane is parallelized. The development stateful
+partition contains four specs and 58 executions: three depend on source modules,
+while Portfolio Watch asserts development-mode demo-source disclosure. The other
+two stateful partitions contain 96 and 72 executions and use the verified
+production build, as does the production mocked lane. The partitions contain the
+same 106 mocked and 226 stateful executions, including 44 reviewed platform
+exclusions. Each stateful partition receives a separate copy of the verified,
+closed synthetic seed and owns distinct API/web ports. Neither mocked lane
+starts an API server. Production serving reduces module transforms and requests;
+development serving retains the direct source-module checks and the intentional
+demo-source disclosure. Missing production JS or CSS fails startup. All lanes
+keep desktop/mobile project names, snapshots and case identities. Each lane owns
+its Vite dependency cache as well as its browser output. Development readiness
 transforms the initial application and Holdings module graph and rejects broken
 imports before admitting tests. Stateful readiness also checks the actual
 holdings-page projection through the web proxy, with one bounded probe in flight

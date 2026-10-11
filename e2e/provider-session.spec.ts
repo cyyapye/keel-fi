@@ -148,6 +148,7 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
           lease: {
             id: "11111111-1111-4111-8111-111111111111",
             leaseToken: "b".repeat(43),
+            viewerSubject: "synthetic-access-subject",
             expiresAt: "2026-09-04T12:15:00.000Z",
           },
           verifySavedSession: async () => {
