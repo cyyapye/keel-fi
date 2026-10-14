@@ -15,6 +15,7 @@ import { D1InvestmentReviewRepository } from "./investment-review";
 import { D1PositionEconomicsRepository } from "./position-economics";
 import { calculatePositionEconomics } from "@keel/domain/position-economics";
 import { D1AlphaRepository } from "./index";
+import { legalReviewIssues } from "@keel/domain/automatic-investment-review";
 
 const subject = "synthetic-access-subject";
 let d1: LegalDocumentTestD1;
@@ -37,7 +38,107 @@ const receipt = (id: string) =>
     ).summary_json,
   ) as { resolved: string[]; issues: { section: string; code: string }[] };
 
+async function seedExactCompany(companyName: string | null = null) {
+  const [id] = await seedAutomaticInvestments(
+    d1.asD1(),
+    1,
+    [],
+    false,
+    subject,
+    () => {
+      d1.sqlite
+        .prepare(
+          "INSERT INTO companies (id, household_id, legal_name, website_host, status, created_at, updated_at) SELECT 'exact-orchard', id, 'Synthetic Orchard 0', NULL, 'active', '2026-09-01T12:00:00.000Z', '2026-09-01T12:00:00.000Z' FROM households LIMIT 1",
+        )
+        .run();
+    },
+    1,
+    { companyName, includeEconomics: false },
+  );
+  const application = d1.sqlite
+    .prepare(
+      "SELECT r.import_id FROM holding_import_applications a JOIN holding_import_rows r ON r.id = a.import_row_id WHERE a.position_id = ?",
+    )
+    .get(id!) as { import_id: string };
+  const alpha = new D1AlphaRepository(d1.asD1());
+  d1.sqlite
+    .prepare(
+      "INSERT INTO canonical_exposures (id, household_id, exposure_kind, canonical_name, protected_identity_key, company_id, resolution_method, evidence_sha256, created_by_user_id, created_at, immutable) SELECT 'exact-exposure', id, 'private_company', 'Synthetic Orchard 0', NULL, 'exact-orchard', 'reviewed_company', ?, owner_user_id, '2026-09-01T12:00:00.000Z', 1 FROM households LIMIT 1",
+    )
+    .run("a".repeat(64));
+  d1.sqlite
+    .prepare(
+      "INSERT INTO holding_position_exposure_mappings (id, household_id, position_id, exposure_id, relationship_kind, allocation_ppm, status, decision_source, decision_reference, evidence_sha256, effective_at, version, supersedes_mapping_id, accepted_by_user_id, accepted_at, immutable) SELECT 'exact-mapping', household_id, id, 'exact-exposure', 'look_through', 1000000, 'active', 'deterministic_policy', 'private-company-exact-reviewed-v1', ?, '2026-09-01T12:00:00.000Z', 1, NULL, (SELECT owner_user_id FROM households WHERE id = household_id), '2026-09-01T12:00:00.000Z', 1 FROM holding_positions WHERE id = ?",
+    )
+    .run("a".repeat(64), id!);
+  await alpha.reconcileHoldingImport(subject, application.import_id);
+  return id!;
+}
+
 describe("exception-based investment review", () => {
+  it("keeps contradictory agreement evidence in review after an exact-company policy decision", async () => {
+    const id = await seedExactCompany("Synthetic Different Company");
+    const context = await new D1InvestmentReviewRepository(
+      d1.asD1(),
+    ).getContext(subject, id);
+    expect(legalReviewIssues(context.automaticReview)).toMatchObject([
+      { section: "company", code: "conflicting" },
+    ]);
+    expect(context.mappings).toMatchObject([
+      { id: "exact-mapping", companyId: "exact-orchard" },
+    ]);
+    expect(context.economics?.acceptedTerms).toBeNull();
+  });
+  it("does not turn a provider deal label alone into a company decision", async () => {
+    const [id] = await seedAutomaticInvestments(
+      d1.asD1(),
+      1,
+      [],
+      false,
+      subject,
+      undefined,
+      1,
+      { companyName: null, includeEconomics: false },
+    );
+    await new D1AutomaticInvestmentReviewRepository(d1.asD1()).resolve(subject);
+    const context = await new D1InvestmentReviewRepository(
+      d1.asD1(),
+    ).getContext(subject, id!);
+    expect(context.mappings).toEqual([]);
+    expect(legalReviewIssues(context.automaticReview)).toMatchObject([
+      { section: "company", code: "missing" },
+    ]);
+    expect(context.economics?.acceptedTerms).toBeNull();
+  });
+  it("retains a recorded exact-company policy without a new agreement citation or invented fees", async () => {
+    const id = await seedExactCompany();
+    const context = await new D1InvestmentReviewRepository(
+      d1.asD1(),
+    ).getContext(subject, id);
+    expect(context.mappings).toMatchObject([
+      { companyId: "exact-orchard", decisionSource: "deterministic_policy" },
+    ]);
+    expect(context.automaticReview?.resolved).toContain("company");
+    expect(legalReviewIssues(context.automaticReview)).toEqual([]);
+    expect(context.economics?.acceptedTerms).toBeNull();
+    expect(context.automaticReview?.issues).toMatchObject([
+      { section: "economics", code: "missing" },
+    ]);
+    const mappingsBefore = context.mappings.map((mapping) => mapping.id);
+    const result = await new D1AutomaticInvestmentReviewRepository(
+      d1.asD1(),
+    ).resolve(subject);
+    expect(result).toMatchObject({
+      changedCount: 0,
+      resolvedCount: 1,
+      exceptionCount: 0,
+    });
+    const after = await new D1InvestmentReviewRepository(d1.asD1()).getContext(
+      subject,
+      id,
+    );
+    expect(after.mappings.map((mapping) => mapping.id)).toEqual(mappingsBefore);
+  });
   it("reconciles matching purchase fees and rejects conflicting or stale purchase evidence", async () => {
     const [id] = await seed();
     const review = await new D1InvestmentReviewRepository(d1.asD1()).getContext(

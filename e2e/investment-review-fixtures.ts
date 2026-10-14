@@ -2,6 +2,18 @@ import { InvestmentEventSchema } from "../packages/domain/src/investment-events"
 import { expect, type Page } from "@playwright/test";
 
 export async function selectReviewSection(page: Page, name: string) {
+  if (name === "Record actions") {
+    await selectReviewSection(page, "Identity");
+    for (const label of [
+      "Participation & corporate events",
+      "Source amount correction",
+    ]) {
+      const trigger = page.getByRole("button", { name: label, exact: true });
+      if ((await trigger.getAttribute("aria-expanded")) !== "true")
+        await trigger.click();
+    }
+    return;
+  }
   await expect(page.locator(".section-navigation")).toBeVisible();
   const dropdown = page.getByRole("combobox", {
     name: "Review sections",

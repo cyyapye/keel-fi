@@ -52,6 +52,13 @@ export const AutomaticInvestmentReviewSchema = z
 export type AutomaticInvestmentReview = z.infer<
   typeof AutomaticInvestmentReviewSchema
 >;
+
+/** Financial assumptions belong to the position, not the legal-identity queue. */
+export function legalReviewIssues(
+  review: AutomaticInvestmentReview | null | undefined,
+): AutomaticReviewIssue[] {
+  return review?.issues.filter((item) => item.section !== "economics") ?? [];
+}
 export const ResolveInvestmentReviewsInputSchema = z
   .object({
     afterPositionId: z.string().min(1).max(500).nullable().default(null),

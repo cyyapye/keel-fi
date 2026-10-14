@@ -607,6 +607,8 @@ for (const problem of ["name_not_found", "other_structure"] as const)
     await expect(submit).toBeEnabled();
     await resolver.getByLabel("Document excerpt").fill("");
     await expect(submit).toBeEnabled();
+    // Do not capture a hover carried from a control that moved during editing.
+    await page.mouse.move(0, 0);
     await expect(resolver).toHaveScreenshot(
       problem === "other_structure"
         ? "legal-structure-entry.png"
@@ -646,18 +648,20 @@ for (const problem of ["name_not_found", "other_structure"] as const)
     await expect(editor.getByLabel("Ownership interest")).toHaveCount(0);
     await expect(add).toBeEnabled();
     await add.click();
-    expect(writes[0]).toMatchObject({
-      profile: { entityType: "llc", relationship: "investment_vehicle" },
-      source: {
-        nameResolution: {
-          kind: "document_entry",
-          legalName: "Demo Recognized LLC",
-          page: 4,
-          quote: null,
-          reason: null,
+    await expect
+      .poll(() => writes[0])
+      .toMatchObject({
+        profile: { entityType: "llc", relationship: "investment_vehicle" },
+        source: {
+          nameResolution: {
+            kind: "document_entry",
+            legalName: "Demo Recognized LLC",
+            page: 4,
+            quote: null,
+            reason: null,
+          },
         },
-      },
-    });
+      });
     if (
       await page
         .getByRole("button", { name: "Back to legal entities", exact: true })

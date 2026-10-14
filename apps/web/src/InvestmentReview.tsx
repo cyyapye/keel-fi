@@ -1,4 +1,3 @@
-import { PositionPurchasesEditor } from "./PositionPurchasesEditor";
 import { InvestmentEvents } from "./InvestmentEvents";
 import { moneyInputValue, parseMoneyInput } from "./money-input";
 import {
@@ -50,6 +49,10 @@ import {
   SectionNavigation,
   SectionHeader,
   TabsContent,
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+  DisclosureIndicator,
 } from "@keel/ui";
 import {
   createDocumentInvestment,
@@ -57,14 +60,14 @@ import {
   saveInvestmentCompany,
   saveInvestmentReview,
 } from "./api";
-import { PositionEconomicsEditor } from "./PositionEconomicsEditor";
-import { formatCompactCurrency, formatCurrency, formatDate } from "./format";
+import { formatCurrency, formatDate } from "./format";
 import {
   entityReviewUrl,
   type EntityReviewTab,
 } from "./legal-entity-navigation";
 import {
   initialCompanyChoice,
+  isCompanyConfirmed,
   investmentReviewSections,
   selectedDocumentName,
 } from "./investment-review-progress";
@@ -1009,7 +1012,7 @@ function CompanyReview({
   busy: boolean;
 }) {
   const { saving, submit } = useReviewSave(save);
-  const confirmed = investmentReviewSections(context, true)[0]!.complete;
+  const confirmed = isCompanyConfirmed(context);
   const [editing, setEditing] = useState(!confirmed);
   const [choice, setChoice] = useState(() => initialCompanyChoice(context));
   const active = context.mappings.filter(
@@ -1555,7 +1558,6 @@ function DocumentReview({
 
 export function InvestmentReview({
   positionId,
-  sourceLabel,
   identity,
   identitySaved,
   renderDocuments,
@@ -1578,6 +1580,12 @@ export function InvestmentReview({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    if (tab === "investment")
+      window.location.replace(
+        `/holdings?position=${encodeURIComponent(positionId)}`,
+      );
+  }, [positionId, tab]);
   useEffect(() => {
     const abort = new AbortController();
     void loadInvestmentReview(positionId, abort.signal)
@@ -1662,14 +1670,14 @@ export function InvestmentReview({
         </FormMessage>
       )}
       <Tabs
-        value={tab}
+        value={tab === "investment" ? "identity" : tab}
         onValueChange={(value) => onTabChange(value as EntityReviewTab)}
       >
         <SectionNavigation
           label="Review sections"
           mobilePresentation="tabs"
           items={sections}
-          value={tab}
+          value={tab === "investment" ? "identity" : tab}
           onValueChange={(value) => onTabChange(value as EntityReviewTab)}
         />
         <TabsContent
@@ -1679,87 +1687,97 @@ export function InvestmentReview({
         >
           {identity}
           {context !== null && (
-            <CompanyReview context={context} save={save} busy={busy} />
-          )}
-        </TabsContent>
-        <TabsContent
-          value="investment"
-          keepMounted
-          className="entity-review__panel"
-        >
-          {context !== null && (
             <>
-              <ParticipationReview context={context} save={save} busy={busy} />
-              <InvestmentAmountReview context={context} save={save} busy={busy}>
-                {({ action, editor, detail }) =>
-                  context.economics !== null && !context.purchaseContext ? (
-                    <PositionEconomicsEditor
-                      presentation="review"
-                      amountAction={action}
-                      amountEditor={editor}
-                      amountDetail={detail}
-                      holding={{
-                        id: positionId,
-                        sourceLabel,
-                        positionEconomicsContext: context.economics,
-                        purchaseContext: context.purchaseContext,
-                      }}
-                      onAccepted={async () => {
-                        await onSaved();
-                        setContext(await loadInvestmentReview(positionId));
-                      }}
-                    />
-                  ) : (
-                    <ReviewSection title="Investment amount" action={action}>
-                      {editor}
-                      <DataList className="investment-review__amounts">
-                        <DataItem
-                          label="Commitment"
-                          value={
-                            context.committedMinor === null
-                              ? "Not reported"
-                              : formatCompactCurrency(
-                                  context.committedMinor,
-                                  context.currency,
-                                )
-                          }
-                        />
-                        <DataItem
-                          label="Funded capital"
-                          value={
-                            context.fundedMinor === null
-                              ? "Not reported"
-                              : formatCompactCurrency(
-                                  context.fundedMinor,
-                                  context.currency,
-                                )
-                          }
-                        />
-                      </DataList>
-                      {detail && <p>{detail}</p>}
-                    </ReviewSection>
-                  )
+              {context.mappings.some(
+                (mapping) =>
+                  mapping.status === "active" && mapping.companyId !== null,
+              ) ? (
+                <CompanyReview context={context} save={save} busy={busy} />
+              ) : context.positionKind !== "fund_interest" ? (
+                <ReviewSection title="Underlying company">
+                  <p>No company has been confirmed for this position.</p>
+                  <TextLink
+                    href={`/holdings?position=${encodeURIComponent(positionId)}`}
+                  >
+                    Choose company in Holdings
+                  </TextLink>
+                </ReviewSection>
+              ) : null}
+              <Collapsible
+                className="investment-review__record-disclosure"
+                defaultOpen={
+                  context.automaticReview?.issues.some(
+                    (issue) => issue.section === "participation",
+                  ) || context.defaultParticipationStatus === "unknown"
                 }
-              </InvestmentAmountReview>
-              {context.purchaseContext && (
-                <PositionPurchasesEditor
-                  key={`${positionId}:${context.purchaseContext.snapshotId}:${context.purchaseContext.receipt?.id}`}
-                  holding={{
-                    id: positionId,
-                    sourceLabel,
-                    purchaseContext: context.purchaseContext,
-                    positionEconomicsContext: context.economics,
-                    realizedValueMinor: context.realizedMinor ?? null,
-                  }}
-                  onAccepted={async () => {
-                    await onSaved();
-                    setContext(await loadInvestmentReview(positionId));
-                  }}
-                />
-              )}
-              {context.positionKind !== "fund_interest" && (
-                <InvestmentEvents context={context} save={save} busy={busy} />
-              )}
+              >
+                <CollapsibleTrigger layout="inline">
+                  <h3>Participation &amp; corporate events</h3>
+                  <DisclosureIndicator />
+                </CollapsibleTrigger>
+                <CollapsibleContent keepMounted>
+                  <ParticipationReview
+                    context={context}
+                    save={save}
+                    busy={busy}
+                  />
+                  {context.positionKind !== "fund_interest" && (
+                    <InvestmentEvents
+                      context={context}
+                      save={save}
+                      busy={busy}
+                    />
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+              <Collapsible className="investment-review__record-disclosure">
+                <CollapsibleTrigger layout="inline">
+                  <h3>Source amount correction</h3>
+                  <DisclosureIndicator />
+                </CollapsibleTrigger>
+                <CollapsibleContent keepMounted>
+                  <p>
+                    Correct the source commitment used for fee calculations.
+                    Cash paid, refunds and valuation are edited in Holdings.
+                  </p>
+                  <InvestmentAmountReview
+                    context={context}
+                    save={save}
+                    busy={busy}
+                  >
+                    {({ action, editor, detail }) => (
+                      <ReviewSection title="Source commitment" action={action}>
+                        {editor}
+                        <DataList>
+                          <DataItem
+                            label="Commitment"
+                            value={
+                              context.committedMinor === null
+                                ? "Not reported"
+                                : formatCurrency(
+                                    context.committedMinor,
+                                    context.currency,
+                                  )
+                            }
+                          />
+                          <DataItem
+                            label="Funded capital"
+                            value={
+                              context.fundedMinor === null
+                                ? "Not reported"
+                                : formatCurrency(
+                                    context.fundedMinor,
+                                    context.currency,
+                                  )
+                            }
+                          />
+                        </DataList>
+                        {detail && <p>{detail}</p>}
+                      </ReviewSection>
+                    )}
+                  </InvestmentAmountReview>
+                </CollapsibleContent>
+              </Collapsible>
             </>
           )}
         </TabsContent>

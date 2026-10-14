@@ -10,10 +10,7 @@ import {
 } from "../packages/domain/src/position-economics";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
-import {
-  routeInvestmentReview,
-  selectReviewSection,
-} from "./investment-review-fixtures";
+import { routeInvestmentReview } from "./investment-review-fixtures";
 
 async function setup(page: Page, failed = false) {
   const sources: LegalEntitySourceSummary[] = Array.from(
@@ -211,7 +208,11 @@ async function setup(page: Page, failed = false) {
       configurable: true,
     });
   });
+  const automaticResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/api/legal-entities/resolve"),
+  );
   await page.goto("/holdings/entities");
+  await automaticResponse;
   return {
     ...fixture,
     inventory,
@@ -221,70 +222,22 @@ async function setup(page: Page, failed = false) {
   };
 }
 
-test("automatically resolves 120 sources, shows only the missing term and preserves an editable record", async ({
+test("automatically resolves 120 legal records without making missing fees a review task", async ({
   page,
 }) => {
   const fixture = await setup(page);
   await expect(
     page.getByRole("heading", { name: /Needs your review/u }),
-  ).toBeVisible();
-  await expect(page.locator(".legal-entity-candidate")).toHaveCount(1);
+  ).toHaveCount(0);
+  await expect(page.locator(".legal-entity-candidate")).toHaveCount(0);
+  await expect(page.locator(".legal-entity-row")).toHaveCount(25);
+  expect(fixture.inventory.entities).toHaveLength(120);
   expect(fixture.resolves()).toBe(1);
   expect(fixture.reads()).toBe(0);
-  await expect(
-    page.getByText(
-      "The agreement does not state the setup fee. Confirm it before applying the terms.",
-    ),
-  ).toBeVisible();
   await expect(page).toHaveScreenshot("automatic-investment-exceptions.png");
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
-  await page.getByRole("button", { name: "Review terms", exact: true }).click();
-  const review = page.getByRole("region", {
-    name: "Investment review",
-    exact: true,
-  });
-  await expect(
-    review.getByRole("heading", { name: "Investment amounts and fees" }),
-  ).toBeVisible();
-  await review
-    .getByRole("button", { name: "Review fee & carry", exact: true })
-    .click();
-  await expect(
-    review.getByLabel("Management fee rate", { exact: true }),
-  ).toHaveValue("6");
-  await expect(review.getByLabel("Fee term", { exact: true })).toHaveValue("1");
-  await expect(review.getByLabel("Carry", { exact: true })).toHaveValue("17.5");
-  await expect(review.getByLabel("Setup fee", { exact: true })).toHaveValue("");
-  await expect(
-    review.getByLabel("Gross commitment · USD", { exact: true }),
-  ).toHaveValue("40000.00");
-  await expect(review.locator(".position-economics__form")).toHaveScreenshot(
-    "automatic-investment-missing-term.png",
-  );
-  await review.getByLabel("Setup fee", { exact: true }).fill("1.25");
-  await review.getByLabel("Carry", { exact: true }).fill("12.5");
-  await review
-    .getByLabel("What changed", { exact: true })
-    .fill("Confirmed the synthetic setup fee.");
-  await review
-    .getByRole("button", { name: "Review terms", exact: true })
-    .click();
-  await review
-    .getByRole("button", { name: "Accept terms", exact: true })
-    .click();
-  await expect(
-    review.getByRole("button", { name: "Update fee & carry", exact: true }),
-  ).toBeVisible();
-  expect(fixture.termWrites).toHaveLength(1);
-  expect(fixture.writes).toHaveLength(0);
-  await page
-    .getByRole("button", { name: "Back to legal entities", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: /Needs your review/u }),
-  ).toHaveCount(0);
   const row = page.locator(".legal-entity-row").filter({
     has: page.getByRole("heading", {
       name: "Synthetic Orchard 0 SPV LLC",
@@ -292,19 +245,56 @@ test("automatically resolves 120 sources, shows only the missing term and preser
     }),
   });
   await row.getByRole("button").click();
-  await selectReviewSection(page, "Investment");
-  await review
-    .getByRole("button", { name: "Update fee & carry", exact: true })
-    .click();
-  await expect(review.getByLabel("Setup fee", { exact: true })).toHaveValue(
-    "1.25",
+  const review = page.getByRole("region", {
+    name: "Investment review",
+    exact: true,
+  });
+  await expect(
+    review.getByText("Review complete", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    review.getByRole("tab", { name: "Investment", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    review.getByRole("button", { name: "Edit company", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "View position in Holdings", exact: true }),
+  ).toHaveAttribute("href", "/holdings?position=synthetic-auto-position-0");
+  await expect(
+    review.locator(".position-economics, .position-purchases"),
+  ).toHaveCount(0);
+  await expect(review).toHaveScreenshot(
+    "automatic-investment-missing-term.png",
   );
-  await expect(review.getByLabel("Carry", { exact: true })).toHaveValue("12.5");
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
+  expect(fixture.termWrites).toHaveLength(0);
+  expect(fixture.writes).toHaveLength(0);
+});
+
+test("preserves investment deep links by opening the existing Holdings position", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.route("**/holdings?position=synthetic-auto-position-0", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<h1>Existing Holdings position</h1>",
+    }),
+  );
+  await page.goto(
+    "/holdings/entities?review=holding_position%3Asynthetic-auto-position-0&tab=investment",
+  );
+  await expect(page).toHaveURL(
+    /\/holdings\?position=synthetic-auto-position-0$/u,
+  );
+  await expect(
+    page.getByRole("heading", {
+      name: "Existing Holdings position",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/holdings\/entities$/u);
 });
 
 test("keeps the inventory accessible after a failed automatic review without background retries", async ({

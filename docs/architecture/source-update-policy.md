@@ -42,7 +42,12 @@ performs it.
 
 An exact, unambiguous legal vehicle name can establish a new entity. Matching
 names never merge existing entities. A company mapping requires a clean,
-strongly associated agreement citation; multiple mappings or conflicting
+strongly associated agreement citation. An existing unique, full-position
+mapping accepted by `private-company-exact-reviewed-v1` also remains confirmed
+when the latest source still exactly names that reviewed company or an approved
+alias. This reuses the recorded decision; a provider label alone never creates a
+new company decision in the legal review resolver. A later contradictory clean
+agreement still reopens company review. Multiple mappings or conflicting
 companies remain exceptions. Provider participation status needs no extra
 confirmation. Ownership percentages and trust or tax conclusions are never
 inferred.
@@ -53,8 +58,13 @@ evidence. All fees must reconcile to the source amount using integer money and
 ppm. Missing is not zero. A net import keeps its imported amount and records the
 evidenced gross amount separately; carry only applies to exit gains. Incomplete,
 conflicting, unsupported, blocked, or ambiguously associated evidence stays in
-the review queue. Clear fields are prefilled so the user supplies only the
-missing information.
+the position's financial evidence as unresolved. Missing optional fee terms do
+not create a Legal entities review task or imply zero fees. Genuine identity,
+participation and document exceptions remain in the legal queue. Investment
+inputs, fees, refunds, shares, carry and valuation are edited in the existing
+Holdings position workspace; Legal entities links to that exact position. Source
+commitment corrections remain a distinct secondary action because they do not
+change cash paid or funded capital.
 
 Until a position has a unified Investment details review, current
 single-purchase notices can supply management and carry evidence. Disagreement

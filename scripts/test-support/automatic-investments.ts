@@ -21,6 +21,7 @@ export async function seedAutomaticInvestments(
   accessSubject = "synthetic-access-subject",
   onAccepted?: () => void,
   capturedCount = count,
+  options: { companyName?: string | null; includeEconomics?: boolean } = {},
 ) {
   const input: HoldingImportStageInput = {
     provider: "sydecar",
@@ -110,12 +111,20 @@ export async function seedAutomaticInvestments(
   for (let i = 0; i < Math.min(count, capturedCount); i++) {
     const lines = [
       `Issuer: Synthetic Orchard ${sharedName ? 0 : i} SPV LLC`,
-      "Underlying Company: Synthetic Orchard Inc.",
-      "Gross commitment: USD 40,000.00",
-      "Net invested capital: USD 37,100.00",
-      "Management fee: 6% of gross commitment, one-time",
-      "Setup fee: 1.25% of gross commitment",
-      "Carry: 17.5% of exit gains",
+      ...(options.companyName === null
+        ? []
+        : [
+            `Underlying Company: ${options.companyName ?? "Synthetic Orchard Inc."}`,
+          ]),
+      ...(options.includeEconomics === false
+        ? []
+        : [
+            "Gross commitment: USD 40,000.00",
+            "Net invested capital: USD 37,100.00",
+            "Management fee: 6% of gross commitment, one-time",
+            "Setup fee: 1.25% of gross commitment",
+            "Carry: 17.5% of exit gains",
+          ]),
       ...extraLines,
     ];
     const bytes = syntheticAgreementPdf(lines);
