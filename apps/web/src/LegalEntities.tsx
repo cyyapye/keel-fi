@@ -1,3 +1,4 @@
+import { legalReviewIssues } from "@keel/domain/automatic-investment-review";
 import { PositionLinksEditor } from "./PositionLinksEditor";
 import { PublicCompanyLinkEditor } from "./PublicCompanyLinkEditor";
 import { CompanyNames } from "./CompanyNames";
@@ -1117,14 +1118,12 @@ function CandidateRow({
   searchQuery?: string;
 }) {
   const kind = legalEntityReviewKind(candidate);
-  const exception = candidate.automaticReview?.issues[0];
+  const exception = legalReviewIssues(candidate.automaticReview)[0];
   const reviewButton = (
     <Button tone="secondary" onClick={onOpen}>
-      {exception?.section === "economics"
-        ? "Review terms"
-        : exception?.section === "company"
-          ? "Review company"
-          : candidateAction(candidate)}
+      {exception?.section === "company"
+        ? "Review company"
+        : candidateAction(candidate)}
     </Button>
   );
   return (
@@ -1537,7 +1536,7 @@ function EntityReviewWorkspace({
         )}
       </div>
       <PageHeader
-        eyebrow="Investment review"
+        eyebrow="Legal record"
         title={
           source?.sourceDisplayName ??
           entity?.legalName ??
@@ -1556,6 +1555,13 @@ function EntityReviewWorkspace({
             {source.sourceLabel} · {formatDate(source.sourceAsOf)}
           </span>
           <TextLink href="/holdings/sources">View source</TextLink>
+          {source.source.kind === "holding_position" && (
+            <TextLink
+              href={`/holdings?position=${encodeURIComponent(source.source.id)}`}
+            >
+              View position in Holdings
+            </TextLink>
+          )}
         </div>
       )}
       {error !== null && <FormMessage tone="error">{error}</FormMessage>}
@@ -1584,15 +1590,17 @@ function EntityReviewWorkspace({
           </Select>
         </Field>
       )}
-      {duplicateSource && source?.source.kind === "holding_position" && (
-        <PositionLinksEditor
-          key={`links:${source.source.id}`}
-          positionId={source.source.id}
-          onAccepted={onSaved}
-          reviewEntry
-          initialOpen={new URLSearchParams(window.location.search).has("link")}
-        />
-      )}
+      {duplicateSource &&
+        source?.source.kind === "holding_position" &&
+        new URLSearchParams(window.location.search).has("link") && (
+          <PositionLinksEditor
+            key={`links:${source.source.id}`}
+            positionId={source.source.id}
+            onAccepted={onSaved}
+            reviewEntry
+            initialOpen
+          />
+        )}
       {source?.source.kind === "holding_position" ? (
         <InvestmentReview
           key={source.source.id}
@@ -2188,13 +2196,10 @@ function LegalEntitiesInventory({
   const openSource = (source: LegalEntitySourceSummary) =>
     navigate(
       source.source,
-      source.automaticReview?.issues[0]?.section === "economics" ||
-        source.automaticReview?.issues[0]?.section === "participation"
-        ? "investment"
-        : source.automaticReview?.issues[0]?.section === "documents" ||
-            legalEntityReviewKind(source) === "waiting"
-          ? "documents"
-          : "identity",
+      legalReviewIssues(source.automaticReview)[0]?.section === "documents" ||
+        legalEntityReviewKind(source) === "waiting"
+        ? "documents"
+        : "identity",
     );
 
   const refresh = useCallback(async () => {
@@ -2304,7 +2309,8 @@ function LegalEntitiesInventory({
             ...(inventory?.candidates ?? []),
             ...(inventory?.entities.flatMap((entity) =>
               entity.sources.filter(
-                (source) => (source.automaticReview?.issues.length ?? 0) > 0,
+                (source) =>
+                  legalReviewIssues(source.automaticReview).length > 0,
               ),
             ) ?? []),
           ].map((source) => [candidateKey(source), source]),

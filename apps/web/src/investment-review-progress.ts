@@ -1,12 +1,11 @@
 import type { InvestmentReviewContext } from "@keel/domain/investment-review";
-import { calculatePositionEconomics } from "@keel/domain/position-economics";
+import { legalReviewIssues } from "@keel/domain/automatic-investment-review";
 import type { EntityReviewTab } from "./legal-entity-navigation";
 
-export function investmentReviewSections(
+export function isCompanyConfirmed(
   context: InvestmentReviewContext | null,
-  identitySaved: boolean,
-) {
-  const companyConfirmed =
+): boolean {
+  return (
     !context?.automaticReview?.issues.some(
       (issue) => issue.section === "company",
     ) &&
@@ -18,21 +17,20 @@ export function investmentReviewSections(
           (mapping.decisionSource === "review" ||
             context.companyReceipt?.mappingId === mapping.id),
       ) ??
-        false));
+        false))
+  );
+}
+
+export function investmentReviewSections(
+  context: InvestmentReviewContext | null,
+  identitySaved: boolean,
+) {
+  const companyConfirmed = isCompanyConfirmed(context);
   const investmentReviewed =
     context?.automaticReview?.resolved.includes("participation") === true ||
     (context?.review !== null &&
       context?.review !== undefined &&
       context.review.participationStatus !== "unknown");
-  const termsReviewed =
-    !context?.automaticReview?.issues.some(
-      (issue) => issue.section === "economics",
-    ) &&
-    (context?.economics == null ||
-      (context.economics.reportedTerms === null &&
-        context.economics.acceptedTerms === null) ||
-      context.economics.reviewedInvestment?.snapshotId === context.snapshotId ||
-      calculatePositionEconomics(context.economics) !== null);
   const documents = context?.documents ?? [];
   const assignments = new Map(
     context?.review?.documentAssignments.map((item) => [
@@ -57,8 +55,11 @@ export function investmentReviewSections(
     (doc) => doc.scan?.outcome === "blocked",
   );
   const documentsReviewed =
-    documents.length > 0 &&
+    context !== null &&
     !assignmentNeeded &&
+    !legalReviewIssues(context?.automaticReview).some(
+      (issue) => issue.section === "documents",
+    ) &&
     documents.every(
       (doc) =>
         doc.scan?.outcome === "clean" &&
@@ -79,28 +80,17 @@ export function investmentReviewSections(
         ? "Confirm name"
         : !companyConfirmed
           ? "Confirm company"
-          : "Reviewed",
-      complete: identitySaved && companyConfirmed,
+          : !investmentReviewed
+            ? "Confirm status"
+            : "Reviewed",
+      complete: identitySaved && companyConfirmed && investmentReviewed,
       next: !identitySaved
         ? "Confirm the legal name"
         : !companyConfirmed
           ? "Confirm the underlying company"
-          : null,
-    },
-    {
-      value: "investment",
-      label: "Investment",
-      status: !investmentReviewed
-        ? "Confirm status"
-        : !termsReviewed
-          ? "Review terms"
-          : "Reviewed",
-      complete: investmentReviewed && termsReviewed,
-      next: !investmentReviewed
-        ? "Confirm this investment’s status"
-        : !termsReviewed
-          ? "Review fee and carry"
-          : null,
+          : !investmentReviewed
+            ? "Confirm this investment’s status"
+            : null,
     },
     {
       value: "documents",

@@ -1,7 +1,3 @@
-import {
-  AcceptPurchasesSchema,
-  PurchaseReceiptSchema,
-} from "../packages/domain/src/position-purchases";
 import { expect, test, type Page } from "./api-mocked-test";
 import {
   CreateLegalEntityInputSchema,
@@ -12,10 +8,7 @@ import {
   CreateDocumentInvestmentInputSchema,
   InvestmentOwnershipObservationSchema,
 } from "../packages/domain/src/investment-review";
-import {
-  AcceptPositionEconomicsInputSchema,
-  PositionEconomicsTermsSchema,
-} from "../packages/domain/src/position-economics";
+import { PositionEconomicsTermsSchema } from "../packages/domain/src/position-economics";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import {
@@ -178,6 +171,18 @@ async function setup(
       acceptedTerms: null,
       reportedTerms: null,
     },
+    mappings: [
+      {
+        id: "mapping_demo_existing",
+        companyId: "company_demo_existing",
+        companyName: "Demo Earlier Company",
+        status: "active",
+        decisionSource: "review",
+      },
+    ],
+    companies: [
+      { id: "company_demo_existing", legalName: "Demo Earlier Company" },
+    ],
     companyChoices: [
       {
         documentId: doc.id,
@@ -207,6 +212,19 @@ async function setup(
     exact: true,
   });
   await expect(review.locator(".section-navigation")).toBeVisible();
+  const companyEdit = review.getByRole("button", {
+    name: "Edit company",
+    exact: true,
+  });
+  if (await companyEdit.isVisible()) await companyEdit.click();
+  if (!conflict) {
+    await review
+      .getByRole("combobox", { name: "Company evidence", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Demo Robotics Inc. · page 2", exact: true })
+      .click();
+  }
   const snapshotStyle = await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
@@ -219,6 +237,40 @@ async function setup(
     inventory,
   };
 }
+
+test("keeps first-company assignment in Holdings instead of offering a second legal form", async ({
+  page,
+}) => {
+  const { context, review } = await setup(page);
+  context.mappings = [];
+  await page.reload();
+  await expect(
+    review.getByRole("link", {
+      name: "Choose company in Holdings",
+      exact: true,
+    }),
+  ).toHaveAttribute("href", "/holdings?position=position_demo_growth_iv");
+  await expect(
+    review.getByRole("combobox", { name: "Company evidence", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    review.getByRole("tab", { name: "Investment", exact: true }),
+  ).toHaveCount(0);
+  context.positionKind = "fund_interest";
+  await page.reload();
+  await expect(
+    review.getByRole("button", {
+      name: "Participation & corporate events",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    review.getByRole("link", {
+      name: "Choose company in Holdings",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+});
 
 test("navigates both ways through pending reviews, including wrapping, reload and browser history", async ({
   page,
@@ -241,6 +293,7 @@ test("navigates both ways through pending reviews, including wrapping, reload an
     exact: true,
   });
   const title = row.getByRole("heading", { level: 1 });
+  await previous.scrollIntoViewIfNeeded();
   await expect(previous).toBeInViewport();
   await expect(next).toBeInViewport();
   expect((await navigation.boundingBox())!.y).toBeLessThan(
@@ -283,8 +336,9 @@ test("navigates both ways through pending reviews, including wrapping, reload an
   await expect(previous).toBeFocused();
   await previous.press("Enter");
   await expect(title).toHaveText("Demo A 1 LLC");
-  for (const section of ["Investment", "Documents", "Ownership", "Identity"])
+  for (const section of ["Documents", "Ownership", "Identity"])
     await selectReviewSection(page, section);
+  await previous.scrollIntoViewIfNeeded();
   await expect(previous).toBeVisible();
   await expect(next).toBeVisible();
   if (testInfo.project.name === "mobile-chromium") {
@@ -742,7 +796,7 @@ test("reviews company evidence and keeps ownership drafts across independent sav
   await expect(
     review.getByRole("button", { name: "Save ownership evidence" }),
   ).toBeDisabled();
-  await selectReviewSection(page, "Investment");
+  await selectReviewSection(page, "Record actions");
   await review.getByRole("combobox", { name: "Your participation" }).click();
   await page.getByRole("option", { name: "Pending", exact: true }).click();
   await review.getByRole("button", { name: "Save participation" }).click();
@@ -988,7 +1042,7 @@ test("uses responsive section navigation, keeps focus rings visible, and leaves 
   await expect(
     review.getByRole("combobox", { name: "Review sections" }),
   ).toBeHidden();
-  for (const label of ["Identity", "Investment", "Documents", "Ownership"]) {
+  for (const label of ["Identity", "Documents", "Ownership"]) {
     await expect(
       review.getByRole("tab", { name: label, exact: true }),
     ).toBeVisible();
@@ -1050,31 +1104,15 @@ test("uses responsive section navigation, keeps focus rings visible, and leaves 
     animations: "disabled",
     caret: "hide",
   });
-  await selectReviewSection(page, "Investment");
-  await review
-    .getByRole("button", { name: "Add fee & carry", exact: true })
-    .click();
-  for (const label of [
-    "Management fee rate",
-    "Fee term",
-    "Setup fee",
-    "Carry",
-  ]) {
-    await expect(review.getByLabel(label)).toHaveValue("");
-    await expect(
-      review.getByLabel(label).locator("xpath=ancestor::label"),
-    ).toHaveClass(/field--filled/u);
-  }
   await expect(
-    review.getByLabel("What changed").locator("xpath=ancestor::label"),
-  ).toHaveClass(/field--filled/u);
-  await expect(review.locator(".position-economics__form")).toHaveScreenshot(
-    "investment-fee-carry-fields.png",
-    { animations: "disabled", caret: "hide" },
-  );
+    review.getByRole("tab", { name: "Investment", exact: true }),
+  ).toHaveCount(0);
   await expect(
-    review.getByRole("button", { name: "Review terms", exact: true }),
-  ).toBeDisabled();
+    review.locator(".position-economics, .position-purchases"),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "View position in Holdings", exact: true }),
+  ).toHaveAttribute("href", "/holdings?position=position_demo_growth_iv");
   await selectReviewSection(page, "Identity");
   await expect(companyName).toHaveValue("Demo Focus Company");
   expect(writes).toHaveLength(0);
@@ -1274,7 +1312,7 @@ test("shows saving on the clicked button then disables unchanged submission with
     if (route.request().method() === "POST") await pending;
     await route.fallback();
   });
-  await selectReviewSection(page, "Investment");
+  await selectReviewSection(page, "Record actions");
   await review
     .getByRole("button", { name: "Save participation", exact: true })
     .click();
@@ -1292,7 +1330,9 @@ test("shows saving on the clicked button then disables unchanged submission with
     review.getByRole("button", { name: "Save participation", exact: true }),
   ).toBeDisabled();
   await expect.poll(() => writes.length).toBe(1);
-  await expect(review.locator(".section-navigation")).toContainText("Reviewed");
+  await expect(
+    review.locator(".investment-review__record-disclosure").first(),
+  ).toContainText("Current");
   await expect(
     page.getByText(/^(Review saved\.|Investment review saved\.)$/u),
   ).toHaveCount(0);
@@ -1301,159 +1341,6 @@ test("shows saving on the clicked button then disables unchanged submission with
   await expect(
     review.getByRole("button", { name: "Add ownership evidence", exact: true }),
   ).toBeVisible();
-});
-
-test("reviews fees already included in an imported amount and preserves the net investment across saves", async ({
-  page,
-}) => {
-  const { review, context } = await setup(page, false, 0, true);
-  const requests: unknown[] = [];
-  let reject = true;
-  await page.route(
-    "**/api/investment-positions/position_demo_growth_iv/economics",
-    async (route) => {
-      const input = AcceptPositionEconomicsInputSchema.parse(
-        route.request().postDataJSON(),
-      );
-      requests.push(input);
-      if (reject)
-        return route.fulfill({
-          status: 409,
-          json: {
-            error:
-              "The position changed. Review the latest terms and try again.",
-          },
-        });
-      const terms = PositionEconomicsTermsSchema.parse({
-        ...input,
-        id: `synthetic-terms-${requests.length}`,
-        positionId: context.positionId,
-        acceptedAgainstSnapshotId: context.snapshotId,
-        commitmentMinorAtAcceptance: context.committedMinor,
-        fundedMinorAtAcceptance: context.fundedMinor,
-        acceptedAt: "2026-09-01T12:00:00.000Z",
-      });
-      context.economics!.acceptedTerms = terms;
-      return route.fulfill({ status: 201, json: terms });
-    },
-  );
-  await selectReviewSection(page, "Investment");
-  await review
-    .getByRole("button", { name: "Add fee & carry", exact: true })
-    .click();
-  await review
-    .getByRole("combobox", { name: "Imported amount", exact: true })
-    .click();
-  await page
-    .getByRole("option", {
-      name: "Already net of fees · invested capital",
-      exact: true,
-    })
-    .click();
-  await review.getByLabel("Management fee rate", { exact: true }).fill("8");
-  await review.getByLabel("Fee term", { exact: true }).fill("1");
-  await review.getByLabel("Setup fee", { exact: true }).fill("1");
-  await review.getByLabel("Carry", { exact: true }).fill("15");
-  await review
-    .getByLabel("What changed", { exact: true })
-    .fill("Synthetic gross capital and fees confirmed.");
-  const gross = review.getByLabel("Gross commitment · USD", { exact: true });
-  await gross.fill("29000");
-  await expect(
-    review.getByText(
-      "Gross commitment less management and setup fees must equal the imported net amount of $27,300.00.",
-      { exact: true },
-    ),
-  ).toBeVisible();
-  await expect(
-    review.getByRole("button", { name: "Review terms", exact: true }),
-  ).toBeDisabled();
-  await gross.fill("30000");
-  await expect(review.locator(".position-economics")).toHaveScreenshot(
-    "investment-net-fees-form.png",
-    { animations: "disabled", caret: "hide" },
-  );
-  await review
-    .getByRole("button", { name: "Review terms", exact: true })
-    .click();
-  const preview = review.locator(".position-economics__review");
-  for (const amount of [
-    "$30,000.00",
-    "8.0% · $2,400.00",
-    "1.0% · $300.00",
-    "$27,300.00",
-    "15.0%",
-  ])
-    await expect(preview.getByText(amount, { exact: true })).toBeVisible();
-  await expect(review.locator(".position-economics")).toHaveScreenshot(
-    "investment-net-fees-review.png",
-    { animations: "disabled", caret: "hide" },
-  );
-  await review
-    .getByRole("button", { name: "Accept terms", exact: true })
-    .click();
-  await expect(
-    preview.getByText(
-      "The position changed. Review the latest terms and try again.",
-      { exact: true },
-    ),
-  ).toBeVisible();
-  await review.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(gross).toHaveValue("30000");
-  await expect(review.getByLabel("Setup fee", { exact: true })).toHaveValue(
-    "1",
-  );
-  reject = false;
-  await review
-    .getByRole("button", { name: "Review terms", exact: true })
-    .click();
-  await review
-    .getByRole("button", { name: "Accept terms", exact: true })
-    .click();
-  await expect(
-    review.getByRole("button", { name: "Update fee & carry", exact: true }),
-  ).toBeVisible();
-  expect(requests[1]).toMatchObject({
-    capitalBasis: "net_invested",
-    grossCommitmentMinor: 3_000_000,
-    setupFeePpm: 10_000,
-    annualAdminFeePpm: 80_000,
-    carryPpm: 150_000,
-  });
-  await page.reload();
-  await selectReviewSection(page, "Investment");
-  const values = review.locator(".position-economics__values");
-  await expect(values.getByText("$30,000.00", { exact: true })).toBeVisible();
-  await expect(values.getByText("$27,300.00", { exact: true })).toHaveCount(2);
-  await expect(
-    values.getByText("Management: $2,400.00. Setup: $300.00.", { exact: true }),
-  ).toBeVisible();
-  await expect(review.locator(".position-economics")).toHaveScreenshot(
-    "investment-net-fees-accepted.png",
-    { animations: "disabled", caret: "hide" },
-  );
-  await review
-    .getByRole("button", { name: "Update fee & carry", exact: true })
-    .click();
-  await expect(gross).toHaveValue("30000.00");
-  await expect(
-    review.getByRole("button", { name: "Review terms", exact: true }),
-  ).toBeDisabled();
-  await review.getByLabel("Carry", { exact: true }).fill("18");
-  await review
-    .getByRole("button", { name: "Review terms", exact: true })
-    .click();
-  await expect(preview.getByText("$27,300.00", { exact: true })).toBeVisible();
-  await review
-    .getByRole("button", { name: "Accept terms", exact: true })
-    .click();
-  await expect(values.getByText("18.0%", { exact: true })).toBeVisible();
-  await expect(values.getByText("$27,300.00", { exact: true })).toHaveCount(2);
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth > innerWidth,
-    ),
-  ).toBe(false);
 });
 
 test("shows reviewed facts before editing and keeps optional ownership out of completion", async ({
@@ -1546,13 +1433,13 @@ test("shows reviewed facts before editing and keeps optional ownership out of co
   await expect(row.locator(".entity-review__legal-name")).toHaveText(
     "Demo Growth IV LLC",
   );
-  await selectReviewSection(page, "Investment");
+  await selectReviewSection(page, "Record actions");
   await expect(
     review.getByRole("combobox", { name: "Your participation" }),
   ).toHaveCount(0);
-  await expect(review.locator(".position-economics__primary")).toContainText(
-    "$9,800.00",
-  );
+  await expect(
+    review.getByRole("heading", { name: "Source commitment", exact: true }),
+  ).toBeVisible();
   await expect(row).toHaveScreenshot("investment-reviewed-amounts.png", {
     animations: "disabled",
   });
@@ -1592,7 +1479,7 @@ test("shows reviewed facts before editing and keeps optional ownership out of co
   expect(writes).toHaveLength(0);
   if (isMobile) {
     await page.setViewportSize({ width: 320, height: 740 });
-    for (const label of ["Identity", "Investment", "Documents", "Ownership"]) {
+    for (const label of ["Identity", "Documents", "Ownership"]) {
       await selectReviewSection(page, label);
       expect(
         await page.evaluate(
@@ -1609,7 +1496,7 @@ test("saves historical closure details, keeps failed drafts, and moves only ende
   await page.clock.install({ time: new Date("2026-09-18T12:00:00.000Z") });
   const { context, inventory, source, review, rejectWrites, writes } =
     await setup(page);
-  await selectReviewSection(page, "Investment");
+  await selectReviewSection(page, "Record actions");
   await review
     .getByRole("combobox", { name: "Your participation", exact: true })
     .click();
@@ -1667,7 +1554,7 @@ test("saves historical closure details, keeps failed drafts, and moves only ende
     },
   });
   await page.reload();
-  await selectReviewSection(page, "Investment");
+  await selectReviewSection(page, "Record actions");
   await expect(
     review.getByText("Fully refunded after unwind.", { exact: true }),
   ).toBeVisible();
@@ -1734,7 +1621,7 @@ test("corrects investment amounts with review, reload, second save, rejection an
   page,
 }) => {
   const fixture = await setup(page);
-  await selectReviewSection(page, "Investment");
+  await selectReviewSection(page, "Record actions");
   const panel = page.getByRole("region", {
     name: "Investment review",
     exact: true,
@@ -1751,6 +1638,7 @@ test("corrects investment amounts with review, reload, second save, rejection an
   await panel
     .getByLabel("Reason for correction")
     .fill("Personal commitment from the synthetic agreement");
+  await page.mouse.move(0, 0);
   await expect(
     panel.locator('[aria-label="Investment amount correction"]'),
   ).toHaveScreenshot("investment-amount-correction-form.png");
@@ -1758,18 +1646,29 @@ test("corrects investment amounts with review, reload, second save, rejection an
     .getByRole("button", { name: "Review amount", exact: true })
     .click();
   expect(fixture.writes).toHaveLength(0);
+  await page.mouse.move(0, 0);
   await expect(
     panel.locator('[aria-label="Investment amount correction"]'),
   ).toHaveScreenshot("investment-amount-correction-review.png");
   await panel.getByRole("button", { name: "Save amount", exact: true }).click();
-  await expect(panel.locator(".position-economics__primary")).toContainText(
-    "6,400.00",
-  );
+  await expect(
+    panel.locator(".investment-review__section").filter({
+      has: page.getByRole("heading", {
+        name: "Source commitment",
+        exact: true,
+      }),
+    }),
+  ).toContainText("6,400.00");
   await page.reload();
-  await selectReviewSection(page, "Investment");
-  await expect(panel.locator(".position-economics__primary")).toContainText(
-    "6,400.00",
-  );
+  await selectReviewSection(page, "Record actions");
+  await expect(
+    panel.locator(".investment-review__section").filter({
+      has: page.getByRole("heading", {
+        name: "Source commitment",
+        exact: true,
+      }),
+    }),
+  ).toContainText("6,400.00");
   await open();
   await expect(
     panel.getByLabel("Correct investment amount", { exact: true }),
@@ -1795,12 +1694,22 @@ test("corrects investment amounts with review, reload, second save, rejection an
     .getByRole("button", { name: "Review amount", exact: true })
     .click();
   await panel.getByRole("button", { name: "Save amount", exact: true }).click();
-  await expect(panel.locator(".position-economics__primary")).toContainText(
-    "6,800.00",
-  );
-  await expect(panel.locator(".position-economics")).toHaveScreenshot(
-    "investment-amount-corrected.png",
-  );
+  await expect(
+    panel.locator(".investment-review__section").filter({
+      has: page.getByRole("heading", {
+        name: "Source commitment",
+        exact: true,
+      }),
+    }),
+  ).toContainText("6,800.00");
+  await expect(
+    panel.locator(".investment-review__section").filter({
+      has: page.getByRole("heading", {
+        name: "Source commitment",
+        exact: true,
+      }),
+    }),
+  ).toHaveScreenshot("investment-amount-corrected.png");
   await open();
   await panel
     .getByRole("button", { name: "Use source amount", exact: true })
@@ -1809,9 +1718,14 @@ test("corrects investment amounts with review, reload, second save, rejection an
     .getByRole("button", { name: "Review amount", exact: true })
     .click();
   await panel.getByRole("button", { name: "Save amount", exact: true }).click();
-  await expect(panel.locator(".position-economics__primary")).toContainText(
-    "10,000.00",
-  );
+  await expect(
+    panel.locator(".investment-review__section").filter({
+      has: page.getByRole("heading", {
+        name: "Source commitment",
+        exact: true,
+      }),
+    }),
+  ).toContainText("10,000.00");
   expect(fixture.context.review?.amountCorrection).toBeNull();
   expect(fixture.context.fundedMinor).toBe(1_000_000);
 });
@@ -1820,7 +1734,7 @@ test("records a continuing SPV conversion, retains rejected evidence and amends 
   page,
 }) => {
   const fixture = await setup(page);
-  await selectReviewSection(page, "Investment");
+  await selectReviewSection(page, "Record actions");
   const section = page.getByRole("region", {
     name: "Mergers and conversions",
     exact: true,
@@ -1873,6 +1787,7 @@ The SPV received 88 closing warrant shares.`);
     animations: "disabled",
   });
   await page.reload();
+  await selectReviewSection(page, "Record actions");
   await expect(
     section.getByRole("button", { name: "Update event", exact: true }),
   ).toBeVisible();
@@ -1898,145 +1813,4 @@ The SPV received 88 closing warrant shares.`);
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-});
-
-test("captures a GP purchase notice directly in investment review without a corporate event", async ({
-  page,
-}) => {
-  const fixture = await setup(page, false, 0, false, true);
-  let count = 0;
-  let reject = false;
-  await page.route(
-    "**/api/investment-positions/position_demo_growth_iv/purchases",
-    async (route) => {
-      const input = AcceptPurchasesSchema.parse(route.request().postDataJSON());
-      if (reject)
-        return route.fulfill({
-          status: 409,
-          json: { error: "The purchase changed. Reload and review again." },
-        });
-      count++;
-      fixture.context.purchaseContext!.receipt = PurchaseReceiptSchema.parse({
-        id: `synthetic-purchase-${count}`,
-        positionId: fixture.context.positionId,
-        snapshotId: input.expectedSnapshotId,
-        currency: "USD",
-        details: input.details,
-        acceptedAt: "2026-09-01T12:00:00.000Z",
-      });
-      return route.fulfill({
-        status: 201,
-        json: fixture.context.purchaseContext!.receipt,
-      });
-    },
-  );
-  await selectReviewSection(page, "Investment");
-  const section = page.getByRole("region", {
-    name: "Investment details",
-    exact: true,
-  });
-  await section
-    .getByRole("button", { name: "Paste GP notice", exact: true })
-    .click();
-  await section
-    .getByRole("textbox", { name: "Purchase notice", exact: true })
-    .fill(
-      `Type: Secondary - Preferred shares\nPrice: $24.13/share + 6% underlying fund fee\nFees: 0%/yr mgmt fee, 12% carry`,
-    );
-  await section
-    .getByRole("button", { name: "Prefill purchase details" })
-    .click();
-  await section
-    .getByRole("button", { name: /Underlying shares and source evidence/ })
-    .click();
-  await expect(
-    section.getByLabel("Purchase price / share · $", { exact: true }),
-  ).toHaveValue("24.13");
-  await expect(
-    section.getByLabel("Reported annual management fee · %", { exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    section.getByLabel("Reported carry · %", { exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    section.getByLabel("Annual management fee · %", { exact: true }),
-  ).toHaveValue("0");
-  await expect(
-    section.getByRole("button", { name: "Use notice carry rate" }),
-  ).toBeDisabled();
-  await expect(
-    section.getByLabel("Carry on gains · %", { exact: true }),
-  ).toHaveValue("12");
-  await section.getByLabel("Cash paid · $", { exact: true }).fill("1100");
-  await section
-    .getByLabel("Net capital invested · $", { exact: true })
-    .fill("1000");
-  await section
-    .getByRole("checkbox", {
-      name: "These purchases include all cash paid for this position.",
-    })
-    .check();
-  await expect(section).toContainText("100.00");
-  await page.mouse.move(0, 0);
-  await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
-  await expect(section).toHaveScreenshot("investment-unified-notice.png", {
-    animations: "disabled",
-  });
-  await section
-    .getByRole("button", { name: "Save investment details" })
-    .click();
-  await expect(
-    section.getByRole("button", { name: "Edit investment details" }),
-  ).toBeVisible();
-  expect(
-    fixture.context.purchaseContext!.receipt!.details.investmentTerms,
-  ).toMatchObject({ carryPpm: 120000, annualManagementFeePpm: 0 });
-  expect(
-    fixture.context.purchaseContext!.receipt!.details.lots[0],
-  ).toMatchObject({
-    grossCashMinor: 110000,
-    netCapitalMinor: 100000,
-    feePpm: 60000,
-    reportedCarryPpm: 120000,
-  });
-  await page.addStyleTag({
-    content:
-      ".purchase-details { scroll-margin-top: 0 !important; } html { text-size-adjust: 100%; -webkit-text-size-adjust: 100%; }",
-  });
-  await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
-  await expect(section).toHaveScreenshot("investment-unified-saved.png", {
-    animations: "disabled",
-  });
-  await page.reload();
-  await selectReviewSection(page, "Investment");
-  await section
-    .getByRole("button", { name: "Edit investment details" })
-    .click();
-  await expect(
-    section.getByRole("button", { name: "Save investment details" }),
-  ).toBeDisabled();
-  await section.getByLabel("Carry on gains · %", { exact: true }).fill("20");
-  reject = true;
-  await section
-    .getByRole("button", { name: "Save investment details" })
-    .click();
-  await expect(section).toContainText("The purchase changed.");
-  await expect(
-    section.getByLabel("Carry on gains · %", { exact: true }),
-  ).toHaveValue("20");
-  reject = false;
-  await section
-    .getByRole("button", { name: "Save investment details" })
-    .click();
-  expect(
-    fixture.context.purchaseContext!.receipt!.details.investmentTerms!.carryPpm,
-  ).toBe(200000);
-  expect(
-    fixture.context.purchaseContext!.receipt!.details.lots[0]!.reportedCarryPpm,
-  ).toBe(120000);
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth > innerWidth,
-    ),
-  ).toBe(false);
 });

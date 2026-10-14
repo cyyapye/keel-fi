@@ -14,6 +14,7 @@ import {
   automaticEconomics,
   automaticLegalName,
   issue,
+  legalReviewIssues,
   type AutomaticReviewIssue,
   type AutomaticReviewSection,
   type ResolveInvestmentReviewsResult,
@@ -44,6 +45,7 @@ type Row = {
   provider: string;
   position_kind: string;
   legal_vehicle_name: string;
+  exposure_label: string;
   owner_label: string;
   currency: string;
   opened_on: string | null;
@@ -87,6 +89,8 @@ type Mapping = {
   canonical_name: string;
   status: string;
   decision_source: string;
+  decision_reference: string;
+  allocation_ppm: number | null;
   version: number;
   effective_at: string;
   relationship_kind: string;
@@ -128,7 +132,7 @@ export function automaticReviewJsonBatches(
 
 // A bounded write-side projection. These queries never run on a GET path.
 const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_name, p.owner_label, p.currency, p.opened_on,
-  a.id application_id, r.import_id, s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status, s.observed_at,
+  a.id application_id, r.import_id, r.exposure_label, s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status, s.observed_at,
   provider_identity.provider_investment_id, observation.id observation_id,
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) <= 131072 THEN observation.evidence_json ELSE NULL END evidence_json,
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) > 131072 THEN 1 ELSE 0 END evidence_oversized,
@@ -278,7 +282,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
       ),
       this.db
         .prepare(
-          `SELECT m.id, m.position_id, m.exposure_id, m.status, m.decision_source, m.version, m.effective_at, m.relationship_kind, e.company_id, e.canonical_name FROM holding_position_exposure_mappings root INDEXED BY holding_position_exposure_mapping_roots_unique JOIN holding_position_exposure_mappings m ON m.id = (SELECT id FROM holding_position_exposure_mappings WHERE position_id = root.position_id AND exposure_id = root.exposure_id ORDER BY version DESC LIMIT 1) JOIN canonical_exposures e ON e.id = m.exposure_id WHERE root.household_id = ? AND root.position_id IN (SELECT value FROM json_each(?)) AND root.supersedes_mapping_id IS NULL ORDER BY m.position_id, m.id`,
+          `SELECT m.id, m.position_id, m.exposure_id, m.status, m.decision_source, m.decision_reference, m.allocation_ppm, m.version, m.effective_at, m.relationship_kind, e.company_id, e.canonical_name FROM holding_position_exposure_mappings root INDEXED BY holding_position_exposure_mapping_roots_unique JOIN holding_position_exposure_mappings m ON m.id = (SELECT id FROM holding_position_exposure_mappings WHERE position_id = root.position_id AND exposure_id = root.exposure_id ORDER BY version DESC LIMIT 1) JOIN canonical_exposures e ON e.id = m.exposure_id WHERE root.household_id = ? AND root.position_id IN (SELECT value FROM json_each(?)) AND root.supersedes_mapping_id IS NULL ORDER BY m.position_id, m.id`,
         )
         .bind(identity.household_id, ids)
         .all<Mapping>(),
@@ -430,8 +434,13 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         resolvedName,
       );
       const guard = {
-        // Re-evaluate old receipts once after fixing missed company conflicts.
-        evaluationVersion: 4,
+        // Recover accepted exact-company decisions without reopening optional fees.
+        evaluationVersion: 5,
+        reportedCompanyIds: (
+          companiesByName.get(companyNameKey(row.exposure_label)) ?? []
+        )
+          .map((company) => company.id)
+          .sort(),
         purchaseReceiptId: row.purchase_json
           ? PurchaseReceiptSchema.parse(JSON.parse(row.purchase_json)).id
           : null,
@@ -478,7 +487,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         const summary = AutomaticInvestmentReviewSchema.parse(
           JSON.parse(row.auto_summary_json),
         );
-        if (summary.issues.length === 0) result.resolvedCount++;
+        if (legalReviewIssues(summary).length === 0) result.resolvedCount++;
         else result.exceptionCount++;
         continue;
       }
@@ -608,6 +617,18 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
       const activeMappings = currentMappings.filter(
         (mapping) => mapping.status === "active",
       );
+      const exactMapping = activeMappings[0];
+      const reportedCompanies =
+        companiesByName.get(companyNameKey(row.exposure_label)) ?? [];
+      const recordedExactCompany =
+        activeMappings.length === 1 &&
+        exactMapping?.decision_source === "deterministic_policy" &&
+        exactMapping.decision_reference ===
+          "private-company-exact-reviewed-v1" &&
+        ["direct", "look_through"].includes(exactMapping.relationship_kind) &&
+        exactMapping.allocation_ppm === 1_000_000 &&
+        reportedCompanies.length === 1 &&
+        reportedCompanies[0]!.id === exactMapping.company_id;
       const companyEvidence = automaticCompanyChoices(supportedDocuments);
       const companyEvidenceRevision =
         await investmentCompanyEvidenceRevision(companyEvidence);
@@ -621,7 +642,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         ),
       );
       const manualCompanyConflict =
-        manualCompany &&
+        (manualCompany || recordedExactCompany) &&
         row.position_kind === "spv_interest" &&
         activeMappings.length > 0 &&
         guard.incoming.length === 0 &&
@@ -642,9 +663,19 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
             "An agreement names a different company from your saved mapping. Review the company link.",
           ),
         );
-      else if (manualCompany || row.position_kind === "fund_interest")
-        resolved.push("company");
       else if (
+        manualCompany ||
+        recordedExactCompany ||
+        row.position_kind === "fund_interest"
+      ) {
+        resolved.push("company");
+        if (recordedExactCompany)
+          details.company = {
+            mappingId: exactMapping.id,
+            decisionReference: exactMapping.decision_reference,
+            basis: "existing_exact_policy",
+          };
+      } else if (
         row.position_kind === "spv_interest" &&
         !identityConflict &&
         companyChoice !== null &&
@@ -978,7 +1009,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         issues,
       });
       result.changedCount++;
-      if (issues.length === 0) result.resolvedCount++;
+      if (legalReviewIssues(summary).length === 0) result.resolvedCount++;
       else result.exceptionCount++;
       add("automatic_investment_reviews", {
         id: policyId,

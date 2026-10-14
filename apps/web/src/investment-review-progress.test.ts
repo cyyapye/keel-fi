@@ -71,14 +71,28 @@ function document(
 describe("review progress and source-only suggestions", () => {
   it("does not turn source defaults or tab visits into completed reviews", () => {
     const sections = investmentReviewSections(context(), false);
-    expect(sections.every((section) => !section.complete)).toBe(true);
+    expect(sections.map((section) => section.value)).toEqual([
+      "identity",
+      "documents",
+      "ownership",
+    ]);
+    expect(sections[0]?.complete).toBe(false);
     expect(sections[0]?.status).toBe("Confirm name");
-    expect(sections[1]?.status).toBe("Confirm status");
-    expect(sections[3]).toMatchObject({ status: "Optional", next: null });
+    expect(sections[1]).toMatchObject({ complete: true, next: null });
+    expect(sections[2]).toMatchObject({ status: "Optional", next: null });
   });
   it("marks reviewed status complete without an ownership percentage or invented financial terms", () => {
     const value = context();
     review(value);
+    value.mappings = [
+      {
+        id: "demo-reviewed-mapping",
+        companyId: "demo-company",
+        companyName: "Demo Company",
+        status: "active",
+        decisionSource: "review",
+      },
+    ];
     value.economics = {
       snapshotId: "demo-snapshot",
       currency: "USD",
@@ -87,11 +101,12 @@ describe("review progress and source-only suggestions", () => {
       acceptedTerms: null,
       reportedTerms: null,
     };
-    expect(investmentReviewSections(value, true)[1]).toMatchObject({
+    expect(investmentReviewSections(value, true)[0]).toMatchObject({
       complete: true,
+      status: "Reviewed",
       next: null,
     });
-    expect(investmentReviewSections(value, true)[3]).toMatchObject({
+    expect(investmentReviewSections(value, true)[2]).toMatchObject({
       complete: false,
       next: null,
       status: "Optional",
@@ -99,6 +114,7 @@ describe("review progress and source-only suggestions", () => {
   });
   it("requires a reviewed company mapping, not a company label", () => {
     const value = context();
+    review(value);
     value.mappings = [
       {
         id: "demo-mapping",
@@ -149,7 +165,7 @@ describe("review progress and source-only suggestions", () => {
       document(),
       document("Demo Other LLC", "22222222-2222-4222-8222-222222222222"),
     ];
-    expect(investmentReviewSections(value, true)[2]?.status).toBe(
+    expect(investmentReviewSections(value, true)[1]?.status).toBe(
       "Assign agreements",
     );
     value.documents = [document()];
@@ -161,16 +177,16 @@ describe("review progress and source-only suggestions", () => {
         targetPositionId: null,
       },
     ];
-    expect(investmentReviewSections(value, true)[2]?.complete).toBe(false);
-    expect(investmentReviewSections(value, true)[2]?.status).toBe(
+    expect(investmentReviewSections(value, true)[1]?.complete).toBe(false);
+    expect(investmentReviewSections(value, true)[1]?.status).toBe(
       "Assign agreements",
     );
     value.review!.documentAssignments[0]!.relationship = "supports";
-    expect(investmentReviewSections(value, true)[2]?.complete).toBe(true);
+    expect(investmentReviewSections(value, true)[1]?.complete).toBe(true);
     value.documents.push(
       document("Demo Other LLC", "22222222-2222-4222-8222-222222222222"),
     );
-    expect(investmentReviewSections(value, true)[2]).toMatchObject({
+    expect(investmentReviewSections(value, true)[1]).toMatchObject({
       status: "Assign agreements",
       complete: false,
       next: "Assign agreements to their investments",
@@ -213,7 +229,7 @@ describe("review progress and source-only suggestions", () => {
     expect(selectedDocumentName(value, [documentId, secondId])).toBe("");
     value.documents[0]!.scan!.outcome = "blocked";
     expect(selectedDocumentName(value, [documentId])).toBe("");
-    expect(investmentReviewSections(value, true)[2]).toMatchObject({
+    expect(investmentReviewSections(value, true)[1]).toMatchObject({
       status: "Check needed",
       complete: false,
       next: "Check document access",

@@ -6756,6 +6756,17 @@ h1,
 .investment-review__sections {
   gap: 40px;
 }
+.investment-review__record-disclosure {
+  margin-top: 32px;
+}
+.investment-review__record-disclosure [data-slot="collapsible-content"] {
+  padding-top: 20px;
+}
+.investment-review__record-disclosure
+  .investment-review__section
+  + .investment-review__section {
+  margin-top: 24px;
+}
 .investment-review__section > button {
   display: flex;
   justify-content: space-between;
