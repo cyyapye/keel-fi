@@ -1,5 +1,17 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function waitForCompletedRead(page: Page, pathname: string) {
+  const request = await page.waitForRequest(
+    (candidate) =>
+      candidate.method() === "GET" &&
+      new URL(candidate.url()).pathname === pathname,
+  );
+  const response = await request.response();
+  if (response === null) throw new Error(`No response for ${pathname}.`);
+  expect(response.status()).toBe(200);
+  expect(await response.finished()).toBeNull();
+}
+
 async function expectNoHorizontalOverflow(page: Page) {
   expect(
     await page.evaluate(
@@ -29,7 +41,9 @@ test("offers recovery even when the entry script never starts", async ({
   });
 
   await page.unroute("**/src/main.tsx*");
+  const recoveredData = waitForCompletedRead(page, "/api/holdings-page");
   await reload.click();
+  await recoveredData;
   await expect(page).toHaveURL(new RegExp(`${path.replace("?", "\\?")}$`, "u"));
   await expect(
     page.getByRole("heading", { level: 1, name: "Holdings" }),
@@ -92,7 +106,9 @@ test("recovers from a failed main application without retrying on tab resume", a
 
   // A manual navigation reloads the module graph and retains the current route.
   await page.unroute("**/src/App.tsx*");
+  const recoveredData = waitForCompletedRead(page, "/api/holdings-page");
   await reload.click();
+  await recoveredData;
   await expect(page).toHaveURL(new RegExp(`${path.replace("?", "\\?")}$`, "u"));
   await expect(
     page.getByRole("heading", { level: 1, name: "Holdings" }),
@@ -156,6 +172,11 @@ test("keeps the screen and navigation when a delayed portfolio component fails",
     (response) =>
       new URL(response.url()).pathname === "/src/PortfolioSnapshot.tsx",
   );
+  // A downloaded module can still be waiting for its real data reads.
+  const recoveredData = Promise.all([
+    waitForCompletedRead(page, "/api/investment-holdings"),
+    waitForCompletedRead(page, "/api/portfolio-baseline"),
+  ]);
   const [recoveredModuleResponse] = await Promise.all([
     recoveredModule,
     recovery.getByRole("button", { name: "Reload Keel" }).click(),
@@ -163,6 +184,7 @@ test("keeps the screen and navigation when a delayed portfolio component fails",
   expect(recoveredModuleResponse.status()).toBeGreaterThanOrEqual(200);
   expect(recoveredModuleResponse.status()).toBeLessThan(400);
   expect(await recoveredModuleResponse.finished()).toBeNull();
+  await recoveredData;
   await expect(page.locator(".portfolio-snapshot__metrics")).toBeVisible();
   await expect(
     page.getByText("The portfolio summary couldn’t load."),
@@ -197,7 +219,9 @@ for (const failure of ["login HTML", "render exception"] as const) {
     ).toHaveCount(0);
     expect(uncaught).toEqual([]);
     await page.unroute("**/src/App.tsx*");
+    const recoveredData = waitForCompletedRead(page, "/api/alpha");
     await page.getByRole("button", { name: "Reload Keel" }).click();
+    await recoveredData;
     await expect(
       page.getByRole("region", { name: "Goal overview" }),
     ).toBeVisible();
