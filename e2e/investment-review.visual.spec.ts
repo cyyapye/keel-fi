@@ -1638,6 +1638,7 @@ test("corrects investment amounts with review, reload, second save, rejection an
   await panel
     .getByLabel("Reason for correction")
     .fill("Personal commitment from the synthetic agreement");
+  await page.mouse.move(0, 0);
   await expect(
     panel.locator('[aria-label="Investment amount correction"]'),
   ).toHaveScreenshot("investment-amount-correction-form.png");
@@ -1645,6 +1646,7 @@ test("corrects investment amounts with review, reload, second save, rejection an
     .getByRole("button", { name: "Review amount", exact: true })
     .click();
   expect(fixture.writes).toHaveLength(0);
+  await page.mouse.move(0, 0);
   await expect(
     panel.locator('[aria-label="Investment amount correction"]'),
   ).toHaveScreenshot("investment-amount-correction-review.png");
