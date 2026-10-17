@@ -607,6 +607,7 @@ async function openHistoricalRenameReview(page: Page) {
     return route.fulfill({ status: 201, json: receipt });
   });
   await page.goto("/holdings/entities");
+  await page.getByRole("button", { name: /^Needs your review/u }).click();
   await page
     .getByRole("link", { name: "Same investment / company renamed" })
     .last()

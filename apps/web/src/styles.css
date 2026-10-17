@@ -6564,20 +6564,45 @@ h1,
   color: var(--muted);
   font-size: 13px;
 }
-.entity-review__identity-details {
+.entity-review__profile {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: 28px;
   max-width: 640px;
+  overflow-wrap: anywhere;
 }
-.entity-review__identity .entity-review__legal-name {
+.entity-review__profile p {
   margin: 0;
-  font-size: 23px;
+}
+.entity-review__ownership-summary,
+.entity-review__profile-facts {
+  display: grid;
+  gap: 8px;
+}
+.entity-review__profile .entity-review__kind,
+.entity-review__profile .entity-review__historical,
+.entity-review__profile-facts p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.entity-review__profile .entity-review__ownership {
+  font-size: clamp(20px, 2vw, 24px);
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+}
+.entity-review__ownership strong {
   font-weight: 600;
 }
-.entity-review__provenance {
+.entity-review__profile .entity-review__notes {
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.entity-review__identity .entity-review__provenance {
   margin: 0;
   color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
 }
 .entity-review__identity > .keel-link {
   justify-self: start;
@@ -9904,4 +9929,70 @@ h1,
   display: flex;
   align-items: center;
   margin-bottom: 0;
+}
+
+/* Legal inventory: keep triage compact and let names carry the reading order. */
+.legal-entities__candidates > h2 {
+  margin: 0;
+}
+.legal-entities__candidates > h2 > [data-slot="collapsible-trigger"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 0;
+  border: 0;
+  border-block: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  text-align: left;
+}
+.legal-entity-row h3,
+.legal-entity-candidate h3 {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.legal-entity-row__heading p,
+.legal-entity-row footer p,
+.legal-entity-candidate__copy p {
+  font-size: 12px;
+}
+.legal-entity-row__heading .legal-entity-row__companies {
+  color: var(--ink);
+  font-size: 13px;
+}
+.legal-entity-row__facts {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+.legal-entity-row__facts .data-list__label {
+  font-size: 10px;
+}
+.legal-entity-row__facts .data-list__value {
+  font-size: 13px;
+}
+@media (min-width: 981px) {
+  .legal-entity-candidate {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 24px;
+  }
+}
+
+.legal-entity-row h3 .keel-link {
+  font: inherit;
+}
+
+.legal-entities__known > .section-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+.legal-entities__known > .section-heading > .button {
+  grid-column: 2;
+  grid-row: 1;
+  width: auto;
+  margin-top: 0;
 }
