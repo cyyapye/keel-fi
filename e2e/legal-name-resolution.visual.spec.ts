@@ -284,6 +284,7 @@ async function setup(
     });
   });
   await page.goto("/holdings/entities");
+  await page.getByRole("button", { name: /^Needs your review/u }).click();
   // Match the existing legal-entity screenshots: sticky navigation is not
   // part of a tall form's element capture. Functional tests keep its layout.
   await page.addStyleTag({
@@ -705,6 +706,7 @@ test("links a reviewed structure to an exact existing non-Other entity", async (
       .getByRole("button", { name: "Back to legal entities", exact: true })
       .click();
   await page.reload();
+  await page.getByRole("button", { name: /^Needs your review/u }).click();
   await row
     .getByRole("button", { name: "Review structure", exact: true })
     .click();
@@ -760,10 +762,7 @@ test("gates manual creation and editing on all profile fields without browser va
   await editor.getByLabel("EIN last four").fill("");
   await expect(add).toBeEnabled();
   await editor.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page
-    .locator(".legal-entity-row")
-    .getByRole("button", { name: "Review details", exact: true })
-    .click();
+  await page.locator(".legal-entity-row h3").getByRole("button").click();
   await page
     .getByRole("button", { name: "Edit legal entity", exact: true })
     .click();
@@ -831,6 +830,7 @@ for (const automatic of [true, false])
         .getByRole("button", { name: "Back to legal entities", exact: true })
         .click();
     await page.reload();
+    await page.getByRole("button", { name: /^Needs your review/u }).click();
     const rows = page.locator(
       ".legal-entity-candidate:visible, .entity-review",
     );

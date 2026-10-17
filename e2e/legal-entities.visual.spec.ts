@@ -3,6 +3,7 @@ import type * as CollectionSearch from "../apps/web/src/collection-search";
 import type {
   LegalEntityExportInput,
   LegalEntityInventory,
+  LegalEntityProfileInput,
   LegalEntityRecord,
   LegalEntitySourceSummary,
 } from "../packages/domain/src/legal-entities";
@@ -236,6 +237,83 @@ const initialInventory = {
   },
 } satisfies LegalEntityInventory;
 
+test("owner-only source groupings do not become legal identity tasks", async ({
+  page,
+}) => {
+  await routeInvestmentReview(page, positionSource);
+  const ownerOnly: LegalEntitySourceSummary = {
+    ...positionSource,
+    source: { kind: "ownership_container", id: "synthetic_owner" },
+    sourceDisplayName: "Demo Operator",
+    suggestedEntityType: null,
+    relationship: "ownership_entity",
+    legalEntityNameEvidence: {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+    },
+  };
+  const evidenceBacked: LegalEntitySourceSummary = {
+    ...positionSource,
+    source: { kind: "ownership_container", id: "synthetic_trust" },
+    sourceDisplayName: "Demo Trust",
+    relationship: "ownership_entity",
+  };
+  await page.route("**/api/legal-entities", (route) =>
+    route.fulfill({
+      json: {
+        ...initialInventory,
+        candidates: [ownerOnly, evidenceBacked],
+        entities: [
+          {
+            ...initialInventory.entities[0],
+            legalName: "Demo Venture SPV LLC",
+            jurisdiction: null,
+            ownershipInterestPpm: null,
+            sources: [positionSource],
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/legal-entity-export/options", (route) =>
+    route.fulfill({ json: { googleSheetsClientId: null } }),
+  );
+  await page.goto("/holdings/entities");
+  await page
+    .getByRole("button", { name: "Needs your review · 1", exact: true })
+    .click();
+  await expect(page.locator(".legal-entity-candidate")).toHaveCount(1);
+  await expect(page.locator(".legal-entity-candidate")).toContainText(
+    "Demo Trust",
+  );
+  await expect(page.locator(".legal-entity-candidate")).not.toContainText(
+    "Demo Operator",
+  );
+  await expect(
+    page.getByRole("checkbox", { name: "Show company names" }),
+  ).toHaveCount(0);
+  const entity = page.locator(".legal-entity-row");
+  await expect(entity.locator(".legal-entity-row__companies")).toHaveText(
+    "Demo Robotics",
+  );
+  await expect(entity).not.toContainText("Not recorded");
+  await expect(entity).not.toContainText("Jurisdiction");
+  await expect(entity).not.toContainText("Ownership interest");
+  await expect(
+    entity.getByRole("button", { name: "Demo Venture SPV LLC", exact: true }),
+  ).toBeVisible();
+  await entity
+    .getByRole("button", { name: "Demo Venture SPV LLC", exact: true })
+    .click();
+  await expect(
+    page.locator(".entity-review__identity .entity-review__kind"),
+  ).toContainText("Earlier entity entry");
+  await expect(page.locator(".entity-review__ownership")).toHaveText(
+    "Demo Operator",
+  );
+});
+
 async function expectNoHorizontalOverflow(page: Page) {
   const widths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -244,10 +322,253 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("keeps the initial review action and first source in the viewport", async ({
+test("reads the complete saved entity profile and refreshes it after edits", async ({
+  page,
+}) => {
+  let inventory: LegalEntityInventory = structuredClone(initialInventory);
+  let rejectSave = false;
+  const entityId = initialInventory.entities[0]!.id;
+  await routeHoldingsPage(page, {
+    householdName: "Demo Household",
+    holdings: [],
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.route("**/api/legal-entities", (route) =>
+    route.fulfill({ json: inventory }),
+  );
+  await page.route("**/api/legal-entity-export/options", (route) =>
+    route.fulfill({ json: { googleSheetsClientId: null } }),
+  );
+  await page.route(`**/api/legal-entities/${entityId}`, async (route) => {
+    if (rejectSave) {
+      await route.fulfill({
+        status: 503,
+        json: { error: "Synthetic save unavailable." },
+      });
+      return;
+    }
+    const { profile } = route.request().postDataJSON() as {
+      profile: LegalEntityProfileInput;
+    };
+    const current = inventory.entities[0]!;
+    const saved = {
+      ...current,
+      ...profile,
+      version: current.version + 1,
+      versionId: `synthetic_entity_version_${current.version + 1}`,
+    };
+    inventory = {
+      ...inventory,
+      entities: [saved, ...inventory.entities.slice(1)],
+    };
+    await route.fulfill({ json: saved });
+  });
+  await page.goto("/holdings/entities");
+  await page
+    .getByRole("button", { name: "Demo Family Holdings LLC", exact: true })
+    .click();
+  const details = page.locator(".entity-review__identity");
+  const ownership = details.locator(".entity-review__ownership");
+  const facts = details.locator(".entity-review__profile-facts");
+  const notes = details.locator(".entity-review__notes");
+  await expect(page.locator(".legal-entity-editor")).toHaveCount(0);
+  await expect(
+    page
+      .locator(".entity-review")
+      .getByText("Demo Family Holdings LLC", { exact: true }),
+  ).toHaveCount(1);
+  // The reading view must preserve facts without reproducing the form grid.
+  await expect(details.locator("dt")).toHaveCount(0);
+  await expect(details.locator(".entity-review__kind")).toHaveText(
+    "Ownership entity",
+  );
+  await expect(ownership).toHaveText("Demo Operator · 100%");
+  await expect(facts.locator("p")).toHaveText([
+    "Delaware, US · Mar 12, 2024",
+    "Partnership",
+    "EIN ending ••-•••4821",
+  ]);
+  await expect(
+    page.getByRole("heading", { name: "Entity details", exact: true }),
+  ).toHaveCount(0);
+  await expect(details).not.toContainText("Tax classification");
+  await expect(notes).toHaveText(
+    "Synthetic entity prepared for counsel review.",
+  );
+  const hierarchy = await details.evaluate((section) => {
+    const primary = section.querySelector(".entity-review__ownership")!;
+    const supporting = section.querySelector(".entity-review__profile-facts")!;
+    const summary = section.querySelector(".entity-review__ownership-summary")!;
+    const note = section.querySelector(".entity-review__notes")!;
+    return {
+      primarySize: parseFloat(getComputedStyle(primary).fontSize),
+      titleSize: parseFloat(
+        getComputedStyle(document.querySelector(".entity-review h1")!).fontSize,
+      ),
+      supportingSize: parseFloat(
+        getComputedStyle(supporting.querySelector("p")!).fontSize,
+      ),
+      factsGap:
+        supporting.getBoundingClientRect().top -
+        summary.getBoundingClientRect().bottom,
+      notesGap:
+        note.getBoundingClientRect().top -
+        supporting.getBoundingClientRect().bottom,
+    };
+  });
+  expect(hierarchy.titleSize).toBeGreaterThan(hierarchy.primarySize);
+  expect(hierarchy.primarySize).toBeGreaterThan(hierarchy.supportingSize);
+  expect(hierarchy.factsGap).toBeGreaterThanOrEqual(24);
+  expect(hierarchy.notesGap).toBeGreaterThanOrEqual(24);
+  await expectNoHorizontalOverflow(page);
+  await expect(page).toHaveScreenshot("legal-entity-saved-profile.png", {
+    fullPage: true,
+  });
+
+  const editor = page.locator(".legal-entity-editor");
+  const edit = async () => {
+    await page
+      .getByRole("button", { name: "Edit legal entity", exact: true })
+      .click();
+    await editor
+      .getByRole("button", { name: "Additional details (optional)" })
+      .click();
+  };
+  await edit();
+  await editor.getByLabel("Current titled owner").fill("Demo Trustee");
+  await editor.getByLabel("Ownership interest").fill("62.3456");
+  const savedNotes =
+    "Reviewed synthetic entity.\nCounsel reference: DEMO-2026.";
+  await editor
+    .getByRole("textbox", { name: "Notes", exact: true })
+    .fill(savedNotes);
+  await editor.getByRole("button", { name: "Save version" }).click();
+  await expect(ownership).toHaveText("Demo Trustee · 62.3456%");
+  await page.reload();
+  await expect(ownership).toHaveText("Demo Trustee · 62.3456%");
+  await expect(notes).toHaveText(savedNotes);
+  await expect(notes).toHaveCSS("white-space", "pre-wrap");
+  await edit();
+  await expect(
+    editor.getByRole("button", { name: "Save version" }),
+  ).toBeDisabled();
+  await editor
+    .getByRole("textbox", { name: "Notes", exact: true })
+    .fill("Second review.");
+  rejectSave = true;
+  await editor.getByRole("button", { name: "Save version" }).click();
+  await expect(editor.getByText("Synthetic save unavailable.")).toBeVisible();
+  await expect(
+    editor.getByRole("textbox", { name: "Notes", exact: true }),
+  ).toHaveValue("Second review.");
+  rejectSave = false;
+  await editor.getByRole("button", { name: "Save version" }).click();
+  await expect(notes).toHaveText("Second review.");
+  await page.reload();
+  await expect(notes).toHaveText("Second review.");
+  await expect(ownership).toHaveText("Demo Trustee · 62.3456%");
+});
+
+test("omits absent optional profile fields and preserves a recorded zero interest", async ({
+  page,
+}) => {
+  await page.route("**/api/legal-entities", (route) =>
+    route.fulfill({
+      json: {
+        ...initialInventory,
+        entities: [
+          {
+            ...initialInventory.entities[1],
+            ownershipInterestPpm: 0,
+            interestStatus: "unknown",
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/legal-entity-export/options", (route) =>
+    route.fulfill({ json: { googleSheetsClientId: null } }),
+  );
+  await page.goto(
+    "/holdings/entities?review=entity%3Alegal_entity_demo_studio&tab=identity",
+  );
+  const details = page.locator(".entity-review__identity");
+  await expect(details.locator(".entity-review__ownership")).toHaveText("0%");
+  await expect(
+    details.getByText("California, US", { exact: true }),
+  ).toBeVisible();
+  await expect(details.locator(".entity-review__kind")).toHaveText(
+    "Operating entity",
+  );
+  await expect(details.locator(".entity-review__notes")).toHaveCount(0);
+  await expect(details.locator(".entity-review__profile-facts p")).toHaveCount(
+    1,
+  );
+  await expect(details.locator("dt")).toHaveCount(0);
+  await expect(details).not.toContainText("owned by");
+  await expect(details).not.toContainText("Not recorded");
+  await expect(details).not.toContainText("Unknown");
+  await expectNoHorizontalOverflow(page);
+  await expect(page).toHaveScreenshot("legal-entity-sparse-profile.png", {
+    fullPage: true,
+  });
+});
+
+test("keeps historical ownership and an explicit structure clear with incomplete details", async ({
+  page,
+}) => {
+  const entity: LegalEntityRecord = {
+    ...initialInventory.entities[0]!,
+    legalName: "Demo Family Trust",
+    entityType: "trust",
+    currentOwner: "Demo International Family Trust Administration Company",
+    jurisdiction: null,
+    ownershipInterestPpm: null,
+    interestStatus: "historical",
+    taxClassification: null,
+    einLastFour: null,
+    notes: null,
+  };
+  await page.route("**/api/legal-entities", (route) =>
+    route.fulfill({
+      json: { ...initialInventory, entities: [entity] },
+    }),
+  );
+  await page.route("**/api/legal-entity-export/options", (route) =>
+    route.fulfill({ json: { googleSheetsClientId: null } }),
+  );
+  await page.goto(
+    `/holdings/entities?review=entity%3A${entity.id}&tab=identity`,
+  );
+  const details = page.locator(".entity-review__identity");
+  await expect(details.locator(".entity-review__kind")).toHaveText(
+    "Ownership entity · Trust",
+  );
+  await expect(details.locator(".entity-review__ownership")).toHaveText(
+    entity.currentOwner!,
+  );
+  await expect(details.getByText("Historical", { exact: true })).toBeVisible();
+  await expect(details.locator(".entity-review__profile-facts p")).toHaveText([
+    "Mar 12, 2024",
+  ]);
+  await expectNoHorizontalOverflow(page);
+  await expect(page).toHaveScreenshot("legal-entity-historical-profile.png", {
+    fullPage: true,
+  });
+  entity.currentOwner = null;
+  await page.reload();
+  await expect(details.locator(".entity-review__ownership")).toHaveCount(0);
+  await expect(details.getByText("Historical", { exact: true })).toBeVisible();
+  await expect(details).not.toContainText("0%");
+  await expect(details).not.toContainText("Held by");
+});
+
+test("starts with compact triage and a visible entity inventory", async ({
   page,
   isMobile,
-}, testInfo) => {
+}) => {
   if (isMobile) await page.setViewportSize({ width: 393, height: 680 });
   await page.clock.setFixedTime(new Date("2026-09-01T12:00:00.000Z"));
   await routeHoldingsPage(page, {
@@ -268,15 +589,19 @@ test("keeps the initial review action and first source in the viewport", async (
     name: "Add or link 3 sources",
     exact: true,
   });
-  await expect(batchAction).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("initial-viewport.png") });
-  await expect(batchAction).toBeInViewport({ ratio: 1 });
+  const triage = page.getByRole("button", { name: /^Needs your review/u });
+  await expect(triage).toHaveAttribute("aria-expanded", "false");
   await expect(
-    page.locator(".legal-entity-candidate h3").first(),
-  ).toBeInViewport({ ratio: 1 });
+    page.getByRole("heading", {
+      name: "Known legal entities · 2",
+      exact: true,
+    }),
+  ).toBeInViewport();
+  await expect(batchAction).toBeHidden();
   await expectNoHorizontalOverflow(page);
   await expect(page).toHaveScreenshot("legal-entities-initial.png");
-
+  await triage.click();
+  await expect(batchAction).toBeVisible();
   const details = page.getByRole("button", { name: "Batch details" });
   expect((await details.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   await expect(details).toHaveAttribute("aria-expanded", "false");
@@ -296,7 +621,7 @@ test("keeps the initial review action and first source in the viewport", async (
     await details.click();
     await page.setViewportSize({ width: 320, height: 680 });
     await page.evaluate(() => window.scrollTo(0, 0));
-    await expect(batchAction).toBeInViewport({ ratio: 1 });
+    await expect(triage).toBeInViewport({ ratio: 1 });
     await expectNoHorizontalOverflow(page);
   }
 });
@@ -464,16 +789,16 @@ test("searches the full legal inventory, reveals historical matches and refreshe
   ).toHaveCount(25);
   await search.fill("cafe horizon");
   await page
-    .locator(".legal-entities__known .legal-entity-row")
-    .getByRole("button", { name: "Review details", exact: true })
+    .locator(".legal-entities__known .legal-entity-row h3")
+    .getByRole("button")
     .click();
   await page
     .getByRole("button", { name: "Back to legal entities", exact: true })
     .click();
   await expect(search).toHaveValue("cafe horizon");
   await page
-    .locator(".legal-entities__known .legal-entity-row")
-    .getByRole("button", { name: "Review details", exact: true })
+    .locator(".legal-entities__known .legal-entity-row h3")
+    .getByRole("button")
     .click();
   await page
     .getByRole("button", { name: "Edit legal entity", exact: true })
@@ -765,6 +1090,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
       "2 reviewed LLCs · 3 source names to review · 2 missing legal names",
     ),
   ).toBeVisible();
+  await page.getByRole("button", { name: /^Needs your review/u }).click();
   await expect(
     page.getByRole("button", { name: "Add or link 3 sources" }),
   ).toBeVisible();
@@ -779,7 +1105,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     .locator(".legal-entity-candidate")
     .filter({ hasText: "Demo Climate" });
   await expect(unresolvedSydecar).toContainText(
-    "Open source options to see what is missing.",
+    "The source does not identify the exact legal vehicle. Add a supporting agreement or check the available evidence.",
   );
   await expect(
     unresolvedSydecar.getByRole("button", { name: "Review details" }),
@@ -788,7 +1114,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page
       .locator(".legal-entity-candidate")
       .filter({ hasText: "Demo Pharmacy" }),
-  ).toContainText("Open source options");
+  ).toContainText("View source options");
   await page
     .locator(".legal-entity-candidate")
     .filter({ hasText: "Demo Venture SPV LLC" })
@@ -901,6 +1227,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     },
   );
 
+  await page.getByRole("button", { name: /^Needs your review/u }).click();
   const candidate = page
     .locator(".legal-entity-candidate")
     .filter({ hasText: "Demo Venture SPV LLC" });

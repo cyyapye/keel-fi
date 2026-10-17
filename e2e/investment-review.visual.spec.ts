@@ -197,6 +197,7 @@ async function setup(
     ],
   });
   await page.goto("/holdings/entities");
+  await page.getByRole("button", { name: /^Needs your review/u }).click();
   expect(fixture.reads()).toBe(0);
   const row = page.locator(".legal-entity-candidate").filter({
     has: page.getByRole("heading", { name: /^Demo Growth IV(?: LLC)?$/u }),
@@ -212,6 +213,9 @@ async function setup(
     exact: true,
   });
   await expect(review.locator(".section-navigation")).toBeVisible();
+  await expect(
+    review.getByRole("heading", { name: "Underlying company", exact: true }),
+  ).toBeVisible();
   const companyEdit = review.getByRole("button", {
     name: "Edit company",
     exact: true,
@@ -1430,9 +1434,9 @@ test("shows reviewed facts before editing and keeps optional ownership out of co
     .locator(".legal-entity-editor")
     .getByRole("button", { name: "Cancel", exact: true })
     .click();
-  await expect(row.locator(".entity-review__legal-name")).toHaveText(
-    "Demo Growth IV LLC",
-  );
+  await expect(
+    row.getByText("Demo Growth IV LLC", { exact: true }),
+  ).toBeVisible();
   await selectReviewSection(page, "Record actions");
   await expect(
     review.getByRole("combobox", { name: "Your participation" }),

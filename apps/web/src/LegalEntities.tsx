@@ -937,6 +937,14 @@ function EntityRow({
       ),
     ),
   ];
+  const companyNames = [
+    ...new Set(
+      positions.map(
+        (source) =>
+          source.companyReview?.companyName ?? source.sourceDisplayName,
+      ),
+    ),
+  ].filter((name) => name !== entity.legalName);
   const statuses = [
     ...new Set(positions.map((source) => sourceParticipationStatus(source))),
   ];
@@ -959,10 +967,21 @@ function EntityRow({
       <div className="legal-entity-row__heading">
         <div>
           <h3>
-            <SearchHighlight query={searchQuery}>
-              {entity.legalName}
-            </SearchHighlight>
+            <TextLink onClick={onOpen}>
+              <span>
+                <SearchHighlight query={searchQuery}>
+                  {entity.legalName}
+                </SearchHighlight>
+              </span>
+            </TextLink>
           </h3>
+          {companyNames.length > 0 && (
+            <p className="legal-entity-row__companies">
+              <SearchHighlight query={searchQuery}>
+                {companyNames.join(" · ")}
+              </SearchHighlight>
+            </p>
+          )}
           <p>
             {entityTypeLabels[entity.entityType]} ·{" "}
             {relationshipLabels[entity.relationship]}
@@ -993,24 +1012,28 @@ function EntityRow({
             </SearchHighlight>
           }
         />
-        <DataItem
-          label="Jurisdiction"
-          value={
-            <SearchHighlight query={searchQuery}>
-              {entity.jurisdiction ?? "Not recorded"}
-            </SearchHighlight>
-          }
-        />
-        <DataItem
-          label="Ownership interest"
-          value={
-            ownership.length > 0
-              ? ownership.join("; ")
-              : entity.ownershipInterestPpm === null
-                ? "Not recorded"
-                : `${formatOwnershipInterestPpm(entity.ownershipInterestPpm)}${positions.length === 0 ? "" : " · earlier entity-level entry"}`
-          }
-        />
+        {entity.jurisdiction !== null && (
+          <DataItem
+            label="Jurisdiction"
+            value={
+              <SearchHighlight query={searchQuery}>
+                {entity.jurisdiction}
+              </SearchHighlight>
+            }
+          />
+        )}
+        {(ownership.length > 0 || entity.ownershipInterestPpm !== null) && (
+          <DataItem
+            label="Ownership interest"
+            value={
+              ownership.length > 0
+                ? ownership.join("; ")
+                : entity.ownershipInterestPpm === null
+                  ? "Not recorded"
+                  : `${formatOwnershipInterestPpm(entity.ownershipInterestPpm)}${positions.length === 0 ? "" : " · earlier entity-level entry"}`
+            }
+          />
+        )}
       </DataList>
       {positions.length > 0 &&
         entity.ownershipInterestPpm !== null &&
@@ -1083,7 +1106,6 @@ function EntityRow({
               );
             })}
         </div>
-        <TextLink onClick={onOpen}>Review details</TextLink>
       </footer>
     </article>
   );
@@ -1166,7 +1188,7 @@ function CandidateRow({
                   ? "Read the agreement and enter its exact legal name."
                   : kind === "found"
                     ? `Legal name reported in ${candidate.legalEntityNameEvidence.sourceField}.`
-                    : "Open source options to see what is missing."}
+                    : "The source does not identify the exact legal vehicle. Add a supporting agreement or check the available evidence."}
         </p>
       </div>
       {candidate.source.kind === "holding_position" &&
@@ -1184,6 +1206,82 @@ function CandidateRow({
         reviewButton
       )}
     </article>
+  );
+}
+
+function SavedEntityProfile({ entity }: { entity: LegalEntityRecord }) {
+  const earlierOwnership =
+    entity.sources.some(
+      (source) => source.source.kind === "holding_position",
+    ) &&
+    (entity.currentOwner !== null || entity.ownershipInterestPpm !== null);
+  const kind = [
+    relationshipLabels[entity.relationship],
+    ...(exactLegalEntityTypeFromName(entity.legalName) === entity.entityType
+      ? []
+      : [entityTypeLabels[entity.entityType]]),
+  ].join(" · ");
+  return (
+    <div className="entity-review__profile">
+      <div className="entity-review__ownership-summary">
+        <p className="entity-review__kind">
+          {kind}
+          {earlierOwnership && " · Earlier entity entry"}
+        </p>
+        {(entity.currentOwner !== null ||
+          entity.ownershipInterestPpm !== null) && (
+          <p className="entity-review__ownership">
+            {entity.currentOwner !== null && (
+              <strong>{entity.currentOwner}</strong>
+            )}
+            {entity.currentOwner !== null &&
+              entity.ownershipInterestPpm !== null &&
+              " · "}
+            {entity.ownershipInterestPpm !== null && (
+              <strong>
+                {formatOwnershipInterestPpm(entity.ownershipInterestPpm)}
+              </strong>
+            )}
+          </p>
+        )}
+        {entity.interestStatus === "historical" && (
+          <p className="entity-review__historical">Historical</p>
+        )}
+      </div>
+      {(entity.formedOn !== null ||
+        entity.jurisdiction !== null ||
+        entity.taxClassification !== null ||
+        entity.einLastFour !== null) && (
+        <div className="entity-review__profile-facts">
+          {(entity.formedOn !== null || entity.jurisdiction !== null) && (
+            <p>
+              {entity.jurisdiction}
+              {entity.jurisdiction !== null &&
+                entity.formedOn !== null &&
+                " · "}
+              {entity.formedOn !== null && (
+                <time dateTime={entity.formedOn} title="Formation date">
+                  {formatDate(entity.formedOn)}
+                </time>
+              )}
+            </p>
+          )}
+          {entity.taxClassification !== null && (
+            <p>{entity.taxClassification}</p>
+          )}
+          {entity.einLastFour !== null && (
+            <p>
+              <span className="visually-hidden">EIN ending </span>
+              <span aria-hidden="true">••-•••</span>
+              {entity.einLastFour}
+            </p>
+          )}
+        </div>
+      )}
+      {entity.notes !== null && (
+        <p className="entity-review__notes">{entity.notes}</p>
+      )}
+    </div>
   );
 }
 
@@ -1376,28 +1474,20 @@ function EntityReviewWorkspace({
         )}
       {entity !== undefined && !editingEntity && (
         <section className="investment-review__section entity-review__identity">
-          <SectionHeader
-            title="Legal vehicle"
-            headingAs="h3"
-            action={
-              <Button tone="secondary" onClick={() => setEditingEntity(true)}>
-                Edit legal entity
-              </Button>
-            }
-          />
-          <p className="entity-review__legal-name">{entity.legalName}</p>
-          <DataList className="entity-review__identity-details">
-            <DataItem
-              label="Entity type"
-              value={entityTypeLabels[entity.entityType]}
+          {source !== undefined && (
+            <SectionHeader
+              title="Legal vehicle"
+              headingAs="h3"
+              action={
+                <Button tone="secondary" onClick={() => setEditingEntity(true)}>
+                  Edit legal entity
+                </Button>
+              }
             />
-            <DataItem
-              label="Relationship"
-              value={relationshipLabels[entity.relationship]}
-            />
-          </DataList>
+          )}
+          <SavedEntityProfile entity={entity} />
           <p className="entity-review__provenance">
-            Reviewed record · {formatDate(entity.recordedAt)}
+            Reviewed {formatDate(entity.recordedAt)}
           </p>
           {source?.legalEntityNameEvidence.documents?.some(
             (document) => document.page !== null,
@@ -1536,17 +1626,25 @@ function EntityReviewWorkspace({
         )}
       </div>
       <PageHeader
-        eyebrow="Legal record"
+        eyebrow={source === undefined ? undefined : "Legal record"}
+        actions={
+          source === undefined && entity !== undefined && !editingEntity ? (
+            <Button tone="secondary" onClick={() => setEditingEntity(true)}>
+              Edit legal entity
+            </Button>
+          ) : undefined
+        }
         title={
           source?.sourceDisplayName ??
           entity?.legalName ??
           (target.kind === "new" ? "New legal entity" : "Review unavailable")
         }
         description={
-          entity?.legalName ??
-          (source
-            ? "Legal vehicle not yet confirmed"
-            : "Your legal entity inventory")
+          source
+            ? (entity?.legalName ?? "Legal vehicle not yet confirmed")
+            : entity === undefined
+              ? "Your legal entity inventory"
+              : undefined
         }
       />
       {source && (
@@ -2315,7 +2413,18 @@ function LegalEntitiesInventory({
             ) ?? []),
           ].map((source) => [candidateKey(source), source]),
         ).values(),
-      ].sort(compareLegalEntityAttention),
+      ]
+        // A provider owner grouping with no legal-name evidence is not an
+        // investment identity exception. Keep the source in the inventory and
+        // export, without asking the owner to review themselves as a vehicle.
+        .filter(
+          (source) =>
+            source.source.kind !== "ownership_container" ||
+            source.legalEntityNameEvidence.state !== "unavailable" ||
+            (source.legalEntityNameEvidence.documents?.length ?? 0) > 0 ||
+            legalReviewIssues(source.automaticReview).length > 0,
+        )
+        .sort(compareLegalEntityAttention),
     [inventory],
   );
   const historicalEntities = useMemo(
@@ -2466,7 +2575,7 @@ function LegalEntitiesInventory({
         <div className="legal-entities__intro">
           <ExportWorkspace inventory={inventory} />
           <TextLink href="/holdings/entities?companies=1">
-            Company names
+            Manage company names
           </TextLink>
           <SearchField
             className="legal-entities__search"
@@ -2513,44 +2622,52 @@ function LegalEntitiesInventory({
           {loadError !== null && <Notice tone="error">{loadError}</Notice>}
         </div>
         {visibleCandidates.length > 0 && (
-          <section
-            aria-labelledby="legal-entity-candidates-title"
+          <Collapsible
             className="legal-entities__candidates"
+            key={`candidates:${searchQuery}`}
+            defaultOpen={searchMatches !== null}
           >
-            <SectionHeader
-              headingProps={{ id: "legal-entity-candidates-title" }}
-              title={`Needs your review · ${visibleCandidates.length}`}
-            />
-            {searchMatches === null && inventory.exactBatch.sourceCount > 0 && (
-              <ExactBatchReview
-                batch={inventory.exactBatch}
-                error={batchError}
-                onApply={() => applyExactBatch(inventory.exactBatch.revision)}
-                working={batchWorking}
-              />
-            )}
-            <div className="legal-entities__candidate-list">
-              <ProgressiveRows
-                items={visibleCandidates}
-                key={searchQuery}
-                label="sources"
-                render={(candidate) => (
-                  <CandidateRow
-                    candidate={candidate}
-                    key={candidateKey(candidate)}
-                    canLinkInvestment={
-                      candidate.legalEntityNameEvidence.legalName !== null &&
-                      duplicateLegalNames.has(
-                        candidate.legalEntityNameEvidence.legalName,
-                      )
+            <h2 id="legal-entity-candidates-title">
+              <CollapsibleTrigger>
+                <span>Needs your review · {visibleCandidates.length}</span>
+                <DisclosureIndicator />
+              </CollapsibleTrigger>
+            </h2>
+            <CollapsibleContent>
+              {searchMatches === null &&
+                inventory.exactBatch.sourceCount > 0 && (
+                  <ExactBatchReview
+                    batch={inventory.exactBatch}
+                    error={batchError}
+                    onApply={() =>
+                      applyExactBatch(inventory.exactBatch.revision)
                     }
-                    onOpen={() => openSource(candidate)}
-                    searchQuery={searchQuery}
+                    working={batchWorking}
                   />
                 )}
-              />
-            </div>
-          </section>
+              <div className="legal-entities__candidate-list">
+                <ProgressiveRows
+                  items={visibleCandidates}
+                  key={searchQuery}
+                  label="sources"
+                  render={(candidate) => (
+                    <CandidateRow
+                      candidate={candidate}
+                      key={candidateKey(candidate)}
+                      canLinkInvestment={
+                        candidate.legalEntityNameEvidence.legalName !== null &&
+                        duplicateLegalNames.has(
+                          candidate.legalEntityNameEvidence.legalName,
+                        )
+                      }
+                      onOpen={() => openSource(candidate)}
+                      searchQuery={searchQuery}
+                    />
+                  )}
+                />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         )}
         <section
           aria-labelledby="known-legal-entities-title"
@@ -2558,13 +2675,15 @@ function LegalEntitiesInventory({
         >
           <SectionHeader
             action={
-              <Button onClick={() => navigate({ kind: "new", id: "manual" })}>
+              <Button
+                tone="quiet"
+                onClick={() => navigate({ kind: "new", id: "manual" })}
+              >
                 Add entity
               </Button>
             }
-            description="Matching source updates are accepted automatically. Records remain editable."
             headingProps={{ id: "known-legal-entities-title" }}
-            title="Known legal entities"
+            title={`Known legal entities · ${activeEntities.length}`}
           />
           {activeEntities.length === 0 ? (
             <EmptyState

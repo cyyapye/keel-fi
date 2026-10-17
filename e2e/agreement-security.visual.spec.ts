@@ -188,6 +188,7 @@ async function setup(page: Page, candidates: LegalEntitySourceSummary[]) {
   await page.goto("/holdings");
   await page.getByRole("link", { name: "Legal entities", exact: true }).click();
   await expect(page).toHaveURL(/\/holdings\/entities$/u);
+  await page.getByRole("button", { name: /^Needs your review/u }).click();
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
@@ -199,6 +200,9 @@ async function setup(page: Page, candidates: LegalEntitySourceSummary[]) {
       await workspace
         .getByRole("button", { name: "Back to legal entities", exact: true })
         .click();
+    const triage = page.getByRole("button", { name: /^Needs your review/u });
+    if ((await triage.getAttribute("aria-expanded")) === "false")
+      await triage.click();
     await rows
       .filter({ has: page.getByRole("heading", { name, exact: true }) })
       .getByRole("button", { name: "View source options", exact: true })
