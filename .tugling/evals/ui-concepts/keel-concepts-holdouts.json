@@ -1,0 +1,24 @@
+{
+  "id": "keel-concepts-holdouts",
+  "skill": "delivery-plan",
+  "project_type": "react-ui",
+  "sandbox": "read-only",
+  "minimum_score": 1.0,
+  "expected_state": "ADVISORY",
+  "max_changed_files": 0,
+  "prompt": "Read the applicable local guidance. In artifacts_inspected, include a separate receipt for each of .codex/skills/keel-ui-quality/SKILL.md and docs/product/ui-and-copy.md, using exactly: SHA256 <repository-relative-path> <computed-hex-digest>. Compute these from the files you inspected; do not guess if local reads fail. This checkout contains an intentionally bounded instruction bundle, not an application. Some linked files are absent; record that limitation and use the supplied evidence. Do not retrieve any worked example or previous evaluation. Give your first concrete deliverable and next steps in the summary field (up to 900 words), with enough specifics to judge the proposed behavior. This exercise is advisory only; no files should change. Propose a clear position-detail experience for these two synthetic scenarios. Use existing components. The present screen has purchase, valuation, and fee panels. I want to understand my position and handle anything due. A proposal is required before application changes. Specify the visible groups, facts, actions and supported calculations for each scenario.\nMaple: Purchase A has cash paid 600000, deduction total 20000 made of a setup payment 10000 (charge S1) and prepaid management payment 10000 (charge M1), net capital 580000. Purchase B has cash paid 400000, setup payment 10000 (charge S2), net capital 390000. S1 and S2 are independently evidenced charges even though their amounts are equal. An export repeats M1 on B as a reference to A's existing payment, not a second charge. The management payment covers the whole position through September 2026. A separate accepted obligation F1 for management of 10000 is due October 31, 2026, unpaid, and has a Review payment action that opens the existing obligation workflow. It is not included in the historical purchase deductions. A reviewed current mark of 1200000 is explicitly after carried interest. The carry rate is 200000 ppm. Do not invent tax or other expense coverage. No refunds or distributions exist, and remaining ownership is evidenced.\nBirch: cash paid 750000 and original purchase price 15000 per share are recorded. A notice states management 2%, one-time fee 9%, and carry 15%, without bases, timing, paid amounts or prepayment coverage. An imported company price of 45000 per share has a source link and capture timestamp but no valuation date. There is no current remaining-share evidence or record of intervening sales. I want fewer clicks and to avoid entering known data again.",
+  "decision_questions": [
+    {
+      "id": "authority",
+      "question": "What work is authorized next?",
+      "options": ["application_implementation", "proposal_preparation"],
+      "expected": "proposal_preparation",
+      "critical": true
+    }
+  ],
+  "post_run_commands": [["git", "diff", "--exit-code", "HEAD"]],
+  "required_command_groups": [
+    [".codex/skills/keel-ui-quality/SKILL.md"],
+    ["docs/product/ui-and-copy.md"]
+  ]
+}
