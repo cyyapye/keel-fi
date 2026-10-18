@@ -9,6 +9,7 @@ import {
   LegalNameResolutionSchema,
   exactLegalEntityTypeFromName,
   legalEntityReviewKind,
+  needsLegalEntityReview,
   compareLegalEntityAttention,
   type LegalEntitySourceSummary,
   formatOwnershipInterestPpm,
@@ -16,6 +17,144 @@ import {
 } from "./legal-entities";
 
 describe("legal entity contracts", () => {
+  it("keeps company-only holdings out of legal triage without hiding evidence or exceptions", () => {
+    const unavailable = {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+    } as const;
+    const labelOnly: LegalEntitySourceSummary = {
+      source: { kind: "holding_position", id: "synthetic_label" },
+      sourceDisplayName: "Synthetic Orchard",
+      sourceLabel: "Synthetic provider",
+      sourceAsOf: "2026-09-01",
+      suggestedEntityType: null,
+      relationship: "investment_vehicle",
+      currentOwner: null,
+      currentDecisionId: null,
+      interestStatus: "current",
+      openedOn: null,
+      financials: null,
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
+      },
+      automaticReview: {
+        id: "11111111-1111-4111-8111-111111111111",
+        policyVersion: "investment-review-auto-v1",
+        snapshotId: "synthetic_snapshot",
+        evaluatedAt: "2026-09-01T12:00:00.000Z",
+        resolved: [],
+        issues: [
+          { section: "identity", code: "missing", message: "No vehicle name." },
+          {
+            section: "company",
+            code: "missing",
+            message: "No company citation.",
+          },
+          {
+            section: "economics",
+            code: "missing",
+            message: "No fee evidence.",
+          },
+        ],
+      },
+    };
+    const original = structuredClone(labelOnly);
+    for (const kind of ["holding_position", "ownership_container"] as const) {
+      for (const problem of [undefined, "not_checked", "missing"] as const) {
+        expect(
+          needsLegalEntityReview({
+            ...labelOnly,
+            source: { ...labelOnly.source, kind },
+            legalEntityNameEvidence: {
+              ...unavailable,
+              problem,
+              documents: [],
+            },
+          }),
+        ).toBe(false);
+      }
+    }
+    expect(
+      needsLegalEntityReview({ ...labelOnly, automaticReview: null }),
+    ).toBe(false);
+    expect(
+      needsLegalEntityReview({
+        ...labelOnly,
+        currentDecisionId: "existing_legal_decision",
+      }),
+    ).toBe(true);
+    expect(
+      needsLegalEntityReview({
+        ...labelOnly,
+        legalEntityNameEvidence: {
+          state: "provider_reported",
+          legalName: "Synthetic Orchard SPV LLC",
+          sourceField: "Fund Name",
+        },
+      }),
+    ).toBe(true);
+    for (const problem of [
+      "inaccessible",
+      "unreadable",
+      "name_not_found",
+      "conflicting",
+      "limit_reached",
+      "extractor_unavailable",
+      "page_changed",
+      "other_structure",
+      "security_blocked",
+      "scanner_unavailable",
+    ] as const) {
+      expect(
+        needsLegalEntityReview({
+          ...labelOnly,
+          legalEntityNameEvidence: {
+            ...unavailable,
+            problem,
+          },
+        }),
+      ).toBe(true);
+    }
+    // An unscanned agreement must stay discoverable without becoming trusted.
+    expect(
+      needsLegalEntityReview({
+        ...labelOnly,
+        legalEntityNameEvidence: {
+          ...unavailable,
+          documents: [
+            {
+              id: "22222222-2222-4222-8222-222222222222",
+              fileName: "synthetic-agreement.pdf",
+              sha256: "a".repeat(64),
+              page: null,
+              quote: null,
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+    for (const exception of [
+      { section: "identity", code: "ambiguous_identity" },
+      { section: "company", code: "conflicting" },
+      { section: "participation", code: "missing" },
+      { section: "documents", code: "document_check" },
+    ] as const) {
+      expect(
+        needsLegalEntityReview({
+          ...labelOnly,
+          automaticReview: {
+            ...labelOnly.automaticReview!,
+            issues: [{ ...exception, message: "Synthetic exception." }],
+          },
+        }),
+      ).toBe(true);
+    }
+    expect(labelOnly).toEqual(original);
+  });
+
   it("prioritizes actionable document review, conflicts, found names, then waiting sources", () => {
     const base: LegalEntitySourceSummary = {
       source: { kind: "holding_position", id: "synthetic" },

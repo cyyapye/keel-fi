@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { AutomaticInvestmentReviewSchema } from "./automatic-investment-review";
+import {
+  AutomaticInvestmentReviewSchema,
+  legalReviewIssues,
+} from "./automatic-investment-review";
 import {
   isEndedParticipation,
   InvestmentCompanyReceiptSchema,
@@ -656,6 +659,32 @@ export type LegalEntityExportField = z.infer<
 export type LegalEntityExportInput = z.infer<
   typeof LegalEntityExportInputSchema
 >;
+
+/** Queue eligibility is not a decision to accept or exclude a source. */
+export function needsLegalEntityReview(source: LegalEntitySourceSummary) {
+  const evidence = source.legalEntityNameEvidence;
+  if (
+    source.currentDecisionId !== null ||
+    evidence.state !== "unavailable" ||
+    (evidence.documents?.length ?? 0) > 0
+  )
+    return true;
+  if (
+    evidence.problem !== undefined &&
+    evidence.problem !== "not_checked" &&
+    evidence.problem !== "missing"
+  )
+    return true;
+
+  // An exposure label or provider owner grouping is not evidence of a vehicle.
+  // Missing names/mappings alone cannot create a legal task. Retain conflicts,
+  // document failures and participation exceptions even without a named vehicle.
+  return legalReviewIssues(source.automaticReview).some(
+    (item) =>
+      item.code !== "missing" ||
+      (item.section !== "identity" && item.section !== "company"),
+  );
+}
 
 export function legalEntityReviewKind(source: LegalEntitySourceSummary) {
   const evidence = source.legalEntityNameEvidence;

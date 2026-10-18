@@ -12,6 +12,7 @@ import {
   formatOwnershipInterestPpm,
   exactLegalEntityTypeFromName,
   legalEntityReviewKind,
+  needsLegalEntityReview,
   compareLegalEntityAttention,
   ownershipPercentTextToPpm,
   type LegalEntityExportField,
@@ -2414,16 +2415,7 @@ function LegalEntitiesInventory({
           ].map((source) => [candidateKey(source), source]),
         ).values(),
       ]
-        // A provider owner grouping with no legal-name evidence is not an
-        // investment identity exception. Keep the source in the inventory and
-        // export, without asking the owner to review themselves as a vehicle.
-        .filter(
-          (source) =>
-            source.source.kind !== "ownership_container" ||
-            source.legalEntityNameEvidence.state !== "unavailable" ||
-            (source.legalEntityNameEvidence.documents?.length ?? 0) > 0 ||
-            legalReviewIssues(source.automaticReview).length > 0,
-        )
+        .filter(needsLegalEntityReview)
         .sort(compareLegalEntityAttention),
     [inventory],
   );
